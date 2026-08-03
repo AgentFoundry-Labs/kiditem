@@ -25,6 +25,10 @@ const mockCancelOperation = vi.hoisted(() => vi.fn(async () => ({
   },
   warnings: [],
 })));
+const mockCancelOperationRun = vi.hoisted(() => vi.fn(async () => ({
+  id: BROWSER_RUN_ID,
+  status: 'cancelled',
+})));
 const mockToastError = vi.hoisted(() => vi.fn());
 const mockSendBrowserCollectionControl = vi.hoisted(() => vi.fn());
 const mockSyncBrowserCollectionAlert = vi.hoisted(() => vi.fn());
@@ -37,6 +41,12 @@ vi.mock('@/lib/api-client', () => ({
 
 vi.mock('@/lib/operation-cancellation', () => ({
   cancelOperation: mockCancelOperation,
+}));
+
+vi.mock('@/lib/operations-api', () => ({
+  operationsApi: {
+    cancel: mockCancelOperationRun,
+  },
 }));
 
 vi.mock('@/lib/browser-collection-session', async (importOriginal) => ({
@@ -100,6 +110,7 @@ describe('PanelAlertRow', () => {
   beforeEach(() => {
     mockApiPost.mockClear();
     mockCancelOperation.mockClear();
+    mockCancelOperationRun.mockClear();
     mockToastError.mockClear();
     mockSendBrowserCollectionControl.mockReset();
     mockSyncBrowserCollectionAlert.mockReset();
@@ -428,6 +439,7 @@ describe('PanelAlertRow', () => {
         expect(mockSyncBrowserCollectionAlert).toHaveBeenCalledWith(
           cancelledSession,
         );
+        expect(mockCancelOperationRun).toHaveBeenCalledWith(BROWSER_RUN_ID);
         expect(mockCancelOperation).not.toHaveBeenCalled();
         expect(usePanelStore.getState().byId[item.id]).toMatchObject({
           status: 'cancelled',

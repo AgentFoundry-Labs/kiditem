@@ -64,7 +64,7 @@ function productRow(id: string, saleStatus: string | null, linked: boolean) {
       channelImageUrl: null,
       updatedAt: '2026-08-03T00:00:00.000Z',
     },
-    linkedProduct: linked ? { id: masterProductId!, code: 'CP-100', name: '운영 상품', displayImageUrl: null } : null,
+    linkedProduct: linked ? { id: masterProductId!, code: 'INV-SELLPIA-100', name: '재고 상품', displayImageUrl: null } : null,
     optionCount: 0,
     configuredOptionCount: 0,
   };
@@ -100,7 +100,7 @@ describe('/product-hub/matching', () => {
     expect(screen.queryByText('external-4444')).not.toBeInTheDocument();
     const summary = within(screen.getByRole('region', { name: '상품 매칭 요약' }));
     expect(summary.getByText('현재 필터 채널상품').parentElement).toHaveTextContent('1');
-    expect(summary.getByText('운영상품 연결').parentElement).toHaveTextContent('1 / 1');
+    expect(summary.getByText('단일 재고상품 요약').parentElement).toHaveTextContent('1 / 1');
     expect(summary.getByText('옵션별 재고 설정').parentElement).toHaveTextContent('0 / 0');
     expect(summary.queryByText('ChannelListing → MasterProduct')).not.toBeInTheDocument();
     expect(summary.queryByText('채널 옵션 → Sellpia 재고')).not.toBeInTheDocument();

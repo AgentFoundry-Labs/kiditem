@@ -4,7 +4,6 @@
   const REPORT_PATH = "/marketing-reporting/billboard/reports/pa";
   const REPORT_STRUCTURE = "캠페인 > 광고그룹 > 상품";
   const REPORT_POLL_TIMEOUT_MS = 10 * 60 * 1000;
-  const GRID_SCROLL_DELAYS_MS = [16, 40, 80];
 
   function sleep(milliseconds) {
     const bounded = Math.min(5_000, Math.max(0, Math.round(Number(milliseconds) || 0)));
@@ -38,9 +37,25 @@
     const text = normalizedText(value);
     const iso = text.match(/(\d{4})[-./]\s*(\d{1,2})[-./]\s*(\d{1,2})/);
     const korean = text.match(/(\d{4})년\s*(\d{1,2})월\s*(\d{1,2})일/);
-    const parts = iso || korean;
+    // chart-report's `dt` is compact YYYYMMDD, while older report rows use
+    // ISO or Korean-formatted dates.
+    const compact = text.match(/^(\d{4})(\d{2})(\d{2})$/);
+    const parts = iso || korean || compact;
     if (!parts) return null;
     return `${parts[1]}-${String(parts[2]).padStart(2, "0")}-${String(parts[3]).padStart(2, "0")}`;
+  }
+
+  function firstMetric(row, fields) {
+    for (const field of fields) {
+      if (Object.prototype.hasOwnProperty.call(row || {}, field)) {
+        return parseMetric(row[field]);
+      }
+    }
+    return 0;
+  }
+
+  function sumMetrics(row, fields) {
+    return fields.reduce((total, field) => total + parseMetric(row?.[field]), 0);
   }
 
   function isOfficialProfitabilityReportUrl(href = window.location.href) {
@@ -71,24 +86,35 @@
       text.includes("[일별]") && text.includes(REPORT_STRUCTURE);
   }
 
-  function mergeGridRowFragments(fragments) {
-    const rows = new Map();
-    for (const fragment of fragments) {
-      const rowId = String(fragment?.rowId || "").trim();
-      if (!rowId) continue;
-      const current = rows.get(rowId) || {};
-      rows.set(rowId, { ...current, ...(fragment.cells || {}) });
-    }
-    return rows;
+  function externalOptionIdFromReportRow(row) {
+    return normalizedText(
+      // The product-report API uses snake_case. `advertised_vendor_item_id`
+      // is the advertised sellable option; `vendor_item_id` is retained for
+      // reports that omit that explicit advertising target.
+      row?.advertised_vendor_item_id ||
+      row?.advertisedVendorItemId ||
+      row?.vendor_item_id ||
+      row?.vendoritemid ||
+      row?.vendorItemId ||
+      row?.externaloptionid ||
+      row?.externalOptionId ||
+      // chart-report also returns an advertising-item id. It identifies the
+      // ad-centre object, not the Coupang sellable option, so it is only a
+      // legacy fallback when the provider omits the vendor-item identifier.
+      row?.adviid,
+    );
   }
 
   function aggregateProductRows(rows) {
     const aggregated = new Map();
     for (const row of rows) {
-      const businessDate = normalizeBusinessDate(row.reportday);
-      const externalOptionId = normalizedText(row.adviid);
+      const businessDate = normalizeBusinessDate(row.dt || row.reportday || row.reportDay);
+      const externalOptionId = externalOptionIdFromReportRow(row);
       if (!businessDate || !externalOptionId) {
-        throw new Error("profitability_report_product_identity_missing");
+        // The provider includes campaign/ad-group aggregate rows in the same
+        // hierarchy as product rows. They intentionally have no option ID and
+        // must not be published as a product fact (or double-counted).
+        continue;
       }
       const key = `${businessDate}\u0000${externalOptionId}`;
       const current = aggregated.get(key) || {
@@ -101,12 +127,30 @@
         conversions: 0,
         adRevenue: 0,
       };
-      current.adSpend += parseMetric(row.adcost);
-      current.impressions += parseMetric(row.impressioncount);
-      current.clicks += parseMetric(row.clickcount);
-      current.orders += parseMetric(row.to1dclk);
-      current.conversions += parseMetric(row.tu1dclk);
-      current.adRevenue += parseMetric(row.ts1dclk);
+      current.adSpend += firstMetric(row, ["ad_cost_sum", "adCostSum", "adcost"]);
+      current.impressions += firstMetric(row, ["impressions_count", "impressioncount"]);
+      current.clicks += firstMetric(row, ["clicks_count", "clickcount"]);
+      // The current API separates direct and halo attribution. Keep the
+      // original aliases as a legacy fallback, but use the 14-day order and
+      // unit totals exposed by the actual product-report response.
+      current.orders += Object.prototype.hasOwnProperty.call(row, "to1dclk")
+        ? parseMetric(row.to1dclk)
+        : sumMetrics(row, [
+            "direct_order_14_days_by_cli_count",
+            "halo_order_14_days_by_cli_count",
+          ]);
+      current.conversions += Object.prototype.hasOwnProperty.call(row, "tu1dclk")
+        ? parseMetric(row.tu1dclk)
+        : sumMetrics(row, [
+            "direct_unit_14_days_by_cli_count",
+            "halo_unit_14_days_by_cli_count",
+          ]);
+      current.adRevenue += Object.prototype.hasOwnProperty.call(row, "ts1dclk")
+        ? parseMetric(row.ts1dclk)
+        : sumMetrics(row, [
+            "direct_sale_14_days_by_cli_price",
+            "halo_sale_14_days_by_cli_price",
+          ]);
       aggregated.set(key, current);
     }
     return [...aggregated.values()].sort((left, right) =>
@@ -115,45 +159,47 @@
     );
   }
 
-  function dailySpend(rows) {
-    const totals = new Map();
+  function reportFieldNames(rows) {
+    const fields = new Set();
     for (const row of rows) {
-      const businessDate = normalizeBusinessDate(row.reportday || row.businessDate);
-      if (!businessDate) continue;
-      totals.set(
-        businessDate,
-        (totals.get(businessDate) || 0) + parseMetric(row.adcost ?? row.adSpend),
-      );
+      if (!row || typeof row !== "object" || Array.isArray(row)) continue;
+      for (const field of Object.keys(row)) fields.add(field);
     }
-    return totals;
+    return [...fields].sort();
   }
 
-  function assertDailySpendMatches(summaryRows, productRows, businessDates) {
-    const summary = dailySpend(summaryRows);
-    const products = dailySpend(productRows);
-    for (const businessDate of businessDates) {
-      if (!summary.has(businessDate)) {
-        throw new Error(`profitability_report_daily_summary_missing:${businessDate}`);
-      }
-      if (summary.get(businessDate) !== (products.get(businessDate) || 0)) {
-        throw new Error(`profitability_report_daily_spend_mismatch:${businessDate}`);
-      }
-    }
-    return true;
+  function nonEmptyFieldCount(rows, field) {
+    return rows.reduce((count, row) => {
+      const value = normalizedText(row?.[field]);
+      return count + (value && value !== "0" ? 1 : 0);
+    }, 0);
+  }
+
+  function reportIdentityDiagnostics(rows) {
+    const dateFields = ["dt", "reportday", "reportDay"];
+    const identifierFields = [
+      "advertised_vendor_item_id",
+      "advertisedVendorItemId",
+      "vendor_item_id",
+      "vendoritemid",
+      "vendorItemId",
+      "externaloptionid",
+      "externalOptionId",
+      "adviid",
+    ];
+    return [
+      `rows=${rows.length}`,
+      `date=${dateFields.map((field) => `${field}:${nonEmptyFieldCount(rows, field)}/${rows.reduce((count, row) => count + (normalizeBusinessDate(row?.[field]) ? 1 : 0), 0)}`).join(",")}`,
+      `identifier=${identifierFields
+        .map((field) => `${field}:${nonEmptyFieldCount(rows, field)}`)
+        .join(",")}`,
+    ].join(";");
   }
 
   function isVisible(element) {
     if (!element || element.isConnected === false) return false;
     const style = window.getComputedStyle?.(element);
     return style?.display !== "none" && style?.visibility !== "hidden";
-  }
-
-  function isReportDialogOpen(dialog) {
-    if (!isVisible(dialog)) return false;
-    if (typeof dialog.getClientRects === "function" && dialog.getClientRects().length === 0) {
-      return false;
-    }
-    return window.getComputedStyle?.(dialog)?.opacity !== "0";
   }
 
   function findVisibleByText(selector, label, exact = true, root = document) {
@@ -295,12 +341,27 @@
     }
   }
 
+  function campaignPickerButton(root = document) {
+    const campaignHeading = findVisibleByText(
+      "h1,h2,h3,h4,h5,h6",
+      "캠페인 선택",
+      true,
+      root,
+    );
+    const sibling = campaignHeading?.nextElementSibling;
+    const siblingButton = sibling?.matches?.("button") ? sibling :
+      sibling?.querySelector?.("button");
+    const button = [
+      siblingButton,
+      campaignHeading?.parentElement?.querySelector?.("button"),
+      findVisibleByText("button", "모든 캠페인", true, root),
+      findVisibleByText("button", "캠페인을 선택하세요", true, root),
+    ].find(isVisible);
+    return button || null;
+  }
+
   async function selectAllCampaigns() {
-    const campaignHeading = findVisibleByText("h1,h2,h3,h4,h5,h6", "캠페인 선택");
-    const button = campaignHeading?.nextElementSibling?.querySelector("button") ||
-      [...document.querySelectorAll("button")].find((candidate) =>
-        normalizedText(candidate.innerText || candidate.textContent) === "모든 캠페인",
-      );
+    const button = campaignPickerButton();
     if (!button) throw new Error("profitability_report_campaign_picker_missing");
     button.click();
     const allCheckbox = await pollUntil(() =>
@@ -327,6 +388,36 @@
     );
   }
 
+  function reportRowState(row) {
+    const text = normalizedText(row?.innerText);
+    if (text.includes("생성 완료")) return "completed";
+    if (text.includes("생성 실패")) return "failed";
+    return "pending";
+  }
+
+  function completedReportRow(slice) {
+    return matchingReportRows(slice).find((row) => reportRowState(row) === "completed") || null;
+  }
+
+  function pendingReportRow(slice) {
+    return matchingReportRows(slice).find((row) => reportRowState(row) === "pending") || null;
+  }
+
+  function reportListHasRows() {
+    return [...document.querySelectorAll('[role="row"]')].some((row) =>
+      Boolean(normalizedText(row.getAttribute?.("row-id"))),
+    );
+  }
+
+  async function waitForExistingReport(slice) {
+    let matched = null;
+    await pollUntil(() => {
+      matched = completedReportRow(slice) || pendingReportRow(slice);
+      return matched || reportListHasRows();
+    }, { timeoutMs: 10_000, intervalMs: 250 });
+    return matched;
+  }
+
   async function prepareReport(slice) {
     clickRadio("기간 설정");
     await selectReportDateRange(slice.startDate, slice.endDate);
@@ -338,11 +429,9 @@
 
   async function waitForReport(slice, createIfMissing = true) {
     let created = false;
-    const existing = matchingReportRows(slice).find((row) =>
-      normalizedText(row.innerText).includes("생성 완료"),
-    );
+    const existing = completedReportRow(slice);
     if (existing) return existing;
-    if (createIfMissing) {
+    if (!pendingReportRow(slice) && createIfMissing) {
       const createButton = findVisibleByText("button", "보고서 만들기");
       if (!createButton) throw new Error("profitability_report_create_button_missing");
       createButton.click();
@@ -350,10 +439,8 @@
       await sleep(1_000);
     }
     const row = await pollUntil(async () => {
-      const current = matchingReportRows(slice).at(-1) || null;
-      const text = normalizedText(current?.innerText);
-      if (text.includes("생성 실패")) throw new Error("profitability_report_generation_failed");
-      if (current && text.includes("생성 완료")) return current;
+      const current = completedReportRow(slice);
+      if (current) return current;
       const refresh = findVisibleByText("button", "목록 새로 고침");
       refresh?.click();
       return null;
@@ -366,91 +453,55 @@
     return row;
   }
 
-  async function openReportDialog(row, slice) {
-    const button = await pollUntil(() => {
-      const candidates = [row];
-      if (slice) candidates.unshift(...[...matchingReportRows(slice)].reverse());
-      return candidates
-        .filter(Boolean)
-        .map((candidate) => findVisibleByText("button", "차트 보기", true, candidate))
-        .find(Boolean) || null;
-    }, { timeoutMs: 10_000, intervalMs: 100 });
-    if (!button) throw new Error("profitability_report_chart_button_missing");
-    button.click();
-    const dialog = await pollUntil(() =>
-      [...document.querySelectorAll('[role="dialog"]')].find(isVisible) || null,
-      { timeoutMs: 30_000 },
-    );
-    if (!dialog) throw new Error("profitability_report_dialog_missing");
-    return dialog;
+  function reportIdFromRow(row) {
+    const reportId = normalizedText(row?.getAttribute?.("row-id"));
+    if (!reportId) throw new Error("profitability_report_id_missing");
+    return reportId;
   }
 
-  async function selectTable(dialog, label) {
-    const tableCombo = await pollUntil(() => {
-      const comboBoxes = [...dialog.querySelectorAll('[role="combobox"]')].filter(isVisible);
-      return comboBoxes.length >= 2 ? comboBoxes.at(-1) : null;
-    }, { timeoutMs: 30_000, intervalMs: 100 });
-    if (!tableCombo) throw new Error("profitability_report_table_selector_missing");
-    activateReportDateInput(tableCombo);
-    const option = await pollUntil(() =>
-      [...document.querySelectorAll('[role="option"], .ant-select-item-option')].find((candidate) =>
-        isVisible(candidate) && normalizedText(candidate.innerText || candidate.textContent) === label,
-      ) || null,
-    );
-    if (!option) throw new Error(`profitability_report_table_option_missing:${label}`);
-    option.click();
-    await sleep(300);
-  }
-
-  function collectMountedGridFragments(grid) {
-    return [...grid.querySelectorAll('[role="row"][row-id]')].map((row) => ({
-      rowId: row.getAttribute("row-id"),
-      cells: Object.fromEntries(
-        [...row.querySelectorAll("[col-id]")]
-          .map((cell) => [cell.getAttribute("col-id"), normalizedText(cell.innerText || cell.textContent)])
-          .filter(([column]) => column),
-      ),
-    }));
-  }
-
-  async function collectCompleteGrid(dialog) {
-    const grid = await pollUntil(() =>
-      [...dialog.querySelectorAll(".ag-root")].find(isVisible) || null,
-      { timeoutMs: 30_000 },
-    );
-    if (!grid) throw new Error("profitability_report_grid_missing");
-    const expectedRowCount = Math.max(0, parseMetric(grid.getAttribute("aria-rowcount")) - 1);
-    const viewport = grid.querySelector(".ag-body-viewport");
-    if (!viewport) throw new Error("profitability_report_grid_viewport_missing");
-    const fragments = [];
-    for (let pass = 0; pass < 3; pass += 1) {
-      const step = Math.max(160, Math.floor(viewport.clientHeight * 0.9));
-      for (let top = 0; top <= viewport.scrollHeight; top += step) {
-        viewport.scrollTop = Math.min(top, viewport.scrollHeight);
-        await sleep(GRID_SCROLL_DELAYS_MS[pass]);
-        fragments.push(...collectMountedGridFragments(grid));
-      }
-      const merged = mergeGridRowFragments(fragments);
-      if (merged.size === expectedRowCount) {
-        viewport.scrollTop = 0;
-        return { expectedRowCount, rows: [...merged.values()] };
+  function parseChartReportText(text) {
+    const rows = [];
+    const lines = String(text || "").split(/\r?\n/);
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index].trim();
+      if (!line) continue;
+      try {
+        const row = JSON.parse(line);
+        if (!row || typeof row !== "object" || Array.isArray(row)) {
+          throw new Error("row_not_object");
+        }
+        rows.push(row);
+      } catch {
+        throw new Error(`profitability_report_response_invalid:${index + 1}`);
       }
     }
-    const collectedRowCount = mergeGridRowFragments(fragments).size;
-    throw new Error(
-      `profitability_report_grid_incomplete:${collectedRowCount}/${expectedRowCount}`,
-    );
+    return rows;
   }
 
-  async function closeReportDialog(dialog) {
-    const closeButton = dialog.querySelector("button.close-button, .ant-modal-close");
-    if (!closeButton) throw new Error("profitability_report_dialog_close_missing");
-    activateReportDateInput(closeButton);
-    const closed = await pollUntil(() => !isReportDialogOpen(dialog), {
-      timeoutMs: 5_000,
-      intervalMs: 50,
-    });
-    if (!closed) throw new Error("profitability_report_dialog_close_failed");
+  async function fetchChartReportRows(row, fetchImpl = globalThis.fetch) {
+    if (typeof fetchImpl !== "function") {
+      throw new Error("profitability_report_fetch_unavailable");
+    }
+    const reportId = reportIdFromRow(row);
+    const response = await fetchImpl(
+      `/marketing-reporting/v2/api/chart-report?id=${encodeURIComponent(reportId)}`,
+      {
+        credentials: "same-origin",
+        headers: { accept: "text/plain, application/x-ndjson, application/json" },
+        method: "GET",
+      },
+    );
+    if (!response?.ok) {
+      throw new Error(`profitability_report_fetch_failed:${response?.status || 0}`);
+    }
+    const text = await response.text();
+    const rows = parseChartReportText(text);
+    return {
+      reportId,
+      expectedRowCount: rows.length,
+      responseBytes: new TextEncoder().encode(text).length,
+      rows,
+    };
   }
 
   function advertiserId() {
@@ -497,15 +548,27 @@
     if (!slice?.startDate || !slice?.endDate || !Array.isArray(slice.businessDates)) {
       throw new Error("profitability_report_slice_missing");
     }
-    const campaignCount = await prepareReport(slice);
-    const reportRow = await waitForReport(slice, true);
-    const dialog = await openReportDialog(reportRow, slice);
-    await selectTable(dialog, "일별 합계");
-    const summary = await collectCompleteGrid(dialog);
-    await selectTable(dialog, "모든 항목");
-    const detail = await collectCompleteGrid(dialog);
-    assertDailySpendMatches(summary.rows, detail.rows, slice.businessDates);
+    let campaignCount = 0;
+    // The form is interactive before the requested-report table has finished
+    // loading. Waiting for that initial list response lets a retry reuse an
+    // existing report instead of opening the fragile date picker again.
+    let reportRow = await waitForExistingReport(slice);
+    if (!reportRow) {
+      if (!pendingReportRow(slice)) {
+        campaignCount = await prepareReport(slice);
+      }
+      reportRow = await waitForReport(slice, true);
+    }
+    const detail = await fetchChartReportRows(reportRow);
     const rows = aggregateProductRows(detail.rows);
+    if (detail.rows.length > 0 && rows.length === 0) {
+      // A product report that exposes no resolvable product rows must never be
+      // projected as a confirmed-zero day. Include field names only (never
+      // values) so a provider schema change can be diagnosed safely.
+      throw new Error(
+        `profitability_report_product_identity_missing:${reportIdentityDiagnostics(detail.rows)}`,
+      );
+    }
     const allowedDates = new Set(slice.businessDates);
     if (rows.some((row) => !allowedDates.has(row.businessDate))) {
       throw new Error("profitability_report_row_out_of_range");
@@ -519,7 +582,6 @@
       businessDates: slice.businessDates,
       rows,
     }, input.environmentId);
-    await closeReportDialog(dialog);
     return {
       success: true,
       type: "profitability_report",
@@ -534,19 +596,27 @@
     REPORT_STRUCTURE,
     activateReportDateInput,
     aggregateProductRows,
-    assertDailySpendMatches,
-    closeReportDialog,
-    dailySpend,
     enabledReportDateInputs,
+    externalOptionIdFromReportRow,
+    fetchChartReportRows,
     isVisible,
     isOfficialProfitabilityReportUrl,
     isProfitabilityReportSurfaceReady,
-    mergeGridRowFragments,
+    campaignPickerButton,
     normalizeBusinessDate,
-    openReportDialog,
+    firstMetric,
     parseMetric,
+    parseChartReportText,
+    reportFieldNames,
+    reportIdentityDiagnostics,
+    sumMetrics,
+    pendingReportRow,
+    reportListHasRows,
+    reportIdFromRow,
+    reportRowState,
     reportRowMatches,
     run,
+    waitForExistingReport,
     waitForReport,
   });
 })();

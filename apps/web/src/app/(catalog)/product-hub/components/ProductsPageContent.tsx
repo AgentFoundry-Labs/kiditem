@@ -116,8 +116,8 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
           <option value="all">전체 상태</option>
-          <option value="active">운영중</option>
-          <option value="inactive">운영중지</option>
+          <option value="active">판매중</option>
+          <option value="inactive">판매중지</option>
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"

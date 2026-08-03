@@ -34,7 +34,16 @@ implements ProfitabilityAdRefreshRepositoryPort {
       where: {
         organizationId,
         isActive: true,
-        masterProductId: { not: null },
+        options: {
+          some: {
+            isActive: true,
+            inventoryComponents: {
+              some: {
+                sellpiaInventorySku: { is: { masterProductId: { not: null } } },
+              },
+            },
+          },
+        },
         channelAccount: {
           is: { organizationId, channel: 'coupang', status: 'active' },
         },
@@ -76,7 +85,20 @@ implements ProfitabilityAdRefreshRepositoryPort {
         AND snapshot.ad_coverage_status IN ('OBSERVED', 'CONFIRMED_ZERO')
         AND snapshot.ad_observed_at IS NOT NULL
         AND listing.is_active = true
-        AND listing.master_product_id IS NOT NULL
+        AND EXISTS (
+          SELECT 1
+          FROM channel_listing_options option
+          JOIN channel_listing_option_inventory_components component
+            ON component.channel_listing_option_id = option.id
+           AND component.organization_id = option.organization_id
+          JOIN sellpia_inventory_skus sku
+            ON sku.id = component.sellpia_inventory_sku_id
+           AND sku.organization_id = component.organization_id
+          WHERE option.listing_id = listing.id
+            AND option.organization_id = listing.organization_id
+            AND option.is_active = true
+            AND sku.master_product_id IS NOT NULL
+        )
         AND account.channel = 'coupang'
         AND account.status = 'active'
       GROUP BY snapshot.business_date
@@ -153,17 +175,57 @@ implements ProfitabilityAdRefreshRepositoryPort {
         .filter(([, rows]) => rows.length === 1)
         .map(([externalOptionId, rows]) => [externalOptionId, rows[0]!] as const),
     );
-    const matchedRows = input.report.rows.filter((row) => optionByExternalId.has(row.externalOptionId));
-    const targetRows = matchedRows.map((row) => {
-      const option = optionByExternalId.get(row.externalOptionId)!;
+    const listings = externalOptionIds.length === 0
+      ? []
+      : await this.prisma.channelListing.findMany({
+          where: {
+            organizationId: input.organizationId,
+            channelAccountId: accountId,
+            externalId: { in: externalOptionIds },
+            isActive: true,
+          },
+          select: { id: true, externalId: true },
+        });
+    const listingGroups = new Map<string, typeof listings>();
+    for (const listing of listings) {
+      const group = listingGroups.get(listing.externalId) ?? [];
+      group.push(listing);
+      listingGroups.set(listing.externalId, group);
+    }
+    const listingByExternalId = new Map(
+      [...listingGroups.entries()]
+        .filter(([, rows]) => rows.length === 1)
+        .map(([externalId, rows]) => [externalId, rows[0]!] as const),
+    );
+    type ReportMatch = {
+      row: typeof input.report.rows[number];
+      option: typeof options[number] | null;
+      listing: typeof listings[number] | null;
+    };
+    const matchedRows: ReportMatch[] = [];
+    for (const row of input.report.rows) {
+      const option = optionByExternalId.get(row.externalOptionId);
+      if (option) {
+        matchedRows.push({ row, option, listing: null });
+        continue;
+      }
+      // Product-grain reports identify the Coupang registration rather than a
+      // vendor item. They still project safely to one listing when the
+      // account-scoped external ID is unambiguous.
+      const listing = listingByExternalId.get(row.externalOptionId);
+      if (listing) matchedRows.push({ row, option: null, listing });
+    }
+    const targetRows = matchedRows.map(({ row, option, listing }) => {
+      const listingId = option?.listingId ?? listing!.id;
+      const externalId = option?.listing.externalId ?? listing!.externalId;
       return {
         organizationId: input.organizationId,
         channelAccountId: accountId,
         channel: 'coupang',
         businessDate: calendarDate(row.businessDate),
-        listingId: option.listingId,
-        listingOptionId: option.id,
-        externalId: option.listing.externalId,
+        listingId,
+        listingOptionId: option?.id ?? null,
+        externalId,
         externalOptionId: row.externalOptionId,
         targetType: 'product',
         targetKey: `profitability-report:${row.externalOptionId}`,
@@ -212,6 +274,10 @@ implements ProfitabilityAdRefreshRepositoryPort {
           channelAccountId: accountId,
           channel: 'coupang',
           targetType: 'product',
+          // The profitability report is a campaignless, option-grain source.
+          // Do not erase the campaign sweep's campaign-bound product facts
+          // when the two collectors overlap on the same business date.
+          targetKey: { startsWith: 'profitability-report:' },
           businessDate: { gte: input.startDate, lte: input.endDate },
         },
       });
@@ -303,7 +369,20 @@ implements ProfitabilityAdRefreshRepositoryPort {
          AND ca.organization_id = cl.organization_id
         WHERE cl.organization_id = ${input.organizationId}::uuid
           AND cl.is_active = true
-          AND cl.master_product_id IS NOT NULL
+          AND EXISTS (
+            SELECT 1
+            FROM channel_listing_options option
+            JOIN channel_listing_option_inventory_components component
+              ON component.channel_listing_option_id = option.id
+             AND component.organization_id = option.organization_id
+            JOIN sellpia_inventory_skus sku
+              ON sku.id = component.sellpia_inventory_sku_id
+             AND sku.organization_id = component.organization_id
+            WHERE option.listing_id = cl.id
+              AND option.organization_id = cl.organization_id
+              AND option.is_active = true
+              AND sku.master_product_id IS NOT NULL
+          )
           AND ca.channel = 'coupang'
           AND ca.status = 'active'
       ),
@@ -328,6 +407,10 @@ implements ProfitabilityAdRefreshRepositoryPort {
         FROM channel_ad_target_daily_snapshots
         WHERE organization_id = ${input.organizationId}::uuid
           AND target_type = 'product'
+          -- Only the product report is authoritative for the profitability
+          -- projection. Campaign sweep product rows represent the same ad
+          -- delivery at a different collection grain and would double count.
+          AND target_key LIKE 'profitability-report:%'
           AND listing_id IS NOT NULL
           AND business_date BETWEEN ${input.startDate}::date AND ${input.endDate}::date
         GROUP BY listing_id, business_date

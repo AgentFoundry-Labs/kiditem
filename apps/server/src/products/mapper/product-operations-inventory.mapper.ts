@@ -1,7 +1,4 @@
-import {
-  projectChannelOptionCapacity,
-  projectProductInventory,
-} from '../domain/channel-option-capacity';
+import { projectChannelOptionCapacity } from '../domain/channel-option-capacity';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
 import type {
   MasterProductOperationsDetail,
@@ -49,17 +46,10 @@ export function mapProductOperationsDetail(
     ...listing,
     options: listing.options.map((option) => hydrateOption(option, inventoryBySkuId)),
   }));
-  const options = channelListings.flatMap((listing) => listing.options.map((option) => ({
-    isActive: listing.isActive && option.isActive,
-    components: option.inventoryComponents.map((component) => ({
-      ...component,
-      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
-        ?.activeCommitmentQuantity ?? 0,
-    })),
-  })));
-  const inventory = projectProductInventory(options);
+  const inventory = projectCanonicalInventory(product.inventorySkuIds, inventoryBySkuId);
+  const { inventorySkuIds: _inventorySkuIds, ...metadata } = product;
   return {
-    ...product,
+    ...metadata,
     displayImageUrls: [...product.imageUrls],
     channelListings,
     inventoryUnits: inventory.inventoryUnits,
@@ -73,7 +63,8 @@ export function mapProductOperationsListItem(
   depletion: ProductDepletionProjection,
 ): MasterProductOperationsListItem {
   const {
-    activeChannelProducts: _activeChannelProducts,
+    activeChannelProducts,
+    inventorySkuIds,
     inventoryOptions: rawOptions,
     ...metadata
   } = product;
@@ -85,16 +76,10 @@ export function mapProductOperationsListItem(
         ?.activeCommitmentQuantity ?? 0,
     })),
   ));
-  const inventory = projectProductInventory(options.map((option) => ({
-    isActive: option.isActive,
-    components: option.inventoryComponents.map((component) => ({
-      ...component,
-      activeCommitmentQuantity: inventoryBySkuId.get(component.sellpiaInventorySkuId)
-        ?.activeCommitmentQuantity ?? 0,
-    })),
-  })));
+  const inventory = projectCanonicalInventory(inventorySkuIds, inventoryBySkuId);
   return {
     ...metadata,
+    activeChannels: uniqueActiveChannels(activeChannelProducts),
     displayImageUrls: [...product.imageUrls],
     depletion,
     channelOptionSummary: {
@@ -106,4 +91,40 @@ export function mapProductOperationsListItem(
     inventoryUnits: inventory.inventoryUnits,
     inventoryStatus: inventory.inventoryStatus,
   };
+}
+
+function projectCanonicalInventory(
+  inventorySkuIds: readonly string[],
+  inventoryBySkuId: AvailabilityBySkuId,
+): { inventoryUnits: number; inventoryStatus: MasterProductOperationsListItem['inventoryStatus'] } {
+  if (inventorySkuIds.length === 0) {
+    return { inventoryUnits: 0, inventoryStatus: 'configuration_required' };
+  }
+  const inventory = inventorySkuIds.map((id) => inventoryBySkuId.get(id));
+  if (inventory.some((item) => !item || !item.isActive)) {
+    return {
+      inventoryUnits: inventory.reduce(
+        (sum, item) => sum + (item?.isActive ? item.availableStock : 0),
+        0,
+      ),
+      inventoryStatus: 'review_required',
+    };
+  }
+  const inventoryUnits = inventory.reduce((sum, item) => sum + item!.availableStock, 0);
+  return {
+    inventoryUnits,
+    inventoryStatus: inventoryUnits === 0 ? 'out_of_stock' : 'sellable',
+  };
+}
+
+function uniqueActiveChannels(
+  channels: ProductOperationsRepositoryListItem['activeChannelProducts'],
+) {
+  const unique = new Map(channels.map((channel) => [
+    channel.channelAccountId,
+    channel,
+  ]));
+  return [...unique.values()].sort((left, right) =>
+    left.channelAccountName.localeCompare(right.channelAccountName)
+    || left.channelAccountId.localeCompare(right.channelAccountId));
 }

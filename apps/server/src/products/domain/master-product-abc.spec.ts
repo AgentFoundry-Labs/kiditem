@@ -204,14 +204,14 @@ describe('evaluateMasterProductAbc', () => {
     });
   });
 
-  it('leaves unmapped products and products without a formula ungraded', () => {
+  it('leaves unmapped products ungraded and treats a missing automatic formula as insufficient evidence', () => {
     expect(evaluate({ evidence: evidence({ sellpiaStatus: 'UNMAPPED' }) })).toMatchObject({
       abcGrade: null,
       calculationStatus: 'SOURCE_UNMAPPED',
     });
     expect(evaluate({ formula: null })).toMatchObject({
       abcGrade: null,
-      calculationStatus: 'CALIBRATION_PENDING',
+      calculationStatus: 'INSUFFICIENT_EVIDENCE',
     });
   });
 

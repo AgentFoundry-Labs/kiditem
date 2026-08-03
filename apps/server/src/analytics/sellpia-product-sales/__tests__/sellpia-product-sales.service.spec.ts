@@ -376,6 +376,15 @@ describe('SellpiaProductSalesService.getSummary', () => {
         code: true,
         barcode: true,
         isActive: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            abcEvaluation: { include: { formulaVersion: true } },
+          },
+        },
       },
     });
     expect(inventoryAvailability).toHaveBeenCalledWith({
@@ -401,7 +410,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(out.reorderCount).toBe(1);
   });
 
-  it('destination의 저장 등급을 중복 연결 없이 운영상품 기준으로 집계한다', async () => {
+  it('재고상품의 canonical MasterProduct 등급을 채널 연결 수와 무관하게 집계한다', async () => {
     const {
       service,
       findMany,
@@ -414,8 +423,14 @@ describe('SellpiaProductSalesService.getSummary', () => {
       row({ productCode: 'SKU-2', yearMonth: '2026-06', orderQty: 20 }),
     ]);
     const inventoryRows = [
-      inventoryRow(1, 'SKU-1', 100, null),
-      inventoryRow(2, 'SKU-2', 100, null),
+      {
+        ...inventoryRow(1, 'SKU-1', 100, null),
+        masterProduct: inventoryMasterProduct('master-a', 'A'),
+      },
+      {
+        ...inventoryRow(2, 'SKU-2', 100, null),
+        masterProduct: inventoryMasterProduct('master-c', 'C'),
+      },
     ];
     inventoryFindMany.mockResolvedValueOnce(inventoryRows);
     inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
@@ -431,13 +446,13 @@ describe('SellpiaProductSalesService.getSummary', () => {
 
     expect(out.abcCounts).toEqual({ A: 1, B: 0, C: 1 });
     expect(out.classifiedProductCount).toBe(2);
-    expect(out.unclassifiedProductCount).toBe(1);
+    expect(out.unclassifiedProductCount).toBe(0);
     expect(out.products.flatMap((product) =>
       product.inventoryResolution.status === 'matched'
         ? product.inventoryResolution.destinations
         : [])).toEqual(expect.arrayContaining([
       expect.objectContaining({ masterProductId: 'master-a', abcGrade: 'A' }),
-      expect.objectContaining({ masterProductId: 'master-null', abcGrade: null }),
+      expect.objectContaining({ masterProductId: 'master-c', abcGrade: 'C' }),
     ]));
   });
 
@@ -577,6 +592,19 @@ function inventoryRow(
     barcode,
     currentStock,
     isActive: true,
+  };
+}
+
+function inventoryMasterProduct(
+  id: string,
+  abcGrade: 'A' | 'B' | 'C' | null,
+) {
+  return {
+    id,
+    code: id,
+    name: id,
+    abcGrade,
+    abcEvaluation: null,
   };
 }
 

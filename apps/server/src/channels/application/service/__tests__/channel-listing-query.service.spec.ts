@@ -165,6 +165,25 @@ describe('ChannelListingRepositoryAdapter', () => {
     expect(result.items[0]).not.toHaveProperty('masterId');
   });
 
+  it('treats complete option recipes as matched without a listing-level product summary', async () => {
+    prisma.channelListing.findMany.mockResolvedValueOnce([listingRow({
+      id: 'mixed-listing-1',
+      masterProductId: null,
+      options: [{
+        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
+        salePrice: 9_900,
+      }],
+    })]);
+    prisma.channelListing.groupBy.mockResolvedValueOnce([]);
+
+    const result = await repository.list('org-1');
+
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      id: 'mixed-listing-1',
+      mappingStatus: 'matched',
+    }));
+  });
+
   it('loads one active listing as the registered-product workspace fallback', async () => {
     const result = await repository.getWorkspace('org-1', 'listing-1');
 

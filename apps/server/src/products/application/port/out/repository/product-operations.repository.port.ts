@@ -35,6 +35,7 @@ export type ProductOperationsRepositoryDetail = Omit<
   MasterProductOperationsDetail,
   'displayImageUrls' | 'inventoryStatus' | 'inventoryUnits' | 'channelListings'
 > & {
+  inventorySkuIds: string[];
   channelListings: ProductOperationsRepositoryListing[];
 };
 
@@ -45,8 +46,10 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'channelOptionSummary'
   | 'inventoryUnits'
   | 'inventoryStatus'
+  | 'activeChannels'
 > & {
   activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
+  inventorySkuIds: string[];
   inventoryOptions: ProductOperationsRepositoryOption[];
 };
 
@@ -62,6 +65,10 @@ export type ProductOperationsDisplayMediaTarget = Readonly<{
   isOrigin: boolean;
   isPrimaryAccount: boolean;
   listingExternalId: string;
+}>;
+
+export type ChannelOptionInventoryReplacementResult = Readonly<{
+  masterProductId: string | null;
 }>;
 
 export const PRODUCT_OPERATIONS_REPOSITORY_PORT = Symbol(
@@ -94,5 +101,5 @@ export interface ProductOperationsRepositoryPort {
     organizationId: string;
     channelListingOptionId: string;
     components: ReplaceChannelOptionInventoryInput['components'];
-  }): Promise<ProductOperationsRepositoryDetail>;
+  }): Promise<ChannelOptionInventoryReplacementResult>;
 }

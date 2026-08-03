@@ -14,6 +14,7 @@ import type {
   HydratedListing,
 } from '../../../../domain/model/strategy-types';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
+import type { AdPeriod } from '../../../../domain/ad-metrics';
 
 export const AD_STRATEGY_CONTEXT_REPOSITORY_PORT = Symbol(
   'AdStrategyContextRepositoryPort',
@@ -72,6 +73,7 @@ export interface AdStrategyContextRepositoryPort {
     organizationId: string,
     year: number,
     month: number,
+    period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext>;
 

@@ -158,7 +158,12 @@ export class ProfitabilityAdRefreshService implements ProfitabilityAdRefreshPort
       );
       return needsInitialCoverage || needsCorrectionRefresh;
     });
-    const firstDueIndex = due.findIndex(Boolean);
+    // The operator-facing ABC and strategy views need current advertising
+    // evidence before their historical calibration backfill.  Work from the
+    // newest missing business day, then consume that calendar month before
+    // moving backwards through older months.  A report still carries every
+    // day in its selected month, so existing days are corrected atomically.
+    const firstDueIndex = latestDueIndex(due);
     const completedDayCount = due.filter((value) => !value).length;
     if (firstDueIndex < 0) {
       return completed(context.startDate, context.cutoffDate, businessDates.length);
@@ -166,7 +171,6 @@ export class ProfitabilityAdRefreshService implements ProfitabilityAdRefreshPort
     const firstDate = businessDates[firstDueIndex]!;
     const firstMonth = firstDate.slice(0, 7);
     const monthDates = businessDates
-      .slice(firstDueIndex)
       .filter((date) => date.startsWith(firstMonth));
     const startDate = monthDates[0]!;
     const endDate = monthDates[monthDates.length - 1]!;
@@ -181,6 +185,13 @@ export class ProfitabilityAdRefreshService implements ProfitabilityAdRefreshPort
       totalDayCount: businessDates.length,
     };
   }
+}
+
+function latestDueIndex(due: readonly boolean[]): number {
+  for (let index = due.length - 1; index >= 0; index -= 1) {
+    if (due[index]) return index;
+  }
+  return -1;
 }
 
 function sameStrings(left: readonly string[], right: readonly string[]): boolean {

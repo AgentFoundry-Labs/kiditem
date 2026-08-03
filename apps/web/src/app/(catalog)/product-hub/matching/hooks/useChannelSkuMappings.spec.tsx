@@ -8,8 +8,6 @@ import {
   getSellpiaManualMatchTargets,
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
-  linkChannelListingProduct,
-  listChannelProductCandidates,
   listChannelProductMappings,
 } from '../lib/channel-sku-matching-api';
 import {
@@ -17,9 +15,7 @@ import {
   finalizeSellpiaManualMatchCollection,
 } from '../lib/sellpia-manual-match-collection';
 import {
-  useChannelProductCandidates,
   useChannelProductMappings,
-  useLinkChannelListingProduct,
   useImportCoupangWingCatalog,
   useRunChannelProductMatching,
 } from './useChannelSkuMappings';
@@ -29,9 +25,7 @@ vi.mock('../lib/channel-sku-matching-api', () => ({
   getSellpiaManualMatchTargets: vi.fn(),
   importCoupangWingCatalog: vi.fn(),
   importSellpiaManualMatchSnapshot: vi.fn(),
-  linkChannelListingProduct: vi.fn(),
   listChannelAccounts: vi.fn(),
-  listChannelProductCandidates: vi.fn(),
   listChannelProductMappings: vi.fn(),
 }));
 vi.mock('../lib/sellpia-manual-match-collection', () => ({
@@ -42,7 +36,6 @@ vi.mock('@/lib/browser-collection-session', () => ({
   issueBrowserCollectionRunId: vi.fn(),
 }));
 
-const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_A = '22222222-2222-4222-8222-222222222222';
 const ACCOUNT_B = '33333333-3333-4333-8333-333333333333';
 const RUN_ID = '44444444-4444-4444-8444-444444444444';
@@ -69,32 +62,6 @@ describe('channel product matching hooks', () => {
     );
     await waitFor(() => expect(loaded.result.current.isSuccess).toBe(true));
     expect(listChannelProductMappings).toHaveBeenCalledWith({ channelAccountId: undefined, search: '우산' });
-  });
-
-  it('candidate reads never confirm product identity', async () => {
-    vi.mocked(listChannelProductCandidates).mockResolvedValue({ items: [] });
-    const client = createClient();
-    const hook = renderHook(
-      () => useChannelProductCandidates(LISTING_ID, '', true),
-      { wrapper: wrapper(client) },
-    );
-
-    await waitFor(() => expect(hook.result.current.isSuccess).toBe(true));
-    expect(linkChannelListingProduct).not.toHaveBeenCalled();
-  });
-
-  it('invalidates matching and availability after product confirmation', async () => {
-    vi.mocked(linkChannelListingProduct).mockResolvedValue(undefined);
-    const client = createClient();
-    const invalidate = vi.spyOn(client, 'invalidateQueries');
-    const hook = renderHook(() => useLinkChannelListingProduct(), { wrapper: wrapper(client) });
-
-    await act(async () => {
-      await hook.result.current.mutateAsync({ channelListingId: LISTING_ID, masterProductId: null });
-    });
-
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelProductMappings'] });
-    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['channelSkuAvailability'] });
   });
 
   it('collects Sellpia evidence once and auto-matches every selected account', async () => {

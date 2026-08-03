@@ -2,10 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
   autoMatchChannelProducts,
-  linkChannelListingProduct,
   getSellpiaManualMatchTargets,
   importSellpiaManualMatchSnapshot,
-  listChannelProductCandidates,
   listChannelProductMappings,
   listRecipeComponentCandidates,
   saveProductInventoryMatching,
@@ -16,7 +14,6 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
-const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
 const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 const OPTION_ID = '44444444-4444-4444-8444-444444444444';
 
@@ -31,32 +28,6 @@ describe('channel product matching API', () => {
     expect(apiClient.getParsed).toHaveBeenCalledWith(
       '/api/channels/product-mappings?channelAccountId=account%2Funsafe&search=%EC%9A%B0%EC%82%B0',
       expect.any(Object),
-    );
-  });
-
-  it('keeps product candidate lookup side-effect-free', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
-
-    await listChannelProductCandidates(`${LISTING_ID}/unsafe`, ' KI-1 ');
-
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/${encodeURIComponent(`${LISTING_ID}/unsafe`)}/candidates?search=KI-1`,
-      expect.any(Object),
-    );
-    expect(apiClient.put).not.toHaveBeenCalled();
-  });
-
-  it('confirms only listing-to-MasterProduct identity', async () => {
-    vi.mocked(apiClient.put).mockResolvedValue(undefined);
-
-    await expect(linkChannelListingProduct(
-      LISTING_ID,
-      { masterProductId: PRODUCT_ID },
-    )).resolves.toBeUndefined();
-
-    expect(apiClient.put).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/${LISTING_ID}/master-product`,
-      { masterProductId: PRODUCT_ID },
     );
   });
 
@@ -90,12 +61,11 @@ describe('channel product matching API', () => {
     );
   });
 
-  it('saves the operating product before direct option inventory compositions', async () => {
+  it('saves option inventory compositions without a separate product link command', async () => {
     vi.mocked(apiClient.put).mockResolvedValue(undefined);
 
     await saveProductInventoryMatching({
       channelListingId: LISTING_ID,
-      masterProductId: PRODUCT_ID,
       options: [{
         channelListingOptionId: OPTION_ID,
         components: [{
@@ -106,7 +76,6 @@ describe('channel product matching API', () => {
     });
 
     expect(apiClient.put.mock.calls).toEqual([
-      [`/api/channels/product-mappings/${LISTING_ID}/master-product`, { masterProductId: PRODUCT_ID }],
       [`/api/products/channel-options/${OPTION_ID}/inventory-components`, { components: [{ sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
     ]);
   });

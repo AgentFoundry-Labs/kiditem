@@ -64,7 +64,7 @@ export class ProductOperationsService implements ProductOperationsPort {
     ]);
     const inventoryBySkuId = await this.loadInventory(
       organizationId,
-      raw.items.flatMap(({ inventoryOptions }) => inventoryOptions),
+      raw.items.flatMap(({ inventorySkuIds }) => inventorySkuIds),
     );
     const placeholder = noDirectSales();
     const hydrated = raw.items.map((item) =>
@@ -110,7 +110,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       product,
       await this.loadInventory(
         organizationId,
-        product.channelListings.flatMap(({ options }) => options),
+        product.inventorySkuIds,
       ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
@@ -156,7 +156,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       product,
       await this.loadInventory(
         organizationId,
-        product.channelListings.flatMap(({ options }) => options),
+        product.inventorySkuIds,
       ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
@@ -172,24 +172,18 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawInput,
       'Invalid channel option inventory replacement',
     );
-    const product = await this.repository.replaceChannelOptionInventory({
+    return this.repository.replaceChannelOptionInventory({
       organizationId,
       channelListingOptionId,
       components: input.components,
     });
-    const options = product.channelListings.flatMap(({ options }) => options);
-    return mapProductOperationsDetail(
-      product,
-      await this.loadInventory(organizationId, options),
-    );
   }
 
   private async loadInventory(
     organizationId: string,
-    options: Array<{ inventoryComponents: Array<{ sellpiaInventorySkuId: string }> }>,
+    inventorySkuIds: string[],
   ) {
-    const sellpiaInventorySkuIds = [...new Set(options.flatMap(({ inventoryComponents }) =>
-      inventoryComponents.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))].sort(
+    const sellpiaInventorySkuIds = [...new Set(inventorySkuIds)].sort(
         (left, right) => left.localeCompare(right),
       );
     const availability = await this.inventory.findBySkuIds({
@@ -278,15 +272,16 @@ function summarizeProducts(
     }
     const evaluation = product.abcEvaluation;
     if (evaluation) {
-      counts.abcStatusCounts[evaluation.calculationStatus] += 1;
+      const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
+        ? 'INSUFFICIENT_EVIDENCE'
+        : evaluation.calculationStatus;
+      counts.abcStatusCounts[calculationStatus] += 1;
       if (abcGrade && evaluation.weightedContributionProfit !== null) {
         counts.abcContributionProfitByGrade[abcGrade] += Math.round(
           evaluation.weightedContributionProfit,
         );
       }
       if (!counts.abcFormula && evaluation.formula) counts.abcFormula = evaluation.formula;
-    } else {
-      counts.abcStatusCounts.CALIBRATION_PENDING += 1;
     }
     counts.inventoryStatusCounts[product.inventoryStatus] += 1;
     if (product.profit !== null && product.profit < 0) {

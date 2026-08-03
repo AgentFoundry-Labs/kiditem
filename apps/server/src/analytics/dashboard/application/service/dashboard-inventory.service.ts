@@ -96,8 +96,11 @@ export class DashboardInventoryService {
         CALCULATION_ERROR: 0,
       };
       for (const row of abcStatusRows) {
-        if (row.calculationStatus in abcStatusCount) {
-          abcStatusCount[row.calculationStatus as keyof typeof abcStatusCount] += row.count;
+        const calculationStatus = row.calculationStatus === 'CALIBRATION_PENDING'
+          ? 'INSUFFICIENT_EVIDENCE'
+          : row.calculationStatus;
+        if (calculationStatus in abcStatusCount) {
+          abcStatusCount[calculationStatus as keyof typeof abcStatusCount] += row.count;
         }
       }
       const abcContributionProfit = { amountByGrade: { A: 0, B: 0, C: 0 }, shareByGrade: { A: 0, B: 0, C: 0 } };

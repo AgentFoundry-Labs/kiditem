@@ -43,6 +43,7 @@ describe("data migration registry", () => {
       "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
+      "v0.1.30:004_canonical_master_inventory_identity",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -72,6 +73,9 @@ describe("data migration registry", () => {
     );
     expect(migrationIds).toContain(
       "v0.1.30:002_backfill_profitability_source_freshness",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.30:004_canonical_master_inventory_identity",
     );
   });
 

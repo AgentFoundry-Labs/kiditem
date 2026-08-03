@@ -56,7 +56,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('atomically publishes physical SKUs without manufacturing operating products', async () => {
+  it('atomically publishes physical SKUs with one canonical inventory product each', async () => {
     const execution = await activateGeneration(1n, 'initial_snapshot');
 
     const result = await service.importInventory(browserInput(workbook([
@@ -64,22 +64,31 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       row('SP-002', 3),
     ]), execution));
 
-    const [skus, state, run, masterProductCount] = await Promise.all([
+    const [skus, state, run, masterProducts] = await Promise.all([
       prisma.sellpiaInventorySku.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID },
         orderBy: { code: 'asc' },
+        include: { masterProduct: true },
       }),
       prisma.sellpiaInventoryState.findUniqueOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID },
       }),
       prisma.sourceImportRun.findUniqueOrThrow({ where: { id: result.run.id } }),
-      prisma.masterProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID } }),
+      prisma.masterProduct.findMany({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        orderBy: { code: 'asc' },
+      }),
     ]);
     expect(skus.map(({ code, currentStock }) => [code, currentStock])).toEqual([
       ['SP-001', 7],
       ['SP-002', 3],
     ]);
-    expect(masterProductCount).toBe(0);
+    expect(masterProducts).toHaveLength(2);
+    expect(skus.every((sku) => sku.masterProductId !== null)).toBe(true);
+    expect(skus.map((sku) => sku.masterProduct?.code)).toEqual(
+      skus.map((sku) => `INV-SELLPIA-${sku.id}`),
+    );
+    expect(masterProducts.every(({ isActive }) => isActive)).toBe(true);
     expect(run).toMatchObject({
       status: 'completed',
       verificationCount: 1,
@@ -108,6 +117,7 @@ describe('Sellpia unified import repositories (PG integration)', () => {
 
     const absent = await prisma.sellpiaInventorySku.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-4' },
+      include: { masterProduct: true },
     });
     expect(replacement).toMatchObject({
       outcome: 'published',
@@ -117,7 +127,31 @@ describe('Sellpia unified import repositories (PG integration)', () => {
       currentStock: 0,
       isActive: false,
       lastImportRunId: replacement.run.id,
+      masterProduct: { isActive: false },
     });
+  });
+
+  it('reactivates the same canonical inventory product when stock returns', async () => {
+    await service.importInventory(browserInput(
+      workbook([row('SP-RESTOCK', 0)]),
+      await activateGeneration(1n, 'initial_snapshot'),
+    ));
+    const before = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-RESTOCK' },
+      include: { masterProduct: true },
+    });
+    expect(before.masterProduct).toMatchObject({ isActive: false });
+
+    await service.importInventory(browserInput(
+      workbook([row('SP-RESTOCK', 8)]),
+      await activateGeneration(2n, 'manual_request'),
+    ));
+    const after = await prisma.sellpiaInventorySku.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, code: 'SP-RESTOCK' },
+      include: { masterProduct: true },
+    });
+    expect(after.masterProductId).toBe(before.masterProductId);
+    expect(after.masterProduct).toMatchObject({ isActive: true });
   });
 
   it('never writes stock for the first or second completed same-hash execution', async () => {

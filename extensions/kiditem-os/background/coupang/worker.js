@@ -134,7 +134,10 @@ const collectionRuns = KidItemCollectionRuns.create({
     KidItemCoupangCatalogImport.start(
       message,
       coupangCatalogImportDependencies(environmentId),
-    ),
+  ),
+});
+const profitabilityOperationCheckpoint = KidItemProfitabilityOperationCheckpoint.create({
+  chrome,
 });
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
@@ -4616,6 +4619,7 @@ async function runAdvertisingProfitabilityOperation(operation) {
   let completedSliceCount = 0;
   let lastSlice = null;
   let retainedCollectionRunId = null;
+  let activeCheckpoint = null;
   let preserveAttentionWindow = false;
   try {
     for (let iteration = 0; iteration < 20; iteration += 1) {
@@ -4650,7 +4654,16 @@ async function runAdvertisingProfitabilityOperation(operation) {
       await operation.heartbeat(
         Math.min(0.95, Number(next.completedDayCount || 0) / Math.max(1, Number(next.totalDayCount || 1))),
       );
-      const collectionRunId = collectionRuns.createRunId();
+      activeCheckpoint = {
+        environmentId: operation.environmentId,
+        operationRunId: operation.runId,
+        attemptToken: operation.attemptToken,
+        sliceId: next.sliceId,
+        createRunId: () => collectionRuns.createRunId(),
+      };
+      const collectionRunId = await profitabilityOperationCheckpoint.getOrCreate(
+        activeCheckpoint,
+      );
       retainedCollectionRunId = collectionRunId;
       profitabilityAdUploadContexts.set(collectionRunId, {
         operationRunId: operation.runId,
@@ -4704,6 +4717,8 @@ async function runAdvertisingProfitabilityOperation(operation) {
           }),
         },
       );
+      await profitabilityOperationCheckpoint.clear(activeCheckpoint);
+      activeCheckpoint = null;
       completedSliceCount += 1;
     }
     return {
@@ -4724,6 +4739,9 @@ async function runAdvertisingProfitabilityOperation(operation) {
       errorMessage: error?.message || "Advertising profitability refresh failed.",
     };
   } finally {
+    if (activeCheckpoint) {
+      await profitabilityOperationCheckpoint.clear(activeCheckpoint).catch(() => false);
+    }
     if (retainedCollectionRunId && !preserveAttentionWindow) {
       await collectionWindowFor(operation.environmentId)
         .close(retainedCollectionRunId)

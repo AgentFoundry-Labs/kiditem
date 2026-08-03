@@ -14,6 +14,16 @@
     "advertising.ad_keyword",
     "advertising.scrape_targets",
   ]);
+  // This controller is the Coupang-domain recovery owner. Collection sessions
+  // are shared by every domain in the unified service worker, so it must never
+  // restart an in-flight Sellpia/order session just because the worker booted.
+  // Those sessions are resumed by their exact browser-operation handler.
+  const RECOVERABLE_EXTENSION_PRODUCERS = new Set([
+    "advertising.ad_sync",
+    "advertising.scrape_targets",
+    "advertising.wing_rank",
+    "channels.coupang_catalog",
+  ]);
   const UUID_PATTERN =
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const ACTIVE_SESSION_STATUSES = new Set(["pending", "running"]);
@@ -310,6 +320,9 @@
         ? await sessions.listAll()
         : await sessions.list();
       for (const session of active) {
+        if (!RECOVERABLE_EXTENSION_PRODUCERS.has(session.producer)) {
+          continue;
+        }
         if (
           session.status !== "running" &&
           session.status !== "attention_required"
@@ -324,6 +337,17 @@
           });
         }
         if (session.status === "attention_required") continue;
+        if (session.producer === "advertising.ad_sync") {
+          // A generic campaign sync has no durable server-owned checkpoint.
+          // After an MV3 worker restart it cannot be safely replayed from an
+          // arbitrary in-memory Promise, so surface one actionable session
+          // instead of leaving a hidden running owner that blocks new work.
+          await manualConfirmation(
+            session.runId,
+            "광고 동기화가 브라우저 재시작으로 중단되었습니다. 다시 실행하거나 중단해주세요.",
+          );
+          continue;
+        }
         if (session.restartStrategy === "extension") {
           await restart(session.runId, session.environmentId);
         } else {

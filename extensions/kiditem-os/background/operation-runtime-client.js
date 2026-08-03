@@ -5,6 +5,8 @@
   const CLAIM_PATH = "/api/operation-runtime/browser/claim";
   const HEARTBEAT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/heartbeat`;
   const REPORT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/report`;
+  const ACTIVE_CLAIMS_STORAGE_KEY = "kiditem_operation_runtime_active_v1";
+  const RESUME_LEASE_MS = 90_000;
 
   function boundedText(value, fallback, maximum) {
     if (typeof value !== "string") return fallback;
@@ -41,6 +43,22 @@
     throw new Error("invalid_operation_outcome");
   }
 
+  function isRecord(value) {
+    return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+  }
+
+  function validClaim(value) {
+    return isRecord(value) &&
+      typeof value.runId === "string" && value.runId.length > 0 &&
+      typeof value.operationKey === "string" && value.operationKey.length > 0 &&
+      typeof value.attemptToken === "string" && value.attemptToken.length > 0;
+  }
+
+  function isFutureTimestamp(value) {
+    const timestamp = Date.parse(String(value || ""));
+    return Number.isFinite(timestamp) && timestamp > Date.now();
+  }
+
   function create(options) {
     if (!options?.chrome?.alarms || !options?.environmentContext || !options?.domains) {
       throw new Error("Operation runtime dependencies are required");
@@ -54,7 +72,63 @@
       120,
     );
     const activeTicks = new Set();
+    const activeExecutions = new Set();
     let installed = false;
+
+    async function readActiveClaims() {
+      try {
+        const stored = await chromeApi.storage?.local?.get(ACTIVE_CLAIMS_STORAGE_KEY);
+        const claims = stored?.[ACTIVE_CLAIMS_STORAGE_KEY];
+        return isRecord(claims) ? claims : {};
+      } catch {
+        return {};
+      }
+    }
+
+    async function writeActiveClaims(claims) {
+      try {
+        await chromeApi.storage?.local?.set({ [ACTIVE_CLAIMS_STORAGE_KEY]: claims });
+      } catch {
+        // Persistence is a restart-recovery guard. A temporary storage error
+        // must not prevent a browser operation that is already claimed.
+      }
+    }
+
+    async function storeActiveClaim(environmentId, claim, progress = null) {
+      const claims = await readActiveClaims();
+      claims[environmentId] = {
+        claim,
+        progress: typeof progress === "number" && progress >= 0 && progress <= 1
+          ? progress
+          : null,
+        resumeLeaseExpiresAt: new Date(Date.now() + RESUME_LEASE_MS).toISOString(),
+      };
+      await writeActiveClaims(claims);
+    }
+
+    async function clearActiveClaim(environmentId, claim) {
+      const claims = await readActiveClaims();
+      const current = claims[environmentId];
+      if (!current || !validClaim(current.claim)) return;
+      if (
+        current.claim.runId !== claim.runId ||
+        current.claim.attemptToken !== claim.attemptToken
+      ) {
+        return;
+      }
+      delete claims[environmentId];
+      await writeActiveClaims(claims);
+    }
+
+    async function activeClaimFor(environmentId) {
+      const claims = await readActiveClaims();
+      const active = claims[environmentId];
+      if (!isRecord(active) || !validClaim(active.claim)) return null;
+      const lease = active.resumeLeaseExpiresAt || active.claim.leaseExpiresAt;
+      if (isFutureTimestamp(lease)) return active;
+      await clearActiveClaim(environmentId, active.claim);
+      return null;
+    }
 
     async function requestJson(environmentId, path, body) {
       const response = await environmentContext.authedFetch(environmentId, path, {
@@ -88,17 +162,23 @@
       return Math.max(1_000, Math.floor(Math.max(3_000, remaining) / 3));
     }
 
-    async function executeClaim(environmentId, claim) {
+    async function executeClaim(environmentId, claim, initialProgress = null) {
+      if (activeExecutions.has(environmentId)) return false;
       const handler = domains.runOperation(claim.operationKey);
       if (typeof handler !== "function") {
         await report(environmentId, claim, {
           status: "attention_required",
           attentionReason: "browser_operation_handler_missing",
         });
-        return;
+        await clearActiveClaim(environmentId, claim);
+        return true;
       }
 
-      let latestProgress = null;
+      activeExecutions.add(environmentId);
+      let latestProgress =
+        typeof initialProgress === "number" && initialProgress >= 0 && initialProgress <= 1
+          ? initialProgress
+          : null;
       let heartbeatStopped = false;
       const sendHeartbeat = async () => {
         if (heartbeatStopped) return;
@@ -107,6 +187,7 @@
             attemptToken: claim.attemptToken,
             progress: latestProgress,
           });
+          await storeActiveClaim(environmentId, claim, latestProgress);
         } catch {
           // A fenced or unavailable lease is resolved by the terminal report; do
           // not retry the domain handler or leak its raw browser error.
@@ -121,29 +202,40 @@
       };
 
       try {
-        const outcome = normalizeOutcome(await handler({
-          environmentId,
-          runId: claim.runId,
-          attemptToken: claim.attemptToken,
-          input: claim.input || {},
-          heartbeat,
-        }));
-        await report(environmentId, claim, { ...outcome, progress: latestProgress });
-      } catch {
-        await report(environmentId, claim, {
-          status: "failed",
-          errorCode: "browser_operation_failed",
-          errorMessage: "The browser operation could not be completed.",
-          progress: latestProgress,
-        }).catch(() => undefined);
+        await storeActiveClaim(environmentId, claim, latestProgress);
+        let outcome;
+        try {
+          outcome = normalizeOutcome(await handler({
+            environmentId,
+            runId: claim.runId,
+            attemptToken: claim.attemptToken,
+            input: claim.input || {},
+            heartbeat,
+          }));
+        } catch {
+          outcome = {
+            status: "failed",
+            errorCode: "browser_operation_failed",
+            errorMessage: "The browser operation could not be completed.",
+          };
+        }
+        try {
+          await report(environmentId, claim, { ...outcome, progress: latestProgress });
+          await clearActiveClaim(environmentId, claim);
+        } catch {
+          // Keep the claim checkpoint. The next service-worker wake-up resumes
+          // the exact fenced attempt instead of creating another provider job.
+        }
       } finally {
         heartbeatStopped = true;
         clearInterval(intervalId);
+        activeExecutions.delete(environmentId);
       }
+      return true;
     }
 
     async function tick(environmentId) {
-      if (activeTicks.has(environmentId)) return false;
+      if (activeTicks.has(environmentId) || activeExecutions.has(environmentId)) return false;
       activeTicks.add(environmentId);
       try {
         const payload = await requestJson(environmentId, CLAIM_PATH, {
@@ -170,6 +262,28 @@
       }
     }
 
+    async function resumeOrTick(environmentId) {
+      if (activeTicks.has(environmentId) || activeExecutions.has(environmentId)) {
+        return false;
+      }
+      const active = await activeClaimFor(environmentId);
+      if (active) {
+        try {
+          await requestJson(environmentId, HEARTBEAT_PATH(active.claim.runId), {
+            attemptToken: active.claim.attemptToken,
+            progress: active.progress,
+          });
+          await storeActiveClaim(environmentId, active.claim, active.progress);
+          return executeClaim(environmentId, active.claim, active.progress);
+        } catch {
+          // A terminal or fenced run must not replay marketplace work from a
+          // stale local checkpoint. Drop it and ask the server for new work.
+          await clearActiveClaim(environmentId, active.claim);
+        }
+      }
+      return tick(environmentId);
+    }
+
     function installAlarms() {
       for (const environmentId of environmentContext.environmentIds) {
         chromeApi.alarms.create(environmentContext.alarmName(ALARM_BASE, environmentId), {
@@ -184,11 +298,11 @@
       installed = true;
       installAlarms();
       for (const environmentId of environmentContext.environmentIds) {
-        void tick(environmentId);
+        void resumeOrTick(environmentId);
       }
       chromeApi.alarms.onAlarm.addListener((alarm) => {
         const environmentId = environmentContext.parseAlarmName(ALARM_BASE, alarm?.name);
-        if (environmentId) void tick(environmentId);
+        if (environmentId) void resumeOrTick(environmentId);
       });
       chromeApi.runtime.onInstalled?.addListener(installAlarms);
       chromeApi.runtime.onStartup?.addListener(installAlarms);

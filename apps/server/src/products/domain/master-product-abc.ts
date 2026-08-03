@@ -58,7 +58,11 @@ export function evaluateMasterProductAbc(
     });
   }
   if (!input.formula) {
-    return unavailableEvaluation(base, 'CALIBRATION_PENDING', '검증된 ABC 수식 버전이 아직 없습니다.');
+    return unavailableEvaluation(
+      base,
+      'INSUFFICIENT_EVIDENCE',
+      '자동 ABC 수식에 필요한 수익성 이력 표본을 수집 중입니다.',
+    );
   }
   if (input.recalculating) {
     return retainOrUnavailable({
@@ -198,7 +202,7 @@ function unavailableEvaluation(
   base: EvaluationBase,
   calculationStatus: Extract<
     ProductAbcCalculationStatus,
-    'SOURCE_UNMAPPED' | 'CALIBRATION_PENDING'
+    'INSUFFICIENT_EVIDENCE' | 'SOURCE_UNMAPPED'
   >,
   statusDetail: string,
 ): ProductAbcEvaluation {

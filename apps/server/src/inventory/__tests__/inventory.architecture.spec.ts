@@ -46,9 +46,19 @@ describe('Inventory architecture contract', () => {
         .toContain('sellpiaInventorySkuId');
       expect(block, `${modelName} must relate to SellpiaInventorySku`)
         .toContain('SellpiaInventorySku');
-      expect(block).not.toContain('masterProductId');
       expect(block).not.toMatch(/\boptionId\b/);
     }
+  });
+
+  it('links each physical Sellpia source SKU to at most one canonical MasterProduct', () => {
+    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
+    const block = schema.match(
+      /model SellpiaInventorySku \{([\s\S]*?)\n\}/,
+    )?.[1] ?? '';
+
+    expect(block).toContain('masterProductId');
+    expect(block).toContain('masterProduct');
+    expect(block).toContain('MasterProductInventorySkus');
   });
 
   it('removes every legacy Sellpia MasterProduct read symbol and filename', () => {

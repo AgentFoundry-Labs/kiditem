@@ -126,12 +126,16 @@ describe('ProductOperationsService', () => {
     const imminentSkuId = '10000000-0000-4000-8000-000000000022';
     const reorderSkuId = '10000000-0000-4000-8000-000000000023';
     const attention = rawListProduct(attentionId);
+    attention.inventorySkuIds = [];
     attention.inventoryOptions[0]!.inventoryComponents = [];
     const outOfStock = rawListProduct(outOfStockId);
+    outOfStock.inventorySkuIds = [outOfStockSkuId];
     outOfStock.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = outOfStockSkuId;
     const imminent = rawListProduct(imminentId);
+    imminent.inventorySkuIds = [imminentSkuId];
     imminent.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = imminentSkuId;
     const reorder = rawListProduct(reorderId);
+    reorder.inventorySkuIds = [reorderSkuId];
     reorder.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = reorderSkuId;
     const repository = makeRepository();
     repository.listProducts.mockResolvedValue({
@@ -460,7 +464,7 @@ function makeRepository() {
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
-    replaceChannelOptionInventory: vi.fn().mockResolvedValue(product),
+    replaceChannelOptionInventory: vi.fn().mockResolvedValue({ masterProductId: product.id }),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };
@@ -537,6 +541,7 @@ function rawProduct() {
     isActive: true,
     createdAt: new Date('2026-07-17T00:00:00.000Z'),
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
+    inventorySkuIds: [],
     channelListings: [],
   };
 }
@@ -575,6 +580,7 @@ function rawListProduct(id: string) {
       },
     },
     profit: null,
+    inventorySkuIds: [skuId],
     inventoryOptions: [{
       id: channelListingOptionId,
       externalOptionId: 'OPTION-1',

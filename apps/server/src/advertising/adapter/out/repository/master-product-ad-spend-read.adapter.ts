@@ -25,7 +25,6 @@ export class MasterProductAdSpendReadAdapter
     const listings = await this.prisma.channelListing.findMany({
       where: {
         organizationId: input.organizationId,
-        masterProductId: { in: masterProductIds },
         isActive: true,
         channelAccount: {
           is: {
@@ -34,10 +33,39 @@ export class MasterProductAdSpendReadAdapter
             status: 'active',
           },
         },
+        options: {
+          some: {
+            isActive: true,
+            inventoryComponents: {
+              some: {
+                sellpiaInventorySku: {
+                  is: { masterProductId: { in: masterProductIds } },
+                },
+              },
+            },
+          },
+        },
       },
-      select: { id: true, masterProductId: true },
+      select: {
+        id: true,
+        options: {
+          where: { isActive: true },
+          select: {
+            inventoryComponents: {
+              select: {
+                quantity: true,
+                sellpiaInventorySku: { select: { masterProductId: true } },
+              },
+            },
+          },
+        },
+      },
     });
-    const listingIds = listings.map((listing) => listing.id);
+    const recipeListings = listings.flatMap((listing) => {
+      const recipe = completeListingRecipe(listing);
+      return recipe ? [{ id: listing.id, masterWeights: recipe }] : [];
+    });
+    const listingIds = recipeListings.map((listing) => listing.id);
     const expectedDatesByMaster = new Map(requests.map((request) => [
       request.masterProductId,
       expectedCalendarDates(request.coverage),
@@ -61,12 +89,13 @@ export class MasterProductAdSpendReadAdapter
           adObservedAt: true,
         },
       });
-    const listingsByMaster = new Map<string, string[]>();
-    for (const listing of listings) {
-      if (!listing.masterProductId) continue;
-      const ids = listingsByMaster.get(listing.masterProductId) ?? [];
-      ids.push(listing.id);
-      listingsByMaster.set(listing.masterProductId, ids);
+    const listingsByMaster = new Map<string, ListingRecipe[]>();
+    for (const listing of recipeListings) {
+      for (const masterProductId of listing.masterWeights.keys()) {
+        const recipes = listingsByMaster.get(masterProductId) ?? [];
+        recipes.push(listing);
+        listingsByMaster.set(masterProductId, recipes);
+      }
     }
     const rowByListingAndDate = new Map(rows.map((row) => [
       `${row.listingId}\u0000${dateKey(row.businessDate)}`,
@@ -75,9 +104,9 @@ export class MasterProductAdSpendReadAdapter
 
     return requests.map((request) => {
       const expectedDates = expectedDatesByMaster.get(request.masterProductId) ?? [];
-      const masterListingIds = listingsByMaster.get(request.masterProductId) ?? [];
-      const expectedPairs = masterListingIds.flatMap((listingId) => expectedDates.map((date) => ({
-        listingId,
+      const masterListings = listingsByMaster.get(request.masterProductId) ?? [];
+      const expectedPairs = masterListings.flatMap((listing) => expectedDates.map((date) => ({
+        listingId: listing.id,
         date,
       })));
       const foundRows = expectedPairs.flatMap(({ listingId, date }) => {
@@ -88,7 +117,7 @@ export class MasterProductAdSpendReadAdapter
         && dateKey(expectedDates[expectedDates.length - 1]!) === dateKey(input.asOfDate);
       const coverageStartDate = expectedDates[0] ?? null;
       const coverageEndDate = expectedDates[expectedDates.length - 1] ?? null;
-      if (masterListingIds.length === 0 || expectedDates.length === 0 || foundRows.length === 0) {
+      if (masterListings.length === 0 || expectedDates.length === 0 || foundRows.length === 0) {
         return {
           masterProductId: request.masterProductId,
           status: 'MISSING',
@@ -110,12 +139,18 @@ export class MasterProductAdSpendReadAdapter
       }
       const dailyFacts = expectedDates.map((businessDate) => ({
         businessDate,
-        adSpend: masterListingIds.reduce((sum, listingId) =>
-          sum + (rowByListingAndDate.get(`${listingId}\u0000${dateKey(businessDate)}`)?.adSpend ?? 0), 0),
+        adSpend: masterListings.reduce((sum, listing) => {
+          const spend = rowByListingAndDate.get(`${listing.id}\u0000${dateKey(businessDate)}`)?.adSpend ?? 0;
+          return sum + allocatedAdSpend(spend, listing.masterWeights, request.masterProductId);
+        }, 0),
       }));
       return {
         masterProductId: request.masterProductId,
-        status: dailyFacts.every((fact) => fact.adSpend === 0) ? 'CONFIRMED_ZERO' : 'OBSERVED',
+        // A MasterProduct can receive a zero-won share after deterministic
+        // rounding even when the source listing did spend. Preserve that
+        // provenance as OBSERVED instead of falsely reporting a zero-spend
+        // source.
+        status: foundRows.every((row) => row.adSpend === 0) ? 'CONFIRMED_ZERO' : 'OBSERVED',
         coverageStartDate,
         coverageEndDate,
         capturedAt: latestCapturedAt(foundRows),
@@ -123,6 +158,74 @@ export class MasterProductAdSpendReadAdapter
       } satisfies MasterProductAdSpendEvidence;
     });
   }
+}
+
+type ListingRecipe = Readonly<{
+  id: string;
+  masterWeights: ReadonlyMap<string, number>;
+}>;
+
+/**
+ * The ad source is listing-grain while ABC belongs to MasterProduct. A listing
+ * may be a bundle or option family backed by multiple inventory products, so
+ * allocate its spend by the confirmed option recipe. We only use a fully
+ * mapped listing: charging a mapped MasterProduct for an unknown option would
+ * make its profitability look worse without a defensible allocation basis.
+ */
+function completeListingRecipe(listing: {
+  options: readonly {
+    inventoryComponents: readonly {
+      quantity: number;
+      sellpiaInventorySku: { masterProductId: string | null };
+    }[];
+  }[];
+}): ReadonlyMap<string, number> | null {
+  if (listing.options.length === 0) return null;
+  const masterWeights = new Map<string, number>();
+  for (const option of listing.options) {
+    if (option.inventoryComponents.length === 0) return null;
+    for (const component of option.inventoryComponents) {
+      const masterProductId = component.sellpiaInventorySku.masterProductId;
+      if (!masterProductId || component.quantity <= 0) return null;
+      masterWeights.set(
+        masterProductId,
+        (masterWeights.get(masterProductId) ?? 0) + component.quantity,
+      );
+    }
+  }
+  return masterWeights.size > 0 ? masterWeights : null;
+}
+
+/**
+ * Keep the source amount conserved at a one-won resolution. Largest remainder
+ * makes the unavoidable rounding deterministic instead of duplicating (or
+ * losing) spend across the MasterProducts in a bundle.
+ */
+function allocatedAdSpend(
+  totalSpend: number,
+  masterWeights: ReadonlyMap<string, number>,
+  targetMasterProductId: string,
+): number {
+  const totalWeight = [...masterWeights.values()].reduce((sum, weight) => sum + weight, 0);
+  const targetWeight = masterWeights.get(targetMasterProductId) ?? 0;
+  if (totalWeight <= 0 || targetWeight <= 0 || totalSpend === 0) return 0;
+
+  const allocations = [...masterWeights.entries()].map(([masterProductId, weight]) => {
+    const exact = totalSpend * weight / totalWeight;
+    return {
+      masterProductId,
+      amount: Math.floor(exact),
+      fraction: exact - Math.floor(exact),
+    };
+  });
+  let remaining = totalSpend - allocations.reduce((sum, allocation) => sum + allocation.amount, 0);
+  allocations.sort((left, right) => right.fraction - left.fraction
+    || left.masterProductId.localeCompare(right.masterProductId));
+  for (let index = 0; remaining > 0; index = (index + 1) % allocations.length) {
+    allocations[index]!.amount += 1;
+    remaining -= 1;
+  }
+  return allocations.find((allocation) => allocation.masterProductId === targetMasterProductId)?.amount ?? 0;
 }
 
 function uniqueRequests(input: readonly {

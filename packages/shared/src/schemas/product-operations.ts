@@ -226,6 +226,7 @@ export type ProductOperationsDataStatus = z.infer<
 
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
+    isSelling: z.boolean(),
     updatedAt: zIsoDate,
     depletion: ProductDepletionProjectionSchema,
     channelOptionSummary: ChannelOptionSummarySchema,
@@ -233,6 +234,11 @@ export const MasterProductOperationsListItemSchema =
     inventoryStatus: ProductInventoryStatusSchema,
     channelCount: z.number().int().nonnegative(),
     channelStatus: ProductChannelStatusSchema,
+    activeChannels: z.array(z.object({
+      channelAccountId: z.string().uuid(),
+      channel: z.string().min(1),
+      channelAccountName: z.string().min(1),
+    }).strict()),
     traffic: z.number().int().nonnegative().nullable(),
     visitorCount: z.number().int().nonnegative().nullable(),
     viewCount: z.number().int().nonnegative().nullable(),
@@ -254,10 +260,16 @@ export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
 >;
 
-export const ProductOperationsChannelProductCountSchema = z.object({
+export const ProductOperationsActiveChannelSchema = z.object({
   channelAccountId: z.string().uuid(),
   channel: z.string().min(1),
   channelAccountName: z.string().min(1),
+}).strict();
+export type ProductOperationsActiveChannel = z.infer<
+  typeof ProductOperationsActiveChannelSchema
+>;
+
+export const ProductOperationsChannelProductCountSchema = ProductOperationsActiveChannelSchema.extend({
   count: z.number().int().nonnegative(),
 }).strict();
 export type ProductOperationsChannelProductCount = z.infer<

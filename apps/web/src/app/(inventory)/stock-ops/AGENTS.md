@@ -29,11 +29,11 @@ not what an operator does to it. Inventory operations live in
 - Its refresh action explicitly requests the shared Sellpia `inventory` scope.
   It only collects physical current stock; Product Management's separate
   `full` scope owns product-profit collection and automatic ABC recalculation.
-- Every matched destination renders its stored grade plus current automatic ABC
-  calculation status with the shared compact badge; shared SKUs may show
-  multiple states. A/B/C, observation, calibration, source-stale, and
-  unpublished filters use destination snapshots without treating any of them
-  as C.
+- Every matched Sellpia row renders the one stored grade and current automatic
+  ABC calculation status of its canonical inventory MasterProduct. Shared
+  channel destinations never create additional grades. A/B/C, observation,
+  calibration, source-stale, and unpublished filters use that canonical
+  snapshot without treating any of them as C.
   This is display/filter context only: never alter depletion, stock, or reorder
   formulas and keep policy/profit explanation in Product Management.
 - Destination images are read-only active Coupang catalog media selected for
@@ -49,8 +49,8 @@ not what an operator does to it. Inventory operations live in
 - Do not turn the whole route into a redirect to `/inventory-hub`. Per-tab
   redirects for moved views are the supported mechanism.
 - Do not write Sellpia stock or duplicate backend capacity calculations.
-- Do not infer a single operating product for a shared SKU or merge this route
-  into `/product-hub`; use links between the two independent screens.
+- Do not infer grades from channel destinations. Use the source SKU's canonical
+  MasterProduct and keep this analysis route separate from `/product-hub`.
 
 ## Verification
 

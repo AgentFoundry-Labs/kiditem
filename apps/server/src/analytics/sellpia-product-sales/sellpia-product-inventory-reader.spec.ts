@@ -18,7 +18,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     }]);
     const reader = new SellpiaProductInventoryReader({
       sellpiaInventorySku: {
-        findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]),
+        findMany: vi.fn(async () => [inventoryCandidate(skuId)]),
       },
       channelListingOptionInventoryComponent: {
         findMany: destinationFindMany,
@@ -45,6 +45,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     });
     expect(result.projection.byProductKey.get('SKU-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
+      inventoryProduct: { masterProductId: 'master-1', abcGrade: 'B' },
       destinations: [{
         abcGrade: 'B',
         displayImage: { url: 'https://cdn.example/exact.jpg' },
@@ -64,7 +65,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
   it('logs media failure and preserves the inventory projection with null images', async () => {
     const skuId = '11111111-1111-4111-8111-111111111111';
     const reader = new SellpiaProductInventoryReader({
-      sellpiaInventorySku: { findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]) },
+      sellpiaInventorySku: { findMany: vi.fn(async () => [inventoryCandidate(skuId)]) },
       channelListingOptionInventoryComponent: {
         findMany: vi.fn(async () => [{
           sellpiaInventorySkuId: skuId,
@@ -96,7 +97,10 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     row.listing.masterProduct.abcGrade = null;
     row.listing.masterProduct.abcEvaluation = evaluationRow();
     const reader = new SellpiaProductInventoryReader({
-      sellpiaInventorySku: { findMany: vi.fn(async () => [{ id: skuId, code: 'SKU-1', barcode: null, isActive: true }]) },
+      sellpiaInventorySku: { findMany: vi.fn(async () => [{
+        ...inventoryCandidate(skuId),
+        masterProduct: row.listing.masterProduct,
+      }]) },
       channelListingOptionInventoryComponent: {
         findMany: vi.fn(async () => [{
           sellpiaInventorySkuId: skuId,
@@ -117,7 +121,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
 
     expect(result.projection.byProductKey.get('SKU-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
-      destinations: [{
+      inventoryProduct: {
         abcGrade: null,
         abcEvaluation: {
           calculationStatus: 'INSUFFICIENT_EVIDENCE',
@@ -126,10 +130,26 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
             sellpia: expect.objectContaining({ capturedAt: new Date('2026-07-17T00:00:00.000Z') }),
           }),
         },
-      }],
+      },
     });
   });
 });
+
+function inventoryCandidate(skuId: string) {
+  return {
+    id: skuId,
+    code: 'SKU-1',
+    barcode: null,
+    isActive: true,
+    masterProduct: {
+      id: 'master-1',
+      code: 'MASTER-1',
+      name: 'Master',
+      abcGrade: 'B',
+      abcEvaluation: null,
+    },
+  };
+}
 
 function channelOption(): {
   id: string;

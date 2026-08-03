@@ -43,7 +43,10 @@ describe('SellpiaMasterProductProfitFactReader', () => {
         sellpiaInventorySkuId: 'sku-1',
         channelListingOption: { listing: { masterProductId: 'master-1' } },
       }],
-      skus: [{ id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true }],
+      skus: [{
+        id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true,
+        masterProductId: 'master-1',
+      }],
       sales: [sourceFact(), sourceFact({ optionCode: 'ALT-OPTION', orderAmount: 250, inAmount: 100 })],
     });
 
@@ -69,9 +72,12 @@ describe('SellpiaMasterProductProfitFactReader', () => {
     expect(prisma.sellpiaProductMonthlySales.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { organizationId: ORGANIZATION_ID, yearMonth: { in: ['2026-05', '2026-06', '2026-07'] } },
     }));
+    expect(prisma.sellpiaInventorySku.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      select: expect.objectContaining({ masterProductId: true }),
+    }));
   });
 
-  it('keeps unmapped, ambiguous, and legacy rows in the audit collection rather than creating numeric facts', async () => {
+  it('attributes a shared recipe SKU once through its canonical MasterProduct owner', async () => {
     const { reader } = makeReader({
       components: [
         { sellpiaInventorySkuId: 'shared-sku', channelListingOption: { listing: { masterProductId: 'master-a' } } },
@@ -79,8 +85,14 @@ describe('SellpiaMasterProductProfitFactReader', () => {
         { sellpiaInventorySkuId: 'legacy-sku', channelListingOption: { listing: { masterProductId: 'master-c' } } },
       ],
       skus: [
-        { id: 'shared-sku', code: 'SHARED', barcode: null, isActive: true },
-        { id: 'legacy-sku', code: 'LEGACY', barcode: null, isActive: true },
+        {
+          id: 'shared-sku', code: 'SHARED', barcode: null, isActive: true,
+          masterProductId: 'master-a',
+        },
+        {
+          id: 'legacy-sku', code: 'LEGACY', barcode: null, isActive: true,
+          masterProductId: 'master-c',
+        },
       ],
       sales: [
         sourceFact({ productCode: 'SHARED' }),
@@ -96,14 +108,19 @@ describe('SellpiaMasterProductProfitFactReader', () => {
     });
 
     expect(result.evidence).toMatchObject([
-      { masterProductId: 'master-a', mappingStatus: 'UNMAPPED', monthlyFacts: [] },
+      {
+        masterProductId: 'master-a', mappingStatus: 'MAPPED',
+        monthlyFacts: [{ revenue: 1_000, sellpiaInAmount: 400 }],
+      },
       { masterProductId: 'master-b', mappingStatus: 'UNMAPPED', monthlyFacts: [] },
       { masterProductId: 'master-c', mappingStatus: 'MAPPED', monthlyFacts: [] },
     ]);
     expect(result.orphanFacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productCode: 'SHARED', reason: 'AMBIGUOUS_MASTER_PRODUCT' }),
       expect.objectContaining({ productCode: 'LEGACY', reason: 'LEGACY_COVERAGE_MISSING' }),
       expect.objectContaining({ productCode: 'NO-MATCH', reason: 'SOURCE_UNMAPPED' }),
+    ]));
+    expect(result.orphanFacts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ productCode: 'SHARED' }),
     ]));
   });
 
@@ -113,7 +130,10 @@ describe('SellpiaMasterProductProfitFactReader', () => {
         sellpiaInventorySkuId: 'sku-1',
         channelListingOption: { listing: { masterProductId: 'master-1' } },
       }],
-      skus: [{ id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true }],
+      skus: [{
+        id: 'sku-1', code: 'SELLPIA-1', barcode: null, isActive: true,
+        masterProductId: 'master-1',
+      }],
       sales: [
         sourceFact(),
         sourceFact({ optionCode: 'ALT', coverageStartDate: new Date('2026-05-01T00:00:00.000Z') }),

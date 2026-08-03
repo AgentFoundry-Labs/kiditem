@@ -7,6 +7,7 @@ import {
   type ProductAbcFormulaSummary,
 } from '@kiditem/shared/product-abc';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { listSellingMasterProductIds } from './selling-master-product.query';
 import type {
   MasterProductAbcFormulaStateRecord,
   MasterProductAbcRepositoryPort,
@@ -17,7 +18,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
   constructor(private readonly prisma: PrismaService) {}
 
   async listSellingMasterProductIds(organizationId: string): Promise<readonly string[]> {
-    return sellingMasterProductIds(this.prisma, organizationId);
+    return listSellingMasterProductIds(this.prisma, organizationId);
   }
 
   async reconcileInventoryActivity(organizationId: string): Promise<{
@@ -39,36 +40,17 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
         AND mp.is_active = TRUE
         AND EXISTS (
           SELECT 1
-          FROM channel_listings cl
-          JOIN channel_listing_options clo
-            ON clo.organization_id = cl.organization_id
-           AND clo.listing_id = cl.id
-           AND clo.is_active = TRUE
-          JOIN channel_listing_option_inventory_components component
-            ON component.organization_id = clo.organization_id
-           AND component.channel_listing_option_id = clo.id
-          WHERE cl.organization_id = mp.organization_id
-            AND cl.master_product_id = mp.id
-            AND cl.is_active = TRUE
+          FROM sellpia_inventory_skus sku
+          WHERE sku.organization_id = mp.organization_id
+            AND sku.master_product_id = mp.id
         )
         AND NOT EXISTS (
           SELECT 1
-          FROM channel_listings cl
-          JOIN channel_listing_options clo
-            ON clo.organization_id = cl.organization_id
-           AND clo.listing_id = cl.id
-           AND clo.is_active = TRUE
-          JOIN channel_listing_option_inventory_components component
-            ON component.organization_id = clo.organization_id
-           AND component.channel_listing_option_id = clo.id
-          JOIN sellpia_inventory_skus sku
-            ON sku.organization_id = component.organization_id
-           AND sku.id = component.sellpia_inventory_sku_id
-           AND sku.is_active = TRUE
-           AND sku.current_stock > 0
-          WHERE cl.organization_id = mp.organization_id
-            AND cl.master_product_id = mp.id
-            AND cl.is_active = TRUE
+          FROM sellpia_inventory_skus sku
+          WHERE sku.organization_id = mp.organization_id
+            AND sku.master_product_id = mp.id
+            AND sku.is_active = TRUE
+            AND sku.current_stock > 0
         )
       RETURNING mp.id
     `);
@@ -84,22 +66,11 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
         AND mp.is_active = FALSE
         AND EXISTS (
           SELECT 1
-          FROM channel_listings cl
-          JOIN channel_listing_options clo
-            ON clo.organization_id = cl.organization_id
-           AND clo.listing_id = cl.id
-           AND clo.is_active = TRUE
-          JOIN channel_listing_option_inventory_components component
-            ON component.organization_id = clo.organization_id
-           AND component.channel_listing_option_id = clo.id
-          JOIN sellpia_inventory_skus sku
-            ON sku.organization_id = component.organization_id
-           AND sku.id = component.sellpia_inventory_sku_id
-           AND sku.is_active = TRUE
-           AND sku.current_stock > 0
-          WHERE cl.organization_id = mp.organization_id
-            AND cl.master_product_id = mp.id
-            AND cl.is_active = TRUE
+          FROM sellpia_inventory_skus sku
+          WHERE sku.organization_id = mp.organization_id
+            AND sku.master_product_id = mp.id
+            AND sku.is_active = TRUE
+            AND sku.current_stock > 0
         )
       RETURNING mp.id
     `);
@@ -200,7 +171,7 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       const candidateIds = [...input.evaluations.keys()].sort();
       const ids = candidateIds.length === 0
         ? []
-        : await sellingMasterProductIds(tx, input.organizationId, candidateIds);
+        : await listSellingMasterProductIds(tx, input.organizationId, candidateIds);
       const cleared = await tx.masterProduct.updateMany({
         where: {
           organizationId: input.organizationId,
@@ -269,73 +240,6 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       return { changedProductCount: changed.length + cleared.count, stale: false };
     });
   }
-}
-
-const STOPPED_SALE_STATUSES = [
-  'paused',
-  'suspend',
-  'suspended',
-  'inactive',
-  'deleted',
-  'draft',
-  'rejected',
-  'stopped',
-  'discontinued',
-  'off_sale',
-  'not_on_sale',
-  '판매중지',
-  '판매 중지',
-  '판매중단',
-  '판매 중단',
-  '판매종료',
-  '판매 종료',
-  '승인반려',
-] as const;
-
-async function sellingMasterProductIds(
-  prisma: PrismaService | Prisma.TransactionClient,
-  organizationId: string,
-  candidateIds?: readonly string[],
-): Promise<string[]> {
-  if (candidateIds && candidateIds.length === 0) return [];
-  const candidateFilter = candidateIds
-    ? Prisma.sql`AND mp.id IN (${Prisma.join(candidateIds.map((id) => Prisma.sql`${id}::uuid`))})`
-    : Prisma.empty;
-  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT DISTINCT mp.id
-    FROM master_products mp
-    JOIN channel_listings cl
-      ON cl.organization_id = mp.organization_id
-     AND cl.master_product_id = mp.id
-     AND cl.is_active = TRUE
-    JOIN channel_accounts ca
-      ON ca.organization_id = cl.organization_id
-     AND ca.id = cl.channel_account_id
-     AND ca.status = 'active'
-    WHERE mp.organization_id = ${organizationId}::uuid
-      AND mp.is_active = TRUE
-      ${candidateFilter}
-      AND TRIM(LOWER(COALESCE(cl.status, '')))
-        NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-      AND TRIM(LOWER(COALESCE(
-          cl.raw_json ->> 'saleStatus',
-          cl.raw_json ->> 'salesStatus',
-          cl.raw_json ->> 'sale_status',
-          cl.raw_json ->> '판매상태',
-          ''
-        ))) NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-      AND EXISTS (
-        SELECT 1
-        FROM channel_listing_options clo
-        WHERE clo.organization_id = mp.organization_id
-          AND clo.listing_id = cl.id
-          AND clo.is_active = TRUE
-          AND TRIM(LOWER(COALESCE(clo.status, '')))
-            NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-      )
-    ORDER BY mp.id ASC
-  `);
-  return rows.map((row) => row.id);
 }
 
 function evaluationData(input: {

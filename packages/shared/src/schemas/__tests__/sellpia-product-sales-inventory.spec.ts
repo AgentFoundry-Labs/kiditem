@@ -116,6 +116,13 @@ function salesRow() {
       activeCommitmentQuantity: 5,
       availableStock: 25,
       salesRowCount: 1,
+      inventoryProduct: {
+        masterProductId: MASTER_PRODUCT_ID,
+        masterProductCode: 'MP-1',
+        masterProductName: '재고 상품',
+        abcGrade: 'A',
+        abcEvaluation,
+      },
       destinations: [destination],
     },
     monthsOfAvailableStockLeft: 2.5,

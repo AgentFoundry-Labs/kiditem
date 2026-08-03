@@ -2,7 +2,8 @@
 
 `app/(catalog)/product-hub/` owns the KidItem product operations workflows:
 
-- `/product-hub` lists and manages `MasterProduct` metadata;
+- `/product-hub` lists and manages canonical inventory-product
+  (`MasterProduct`) metadata;
 - `/product-hub/[masterProductId]` shows product metadata, linked channel
   listings/options, direct Sellpia consumption rules, capacity, and bottlenecks;
 - `/product-hub/options` is the full read-only Sellpia inventory table;
@@ -51,17 +52,17 @@
 - `수익성 데이터 갱신` requests `full` (product-profit then ABC),
   separately from inventory refresh.
 - Product detail and matching share the complete option-component replacement
-  contract. Matching uses one listing modal for product identity plus child
-  Sellpia identities and quantities. Linked options inherit the product, hide
-  its picker until explicit correction, and a sole option renders as `기본 옵션`.
+  contract. Matching uses one listing modal with child Sellpia identities and
+  quantities. The MasterProduct relationship is derived from saved recipes;
+  there is no separate product picker. A sole option renders as `기본 옵션`.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
 - Candidate generation on `/product-hub/matching` never confirms an identity
   link. Product link mutations and component replacement require explicit
   operator confirmation.
-- Channel catalog publication preserves existing `ChannelListing ->
-  MasterProduct` links and option consumption rules. It does not create
-  channel-origin MasterProducts or infer a product link.
+- Channel catalog publication preserves option consumption rules. It does not
+  create channel-origin MasterProducts; the listing summary is rebuilt only
+  from confirmed option recipes.
 - Channel options without a confirmed Sellpia component rule remain
   visible here as `재고 연결 필요`; matching is the operator correction and
   component-attention workspace.

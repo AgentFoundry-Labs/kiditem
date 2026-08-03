@@ -8,6 +8,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { kstInclusiveDaysStart, kstMonthStart } from '../../../../common/kst';
 import { buildPerListingMetrics } from '../../../../common/per-listing-profit';
+import { periodBounds, type AdPeriod } from '../../../domain/ad-metrics';
 import type { ChannelStateSignal } from '@kiditem/shared/advertising';
 import type {
   AdsConfig,
@@ -37,14 +38,18 @@ export class AdStrategyContextRepositoryAdapter
     organizationId: string,
     year: number,
     month: number,
+    period: AdPeriod,
     config: AdsConfig,
   ): Promise<StrategyContext> {
-    const since14d = kstInclusiveDaysStart(14);
+    const range = periodBounds(period);
 
-    const [adAggAll, adAgg14d, trafficAggAll] = await Promise.all([
+    const [adAgg, trafficAgg] = await Promise.all([
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { organizationId },
+        where: {
+          organizationId,
+          businessDate: { gte: range.from, lte: range.to },
+        },
         _sum: {
           adSpend: true,
           adRevenue: true,
@@ -55,18 +60,10 @@ export class AdStrategyContextRepositoryAdapter
       }),
       this.prisma.channelListingDailySnapshot.groupBy({
         by: ['listingId'],
-        where: { organizationId, businessDate: { gte: since14d } },
-        _sum: {
-          adSpend: true,
-          adRevenue: true,
-          adClicks: true,
-          adImpressions: true,
-          adConversions: true,
+        where: {
+          organizationId,
+          businessDate: { gte: range.from, lte: range.to },
         },
-      }),
-      this.prisma.channelListingDailySnapshot.groupBy({
-        by: ['listingId'],
-        where: { organizationId, businessDate: { gte: since14d } },
         _sum: {
           trafficRevenue: true,
           trafficOrders: true,
@@ -75,8 +72,7 @@ export class AdStrategyContextRepositoryAdapter
     ]);
 
     const listingIds = uniqueIds([
-      ...adAggAll.map((a) => a.listingId),
-      ...adAgg14d.map((a) => a.listingId),
+      ...adAgg.map((a) => a.listingId),
     ]);
     const listingIdSet = new Set(listingIds);
     const monthWindow = {
@@ -107,7 +103,7 @@ export class AdStrategyContextRepositoryAdapter
       string,
       { revenue: number; orders: number }
     >();
-    for (const row of trafficAggAll) {
+    for (const row of trafficAgg) {
       if (!row.listingId) continue;
       trafficByListing.set(row.listingId, {
         revenue: row._sum.trafficRevenue ?? 0,
@@ -116,8 +112,8 @@ export class AdStrategyContextRepositoryAdapter
     }
 
     return {
-      adGroups: toAdAggregateRows(adAggAll),
-      adIssuesAdGroups: toAdAggregateRows(adAgg14d),
+      adGroups: toAdAggregateRows(adAgg),
+      adIssuesAdGroups: toAdAggregateRows(adAgg),
       listings,
       profitRateByListing,
       channelStateByListing,

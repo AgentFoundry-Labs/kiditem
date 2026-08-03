@@ -1,9 +1,10 @@
 # product-hub/matching — Channel Product Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`: Coupang Wing
-catalog import and channel/Sellpia matching review. The model keeps one
-confirmed `ChannelListing -> MasterProduct` product link and a direct inventory
-consumption rule on each `ChannelListingOption` inside one expandable row.
+catalog import and channel/Sellpia matching review. Each
+`ChannelListingOption` owns its direct inventory-consumption rule. The listing
+MasterProduct is an automatic summary only when every option resolves to the
+same canonical inventory product.
 
 ## Data Flow
 
@@ -19,26 +20,24 @@ React Query + apiClient
 ## State Rules
 
 - React Query owns accounts, queue rows, candidates, import, and confirmations.
-- Candidate reads never change confirmed identity.
-- One row command edits listing identity and child option inventory. A confirmed
-  listing link owns every option automatically. Linked rows go straight to
-  inventory and expose the product picker only for explicit correction; one
-  option renders as `기본 옵션`. Do not split these actions.
-- Link/unlink actions invalidate product-mapping and channel-availability.
+- One row command edits every child option inventory recipe; one option renders
+  as `기본 옵션`. There is no separate MasterProduct picker or listing-link
+  confirmation. Saving recipes derives the nullable listing summary.
+- Recipe replacements invalidate product-mapping and channel-availability.
 - Component status/capacity are direct option summaries. Manual replacement
   uses the option's expected-component-fenced complete replacement contract.
   The single `상품 매칭 실행` command may fill an empty rule only when evidence
   resolves one active Sellpia SKU and a verified positive pack quantity.
 - Coupang/Rocket share the queue; only Coupang imports Wing workbooks. The
   account checklist combines queues.
-- Browser catalog publication preserves a previously confirmed product link and
-  component rule but does not create or infer them. Matching remains the
+- Browser catalog publication preserves component rules but does not create or
+  infer them. Matching remains the
   operator correction and component-attention workspace for
   `재고 연결 필요` rows.
 - Product-detail chunks appear immediately; full snapshots reconcile absence.
-- Product rows show `listing.channelImageUrl` beside the channel identity and
-  `linkedProduct.displayImageUrl` beside the confirmed KidItem identity. These
-  are read-time values; opening or confirming a match does not copy media into
+- Product rows show `listing.channelImageUrl` beside the channel identity and a
+  derived single-inventory summary when one exists. These are read-time values;
+  opening or saving a match does not copy media into
   `MasterProduct.imageUrls`.
 
 ## Boundary Rules

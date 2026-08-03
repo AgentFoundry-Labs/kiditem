@@ -84,6 +84,18 @@ describe('ChannelSkuAvailabilityService', () => {
     });
   });
 
+  it('calculates a mixed listing option from its recipe without a listing-level product summary', async () => {
+    const { service } = dependencies([row({ masterProductId: null })]);
+
+    const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);
+
+    expect(result).toMatchObject({
+      masterProductId: null,
+      recipeStatus: 'matched',
+      sku: { mappingStatus: 'matched', sellableStock: 4 },
+    });
+  });
+
   it('marks a linked option without a recipe as configuration required', async () => {
     const { service } = dependencies([row({ components: [] })], []);
     const [result] = await service.findByChannelSkuIds(organizationId, [optionId]);

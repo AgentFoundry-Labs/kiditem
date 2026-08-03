@@ -18,7 +18,7 @@ const STATUS_LABEL = {
   READY: '계산 완료',
   INSUFFICIENT_EVIDENCE: '관찰 중',
   SOURCE_UNMAPPED: '셀피아 매핑 필요',
-  CALIBRATION_PENDING: '수식 보정 대기',
+  CALIBRATION_PENDING: '자동 계산 중',
   RECALCULATING: '재계산 중',
   SELLPIA_SOURCE_STALE: '셀피아 원천 갱신 필요',
   AD_SOURCE_STALE: '광고비 원천 갱신 필요',
@@ -62,7 +62,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
                 <DetailRow label="월 환산 이익" value={money(evaluation.profitVelocity30)} />
                 <DetailRow label="이익률" value={percent(evaluation.weightedContributionMargin)} />
                 <DetailRow label="손실 발생 비율" value={percent(evaluation.lossRecurrence)} />
-                <DetailRow label="보정 점수" value={evaluation.adjustedScore === null ? '계산 전' : evaluation.adjustedScore.toFixed(1)} />
+                <DetailRow label="종합 점수" value={evaluation.adjustedScore === null ? '계산 전' : evaluation.adjustedScore.toFixed(1)} />
                 <DetailRow label="계산 시각" value={evaluation.calculatedAt ? formatDateTime(evaluation.calculatedAt) : '아직 계산하지 않음'} />
                 <DetailRow label="셀피아 원천" value={sourceValue(evaluation.sourceFreshness.sellpia.status, evaluation.sourceFreshness.sellpia.coverageEndDate)} />
                 <DetailRow label="광고비 원천" value={sourceValue(evaluation.sourceFreshness.advertising.status, evaluation.sourceFreshness.advertising.coverageEndDate)} />
@@ -85,7 +85,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
               {evaluation.formula ? <section className="rounded-xl border border-[var(--border-subtle)] p-4 text-sm">
                 <h3 className="font-extrabold text-[var(--text-primary)]">고정 수식 버전</h3>
                 <p className="mt-2 text-[var(--text-secondary)]">ABC_V1 · v{evaluation.formula.version} · 반감기 {evaluation.formula.halfLifeDays}일 · 학습 표본 {evaluation.formula.sampleCount}개</p>
-                <p className="mt-1 text-xs text-[var(--text-tertiary)]">보정 완료 후에는 같은 수식·정규화 구간·등급 경계를 사용합니다.</p>
+                <p className="mt-1 text-xs text-[var(--text-tertiary)]">모든 상품에 같은 고정 수식·정규화 구간·등급 경계를 적용합니다.</p>
               </section> : null}
               {evaluation.statusDetail ? <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{evaluation.statusDetail}</p> : null}
             </> : <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">아직 ABC 평가 스냅샷이 발행되지 않았습니다. 셀피아 상품별 이익현황과 광고비 원천이 준비되면 자동으로 계산합니다.</p>}

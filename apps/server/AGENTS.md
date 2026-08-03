@@ -42,14 +42,14 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 | Owner | Scope |
 |---|---|
-| `products` | MasterProduct operations, automatic ABC, direct channel-option inventory composition, and `/api/categories` compatibility |
+| `products` | Canonical inventory-product (`MasterProduct`) operations, automatic ABC, direct channel-option inventory composition, and `/api/categories` compatibility |
 | `sourcing` | Chinese product discovery, candidate inbox, account-scoped registration preparation |
 | `supply` | suppliers, SellpiaInventorySku supplier policy, purchase orders |
 | `inventory` | SellpiaInventorySku snapshot, warehouses, transfer/picking records |
 | `orders` | orders, returns, CS/reviews, return-transfer surfaces |
 | `finance` | P&L, settlements, supplier payments, cost/plan analytics |
 | `advertising` | ad operations, scrape ingest, ad actions |
-| `channels` | marketplace accounts, listing/option catalog import, listing-to-MasterProduct matching, and order sync |
+| `channels` | marketplace accounts, listing/option catalog import, option-to-inventory matching, derived listing-product summaries, and order sync |
 | `ai` | image/text/detail-page/thumbnail AI boundaries |
 | `rules` | business policy definitions and Agent OS delegation |
 | `agent-os` | agent catalog, queue, runtime, policy, cost, observability |
@@ -59,11 +59,14 @@ LLM/media/storage/fetch boundary, or large-file pressure.
 
 Small table-shaped modules should fold into their owner domain during
 reconstruction. `/api/categories` remains a products compatibility route.
-Products owns `MasterProduct` and the direct
-`ChannelListingOptionInventoryComponent` consumption recipe. Inventory alone
-owns physical `SellpiaInventorySku.currentStock`; Channels owns listing/option
-identity and the nullable listing-to-MasterProduct link. Do not recreate an
-operating variant layer, a second recipe, or a stock balance.
+Products owns the canonical inventory-product metadata and ABC on
+`MasterProduct`, plus the direct `ChannelListingOptionInventoryComponent`
+consumption recipe. Inventory alone owns physical
+`SellpiaInventorySku.currentStock` and atomically provisions/updates the
+one-to-one canonical MasterProduct for each imported SKU. Channels owns
+listing/option identity. `ChannelListing.masterProductId` is a derived summary
+only when every option resolves to the same inventory product. Do not recreate
+an operating variant layer, a second recipe, or a stock balance.
 
 ## Scoped Guide Discovery
 

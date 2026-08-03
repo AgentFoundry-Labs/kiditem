@@ -1,7 +1,6 @@
 # web/catalog — Product Operations and Channel Matching
 
-`app/(catalog)/` owns KidItem operating-product metadata, explicit
-channel-listing-to-product identity confirmation, and per-channel-option
+`app/(catalog)/` owns KidItem inventory-product metadata and per-channel-option
 Sellpia inventory consumption rules. Public URLs remain under `/product-hub`.
 
 ## Owned Surfaces
@@ -14,15 +13,16 @@ Sellpia inventory consumption rules. Public URLs remain under `/product-hub`.
 
 ## Domain Contracts
 
-- `MasterProduct` is the KidItem operating product and official ABC owner.
-  `ChannelListingOption` is the channel's sellable option. Neither is a
-  physical Sellpia inventory row.
+- `MasterProduct` is the KidItem canonical inventory product and official ABC
+  owner. `SellpiaInventorySku` is its Sellpia source row and physical quantity
+  authority. `ChannelListingOption` is the channel's sellable consumer option.
 - `/product-hub/options` owns the complete read-only Sellpia inventory
   collection and publishes channel-option destinations only from confirmed,
   organization-fenced direct component relations.
-- Matching confirms only `ChannelListing -> MasterProduct`. A listing option's
-  stock deduction is its own complete atomic list of
-  `ChannelListingOptionInventoryComponent` rows.
+- Matching confirms each listing option's complete atomic list of
+  `ChannelListingOptionInventoryComponent` rows. The listing-level
+  MasterProduct is derived automatically only when every option resolves to the
+  same inventory product.
 - Candidates and ranking are evidence only. They never confirm product identity
   or overwrite an existing option consumption rule.
 

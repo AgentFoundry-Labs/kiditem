@@ -77,12 +77,29 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
         status: 'active',
       },
     });
-    await prisma.channelListingOption.create({
+    const sellingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         externalOptionId: `OPTION-${randomUUID()}`,
         status: 'NEW',
+      },
+    });
+    const sellingSku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: product.id,
+        code: `ABC-SKU-${randomUUID()}`,
+        name: 'ABC inventory',
+        currentStock: 10,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: sellingOption.id,
+        sellpiaInventorySkuId: sellingSku.id,
+        quantity: 1,
       },
     });
     const empty = await repository.getFormulaState(TEST_ORGANIZATION_ID);
@@ -139,12 +156,29 @@ describe('MasterProductAbcRepositoryAdapter (PG integration)', () => {
         status: 'approved',
       },
     });
-    await prisma.channelListingOption.create({
+    const sellingOption = await prisma.channelListingOption.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: sellingListing.id,
         externalOptionId: `SELL-OPTION-${randomUUID()}`,
         status: '판매중',
+      },
+    });
+    const sellingSku = await prisma.sellpiaInventorySku.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        masterProductId: selling.id,
+        code: `SELL-SKU-${randomUUID()}`,
+        name: 'Selling inventory',
+        currentStock: 10,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: sellingOption.id,
+        sellpiaInventorySkuId: sellingSku.id,
+        quantity: 1,
       },
     });
     await prisma.channelListing.createMany({
@@ -282,6 +316,7 @@ async function createMappedProductWithStock(input: {
   const sku = await input.prisma.sellpiaInventorySku.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
+      masterProductId: product.id,
       code: `SKU-${randomUUID()}`,
       name: input.code,
       currentStock: input.currentStock,

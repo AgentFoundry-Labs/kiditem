@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
@@ -74,7 +74,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
   it('lists channel products separately from direct option inventory recipes', async () => {
     const product = await createProduct('KI-DIRECT', 'Direct product');
-    const sku = await createInventorySku('SKU-DIRECT', 12);
+    const sku = await createInventorySku('SKU-DIRECT', 12, product.id);
     const linked = await createListing({ masterProductId: product.id, displayName: 'Direct listing' });
     const configured = await createOption(linked.id, { itemName: 'Two pack' });
     await prisma.channelListingOptionInventoryComponent.create({
@@ -108,7 +108,45 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('keeps catalog identities unlinked until an operator confirms the MasterProduct', async () => {
+  it('keeps a multi-Master listing fully matched through its option recipes', async () => {
+    const firstProduct = await createProduct('INV-FIRST', 'First inventory product');
+    const secondProduct = await createProduct('INV-SECOND', 'Second inventory product');
+    const firstSku = await createInventorySku('SKU-FIRST', 12, firstProduct.id);
+    const secondSku = await createInventorySku('SKU-SECOND', 8, secondProduct.id);
+    const listing = await createListing({ displayName: 'Two-color listing' });
+    const firstOption = await createOption(listing.id, { itemName: 'Pink' });
+    const secondOption = await createOption(listing.id, { itemName: 'Blue' });
+    await prisma.channelListingOptionInventoryComponent.createMany({
+      data: [{
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: firstOption.id,
+        sellpiaInventorySkuId: firstSku.id,
+        quantity: 2,
+      }, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: secondOption.id,
+        sellpiaInventorySkuId: secondSku.id,
+        quantity: 4,
+      }],
+    });
+
+    const queue = await service.list(TEST_ORGANIZATION_ID);
+
+    expect(queue.products).toEqual([
+      expect.objectContaining({
+        listing: expect.objectContaining({ id: listing.id, masterProductId: null }),
+        linkedProduct: null,
+        optionCount: 2,
+        configuredOptionCount: 2,
+      }),
+    ]);
+    expect(queue.options).toEqual(expect.arrayContaining([
+      expect.objectContaining({ option: expect.objectContaining({ id: firstOption.id }), capacity: 6 }),
+      expect.objectContaining({ option: expect.objectContaining({ id: secondOption.id }), capacity: 2 }),
+    ]));
+  });
+
+  it('rejects an arbitrary product link until option recipes resolve the inventory product', async () => {
     const product = await createProduct('KI-BEAR', 'Blue Bear');
     const listing = await createListing({
       displayName: ' blue  bear ',
@@ -134,16 +172,16 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       listing.id,
       { masterProductId: product.id },
     )).rejects.toBeInstanceOf(NotFoundException);
-    await service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
+    await expect(service.linkProduct(TEST_ORGANIZATION_ID, listing.id, {
       masterProductId: product.id,
-    });
+    })).rejects.toBeInstanceOf(BadRequestException);
     expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
-      .toMatchObject({ masterProductId: product.id });
+      .toMatchObject({ masterProductId: null });
   });
 
-  it('preserves option inventory recipes when a listing is unlinked from its MasterProduct', async () => {
+  it('clears option inventory recipes when the derived product link is removed', async () => {
     const product = await createProduct('KI-PRESERVE', 'Preserve product');
-    const sku = await createInventorySku('SKU-PRESERVE', 9);
+    const sku = await createInventorySku('SKU-PRESERVE', 9, product.id);
     const listing = await createListing({ masterProductId: product.id });
     const option = await createOption(listing.id, {});
     await prisma.channelListingOptionInventoryComponent.create({
@@ -159,19 +197,14 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
     expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
       .toMatchObject({ masterProductId: null });
-    await expect(prisma.channelListingOptionInventoryComponent.findUniqueOrThrow({
-      where: {
-        channelListingOptionId_sellpiaInventorySkuId: {
-          channelListingOptionId: option.id,
-          sellpiaInventorySkuId: sku.id,
-        },
-      },
-    })).resolves.toMatchObject({ quantity: 3 });
+    expect(await prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: option.id },
+    })).toBe(0);
   });
 
   it('auto-matches one exact product and writes an exact manual-alias recipe directly to its option', async () => {
     const product = await createProduct('KI-AUTO', 'Auto product');
-    const sku = await createInventorySku('SKU-AUTO', 20);
+    const sku = await createInventorySku('SKU-AUTO', 20, product.id);
     const ownerListing = await createListing({
       masterProductId: product.id,
       displayName: 'Owner listing',
@@ -224,7 +257,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
   it('configures a linked Wing option from its registered title and the stored Sellpia deduction quantity', async () => {
     const product = await createProduct('KI-WING-ALIAS', 'Wing alias product');
-    const sku = await createInventorySku('SKU-WING-ALIAS', 27);
+    const sku = await createInventorySku('SKU-WING-ALIAS', 27, product.id);
     const snapshot = await prisma.sellpiaManualMatchSnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -284,10 +317,11 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     });
   }
 
-  function createInventorySku(code: string, currentStock: number) {
+  function createInventorySku(code: string, currentStock: number, masterProductId: string) {
     return prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
+        masterProductId,
         code,
         name: code,
         barcode: `BAR-${code}`,

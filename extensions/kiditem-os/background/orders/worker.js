@@ -245,9 +245,8 @@ async function failSellpiaFreshnessClaim(operation, claimToken, errorCode, error
   ).catch(() => undefined);
 }
 
-async function runSellpiaInventoryOperation(operation) {
-  const alertContext = await startSellpiaInventoryOperationAlert(operation);
-  const claimResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
+async function claimSellpiaFreshnessLease(operation) {
+  const requestClaim = () => browserOperationRuntimeEnvironmentContext.authedFetch(
     operation.environmentId,
     "/api/inventory/sellpia-freshness/claims",
     {
@@ -256,6 +255,29 @@ async function runSellpiaInventoryOperation(operation) {
       body: "{}",
     },
   );
+  let response = await requestClaim();
+  let claim = response.ok ? await response.json().catch(() => null) : null;
+
+  // The first claim may only reconcile an expired prior generation. When a
+  // newer generation is already pending, claim that exact work once instead
+  // of surfacing a false operator-attention state.
+  if (
+    response.ok
+    && claim?.claimed === false
+    && claim?.state?.status === "refresh_required"
+    && claim?.state?.activeSync == null
+  ) {
+    response = await requestClaim();
+    claim = response.ok ? await response.json().catch(() => null) : null;
+  }
+
+  return { response, claim };
+}
+
+async function runSellpiaInventoryOperation(operation) {
+  const alertContext = await startSellpiaInventoryOperationAlert(operation);
+  const { response: claimResponse, claim: freshnessClaim } =
+    await claimSellpiaFreshnessLease(operation);
   if (!claimResponse.ok) {
     await updateSellpiaInventoryOperationAlert(operation, alertContext, {
       status: "failed",
@@ -269,7 +291,6 @@ async function runSellpiaInventoryOperation(operation) {
       errorMessage: "Sellpia freshness lease could not be claimed.",
     };
   }
-  const freshnessClaim = await claimResponse.json().catch(() => null);
   if (!freshnessClaim?.claimed) {
     await updateSellpiaInventoryOperationAlert(operation, alertContext, {
       status: "pending",

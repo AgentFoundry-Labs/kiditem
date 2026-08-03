@@ -252,7 +252,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     });
   });
 
-  it('reads exact organization-scoped Sellpia profit facts and keeps ambiguous recipes out of numeric evidence', async () => {
+  it('reads exact organization-scoped Sellpia profit facts once for a shared canonical inventory product', async () => {
     const eligibleSku = await prisma.sellpiaInventorySku.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -292,10 +292,11 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       skuId: sharedSku.id,
       code: 'METRIC-MASTER-SHARED-ONE',
     });
-    const sharedTwo = await seedMasterRecipe(prisma, {
+    await seedAdditionalListingForMasterSku(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       skuId: sharedSku.id,
-      code: 'METRIC-MASTER-SHARED-TWO',
+      masterProductId: sharedOne.masterProductId,
+      code: 'METRIC-SHARED-SECOND-CHANNEL',
     });
     const foreignSku = await prisma.sellpiaInventorySku.create({
       data: {
@@ -347,7 +348,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         eligible.masterProductId,
         incomplete.masterProductId,
         sharedOne.masterProductId,
-        sharedTwo.masterProductId,
       ],
       range: { from: coverageStartDate, to: coverageEndDate },
     });
@@ -370,10 +370,12 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       mappingStatus: 'MAPPED',
       monthlyFacts: [],
     });
-    expect(evidence.get(sharedOne.masterProductId)).toMatchObject({ mappingStatus: 'UNMAPPED', monthlyFacts: [] });
-    expect(evidence.get(sharedTwo.masterProductId)).toMatchObject({ mappingStatus: 'UNMAPPED', monthlyFacts: [] });
-    expect(snapshot.orphanFacts).toEqual(expect.arrayContaining([
-      expect.objectContaining({ productCode: 'METRIC-SHARED', reason: 'AMBIGUOUS_MASTER_PRODUCT' }),
+    expect(evidence.get(sharedOne.masterProductId)).toMatchObject({
+      mappingStatus: 'MAPPED',
+      monthlyFacts: [expect.objectContaining({ revenue: 3_000 })],
+    });
+    expect(snapshot.orphanFacts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ productCode: 'METRIC-SHARED' }),
     ]));
     expect(evidence.has(foreign.masterProductId)).toBe(false);
   });
@@ -562,6 +564,10 @@ async function seedMasterRecipe(
       abcGrade: input.abcGrade ?? null,
     },
   });
+  await prisma.sellpiaInventorySku.updateMany({
+    where: { id: input.skuId, organizationId: input.organizationId },
+    data: { masterProductId: master.id },
+  });
   const account = await prisma.channelAccount.upsert({
     where: {
       organizationId_channel_externalAccountId: {
@@ -604,6 +610,49 @@ async function seedMasterRecipe(
     },
   });
   return { masterProductId: master.id, channelListingOptionId: option.id };
+}
+
+async function seedAdditionalListingForMasterSku(
+  prisma: PrismaClient,
+  input: {
+    organizationId: string;
+    skuId: string;
+    masterProductId: string;
+    code: string;
+  },
+) {
+  const account = await prisma.channelAccount.findFirstOrThrow({
+    where: {
+      organizationId: input.organizationId,
+      channel: 'coupang',
+      externalAccountId: 'sales-inventory-test',
+    },
+  });
+  const listing = await prisma.channelListing.create({
+    data: {
+      organizationId: input.organizationId,
+      channelAccountId: account.id,
+      masterProductId: input.masterProductId,
+      externalId: `${input.code}-LISTING`,
+      displayName: input.code,
+    },
+  });
+  const option = await prisma.channelListingOption.create({
+    data: {
+      organizationId: input.organizationId,
+      listingId: listing.id,
+      externalOptionId: `${input.code}-OPTION`,
+      itemName: `${input.code} option`,
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId: input.organizationId,
+      channelListingOptionId: option.id,
+      sellpiaInventorySkuId: input.skuId,
+      quantity: 2,
+    },
+  });
 }
 
 function previousKstYearMonth(): string {

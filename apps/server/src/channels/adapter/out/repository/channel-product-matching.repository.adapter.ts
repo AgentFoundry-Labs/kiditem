@@ -195,18 +195,22 @@ implements ChannelProductMatchingRepositoryPort {
         input.channelListingId,
       );
       if (!listing) throw new NotFoundException('ChannelListing was not found');
-      if (input.masterProductId) {
-        const product = await tx.masterProduct.findFirst({
+      if (input.masterProductId === null) {
+        await tx.channelListingOptionInventoryComponent.deleteMany({
           where: {
-            id: input.masterProductId,
             organizationId: input.organizationId,
-            isActive: true,
+            channelListingOption: { listingId: listing.id },
           },
-          select: { id: true },
         });
-        if (!product) {
+      } else {
+        const resolvedMasterProductId = await resolveListingMasterProductId(
+          tx,
+          input.organizationId,
+          listing.id,
+        );
+        if (resolvedMasterProductId !== input.masterProductId) {
           throw new BadRequestException(
-            'MasterProduct is inactive, missing, or belongs to another organization',
+            'MasterProduct link is derived from complete option inventory recipes',
           );
         }
       }
@@ -223,21 +227,19 @@ implements ChannelProductMatchingRepositoryPort {
     channelAccountId?: string;
   }) {
     return this.prisma.$transaction(async (tx) => {
-      const [listings, products, aliases, ownerRows] = await Promise.all([
+      const [listings, aliases] = await Promise.all([
         tx.channelListing.findMany({
           where: {
             organizationId: input.organizationId,
-            isActive: true,
             ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
           },
           select: {
             id: true,
             displayName: true,
             channelName: true,
-            rawJson: true,
             masterProductId: true,
             options: {
-              where: { organizationId: input.organizationId, isActive: true },
+              where: { organizationId: input.organizationId },
               select: {
                 id: true,
                 itemName: true,
@@ -246,90 +248,28 @@ implements ChannelProductMatchingRepositoryPort {
             },
           },
         }),
-        tx.masterProduct.findMany({
-          where: { organizationId: input.organizationId, isActive: true },
-          select: { id: true, code: true, name: true },
-        }),
         tx.sellpiaManualMatchAlias.findMany({
           where: { organizationId: input.organizationId },
           select: {
             normalizedAlias: true,
             sellpiaInventorySkuId: true,
             itemCount: true,
-          },
-        }),
-        tx.channelListingOptionInventoryComponent.findMany({
-          where: {
-            organizationId: input.organizationId,
-            channelListingOption: {
-              listing: { masterProductId: { not: null } },
-            },
-          },
-          select: {
-            sellpiaInventorySkuId: true,
-            channelListingOption: {
-              select: { listing: { select: { masterProductId: true } } },
+            sellpiaInventorySku: {
+              select: { masterProductId: true, isActive: true },
             },
           },
         }),
       ]);
-      const productIdsByCode = groupIds(products, (product) => product.code.trim());
-      const productIdsByName = groupIds(products, (product) => normalizeExactName(product.name));
       const aliasesByName = new Map<string, typeof aliases>();
       for (const alias of aliases) {
         const rows = aliasesByName.get(alias.normalizedAlias) ?? [];
         rows.push(alias);
         aliasesByName.set(alias.normalizedAlias, rows);
       }
-      const ownersBySkuId = new Map<string, Set<string>>();
-      for (const row of ownerRows) {
-        const masterProductId = row.channelListingOption.listing.masterProductId;
-        if (!masterProductId) continue;
-        const owners = ownersBySkuId.get(row.sellpiaInventorySkuId) ?? new Set<string>();
-        owners.add(masterProductId);
-        ownersBySkuId.set(row.sellpiaInventorySkuId, owners);
-      }
-
       let matchedListings = 0;
       let configuredOptions = 0;
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
-        const raw = asRecord(listing.rawJson);
-        const explicitCode = firstString(raw, ['masterProductCode', 'productCode', 'code']);
-        let masterProductId = listing.masterProductId;
-        if (masterProductId === null) {
-          const candidateIds = new Set<string>();
-          for (const id of explicitCode ? productIdsByCode.get(explicitCode) ?? [] : []) {
-            candidateIds.add(id);
-          }
-          for (const listingName of listingNames) {
-            for (const id of productIdsByName.get(normalizeExactName(listingName)) ?? []) {
-              candidateIds.add(id);
-            }
-          }
-          for (const option of listing.options) {
-            for (const alias of exactAliasesForOption(
-              aliasesByName,
-              listingNames,
-              option.itemName,
-            )) {
-              const owners = ownersBySkuId.get(alias.sellpiaInventorySkuId);
-              if (owners?.size === 1) candidateIds.add([...owners][0]!);
-            }
-          }
-          if (candidateIds.size !== 1) continue;
-          masterProductId = [...candidateIds][0]!;
-          const linked = await tx.channelListing.updateMany({
-            where: {
-              id: listing.id,
-              organizationId: input.organizationId,
-              masterProductId: null,
-            },
-            data: { masterProductId },
-          });
-          if (linked.count !== 1) continue;
-          matchedListings += 1;
-        }
 
         for (const option of listing.options) {
           if (option.inventoryComponents.length > 0) continue;
@@ -344,6 +284,10 @@ implements ChannelProductMatchingRepositoryPort {
           ]));
           if (recipes.size !== 1) continue;
           const recipe = [...recipes.values()][0]!;
+          if (
+            !recipe.sellpiaInventorySku.isActive
+            || !recipe.sellpiaInventorySku.masterProductId
+          ) continue;
           await tx.channelListingOptionInventoryComponent.create({
             data: {
               organizationId: input.organizationId,
@@ -353,6 +297,18 @@ implements ChannelProductMatchingRepositoryPort {
             },
           });
           configuredOptions += 1;
+        }
+        const resolvedMasterProductId = await resolveListingMasterProductId(
+          tx,
+          input.organizationId,
+          listing.id,
+        );
+        await tx.channelListing.updateMany({
+          where: { id: listing.id, organizationId: input.organizationId },
+          data: { masterProductId: resolvedMasterProductId },
+        });
+        if (listing.masterProductId === null && resolvedMasterProductId !== null) {
+          matchedListings += 1;
         }
       }
       return {
@@ -482,6 +438,40 @@ function availabilityListingWhere(
   };
 }
 
+async function resolveListingMasterProductId(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  channelListingId: string,
+): Promise<string | null> {
+  const listing = await tx.channelListing.findFirst({
+    where: { id: channelListingId, organizationId },
+    select: {
+      options: {
+        where: { organizationId },
+        select: {
+          inventoryComponents: {
+            where: { organizationId },
+            select: {
+              sellpiaInventorySku: { select: { masterProductId: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!listing || listing.options.length === 0) return null;
+  const ownerIds = new Set<string>();
+  for (const option of listing.options) {
+    if (option.inventoryComponents.length === 0) return null;
+    for (const component of option.inventoryComponents) {
+      const ownerId = component.sellpiaInventorySku.masterProductId;
+      if (!ownerId) return null;
+      ownerIds.add(ownerId);
+    }
+  }
+  return ownerIds.size === 1 ? [...ownerIds][0]! : null;
+}
+
 async function lockChannelListing(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -543,7 +533,7 @@ function toOptionQueueRow(
       masterProductId: listing.masterProductId,
     },
     option: optionIdentity(option),
-    capacity: listing.masterProductId !== null && projection.warningState === 'none'
+    capacity: projection.warningState === 'none'
       ? projection.capacity
       : null,
   };
@@ -649,18 +639,6 @@ function normalizeExactName(value: string): string {
     .normalize('NFKC')
     .toLocaleLowerCase()
     .replace(/[^\p{L}\p{N}]+/gu, '');
-}
-
-function groupIds<T>(rows: readonly T[], key: (row: T) => string) {
-  const grouped = new Map<string, string[]>();
-  for (const row of rows as readonly (T & { id: string })[]) {
-    const value = key(row);
-    if (!value) continue;
-    const ids = grouped.get(value) ?? [];
-    ids.push(row.id);
-    grouped.set(value, ids);
-  }
-  return grouped;
 }
 
 function exactAliasesForOption<T>(

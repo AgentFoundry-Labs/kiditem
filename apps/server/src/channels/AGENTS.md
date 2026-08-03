@@ -43,8 +43,10 @@ channels/
 - Logical `ChannelProduct` is Prisma `ChannelListing`; logical `ChannelSku` is
   `ChannelListingOption`. Each option stores independent provider metadata for
   one account; `optionId` is not inventory truth.
-- `ChannelListing.masterProductId` is the only nullable operating-product link.
-  `ChannelListingOption` remains the marketplace sellable option identity.
+- `ChannelListing.masterProductId` is a derived summary only when all listing
+  options resolve to one canonical inventory product. `ChannelListingOption`
+  remains the marketplace sellable option identity and its recipe is the
+  matching source of truth.
 - A registration-created `ChannelListing.sourceCandidateId` is immutable
   provenance.
 - Physical quantities come only from the Products-owned direct
@@ -85,9 +87,9 @@ channels/
   workspace. Matching reads may return that media as a display fallback, but
   collection and matching never write it into `MasterProduct.imageUrls`.
 - Candidate rows are live evidence and are never persisted. Explicit operator
-  confirmation may write the listing link. The single automatic matching
-  command may write a still-null listing link and still-empty option composition
-  only when one conservative deterministic candidate remains.
+  confirmation writes option composition. The single automatic matching
+  command may fill a still-empty option composition only when one conservative
+  deterministic candidate remains; it then derives the listing summary.
 - Automatic recipe evidence must be unique and non-conflicting. Exact
   identifiers/names or threshold-clearing names may apply; incompatible,
   ambiguous, unverifiable, raw-alias, and AI evidence requires review. Read
@@ -98,9 +100,10 @@ channels/
   invent matches.
 - Direct option compositions alone drive capacity. Invalid components return
   `null`; zero means valid capacity is exhausted. Reads never reserve stock.
-- Matching state derives from nullable links and recipe validity. Do not restore
-  persisted `mappingStatus`; recollection updates provider facts without clearing
-  confirmed links.
+- Matching state derives from recipe validity. Do not restore persisted
+  `mappingStatus`; recollection updates provider facts without clearing
+  confirmed recipes. A null listing summary is valid for incomplete or
+  multi-inventory-product listings.
 - Common availability resolves as
   `sellableStock = min(floor(component.availableStock / component.quantity))`
   over the option's direct components.
@@ -121,12 +124,13 @@ channels/
 - `POST /api/channels/product-mappings/auto-match`
 - Matching queue reads retain product and option relations, while the operator
   workspace groups option rows beneath their product.
-- Product link commands accept only nullable `masterProductId`. There is no
-  option-to-operating-variant link command.
+- The legacy product-link command may clear all recipes. A non-null value is
+  accepted only when the saved recipes already derive that
+  exact MasterProduct; it cannot create an independent identity link.
 
-Products owns direct option component replacement. Channels owns listing and
-option identities, listing-to-MasterProduct linking, and its conservative
-automatic matching transaction.
+Products owns direct option component replacement and derived listing-summary
+recalculation. Channels owns listing/option identities and its conservative
+automatic option-to-Sellpia matching transaction.
 
 ## Cross-Domain Ports
 

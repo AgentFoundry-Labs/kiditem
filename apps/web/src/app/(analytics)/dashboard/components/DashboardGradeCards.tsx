@@ -31,14 +31,14 @@ export function DashboardGradeCards({
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {(['A', 'B', 'C'] as const).map((grade) => <GradeCard key={grade} grade={grade} count={gradeCount[grade]} total={classifiedProductCount} contribution={abcContributionProfit.amountByGrade[grade]} />)}
-      <StatusCard label="계산·보정 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE + abcStatusCount.CALIBRATION_PENDING + abcStatusCount.RECALCULATING} description="신상품도 주문 조건 없이 자동 평가" href="/product-hub?abcGrade=unclassified" tone="sky" />
+      <StatusCard label="자동 계산 중" count={abcStatusCount.INSUFFICIENT_EVIDENCE + abcStatusCount.RECALCULATING} description="신상품도 주문 조건 없이 자동 평가" href="/product-hub?abcGrade=unclassified" tone="sky" />
       <StatusCard label="원천 확인 필요" count={sourceAttention + abcStatusCount.CALCULATION_ERROR} description="셀피아·광고비 수집 또는 매핑을 확인" href="/product-hub?dataStatus=abc" tone="amber" />
     </div>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
       <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">계산 완료 {formatNumber(abcStatusCount.READY)}개</Link>
       <span aria-hidden="true">·</span><span>최근 7일 상승 {formatNumber(changes.upgraded)} / 하락 {formatNumber(changes.downgraded)}</span>
       <span className="hidden lg:inline" aria-hidden="true">·</span>
-      <span className="text-slate-400">{abcFormula ? `ABC_V1 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일 · 활성화 ${formatDate(abcFormula.activatedAt)}` : '검증 표본을 수집하면 수식 보정을 시작합니다.'}</span>
+      <span className="text-slate-400">{abcFormula ? `ABC_V1 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일 · 활성화 ${formatDate(abcFormula.activatedAt)}` : '수익성 이력 표본을 수집하면 자동 평가를 시작합니다.'}</span>
     </div>
   </section>;
 }

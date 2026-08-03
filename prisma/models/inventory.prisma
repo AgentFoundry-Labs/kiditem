@@ -3,10 +3,11 @@
 // a completed Sellpia full-snapshot import.
 
 /// @namespace Inventory
-/// @describe One physical Sellpia product-code row and its latest imported current stock.
+/// @describe One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock.
 model SellpiaInventorySku {
   id              String  @id @default(uuid()) @db.Uuid
   organizationId  String  @map("organization_id") @db.Uuid
+  masterProductId String? @map("master_product_id") @db.Uuid
   code            String
   name            String
   optionName      String? @map("option_name")
@@ -22,6 +23,7 @@ model SellpiaInventorySku {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                            Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct                           MasterProduct?                            @relation("MasterProductInventorySkus", fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lastImportRun                           SourceImportRun?                         @relation("SellpiaInventorySkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
   supplierProducts                        SupplierProduct[]                        @relation("SupplierProductSellpiaInventorySku")
@@ -34,8 +36,10 @@ model SellpiaInventorySku {
   manualMatchAliases                      SellpiaManualMatchAlias[]
 
   @@unique([organizationId, code])
+  @@unique([organizationId, masterProductId], map: "sellpia_inventory_skus_org_master_key")
   @@unique([id, organizationId], map: "sellpia_inventory_skus_id_org_key")
   @@index([organizationId])
+  @@index([organizationId, masterProductId])
   @@index([organizationId, barcode])
   @@index([lastImportRunId])
   @@index([organizationId, isActive])

@@ -12,6 +12,7 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, formatDateTime } from '@/lib/utils';
 import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
 import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
@@ -28,7 +29,6 @@ type FilterKey =
   | 'B'
   | 'C'
   | 'SOURCE_UNMAPPED'
-  | 'CALIBRATION_PENDING'
   | 'RECALCULATING'
   | 'SELLPIA_SOURCE_STALE'
   | 'AD_SOURCE_STALE'
@@ -150,7 +150,6 @@ function ProductOutflowTable({
     chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
     chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
     chips.push({ key: 'SOURCE_UNMAPPED', label: 'ABC 매핑 필요', count: summary.abcStatusCounts?.SOURCE_UNMAPPED ?? 0, tone: 'orange' });
-    chips.push({ key: 'CALIBRATION_PENDING', label: '수식 보정 대기', count: summary.abcStatusCounts?.CALIBRATION_PENDING ?? 0, tone: 'violet' });
     chips.push({ key: 'RECALCULATING', label: '재계산 중', count: summary.abcStatusCounts?.RECALCULATING ?? 0, tone: 'sky' });
     chips.push({ key: 'SELLPIA_SOURCE_STALE', label: '셀피아 갱신 필요', count: summary.abcStatusCounts?.SELLPIA_SOURCE_STALE ?? 0, tone: 'orange' });
     chips.push({ key: 'AD_SOURCE_STALE', label: '광고비 갱신 필요', count: summary.abcStatusCounts?.AD_SOURCE_STALE ?? 0, tone: 'orange' });
@@ -176,17 +175,16 @@ function ProductOutflowTable({
     else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === filter));
+        && p.inventoryResolution.inventoryProduct?.abcGrade === filter);
     } else if (filter === 'SOURCE_UNMAPPED'
-      || filter === 'CALIBRATION_PENDING' || filter === 'RECALCULATING'
+      || filter === 'RECALCULATING'
       || filter === 'SELLPIA_SOURCE_STALE' || filter === 'AD_SOURCE_STALE'
       || filter === 'CALCULATION_ERROR') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) =>
-          destination.abcEvaluation?.calculationStatus === filter));
+        && p.inventoryResolution.inventoryProduct?.abcEvaluation?.calculationStatus === filter);
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => destination.abcEvaluation === null));
+        && p.inventoryResolution.inventoryProduct?.abcGrade === null);
     }
 
     const vms: RowVM[] = list.map((row) => {
@@ -272,14 +270,15 @@ function ProductOutflowTable({
         <table className="text-sm border-separate border-spacing-0 min-w-max">
           <thead className="sticky top-0 z-20">
             <tr className="text-slate-500 text-xs bg-slate-50">
-              <th className="sticky left-0 z-30 bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 min-w-[260px]">상품</th>
+              <th className="sticky left-0 z-40 w-14 min-w-14 bg-slate-50 px-1 py-2 text-center font-semibold border-b border-slate-200">등급</th>
+              <th className="sticky left-14 z-30 bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 min-w-[260px]">상품</th>
               <th className="bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 whitespace-nowrap">매입처</th>
               {hasStock && (
                 <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                   <HeaderSort k="currentStock">현재고</HeaderSort>
                 </th>
               )}
-              <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">운영 상품</th>
+              <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">채널 상품</th>
               {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">발주</th>}
               <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                 <HeaderSort k="avg2m">월평균</HeaderSort>
@@ -322,7 +321,16 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
   const rowBg = p.deadStock ? 'bg-rose-50/40' : 'bg-white';
   return (
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
-      <td className={cn('sticky left-0 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
+      <td className={cn('sticky left-0 z-20 w-14 min-w-14 px-1 py-2 text-center border-b border-slate-50', rowBg, 'group-hover:bg-slate-50')}>
+        {resolution.status === 'matched'
+          ? <ProductAbcBadge
+              grade={resolution.inventoryProduct?.abcGrade ?? null}
+              evaluation={resolution.inventoryProduct?.abcEvaluation ?? null}
+              compact
+            />
+          : <span className="text-xs text-slate-300">—</span>}
+      </td>
+      <td className={cn('sticky left-14 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="text-slate-800 truncate" title={p.productName}>{p.productName}</span>
         </div>

@@ -4,7 +4,6 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package } from 'lucide-react';
 import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
-import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 
 export type ProductOutflowDestinationsProps = {
   destinations: SellpiaProductDestination[];
@@ -17,7 +16,7 @@ export function ProductOutflowDestinations({
     () => new Set(),
   );
   if (destinations.length === 0) {
-    return <span className="whitespace-nowrap text-xs font-semibold text-slate-400">운영 상품 미연결</span>;
+    return <span className="whitespace-nowrap text-xs font-semibold text-slate-400">연결된 채널 상품 없음</span>;
   }
 
   return (
@@ -35,9 +34,9 @@ export function ProductOutflowDestinations({
         return (
           <Link
             key={destination.channelListingOptionId}
-          href={`/product-hub/${destination.masterProductId}`}
-          aria-label={alt}
-          title={destinationTitle(destination)}
+            href={`/product-hub/${destination.masterProductId}`}
+            aria-label={alt}
+            title={destinationTitle(destination)}
             className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-violet-700 hover:underline"
           >
             {showImage ? (
@@ -62,7 +61,6 @@ export function ProductOutflowDestinations({
             )}
             <span className="min-w-0">
               <span className="block truncate">{alt}</span>
-              <span className="mt-0.5 block"><ProductAbcBadge grade={destination.abcGrade} evaluation={destination.abcEvaluation} compact /></span>
             </span>
           </Link>
         );

@@ -38,9 +38,36 @@ export class SellpiaProductInventoryReader {
   ) {
     const candidates = await this.prisma.sellpiaInventorySku.findMany({
       where: { organizationId },
-      select: { id: true, code: true, barcode: true, isActive: true },
+      select: {
+        id: true,
+        code: true,
+        barcode: true,
+        isActive: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            abcEvaluation: { include: { formulaVersion: true } },
+          },
+        },
+      },
     });
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
+    const canonicalProductBySkuId = new Map(candidates.flatMap((candidate) => {
+      const product = candidate.masterProduct;
+      if (!product) return [];
+      const abcGrade = productAbcGrade(product.abcGrade);
+      return [[candidate.id, {
+        sellpiaInventorySkuId: candidate.id,
+        masterProductId: product.id,
+        masterProductCode: product.code,
+        masterProductName: product.name,
+        abcGrade,
+        abcEvaluation: toAbcEvaluation(product.abcEvaluation, product.abcGrade),
+      }] as const];
+    }));
     const availability = await this.inventory.findBySkuIds({
       organizationId,
       sellpiaInventorySkuIds: resolved.matchedSkuIds,
@@ -56,7 +83,6 @@ export class SellpiaProductInventoryReader {
             listing: {
               organizationId,
               isActive: true,
-              masterProduct: { organizationId, isActive: true },
               channelAccount: { organizationId, status: 'active' },
             },
           },
@@ -73,15 +99,6 @@ export class SellpiaProductInventoryReader {
                 select: {
                   id: true,
                   externalId: true,
-                  masterProduct: {
-                    select: {
-                      id: true,
-                      code: true,
-                      name: true,
-                      abcGrade: true,
-                      abcEvaluation: { include: { formulaVersion: true } },
-                    },
-                  },
                   channelAccount: { select: { channel: true, isPrimary: true } },
                 },
               },
@@ -111,29 +128,26 @@ export class SellpiaProductInventoryReader {
       products,
       resolutions: resolved.resolutions,
       availability,
-      destinations: destinationRows.map((row) => ({
+      inventoryProducts: [...canonicalProductBySkuId.values()],
+      destinations: destinationRows.flatMap((row) => {
+        const product = canonicalProductBySkuId.get(row.sellpiaInventorySkuId);
+        if (!product) return [];
+        return [{
         sellpiaInventorySkuId: row.sellpiaInventorySkuId,
         unitsPerSale: row.quantity,
-        masterProductId: row.channelListingOption.listing.masterProduct!.id,
-        masterProductCode: row.channelListingOption.listing.masterProduct!.code,
-        masterProductName: row.channelListingOption.listing.masterProduct!.name,
+        masterProductId: product.masterProductId,
+        masterProductCode: product.masterProductCode,
+        masterProductName: product.masterProductName,
         channelListingOptionId: row.channelListingOption.id,
         channelListingId: row.channelListingOption.listing.id,
         channel: row.channelListingOption.listing.channelAccount.channel,
         externalOptionId: row.channelListingOption.externalOptionId,
         optionName: row.channelListingOption.itemName,
-        abcGrade:
-          row.channelListingOption.listing.masterProduct!.abcGrade === 'A'
-          || row.channelListingOption.listing.masterProduct!.abcGrade === 'B'
-          || row.channelListingOption.listing.masterProduct!.abcGrade === 'C'
-            ? row.channelListingOption.listing.masterProduct!.abcGrade
-            : null,
-        abcEvaluation: toAbcEvaluation(
-          row.channelListingOption.listing.masterProduct!.abcEvaluation,
-          row.channelListingOption.listing.masterProduct!.abcGrade,
-        ),
+        abcGrade: product.abcGrade,
+        abcEvaluation: product.abcEvaluation,
         displayImage: mediaByOptionId.get(row.channelListingOption.id) ?? null,
-      })),
+      }];
+      }),
     });
     return { availability, projection };
   }

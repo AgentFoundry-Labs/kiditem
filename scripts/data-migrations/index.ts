@@ -14,6 +14,7 @@ import { initializeMasterProductAbcPolicy } from "./v0.1.26/001_initialize_maste
 import { resetLegacyProductAbcGrades } from "./v0.1.30/001_reset_legacy_product_abc_grades";
 import { backfillProfitabilitySourceFreshness } from "./v0.1.30/002_backfill_profitability_source_freshness";
 import { moveVariantRecipesToChannelOptions } from "./v0.1.30/003_move_variant_recipes_to_channel_options";
+import { canonicalMasterInventoryIdentity } from "./v0.1.30/004_canonical_master_inventory_identity";
 import type { DataMigration } from "./types";
 
 export {
@@ -42,6 +43,7 @@ export const dataMigrations: readonly DataMigration[] = [
   resetLegacyProductAbcGrades,
   backfillProfitabilitySourceFreshness,
   moveVariantRecipesToChannelOptions,
+  canonicalMasterInventoryIdentity,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

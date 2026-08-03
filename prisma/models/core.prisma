@@ -436,7 +436,7 @@ model CategoryMapping {
 }
 
 /// @namespace Core
-/// @describe KidItem-operated product identity and product-level operating metadata.
+/// @describe Organization-owned canonical inventory product and sole official product ABC identity.
 model MasterProduct {
   id                     String    @id @default(uuid()) @db.Uuid
   organizationId         String    @map("organization_id") @db.Uuid
@@ -464,6 +464,7 @@ model MasterProduct {
   channelListings      ChannelListing[]               @relation("ChannelListingOperationalProduct")
   originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   processingCosts      ProcessingCost[]
+  inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
   abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
 

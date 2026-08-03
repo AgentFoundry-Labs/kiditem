@@ -130,8 +130,10 @@ function toAvailabilityItem(
       quantity: component.quantity,
       isActive: component.isActive,
     })));
-  const recipeStatus = !row.listing.masterProductId
-    ? 'unmatched' as const
+  const recipeStatus = components.length === 0
+    ? row.listing.masterProductId
+      ? 'configuration_required' as const
+      : 'unmatched' as const
     : projection.warningState === 'none'
       ? 'matched' as const
       : projection.warningState;

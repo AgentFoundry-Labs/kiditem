@@ -598,13 +598,14 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 }
 
 function aggregateMappingStatus(
-  masterProductId: string | null,
+  _masterProductId: string | null,
   options: Array<{
     inventoryComponents: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
   }>,
 ): 'matched' | 'unmatched' | 'needs_review' {
-  if (!masterProductId) return 'unmatched';
-  if (options.length === 0) return 'needs_review';
+  if (options.length === 0 || options.every((option) => option.inventoryComponents.length === 0)) {
+    return 'unmatched';
+  }
   if (options.some((option) =>
     option.inventoryComponents.length === 0
     || option.inventoryComponents.some(

@@ -2,16 +2,12 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ChannelOptionMatchingQueueRow } from '@kiditem/shared/channel-product-matching';
 import {
-  useChannelProductCandidates,
-  useLinkChannelListingProduct,
   useRecipeComponentCandidates,
   useSaveProductInventoryMatching,
 } from '../../hooks/useChannelSkuMappings';
 import { ProductLinkDialog } from '../ProductLinkDialog';
 
 vi.mock('../../hooks/useChannelSkuMappings', () => ({
-  useChannelProductCandidates: vi.fn(),
-  useLinkChannelListingProduct: vi.fn(),
   useRecipeComponentCandidates: vi.fn(),
   useSaveProductInventoryMatching: vi.fn(),
 }));
@@ -21,15 +17,6 @@ describe('<ProductLinkDialog>', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(useChannelProductCandidates).mockReturnValue({
-      data: { items: [{
-        masterProductId: '33333333-3333-4333-8333-333333333333', code: 'CP-333', name: '우산', category: null, brand: null,
-        reason: 'exact_code', evidence: { providerIdentity: null, code: 'CP-333', barcode: null, normalizedName: null, aiExplanation: null, score: 1 }, rank: 1,
-      }, {
-        masterProductId: '99999999-9999-4999-8999-999999999999', code: 'CP-999', name: '장화', category: null, brand: null,
-        reason: 'manual_search', evidence: { providerIdentity: null, code: 'CP-999', barcode: null, normalizedName: null, aiExplanation: null, score: 1 }, rank: 2,
-      }] }, isLoading: false, error: null,
-    } as ReturnType<typeof useChannelProductCandidates>);
     vi.mocked(useRecipeComponentCandidates).mockReturnValue({
       data: { items: [{
         sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
@@ -47,26 +34,20 @@ describe('<ProductLinkDialog>', () => {
       isPending: false,
       error: null,
     } as unknown as ReturnType<typeof useSaveProductInventoryMatching>);
-    vi.mocked(useLinkChannelListingProduct).mockReturnValue({
-      mutateAsync: vi.fn(),
-      isPending: false,
-      error: null,
-    } as unknown as ReturnType<typeof useLinkChannelListingProduct>);
   });
 
-  it('confirms the operating product, Sellpia SKU, and deduction quantity for an unlinked listing', async () => {
+  it('connects an unlinked option by choosing only the Sellpia SKU and deduction quantity', async () => {
     render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow()} options={[optionRow()]} />);
 
-    fireEvent.click(screen.getByRole('button', { name: /우산.*선택/ }));
+    expect(screen.queryByText('운영상품 검색')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'SP-100 재고 선택' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'SP-100 차감 수량' }), {
       target: { value: '10' },
     });
-    fireEvent.click(screen.getByRole('button', { name: '운영상품·재고 매칭 저장' }));
+    fireEvent.click(screen.getByRole('button', { name: '재고 매칭 저장' }));
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       channelListingId: '11111111-1111-4111-8111-111111111111',
-      masterProductId: '33333333-3333-4333-8333-333333333333',
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
         components: [{
@@ -83,7 +64,7 @@ describe('<ProductLinkDialog>', () => {
     expect(screen.getByRole('heading', { name: '재고 매칭' })).toBeInTheDocument();
     expect(screen.queryByText('운영상품 검색')).not.toBeInTheDocument();
     expect(screen.getByText('기본 옵션')).toBeInTheDocument();
-    expect(screen.getAllByText('상품 연결됨')).toHaveLength(2);
+    expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'SP-100 재고 선택' }));
     fireEvent.change(screen.getByRole('spinbutton', { name: 'SP-100 차감 수량' }), {
@@ -93,7 +74,6 @@ describe('<ProductLinkDialog>', () => {
 
     await waitFor(() => expect(save).toHaveBeenCalledWith({
       channelListingId: '11111111-1111-4111-8111-111111111111',
-      masterProductId: '33333333-3333-4333-8333-333333333333',
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
         components: [{
@@ -136,19 +116,12 @@ describe('<ProductLinkDialog>', () => {
     })));
   });
 
-  it('changes an already linked KidItem product without unlinking first', async () => {
+  it('never shows a separate operating-product picker for a linked product', async () => {
     render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow(true)} options={[optionRow(true)]} />);
 
     expect(screen.queryByText('운영상품 검색')).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: '연결 상품 변경' }));
-    fireEvent.click(screen.getByRole('button', { name: /CP-999.*장화.*선택/ }));
-    fireEvent.click(screen.getByRole('button', { name: '상품 연결·재고 매칭 저장' }));
-
-    await waitFor(() => expect(save).toHaveBeenCalledWith({
-      channelListingId: '11111111-1111-4111-8111-111111111111',
-      masterProductId: '99999999-9999-4999-8999-999999999999',
-      options: [],
-    }));
+    expect(screen.queryByRole('button', { name: '연결 상품 변경' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/CP-333/)).not.toBeInTheDocument();
   });
 
   it('updates the deduction quantity of an existing inventory match', async () => {

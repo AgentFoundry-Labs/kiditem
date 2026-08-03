@@ -52,6 +52,34 @@ describe('ProductRowCard', () => {
     expect(screen.queryByText('공유 SKU 기준')).not.toBeInTheDocument();
     expect(screen.queryByText('직접 판매 기준')).not.toBeInTheDocument();
   });
+
+  it('shows the sales channels that currently list the product', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      activeChannels: [
+        {
+          channelAccountId: '00000000-0000-4000-8000-000000000004',
+          channel: 'coupang',
+          channelAccountName: 'Coupang Wing',
+        },
+        {
+          channelAccountId: '00000000-0000-4000-8000-000000000005',
+          channel: 'coupang_rocket',
+          channelAccountName: 'Coupang Rocket',
+        },
+      ],
+    }} />);
+
+    expect(screen.getByText('Coupang Wing')).toBeInTheDocument();
+    expect(screen.getByText('Coupang Rocket')).toBeInTheDocument();
+  });
+
+  it('uses selling eligibility instead of inventory activity for the sales badge', () => {
+    render(<ProductRowCard product={{ ...product(), isSelling: false }} />);
+
+    expect(screen.getByText('판매중지')).toBeInTheDocument();
+    expect(screen.queryByText('판매중')).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsListItem {
@@ -74,6 +102,7 @@ function product(): MasterProductOperationsListItem {
     healthScore: null,
     healthUpdatedAt: null,
     isActive: true,
+    isSelling: true,
     updatedAt: '2026-07-24T00:00:00.000Z',
     depletion: {
       coverage: 'no_direct_sales',
@@ -86,6 +115,11 @@ function product(): MasterProductOperationsListItem {
     inventoryStatus: 'configuration_required',
     channelCount: 1,
     channelStatus: 'listed',
+    activeChannels: [{
+      channelAccountId: '00000000-0000-4000-8000-000000000004',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }],
     traffic: 11,
     visitorCount: 11,
     viewCount: 22,

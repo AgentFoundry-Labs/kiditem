@@ -248,6 +248,7 @@ describe('product operations contracts', () => {
       healthScore: null,
       healthUpdatedAt: null,
       isActive: true,
+      isSelling: true,
       updatedAt: '2026-07-16T00:00:00.000Z',
       depletion: {
         coverage: 'shared',
@@ -260,6 +261,11 @@ describe('product operations contracts', () => {
       inventoryStatus: 'configuration_required',
       channelCount: 2,
       channelStatus: 'partial',
+      activeChannels: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }],
       traffic: null,
       visitorCount: null,
       viewCount: null,
@@ -329,6 +335,11 @@ describe('product operations contracts', () => {
     expect(response.summary.displayDataAsOf).toBe('2026-07-31');
     expect(response.items[0]?.abcGrade).toBe('A');
     expect(response.items[0]?.viewCount).toBeNull();
+    expect(response.items[0]?.activeChannels).toEqual([{
+      channelAccountId: '00000000-0000-4000-8000-000000000004',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }]);
     expect(response.items[0]?.depletion.coverage).toBe('shared');
   });
 

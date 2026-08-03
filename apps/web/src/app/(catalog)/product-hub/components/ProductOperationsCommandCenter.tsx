@@ -46,7 +46,7 @@ export function ProductOperationsCommandCenter({
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">운영 상품</p>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(data.total)}
           </p>
@@ -75,7 +75,7 @@ export function ProductOperationsCommandCenter({
 
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">운영중 채널 등록상품</p>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 채널 등록상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(channelProductTotal)}
           </p>

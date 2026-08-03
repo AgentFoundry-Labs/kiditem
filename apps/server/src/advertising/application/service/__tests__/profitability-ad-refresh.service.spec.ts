@@ -13,31 +13,53 @@ describe('ProfitabilityAdRefreshService', () => {
 
   afterEach(() => vi.useRealTimers());
 
-  it('plans a gap-free 401-day range as calendar-month report slices', async () => {
-    const { service } = makeService();
+  it('backfills the remainder of the current calendar month after the newest day is covered', async () => {
+    const { service } = makeService({
+      coverage: [{
+        businessDate: new Date('2026-08-01T00:00:00.000Z'),
+        authoritativeListingCount: 1,
+        oldestObservedAt: new Date('2026-08-02T01:00:00.000Z'),
+      }],
+    });
     const next = await service.nextSlice(request());
 
     expect(next).toMatchObject({
       complete: false,
-      startDate: '2025-06-27',
-      endDate: '2025-06-30',
+      startDate: '2026-07-01',
+      endDate: '2026-07-31',
+      totalDayCount: 401,
+      completedDayCount: 1,
+    });
+    if (next.complete) throw new Error('expected a slice');
+    expect(next.businessDates).toHaveLength(31);
+    expect(next.sliceId).toBe('2026-07-01_2026-07-31');
+  });
+
+  it('prioritizes the most recent missing report slice before historical ABC backfill', async () => {
+    const { service } = makeService();
+
+    const next = await service.nextSlice(request());
+
+    expect(next).toMatchObject({
+      complete: false,
+      startDate: '2026-08-01',
+      endDate: '2026-08-01',
       totalDayCount: 401,
       completedDayCount: 0,
     });
     if (next.complete) throw new Error('expected a slice');
-    expect(next.businessDates).toHaveLength(4);
-    expect(next.sliceId).toBe('2025-06-27_2025-06-30');
+    expect(next.businessDates).toEqual(['2026-08-01']);
   });
 
-  it('recollects the latest 31 days once per run after initial coverage is complete', async () => {
+  it('refreshes the newest report day before the rest of the current month after initial coverage is complete', async () => {
     const coverage = coverageRows({ observedAt: new Date('2026-08-01T00:00:00.000Z') });
     const { service } = makeService({ coverage });
     const next = await service.nextSlice(request());
 
     expect(next).toMatchObject({
       complete: false,
-      startDate: '2026-07-02',
-      endDate: '2026-07-31',
+      startDate: '2026-08-01',
+      endDate: '2026-08-01',
       completedDayCount: 370,
       totalDayCount: 401,
     });
@@ -95,8 +117,8 @@ describe('ProfitabilityAdRefreshService', () => {
     expect(repository.replaceReportSlice).toHaveBeenCalledWith(expect.objectContaining({
       collectionRunId: report.collectionRunId,
       advertiserId: 'advertiser-1',
-      startDate: new Date('2025-06-27T00:00:00.000Z'),
-      endDate: new Date('2025-06-30T00:00:00.000Z'),
+      startDate: new Date(`${next.startDate}T00:00:00.000Z`),
+      endDate: new Date(`${next.endDate}T00:00:00.000Z`),
       report,
     }));
   });
@@ -149,7 +171,7 @@ describe('ProfitabilityAdRefreshService', () => {
       }),
     );
     expect(repository.publishSlice).toHaveBeenCalledOnce();
-    expect(next).toMatchObject({ complete: false, startDate: '2025-07-01' });
+    expect(next).toMatchObject({ complete: false, startDate: '2026-07-01' });
   });
 });
 

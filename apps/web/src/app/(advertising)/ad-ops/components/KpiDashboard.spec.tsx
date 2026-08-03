@@ -34,5 +34,6 @@ describe('KpiDashboard period averages', () => {
     expect(screen.getByText('380,663원')).toBeInTheDocument();
     expect(screen.getByText('일평균 광고비')).toBeInTheDocument();
     expect(screen.getByText('56,025원')).toBeInTheDocument();
+    expect(screen.getAllByText(/이번달 범위 · 수집 23일/)).toHaveLength(2);
   });
 });

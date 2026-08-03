@@ -2,23 +2,26 @@
 
 ## Purpose
 
-Use this runbook to connect marketplace catalog identities to KidItem operating
-products and define the physical Sellpia inventory consumed by each channel
-option sale. The model has three explicit layers:
+Use this runbook to connect marketplace catalog options to the physical Sellpia
+inventory consumed by each sale. `MasterProduct` is the canonical inventory
+product created from that source identity, not a separate channel product. The
+model has three explicit layers:
 
 ```text
-MasterProduct
-  <- ChannelListing.masterProductId
+MasterProduct <- SellpiaInventorySku.masterProductId
+SellpiaInventorySku
+  <- ChannelListingOptionInventoryComponent
 ChannelListing
   -> ChannelListingOption
   -> ChannelListingOptionInventoryComponent
-  -> SellpiaInventorySku
 ```
 
-`MasterProduct` is the operating product and ABC-grade owner.
+`MasterProduct` is the inventory product and sole ABC-grade owner.
 `ChannelListing` is one channel listing. `ChannelListingOption` is a sellable
 channel option. `SellpiaInventorySku` is the physical stock authority. There is
-no intermediate ProductVariant or second recipe layer.
+no intermediate ProductVariant or second recipe layer. Multiple channel
+products/options may consume one MasterProduct. A listing-level MasterProduct
+is merely an automatic single-product summary.
 
 Inventory freshness and publication are owned by
 [Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
@@ -36,14 +39,15 @@ Inventory freshness and publication are owned by
 - Only Inventory publishes `SellpiaInventorySku.currentStock` and active state.
 - Matching and capacity reads never decrement or otherwise mutate physical
   stock.
-- `ChannelListing.masterProductId` is the only channel-to-operating-product
-  link. Candidate evidence is never confirmed truth.
+- A complete option recipe is the matching source of truth. The nullable
+  `ChannelListing.masterProductId` summary is derived only when every option
+  resolves to one MasterProduct. Candidate evidence is never confirmed truth.
 - One option component row stores an active Sellpia SKU and the positive integer
   quantity consumed by one sale. A sale may consume multiple SKUs.
 - Component reads and writes are organization-fenced. A complete replacement
   uses the expected current components, so concurrent or stale edits conflict.
-- Catalog recollection preserves an existing MasterProduct link and option
-  component rules. It does not create a MasterProduct or infer a product link.
+- Catalog recollection preserves option component rules. It does not create a
+  channel-origin MasterProduct; it derives the listing summary from recipes.
 
 ## Stage 1 — Collect Channel Listings
 
@@ -60,22 +64,9 @@ Rocket listings/options are published from the complete collection on
 `/rocket-orders`. Confirm the active Rocket account, exact vendor identity,
 collection completeness, and source artifact before reviewing components.
 
-## Stage 2 — Link Listings To MasterProducts
+## Stage 2 — Configure Option Inventory Consumption
 
-1. Review each unlinked `ChannelListing` in `/product-hub/matching`.
-2. Select the existing `MasterProduct` that represents the same operating
-   product and confirm the link.
-3. Do not create a MasterProduct from the channel listing merely to clear the
-   queue. Create or edit operating products through Product Hub when needed.
-4. Do not infer the link from name similarity, seller SKU, barcode, rank, or AI.
-
-Linking a listing does not configure stock consumption and does not affect ABC
-calculation inputs. ABC is evaluated on the linked MasterProduct using its
-profitability facts.
-
-## Stage 3 — Configure Option Inventory Consumption
-
-For every sellable `ChannelListingOption`:
+For every `ChannelListingOption`, including currently stopped options:
 
 1. Verify the physical Sellpia SKU IDs/codes and active state.
 2. Enter every SKU unit consumed by one option sale as a positive integer.
@@ -91,6 +82,11 @@ channel option A -> Sellpia X x 1
 channel option B -> Sellpia X x 8
 channel option C -> Sellpia X x 1 + Sellpia Y x 2
 ```
+
+Saving each recipe automatically derives the listing summary. If all options
+resolve to the same MasterProduct it is linked once; if an option is missing or
+the listing consumes multiple MasterProducts, the summary remains null. The
+option recipes remain valid in both cases.
 
 The deterministic matching command may fill an empty component list only when
 organization-fenced evidence uniquely selects one active Sellpia SKU and the
@@ -126,7 +122,7 @@ is `needs_review`. Neither is treated as a confirmed zero-capacity product.
 | --- | --- |
 | Catalog collection is interrupted | Resume/finalize it before reviewing absence. |
 | Wrong account/channel | Select an active organization-owned account with the exact channel. |
-| Listing is linked to the wrong product | Explicitly unlink and confirm the correct MasterProduct. |
+| Listing summary points to the wrong product | Clear the option recipes and save the correct Sellpia SKU/quantity rules; the summary is rebuilt automatically. |
 | Component evidence is ambiguous | Verify the physical item and full BOM, then save a complete replacement. |
 | Component is inactive or foreign | Select a valid active organization-owned Sellpia SKU. |
 | Expected-component conflict | Refresh the option and reapply the reviewed complete list. |

@@ -513,6 +513,14 @@ export const SellpiaProductDestinationSchema = z.object({
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
 }).strict();
 
+export const SellpiaInventoryMasterProductSchema = z.object({
+  masterProductId: z.string().uuid(),
+  masterProductCode: z.string().min(1),
+  masterProductName: z.string().min(1),
+  abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
+}).strict();
+
 export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
   'status',
   [
@@ -531,6 +539,7 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
       activeCommitmentQuantity: z.number().int().nonnegative(),
       availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
+      inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
       destinations: z.array(SellpiaProductDestinationSchema),
     }).strict(),
   ],

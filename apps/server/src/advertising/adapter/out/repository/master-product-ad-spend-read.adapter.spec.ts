@@ -24,10 +24,98 @@ function row(listingId: string, date: string, adSpend: number) {
   };
 }
 
+function listing(id: string, masterProductId: string) {
+  return {
+    id,
+    options: [{
+      inventoryComponents: [{
+        quantity: 1,
+        sellpiaInventorySku: { masterProductId },
+      }],
+    }],
+  };
+}
+
 describe('MasterProductAdSpendReadAdapter', () => {
+  it('allocates a multi-MasterProduct listing expense by its option recipe without duplication', async () => {
+    const { adapter } = makeAdapter({
+      listings: [{
+        id: 'listing-set',
+        options: [
+          {
+            inventoryComponents: [{
+              quantity: 1,
+              sellpiaInventorySku: { masterProductId: 'master-a' },
+            }],
+          },
+          {
+            inventoryComponents: [{
+              quantity: 3,
+              sellpiaInventorySku: { masterProductId: 'master-b' },
+            }],
+          },
+        ],
+      }],
+      rows: [row('listing-set', '2026-07-01', 101), row('listing-set', '2026-07-02', 100)],
+    });
+
+    await expect(adapter.readDailyAdSpend({
+      organizationId: ORGANIZATION_ID,
+      requests: [
+        { masterProductId: 'master-a', coverage: COVERAGE },
+        { masterProductId: 'master-b', coverage: COVERAGE },
+      ],
+      asOfDate: new Date('2026-07-02T00:00:00.000Z'),
+    })).resolves.toEqual([
+      expect.objectContaining({
+        masterProductId: 'master-a',
+        status: 'OBSERVED',
+        dailyFacts: [
+          { businessDate: new Date('2026-07-01T00:00:00.000Z'), adSpend: 25 },
+          { businessDate: new Date('2026-07-02T00:00:00.000Z'), adSpend: 25 },
+        ],
+      }),
+      expect.objectContaining({
+        masterProductId: 'master-b',
+        status: 'OBSERVED',
+        dailyFacts: [
+          { businessDate: new Date('2026-07-01T00:00:00.000Z'), adSpend: 76 },
+          { businessDate: new Date('2026-07-02T00:00:00.000Z'), adSpend: 75 },
+        ],
+      }),
+    ]);
+  });
+
+  it('keeps a fractional-zero allocation observed when the listing actually spent', async () => {
+    const { adapter } = makeAdapter({
+      listings: [{
+        id: 'listing-set',
+        options: [{
+          inventoryComponents: [
+            { quantity: 1, sellpiaInventorySku: { masterProductId: 'master-a' } },
+            { quantity: 99, sellpiaInventorySku: { masterProductId: 'master-b' } },
+          ],
+        }],
+      }],
+      rows: [row('listing-set', '2026-07-01', 1), row('listing-set', '2026-07-02', 1)],
+    });
+
+    await expect(adapter.readDailyAdSpend({
+      organizationId: ORGANIZATION_ID,
+      requests: [{ masterProductId: 'master-a', coverage: COVERAGE }],
+      asOfDate: new Date('2026-07-02T00:00:00.000Z'),
+    })).resolves.toEqual([expect.objectContaining({
+      status: 'OBSERVED',
+      dailyFacts: [
+        { businessDate: new Date('2026-07-01T00:00:00.000Z'), adSpend: 0 },
+        { businessDate: new Date('2026-07-02T00:00:00.000Z'), adSpend: 0 },
+      ],
+    })]);
+  });
+
   it('adds listing-level daily facts once per listing without option double counting', async () => {
     const { adapter, prisma } = makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }, { id: 'listing-b', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1'), listing('listing-b', 'master-1')],
       rows: [row('listing-a', '2026-07-01', 100), row('listing-b', '2026-07-01', 20), row('listing-a', '2026-07-02', 50), row('listing-b', '2026-07-02', 30)],
     });
 
@@ -50,13 +138,13 @@ describe('MasterProductAdSpendReadAdapter', () => {
   it('recognizes explicit all-zero facts but never converts a missing range into zero', async () => {
     const request = { masterProductId: 'master-1', coverage: COVERAGE };
     await expect(makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1')],
       rows: [row('listing-a', '2026-07-01', 0), row('listing-a', '2026-07-02', 0)],
     }).adapter.readDailyAdSpend({ organizationId: ORGANIZATION_ID, requests: [request], asOfDate: new Date('2026-07-02T00:00:00.000Z') }))
       .resolves.toEqual([expect.objectContaining({ status: 'CONFIRMED_ZERO', dailyFacts: expect.any(Array) })]);
 
     await expect(makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1')],
       rows: [],
     }).adapter.readDailyAdSpend({ organizationId: ORGANIZATION_ID, requests: [request], asOfDate: new Date('2026-07-02T00:00:00.000Z') }))
       .resolves.toEqual([expect.objectContaining({ status: 'MISSING', dailyFacts: [] })]);
@@ -65,7 +153,7 @@ describe('MasterProductAdSpendReadAdapter', () => {
   it('does not accept a traffic-owned numeric zero as advertising evidence', async () => {
     const request = { masterProductId: 'master-1', coverage: COVERAGE };
     const { adapter, prisma } = makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1')],
       rows: [],
     });
 
@@ -89,13 +177,13 @@ describe('MasterProductAdSpendReadAdapter', () => {
   it('marks gaps and cutoff mismatch stale instead of inventing daily zeroes', async () => {
     const request = { masterProductId: 'master-1', coverage: COVERAGE };
     await expect(makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1')],
       rows: [row('listing-a', '2026-07-01', 10)],
     }).adapter.readDailyAdSpend({ organizationId: ORGANIZATION_ID, requests: [request], asOfDate: new Date('2026-07-02T00:00:00.000Z') }))
       .resolves.toEqual([expect.objectContaining({ status: 'STALE', dailyFacts: [] })]);
 
     await expect(makeAdapter({
-      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      listings: [listing('listing-a', 'master-1')],
       rows: [row('listing-a', '2026-07-01', 10), row('listing-a', '2026-07-02', 10)],
     }).adapter.readDailyAdSpend({ organizationId: ORGANIZATION_ID, requests: [request], asOfDate: new Date('2026-07-03T00:00:00.000Z') }))
       .resolves.toEqual([expect.objectContaining({ status: 'STALE', dailyFacts: [] })]);

@@ -20,12 +20,18 @@ import type {
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryPort,
 } from '../../../application/port/out/repository/product-operations.repository.port';
+import { listSellingMasterProductIds } from './selling-master-product.query';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function productInclude(organizationId: string, periodStart?: Date) {
   return {
     abcEvaluation: { include: { formulaVersion: true } },
+    inventorySkus: {
+      where: { organizationId },
+      orderBy: { id: 'asc' as const },
+      select: { id: true },
+    },
     originChannelListing: {
       select: {
         externalId: true,
@@ -140,13 +146,22 @@ implements ProductOperationsRepositoryPort {
     const periodStart = startOfUtcDay(
       new Date(Date.now() - (query.periodDays - 1) * 86_400_000),
     );
+    const sellingMasterProductIds = await listSellingMasterProductIds(
+      this.prisma,
+      organizationId,
+    );
+    const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
     const rows = await this.prisma.masterProduct.findMany({
-      where: productListWhere(organizationId, query),
+      where: productListWhere(organizationId, query, sellingMasterProductIds),
       include: productInclude(organizationId, periodStart),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
     return {
-      items: rows.map((row) => toListItem(row, periodStart)),
+      items: rows.map((row) => toListItem(
+        row,
+        periodStart,
+        sellingMasterProductIdSet.has(row.id),
+      )),
       page: query.page,
       limit: query.limit,
     };
@@ -214,20 +229,17 @@ implements ProductOperationsRepositoryPort {
 
   async replaceChannelOptionInventory(
     input: Parameters<ProductOperationsRepositoryPort['replaceChannelOptionInventory']>[0],
-  ): Promise<ProductOperationsRepositoryDetail> {
+  ) {
     try {
-      const masterProductId = await this.prisma.$transaction(async (tx) => {
+      return await this.prisma.$transaction(async (tx) => {
         const option = await tx.channelListingOption.findFirst({
           where: { id: input.channelListingOptionId, organizationId: input.organizationId },
           select: {
             id: true,
-            listing: { select: { masterProductId: true } },
+            listingId: true,
           },
         });
         if (!option) throw new NotFoundException('Channel listing option was not found');
-        if (!option.listing.masterProductId) {
-          throw new BadRequestException('Channel listing must be linked to a MasterProduct first');
-        }
         await validateRecipeSkus(tx, input.organizationId, input.components);
         await tx.channelListingOptionInventoryComponent.deleteMany({
           where: {
@@ -245,9 +257,18 @@ implements ProductOperationsRepositoryPort {
             })),
           });
         }
-        return option.listing.masterProductId;
+        const masterProductId = await resolveListingMasterProductId(
+          tx,
+          input.organizationId,
+          option.listingId,
+        );
+        const updated = await tx.channelListing.updateMany({
+          where: { id: option.listingId, organizationId: input.organizationId },
+          data: { masterProductId },
+        });
+        if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
+        return { masterProductId };
       }, TRANSACTION_OPTIONS);
-      return this.getProduct(input.organizationId, masterProductId);
     } catch (error) {
       throw translateMutationError(error);
     }
@@ -268,6 +289,7 @@ function compareDisplayMediaTargets(
 function productListWhere(
   organizationId: string,
   query: MasterProductOperationsListQuery,
+  sellingMasterProductIds: readonly string[],
 ): Prisma.MasterProductWhereInput {
   const search = query.query?.trim();
   return {
@@ -280,8 +302,8 @@ function productListWhere(
       ],
     } : {}),
     ...(query.category ? { category: query.category } : {}),
-    ...(query.activeStatus === 'active' ? { isActive: true } : {}),
-    ...(query.activeStatus === 'inactive' ? { isActive: false } : {}),
+    ...(query.activeStatus === 'active' ? { id: { in: [...sellingMasterProductIds] } } : {}),
+    ...(query.activeStatus === 'inactive' ? { id: { notIn: [...sellingMasterProductIds] } } : {}),
     ...(query.abcGrade === 'unclassified'
       ? { abcGrade: null }
       : query.abcGrade
@@ -319,7 +341,7 @@ async function validateActiveRecipeSkuIds(
   if (ids.length === 0) return;
   const rows = await tx.sellpiaInventorySku.findMany({
     where: { organizationId, id: { in: ids } },
-    select: { id: true, isActive: true },
+    select: { id: true, isActive: true, masterProductId: true },
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
   if (ids.some((id) => !byId.has(id))) {
@@ -330,11 +352,51 @@ async function validateActiveRecipeSkuIds(
   if (ids.some((id) => byId.get(id)?.isActive !== true)) {
     throw new BadRequestException('Inactive SellpiaInventorySku components require review');
   }
+  if (ids.some((id) => !byId.get(id)?.masterProductId)) {
+    throw new BadRequestException(
+      'SellpiaInventorySku canonical MasterProduct must be synchronized before matching',
+    );
+  }
+}
+
+async function resolveListingMasterProductId(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  channelListingId: string,
+): Promise<string | null> {
+  const listing = await tx.channelListing.findFirst({
+    where: { id: channelListingId, organizationId },
+    select: {
+      options: {
+        where: { organizationId },
+        select: {
+          inventoryComponents: {
+            where: { organizationId },
+            select: {
+              sellpiaInventorySku: { select: { masterProductId: true } },
+            },
+          },
+        },
+      },
+    },
+  });
+  if (!listing || listing.options.length === 0) return null;
+  const ownerIds = new Set<string>();
+  for (const option of listing.options) {
+    if (option.inventoryComponents.length === 0) return null;
+    for (const component of option.inventoryComponents) {
+      const ownerId = component.sellpiaInventorySku.masterProductId;
+      if (!ownerId) return null;
+      ownerIds.add(ownerId);
+    }
+  }
+  return ownerIds.size === 1 ? [...ownerIds][0]! : null;
 }
 
 function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
   return {
     ...metadata(row),
+    inventorySkuIds: row.inventorySkus.map(({ id }) => id),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     channelListings: row.channelListings.map((listing) => ({
@@ -354,6 +416,7 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
 function toListItem(
   row: ProductRow,
   periodStart: Date,
+  isSelling: boolean,
 ): ProductOperationsRepositoryListItem {
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
@@ -373,7 +436,9 @@ function toListItem(
   );
   return {
     ...metadata(row),
+    isSelling,
     updatedAt: row.updatedAt,
+    inventorySkuIds: row.inventorySkus.map(({ id }) => id),
     activeChannelProducts: activeListings.map((listing) => ({
       channelAccountId: listing.channelAccountId,
       channel: listing.channelAccount.channel,

@@ -33,7 +33,7 @@ function product(linked = true): ChannelProductMatchingQueueRow {
     },
     linkedProduct: linked ? {
       id: masterProductId,
-      code: 'CP-100',
+      code: 'INV-SELLPIA-100',
       name: '동물 친구들 블록',
       displayImageUrl: null,
     } : null,
@@ -92,14 +92,13 @@ describe('<ProductInventoryMatchingTable />', () => {
     expect(screen.getByText('8개')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 구성' })).not.toBeInTheDocument();
     expect(screen.getByText('기본 옵션')).toBeInTheDocument();
-    expect(screen.getByText('상품 연결됨')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '재고 매칭' }));
     expect(onEditProduct).toHaveBeenCalledWith(expect.objectContaining({ listing: expect.objectContaining({ id: listingId }) }));
   });
 
-  it('requires the MasterProduct link before inventory configuration', () => {
+  it('treats a configured option as matched even when a mixed listing has no product summary', () => {
     const unlinkedProduct = product(false);
-    const unlinkedOption = option({ configured: false });
+    const unlinkedOption = option();
     unlinkedOption.listing.masterProductId = null;
     render(
       <ProductInventoryMatchingTable
@@ -109,10 +108,19 @@ describe('<ProductInventoryMatchingTable />', () => {
       />,
     );
 
-    expect(screen.getByText('매칭 필요')).toBeInTheDocument();
+    expect(screen.getByText('매칭 완료')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '확인' }));
-    expect(screen.getByText('재고 연결 필요')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '운영상품 연결' })).toBeInTheDocument();
+    expect(screen.getByText('옵션별로 서로 다른 재고상품에 연결되어 있습니다.')).toBeInTheDocument();
+    expect(screen.getByText('8개')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '재고 매칭' })).toBeInTheDocument();
+  });
+
+  it('marks an option without a recipe as unmatched', () => {
+    const unlinkedProduct = product(false);
+    const unlinkedOption = option({ configured: false });
+    unlinkedOption.listing.masterProductId = null;
+
+    expect(productMatchingStatus(unlinkedProduct, [unlinkedOption])).toBe('unmatched');
   });
 
   it('keeps configured but unavailable stock in inventory review instead of unmatched', () => {

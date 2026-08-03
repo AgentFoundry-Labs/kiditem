@@ -35,30 +35,16 @@ export class SellpiaMasterProductProfitFactReader
     const masterProductIds = [...new Set(input.masterProductIds)];
     if (masterProductIds.length === 0) return { evidence: [], orphanFacts: [] };
     const months = yearMonthsIntersecting(input.range);
-    const [components, candidates, facts] = await Promise.all([
-      this.prisma.channelListingOptionInventoryComponent.findMany({
-        where: {
-          organizationId: input.organizationId,
-          channelListingOption: {
-            organizationId: input.organizationId,
-            isActive: true,
-            listing: {
-              organizationId: input.organizationId,
-              isActive: true,
-              masterProductId: { in: masterProductIds },
-            },
-          },
-        },
-        select: {
-          sellpiaInventorySkuId: true,
-          channelListingOption: {
-            select: { listing: { select: { masterProductId: true } } },
-          },
-        },
-      }),
+    const [candidates, facts] = await Promise.all([
       this.prisma.sellpiaInventorySku.findMany({
         where: { organizationId: input.organizationId },
-        select: { id: true, code: true, barcode: true, isActive: true },
+        select: {
+          id: true,
+          code: true,
+          barcode: true,
+          isActive: true,
+          masterProductId: true,
+        },
       }),
       this.prisma.sellpiaProductMonthlySales.findMany({
         where: {
@@ -79,20 +65,11 @@ export class SellpiaMasterProductProfitFactReader
       }),
     ]);
 
-    const ownersBySku = new Map<string, Set<string>>();
-    for (const component of components) {
-      const masterProductId = component.channelListingOption.listing.masterProductId;
-      if (!masterProductId) continue;
-      const owners = ownersBySku.get(component.sellpiaInventorySkuId) ?? new Set();
-      owners.add(masterProductId);
-      ownersBySku.set(component.sellpiaInventorySkuId, owners);
-    }
     const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
     const mappedSkuIdsByMaster = new Map(masterProductIds.map((id) => [id, new Set<string>()]));
-    for (const [skuId, owners] of ownersBySku) {
-      const candidate = candidateById.get(skuId);
-      if (!candidate?.isActive || owners.size !== 1) continue;
-      mappedSkuIdsByMaster.get([...owners][0]!)?.add(skuId);
+    for (const candidate of candidates) {
+      if (!candidate.isActive || !candidate.masterProductId) continue;
+      mappedSkuIdsByMaster.get(candidate.masterProductId)?.add(candidate.id);
     }
 
     const resolver = createSellpiaProductInventoryResolver(candidates);
@@ -104,20 +81,18 @@ export class SellpiaMasterProductProfitFactReader
         orphanFacts.push(toOrphan(sourceFact, 'SOURCE_UNMAPPED'));
         continue;
       }
-      const owners = ownersBySku.get(resolution.sellpiaInventorySkuId);
-      if (!owners || owners.size === 0) {
+      const ownerId = candidateById.get(
+        resolution.sellpiaInventorySkuId,
+      )?.masterProductId;
+      if (!ownerId || !mappedSkuIdsByMaster.has(ownerId)) {
         orphanFacts.push(toOrphan(sourceFact, 'SOURCE_UNMAPPED'));
-        continue;
-      }
-      if (owners.size !== 1) {
-        orphanFacts.push(toOrphan(sourceFact, 'AMBIGUOUS_MASTER_PRODUCT'));
         continue;
       }
       if (!sourceFact.coverageStartDate || !sourceFact.coverageEndDate) {
         orphanFacts.push(toOrphan(sourceFact, 'LEGACY_COVERAGE_MISSING'));
         continue;
       }
-      const masterProductId = [...owners][0]!;
+      const masterProductId = ownerId;
       const key = `${masterProductId}\u0000${sourceFact.yearMonth}`;
       const rows = mappedRows.get(key) ?? [];
       rows.push(sourceFact);

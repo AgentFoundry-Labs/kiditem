@@ -345,11 +345,101 @@ async function replaceInventorySkus(
       lastImportRunId: input.runId,
     },
   });
+  await ensureCanonicalInventoryProducts(tx, input.organizationId);
+  await rebuildChannelListingProductSummaries(tx, input.organizationId);
   return {
     createdSkuCount,
     updatedSkuCount,
     inactivatedSkuCount,
   };
+}
+
+async function ensureCanonicalInventoryProducts(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    INSERT INTO master_products (
+      id, organization_id, origin_channel_listing_id, code, name,
+      tags, image_urls, is_active, created_at, updated_at
+    )
+    SELECT
+      gen_random_uuid(),
+      sku.organization_id,
+      NULL,
+      'INV-SELLPIA-' || sku.id::text,
+      sku.name,
+      ARRAY[]::text[],
+      ARRAY[]::text[],
+      sku.is_active AND sku.current_stock > 0,
+      NOW(),
+      NOW()
+    FROM sellpia_inventory_skus sku
+    WHERE sku.organization_id = ${organizationId}::uuid
+    ON CONFLICT (organization_id, code)
+    DO UPDATE SET
+      name = EXCLUDED.name,
+      is_active = EXCLUDED.is_active,
+      updated_at = NOW()
+  `;
+
+  await tx.$executeRaw`
+    UPDATE sellpia_inventory_skus sku
+    SET master_product_id = product.id,
+        updated_at = NOW()
+    FROM master_products product
+    WHERE sku.organization_id = ${organizationId}::uuid
+      AND product.organization_id = sku.organization_id
+      AND product.code = 'INV-SELLPIA-' || sku.id::text
+      AND sku.master_product_id IS DISTINCT FROM product.id
+  `;
+}
+
+async function rebuildChannelListingProductSummaries(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    WITH option_owners AS (
+      SELECT
+        option.listing_id,
+        option.id AS option_id,
+        COUNT(component.id) AS component_count,
+        COUNT(DISTINCT sku.master_product_id) AS owner_count,
+        MIN(sku.master_product_id::text)::uuid AS owner_id
+      FROM channel_listing_options option
+      LEFT JOIN channel_listing_option_inventory_components component
+        ON component.channel_listing_option_id = option.id
+        AND component.organization_id = option.organization_id
+      LEFT JOIN sellpia_inventory_skus sku
+        ON sku.id = component.sellpia_inventory_sku_id
+        AND sku.organization_id = component.organization_id
+      WHERE option.organization_id = ${organizationId}::uuid
+      GROUP BY option.listing_id, option.id
+    ), listing_owners AS (
+      SELECT
+        listing.id AS listing_id,
+        CASE
+          WHEN COUNT(option_owners.option_id) > 0
+            AND BOOL_AND(option_owners.component_count > 0)
+            AND BOOL_AND(option_owners.owner_count = 1)
+            AND COUNT(DISTINCT option_owners.owner_id) = 1
+          THEN MIN(option_owners.owner_id::text)::uuid
+          ELSE NULL
+        END AS owner_id
+      FROM channel_listings listing
+      LEFT JOIN option_owners ON option_owners.listing_id = listing.id
+      WHERE listing.organization_id = ${organizationId}::uuid
+      GROUP BY listing.id
+    )
+    UPDATE channel_listings listing
+    SET master_product_id = listing_owners.owner_id,
+        updated_at = NOW()
+    FROM listing_owners
+    WHERE listing.id = listing_owners.listing_id
+      AND listing.organization_id = ${organizationId}::uuid
+      AND listing.master_product_id IS DISTINCT FROM listing_owners.owner_id
+  `;
 }
 
 async function recordPublicationFailure(

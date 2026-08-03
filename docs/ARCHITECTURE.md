@@ -172,7 +172,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
-| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, conditional listing-to-MasterProduct link writes, direct option-component diagnostics, and sellable-capacity projections. |
+| `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
@@ -183,7 +183,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
-| `apps/server/src/products` | Owner Domain | KidItem MasterProduct operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
+| `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
 | `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox), reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
@@ -263,8 +263,8 @@ Initial domain capability targets:
 | `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
-| `products` | Product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, and complete option-component replacement. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
-| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, nullable MasterProduct links, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and operator correction flows. | Listing registration/update and confirmed MasterProduct-link projection, channel order/status ingestion; never physical stock publication. |
+| `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
+| `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, derived nullable MasterProduct summaries, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and option-to-inventory correction flows. | Listing registration/update, option recipe matching, derived MasterProduct summary projection, and channel order/status ingestion; never physical stock publication. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, deterministic Rocket capacity preview, and procurement calculation helpers. | Freshness-fenced purchase submission and explicit provider reconciliation. | Supplier attach, purchase-order creation/update, and attempt terminal state; never freshness or stock. |
@@ -387,7 +387,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | Product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; dedicated read-only `/product-hub/options`; listing-to-MasterProduct and option-to-Sellpia component matching at `/product-hub/matching`. |
+| `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; dedicated read-only `/product-hub/options`; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
 | `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
@@ -625,9 +625,9 @@ not estimate, reserve, increment, or decrement it.
 |---|---|---|---|
 | Sellpia trust state | `SellpiaInventoryState` | `sellpia_inventory_states` | Exactly one per organization; fixed origin/account binding, requested/verified/failed generations, 90-second owner lease, timestamps, last attempt, and opaque UUID fence. |
 | Import/attempt history | `SourceImportRun` | `source_import_runs` | Unified completed workbook and pre-download failure provenance; hash/idempotency, generation, trigger, verification, attestation, bounded quality, and sanitized failure fields. |
-| KidItem operating product | `MasterProduct` | `master_products` | Organization-scoped stable code, product metadata, operating settings, ABC grade, and channel listing links; never physical stock or source-import data. |
-| Physical Sellpia SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code. Only a completed valid Inventory publication writes active state and `current_stock`. |
-| Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity. A listing may link to one MasterProduct; an option is the sellable channel identity. Provider metadata is never inventory truth. |
+| Canonical inventory product | `MasterProduct` | `master_products` | Organization-scoped inventory-product identity, metadata, active state, and sole ABC grade. It may have one source row per provider type and any number of consuming channel options; it never owns provider stock facts. |
+| Physical Sellpia source SKU | `SellpiaInventorySku` | `sellpia_inventory_skus` | Organization + Sellpia product code and a unique canonical `masterProductId`. Only a completed valid Inventory publication writes active state and `current_stock`, and that publication atomically provisions/updates the canonical MasterProduct. |
+| Channel product/option | `ChannelListing` / `ChannelListingOption` | `channel_listings` / `channel_listing_options` | Organization + ChannelAccount + provider identity. An option is the sellable channel identity and may consume source SKUs. A listing's nullable MasterProduct is only a derived summary when every option resolves to the same product. Provider metadata is never inventory truth. |
 | Option inventory consumption | `ChannelListingOptionInventoryComponent` | `channel_listing_option_inventory_components` | Positive quantity of one SellpiaInventorySku consumed by one channel-option sale; every cross-model relation is organization-fenced. |
 | External submission intent | `PurchaseOrderSubmissionAttempt` | `purchase_order_submission_attempts` | Organization + purchase order + idempotency key; records freshness generation, provider terminal/unknown outcome, and authenticated reconciliation. |
 | Sellpia order submission fence | `SellpiaOrderTransmissionIntent` / `SellpiaOrderTransmissionIntentReconciliation` | `sellpia_order_transmission_intents` / `sellpia_order_transmission_intent_reconciliations` | Orders-owned organization + stable workbook intent key. Prevents duplicate browser submission and audits explicit reconciliation without reading or advancing Inventory freshness. |
@@ -678,19 +678,19 @@ and cannot call the provider again. The web may auto-refresh and retry once only
 for `SELLPIA_SYNC_REQUIRED`, with the same key.
 
 Channels persists account-scoped Wing and Rocket identity. Catalog publication
-upserts observed listings and options while preserving any existing
-`ChannelListing.masterProductId` and direct option-component rows. It never
-creates a channel-origin MasterProduct or infers a product link from seller SKU,
-barcode, normalized name, similarity, rank, or AI.
+upserts observed listings and options while preserving direct option-component
+rows. It never creates a channel-origin MasterProduct. After recipe changes the
+listing summary is derived: all options must be configured and resolve to one
+canonical MasterProduct, otherwise `ChannelListing.masterProductId` is null.
 
-The matching center owns the explicit listing-to-MasterProduct correction flow
-and direct option-component review. Its deterministic command may fill only an
-empty option component list when organization-fenced evidence uniquely selects
-one active Sellpia SKU and a verified positive pack quantity. Manual replacement
-is a complete, expected-current-component-fenced write. Existing components,
-duplicate or conflicting evidence, uncertain pack/BOM evidence, raw aliases,
-and AI remain untouched until operator review. Inventory remains the sole
-physical-stock writer.
+The matching center owns direct option-component review. Its deterministic
+command may fill only an empty option component list when organization-fenced
+evidence uniquely selects one active Sellpia SKU and a verified positive pack
+quantity. Manual replacement is a complete,
+expected-current-component-fenced write. Existing components, duplicate or
+conflicting evidence, uncertain pack/BOM evidence, raw aliases, and AI remain
+untouched until operator review. Inventory remains the sole physical-stock
+writer.
 
 Confirmed direct option components remain the capacity truth.
 Capacity is

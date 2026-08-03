@@ -27,7 +27,7 @@ function rejectFields(block, fields) {
 }
 
 describe('master-product operations final schema contract', () => {
-  it('makes MasterProduct the organization-scoped operating product', () => {
+  it('makes MasterProduct the organization-scoped canonical inventory product', () => {
     const master = modelBlock(core, 'MasterProduct');
     expectFields(master, [
       'organizationId',
@@ -50,6 +50,7 @@ describe('master-product operations final schema contract', () => {
       'originChannelListing',
       'provenanceCandidate',
       'processingCosts',
+      'inventorySkus',
     ]);
     assert.match(master, /@@unique\(\[organizationId, code\]\)/);
     assert.match(master, /@@unique\(\[id, organizationId\]/);
@@ -101,10 +102,11 @@ describe('master-product operations final schema contract', () => {
     );
   });
 
-  it('makes SellpiaInventorySku the sole physical Sellpia stock owner', () => {
+  it('makes SellpiaInventorySku a physical source SKU owned by at most one canonical MasterProduct', () => {
     const sku = modelBlock(inventory, 'SellpiaInventorySku');
     expectFields(sku, [
       'organizationId',
+      'masterProductId',
       'code',
       'name',
       'optionName',
@@ -117,12 +119,18 @@ describe('master-product operations final schema contract', () => {
       'lastImportRunId',
       'lastImportRun',
       'channelListingOptionInventoryComponents',
+      'masterProduct',
     ]);
     assert.match(sku, /@@unique\(\[organizationId, code\]\)/);
     assert.match(sku, /@@unique\(\[id, organizationId\]/);
     assert.match(sku, /@@map\("sellpia_inventory_skus"\)/);
     assert.match(sku, /@relation\("SellpiaInventorySkuLastImport"/);
-    rejectFields(sku, ['masterProductId']);
+    assert.match(
+      sku,
+      /@relation\("MasterProductInventorySkus", fields: \[masterProductId, organizationId\], references: \[id, organizationId\]/,
+    );
+    assert.match(sku, /@@index\(\[organizationId, masterProductId\]/);
+    assert.match(sku, /@@unique\(\[organizationId, masterProductId\]/);
   });
 
   it('keeps only the channel product link nullable and organization-fenced', () => {

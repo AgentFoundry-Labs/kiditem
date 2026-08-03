@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
 import { productAbcEvaluation } from '@/test/fixtures/product-abc';
@@ -80,6 +80,26 @@ describe('ProductOutflow', () => {
     fireEvent.click(screen.getByRole('button', { name: /ABC 매핑 필요\s*1/ }));
     await waitFor(() => expect(screen.queryByText('계산 완료 상품')).not.toBeInTheDocument());
     expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
+  });
+
+  it('does not show the retired formula-calibration status as a stock filter', async () => {
+    productSalesApi.fetch.mockResolvedValueOnce(summary(true));
+    renderProductOutflow();
+
+    await screen.findByText('계산 완료 상품');
+    expect(screen.queryByRole('button', { name: /수식 보정 대기/ })).not.toBeInTheDocument();
+  });
+
+  it('renders MasterProduct ABC grades in the first table column', async () => {
+    productSalesApi.fetch.mockResolvedValueOnce(summary(true));
+    renderProductOutflow();
+
+    const headers = await screen.findAllByRole('columnheader');
+    expect(headers[0]).toHaveTextContent('등급');
+    const row = screen.getByRole('row', { name: /계산 완료 상품/ });
+    const cells = within(row).getAllByRole('cell');
+    expect(within(cells[0]!).getByLabelText('A등급')).toBeInTheDocument();
+    expect(within(cells[4]!).queryByLabelText('A등급')).not.toBeInTheDocument();
   });
 });
 
@@ -169,6 +189,13 @@ function row(
       activeCommitmentQuantity: 0,
       availableStock: 10,
       salesRowCount: 1,
+      inventoryProduct: {
+        masterProductId: `21111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
+        masterProductCode: `MP-${suffix}`,
+        masterProductName: productName,
+        abcGrade,
+        abcEvaluation,
+      },
       destinations: [{
         masterProductId: `21111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
         masterProductCode: `MP-${suffix}`,

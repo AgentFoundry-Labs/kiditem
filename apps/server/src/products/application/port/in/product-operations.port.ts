@@ -29,5 +29,5 @@ export interface ProductOperationsPort {
     organizationId: string,
     channelListingOptionId: string,
     input: ReplaceChannelOptionInventoryInput,
-  ): Promise<MasterProductOperationsDetail>;
+  ): Promise<{ masterProductId: string | null }>;
 }

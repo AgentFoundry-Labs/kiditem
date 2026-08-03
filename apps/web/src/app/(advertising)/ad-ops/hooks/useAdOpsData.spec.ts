@@ -3,7 +3,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { AdCampaignSnapshot } from "@kiditem/shared/advertising";
-import { toCampaignsResponse, useAdProducts } from "./useAdOpsData";
+import {
+  toCampaignsResponse,
+  useAdOpsData,
+  useAdProducts,
+} from "./useAdOpsData";
 
 const mockApiGet = vi.hoisted(() => vi.fn());
 
@@ -85,6 +89,57 @@ describe("toCampaignsResponse", () => {
       ctr: 1,
       cvr: 20,
     });
+  });
+});
+
+describe("useAdOpsData request scope", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockApiGet.mockResolvedValue({});
+  });
+
+  it("loads only the status-screen inputs and skips unused advertising endpoints", async () => {
+    const { result } = renderHook(() => useAdOpsData("14d", "status"), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(mockApiGet.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+      "/api/ads/campaigns?period=14d",
+      "/api/ads/strategy/rules?period=14d",
+      "/api/ads/extension/status",
+      "/api/ads/strategy/plan?period=14d",
+      "/api/dashboard/ad",
+      "/api/ads/campaigns/trends?period=14d",
+    ]));
+    expect(mockApiGet).toHaveBeenCalledTimes(6);
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads?days=14");
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/strategy/recommend");
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/benchmark?days=14");
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/traffic/summary?days=14");
+  });
+
+  it("defers status-only requests after navigating away from the analysis tab", async () => {
+    const { result } = renderHook(() => useAdOpsData("14d", "campaign"), {
+      wrapper: wrapper(),
+    });
+
+    await waitFor(() => {
+      expect(result.current.isLoading).toBe(false);
+    });
+
+    expect(mockApiGet.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+      "/api/ads/campaigns?period=14d",
+      "/api/ads/strategy/rules?period=14d",
+      "/api/dashboard/ad",
+      "/api/ads/campaigns/trends?period=14d",
+    ]));
+    expect(mockApiGet).toHaveBeenCalledTimes(4);
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/extension/status");
+    expect(mockApiGet).not.toHaveBeenCalledWith("/api/ads/strategy/plan?period=14d");
   });
 });
 

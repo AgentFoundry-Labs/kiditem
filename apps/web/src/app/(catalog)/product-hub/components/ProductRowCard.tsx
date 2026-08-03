@@ -62,8 +62,8 @@ export function ProductRowCard({
               {categoryLabel ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
                 {categoryLabel}
               </span> : null}
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {product.isActive ? '판매중' : '판매중지'}
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isSelling ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                {product.isSelling ? '판매중' : '판매중지'}
               </span>
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 {INVENTORY_LABELS[product.inventoryStatus]}
@@ -81,6 +81,19 @@ export function ProductRowCard({
             <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
               {product.displayReference.label} {product.displayReference.value} · {product.brand ?? '브랜드 미등록'}
             </p>
+            {product.activeChannels.length > 0 ? (
+              <div aria-label="판매 채널" className="mt-1 flex flex-wrap items-center gap-1">
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">채널</span>
+                {product.activeChannels.map((channel) => (
+                  <span
+                    key={channel.channelAccountId}
+                    className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700"
+                  >
+                    {channel.channelAccountName}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
               옵션 {formatNumber(product.channelOptionSummary.total)}개 · 구성 완료 {formatNumber(product.channelOptionSummary.configured)}개
             </p>

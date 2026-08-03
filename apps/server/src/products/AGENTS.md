@@ -2,9 +2,10 @@ Consult this document first instead of relying on memorized knowledge.
 
 # products — Product Operations + Categories Compatibility
 
-`src/products/` owns `MasterProduct` operations, automatic profitability ABC,
-and the direct inventory composition of channel listing options. It also retains
-`/api/categories` compatibility CRUD. It never owns physical stock.
+`src/products/` owns canonical inventory-product (`MasterProduct`) operations,
+automatic profitability ABC, and the direct inventory composition of channel
+listing options. It also retains `/api/categories` compatibility CRUD. It never
+owns physical stock quantities.
 
 ## Owned Surface
 
@@ -18,14 +19,16 @@ and the direct inventory composition of channel listing options. It also retains
 
 ## Final Owners
 
-- Cross-channel operating product and ABC: Products `MasterProduct`.
+- Canonical inventory product and ABC: Products `MasterProduct`.
 - Marketplace product/option identity: Channels `ChannelListing` and
   `ChannelListingOption`.
-- One marketplace product link: `ChannelListing.masterProductId`.
+- Derived single-inventory-product listing summary:
+  `ChannelListing.masterProductId`.
 - Per-sale inventory consumption: Products-owned
   `ChannelListingOptionInventoryComponent`, keyed by channel option and
   `SellpiaInventorySku`.
-- Physical identity, stock, purchase price, and provider imports: Inventory
+- Sellpia source identity, stock, purchase price, provider imports, and
+  one-to-one canonical MasterProduct provisioning: Inventory
   `SellpiaInventorySku`.
 - Collected sourcing candidates and product preparation: Sourcing.
 - Registered thumbnail/detail content: AI `ContentWorkspace` and its revisions.
@@ -42,8 +45,9 @@ and the direct inventory composition of channel listing options. It also retains
   mutated by this endpoint.
 - Capacity is derived from the option's direct components using common
   `availableStock`; physical stock and commitments remain Inventory-owned.
-- Product-level inventory is a read projection over distinct Sellpia SKUs used
-  by linked channel options. Products never creates a second ledger.
+- Product-level inventory is the owned source SKU of the canonical
+  MasterProduct. Channel options are consumers of that inventory product;
+  Products never creates a second ledger.
 - Recipe candidate search enters Inventory only through the exported
   `SELLPIA_INVENTORY_SKU_READ_PORT`, passes the session-owned `organizationId`,
   and returns physical identities without a writer.
@@ -53,11 +57,12 @@ and the direct inventory composition of channel listing options. It also retains
   expose calculated `displayImageUrls`; channel collection never copies media
   into the product.
 - Channel import creates or updates only Channels-owned listing identities and
-  preserves an existing `masterProductId`. It does not auto-provision
-  `MasterProduct` rows.
+  preserves existing option recipes. The listing-level `masterProductId` is
+  rebuilt from those recipes and is null when options are incomplete or span
+  multiple inventory products.
 - Candidate rank, display text, untyped payload fields, and AI never confirm
-  product identity. Channels owns conservative typed auto-match and explicit
-  operator confirmation.
+  inventory identity. Channels owns conservative typed option-to-Sellpia
+  matching and explicit operator confirmation.
 - `MasterProduct.abcGrade` is nullable automatic output, never operator input.
   Products evaluates Finance-owned profitability evidence for currently selling
   mapped products, persists formula/evaluation provenance, and publishes only

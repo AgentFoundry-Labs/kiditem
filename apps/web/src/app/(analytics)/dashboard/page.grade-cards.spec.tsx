@@ -165,7 +165,7 @@ describe('Dashboard automatic ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
-    expect(screen.getByRole('link', { name: /계산·보정 대기/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /자동 계산 중/ })).toHaveAttribute(
       'href',
       '/product-hub?abcGrade=unclassified',
     );
@@ -174,6 +174,6 @@ describe('Dashboard automatic ABC grade cards', () => {
       '/product-hub?dataStatus=abc',
     );
     expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
-    expect(screen.getByText(/검증 표본을 수집하면 수식 보정을 시작합니다/)).toBeInTheDocument();
+    expect(screen.getByText(/수익성 이력 표본을 수집하면 자동 평가를 시작합니다/)).toBeInTheDocument();
   });
 });

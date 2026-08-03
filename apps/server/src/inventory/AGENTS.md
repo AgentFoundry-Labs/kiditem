@@ -102,8 +102,9 @@ change stock.
 ## Cross-Domain Ports
 
 - `InventoryModule` exports a read-only Sellpia inventory-SKU capability for
-  product recipes, matching evidence, and capacity consumers. It never exposes
-  `MasterProduct` as a physical inventory type.
+  product recipes, matching evidence, and capacity consumers. `MasterProduct`
+  is the canonical inventory product, while SellpiaInventorySku remains the
+  provider source row and sole physical quantity authority.
 - `InventoryModule` exports organization-fenced availability and commitment
   ports. Other domains pass structured source identity; Inventory canonicalizes
   business keys and owns commitment lifecycle transitions.
@@ -163,9 +164,10 @@ change stock.
   exported commitment port only; Rocket must not use them.
 - Transfer, picking, and return completion updates operational record fields
   only; they do not write `SellpiaInventorySku.currentStock`.
-- Product operations reads must enter through Products APIs. The Inventory SKU
-  list may expose linked/unlinked projections, but it must not manufacture or
-  mutate `MasterProduct` rows.
+- Product operations reads must enter through Products APIs. The atomic Sellpia
+  snapshot publication is the only Inventory path allowed to provision/update
+  the one-to-one canonical MasterProduct owner for each source SKU; ordinary
+  Inventory reads and operations must not mutate MasterProduct rows.
 - Inventory SKU linked product/channel-option destinations are distinct
   read-only projections of actual, active, organization-fenced
   `ChannelListingOptionInventoryComponent` relations; never infer destinations

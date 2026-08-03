@@ -2,13 +2,9 @@ import { z } from 'zod';
 import { ChannelAccountListItemSchema, type ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import {
   ChannelProductAutoMatchResponseSchema,
-  ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
-  LinkChannelListingProductInputSchema,
   type ChannelProductAutoMatchResponse,
-  type ChannelProductCandidateListResponse,
   type ChannelProductMatchingQueueResponse,
-  type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
 import {
   ProductRecipeComponentCandidateListResponseSchema,
@@ -62,27 +58,6 @@ export async function importSellpiaManualMatchSnapshot(
   return SellpiaManualMatchImportResponseSchema.parse(response);
 }
 
-export function listChannelProductCandidates(
-  channelListingId: string,
-  search = '',
-): Promise<ChannelProductCandidateListResponse> {
-  return apiClient.getParsed(
-    candidateUrl(`/api/channels/product-mappings/${encodeURIComponent(channelListingId)}/candidates`, search),
-    ChannelProductCandidateListResponseSchema,
-  );
-}
-
-export async function linkChannelListingProduct(
-  channelListingId: string,
-  input: LinkChannelListingProductInput,
-): Promise<void> {
-  const body = LinkChannelListingProductInputSchema.parse(input);
-  await apiClient.put<void>(
-    `/api/channels/product-mappings/${encodeURIComponent(channelListingId)}/master-product`,
-    body,
-  );
-}
-
 export async function autoMatchChannelProducts(
   channelAccountId?: string,
 ): Promise<ChannelProductAutoMatchResponse> {
@@ -110,7 +85,6 @@ export function listRecipeComponentCandidates(input: {
 
 export type ProductInventoryMatchingSaveInput = {
   channelListingId: string;
-  masterProductId: string;
   options: Array<{
     channelListingOptionId: string;
     components: ReplaceChannelOptionInventoryInput['components'];
@@ -120,9 +94,6 @@ export type ProductInventoryMatchingSaveInput = {
 export async function saveProductInventoryMatching(
   input: ProductInventoryMatchingSaveInput,
 ): Promise<void> {
-  await linkChannelListingProduct(input.channelListingId, {
-    masterProductId: input.masterProductId,
-  });
   for (const option of [...input.options].sort((left, right) =>
     left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
     await apiClient.put(
@@ -143,9 +114,4 @@ export function importCoupangWingCatalog(
     CoupangWingCatalogImportResponseSchema,
     form,
   );
-}
-
-function candidateUrl(base: string, search: string): string {
-  const normalized = search.trim();
-  return normalized ? `${base}?search=${encodeURIComponent(normalized)}` : base;
 }

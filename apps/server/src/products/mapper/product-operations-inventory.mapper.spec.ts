@@ -29,6 +29,11 @@ describe('product operations inventory mapper', () => {
       inventoryUnits: 20,
       inventoryStatus: 'sellable',
       depletion: { needsReorder: true },
+      activeChannels: [{
+        channelAccountId: '55555555-5555-4555-8555-555555555555',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }],
       channelOptionSummary: { total: 1, active: 1, configured: 1, warning: 0 },
     });
     expect(result).not.toHaveProperty('variants');
@@ -76,6 +81,11 @@ function rawListItem() {
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
+    activeChannelProducts: [{
+      channelAccountId: '55555555-5555-4555-8555-555555555555',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }],
     traffic: null,
     orderCount: null,
     salesAmount: null,
@@ -83,6 +93,7 @@ function rawListItem() {
     profit: null,
     contributionMargin: null,
     contributionProfitVelocity30: null,
+    inventorySkuIds: [SKU_ID],
     inventoryOptions: [{
       id: '33333333-3333-4333-8333-333333333333',
       externalOptionId: 'OPTION-1',

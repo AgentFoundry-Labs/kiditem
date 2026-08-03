@@ -359,10 +359,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 3 },
       abcStatusCounts: {
-        INSUFFICIENT_EVIDENCE: 1,
+        INSUFFICIENT_EVIDENCE: 2,
         SOURCE_UNMAPPED: 1,
         ORDERS_SOURCE_STALE: 1,
-        CALIBRATION_PENDING: 1,
+        CALIBRATION_PENDING: 0,
       },
     });
 
@@ -397,19 +397,20 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('projects direct channel-option recipes and deduplicates shared physical stock', async () => {
-    const sku = await inventorySku('SP-SHARED', 7);
     const { product, options } = await linkedProductWithOptions('KI-BUNDLE', 2);
+    const sku = await inventorySku('SP-SHARED', 7, true, TEST_ORGANIZATION_ID, product.id);
 
     await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       options[0]!.id,
       { components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }] },
     );
-    const detail = await service.replaceChannelOptionInventory(
+    await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       options[1]!.id,
       { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
     );
+    const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail.inventoryUnits).toBe(7);
     expect(detail.inventoryStatus).toBe('sellable');
@@ -428,8 +429,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('preserves physical stock while common commitments reduce option capacity', async () => {
-    const sku = await inventorySku('SP-COMMITTED', 100);
     const { product, options } = await linkedProductWithOptions('KI-COMMITTED', 1);
+    const sku = await inventorySku('SP-COMMITTED', 100, true, TEST_ORGANIZATION_ID, product.id);
     await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       options[0]!.id,
@@ -478,17 +479,24 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   });
 
   it('atomically replaces direct recipes and preserves the old recipe on invalid input', async () => {
-    const active = await inventorySku('SP-ACTIVE', 8);
-    const inactive = await inventorySku('SP-INACTIVE', 10, false);
-    const foreign = await inventorySku('SP-FOREIGN', 10, true, OTHER_ORGANIZATION_ID);
     const { product, options } = await linkedProductWithOptions('KI-RECIPE', 1);
+    const inactiveOwner = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-INACTIVE', name: 'Inactive' },
+    });
+    const foreignOwner = await prisma.masterProduct.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, code: 'INV-FOREIGN', name: 'Foreign' },
+    });
+    const active = await inventorySku('SP-ACTIVE', 8, true, TEST_ORGANIZATION_ID, product.id);
+    const inactive = await inventorySku('SP-INACTIVE', 10, false, TEST_ORGANIZATION_ID, inactiveOwner.id);
+    const foreign = await inventorySku('SP-FOREIGN', 10, true, OTHER_ORGANIZATION_ID, foreignOwner.id);
     const optionId = options[0]!.id;
 
-    const replaced = await service.replaceChannelOptionInventory(
+    await service.replaceChannelOptionInventory(
       TEST_ORGANIZATION_ID,
       optionId,
       { components: [{ sellpiaInventorySkuId: active.id, quantity: 3 }] },
     );
+    const replaced = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
     expect(replaced.channelListings[0]!.options[0]).toMatchObject({
       capacity: 2,
       inventoryComponents: [{ sellpiaInventorySkuId: active.id, quantity: 3 }],
@@ -529,8 +537,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('rejects a recipe for an unlinked channel listing', async () => {
-    const sku = await inventorySku('SP-UNLINKED', 5);
+  it('derives the product link when an unlinked listing receives a complete recipe', async () => {
+    const product = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-UNLINKED', name: 'Inventory product' },
+    });
+    const sku = await inventorySku('SP-UNLINKED', 5, true, TEST_ORGANIZATION_ID, product.id);
     const account = await prisma.channelAccount.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -557,10 +568,45 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       option.id,
       { components: [{ sellpiaInventorySkuId: sku.id, quantity: 1 }] },
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).resolves.toEqual({ masterProductId: product.id });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .toMatchObject({ masterProductId: product.id });
     expect(await prisma.channelListingOptionInventoryComponent.count({
       where: { channelListingOptionId: option.id },
-    })).toBe(0);
+    })).toBe(1);
+  });
+
+  it('links several options only when every recipe converges on one inventory product', async () => {
+    const first = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-FIRST', name: 'First inventory' },
+    });
+    const second = await prisma.masterProduct.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, code: 'INV-SECOND', name: 'Second inventory' },
+    });
+    const firstSku = await inventorySku('SP-FIRST', 5, true, TEST_ORGANIZATION_ID, first.id);
+    const secondSku = await inventorySku('SP-SECOND', 5, true, TEST_ORGANIZATION_ID, second.id);
+    const { listing, options } = await linkedProductWithOptions('LEGACY-MIXED', 2);
+
+    await expect(service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[0]!.id,
+      { components: [{ sellpiaInventorySkuId: firstSku.id, quantity: 1 }] },
+    )).resolves.toEqual({ masterProductId: null });
+    await expect(service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[1]!.id,
+      { components: [{ sellpiaInventorySkuId: secondSku.id, quantity: 1 }] },
+    )).resolves.toEqual({ masterProductId: null });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .toMatchObject({ masterProductId: null });
+
+    await expect(service.replaceChannelOptionInventory(
+      TEST_ORGANIZATION_ID,
+      options[1]!.id,
+      { components: [{ sellpiaInventorySkuId: firstSku.id, quantity: 2 }] },
+    )).resolves.toEqual({ masterProductId: first.id });
+    expect(await prisma.channelListing.findUniqueOrThrow({ where: { id: listing.id } }))
+      .toMatchObject({ masterProductId: first.id });
   });
 
   it('keeps product metrics null without facts and aggregates linked listing facts when present', async () => {
@@ -681,9 +727,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     currentStock: number,
     isActive = true,
     organizationId = TEST_ORGANIZATION_ID,
+    masterProductId?: string,
   ) {
     return prisma.sellpiaInventorySku.create({
-      data: { organizationId, code, name: code, currentStock, isActive },
+      data: { organizationId, masterProductId, code, name: code, currentStock, isActive },
     });
   }
 

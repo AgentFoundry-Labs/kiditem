@@ -23,7 +23,9 @@ describe('channel listings as the matching workspace source', () => {
     const transaction = {
       $queryRaw: queryRaw,
       channelListing: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
-      channelListingOption: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      channelListingOptionInventoryComponent: {
+        deleteMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     const repository = new ChannelProductMatchingRepositoryAdapter({
       $transaction: vi.fn(async (callback) => callback(transaction)),

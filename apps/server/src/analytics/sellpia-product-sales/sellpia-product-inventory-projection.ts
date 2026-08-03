@@ -23,6 +23,15 @@ export type SellpiaProductDestinationRow = SellpiaProductDestination & {
   sellpiaInventorySkuId: string;
 };
 
+export type SellpiaInventoryProductRow = Readonly<{
+  sellpiaInventorySkuId: string;
+  masterProductId: string;
+  masterProductCode: string;
+  masterProductName: string;
+  abcGrade: 'A' | 'B' | 'C' | null;
+  abcEvaluation: SellpiaProductDestination['abcEvaluation'];
+}>;
+
 export type SellpiaProductInventoryMetrics = Readonly<{
   inventoryResolution: SellpiaProductInventoryResolution;
   monthsOfAvailableStockLeft: number | null;
@@ -55,6 +64,7 @@ export function projectSellpiaProductInventory(input: {
   products: readonly SellpiaProductInventoryProjectionInput[];
   resolutions: ReadonlyMap<string, SellpiaProductInventoryCandidateResolution>;
   availability: InventoryAvailabilityBatch;
+  inventoryProducts: readonly SellpiaInventoryProductRow[];
   destinations: readonly SellpiaProductDestinationRow[];
 }): {
   byProductKey: ReadonlyMap<string, SellpiaProductInventoryMetrics>;
@@ -96,7 +106,7 @@ export function projectSellpiaProductInventory(input: {
         mappingRequiredSalesRows: 0,
         matchedSkus: 0,
         unlinkedSkus: 0,
-        ...summarizeDestinationAbc(input.destinations),
+        ...summarizeInventoryProductAbc(input.inventoryProducts),
       },
     };
   }
@@ -106,6 +116,10 @@ export function projectSellpiaProductInventory(input: {
     item,
   ]));
   const destinationsBySkuId = groupDestinations(input.destinations);
+  const inventoryProductBySkuId = new Map(input.inventoryProducts.map((product) => [
+    product.sellpiaInventorySkuId,
+    product,
+  ]));
   const groups = new Map<string, SellpiaProductInventoryProjectionInput[]>();
   let mappingRequiredSalesRows = 0;
 
@@ -151,6 +165,7 @@ export function projectSellpiaProductInventory(input: {
       availability.availableStock,
     );
     const destinations = destinationsBySkuId.get(sellpiaInventorySkuId) ?? [];
+    const inventoryProduct = inventoryProductBySkuId.get(sellpiaInventorySkuId);
     if (destinations.length === 0) unlinkedSkus += 1;
     if (reorder.needsReorder) reorderCount += 1;
     if (deadStock.deadStock) deadStockCount += 1;
@@ -162,6 +177,15 @@ export function projectSellpiaProductInventory(input: {
         activeCommitmentQuantity: availability.activeCommitmentQuantity,
         availableStock: availability.availableStock,
         salesRowCount: products.length,
+        inventoryProduct: inventoryProduct
+          ? {
+              masterProductId: inventoryProduct.masterProductId,
+              masterProductCode: inventoryProduct.masterProductCode,
+              masterProductName: inventoryProduct.masterProductName,
+              abcGrade: inventoryProduct.abcGrade,
+              abcEvaluation: inventoryProduct.abcEvaluation,
+            }
+          : null,
         destinations,
       },
       monthsOfAvailableStockLeft: reorder.monthsOfAvailableStockLeft,
@@ -185,7 +209,8 @@ export function projectSellpiaProductInventory(input: {
       mappingRequiredSalesRows,
       matchedSkus: groups.size,
       unlinkedSkus,
-      ...summarizeDestinationAbc(input.destinations),
+      ...summarizeInventoryProductAbc(input.inventoryProducts.filter((product) =>
+        groups.has(product.sellpiaInventorySkuId))),
     },
   };
 }
@@ -252,8 +277,8 @@ function groupDestinations(
   ]));
 }
 
-function summarizeDestinationAbc(
-  destinations: readonly SellpiaProductDestinationRow[],
+function summarizeInventoryProductAbc(
+  inventoryProducts: readonly SellpiaInventoryProductRow[],
 ): {
   abcCounts: { A: number; B: number; C: number };
   abcStatusCounts: {
@@ -271,10 +296,10 @@ function summarizeDestinationAbc(
   classifiedProductCount: number;
   unclassifiedProductCount: number;
 } {
-  const byMasterProduct = new Map<string, SellpiaProductDestinationRow>();
-  for (const destination of destinations) {
-    if (!byMasterProduct.has(destination.masterProductId)) {
-      byMasterProduct.set(destination.masterProductId, destination);
+  const byMasterProduct = new Map<string, SellpiaInventoryProductRow>();
+  for (const product of inventoryProducts) {
+    if (!byMasterProduct.has(product.masterProductId)) {
+      byMasterProduct.set(product.masterProductId, product);
     }
   }
   const summary = {
@@ -294,21 +319,21 @@ function summarizeDestinationAbc(
     classifiedProductCount: 0,
     unclassifiedProductCount: 0,
   };
-  for (const destination of byMasterProduct.values()) {
-    if (destination.abcGrade) {
-      summary.abcCounts[destination.abcGrade] += 1;
+  for (const product of byMasterProduct.values()) {
+    if (product.abcGrade) {
+      summary.abcCounts[product.abcGrade] += 1;
       summary.classifiedProductCount += 1;
-    } else if (destination.abcEvaluation === null) {
+    } else if (product.abcEvaluation === null) {
       summary.unclassifiedProductCount += 1;
     }
-    const evaluation = destination.abcEvaluation;
-    if (!evaluation) {
-      summary.abcStatusCounts.CALIBRATION_PENDING += 1;
-      continue;
-    }
-    summary.abcStatusCounts[evaluation.calculationStatus] += 1;
-    if (destination.abcGrade && evaluation.weightedContributionProfit !== null) {
-      summary.abcContributionProfitByGrade[destination.abcGrade] += Math.round(
+    const evaluation = product.abcEvaluation;
+    if (!evaluation) continue;
+    const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
+      ? 'INSUFFICIENT_EVIDENCE'
+      : evaluation.calculationStatus;
+    summary.abcStatusCounts[calculationStatus] += 1;
+    if (product.abcGrade && evaluation.weightedContributionProfit !== null) {
+      summary.abcContributionProfitByGrade[product.abcGrade] += Math.round(
         evaluation.weightedContributionProfit,
       );
     }
