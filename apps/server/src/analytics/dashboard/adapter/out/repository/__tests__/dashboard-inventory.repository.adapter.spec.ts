@@ -37,6 +37,15 @@ describe('DashboardInventoryRepositoryAdapter', () => {
     expect(prisma.masterProduct.count).toHaveBeenCalledWith({
       where: { organizationId: 'org-1', isActive: true, abcGrade: null },
     });
+    expect(prisma.channelListing.groupBy).toHaveBeenCalledWith({
+      by: ['masterProductId'],
+      where: {
+        organizationId: 'org-1',
+        isActive: true,
+        masterProductId: { not: null },
+        masterProduct: { is: { organizationId: 'org-1', isActive: true } },
+      },
+    });
   });
 
   it('reads Products-owned grade history only', async () => {

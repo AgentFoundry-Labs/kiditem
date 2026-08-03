@@ -145,6 +145,7 @@ export class DashboardInventoryRepositoryAdapter
         organizationId,
         isActive: true,
         masterProductId: { not: null },
+        masterProduct: { is: { organizationId, isActive: true } },
       },
     });
     return linked.length;

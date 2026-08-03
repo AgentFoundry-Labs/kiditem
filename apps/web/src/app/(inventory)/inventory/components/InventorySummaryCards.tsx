@@ -30,9 +30,9 @@ export function InventorySummaryCards({ summary }: { summary: InventorySkuSnapsh
     icon: LucideIcon;
     unit?: string;
   }[] = [
-    { label: '전체 상품', value: summary.totalSkus, tone: 'slate', icon: Package },
-    { label: '재고 있음', value: summary.inStockSkus, tone: 'green', icon: PackageCheck },
-    { label: '재고 없음', value: summary.outOfStockSkus, tone: 'orange', icon: PackageX },
+    { label: '전체 재고 SKU', value: summary.totalSkus, tone: 'slate', icon: Package },
+    { label: '재고 있는 SKU', value: summary.inStockSkus, tone: 'green', icon: PackageCheck },
+    { label: '품절 SKU', value: summary.outOfStockSkus, tone: 'orange', icon: PackageX },
   ];
 
   return (

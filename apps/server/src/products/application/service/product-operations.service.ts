@@ -3,6 +3,7 @@ import {
   CreateMasterProductInputSchema,
   MasterProductOperationsListQuerySchema,
   type ProductOperationsChannelProductCount,
+  type ProductOperationsInventoryFocus,
   ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
   type ProductDepletionProjection,
@@ -68,20 +69,23 @@ export class ProductOperationsService implements ProductOperationsPort {
     const placeholder = noDirectSales();
     const hydrated = raw.items.map((item) =>
       mapProductOperationsListItem(item, inventoryBySkuId, placeholder));
-    const filtered = query.inventoryStatus
+    const inventoryFiltered = query.inventoryStatus
       ? hydrated.filter(({ inventoryStatus }) =>
         inventoryStatus === query.inventoryStatus)
       : hydrated;
-    const summaryMasterProductIds = filtered.map(({ id }) => id);
-    const summaryMasterProductIdSet = new Set(summaryMasterProductIds);
+    const summaryMasterProductIds = inventoryFiltered.map(({ id }) => id);
     const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
       organizationId,
       masterProductIds: summaryMasterProductIds,
     });
-    const items = filtered.map((item) => ({
+    const withDepletion = inventoryFiltered.map((item) => ({
       ...item,
       depletion: depletionByMasterProductId.get(item.id) ?? placeholder,
     }));
+    const items = query.inventoryFocus
+      ? withDepletion.filter((item) => matchesInventoryFocus(item, query.inventoryFocus!))
+      : withDepletion;
+    const summaryMasterProductIdSet = new Set(items.map(({ id }) => id));
     const offset = (query.page - 1) * query.limit;
     const pageItems = items.slice(offset, offset + query.limit);
     return {
@@ -288,6 +292,9 @@ function summarizeProducts(
     if (product.profit !== null && product.profit < 0) {
       counts.negativeProfitCount += 1;
     }
+    if (matchesInventoryFocus(product, 'imminent')) {
+      counts.imminentProductCount += 1;
+    }
     if (product.depletion.needsReorder) counts.reorderProductCount += 1;
     if (product.depletion.coverage !== 'no_direct_sales') {
       counts.depletionCoveredProductCount += 1;
@@ -322,6 +329,7 @@ function summarizeProducts(
       review_required: 0,
     },
     negativeProfitCount: 0,
+    imminentProductCount: 0,
     reorderProductCount: 0,
     depletionCoveredProductCount: 0,
     sharedDepletionProductCount: 0,
@@ -335,6 +343,26 @@ function summarizeProducts(
     }
   }
   return counts;
+}
+
+const IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE = 1.5;
+const IMMINENT_STOCK_MAX_MONTHS_INCLUSIVE = 3;
+
+function matchesInventoryFocus(
+  product: Pick<ReturnType<typeof mapProductOperationsListItem>, 'inventoryStatus' | 'depletion'>,
+  focus: ProductOperationsInventoryFocus,
+): boolean {
+  if (focus === 'attention') {
+    return product.inventoryStatus === 'configuration_required'
+      || product.inventoryStatus === 'review_required';
+  }
+  if (focus === 'out_of_stock') return product.inventoryStatus === 'out_of_stock';
+  if (focus === 'reorder') return product.depletion.needsReorder;
+  const months = product.depletion.minMonthsOfAvailableStockLeft;
+  return !product.depletion.needsReorder
+    && months !== null
+    && months > IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE
+    && months <= IMMINENT_STOCK_MAX_MONTHS_INCLUSIVE;
 }
 
 function summarizeChannelProducts(

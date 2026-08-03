@@ -125,6 +125,24 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ONLY', name: 'Inventory Only Master', abcGrade: 'B',
     });
+    const inactiveMaster = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-INACTIVE', name: 'Inactive Master', abcGrade: 'C',
+    });
+    const inactiveOption = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId: inactiveMaster.id, sku: 'SKU-T-INACTIVE',
+    });
+    await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: inactiveMaster.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-INACTIVE',
+      optionId: inactiveOption.id,
+      externalOptionId: 'VI-T-INACTIVE',
+    });
+    await prisma.masterProduct.update({
+      where: { id: inactiveMaster.id },
+      data: { isActive: false },
+    });
     const otherMaster = await setupMaster(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-LINKED', name: 'Other Linked Master', abcGrade: 'A',
     });

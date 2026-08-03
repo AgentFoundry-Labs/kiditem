@@ -17,6 +17,16 @@ export const ProductInventoryStatusSchema = z.enum([
 ]);
 export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema>;
 
+export const ProductOperationsInventoryFocusSchema = z.enum([
+  'attention',
+  'out_of_stock',
+  'imminent',
+  'reorder',
+]);
+export type ProductOperationsInventoryFocus = z.infer<
+  typeof ProductOperationsInventoryFocusSchema
+>;
+
 export const ProductOperationsActiveStatusSchema = z.enum([
   'all',
   'active',
@@ -74,6 +84,7 @@ export const MasterProductOperationsListQuerySchema = z.object({
   category: z.string().trim().min(1).max(100).optional(),
   activeStatus: ProductOperationsActiveStatusSchema.default('active'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
+  inventoryFocus: ProductOperationsInventoryFocusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
   abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
@@ -292,6 +303,7 @@ export const ProductOperationsListSummarySchema = z.object({
     review_required: z.number().int().nonnegative(),
   }).strict(),
   negativeProfitCount: z.number().int().nonnegative(),
+  imminentProductCount: z.number().int().nonnegative(),
   reorderProductCount: z.number().int().nonnegative(),
   depletionCoveredProductCount: z.number().int().nonnegative(),
   sharedDepletionProductCount: z.number().int().nonnegative(),

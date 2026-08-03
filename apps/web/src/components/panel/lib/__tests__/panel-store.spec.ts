@@ -95,23 +95,43 @@ describe('panel-store', () => {
     expect(store.getState().hasHydrated).toBe(true);
   });
 
-  it('hides active workflow rows locally across snapshots and restores them on demand', () => {
+  it('hides selected rows locally across snapshots and restores them on demand', () => {
     const activeRun = makeItem({ id: 'active-run', seq: 1, status: 'running' });
     const terminalRun = makeItem({ id: 'terminal-run', seq: 2, status: 'succeeded' });
     store.getState().handleSnapshot([activeRun, terminalRun], true);
 
     store.getState().hideRunItems(['active-run', 'terminal-run']);
     expect(store.getState().byId['active-run']).toBeUndefined();
-    expect(store.getState().byId['terminal-run']).toBeDefined();
-    expect(store.getState().hiddenRunIds).toEqual({ 'active-run': true });
+    expect(store.getState().byId['terminal-run']).toBeUndefined();
+    expect(store.getState().hiddenRunIds).toEqual({
+      'active-run': true,
+      'terminal-run': true,
+    });
 
     store.getState().handleSnapshot([activeRun, terminalRun], true);
     expect(store.getState().byId['active-run']).toBeUndefined();
-    expect(store.getState().byId['terminal-run']).toBeDefined();
+    expect(store.getState().byId['terminal-run']).toBeUndefined();
 
     store.getState().restoreHiddenRunItems();
     store.getState().handleSnapshot([activeRun, terminalRun], true);
     expect(store.getState().byId['active-run']).toBeDefined();
+  });
+
+  it('hides every selected panel row across canonical snapshots', () => {
+    const activeRun = makeItem({ id: 'active-run', seq: 1, status: 'running' });
+    const terminalRun = makeItem({ id: 'terminal-run', seq: 2, status: 'succeeded' });
+    const activeAlert = makeAlertItem({ id: '11111111-1111-1111-1111-111111111119' });
+    store.getState().handleSnapshot([activeRun, terminalRun, activeAlert], true);
+
+    store.getState().hideRunItems([
+      activeRun.id,
+      terminalRun.id,
+      activeAlert.id,
+    ]);
+
+    expect(store.getState().byId).toEqual({});
+    store.getState().handleSnapshot([activeRun, terminalRun, activeAlert], true);
+    expect(store.getState().byId).toEqual({});
   });
 
   it('runningCount counts pending+running', () => {

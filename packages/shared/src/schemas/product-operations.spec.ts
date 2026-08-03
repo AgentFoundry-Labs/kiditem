@@ -8,6 +8,7 @@ import {
   MasterProductOperationsListResponseSchema,
   ProductOperationsAbcCalculationStatusFilterSchema,
   ProductOperationsDataStatusSchema,
+  ProductOperationsInventoryFocusSchema,
   ProductOperationsListSummarySchema,
   ProductDepletionProjectionSchema,
   ProductInventoryStatusSchema,
@@ -84,6 +85,7 @@ describe('product operations contracts', () => {
         review_required: 1,
       },
       negativeProfitCount: 1,
+      imminentProductCount: 3,
       reorderProductCount: 2,
       depletionCoveredProductCount: 6,
       sharedDepletionProductCount: 1,
@@ -148,6 +150,7 @@ describe('product operations contracts', () => {
       category: '  주방  ',
       activeStatus: 'active',
       inventoryStatus: 'partial_out_of_stock',
+      inventoryFocus: 'imminent',
       abcGrade: 'unclassified',
       abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
       adStatus: 'active',
@@ -157,6 +160,7 @@ describe('product operations contracts', () => {
       periodDays: 14,
       abcGrade: 'unclassified',
       abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
+      inventoryFocus: 'imminent',
     });
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
@@ -183,6 +187,15 @@ describe('product operations contracts', () => {
       'out_of_stock',
       'configuration_required',
       'review_required',
+    ]);
+  });
+
+  it('freezes the product inventory command focus vocabulary', () => {
+    expect(ProductOperationsInventoryFocusSchema.options).toEqual([
+      'attention',
+      'out_of_stock',
+      'imminent',
+      'reorder',
     ]);
   });
 
@@ -302,6 +315,7 @@ describe('product operations contracts', () => {
           review_required: 5,
         },
         negativeProfitCount: 6,
+        imminentProductCount: 9,
         reorderProductCount: 12,
         depletionCoveredProductCount: 54,
         sharedDepletionProductCount: 7,

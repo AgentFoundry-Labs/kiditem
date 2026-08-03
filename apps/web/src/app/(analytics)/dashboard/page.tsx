@@ -338,13 +338,13 @@ export default function Dashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs font-mono text-slate-400">카탈로그 전체 {formatNumber(inventoryData.totalProducts)}</span>
+              <span className="text-xs font-mono text-slate-400">운영 상품 {formatNumber(inventoryData.totalProducts)}</span>
               <span className="text-xs font-mono text-slate-400">·</span>
-              <span className="text-xs font-mono text-slate-400">채널 연결 {formatNumber(channelLinkedProducts)}</span>
+              <span className="text-xs font-mono text-slate-400">채널 연결 운영상품 {formatNumber(channelLinkedProducts)}</span>
               {channelUnlinkedProducts > 0 && (
                 <>
                   <span className="text-xs font-mono text-slate-400">·</span>
-                  <span className="text-xs font-mono text-amber-500">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-xs font-mono text-amber-500">채널 미연결 운영상품 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
               <span className="text-xs font-mono text-slate-400">|</span>

@@ -18,6 +18,12 @@ const INVENTORY_STATUSES = [
   'configuration_required',
   'review_required',
 ] as const;
+const INVENTORY_FOCUSES = [
+  'attention',
+  'out_of_stock',
+  'imminent',
+  'reorder',
+] as const;
 const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
 const PERIOD_DAYS = [7, 14, 30] as const;
 
@@ -59,6 +65,10 @@ export class ProductOperationsListQueryDto {
   @IsOptional()
   @IsIn(INVENTORY_STATUSES)
   inventoryStatus?: (typeof INVENTORY_STATUSES)[number];
+
+  @IsOptional()
+  @IsIn(INVENTORY_FOCUSES)
+  inventoryFocus?: (typeof INVENTORY_FOCUSES)[number];
 
   @IsOptional()
   @IsIn(['A', 'B', 'C', 'unclassified'])

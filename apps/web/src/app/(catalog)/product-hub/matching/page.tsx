@@ -348,7 +348,7 @@ function MatchingSummaryCards({ summary }: {
   };
 }) {
   const cards = [
-    ['조회 상품', formatCount(summary.productCount)],
+    ['현재 필터 채널상품', formatCount(summary.productCount)],
     ['운영상품 연결', `${formatCount(summary.linkedProductCount)} / ${formatCount(summary.productCount)}`],
     ['옵션별 재고 설정', `${formatCount(summary.configuredOptionCount)} / ${formatCount(summary.optionCount)}`],
     ['수량 검토', formatCount(summary.quantityReviewCount)],

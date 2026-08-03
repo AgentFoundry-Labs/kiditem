@@ -2,17 +2,22 @@
 
 import type { ReactNode } from 'react';
 import { formatNumber } from '@/lib/utils';
-import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
+import type {
+  MasterProductOperationsListResponse,
+  ProductOperationsInventoryFocus,
+} from '@kiditem/shared/product-operations';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 type Props = {
   data: MasterProductOperationsListResponse;
   onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
+  onShowInventoryFocus: (focus: ProductOperationsInventoryFocus) => void;
 };
 
 export function ProductOperationsCommandCenter({
   data,
   onShowAbcGrade,
+  onShowInventoryFocus,
 }: Props) {
   const channelProductCounts = data.summary.channelProductCounts;
   const channelProductTotal = channelProductCounts.reduce(
@@ -27,6 +32,7 @@ export function ProductOperationsCommandCenter({
   const warningCount = configurationCount + reviewCount;
   const lowProfitCount = data.summary.negativeProfitCount;
   const reorderProductCount = data.summary.reorderProductCount;
+  const imminentProductCount = data.summary.imminentProductCount;
   const {
     A: aGradeCount,
     B: bGradeCount,
@@ -40,7 +46,7 @@ export function ProductOperationsCommandCenter({
       <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">카탈로그 상품 전체</p>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">운영 상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(data.total)}
           </p>
@@ -54,10 +60,10 @@ export function ProductOperationsCommandCenter({
       </article>
 
       <OperationsCard title="재고관리" value={data.summary.depletionCoveredProductCount} valueTone="text-teal-700">
-        <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
-        <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
-        <Breakdown label="임박 재고" value="기준 미정" tone="text-amber-600" />
-        <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" />
+        <Breakdown label="재고 설정 확인" value={warningCount} tone="text-teal-700" onClick={() => onShowInventoryFocus('attention')} />
+        <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" onClick={() => onShowInventoryFocus('out_of_stock')} />
+        <Breakdown label="임박 재고" value={imminentProductCount} tone="text-amber-600" onClick={() => onShowInventoryFocus('imminent')} />
+        <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" onClick={() => onShowInventoryFocus('reorder')} />
       </OperationsCard>
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
@@ -69,7 +75,7 @@ export function ProductOperationsCommandCenter({
 
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">채널별 판매중 상품</p>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">운영중 채널 등록상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(channelProductTotal)}
           </p>
@@ -81,7 +87,7 @@ export function ProductOperationsCommandCenter({
               label={channelProduct.channelAccountName}
               value={channelProduct.count}
             />
-          )) : <Breakdown label="판매중 상품" value={0} />}
+          )) : <Breakdown label="등록상품" value={0} />}
         </div>
       </article>
       </section>

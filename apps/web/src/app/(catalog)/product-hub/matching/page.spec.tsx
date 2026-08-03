@@ -99,7 +99,7 @@ describe('/product-hub/matching', () => {
     expect(screen.getByText('external-3333')).toBeInTheDocument();
     expect(screen.queryByText('external-4444')).not.toBeInTheDocument();
     const summary = within(screen.getByRole('region', { name: '상품 매칭 요약' }));
-    expect(summary.getByText('조회 상품').parentElement).toHaveTextContent('1');
+    expect(summary.getByText('현재 필터 채널상품').parentElement).toHaveTextContent('1');
     expect(summary.getByText('운영상품 연결').parentElement).toHaveTextContent('1 / 1');
     expect(summary.getByText('옵션별 재고 설정').parentElement).toHaveTextContent('0 / 0');
     expect(summary.queryByText('ChannelListing → MasterProduct')).not.toBeInTheDocument();

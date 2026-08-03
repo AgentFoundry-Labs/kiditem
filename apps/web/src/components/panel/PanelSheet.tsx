@@ -89,6 +89,20 @@ export function PanelSheet() {
     }
   };
 
+  const clearVisibleItems = async () => {
+    if (isClearing || visibleItems.length === 0) return;
+    setIsClearing(true);
+    hideRunItems(visibleItems.map((item) => item.id));
+    try {
+      await Promise.allSettled(visibleItems
+        .filter((item) => item.kind === 'alert')
+        .map((item) => apiClient.post(`/api/alerts/${encodeURIComponent(item.id)}/dismiss`)));
+      toast.success(`${visibleItems.length}개의 알림을 화면에서 정리했습니다.`);
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
       <Dialog.Portal>
@@ -105,6 +119,19 @@ export function PanelSheet() {
                   <span className="h-1 w-1 animate-pulse rounded-full bg-violet-500" />
                   {runningCount} 진행
                 </span>
+              )}
+              {visibleItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void clearVisibleItems()}
+                  disabled={isClearing}
+                  aria-label="현재 알림 모두 정리"
+                  title="현재 보이는 알림을 이 브라우저에서 모두 숨깁니다"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ArchiveX className="h-3 w-3" />
+                  모두 정리
+                </button>
               )}
               {dismissableAlerts.length > 0 && (
                 <button

@@ -97,6 +97,7 @@ const state = vi.hoisted(() => ({
         review_required: 14,
       },
       negativeProfitCount: 8,
+      imminentProductCount: 5,
       reorderProductCount: 12,
       depletionCoveredProductCount: 54,
       sharedDepletionProductCount: 7,
@@ -108,6 +109,7 @@ const state = vi.hoisted(() => ({
   goToPage: vi.fn(),
   handleSearch: vi.fn((event: { preventDefault: () => void }) => event.preventDefault()),
   inventoryStatus: 'all' as const,
+  inventoryFocus: 'all' as const,
   isFetching: false,
   isLoading: false,
   isPlaceholderData: false,
@@ -121,6 +123,7 @@ const state = vi.hoisted(() => ({
   setAdStatus: vi.fn(),
   setCategory: vi.fn(),
   setInventoryStatus: vi.fn(),
+  setInventoryFocus: vi.fn(),
   setPeriodDays: vi.fn(),
   setSearch: vi.fn(),
   totalPages: 3,
@@ -156,9 +159,9 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
-    expect(screen.getByText('카탈로그 상품 전체')).toBeInTheDocument();
-    expect(screen.getByText('채널별 판매중 상품')).toBeInTheDocument();
-    const channelCard = screen.getByText('채널별 판매중 상품').closest('article');
+    expect(screen.getByText('운영 상품')).toBeInTheDocument();
+    expect(screen.getByText('운영중 채널 등록상품')).toBeInTheDocument();
+    const channelCard = screen.getByText('운영중 채널 등록상품').closest('article');
     expect(channelCard).not.toBeNull();
     expect(within(channelCard!).getByText('Coupang Wing')).toBeInTheDocument();
     expect(within(channelCard!).getByText('Coupang Rocket')).toBeInTheDocument();
@@ -166,7 +169,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText('채널 미연결')).not.toBeInTheDocument();
     expect(screen.queryByText('알림')).not.toBeInTheDocument();
     expect(screen.queryByText('Sellpia 가져오기 내역')).not.toBeInTheDocument();
-    const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
+    const catalogCard = screen.getByText('운영 상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('B등급')).toBeInTheDocument();
@@ -178,8 +181,8 @@ describe('<ProductsPageContent>', () => {
     expect(within(channelCard!).getByText('6')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText(/현재 페이지 A등급/)).not.toBeInTheDocument();
     expect(screen.getByText('재고관리')).toBeInTheDocument();
-    expect(screen.getByText('임박 재고')).toBeInTheDocument();
-    expect(screen.getByText('발주 필요')).toBeInTheDocument();
+    expect(screen.getAllByText('임박 재고').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('발주 필요').length).toBeGreaterThan(0);
     expect(screen.getByText('손익점검')).toBeInTheDocument();
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
     expect(screen.getByText('A등급 이익')).toBeInTheDocument();
@@ -199,7 +202,8 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText(/공유 SKU 기준/)).not.toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
     expect(inventoryCard).not.toBeNull();
-    expect(within(inventoryCard!).getByText('기준 미정')).toBeInTheDocument();
+    expect(within(inventoryCard!).getByText('5')).toBeInTheDocument();
+    expect(within(inventoryCard!).queryByText('기준 미정')).not.toBeInTheDocument();
     expect(inventoryCard).not.toHaveTextContent('17');
   });
 
@@ -237,14 +241,13 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });
 
-  it('uses full-result operating summaries without a duplicate inventory action card', () => {
+  it('uses full-result operating summaries with one inventory command card', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.queryByText(/현재 페이지/)).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /품절 상품/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /발주하기/ })).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /재고위험/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText('재고위험').length).toBeGreaterThan(0);
+    expect(screen.getByRole('button', { name: '재고 설정 확인 상품 보기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '품절 상품 보기' })).toBeInTheDocument();
     expect(screen.getAllByText('9').length).toBeGreaterThan(0);
     expect(screen.getAllByText('29').length).toBeGreaterThan(0);
     expect(screen.getAllByText('8').length).toBeGreaterThan(0);
@@ -266,6 +269,20 @@ describe('<ProductsPageContent>', () => {
     fireEvent.click(screen.getByRole('button', { name: 'A등급 상품 보기' }));
     expect(state.setAbcGrade).toHaveBeenCalledWith('A');
     expect(screen.queryByRole('button', { name: '관찰 중 상품 보기' })).not.toBeInTheDocument();
+  });
+
+  it('filters the product list from each inventory command-center indicator', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '재고 설정 확인 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '품절 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '임박 재고 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '발주 필요 상품 보기' }));
+
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(1, 'attention');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(2, 'out_of_stock');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(3, 'imminent');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(4, 'reorder');
   });
 
   it('opens the row evaluation evidence without fetching another product payload', () => {
@@ -300,13 +317,13 @@ describe('<ProductsPageContent>', () => {
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
+    const catalogCard = screen.getByText('운영 상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText('Coupang Wing')).not.toBeInTheDocument();
     expect(within(catalogCard!).queryByText('채널 연결')).not.toBeInTheDocument();
     expect(within(catalogCard!).queryByText('채널 미연결')).not.toBeInTheDocument();
-    const channelCard = screen.getByText('채널별 판매중 상품').closest('article');
+    const channelCard = screen.getByText('운영중 채널 등록상품').closest('article');
     expect(channelCard).not.toBeNull();
     expect(within(channelCard!).getByText('120')).toBeInTheDocument();
     expect(screen.getByText('9개 표시')).toBeInTheDocument();

@@ -117,6 +117,83 @@ describe('ProductOperationsService', () => {
     ]));
   });
 
+  it('uses the same inventory command predicates for counts and filtered product rows', async () => {
+    const attentionId = '10000000-0000-4000-8000-000000000011';
+    const outOfStockId = '10000000-0000-4000-8000-000000000012';
+    const imminentId = '10000000-0000-4000-8000-000000000013';
+    const reorderId = '10000000-0000-4000-8000-000000000014';
+    const outOfStockSkuId = '10000000-0000-4000-8000-000000000021';
+    const imminentSkuId = '10000000-0000-4000-8000-000000000022';
+    const reorderSkuId = '10000000-0000-4000-8000-000000000023';
+    const attention = rawListProduct(attentionId);
+    attention.inventoryOptions[0]!.inventoryComponents = [];
+    const outOfStock = rawListProduct(outOfStockId);
+    outOfStock.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = outOfStockSkuId;
+    const imminent = rawListProduct(imminentId);
+    imminent.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = imminentSkuId;
+    const reorder = rawListProduct(reorderId);
+    reorder.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = reorderSkuId;
+    const repository = makeRepository();
+    repository.listProducts.mockResolvedValue({
+      items: [attention, outOfStock, imminent, reorder],
+      page: 1,
+      limit: 50,
+    });
+    const service = new ProductOperationsService(
+      repository as never,
+      {
+        findBySkuIds: vi.fn().mockResolvedValue({
+          snapshot: { collected: true, generation: '12', verifiedAt: '2026-08-03T00:00:00.000Z' },
+          items: [
+            inventoryAvailability(outOfStockSkuId, 0),
+            inventoryAvailability(imminentSkuId, 12),
+            inventoryAvailability(reorderSkuId, 12),
+          ],
+        }),
+      } as never,
+      {
+        findByMasterProductIds: vi.fn().mockResolvedValue(new Map([
+          [attentionId, depletionProjection(false, null)],
+          [outOfStockId, depletionProjection(false, null)],
+          [imminentId, depletionProjection(false, 2)],
+          [reorderId, depletionProjection(true, 1)],
+        ])),
+      } as never,
+      makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository() as never,
+    );
+    const baseQuery = {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'active',
+      adStatus: 'all',
+    } as const;
+
+    const overview = await service.listProducts(organizationId, baseQuery);
+    expect(overview.summary).toMatchObject({
+      imminentProductCount: 1,
+      reorderProductCount: 1,
+    });
+
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'attention',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: attentionId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'out_of_stock',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: outOfStockId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'imminent',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: imminentId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'reorder',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: reorderId }] });
+  });
+
   it('creates only the MasterProduct without a synthetic option layer', async () => {
     const repository = makeRepository();
     const service = makeService(repository);
@@ -417,6 +494,26 @@ function makeService(
     media as never,
     makeDataStatusRepository() as never,
   );
+}
+
+function inventoryAvailability(sellpiaInventorySkuId: string, availableStock: number) {
+  return {
+    sellpiaInventorySkuId,
+    currentStock: availableStock,
+    activeCommitmentQuantity: 0,
+    availableStock,
+    isActive: true,
+    generation: '12',
+  };
+}
+
+function depletionProjection(needsReorder: boolean, months: number | null) {
+  return {
+    coverage: months === null ? 'no_direct_sales' as const : 'ready' as const,
+    needsReorder,
+    reorderSkuCount: needsReorder ? 1 : 0,
+    minMonthsOfAvailableStockLeft: months,
+  };
 }
 
 function rawProduct() {

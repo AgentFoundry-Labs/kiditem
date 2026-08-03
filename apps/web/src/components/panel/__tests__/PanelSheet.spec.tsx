@@ -225,4 +225,25 @@ describe('PanelSheet active count', () => {
     expect(usePanelStore.getState().byId['op-running']).toBeDefined();
     expect(mockApiPost).not.toHaveBeenCalled();
   });
+
+  it('clears every currently visible row from the panel', async () => {
+    const runningOperation = {
+      ...makeAlertItem('op-running'),
+      alertKind: 'operation' as const,
+      status: 'running' as const,
+    };
+    seedStore([
+      makeRunItem('wf-running', MY_USER_ID, 'running'),
+      makeRunItem('wf-done', MY_USER_ID, 'succeeded'),
+      makeAlertItem('signal-1'),
+      runningOperation,
+    ]);
+
+    render(<PanelSheet />);
+    screen.getByRole('button', { name: '현재 알림 모두 정리' }).click();
+
+    await waitFor(() => expect(usePanelStore.getState().byId).toEqual({}));
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/signal-1/dismiss');
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/op-running/dismiss');
+  });
 });

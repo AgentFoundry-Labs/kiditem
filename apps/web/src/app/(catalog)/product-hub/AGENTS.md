@@ -35,13 +35,15 @@
   product fact source render `미수집`; do not derive them from
   organization/date/seller aggregates.
 - Command-center counts use a dedicated unfiltered operations-list summary for
-  the whole catalog. Search, category, active, advertising, inventory, ABC, and
+  the active operating catalog. Search, category, active, advertising, inventory, ABC, and
   page parameters affect only the product rows, their displayed result count,
   and pagination; they must never change the command-center numbers.
 - Reorder counts and row badges use the Analytics-owned depletion projection
   hydrated by Products. Link the evidence to
   `/stock-ops?tab=product-outflow`; label shared coverage as `공유 SKU 기준`.
-  Do not synthesize an imminent-stock threshold when no policy exists.
+  Imminent stock is the explicit non-persisted operations policy: not already
+  needing reorder and known remaining coverage above 1.5 months and at or below
+  3 months. Command-card counts and list filters use the same server predicate.
 - Filters, period, and page are URL-authoritative. Products displays Finance's
   contribution-profit ABC; unconnected variable costs are `0원 · NOT_APPLIED`.
   Dashboard/outflow consume it.

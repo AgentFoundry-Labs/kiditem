@@ -81,9 +81,9 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
   connectionStatus: 'disconnected',
 
   upsertItem: (item) => set((state) => {
-    if (item.kind === 'run' && state.hiddenRunIds[item.id]) {
+    if (state.hiddenRunIds[item.id]) {
       return {
-        lastSeq: Math.max(state.lastSeq, item.seq),
+        lastSeq: Math.max(state.lastSeq, item.kind === 'run' ? item.seq : 0),
         hasHydrated: true,
       };
     }
@@ -113,7 +113,7 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
     const byId = { ...state.byId };
     for (const id of ids) {
       const item = byId[id];
-      if (item?.kind !== 'run' || !isActivePanelItem(item)) continue;
+      if (!item) continue;
       nextHiddenRunIds[id] = true;
       delete byId[id];
     }
@@ -137,7 +137,7 @@ export const createPanelStore = () => create<PanelStoreState>((set, get) => ({
       // PanelAlertItem has no seq — only track seq for run items.
       const itemSeq = item.kind === 'run' ? item.seq : 0;
       if (itemSeq > maxSeq) maxSeq = itemSeq;
-      if (item.kind === 'run' && state.hiddenRunIds[item.id]) return;
+      if (state.hiddenRunIds[item.id]) return;
       byId[item.id] = item;
     });
     return { byId, lastSeq: maxSeq, hasHydrated: true };

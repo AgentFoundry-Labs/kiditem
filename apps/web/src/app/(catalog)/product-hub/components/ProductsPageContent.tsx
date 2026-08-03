@@ -12,12 +12,19 @@ import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
-import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
+import type {
+  MasterProductOperationsListItem,
+  ProductInventoryStatus,
+  ProductOperationsInventoryFocus,
+} from '@kiditem/shared/product-operations';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
   const [abcDetailProduct, setAbcDetailProduct] = useState<MasterProductOperationsListItem | null>(null);
   const data = state.data;
+  const inventoryFilterValue = state.inventoryFocus !== 'all'
+    ? `focus:${state.inventoryFocus}`
+    : state.inventoryStatus;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
   if (state.isLoading && !data) return <PageSkeleton variant="table" />;
@@ -85,6 +92,7 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         <ProductOperationsCommandCenter
           data={state.overviewData}
           onShowAbcGrade={state.setAbcGrade}
+          onShowInventoryFocus={state.setInventoryFocus}
         />
       ) : null}
 
@@ -108,8 +116,8 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
           <option value="all">전체 상태</option>
-          <option value="active">판매중</option>
-          <option value="inactive">판매중지</option>
+          <option value="active">운영중</option>
+          <option value="inactive">운영중지</option>
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"
@@ -136,12 +144,22 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
         <select
           aria-label="재고 상태"
-          value={state.inventoryStatus}
-          onChange={(event) => state.setInventoryStatus(event.target.value as typeof state.inventoryStatus)}
+          value={inventoryFilterValue}
+          onChange={(event) => {
+            const value = event.target.value;
+            if (value.startsWith('focus:')) {
+              state.setInventoryFocus(value.slice('focus:'.length) as ProductOperationsInventoryFocus);
+            } else {
+              state.setInventoryStatus(value as ProductInventoryStatus | 'all');
+            }
+          }}
           className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
         >
           <option value="all">전체 재고</option>
-          <option value="out_of_stock">품절</option>
+          <option value="focus:attention">재고 설정 확인</option>
+          <option value="focus:out_of_stock">품절</option>
+          <option value="focus:imminent">임박 재고</option>
+          <option value="focus:reorder">발주 필요</option>
           <option value="partial_out_of_stock">일부 품절</option>
           <option value="sellable">판매 가능</option>
           <option value="configuration_required">재고 연결 필요</option>
