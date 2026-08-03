@@ -337,19 +337,69 @@ export function inferRecipeQuantity(
 
 function packCounts(values: Array<string | null>): number[] {
   const counts = new Set<number>();
-  const token = /(\d+)\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음|권|매|장|봉)(?![\p{L}\p{N}])/giu;
   for (const value of values) {
     if (!value) continue;
-    for (const match of value.normalize('NFKC').matchAll(token)) {
-      const count = Number(match[1]);
-      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
-    }
-    for (const match of value.matchAll(/(\d+)\s*\+\s*(\d+)/gu)) {
-      const count = Number(match[1]) + Number(match[2]);
-      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
-    }
+    for (const count of titleQuantityCounts(value)) counts.add(count);
   }
   return [...counts].sort((left, right) => left - right);
+}
+
+const QUANTITY_UNIT = String.raw`(?:개입|pcs?|피스|세트|묶음|구성|팩|ea|개|입|권|매|장|봉|종|p)`;
+const QUANTITY_UNIT_TOKEN = new RegExp(
+  String.raw`(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
+  'giu',
+);
+const QUANTITY_UNIT_MULTIPLIER = new RegExp(
+  String.raw`(\d+)\s*${QUANTITY_UNIT}\s*(?:[x×*]\s*)?(\d+)\s*(?:${QUANTITY_UNIT})?`,
+  'giu',
+);
+const QUANTITY_MULTIPLIER_WITH_UNIT = new RegExp(
+  String.raw`(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}`,
+  'giu',
+);
+const CHOICE_OF_ONE = /\d+\s*종\s*(?:중\s*)?(?:택\s*1|랜덤\s*1)/giu;
+const ADDITIVE_QUANTITY = /\d+(?:\s*\+\s*\d+)+/gu;
+
+function titleQuantityCounts(value: string): number[] {
+  const normalized = value.normalize('NFKC').toLocaleLowerCase();
+  const counts = new Set<number>();
+  const coveredRanges: Array<{ start: number; end: number }> = [];
+  const cover = (match: RegExpMatchArray) => {
+    const start = match.index ?? 0;
+    coveredRanges.push({ start, end: start + match[0].length });
+  };
+  const add = (value: number) => {
+    if (Number.isSafeInteger(value) && value > 0) counts.add(value);
+  };
+
+  for (const match of normalized.matchAll(CHOICE_OF_ONE)) {
+    add(1);
+    cover(match);
+  }
+  for (const match of normalized.matchAll(ADDITIVE_QUANTITY)) {
+    const count = (match[0].match(/\d+/gu) ?? [])
+      .map(Number)
+      .reduce((sum, unit) => sum + unit, 0);
+    add(count);
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_UNIT_MULTIPLIER)) {
+    add(Number(match[1]) * Number(match[2]));
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_MULTIPLIER_WITH_UNIT)) {
+    add(Number(match[1]) * Number(match[2]));
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_UNIT_TOKEN)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (coveredRanges.some((range) => start < range.end && end > range.start)) {
+      continue;
+    }
+    add(Number(match[1]));
+  }
+  return [...counts];
 }
 
 function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {

@@ -211,7 +211,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const targetOption = await createOption(target.id, { itemName: 'Two pack' });
 
     await expect(service.autoMatch(TEST_ORGANIZATION_ID, {})).resolves.toEqual({
-      evaluatedListings: 1,
+      evaluatedListings: 2,
       matchedListings: 1,
       configuredOptions: 1,
     });
@@ -220,6 +220,51 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
       where: { channelListingOptionId: targetOption.id },
     })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 2 });
+  });
+
+  it('configures a linked Wing option from its registered title and the stored Sellpia deduction quantity', async () => {
+    const product = await createProduct('KI-WING-ALIAS', 'Wing alias product');
+    const sku = await createInventorySku('SKU-WING-ALIAS', 27);
+    const snapshot = await prisma.sellpiaManualMatchSnapshot.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        targetCount: 1,
+        matchedTargetCount: 1,
+        aliasCount: 1,
+        snapshotHash: 'b'.repeat(64),
+        capturedAt: new Date(),
+      },
+    });
+    await prisma.sellpiaManualMatchAlias.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        snapshotId: snapshot.id,
+        sellpiaInventorySkuId: sku.id,
+        aliasTitle: '등록 Wing 상품 3종 세트',
+        normalizedAlias: '등록wing상품3종세트',
+        itemCount: 3,
+        matchedType: 'M',
+        evidenceCount: 1,
+      },
+    });
+    const target = await createListing({
+      masterProductId: product.id,
+      channelName: '등록 Wing 상품',
+      displayName: '검색용 노출 상품명',
+    });
+    const targetOption = await createOption(target.id, { itemName: '3종 세트' });
+
+    await expect(service.autoMatch(TEST_ORGANIZATION_ID, { channelAccountId: ACCOUNT_ID }))
+      .resolves.toEqual({
+        evaluatedListings: 1,
+        matchedListings: 0,
+        configuredOptions: 1,
+      });
+    await expect(prisma.channelListingOptionInventoryComponent.findFirstOrThrow({
+      where: { channelListingOptionId: targetOption.id },
+    })).resolves.toMatchObject({ sellpiaInventorySkuId: sku.id, quantity: 3 });
+    await expect(prisma.sellpiaInventorySku.findUniqueOrThrow({ where: { id: sku.id } }))
+      .resolves.toMatchObject({ currentStock: 27 });
   });
 
   it('uses completed catalog imports for availability and excludes inactive listings', async () => {
@@ -254,6 +299,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
 
   function createListing(input: {
     displayName?: string;
+    channelName?: string;
     masterProductId?: string;
     rawJson?: object;
     isActive?: boolean;
@@ -263,6 +309,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: ACCOUNT_ID,
         externalId: `P-${randomUUID()}`,
+        channelName: input.channelName,
         displayName: input.displayName,
         masterProductId: input.masterProductId,
         rawJson: input.rawJson,

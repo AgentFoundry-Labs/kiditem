@@ -228,7 +228,6 @@ implements ChannelProductMatchingRepositoryPort {
           where: {
             organizationId: input.organizationId,
             isActive: true,
-            masterProductId: null,
             ...(input.channelAccountId ? { channelAccountId: input.channelAccountId } : {}),
           },
           select: {
@@ -236,6 +235,7 @@ implements ChannelProductMatchingRepositoryPort {
             displayName: true,
             channelName: true,
             rawJson: true,
+            masterProductId: true,
             options: {
               where: { organizationId: input.organizationId, isActive: true },
               select: {
@@ -293,40 +293,49 @@ implements ChannelProductMatchingRepositoryPort {
       let matchedListings = 0;
       let configuredOptions = 0;
       for (const listing of listings) {
-        const listingName = listing.displayName ?? listing.channelName ?? '';
+        const listingNames = listingAliasTitles(listing);
         const raw = asRecord(listing.rawJson);
         const explicitCode = firstString(raw, ['masterProductCode', 'productCode', 'code']);
-        const candidateIds = new Set<string>();
-        for (const id of explicitCode ? productIdsByCode.get(explicitCode) ?? [] : []) {
-          candidateIds.add(id);
-        }
-        for (const id of productIdsByName.get(normalizeExactName(listingName)) ?? []) {
-          candidateIds.add(id);
-        }
-        for (const option of listing.options) {
-          for (const alias of exactAliasesForOption(aliasesByName, listingName, option.itemName)) {
-            const owners = ownersBySkuId.get(alias.sellpiaInventorySkuId);
-            if (owners?.size === 1) candidateIds.add([...owners][0]!);
+        let masterProductId = listing.masterProductId;
+        if (masterProductId === null) {
+          const candidateIds = new Set<string>();
+          for (const id of explicitCode ? productIdsByCode.get(explicitCode) ?? [] : []) {
+            candidateIds.add(id);
           }
+          for (const listingName of listingNames) {
+            for (const id of productIdsByName.get(normalizeExactName(listingName)) ?? []) {
+              candidateIds.add(id);
+            }
+          }
+          for (const option of listing.options) {
+            for (const alias of exactAliasesForOption(
+              aliasesByName,
+              listingNames,
+              option.itemName,
+            )) {
+              const owners = ownersBySkuId.get(alias.sellpiaInventorySkuId);
+              if (owners?.size === 1) candidateIds.add([...owners][0]!);
+            }
+          }
+          if (candidateIds.size !== 1) continue;
+          masterProductId = [...candidateIds][0]!;
+          const linked = await tx.channelListing.updateMany({
+            where: {
+              id: listing.id,
+              organizationId: input.organizationId,
+              masterProductId: null,
+            },
+            data: { masterProductId },
+          });
+          if (linked.count !== 1) continue;
+          matchedListings += 1;
         }
-        if (candidateIds.size !== 1) continue;
-        const masterProductId = [...candidateIds][0]!;
-        const linked = await tx.channelListing.updateMany({
-          where: {
-            id: listing.id,
-            organizationId: input.organizationId,
-            masterProductId: null,
-          },
-          data: { masterProductId },
-        });
-        if (linked.count !== 1) continue;
-        matchedListings += 1;
 
         for (const option of listing.options) {
           if (option.inventoryComponents.length > 0) continue;
           const exactAliases = exactAliasesForOption(
             aliasesByName,
-            listingName,
+            listingNames,
             option.itemName,
           );
           const recipes = new Map(exactAliases.map((alias) => [
@@ -656,13 +665,23 @@ function groupIds<T>(rows: readonly T[], key: (row: T) => string) {
 
 function exactAliasesForOption<T>(
   aliasesByName: ReadonlyMap<string, readonly T[]>,
-  listingName: string,
+  listingNames: readonly string[],
   optionName: string | null,
 ): T[] {
-  const names = [
+  const names = listingNames.flatMap((listingName) => [
     listingName,
-    optionName ?? '',
     `${listingName} ${optionName ?? ''}`,
-  ].map(normalizeExactName).filter(Boolean);
-  return [...new Set(names)].flatMap((name) => [...(aliasesByName.get(name) ?? [])]);
+  ]);
+  if (names.length === 0 && optionName) names.push(optionName);
+  const normalizedNames = names.map(normalizeExactName).filter(Boolean);
+  return [...new Set(normalizedNames)].flatMap((name) => [...(aliasesByName.get(name) ?? [])]);
+}
+
+function listingAliasTitles(listing: {
+  channelName: string | null;
+  displayName: string | null;
+}): string[] {
+  return [...new Set([listing.channelName, listing.displayName]
+    .map((value) => value?.trim() ?? '')
+    .filter(Boolean))];
 }

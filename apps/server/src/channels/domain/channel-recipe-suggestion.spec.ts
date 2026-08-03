@@ -61,6 +61,12 @@ describe('classifyChannelRecipeSuggestion', () => {
   it.each([
     ['18 개입', 18],
     ['5 개 묶음', 5],
+    ['2개입 x 3세트', 6],
+    ['3팩×2', 6],
+    ['2 x 3개', 6],
+    ['１＋１', 2],
+    ['4종 세트', 4],
+    ['3종 택1', 1],
   ])('auto-confirms explicit title quantity %s when Sellpia item_count agrees', (title, quantity) => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], listingName: `키즈 식판 ${title}` }],
@@ -76,6 +82,24 @@ describe('classifyChannelRecipeSuggestion', () => {
       status: 'confirmed_manual_match_alias',
       automationDecision: 'auto_apply',
       recommendedQuantity: quantity,
+    });
+  });
+
+  it('keeps contradictory combined title quantities under review', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], listingName: '키즈 식판 2개입 x 3세트' }],
+      manualMatchEvidence: [{
+        channelValue: '키즈 식판 2개입 x 3세트',
+        normalizedValue: '키즈식판2개입x3세트',
+        quantity: 5,
+        sku: sku(),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
     });
   });
 

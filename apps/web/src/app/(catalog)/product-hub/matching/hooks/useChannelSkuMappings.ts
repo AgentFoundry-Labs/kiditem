@@ -162,11 +162,74 @@ export function useImportCoupangWingCatalog() {
   return useMutation({
     mutationFn: async ({ channelAccountId, file }: { channelAccountId: string; file: File }): Promise<{
       response: CoupangWingCatalogImportResponse;
-      statusRefreshFailed: boolean;
-    }> => ({
-      response: await importCoupangWingCatalog(channelAccountId, file),
-      statusRefreshFailed: false,
-    }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      automaticMatching: WingAutomaticMatchingResult;
+    }> => {
+      const response = await importCoupangWingCatalog(channelAccountId, file);
+      return {
+        response,
+        automaticMatching: await collectAndAutoConfigureWing(channelAccountId),
+      };
+    },
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
+    ]),
   });
+}
+
+type WingAutomaticMatchingResult = {
+  collectedAliases: number;
+  evaluatedListings: number;
+  matchedListings: number;
+  configuredOptions: number;
+  error: string | null;
+};
+
+async function collectAndAutoConfigureWing(
+  channelAccountId: string,
+): Promise<WingAutomaticMatchingResult> {
+  let collected: Awaited<ReturnType<typeof collectSellpiaManualMatchSnapshot>> | null = null;
+  try {
+    const targets = await getSellpiaManualMatchTargets();
+    const runId = await issueBrowserCollectionRunId();
+    collected = await collectSellpiaManualMatchSnapshot(runId, targets.targetCodes);
+    let imported;
+    try {
+      imported = await importSellpiaManualMatchSnapshot(collected.snapshot);
+    } catch (error) {
+      await finalizeSellpiaManualMatchCollection(
+        collected,
+        'failed',
+        matchingErrorMessage(error),
+      ).catch(() => undefined);
+      throw error;
+    }
+    await finalizeSellpiaManualMatchCollection(
+      collected,
+      'succeeded',
+      `Sellpia 수동상품매칭 별칭 ${imported.status.aliasCount}개를 저장했습니다.`,
+    ).catch(() => undefined);
+    const matched = await autoMatchChannelProducts(channelAccountId);
+    return {
+      collectedAliases: imported.status.aliasCount,
+      ...matched,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      collectedAliases: 0,
+      evaluatedListings: 0,
+      matchedListings: 0,
+      configuredOptions: 0,
+      error: matchingErrorMessage(error),
+    };
+  }
+}
+
+function matchingErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : 'Sellpia 자동 재고 연결을 완료하지 못했습니다.';
 }

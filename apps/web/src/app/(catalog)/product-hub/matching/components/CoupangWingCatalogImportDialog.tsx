@@ -16,6 +16,14 @@ type CoupangWingCatalogImportDialogProps = {
   onSuccess: (response: CoupangWingCatalogImportResponse) => void;
 };
 
+type AutomaticMatchingSummary = {
+  collectedAliases: number;
+  evaluatedListings: number;
+  matchedListings: number;
+  configuredOptions: number;
+  error: string | null;
+};
+
 export function CoupangWingCatalogImportDialog({
   open,
   account,
@@ -24,7 +32,7 @@ export function CoupangWingCatalogImportDialog({
 }: CoupangWingCatalogImportDialogProps) {
   const [file, setFile] = useState<File | null>(null);
   const [result, setResult] = useState<CoupangWingCatalogImportResponse | null>(null);
-  const [statusRefreshFailed, setStatusRefreshFailed] = useState(false);
+  const [automaticMatching, setAutomaticMatching] = useState<AutomaticMatchingSummary | null>(null);
   const [error, setError] = useState<string | null>(null);
   const importMutation = useImportCoupangWingCatalog();
 
@@ -38,7 +46,7 @@ export function CoupangWingCatalogImportDialog({
     if (importMutation.isPending) return;
     setFile(null);
     setResult(null);
-    setStatusRefreshFailed(false);
+    setAutomaticMatching(null);
     setError(null);
     onOpenChange(false);
   };
@@ -47,14 +55,14 @@ export function CoupangWingCatalogImportDialog({
     if (!account || account.channel !== 'coupang' || !file) return;
     setError(null);
     setResult(null);
-    setStatusRefreshFailed(false);
+    setAutomaticMatching(null);
     try {
       const outcome = await importMutation.mutateAsync({
         channelAccountId: account.id,
         file,
       });
       setResult(outcome.response);
-      setStatusRefreshFailed(outcome.statusRefreshFailed);
+      setAutomaticMatching(outcome.automaticMatching);
       onSuccess(outcome.response);
     } catch (uploadError) {
       setError(friendlyError(uploadError) ?? 'Wing 상품 파일을 가져오지 못했습니다.');
@@ -77,7 +85,7 @@ export function CoupangWingCatalogImportDialog({
                 쿠팡 Wing 상품 엑셀 가져오기
               </Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary,#475569)]">
-                {account ? `${account.name} 계정에 상품·옵션 SKU 메타데이터를 갱신합니다.` : '가져올 계정을 선택해 주세요.'}
+                {account ? `${account.name} 계정의 상품·옵션을 갱신하고 셀피아 재고 연결을 자동으로 설정합니다.` : '가져올 계정을 선택해 주세요.'}
               </Dialog.Description>
             </div>
             <button
@@ -93,7 +101,7 @@ export function CoupangWingCatalogImportDialog({
 
           <div className="space-y-5 px-6 py-5">
             <p className="rounded-xl bg-[var(--primary-soft,#f3f0ff)] px-4 py-3 text-sm text-[var(--text-secondary,#475569)]">
-              이 파일은 쇼핑몰 상품 메타데이터만 갱신하며 기존 Sellpia 구성 매칭은 유지합니다.
+              셀피아의 현재 상품 매칭과 차감 수량을 함께 확인해 비어 있는 옵션 재고 연결을 자동으로 설정합니다. 이미 확정한 재고 연결은 변경하지 않습니다.
             </p>
 
             {accountError ? (
@@ -112,7 +120,7 @@ export function CoupangWingCatalogImportDialog({
                 onChange={(event) => {
                   setFile(event.target.files?.[0] ?? null);
                   setResult(null);
-                  setStatusRefreshFailed(false);
+                  setAutomaticMatching(null);
                   setError(null);
                 }}
                 className="block w-full rounded-xl border border-[var(--border,#cbd5e1)] bg-[var(--surface-sunken,#f8fafc)] p-3 text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-[var(--primary,#7048e8)] file:px-3 file:py-2 file:font-semibold file:text-white"
@@ -132,9 +140,9 @@ export function CoupangWingCatalogImportDialog({
               </p>
             ) : null}
 
-            {statusRefreshFailed ? (
+            {automaticMatching?.error ? (
               <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-medium text-amber-800">
-                매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 &apos;새로고침&apos;을 눌러 주세요.
+                상품·옵션 가져오기는 완료했지만 자동 재고 연결을 마치지 못했습니다. {automaticMatching.error}
               </p>
             ) : null}
 
@@ -142,11 +150,15 @@ export function CoupangWingCatalogImportDialog({
               <section aria-label="Wing 가져오기 결과" className="space-y-3 rounded-xl border border-[var(--border,#e2e8f0)] p-4">
                 {result.duplicate ? (
                   <p className="text-sm font-semibold text-amber-700">
-                    이미 가져온 동일 파일입니다. 변경된 상품 메타데이터가 없습니다.
+                    이미 가져온 동일 파일입니다. 상품·옵션 변경 없이 자동 재고 연결만 다시 확인했습니다.
+                  </p>
+                ) : automaticMatching?.error ? (
+                  <p className="text-sm font-semibold text-emerald-700">
+                    상품·옵션 가져오기를 완료했습니다.
                   </p>
                 ) : (
                   <p className="text-sm font-semibold text-emerald-700">
-                    상품 메타데이터 가져오기를 완료했습니다.
+                    상품·옵션 가져오기와 자동 재고 연결을 완료했습니다.
                   </p>
                 )}
                 <div className="grid grid-cols-2 gap-2 text-sm text-[var(--text-secondary,#475569)] sm:grid-cols-3">
@@ -155,6 +167,9 @@ export function CoupangWingCatalogImportDialog({
                   <span>옵션 SKU 생성 {formatNumber(result.changes.createdSkuCount)}</span>
                   <span>옵션 SKU 갱신 {formatNumber(result.changes.updatedSkuCount)}</span>
                   <span>건너뜀 {formatNumber(result.changes.skippedRowCount)}</span>
+                  {automaticMatching ? (
+                    <span>자동 재고 연결 {formatNumber(automaticMatching.configuredOptions)}</span>
+                  ) : null}
                 </div>
               </section>
             ) : null}
@@ -176,7 +191,7 @@ export function CoupangWingCatalogImportDialog({
               className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary,#7048e8)] px-4 py-2 text-sm font-bold text-white hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {importMutation.isPending ? <Loader2 size={15} className="animate-spin" /> : null}
-              상품 메타데이터 가져오기
+              상품·재고 가져오기
             </button>
           </footer>
         </Dialog.Content>

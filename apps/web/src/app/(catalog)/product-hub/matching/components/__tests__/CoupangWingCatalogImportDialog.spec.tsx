@@ -87,7 +87,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     vi.clearAllMocks();
     mutateAsync.mockResolvedValue({
       response: response(),
-      statusRefreshFailed: false,
+      automaticMatching: automaticMatching(),
     });
     vi.mocked(useImportCoupangWingCatalog).mockReturnValue({
       mutateAsync,
@@ -99,7 +99,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     renderDialog(null);
 
     expect(screen.getByText('쿠팡 Wing 계정을 먼저 선택해 주세요.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '상품 메타데이터 가져오기' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '상품·재고 가져오기' })).toBeDisabled();
   });
 
   it.each([
@@ -109,7 +109,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     renderDialog(invalidAccount);
 
     expect(screen.getByText('channel이 coupang인 계정만 Wing 파일을 가져올 수 있습니다.')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '상품 메타데이터 가져오기' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '상품·재고 가져오기' })).toBeDisabled();
   });
 
   it('accepts only xlsx and xls workbook extensions in the picker', () => {
@@ -127,7 +127,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     const file = new File(['wing'], 'wing.xlsx');
 
     await user.upload(screen.getByLabelText('쿠팡 Wing 상품 파일'), file);
-    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '상품·재고 가져오기' }));
 
     expect(mutateAsync).toHaveBeenCalledWith({
       channelAccountId: ACCOUNT_ID,
@@ -138,6 +138,7 @@ describe('CoupangWingCatalogImportDialog', () => {
     expect(screen.getByText('옵션 SKU 생성 30')).toBeInTheDocument();
     expect(screen.getByText('옵션 SKU 갱신 40')).toBeInTheDocument();
     expect(screen.getByText('건너뜀 3')).toBeInTheDocument();
+    expect(screen.getByText('자동 재고 연결 7')).toBeInTheDocument();
     expect(onSuccess).toHaveBeenCalledWith(expect.objectContaining({ duplicate: false }));
   });
 
@@ -154,7 +155,7 @@ describe('CoupangWingCatalogImportDialog', () => {
             skippedRowCount: 0,
           },
         }),
-        statusRefreshFailed: false,
+        automaticMatching: automaticMatching(),
       },
     );
     const user = userEvent.setup();
@@ -164,9 +165,9 @@ describe('CoupangWingCatalogImportDialog', () => {
       screen.getByLabelText('쿠팡 Wing 상품 파일'),
       new File(['wing'], 'wing.xls'),
     );
-    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '상품·재고 가져오기' }));
 
-    expect(await screen.findByText('이미 가져온 동일 파일입니다. 변경된 상품 메타데이터가 없습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('이미 가져온 동일 파일입니다. 상품·옵션 변경 없이 자동 재고 연결만 다시 확인했습니다.')).toBeInTheDocument();
   });
 
   it('keeps the upload error visible for operator recovery', async () => {
@@ -177,21 +178,21 @@ describe('CoupangWingCatalogImportDialog', () => {
     fireEvent.change(screen.getByLabelText('쿠팡 Wing 상품 파일'), {
       target: { files: [new File(['wing'], 'wing.xlsx')] },
     });
-    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '상품·재고 가져오기' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('업로드 실패');
   });
 
-  it('states that import only updates metadata and preserves Sellpia recipes', () => {
+  it('states that import configures empty options and preserves confirmed inventory connections', () => {
     renderDialog();
 
     expect(
-      screen.getByText('이 파일은 쇼핑몰 상품 메타데이터만 갱신하며 기존 Sellpia 구성 매칭은 유지합니다.'),
+      screen.getByText('셀피아의 현재 상품 매칭과 차감 수량을 함께 확인해 비어 있는 옵션 재고 연결을 자동으로 설정합니다. 이미 확정한 재고 연결은 변경하지 않습니다.'),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/매칭.*생성/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '상품·재고 가져오기' })).toBeInTheDocument();
   });
 
-  it('calls success only after the hook has refreshed imported-account statuses', async () => {
+  it('calls success only after the hook completes the automatic matching workflow', async () => {
     const user = userEvent.setup();
     const { onSuccess } = renderDialog();
 
@@ -199,7 +200,7 @@ describe('CoupangWingCatalogImportDialog', () => {
       screen.getByLabelText('쿠팡 Wing 상품 파일'),
       new File(['wing'], 'wing.xlsx'),
     );
-    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '상품·재고 가져오기' }));
 
     await waitFor(() => expect(onSuccess).toHaveBeenCalledTimes(1));
     expect(mutateAsync.mock.invocationCallOrder[0]).toBeLessThan(
@@ -207,10 +208,13 @@ describe('CoupangWingCatalogImportDialog', () => {
     );
   });
 
-  it('keeps import counters and shows manual recovery when follow-up status refresh fails', async () => {
+  it('keeps import counters and shows recovery when automatic inventory matching fails', async () => {
     mutateAsync.mockResolvedValueOnce({
       response: response(),
-      statusRefreshFailed: true,
+      automaticMatching: automaticMatching({
+        configuredOptions: 0,
+        error: 'Sellpia 로그인이 필요합니다.',
+      }),
     });
     const user = userEvent.setup();
     const { onSuccess } = renderDialog();
@@ -219,20 +223,37 @@ describe('CoupangWingCatalogImportDialog', () => {
       screen.getByLabelText('쿠팡 Wing 상품 파일'),
       new File(['wing'], 'wing.xlsx'),
     );
-    await user.click(screen.getByRole('button', { name: '상품 메타데이터 가져오기' }));
+    await user.click(screen.getByRole('button', { name: '상품·재고 가져오기' }));
 
-    expect(await screen.findByText('상품 메타데이터 가져오기를 완료했습니다.')).toBeInTheDocument();
+    expect(await screen.findByText('상품·옵션 가져오기를 완료했습니다.')).toBeInTheDocument();
     expect(screen.getByText('부모 상품 생성 10')).toBeInTheDocument();
     expect(screen.getByText('옵션 SKU 생성 30')).toBeInTheDocument();
     expect(
       screen.getByText(
-        "매칭 상태만 새로고치지 못했습니다. 목록 상태가 오래되었을 수 있으니 창을 닫고 '새로고침'을 눌러 주세요.",
+        '상품·옵션 가져오기는 완료했지만 자동 재고 연결을 마치지 못했습니다. Sellpia 로그인이 필요합니다.',
       ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/파일을 다시.*가져/)).not.toBeInTheDocument();
+    expect(screen.getByText('자동 재고 연결 0')).toBeInTheDocument();
     expect(screen.queryByText(/Wing 상품 파일을 가져오지 못했습니다/)).not.toBeInTheDocument();
     expect(onSuccess).toHaveBeenCalledWith(
       expect.objectContaining({ duplicate: false }),
     );
   });
 });
+
+function automaticMatching(overrides: Partial<{
+  collectedAliases: number;
+  evaluatedListings: number;
+  matchedListings: number;
+  configuredOptions: number;
+  error: string | null;
+}> = {}) {
+  return {
+    collectedAliases: 21,
+    evaluatedListings: 30,
+    matchedListings: 0,
+    configuredOptions: 7,
+    error: null,
+    ...overrides,
+  };
+}

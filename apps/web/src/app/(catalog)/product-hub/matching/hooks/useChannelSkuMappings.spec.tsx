@@ -6,6 +6,7 @@ import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
+  importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
   linkChannelListingProduct,
   listChannelProductCandidates,
@@ -19,6 +20,7 @@ import {
   useChannelProductCandidates,
   useChannelProductMappings,
   useLinkChannelListingProduct,
+  useImportCoupangWingCatalog,
   useRunChannelProductMatching,
 } from './useChannelSkuMappings';
 
@@ -147,8 +149,74 @@ describe('channel product matching hooks', () => {
       'succeeded',
       'Sellpia 수동상품매칭 별칭 1개를 저장했습니다.',
     );
-    expect(autoMatchChannelProducts.mock.calls).toEqual([[ACCOUNT_A], [ACCOUNT_B]]);
+    expect(vi.mocked(autoMatchChannelProducts).mock.calls).toEqual([[ACCOUNT_A], [ACCOUNT_B]]);
     expect(result).toEqual({ collectedAliases: 1, evaluatedListings: 5, matchedListings: 3, configuredOptions: 5 });
+  });
+
+  it('runs Sellpia evidence collection and option configuration after a Wing workbook upload', async () => {
+    const snapshot = manualMatchSnapshot();
+    vi.mocked(importCoupangWingCatalog).mockResolvedValue(importResponse());
+    vi.mocked(getSellpiaManualMatchTargets).mockResolvedValue(manualMatchTargets());
+    vi.mocked(collectSellpiaManualMatchSnapshot).mockResolvedValue({
+      extensionId: 'extension-1', runId: RUN_ID, snapshot,
+    });
+    vi.mocked(importSellpiaManualMatchSnapshot).mockResolvedValue(manualMatchImportResponse());
+    vi.mocked(finalizeSellpiaManualMatchCollection).mockResolvedValue(undefined);
+    vi.mocked(autoMatchChannelProducts).mockResolvedValue({
+      evaluatedListings: 4,
+      matchedListings: 0,
+      configuredOptions: 3,
+    });
+    const client = createClient();
+    const hook = renderHook(() => useImportCoupangWingCatalog(), { wrapper: wrapper(client) });
+    const file = new File(['wing'], 'wing.xlsx');
+
+    let result;
+    await act(async () => {
+      result = await hook.result.current.mutateAsync({ channelAccountId: ACCOUNT_A, file });
+    });
+
+    expect(importCoupangWingCatalog).toHaveBeenCalledWith(ACCOUNT_A, file);
+    expect(collectSellpiaManualMatchSnapshot).toHaveBeenCalledWith(RUN_ID, ['634-1']);
+    expect(importSellpiaManualMatchSnapshot).toHaveBeenCalledWith(snapshot);
+    expect(autoMatchChannelProducts).toHaveBeenCalledWith(ACCOUNT_A);
+    expect(result).toMatchObject({
+      response: { duplicate: false },
+      automaticMatching: {
+        collectedAliases: 1,
+        evaluatedListings: 4,
+        matchedListings: 0,
+        configuredOptions: 3,
+        error: null,
+      },
+    });
+  });
+
+  it('keeps the Wing workbook import completed when Sellpia collection needs login', async () => {
+    vi.mocked(importCoupangWingCatalog).mockResolvedValue(importResponse());
+    vi.mocked(getSellpiaManualMatchTargets).mockResolvedValue(manualMatchTargets());
+    vi.mocked(collectSellpiaManualMatchSnapshot).mockRejectedValue(
+      new Error('Sellpia 로그인이 필요합니다.'),
+    );
+    const client = createClient();
+    const hook = renderHook(() => useImportCoupangWingCatalog(), { wrapper: wrapper(client) });
+
+    let result;
+    await act(async () => {
+      result = await hook.result.current.mutateAsync({
+        channelAccountId: ACCOUNT_A,
+        file: new File(['wing'], 'wing.xlsx'),
+      });
+    });
+
+    expect(result).toMatchObject({
+      response: { duplicate: false },
+      automaticMatching: {
+        configuredOptions: 0,
+        error: 'Sellpia 로그인이 필요합니다.',
+      },
+    });
+    expect(autoMatchChannelProducts).not.toHaveBeenCalled();
   });
 });
 
@@ -167,6 +235,81 @@ function emptyQueue() {
     counts: {
       products: { all: 0, linked: 0, unlinked: 0 },
       options: { all: 0, configured: 0, unconfigured: 0 },
+    },
+  };
+}
+
+function manualMatchSnapshot() {
+  return {
+    source: 'sellpia_product_manual_match' as const,
+    version: 1 as const,
+    targetCount: 1,
+    targetCodes: ['634-1'],
+    rowCount: 1,
+    rows: [{
+      productCode: '634-1',
+      aliasTitle: '샤이니무지개칼라링(12개입)',
+      itemCount: 12,
+      matchedType: 'M' as const,
+      evidenceCount: 1,
+    }],
+  };
+}
+
+function manualMatchTargets() {
+  return {
+    sourceOrigin: 'https://kiditem.sellpia.com' as const,
+    sourcePath: '/product_manual_match.html' as const,
+    version: 1 as const,
+    targetCount: 1,
+    targetCodes: ['634-1'],
+    currentSnapshot: null,
+  };
+}
+
+function manualMatchImportResponse() {
+  return {
+    status: {
+      targetCount: 1,
+      matchedTargetCount: 1,
+      aliasCount: 1,
+      snapshotHash: 'a'.repeat(64),
+      capturedAt: '2026-08-03T00:00:00.000Z',
+    },
+  };
+}
+
+function importResponse() {
+  const now = '2026-08-03T00:00:00.000Z';
+  return {
+    run: {
+      id: '55555555-5555-4555-8555-555555555555',
+      sourceType: 'coupang_wing_catalog' as const,
+      channelAccountId: ACCOUNT_A,
+      fileName: 'wing.xlsx',
+      fileHash: 'a'.repeat(64),
+      status: 'completed' as const,
+      rowCount: 1,
+      importedAt: now,
+      lastVerifiedAt: null,
+      verificationCount: 0,
+      lastTrigger: null,
+      freshnessGeneration: null,
+      manualFreshExportConfirmedAt: null,
+      manualFreshExportConfirmedBy: null,
+      qualityReport: null,
+      errorCode: null,
+      errorMessage: null,
+      createdAt: now,
+      updatedAt: now,
+    },
+    duplicate: false,
+    changes: {
+      createdProductCount: 1,
+      updatedProductCount: 0,
+      createdSkuCount: 1,
+      updatedSkuCount: 0,
+      skippedRowCount: 0,
     },
   };
 }
