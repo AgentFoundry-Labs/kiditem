@@ -13,6 +13,8 @@ import { OperationDispatcherService } from './application/service/operation-disp
 import { OperationRunService } from './application/service/operation-run.service';
 import { OperationRunWorkerService } from './application/service/operation-run-worker.service';
 import { OperationSchedulerService } from './application/service/operation-scheduler.service';
+import { CompositeOperationCoordinatorService } from './application/service/composite-operation-coordinator.service';
+import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/composite-operation-coordinator.port';
 
 @Module({
   imports: [PrismaModule],
@@ -29,16 +31,22 @@ import { OperationSchedulerService } from './application/service/operation-sched
     OperationDispatcherService,
     OperationRunWorkerService,
     OperationSchedulerService,
+    CompositeOperationCoordinatorService,
     {
       provide: OPERATION_HANDLER_REGISTRY_PORT,
       useExisting: OperationHandlerRegistryService,
     },
     { provide: OPERATION_REPOSITORY_PORT, useExisting: OperationRepositoryAdapter },
     { provide: OPERATION_RUNNER_PORT, useExisting: OperationRunService },
+    {
+      provide: COMPOSITE_OPERATION_COORDINATOR_PORT,
+      useExisting: CompositeOperationCoordinatorService,
+    },
   ],
   exports: [
     OPERATION_HANDLER_REGISTRY_PORT,
     OPERATION_RUNNER_PORT,
+    COMPOSITE_OPERATION_COORDINATOR_PORT,
     OperationHandlerRegistryService,
     OperationRunService,
     OperationSchedulerService,

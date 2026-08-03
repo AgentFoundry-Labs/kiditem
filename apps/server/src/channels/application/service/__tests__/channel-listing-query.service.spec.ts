@@ -22,14 +22,12 @@ function listingRow(overrides: Record<string, unknown> = {}) {
     },
     options: [
       {
-        productVariantId: 'variant-1',
         salePrice: 12_900,
-        productVariant: { components: [{ sellpiaInventorySku: { isActive: true } }] },
+        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
       },
       {
-        productVariantId: 'variant-2',
         salePrice: null,
-        productVariant: { components: [{ sellpiaInventorySku: { isActive: true } }] },
+        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
       },
     ],
     contentWorkspaces: [{
@@ -99,8 +97,8 @@ describe('ChannelListingRepositoryAdapter', () => {
         options: expect.objectContaining({
           where: { isActive: true },
           select: expect.objectContaining({
-            productVariantId: true,
             salePrice: true,
+            inventoryComponents: expect.any(Object),
           }),
         }),
         contentWorkspaces: expect.any(Object),
@@ -145,7 +143,7 @@ describe('ChannelListingRepositoryAdapter', () => {
       sourceCandidateId: null,
       masterProductId: null,
       channelAccount: { id: 'account-1', channel: 'coupang', name: 'Active Wing account' },
-      options: [{ productVariantId: null, productVariant: null, salePrice: 9_900 }],
+      options: [{ inventoryComponents: [], salePrice: 9_900 }],
       contentWorkspaces: [],
       thumbnails: [],
       createdAt: new Date('2026-07-11T00:00:00.000Z'),
@@ -165,6 +163,25 @@ describe('ChannelListingRepositoryAdapter', () => {
       channelPrice: 9_900,
     }));
     expect(result.items[0]).not.toHaveProperty('masterId');
+  });
+
+  it('treats complete option recipes as matched without a listing-level product summary', async () => {
+    prisma.channelListing.findMany.mockResolvedValueOnce([listingRow({
+      id: 'mixed-listing-1',
+      masterProductId: null,
+      options: [{
+        inventoryComponents: [{ sellpiaInventorySku: { isActive: true } }],
+        salePrice: 9_900,
+      }],
+    })]);
+    prisma.channelListing.groupBy.mockResolvedValueOnce([]);
+
+    const result = await repository.list('org-1');
+
+    expect(result.items[0]).toEqual(expect.objectContaining({
+      id: 'mixed-listing-1',
+      mappingStatus: 'matched',
+    }));
   });
 
   it('loads one active listing as the registered-product workspace fallback', async () => {

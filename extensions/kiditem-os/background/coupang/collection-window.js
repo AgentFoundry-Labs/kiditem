@@ -4,9 +4,13 @@
   const CONTENT_SCRIPT_TIMEOUT_MS = 30 * 60 * 1000;
   const CONTENT_SCRIPT_READY_MAX_ATTEMPTS = 20;
   const CONTENT_SCRIPT_READY_RETRY_MS = 500;
+  const OWNED_RESOURCE_REMOVAL_MAX_ATTEMPTS = 20;
+  const OWNED_RESOURCE_REMOVAL_RETRY_MS = 100;
   const AD_SYNC_BUSY_MAX_ATTEMPTS = 20;
   const AD_SYNC_BUSY_RETRY_MS = 500;
   const ADVERTISING_LOGIN_HANDOFF_TIMEOUT_MS = 60 * 1000;
+  const PROFITABILITY_REPORT_PATH = "/marketing-reporting/billboard/reports/pa";
+  const PROFITABILITY_TARGET_SETTLE_MS = 100;
   const MAX_ADVERTISING_LOGIN_HANDOFF_ATTEMPTS = 3;
   // The ad sweep deliberately returns after bounded 12-date slices so one
   // content-script message never owns the full 31-day roster. Size the lease
@@ -131,6 +135,7 @@
     const pathname = url.pathname.replace(/\/+$/, "") || "/";
     return (
       pathname.toLowerCase() === "/marketing/dashboard/sales" ||
+      pathname.toLowerCase() === "/marketing-reporting/billboard/reports/pa" ||
       pathname.toLowerCase() === "/dashboard"
     );
   }
@@ -175,6 +180,14 @@
     } catch {
       return false;
     }
+  }
+
+  function isOfficialProfitabilityReportUrl(value) {
+    const url = parseSafeHttpsUrl(value);
+    if (!url || url.hostname.toLowerCase() !== "advertising.coupang.com") {
+      return false;
+    }
+    return (url.pathname.replace(/\/+$/, "") || "/") === PROFITABILITY_REPORT_PATH;
   }
 
   function toProgressInteger(value) {
@@ -447,6 +460,20 @@
       });
     }
 
+    async function waitUntilRemoved(readResource) {
+      for (
+        let attempt = 1;
+        attempt <= OWNED_RESOURCE_REMOVAL_MAX_ATTEMPTS;
+        attempt += 1
+      ) {
+        if (!(await readResource())) return true;
+        if (attempt < OWNED_RESOURCE_REMOVAL_MAX_ATTEMPTS) {
+          await wait(OWNED_RESOURCE_REMOVAL_RETRY_MS);
+        }
+      }
+      return false;
+    }
+
     async function closeOwnedRecord(record) {
       if (
         !record ||
@@ -473,11 +500,17 @@
         windowTabs[0]?.id === record.tabId;
 
       if (isStillSoleOwnedTab) {
-        await removeWindow(record.windowId);
-        return (await getWindow(record.windowId)) === null;
+        const removalAccepted = await removeWindow(record.windowId);
+        if (!removalAccepted) {
+          return (await getWindow(record.windowId)) === null;
+        }
+        return waitUntilRemoved(() => getWindow(record.windowId));
       } else {
-        await removeTab(record.tabId);
-        return (await getTab(record.tabId)) === null;
+        const removalAccepted = await removeTab(record.tabId);
+        if (!removalAccepted) {
+          return (await getTab(record.tabId)) === null;
+        }
+        return waitUntilRemoved(() => getTab(record.tabId));
       }
     }
 
@@ -488,6 +521,7 @@
           url.origin === "https://advertising.coupang.com" &&
           (url.pathname === "/marketing" ||
             url.pathname.startsWith("/marketing/") ||
+            isOfficialProfitabilityReportUrl(url.href) ||
             url.pathname === "/dashboard" ||
             url.pathname.startsWith("/dashboard/"))
         );
@@ -791,6 +825,23 @@
       });
     }
 
+    async function waitForTabCompleteAtUrl(tabId, expectedUrl, timeoutMs = 180000) {
+      const startedAt = Date.now();
+      await waitForTabComplete(tabId, timeoutMs);
+      while (Date.now() - startedAt <= timeoutMs) {
+        const current = await getTab(tabId);
+        if (!current?.id) throw new Error("Collection tab was closed");
+        if (
+          current.status === "complete" &&
+          (current.url === expectedUrl || isExternalCoupangAdvertisingLoginUrl(current.url))
+        ) {
+          return current;
+        }
+        await wait(100);
+      }
+      throw new Error("Collection tab navigation timed out");
+    }
+
     function waitForAdvertisingLoginHandoff(
       tabId,
       timeoutMs = ADVERTISING_LOGIN_HANDOFF_TIMEOUT_MS,
@@ -895,6 +946,20 @@
       );
     }
 
+    function isExternalCoupangAdvertisingLoginUrl(value) {
+      try {
+        const url = new URL(value);
+        if (url.protocol !== "https:") return false;
+        if (url.hostname === "xauth.coupang.com") return true;
+        return (
+          url.hostname === "advertising.coupang.com" &&
+          url.pathname.startsWith("/user/login")
+        );
+      } catch {
+        return false;
+      }
+    }
+
     function isNavigationMessageChannelClosed(error) {
       return /message (?:channel|port) closed before a response was received/i.test(
         errorMessage(error),
@@ -947,6 +1012,7 @@
       resumeUrl,
       environmentId,
       producer,
+      operationPayload = null,
     ) {
       const attempt = await collectionAttempt(runId);
       try {
@@ -962,7 +1028,12 @@
             environmentId,
           };
           if (producer === "advertising.ad_sync") {
-            message.syncMode = "campaign_sweep";
+            if (operationPayload?.profitabilitySlice) {
+              message.syncMode = "profitability_report";
+              message.profitabilitySlice = operationPayload.profitabilitySlice;
+            } else {
+              message.syncMode = "campaign_sweep";
+            }
           }
           if (producer === AD_KEYWORD_PRODUCER) {
             message.syncMode = "keyword_sweep";
@@ -1034,6 +1105,7 @@
       resumeUrl,
       environmentId,
       producer,
+      operationPayload = null,
     ) {
       let response = await runManualSync(
         tabId,
@@ -1041,8 +1113,18 @@
         resumeUrl,
         environmentId,
         producer,
+        operationPayload,
       );
       if (!isMissingMessageReceiver(response?.error)) return response;
+
+      const redirectedTab = await getTab(tabId).catch(() => null);
+      if (isExternalCoupangAdvertisingLoginUrl(redirectedTab?.url)) {
+        return {
+          success: false,
+          pendingLogin: true,
+          error: "쿠팡 광고센터 로그인이 필요합니다.",
+        };
+      }
 
       // Reloading an unpacked MV3 extension invalidates content scripts that
       // were already attached to the managed collection tab. Updating that
@@ -1058,6 +1140,7 @@
         resumeUrl,
         environmentId,
         producer,
+        operationPayload,
       );
       return response;
     }
@@ -1067,17 +1150,38 @@
       target,
       environmentId,
       producer,
+      operationPayload = null,
     ) {
-      const tab = await navigate(runId, target.url);
+      const isProfitabilityTarget =
+        Boolean(operationPayload?.profitabilitySlice) &&
+        isOfficialProfitabilityReportUrl(target.url);
+      let tab = null;
+      if (isProfitabilityTarget) {
+        const live = await reattach(runId);
+        const current = live ? await getTab(live.tabId) : null;
+        if (
+          current?.id &&
+          current.windowId === live.windowId &&
+          isOfficialProfitabilityReportUrl(current.url)
+        ) {
+          tab = { ...live, url: current.url };
+        }
+      }
+      tab ??= await navigate(runId, target.url);
       await bindTab(tab.tabId, environmentId);
-      await waitForTabComplete(tab.tabId);
-      await wait(4000);
+      if (isProfitabilityTarget) {
+        await waitForTabCompleteAtUrl(tab.tabId, target.url);
+      } else {
+        await waitForTabComplete(tab.tabId);
+      }
+      await wait(isProfitabilityTarget ? PROFITABILITY_TARGET_SETTLE_MS : 4000);
       const response = await runManualSyncWithReceiverRecovery(
         tab.tabId,
         runId,
         target.url,
         environmentId,
         producer,
+        operationPayload,
       );
       return { tab, response };
     }
@@ -1090,7 +1194,13 @@
       );
     }
 
-    async function collectTarget(runId, target, environmentId, producer) {
+    async function collectTarget(
+      runId,
+      target,
+      environmentId,
+      producer,
+      operationPayload = null,
+    ) {
       let command;
       let targetRecoveryAttempted = false;
       try {
@@ -1099,6 +1209,7 @@
           target,
           environmentId,
           producer,
+          operationPayload,
         );
       } catch (error) {
         // Chrome may drop the managed tab after tabs.update succeeds but before
@@ -1113,6 +1224,7 @@
             target,
             environmentId,
             producer,
+            operationPayload,
           );
         } catch (retryError) {
           if (isMissingCollectionTab(retryError)) {
@@ -1146,6 +1258,7 @@
               target,
               environmentId,
               producer,
+              operationPayload,
             );
             ({ tab, response } = command);
           } catch (retryError) {
@@ -1227,6 +1340,7 @@
               target.url,
               environmentId,
               producer,
+              operationPayload,
             );
             const nextProgress = campaignSweepProgress(response);
             resumeProgress = mergeCampaignSweepProgress(
@@ -1275,6 +1389,7 @@
           target.url,
           environmentId,
           producer,
+          operationPayload,
         );
         const nextProgress = campaignSweepProgress(response);
         if (hasCampaignSweepProgressed(resumeProgress, nextProgress)) {
@@ -1367,7 +1482,15 @@
 
     async function collectTargets(input) {
       requireCollectionDependencies();
-      const { runId, targets, startedAt, producer, environmentId } = input;
+      const {
+        runId,
+        targets,
+        startedAt,
+        producer,
+        environmentId,
+        operationPayload = null,
+        retainOwnedWindow = false,
+      } = input;
       // Both advertising sweeps report their own campaign/ad-level progress
       // from the content script, so the window must not overwrite it with a
       // per-URL count.
@@ -1378,6 +1501,7 @@
         let failed = 0;
         let cancelled = false;
         let attentionRequired = false;
+        let retainAfterSuccess = false;
         await chromeApi.storage.local.remove(cancelKey);
         try {
           let owned = await getOrCreate(runId, targets[0].url, producer);
@@ -1429,6 +1553,7 @@
               target,
               environmentId,
               producer,
+              operationPayload,
             );
             const liveOwned = await reattach(runId);
             if (liveOwned) owned = liveOwned;
@@ -1542,6 +1667,7 @@
             error: latestError,
           });
           notify();
+          retainAfterSuccess = !cancelled && !attentionRequired && failed === 0;
           return {
             success: !cancelled && !attentionRequired && failed === 0,
             completed,
@@ -1647,7 +1773,12 @@
           notify();
           throw error;
         } finally {
-          if (!attentionRequired) await close(runId);
+          if (
+            !attentionRequired &&
+            !(retainOwnedWindow && retainAfterSuccess)
+          ) {
+            await close(runId);
+          }
         }
       });
     }

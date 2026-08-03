@@ -1118,7 +1118,13 @@
     campaignBusinessDates,
   }) {
     const rawOnlyCount = Math.max(0, Number(rawOnlyCampaignCount) || 0);
-    const dailyCoverage = campaignDailyCoverage(campaignBusinessDates);
+    const dates = Array.isArray(campaignBusinessDates)
+      ? campaignBusinessDates
+      : [];
+    const dailyCoverage = campaignDailyCoverage(
+      dates,
+      dates.length > 0 ? dates.length : CAMPAIGN_DAILY_WINDOW_DAYS,
+    );
     return {
       type: "ad_campaign",
       source: "advertising",
@@ -2839,14 +2845,17 @@
     });
   }
 
-  function campaignDailyCoverage(businessDates) {
+  function campaignDailyCoverage(
+    businessDates,
+    expectedDays = CAMPAIGN_DAILY_WINDOW_DAYS,
+  ) {
     const values = Array.isArray(businessDates)
       ? businessDates.filter((value) => parseBusinessYmd(value))
       : [];
     const unique = [...new Set(values)];
     let contiguous =
-      values.length === CAMPAIGN_DAILY_WINDOW_DAYS &&
-      unique.length === CAMPAIGN_DAILY_WINDOW_DAYS;
+      values.length === expectedDays &&
+      unique.length === expectedDays;
     for (let index = 1; contiguous && index < unique.length; index += 1) {
       const expected = parseBusinessYmd(unique[index - 1]);
       expected.setUTCDate(expected.getUTCDate() - 1);
@@ -3793,7 +3802,8 @@
   const PROGRESS_KEY = "kiditem_ad_sweep_progress_v2";
   const LEGACY_RUN_KEY = "kiditem_ad_sweep_run_v1";
   const RUN_KEY = "kiditem_ad_sweep_run_v2";
-  const SWEEP_CONTRACT_VERSION = "daily31-v1";
+  const PROFITABILITY_SLICE_KEY = "kiditem_ad_profitability_slice_v1";
+  const SWEEP_CONTRACT_VERSION = "daily-window-v2";
   // A complete roster can contain dozens of campaigns. Holding one
   // content-script response open for every campaign × 31 days exceeds the
   // collection window's 30-minute message budget. Persist exact-day keys and
@@ -3947,6 +3957,7 @@
       sessionStorage.removeItem(PROGRESS_KEY);
       sessionStorage.removeItem(LEGACY_RUN_KEY);
       sessionStorage.removeItem(RUN_KEY);
+      sessionStorage.removeItem(PROFITABILITY_SLICE_KEY);
       // The managed collection tab is reused across browser-collection runs.
       // Keep the lockout guard within one run, but do not let a completed or
       // abandoned run consume the next run's account-selector click budget.
@@ -3989,6 +4000,50 @@
         runId: requestedRunId,
         attempt: requestedAttempt,
       };
+    }
+  }
+
+  function normalizeProfitabilitySlice(value) {
+    if (!value || typeof value !== "object") return null;
+    const dates = Array.isArray(value.businessDates)
+      ? value.businessDates.filter((date) => parseBusinessYmd(date))
+      : [];
+    if (dates.length < 1 || dates.length > CAMPAIGN_DAILY_WINDOW_DAYS) return null;
+    if (new Set(dates).size !== dates.length) return null;
+    for (let index = 1; index < dates.length; index += 1) {
+      const expected = parseBusinessYmd(dates[index - 1]);
+      expected.setUTCDate(expected.getUTCDate() + 1);
+      if (dates[index] !== utcYmd(expected)) return null;
+    }
+    const startDate = dates[0];
+    const endDate = dates[dates.length - 1];
+    if (value.startDate !== startDate || value.endDate !== endDate) return null;
+    return {
+      sliceId: typeof value.sliceId === "string" ? value.sliceId : `${startDate}_${endDate}`,
+      startDate,
+      endDate,
+      businessDates: dates,
+    };
+  }
+
+  function saveProfitabilitySlice(value) {
+    const slice = normalizeProfitabilitySlice(value);
+    if (!slice) return false;
+    try {
+      sessionStorage.setItem(PROFITABILITY_SLICE_KEY, JSON.stringify(slice));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function loadProfitabilitySlice() {
+    try {
+      return normalizeProfitabilitySlice(
+        JSON.parse(sessionStorage.getItem(PROFITABILITY_SLICE_KEY) || "null"),
+      );
+    } catch {
+      return null;
     }
   }
   function loadProgress() {
@@ -4258,9 +4313,16 @@
       };
     }
 
-    const yesterday = getYesterdayYmd();
-    const campaignBusinessDates = buildRollingCampaignBusinessDates(yesterday);
-    const dailyCoverage = campaignDailyCoverage(campaignBusinessDates);
+    const profitabilitySlice = loadProfitabilitySlice();
+    const yesterday = profitabilitySlice?.endDate || getYesterdayYmd();
+    const campaignBusinessDates = profitabilitySlice
+      ? [...profitabilitySlice.businessDates].reverse()
+      : buildRollingCampaignBusinessDates(yesterday);
+    const dailyWindowDays = campaignBusinessDates.length;
+    const dailyCoverage = campaignDailyCoverage(
+      campaignBusinessDates,
+      dailyWindowDays,
+    );
     if (!dailyCoverage.campaignDailyCollectionComplete) {
       return {
         success: false,
@@ -4273,13 +4335,13 @@
     const resumeProgress = loadProgress();
     if (detailResumeCampaign) {
       showBadge(
-        `▶️ ${detailResumeCampaign.name} 상세 페이지에서 31일 수집 재개`,
+        `▶️ ${detailResumeCampaign.name} 상세 페이지에서 ${dailyWindowDays}일 수집 재개`,
         "#6366f1",
       );
     } else if (resumeSeen.size > 0) {
-      showBadge(`▶️ 31일 광고 동기화 이어서 진행 — ${yesterday}까지 (${resumeSeen.size}개 완료)`, "#6366f1");
+      showBadge(`▶️ ${dailyWindowDays}일 광고 동기화 이어서 진행 — ${yesterday}까지 (${resumeSeen.size}개 완료)`, "#6366f1");
     } else {
-      showBadge(`🔄 31일 광고 동기화 시작 — ${dailyCoverage.campaignDailyFrom} ~ ${yesterday}`, "#6366f1");
+      showBadge(`🔄 ${dailyWindowDays}일 광고 동기화 시작 — ${dailyCoverage.campaignDailyFrom} ~ ${yesterday}`, "#6366f1");
     }
 
     // 1) 대시보드 그리드 렌더 대기 (기본 7일 상태 유지 — 날짜 변경 금지)
@@ -4356,6 +4418,7 @@
       completedCampaignIdentities: seen,
       failedCampaignKeys: unresolvedCampaignWorkKeys(errors),
       rawOnlyCampaignCount: savedRawOnlyKeys.size,
+      daysPerCampaign: dailyWindowDays,
     });
     const reportCurrentSweepProgress = async ({
       label,
@@ -4368,6 +4431,7 @@
         current: observedCurrent,
         campaignTotal: progressTotal,
         previousTotal: progressWorkTotal,
+        daysPerCampaign: dailyWindowDays,
       });
       const current = terminal
         ? progressWorkTotal
@@ -5105,14 +5169,24 @@
     );
   }
 
-  function runSyncOnce(syncMode = null) {
+  function shouldRunProfitabilityReport(syncMode = null) {
+    return syncMode === "profitability_report";
+  }
+
+  function runSyncOnce(syncMode = null, environmentId = null) {
     if (!currentSync) {
       // 대시보드 hash뿐 아니라 href 없는 캠페인 클릭이 연 상세 document의
       // pending handoff도 같은 sweep이다. 후자는 상세 URL에 hash가 없으므로
       // sessionStorage owner를 확인하지 않으면 legacy doSync로 잘못 분기한다.
       // Keyword sweep is checked first: it never navigates, so a stale
       // campaign-detail handoff must not hijack an explicit keyword request.
-      const job = shouldRunKeywordSweep(syncMode)
+      const job = shouldRunProfitabilityReport(syncMode)
+        ? globalThis.KidItemProfitabilityReport.run({
+            profitabilitySlice: loadProfitabilitySlice(),
+            collectionRunId: activeCollectionRunId,
+            environmentId,
+          })
+        : shouldRunKeywordSweep(syncMode)
         ? runKeywordSweep()
         : shouldRunDashboardSweep(syncMode)
           ? runDashboardSweep()
@@ -5220,6 +5294,7 @@
     pollUntil,
     probeCampaignIdentityByNavigation,
     prepareSweepRun,
+    normalizeProfitabilitySlice,
     readSettledReportPage,
     readReportSurfaceState,
     reconcileCampaignFailureState,
@@ -5228,6 +5303,7 @@
     savePendingCampaignNavigation,
     sleep,
     shouldRunDashboardSweep,
+    shouldRunProfitabilityReport,
     unresolvedCampaignWorkKeys,
     withCollectionRunId,
   });
@@ -5313,7 +5389,7 @@
         return false;
       }
       if (admission.shareCurrent) {
-        runSyncOnce(msg.syncMode)
+        runSyncOnce(msg.syncMode, msg.environmentId)
           .then((result) => sendResponse(result))
           .catch((error) =>
             sendResponse({ success: false, error: error?.message || String(error) }),
@@ -5325,6 +5401,13 @@
         admission.runId,
         admission.attempt,
       );
+      if (msg.profitabilitySlice && !saveProfitabilitySlice(msg.profitabilitySlice)) {
+        sendResponse({
+          success: false,
+          error: "profitability_ad_slice_invalid",
+        });
+        return false;
+      }
       const executionChanged =
         preparedRun.runId !== activeCollectionRunId ||
         preparedRun.attempt !== activeCollectionAttempt ||
@@ -5337,7 +5420,7 @@
       if (executionChanged) {
         lastReportedSweepProgress = { current: 0, total: 0 };
       }
-      runSyncOnce(msg.syncMode)
+      runSyncOnce(msg.syncMode, msg.environmentId)
         .then((result) => sendResponse(result))
         .catch((error) =>
           sendResponse({ success: false, error: error?.message || String(error) }),

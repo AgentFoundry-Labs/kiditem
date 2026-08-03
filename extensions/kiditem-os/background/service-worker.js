@@ -29,6 +29,7 @@ importScripts(
   "coupang/ad-collector-delay.js",
   "coupang/collection-window.js",
   "coupang/collection-runs.js",
+  "coupang/profitability-operation-checkpoint.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",

@@ -153,6 +153,7 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
+  assert.match(worker, /collectSellpiaProductProfitEvidenceV1:\s*true/);
   assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
   assert.match(worker, /msg\?\.action === ["']collectSellpiaInventory["']/);
@@ -208,6 +209,9 @@ test('server-owned Sellpia sync publishes the ordinary browser collection alert 
   assert.match(worker, /sourceType:\s*["']browser_collection_session["']/);
   assert.match(worker, /sourceId:\s*["']inventory\.sellpia["']/);
   assert.match(body, /Sellpia 현재고 동기화가 완료되었습니다\./);
+  assert.match(body, /operation\?\.input\?\.scope === ["']full["']/);
+  assert.match(body, /\/api\/sellpia-product-sales\/ingest/);
+  assert.match(body, /Sellpia 수익성 데이터 갱신이 완료되었습니다/);
 });
 
 test('web bridge reaches local, office, and staging KidItem origins', () => {

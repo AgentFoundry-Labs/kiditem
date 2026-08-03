@@ -40,6 +40,10 @@ describe("data migration registry", () => {
       "v0.1.25:004_rekey_ad_campaign_product_targets",
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
       "v0.1.26:001_initialize_master_product_abc_policy",
+      "v0.1.30:001_reset_legacy_product_abc_grades",
+      "v0.1.30:002_backfill_profitability_source_freshness",
+      "v0.1.30:003_move_variant_recipes_to_channel_options",
+      "v0.1.30:004_canonical_master_inventory_identity",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -47,6 +51,7 @@ describe("data migration registry", () => {
       ),
     ).toEqual([
       "v0.1.21:001_backfill_inventory_commitments",
+      "v0.1.30:002_backfill_profitability_source_freshness",
     ]);
   });
 
@@ -62,6 +67,15 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
     expect(migrationIds).toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.30:001_reset_legacy_product_abc_grades",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.30:002_backfill_profitability_source_freshness",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.30:004_canonical_master_inventory_identity",
     );
   });
 
@@ -106,6 +120,8 @@ describe("data migration registry", () => {
   it("runs artifact deduplication before schema constraints and other migrations after", () => {
     expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(({ id }) => id)).toEqual([
       "v0.1.24:001_dedupe_detail_page_artifacts",
+      "v0.1.30:001_reset_legacy_product_abc_grades",
+      "v0.1.30:003_move_variant_recipes_to_channel_options",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),

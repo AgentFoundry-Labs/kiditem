@@ -637,6 +637,67 @@ test('a fresh ad-sync retry replaces its old login attention window with a new c
   ]);
 });
 
+test('a fresh ad-sync retry waits for Chrome to finish removing the old login window', async () => {
+  const fake = createFakeChrome();
+  const sessions = {
+    async cancel() {},
+    async detachTab() {},
+    async get(runId) {
+      if (runId === 'run-attention') {
+        return {
+          producer: 'advertising.ad_sync',
+          status: 'attention_required',
+        };
+      }
+      if (runId === 'run-retry') {
+        return {
+          producer: 'advertising.ad_sync',
+          status: 'running',
+        };
+      }
+      return null;
+    },
+  };
+  const helper = loadHelper(fake, {
+    sessions,
+    delay: () => Promise.resolve(),
+  });
+  const loginOwned = await helper.getOrCreate(
+    'run-attention',
+    'https://advertising.coupang.com/user/login',
+    'advertising.ad_sync',
+  );
+  const originalWindowGet = fake.chrome.windows.get;
+  let removalRequested = false;
+  let postRemovalReads = 0;
+  fake.chrome.windows.remove = (windowId, callback) => {
+    fake.calls.windowsRemove.push(windowId);
+    removalRequested = true;
+    queueMicrotask(() => callback());
+  };
+  fake.chrome.windows.get = (windowId, options, callback) => {
+    if (removalRequested && windowId === loginOwned.windowId) {
+      postRemovalReads += 1;
+      if (postRemovalReads === 3) {
+        fake.tabs.delete(loginOwned.tabId);
+        fake.windows.delete(loginOwned.windowId);
+      }
+    }
+    originalWindowGet(windowId, options, callback);
+  };
+
+  const retryOwned = await helper.getOrCreate(
+    'run-retry',
+    'https://advertising.coupang.com/marketing/dashboard/sales#kiditemAdSync=1',
+    'advertising.ad_sync',
+  );
+
+  assert.equal(postRemovalReads, 3);
+  assert.notEqual(retryOwned.windowId, loginOwned.windowId);
+  assert.equal(fake.tabs.has(retryOwned.tabId), true);
+  assert.equal(fake.storage['owned-window'].runId, 'run-retry');
+});
+
 test('reattaches a live owned tab after a worker reload and rejects another run', async () => {
   const fake = createFakeChrome();
   const first = loadHelper(fake);
@@ -1719,6 +1780,61 @@ test('retries manual sync across receiver startup and campaign-page navigation',
   assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
 });
 
+test('treats an external Coupang auth redirect without a content receiver as login attention', async () => {
+  const missingReceiver =
+    'Could not establish connection. Receiving end does not exist.';
+  const responses = Array.from({ length: 20 }, (_, index) => ({
+    runtimeError: missingReceiver,
+    ...(index === 0
+      ? { navigatedUrl: 'https://xauth.coupang.com/auth/realms/seller/protocol/openid-connect/auth' }
+      : {}),
+  }));
+  const fake = createFakeChrome({}, responses);
+  const sessionCalls = [];
+  const sessions = {
+    async attachTab() {},
+    async cancel() {},
+    async fail(runId) {
+      sessionCalls.push(['fail', runId]);
+    },
+    async get() {
+      return { status: 'running', attempt: 1 };
+    },
+    async progress() {},
+    async requireAttention(runId, attention) {
+      sessionCalls.push(['requireAttention', runId, attention]);
+    },
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'run-external-auth',
+    startedAt: 1,
+    targets: [{
+      id: null,
+      label: '광고 동기화',
+      url: 'https://advertising.coupang.com/marketing/dashboard/sales',
+    }],
+  });
+
+  assert.equal(result.success, false);
+  assert.equal(result.attentionRequired, true);
+  assert.equal(fake.calls.tabsReload.length, 0);
+  assert.ok(sessionCalls.some(([name, runId, attention]) =>
+    name === 'requireAttention' &&
+    runId === 'run-external-auth' &&
+    attention?.reason === 'marketplace_login'));
+  assert.ok(!sessionCalls.some(([name]) => name === 'fail'));
+});
+
 test('reloads the owned advertising tab once when an extension reload left no content receiver', async () => {
   const missingReceiver =
     'Could not establish connection. Receiving end does not exist.';
@@ -2190,6 +2306,202 @@ test('preserves the observed advertising pa campaign redirect as a safe detail r
     ),
     paDetailUrl,
   );
+});
+
+test('allows the official advertising report route for profitability collection', () => {
+  const contract = loadContract(createFakeChrome());
+  const reportUrl =
+    'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa';
+
+  assert.equal(contract.isAllowlistedAdvertisingResumeUrl(reportUrl), true);
+  assert.equal(
+    contract.resolveCollectionResumeUrl(reportUrl, reportUrl, 'advertising.ad_sync'),
+    reportUrl,
+  );
+});
+
+test('dispatches a profitability slice as the dedicated report sync mode', async () => {
+  const fake = createFakeChrome({}, [{ success: true, completed: 1 }]);
+  const delays = [];
+  const sessions = {
+    async attachTab() {},
+    async fail() {},
+    async get() { return { status: 'running', attempt: 1 }; },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async (milliseconds) => { delays.push(milliseconds); },
+    markScraped: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const profitabilitySlice = {
+    sliceId: '2026-07-01_2026-07-31',
+    startDate: '2026-07-01',
+    endDate: '2026-07-31',
+    businessDates: ['2026-07-01'],
+  };
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'profitability-report-run',
+    startedAt: 1,
+    targets: [{
+      id: 'report',
+      label: '상품별 광고 보고서',
+      url: 'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa',
+    }],
+    operationPayload: { profitabilitySlice },
+    retainOwnedWindow: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(fake.calls.tabMessages[0].message, {
+    action: 'manualSync',
+    collectionRunId: 'profitability-report-run',
+    collectionAttempt: 1,
+    environmentId: 'local',
+    syncMode: 'profitability_report',
+    profitabilitySlice,
+  });
+  assert.deepEqual(delays, [100]);
+  assert.equal(fake.calls.tabsUpdate.length, 0);
+  assert.equal(fake.storage['owned-window'].runId, 'profitability-report-run');
+  assert.equal(await helper.close('profitability-report-run'), true);
+});
+
+test('reuses one owned report window across sequential profitability slices', async () => {
+  const fake = createFakeChrome({}, [
+    { success: true, completed: 1 },
+    { success: true, completed: 1 },
+  ]);
+  const statuses = new Map([
+    ['profitability-slice-1', 'running'],
+    ['profitability-slice-2', 'running'],
+  ]);
+  const sessions = {
+    async attachTab() {},
+    async detachTab() {},
+    async fail(runId) { statuses.set(runId, 'failed'); },
+    async get(runId) { return { status: statuses.get(runId), attempt: 1 }; },
+    async progress() {},
+    async requireAttention() {},
+    async succeed(runId) { statuses.set(runId, 'succeeded'); },
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    markScraped: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  const target = {
+    id: 'report',
+    label: '상품별 광고 보고서',
+    url: 'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa',
+  };
+  for (const [runId, startDate, endDate] of [
+    ['profitability-slice-1', '2026-06-01', '2026-06-30'],
+    ['profitability-slice-2', '2026-07-01', '2026-07-31'],
+  ]) {
+    const result = await helper.collectTargets({
+      environmentId: 'local',
+      producer: 'advertising.ad_sync',
+      runId,
+      startedAt: 1,
+      targets: [target],
+      operationPayload: {
+        profitabilitySlice: {
+          sliceId: `${startDate}_${endDate}`,
+          startDate,
+          endDate,
+          businessDates: [startDate],
+        },
+      },
+      retainOwnedWindow: true,
+    });
+    assert.equal(result.success, true);
+  }
+
+  assert.equal(fake.calls.windowsCreate.length, 1);
+  assert.equal(fake.calls.tabsUpdate.length, 0);
+  assert.equal(fake.calls.tabMessages.length, 2);
+  assert.equal(fake.storage['owned-window'].runId, 'profitability-slice-2');
+  assert.equal(await helper.close('profitability-slice-2'), true);
+});
+
+test('waits for the profitability tab URL when Chrome briefly reports the old page complete', async () => {
+  const reportUrl =
+    'https://advertising.coupang.com/marketing-reporting/billboard/reports/pa';
+  const oldUrl = 'http://localhost:3000/product-hub?dataStatus=abc';
+  const fake = createFakeChrome({}, [{ success: true, completed: 1 }]);
+  const originalUpdate = fake.chrome.tabs.update;
+  const originalGet = fake.chrome.tabs.get;
+  const originalSendMessage = fake.chrome.tabs.sendMessage;
+  let staleReadPending = false;
+  let refreshedReadCount = 0;
+  fake.chrome.tabs.update = (tabId, properties, callback) => {
+    originalUpdate(tabId, properties, (tab) => {
+      staleReadPending = true;
+      callback(tab);
+    });
+  };
+  fake.chrome.tabs.get = (tabId, callback) => {
+    if (staleReadPending) {
+      staleReadPending = false;
+      callback({ ...structuredClone(fake.tabs.get(tabId)), status: 'complete', url: oldUrl });
+      return;
+    }
+    refreshedReadCount += 1;
+    originalGet(tabId, callback);
+  };
+  fake.chrome.tabs.sendMessage = (tabId, message, callback) => {
+    if (fake.tabs.get(tabId)?.url !== reportUrl || refreshedReadCount === 0) {
+      callback({ success: false, error: 'profitability_report_wrong_page' });
+      return;
+    }
+    originalSendMessage(tabId, message, callback);
+  };
+  const sessions = {
+    async attachTab() {},
+    async fail() {},
+    async get() { return { status: 'running', attempt: 1 }; },
+    async progress() {},
+    async requireAttention() {},
+    async succeed() {},
+  };
+  const helper = loadHelper(fake, {
+    cancelKey: 'collection-cancel',
+    delay: async () => {},
+    markScraped: async () => {},
+    sessions,
+    statusKey: 'collection-status',
+  });
+  await helper.getOrCreate('profitability-url-race', oldUrl);
+
+  const result = await helper.collectTargets({
+    environmentId: 'local',
+    producer: 'advertising.ad_sync',
+    runId: 'profitability-url-race',
+    startedAt: 1,
+    targets: [{ id: 'report', label: '상품별 광고 보고서', url: reportUrl }],
+    operationPayload: {
+      profitabilitySlice: {
+        sliceId: '2026-08-01_2026-08-31',
+        startDate: '2026-08-01',
+        endDate: '2026-08-31',
+        businessDates: ['2026-08-01'],
+      },
+    },
+    retainOwnedWindow: true,
+  });
+
+  assert.equal(result.success, true);
+  assert.ok(refreshedReadCount > 0);
 });
 
 test('resumes a linkless campaign from the full-document detail URL', async () => {
@@ -2846,7 +3158,7 @@ test('content-script timeout matches the 30 minute web collection budget', () =>
     /contentScriptTimeoutMs[\s\S]*?:\s*CONTENT_SCRIPT_TIMEOUT_MS/,
   );
   assert.match(helperSource, /sendTabMessage\(tabId, message, timeoutMs\s*=\s*contentScriptTimeoutMs\)/);
-  assert.match(helperSource, /const tab\s*=\s*await navigate/);
+  assert.match(helperSource, /await navigate\(runId, target\.url\)/);
   assert.match(
     helperSource,
     /MIN_PROGRESSING_RESUME_ATTEMPTS\s*=\s*2_000/,

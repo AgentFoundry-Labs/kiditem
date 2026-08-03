@@ -26,14 +26,9 @@ const listingInclude = {
   options: {
     where: { isActive: true },
     select: {
-      productVariantId: true,
       salePrice: true,
-      productVariant: {
-        select: {
-          components: {
-            select: { sellpiaInventorySku: { select: { isActive: true } } },
-          },
-        },
+      inventoryComponents: {
+        select: { sellpiaInventorySku: { select: { isActive: true } } },
       },
     },
   },
@@ -603,22 +598,17 @@ function firstPrice(options: Array<{ salePrice: number | null }>): number | null
 }
 
 function aggregateMappingStatus(
-  masterProductId: string | null,
+  _masterProductId: string | null,
   options: Array<{
-    productVariantId: string | null;
-    productVariant: null | {
-      components: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
-    };
+    inventoryComponents: Array<{ sellpiaInventorySku: { isActive: boolean } }>;
   }>,
 ): 'matched' | 'unmatched' | 'needs_review' {
-  if (!masterProductId) return 'unmatched';
-  if (options.length === 0) return 'needs_review';
-  if (options.some((option) => !option.productVariantId || !option.productVariant)) {
-    return 'needs_review';
+  if (options.length === 0 || options.every((option) => option.inventoryComponents.length === 0)) {
+    return 'unmatched';
   }
   if (options.some((option) =>
-    option.productVariant!.components.length === 0
-    || option.productVariant!.components.some(
+    option.inventoryComponents.length === 0
+    || option.inventoryComponents.some(
       (component) => !component.sellpiaInventorySku.isActive,
     ))) {
     return 'needs_review';

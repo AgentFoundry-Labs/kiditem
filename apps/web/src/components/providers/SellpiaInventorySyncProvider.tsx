@@ -4,9 +4,9 @@ import { useAuth } from '@/hooks/useAuth';
 import { useSellpiaInventoryFreshness } from '@/hooks/useSellpiaInventoryFreshness';
 
 /**
- * Global freshness projection only. Browser claiming, snapshot collection,
- * upload, and terminal reporting are owned by the server-issued OperationRun
- * and the extension runtime so a web-tab lifecycle cannot own a sync attempt.
+ * Global freshness projection only. Browser claiming, scoped Sellpia
+ * collection, upload, and terminal reporting are owned by the server-issued
+ * OperationRun and the extension runtime.
  */
 export function SellpiaInventorySyncProvider({
   children,

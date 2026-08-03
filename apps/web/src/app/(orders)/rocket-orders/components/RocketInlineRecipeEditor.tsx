@@ -6,7 +6,6 @@ import { Loader2, Plus, Search, Trash2, X } from "lucide-react";
 import {
   MasterProductOperationsDetailSchema,
   ProductRecipeComponentCandidateListResponseSchema,
-  type CreateProductVariantRecipesIfEmptyResponse,
   type ProductRecipeComponentCandidate,
 } from "@kiditem/shared/product-operations";
 import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purchase-preview";
@@ -25,14 +24,14 @@ type RecipeDraft = Pick<
 
 export function RocketInlineRecipeEditor({
   masterProductId,
-  productVariantId,
+  channelListingOptionId,
   productName,
   existingComponents,
   onSaved,
   onCancel,
 }: {
   masterProductId: string;
-  productVariantId: string;
+  channelListingOptionId: string;
   productName: string;
   existingComponents: RocketPurchasePreviewComponent[];
   onSaved: () => Promise<void>;
@@ -85,14 +84,14 @@ export function RocketInlineRecipeEditor({
       ),
     enabled: hasExistingRecipe,
   });
-  const currentVariant = product.data?.variants.find(
-    ({ id }) => id === productVariantId,
-  );
+  const currentOption = product.data?.channelListings
+    .flatMap(({ options }) => options)
+    .find(({ id }) => id === channelListingOptionId);
 
   useEffect(() => {
-    if (!currentVariant || draftTouched) return;
+    if (!currentOption || draftTouched) return;
     setDraft(
-      currentVariant.components.map((component) => ({
+      currentOption.inventoryComponents.map((component) => ({
         sellpiaInventorySkuId: component.sellpiaInventorySkuId,
         code: component.code,
         name: component.name,
@@ -101,7 +100,7 @@ export function RocketInlineRecipeEditor({
         quantity: component.quantity,
       })),
     );
-  }, [currentVariant, draftTouched]);
+  }, [currentOption, draftTouched]);
 
   const save = useMutation({
     mutationFn: async () => {
@@ -109,37 +108,11 @@ export function RocketInlineRecipeEditor({
         sellpiaInventorySkuId,
         quantity,
       }));
-      if (hasExistingRecipe) {
-        if (!currentVariant) {
-          throw new Error("현재 Sellpia 재고 구성을 불러오지 못했습니다.");
-        }
-        await apiClient.put(
-          `/api/products/variants/${productVariantId}/components`,
-          {
-            components,
-            expectedRecipe: currentVariant.components.map((component) => ({
-              id: component.id,
-              sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-              quantity: component.quantity,
-              source: component.source,
-              confirmedBy: component.confirmedBy,
-              confirmedAt: component.confirmedAt,
-            })),
-          },
-        );
-        return { mode: "replaced" as const };
-      }
-      const result = await apiClient.post<CreateProductVariantRecipesIfEmptyResponse>(
-        "/api/products/variant-recipes/create-if-empty",
-        {
-          recipes: [{ productVariantId, components }],
-        },
+      await apiClient.put(
+        `/api/products/channel-options/${channelListingOptionId}/inventory-components`,
+        { components },
       );
-      return {
-        mode: result.appliedProductVariantIds.includes(productVariantId)
-          ? ("created" as const)
-          : ("unchanged" as const),
-      };
+      return { mode: hasExistingRecipe ? ("replaced" as const) : ("created" as const) };
     },
     onSuccess: async (result) => {
       await Promise.all([
@@ -178,7 +151,6 @@ export function RocketInlineRecipeEditor({
   const canSave =
     draft.length > 0 &&
     !hasInvalidQuantity &&
-    (!hasExistingRecipe || Boolean(currentVariant)) &&
     !save.isPending;
   const addCandidate = (candidate: ProductRecipeComponentCandidate) => {
     setDraftTouched(true);

@@ -434,10 +434,10 @@ export function StockSyncRow() {
   const run = async () => {
     setRequesting(true);
     try {
-      await requestRefresh();
-      toast.success('셀피아 동기화를 시작했습니다.');
+      await requestRefresh('inventory');
+      toast.success('셀피아 재고 동기화를 시작했습니다.');
     } catch {
-      toast.error('셀피아 동기화 요청에 실패했습니다.');
+      toast.error('셀피아 재고 동기화 요청에 실패했습니다.');
     } finally {
       setRequesting(false);
     }
@@ -460,7 +460,7 @@ export function StockSyncRow() {
             )}
           </div>
           <p className="mt-1 text-xs text-[var(--text-secondary)]">
-            현재고와 상품별 소진을 함께 받아 재고분석·발주 판단을 최신으로 맞춰요
+            현재고만 받아 재고분석·발주 판단을 최신으로 맞춰요
           </p>
           <p className="mt-0.5 text-[11px] text-[var(--text-muted)]">
             마지막 검증 {formatRelative(state?.lastVerifiedAt ?? null)}
@@ -484,7 +484,7 @@ export function StockSyncRow() {
           ) : (
             <>
               <RefreshCw className="h-3.5 w-3.5" />
-              셀피아 동기화
+              재고 동기화
             </>
           )}
         </button>

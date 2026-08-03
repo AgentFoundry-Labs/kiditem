@@ -8,6 +8,9 @@ export class SellpiaInventoryRefreshRequestDto
 implements SellpiaInventoryRefreshRequest {
   @IsIn(['manual_request', 'retry'])
   reason!: SellpiaInventoryRefreshRequest['reason'];
+
+  @IsIn(['full', 'inventory'])
+  scope!: SellpiaInventoryRefreshRequest['scope'];
 }
 
 export class SellpiaInventoryClaimRequestDto {}

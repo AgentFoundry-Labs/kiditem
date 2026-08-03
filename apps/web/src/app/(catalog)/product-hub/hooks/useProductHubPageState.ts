@@ -6,6 +6,7 @@ import {
   type ProductInventoryStatus,
   type ProductOperationsActiveStatus,
   type ProductOperationsAdStatus,
+  type ProductOperationsInventoryFocus,
   type ProductOperationsPeriodDays,
 } from '@kiditem/shared/product-operations';
 import { apiClient } from '@/lib/api-client';
@@ -15,6 +16,7 @@ import { queryKeys } from '@/lib/query-keys';
 export const PAGE_SIZE = 50;
 
 type ProductInventoryStatusFilter = ProductInventoryStatus | 'all';
+type ProductInventoryFocusFilter = ProductOperationsInventoryFocus | 'all';
 
 const INVENTORY_STATUSES: readonly ProductInventoryStatusFilter[] = [
   'all',
@@ -23,6 +25,13 @@ const INVENTORY_STATUSES: readonly ProductInventoryStatusFilter[] = [
   'out_of_stock',
   'configuration_required',
   'review_required',
+];
+const INVENTORY_FOCUSES: readonly ProductInventoryFocusFilter[] = [
+  'all',
+  'attention',
+  'out_of_stock',
+  'imminent',
+  'reorder',
 ];
 const ACTIVE_STATUSES: readonly ProductOperationsActiveStatus[] = [
   'active',
@@ -36,7 +45,6 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
-
 export function useProductHubPageState() {
   const pathname = usePathname();
   const router = useRouter();
@@ -44,6 +52,7 @@ export function useProductHubPageState() {
   const urlSearch = searchParams.get('search') ?? '';
   const [search, setSearch] = useState(urlSearch);
   const inventoryStatusParam = searchParams.get('inventoryStatus');
+  const inventoryFocusParam = searchParams.get('inventoryFocus');
   const activeStatusParam = searchParams.get('activeStatus');
   const adStatusParam = searchParams.get('adStatus');
   const periodDaysParam = Number(searchParams.get('periodDays'));
@@ -53,11 +62,16 @@ export function useProductHubPageState() {
   )
     ? inventoryStatusParam as ProductInventoryStatusFilter
     : 'all';
+  const inventoryFocus = INVENTORY_FOCUSES.includes(
+    inventoryFocusParam as ProductInventoryFocusFilter,
+  )
+    ? inventoryFocusParam as ProductInventoryFocusFilter
+    : 'all';
   const activeStatus = ACTIVE_STATUSES.includes(
     activeStatusParam as ProductOperationsActiveStatus,
   )
     ? activeStatusParam as ProductOperationsActiveStatus
-    : 'all';
+    : 'active';
   const adStatus = AD_STATUSES.includes(adStatusParam as ProductOperationsAdStatus)
     ? adStatusParam as ProductOperationsAdStatus
     : 'all';
@@ -66,6 +80,7 @@ export function useProductHubPageState() {
     : 30;
   const category = searchParams.get('category') ?? '';
   const abcGrade = searchParams.get('abcGrade') ?? '';
+  const dataStatusOpen = searchParams.get('dataStatus') === 'abc';
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
   useEffect(() => {
@@ -90,12 +105,13 @@ export function useProductHubPageState() {
       activeStatus,
       adStatus,
     });
-    if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
+    if (inventoryFocus !== 'all') params.set('inventoryFocus', inventoryFocus);
+    else if (inventoryStatus !== 'all') params.set('inventoryStatus', inventoryStatus);
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
     if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
     return params;
-  }, [abcGrade, activeStatus, adStatus, category, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, category, inventoryFocus, inventoryStatus, page, periodDays, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -106,7 +122,7 @@ export function useProductHubPageState() {
     page: '1',
     limit: '1',
     periodDays: String(periodDays),
-    activeStatus: 'all',
+    activeStatus: 'active',
     adStatus: 'all',
   }), [periodDays]);
   const overviewQueryKeyParams = useMemo(
@@ -151,6 +167,7 @@ export function useProductHubPageState() {
     adStatus,
     category,
     data: listQuery.data,
+    dataStatusOpen,
     errorMessage: listQuery.error
       ? (isApiError(listQuery.error) ? listQuery.error.detail : '상품 운영 목록을 불러오지 못했습니다.')
       : null,
@@ -160,6 +177,7 @@ export function useProductHubPageState() {
     isLoading: listQuery.isLoading,
     isPlaceholderData: listQuery.isPlaceholderData,
     inventoryStatus,
+    inventoryFocus,
     overviewData: overviewQuery.data,
     overviewErrorMessage: overviewQuery.error
       ? (isApiError(overviewQuery.error) ? overviewQuery.error.detail : '전체 상품 운영 현황을 불러오지 못했습니다.')
@@ -169,7 +187,13 @@ export function useProductHubPageState() {
     refetch: listQuery.refetch,
     search,
     setAbcGrade: (value: string) => {
-      updateListParams({ abcGrade: value || undefined, page: '1' });
+      updateListParams({
+        abcGrade: value || undefined,
+        page: '1',
+      });
+    },
+    setDataStatusOpen: (open: boolean) => {
+      updateListParams({ dataStatus: open ? 'abc' : undefined });
     },
     setActiveStatus: (value: ProductOperationsActiveStatus) => {
       updateListParams({ activeStatus: value, page: '1' });
@@ -181,7 +205,18 @@ export function useProductHubPageState() {
       updateListParams({ category: value || undefined, page: '1' });
     },
     setInventoryStatus: (value: ProductInventoryStatusFilter) => {
-      updateListParams({ inventoryStatus: value === 'all' ? undefined : value, page: '1' });
+      updateListParams({
+        inventoryStatus: value === 'all' ? undefined : value,
+        inventoryFocus: undefined,
+        page: '1',
+      });
+    },
+    setInventoryFocus: (value: ProductInventoryFocusFilter) => {
+      updateListParams({
+        inventoryFocus: value === 'all' ? undefined : value,
+        inventoryStatus: undefined,
+        page: '1',
+      });
     },
     setPeriodDays: (value: ProductOperationsPeriodDays) => {
       updateListParams({ periodDays: String(value), page: '1' });

@@ -1,28 +1,27 @@
 'use client';
 
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
-  applyChannelRecipeAutomation,
+  autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
-  getChannelRecipeAutomationPreview,
+  importCoupangRocketMatchingCsv,
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
-  linkChannelListingOption,
-  linkChannelListingOptionRecipe,
-  linkChannelListingProduct,
-  listRecipeComponentCandidates,
   listChannelAccounts,
-  listChannelProductCandidates,
   listChannelProductMappings,
-  listChannelVariantCandidates,
+  listRecipeComponentCandidates,
+  saveProductInventoryMatching,
 } from '../lib/channel-sku-matching-api';
 import {
   collectSellpiaManualMatchSnapshot,
   finalizeSellpiaManualMatchCollection,
 } from '../lib/sellpia-manual-match-collection';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import type {
+  CoupangRocketMatchingCsvImportResponse,
+  CoupangWingCatalogImportResponse,
+} from '@kiditem/shared/source-import';
 
 export function useChannelAccounts() {
   return useQuery({ queryKey: queryKeys.channelAccounts.active(), queryFn: listChannelAccounts });
@@ -44,19 +43,6 @@ export function useChannelProductMappings(params: {
       search: normalizedSearch,
     }),
     enabled: params.enabled ?? Boolean(params.channelAccountId),
-  });
-}
-
-export function useChannelRecipeAutomationPreviews(channelAccountIds: string[]) {
-  const uniqueIds = [...new Set(channelAccountIds)].sort();
-  return useQueries({
-    queries: uniqueIds.map((channelAccountId) => ({
-      queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-        channelAccountId,
-      ),
-      queryFn: () => getChannelRecipeAutomationPreview(channelAccountId),
-      enabled: Boolean(channelAccountId),
-    })),
   });
 }
 
@@ -93,31 +79,16 @@ export function useRunChannelProductMatching() {
         throw error;
       }
 
-      const result = {
-        collectedAliases,
-        evaluatedAccounts: uniqueAccountIds.length,
-        appliedProducts: 0,
-        skippedProducts: 0,
-        appliedVariants: 0,
-        affectedOptions: 0,
-        skippedExistingVariants: 0,
-      };
+      const result = { collectedAliases, evaluatedListings: 0, matchedListings: 0, configuredOptions: 0 };
       for (const channelAccountId of uniqueAccountIds) {
-        const preview = await getChannelRecipeAutomationPreview(channelAccountId);
-        if (preview.summary.autoApply === 0) continue;
-        const applied = await applyChannelRecipeAutomation({
-          channelAccountId,
-          proposalVersion: preview.proposalVersion,
-        });
-        result.appliedProducts += applied.appliedProducts;
-        result.skippedProducts += applied.skippedProducts;
-        result.appliedVariants += applied.appliedVariants;
-        result.affectedOptions += applied.affectedOptions;
-        result.skippedExistingVariants += applied.skippedExistingVariants;
+        const applied = await autoMatchChannelProducts(channelAccountId);
+        result.evaluatedListings += applied.evaluatedListings;
+        result.matchedListings += applied.matchedListings;
+        result.configuredOptions += applied.configuredOptions;
       }
       return result;
     },
-    onSettled: (_data, _error, input) => Promise.all([
+    onSettled: () => Promise.all([
       queryClient.invalidateQueries({
         queryKey: queryKeys.channelProductMappings.sellpiaManualMatchTargets(),
       }),
@@ -127,45 +98,7 @@ export function useRunChannelProductMatching() {
       queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
-      ...[...new Set(input.channelAccountIds)].map((channelAccountId) =>
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-            channelAccountId,
-          ),
-        })),
     ]),
-  });
-}
-
-export function useChannelRecipeAutomationPreview(channelAccountId?: string) {
-  return useQuery({
-    queryKey: queryKeys.channelProductMappings.recipeAutomationPreview(
-      channelAccountId ?? '',
-    ),
-    queryFn: () => getChannelRecipeAutomationPreview(channelAccountId!),
-    enabled: Boolean(channelAccountId),
-  });
-}
-
-export function useChannelProductCandidates(channelListingId: string | null, search: string, enabled: boolean) {
-  const normalized = search.trim();
-  return useQuery({
-    queryKey: queryKeys.channelProductMappings.productCandidates(channelListingId ?? '', { search: normalized }),
-    queryFn: () => listChannelProductCandidates(channelListingId ?? '', normalized),
-    enabled: enabled && Boolean(channelListingId),
-    staleTime: 0,
-    refetchOnMount: 'always',
-  });
-}
-
-export function useChannelVariantCandidates(channelListingOptionId: string | null, search: string, enabled: boolean) {
-  const normalized = search.trim();
-  return useQuery({
-    queryKey: queryKeys.channelProductMappings.variantCandidates(channelListingOptionId ?? '', { search: normalized }),
-    queryFn: () => listChannelVariantCandidates(channelListingOptionId ?? '', normalized),
-    enabled: enabled && Boolean(channelListingOptionId),
-    staleTime: 0,
-    refetchOnMount: 'always',
   });
 }
 
@@ -190,45 +123,10 @@ export function useRecipeComponentCandidates(
   });
 }
 
-export function useLinkChannelListingProduct() {
+export function useSaveProductInventoryMatching() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ channelListingId, masterProductId }: { channelListingId: string; masterProductId: string | null }) =>
-      linkChannelListingProduct(channelListingId, { masterProductId }),
-    onSuccess: () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
-    ]),
-  });
-}
-
-export function useLinkChannelListingOption() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({ channelListingOptionId, productVariantId }: { channelListingOptionId: string; productVariantId: string | null }) =>
-      linkChannelListingOption(channelListingOptionId, { productVariantId }),
-    onSuccess: () => Promise.all([
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
-      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
-    ]),
-  });
-}
-
-export function useLinkChannelListingOptionRecipe() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      channelListingOptionId,
-      sellpiaInventorySkuId,
-      quantity,
-    }: {
-      channelListingOptionId: string;
-      sellpiaInventorySkuId: string;
-      quantity: number;
-    }) => linkChannelListingOptionRecipe(channelListingOptionId, {
-      sellpiaInventorySkuId,
-      quantity,
-    }),
+    mutationFn: saveProductInventoryMatching,
     onSuccess: () => Promise.all([
       queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
       queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
@@ -238,16 +136,91 @@ export function useLinkChannelListingOptionRecipe() {
   });
 }
 
-export function useImportCoupangWingCatalog() {
+export type ChannelCatalogImportSource = 'wing' | 'rocket';
+
+type ChannelCatalogImportResponse =
+  | CoupangWingCatalogImportResponse
+  | CoupangRocketMatchingCsvImportResponse;
+
+export function useImportChannelCatalog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ channelAccountId, file }: { channelAccountId: string; file: File }): Promise<{
-      response: CoupangWingCatalogImportResponse;
-      statusRefreshFailed: boolean;
-    }> => ({
-      response: await importCoupangWingCatalog(channelAccountId, file),
-      statusRefreshFailed: false,
-    }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+    mutationFn: async (input: {
+      source: ChannelCatalogImportSource;
+      channelAccountId: string;
+      file: File;
+    }): Promise<{
+      response: ChannelCatalogImportResponse;
+      automaticMatching: CatalogAutomaticMatchingResult;
+    }> => {
+      const response = input.source === 'wing'
+        ? await importCoupangWingCatalog(input.channelAccountId, input.file)
+        : await importCoupangRocketMatchingCsv(input.channelAccountId, input.file);
+      return {
+        response,
+        automaticMatching: await collectAndAutoConfigureChannel(input.channelAccountId),
+      };
+    },
+    onSettled: () => Promise.all([
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelProductMappings.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.channelSkuAvailability.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.all }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.inventory.all }),
+    ]),
   });
+}
+
+export type CatalogAutomaticMatchingResult = {
+  collectedAliases: number;
+  evaluatedListings: number;
+  matchedListings: number;
+  configuredOptions: number;
+  error: string | null;
+};
+
+async function collectAndAutoConfigureChannel(
+  channelAccountId: string,
+): Promise<CatalogAutomaticMatchingResult> {
+  let collected: Awaited<ReturnType<typeof collectSellpiaManualMatchSnapshot>> | null = null;
+  try {
+    const targets = await getSellpiaManualMatchTargets();
+    const runId = await issueBrowserCollectionRunId();
+    collected = await collectSellpiaManualMatchSnapshot(runId, targets.targetCodes);
+    let imported;
+    try {
+      imported = await importSellpiaManualMatchSnapshot(collected.snapshot);
+    } catch (error) {
+      await finalizeSellpiaManualMatchCollection(
+        collected,
+        'failed',
+        matchingErrorMessage(error),
+      ).catch(() => undefined);
+      throw error;
+    }
+    await finalizeSellpiaManualMatchCollection(
+      collected,
+      'succeeded',
+      `Sellpia 수동상품매칭 별칭 ${imported.status.aliasCount}개를 저장했습니다.`,
+    ).catch(() => undefined);
+    const matched = await autoMatchChannelProducts(channelAccountId);
+    return {
+      collectedAliases: imported.status.aliasCount,
+      ...matched,
+      error: null,
+    };
+  } catch (error) {
+    return {
+      collectedAliases: 0,
+      evaluatedListings: 0,
+      matchedListings: 0,
+      configuredOptions: 0,
+      error: matchingErrorMessage(error),
+    };
+  }
+}
+
+function matchingErrorMessage(error: unknown): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : 'Sellpia 자동 재고 연결을 완료하지 못했습니다.';
 }

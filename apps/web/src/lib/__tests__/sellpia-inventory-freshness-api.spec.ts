@@ -27,6 +27,7 @@ describe('sellpiaInventoryFreshnessApi', () => {
       verifiedGeneration: '0',
       refreshRequestedAt: '2026-07-16T00:00:00.000Z',
       refreshReason: 'ttl_expired',
+      requestedSyncScope: 'inventory',
       syncNotBefore: null,
       activeSync: null,
       lastAttempt: null,

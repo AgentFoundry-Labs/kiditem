@@ -13,7 +13,6 @@ import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
-import { ChannelRecipeAutomationService } from './channel-recipe-automation.service';
 
 const ARTIFACT_FILE_NAME = 'rocket-po-catalog.json' as const;
 
@@ -22,7 +21,6 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   constructor(
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
-    private readonly recipeAutomation: ChannelRecipeAutomationService,
   ) {}
 
   async publishAndResolve(input: {
@@ -67,17 +65,10 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
       collection: request.collection,
       rows,
     });
-    const recipeAutomation = published.duplicate
-      ? emptyRecipeAutomationResult()
-      : await this.recipeAutomation.applySafeForOptions({
-        organizationId: input.organizationId,
-        channelAccountId: request.channelAccountId,
-        channelListingOptionIds: published.identities.map(({ channelSkuId }) => channelSkuId),
-      });
     const { identities, ...catalog } = published;
     return {
       blockingReason: null,
-      catalog: { ...catalog, recipeAutomation },
+      catalog,
       identities,
     };
   }
@@ -99,20 +90,6 @@ export class RocketPoCatalogService implements RocketPoCatalogPort {
   }) {
     return this.repository.loadSavedCollection(input);
   }
-}
-
-function emptyRecipeAutomationResult() {
-  return {
-    evaluatedProducts: 0,
-    appliedProducts: 0,
-    appliedVariants: 0,
-    affectedOptions: 0,
-    quantityReviewProducts: 0,
-    operatorReviewProducts: 0,
-    blockedProducts: 0,
-    alreadyConfiguredProducts: 0,
-    skippedExistingVariants: 0,
-  };
 }
 
 function isCompleteCollection(request: RocketPurchasePreviewRequest): boolean {

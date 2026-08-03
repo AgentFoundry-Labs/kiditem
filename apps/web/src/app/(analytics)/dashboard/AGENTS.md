@@ -23,8 +23,13 @@ sales, ads, inventory, trends, health, action tasks, and chart panels.
   that screen's promoted shared action. Trigger surface is the only intended
   difference; extension command, defaults, persistence, artifacts, and browser
   collection alerts stay identical.
-- ABC cards and Top Products render the backend's nullable stored product grade.
-  Show unclassified separately and never substitute C for `null`.
+- ABC cards, calculation-status/source freshness, contribution-profit totals,
+  fixed-formula context, and Top Products render Products' stored evaluation
+  snapshot. Never rebuild contribution profit locally. Source-stale, mapping,
+  recalculation, and calculation-error states remain separate from C; only
+  Dashboard's links lead to Product Management evidence. New evaluations do
+  not wait for paid-order evidence; legacy order-related states are read-only
+  compatibility values until recalculation replaces old snapshots.
 
 ## Boundary Rules
 

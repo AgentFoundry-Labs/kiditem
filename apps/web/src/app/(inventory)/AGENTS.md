@@ -42,9 +42,10 @@ React Query + inventory API helpers
 - Sellpia refresh requests are made through explicit action buttons as a
   server-owned `inventory.refresh_sellpia_snapshot` OperationRun. The extension
   browser runtime claims it; a web-tab lifecycle never owns collection or
-  finalization. One user-requested synchronization collects both the physical
-  inventory snapshot and product-level monthly depletion; users do not start
-  those sources separately.
+  finalization. Inventory actions explicitly request the `inventory` scope and
+  collect only the physical snapshot. Product Management explicitly requests
+  the `full` scope, which also collects and stores Sellpia product-profit
+  evidence before automatic ABC recalculation.
   TTL and post-order evidence refreshes remain inventory-only. There is no
   global freshness drawer, status entry, or manual-import UI. Completed
   automatic attempts share one import-run history.
@@ -77,8 +78,8 @@ React Query + inventory API helpers
 - `/inventory` keeps its own operator-facing composition. Shared projections
   may reuse components, but that route does not become a redirect.
 - Do not add a shared freshness drawer or app-wide/inline status entry. Direct
-  refresh actions start the shared OperationRun; the browser runtime owns
-  claim, collection, upload, and finalization.
+  refresh actions start the shared OperationRun with an explicit scope; the
+  browser runtime owns claim, collection, upload, and finalization.
 - Sellpia import-run history has exactly one screen (`?tab=sellpia-sync`). Do
   not reintroduce a separate audit or freshness tab rendering the same
   `ImportFreshness` projection.

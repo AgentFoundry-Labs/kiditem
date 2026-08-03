@@ -3,42 +3,42 @@ import { KeywordRankRepositoryAdapter } from '../keyword-rank.repository.adapter
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
 describe('KeywordRankRepositoryAdapter', () => {
-  it('returns confirmed variants while preserving listing-name precedence over option names', async () => {
+  it('returns listing-owned ABC grades while preserving listing-name precedence over option names', async () => {
     const findMany = vi.fn(async () => [
       {
         externalOptionId: 'V-CHANNEL',
         sellerSku: null,
         itemName: '1개',
-        productVariantId: 'variant-channel',
         listing: {
           externalId: 'external-channel',
           channelName: '채널 상품명',
           displayName: '표시 상품명',
           category: '완구',
+          masterProduct: { abcGrade: 'A' },
         },
       },
       {
         externalOptionId: 'V-DISPLAY',
         sellerSku: null,
         itemName: '단품',
-        productVariantId: null,
         listing: {
           externalId: 'external-display',
           channelName: null,
           displayName: '표시 상품명',
           category: null,
+          masterProduct: null,
         },
       },
       {
         externalOptionId: 'V-EXTERNAL',
         sellerSku: null,
         itemName: '세트',
-        productVariantId: null,
         listing: {
           externalId: 'external-fallback',
           channelName: null,
           displayName: null,
           category: null,
+          masterProduct: null,
         },
       },
     ]);
@@ -50,23 +50,23 @@ describe('KeywordRankRepositoryAdapter', () => {
 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'organization-1' }),
-      select: expect.objectContaining({ productVariantId: true }),
+      select: expect.objectContaining({ listing: expect.any(Object) }),
     }));
     expect(result).toEqual([
       expect.objectContaining({
         vendorItemId: 'V-CHANNEL',
         productName: '채널 상품명',
-        productVariantId: 'variant-channel',
+        abcGrade: 'A',
       }),
       expect.objectContaining({
         vendorItemId: 'V-DISPLAY',
         productName: '표시 상품명',
-        productVariantId: null,
+        abcGrade: null,
       }),
       expect.objectContaining({
         vendorItemId: 'V-EXTERNAL',
         productName: 'external-fallback',
-        productVariantId: null,
+        abcGrade: null,
       }),
     ]);
   });

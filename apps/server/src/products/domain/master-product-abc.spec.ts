@@ -1,78 +1,280 @@
 import { describe, expect, it } from 'vitest';
+import type { ProductAbcFormulaSummary } from '@kiditem/shared/product-abc';
+import type { MasterProductProfitabilityEvidence } from '../../finance/application/port/in/master-product-profitability-read.port';
+import { applyMasterProductAbcQuantiles, evaluateMasterProductAbc } from './master-product-abc';
 
-const modulePath = './master-product-abc.js';
+const calculatedAt = new Date('2026-08-01T00:00:00.000Z');
 
-async function calculator() {
-  return import(modulePath);
-}
-
-const defaultPolicy = {
-  aCumulativeThreshold: 70,
-  bCumulativeThreshold: 90,
+const formula: ProductAbcFormulaSummary = {
+  formulaKey: 'ABC_V1',
+  version: 1,
+  calculationCodeChecksum: 'a'.repeat(64),
+  formulaChecksum: 'b'.repeat(64),
+  activatedAt: calculatedAt,
+  halfLifeDays: 90,
+  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
+  dayShrinkK: 30,
+  cutoffs: { cToB: 50, bToA: 80 },
+  normalizationKnots: {
+    profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
+    contributionMargin: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+    lossRecurrence: [{ value: 0, score: 0 }, { value: 1, score: 100 }],
+  },
+  trainingRange: { from: '2025-07-01', to: '2026-07-01' },
+  sampleCount: 100,
+  foldCount: 4,
+  calibrationMetrics: {
+    meanSpearmanRankCorrelation: 0.7,
+    meanExplainedVariance: 0.5,
+    gradeChurnRate: 0.1,
+  },
 };
 
-describe('calculateMasterProductAbcGrades', () => {
-  it('keeps equal-score evidence in the same grade group', async () => {
-    const { calculateMasterProductAbcGrades } = await calculator();
-    expect(calculateMasterProductAbcGrades(defaultPolicy, [
-      { masterProductId: 'master-c', metricValue: 25, eligible: true },
-      { masterProductId: 'master-a', metricValue: 50, eligible: true },
-      { masterProductId: 'master-b', metricValue: 25, eligible: true },
-    ])).toEqual(new Map([
-      ['master-a', 'A'],
-      ['master-b', 'A'],
-      ['master-c', 'A'],
-    ]));
+function evidence(input: Partial<MasterProductProfitabilityEvidence> = {}) {
+  const coverageStartDate = new Date('2026-06-01T00:00:00.000Z');
+  const coverageEndDate = new Date('2026-06-30T00:00:00.000Z');
+  const revenue = 1_000;
+  const sellpiaInAmount = 200;
+  const adSpend = 100;
+  return {
+    masterProductId: 'master-1',
+    asOfDate: new Date('2026-07-31T00:00:00.000Z'),
+    firstValidPaidSaleAt: new Date('2026-06-01T00:00:00.000Z'),
+    validPaidOrderDates: [],
+    paidOrderCount: 30,
+    observationDays: 61,
+    eligibilityReached: true,
+    sellpiaStatus: 'READY',
+    adStatus: 'READY',
+    sellpiaCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    advertisingCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    advertisingCoverageStartDate: coverageStartDate,
+    advertisingCoverageEndDate: coverageEndDate,
+    ordersStatus: 'READY',
+    ordersCoverageStartDate: coverageStartDate,
+    ordersCoverageEndDate: coverageEndDate,
+    ordersCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    orderLinkedLineCount: 30,
+    orderUnlinkedLineCount: 0,
+    mappingStatus: 'READY',
+    mappingInventoryGeneration: '7',
+    mappingVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
+    monthlyFacts: [{
+      yearMonth: '2026-06',
+      coverageStartDate,
+      coverageEndDate,
+      coveredDays: 30,
+      coverageMidpointEpochDay: 0,
+      revenue,
+      sellpiaInAmount,
+      adSpend,
+      contributionProfit: revenue - sellpiaInAmount - adSpend,
+      negativeCoveredDays: 0,
+      lossGranularity: 'MONTH_INFERRED',
+      sourceProductCodes: ['P-1'],
+      sourceOptionCodes: ['O-1'],
+      costBreakdown: {
+        recognizedRevenue: { amount: revenue, status: 'OBSERVED' },
+        orderTimeCogs: { amount: sellpiaInAmount, status: 'OBSERVED' },
+        advertisingSpend: { amount: adSpend, status: 'OBSERVED' },
+        marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+        outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
+        returnLoss: { amount: 0, status: 'NOT_APPLIED' },
+        otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
+      },
+    }],
+    ...input,
+  } satisfies MasterProductProfitabilityEvidence;
+}
+
+function evaluate(input: {
+  evidence?: MasterProductProfitabilityEvidence;
+  formula?: ProductAbcFormulaSummary | null;
+  recalculating?: boolean;
+  previousNormalEvaluation?: ReturnType<typeof evaluateMasterProductAbc> | null;
+} = {}) {
+  return evaluateMasterProductAbc({
+    evidence: input.evidence ?? evidence(),
+    formula: input.formula === undefined ? formula : input.formula,
+    calculatedAt,
+    recalculating: input.recalculating,
+    previousNormalEvaluation: input.previousNormalEvaluation,
+  });
+}
+
+describe('evaluateMasterProductAbc', () => {
+  it('publishes a frozen-formula grade from source evidence without portfolio ranking', () => {
+    expect(evaluate()).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'READY',
+      formula,
+      weightedContributionProfit: expect.any(Number),
+      costBreakdown: {
+        marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+      },
+    });
   });
 
-  it('uses configured cumulative thresholds before each score group', async () => {
-    const { calculateMasterProductAbcGrades } = await calculator();
-    expect(calculateMasterProductAbcGrades(defaultPolicy, [
-      { masterProductId: 'master-c', metricValue: 10, eligible: true },
-      { masterProductId: 'master-a', metricValue: 70, eligible: true },
-      { masterProductId: 'master-b', metricValue: 20, eligible: true },
-    ])).toEqual(new Map([
-      ['master-a', 'A'],
-      ['master-b', 'B'],
-      ['master-c', 'C'],
-    ]));
+  it('makes every non-positive weighted contribution a hard C', () => {
+    const value = evidence({
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        contributionProfit: 0,
+        sellpiaInAmount: 900,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          orderTimeCogs: { amount: 900, status: 'OBSERVED' },
+        },
+      }],
+    });
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 0,
+    });
   });
 
-  it('keeps ineligible or missing evidence unclassified', async () => {
-    const { calculateMasterProductAbcGrades } = await calculator();
-    expect(calculateMasterProductAbcGrades(defaultPolicy, [
-      { masterProductId: 'ineligible', metricValue: 100, eligible: false },
-      { masterProductId: 'missing', metricValue: null, eligible: true },
-      { masterProductId: 'ranked', metricValue: 100, eligible: true },
-    ])).toEqual(new Map([
-      ['ineligible', null],
-      ['missing', null],
-      ['ranked', 'A'],
-    ]));
+  it('assigns A/B/C by the fixed 20/50/30 score quantiles and keeps losses in C', () => {
+    const evaluations = new Map(
+      [95, 90, 85, 80, 75, 70, 65, 60, 55, 50].map((adjustedScore, index) => [
+        `positive-${index}`,
+        {
+          ...evaluate(),
+          adjustedScore,
+          weightedContributionProfit: 1,
+        },
+      ] as const).concat([[
+        'loss',
+        {
+          ...evaluate(),
+          adjustedScore: 100,
+          weightedContributionProfit: 0,
+        },
+      ] as const]),
+    );
+
+    const ranked = applyMasterProductAbcQuantiles(evaluations);
+
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'A')).toHaveLength(2);
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'B')).toHaveLength(5);
+    expect([...ranked.values()].filter((value) => value.abcGrade === 'C')).toHaveLength(4);
+    expect(ranked.get('loss')).toMatchObject({ abcGrade: 'C' });
   });
 
-  it('keeps explicit zero unclassified even when a positive cohort exists', async () => {
-    const { calculateMasterProductAbcGrades } = await calculator();
-    expect(calculateMasterProductAbcGrades(defaultPolicy, [
-      { masterProductId: 'positive', metricValue: 1, eligible: true },
-      { masterProductId: 'zero', metricValue: 0, eligible: true },
-    ])).toEqual(new Map([
-      ['positive', 'A'],
-      ['zero', null],
-    ]));
+  it('publishes a valid hard C when a zero-revenue period has no contribution', () => {
+    const value = evidence({
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        revenue: 0,
+        sellpiaInAmount: 0,
+        adSpend: 0,
+        contributionProfit: 0,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          recognizedRevenue: { amount: 0, status: 'OBSERVED' },
+          orderTimeCogs: { amount: 0, status: 'OBSERVED' },
+          advertisingSpend: { amount: 0, status: 'OBSERVED' },
+        },
+      }],
+    });
+
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'C', calculationStatus: 'READY', rawScore: 0, adjustedScore: 0,
+    });
   });
 
-  it('returns null for an all-zero cohort and stable output regardless of input order', async () => {
-    const { calculateMasterProductAbcGrades } = await calculator();
-    const rows = [
-      { masterProductId: 'master-b', metricValue: 0, eligible: true },
-      { masterProductId: 'master-a', metricValue: 0, eligible: true },
-    ];
-    expect(calculateMasterProductAbcGrades(defaultPolicy, rows)).toEqual(new Map([
-      ['master-a', null],
-      ['master-b', null],
-    ]));
-    expect(calculateMasterProductAbcGrades(defaultPolicy, [...rows].reverse()))
-      .toEqual(calculateMasterProductAbcGrades(defaultPolicy, rows));
+  it('grades from profitability evidence without paid-order evidence', () => {
+    const value = evidence({
+      firstValidPaidSaleAt: null,
+      validPaidOrderDates: [],
+      paidOrderCount: 0,
+      observationDays: 0,
+      eligibilityReached: false,
+      ordersStatus: 'MISSING',
+      ordersCoverageStartDate: null,
+      ordersCoverageEndDate: null,
+      ordersCapturedAt: null,
+      orderLinkedLineCount: 0,
+      orderUnlinkedLineCount: 0,
+    });
+
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'READY',
+    });
+  });
+
+  it('leaves unmapped products ungraded and treats a missing automatic formula as insufficient evidence', () => {
+    expect(evaluate({ evidence: evidence({ sellpiaStatus: 'UNMAPPED' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+    });
+    expect(evaluate({ formula: null })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+    });
+  });
+
+  it('retains the last normal grade when the Sellpia source becomes stale', () => {
+    const prior = evaluate();
+    expect(evaluate({
+      evidence: evidence({ sellpiaStatus: 'STALE' }),
+      previousNormalEvaluation: prior,
+    })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'SELLPIA_SOURCE_STALE',
+    });
+  });
+
+  it('calculates a grade with zero advertising cost when the advertising source is stale', () => {
+    const value = evidence({
+      adStatus: 'STALE',
+      monthlyFacts: [{
+        ...evidence().monthlyFacts[0]!,
+        adSpend: 0,
+        contributionProfit: 800,
+        costBreakdown: {
+          ...evidence().monthlyFacts[0]!.costBreakdown,
+          advertisingSpend: { amount: 0, status: 'STALE' },
+        },
+      }],
+    });
+
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: expect.any(String),
+      calculationStatus: 'READY',
+      sourceFreshness: { advertising: { status: 'STALE' } },
+      costBreakdown: { advertisingSpend: { amount: 0, status: 'STALE' } },
+    });
+  });
+
+  it('keeps unresolved and unverified identity separate from no-sale evidence', () => {
+    expect(evaluate({ evidence: evidence({ mappingStatus: 'AMBIGUOUS' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+      sourceFreshness: { mapping: { status: 'AMBIGUOUS', inventoryGeneration: '7' } },
+    });
+    expect(evaluate({ evidence: evidence({ mappingStatus: 'STALE' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+      sourceFreshness: { mapping: { status: 'STALE' } },
+    });
+  });
+
+  it('retains a normal grade while recalculating and reports malformed evidence as a calculation error', () => {
+    const prior = evaluate();
+    expect(evaluate({ recalculating: true, previousNormalEvaluation: prior })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'RECALCULATING',
+    });
+    expect(evaluate({
+      evidence: evidence({
+        monthlyFacts: [{ ...evidence().monthlyFacts[0]!, coveredDays: 29 }],
+      }),
+      previousNormalEvaluation: prior,
+    })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'CALCULATION_ERROR',
+    });
   });
 });

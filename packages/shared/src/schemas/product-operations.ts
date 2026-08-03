@@ -1,6 +1,12 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
-import { ProductAbcGradeSchema } from './product-abc.js';
+import {
+  ProductAbcCalculationStatusSchema,
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  ProductAbcGradeSchema,
+} from './product-abc.js';
+import { OperationRunSchema } from './operations.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -11,21 +17,14 @@ export const ProductInventoryStatusSchema = z.enum([
 ]);
 export type ProductInventoryStatus = z.infer<typeof ProductInventoryStatusSchema>;
 
-export const ProductVariantWarningStateSchema = z.enum([
-  'none',
-  'configuration_required',
-  'review_required',
+export const ProductOperationsInventoryFocusSchema = z.enum([
+  'attention',
+  'out_of_stock',
+  'imminent',
+  'reorder',
 ]);
-export type ProductVariantWarningState = z.infer<
-  typeof ProductVariantWarningStateSchema
->;
-
-export const ProductVariantComponentSourceSchema = z.enum([
-  'manual',
-  'deterministic',
-]);
-export type ProductVariantComponentSource = z.infer<
-  typeof ProductVariantComponentSourceSchema
+export type ProductOperationsInventoryFocus = z.infer<
+  typeof ProductOperationsInventoryFocusSchema
 >;
 
 export const ProductOperationsActiveStatusSchema = z.enum([
@@ -71,15 +70,23 @@ export type ProductOperationsAbcGradeFilter = z.infer<
   typeof ProductOperationsAbcGradeFilterSchema
 >;
 
+export const ProductOperationsAbcCalculationStatusFilterSchema =
+  ProductAbcCalculationStatusSchema;
+export type ProductOperationsAbcCalculationStatusFilter = z.infer<
+  typeof ProductOperationsAbcCalculationStatusFilterSchema
+>;
+
 export const MasterProductOperationsListQuerySchema = z.object({
   page: z.number().int().positive().default(1),
   limit: z.number().int().positive().max(100).default(50),
   query: z.string().trim().min(1).max(200).optional(),
   periodDays: ProductOperationsPeriodDaysSchema.default(30),
   category: z.string().trim().min(1).max(100).optional(),
-  activeStatus: ProductOperationsActiveStatusSchema.default('all'),
+  activeStatus: ProductOperationsActiveStatusSchema.default('active'),
   inventoryStatus: ProductInventoryStatusSchema.optional(),
+  inventoryFocus: ProductOperationsInventoryFocusSchema.optional(),
   abcGrade: ProductOperationsAbcGradeFilterSchema.optional(),
+  abcCalculationStatus: ProductOperationsAbcCalculationStatusFilterSchema.optional(),
   adStatus: ProductOperationsAdStatusSchema.default('all'),
 }).strict();
 export type MasterProductOperationsListQuery = z.infer<
@@ -126,15 +133,6 @@ export type MasterProductDisplayReference = z.infer<
   typeof MasterProductDisplayReferenceSchema
 >;
 
-export const ProductVariantDisplayReferenceSchema = z.object({
-  type: z.enum(['product_variant_code', 'channel_option']),
-  label: z.string().trim().min(1).max(100),
-  value: z.string().trim().min(1).max(200),
-}).strict();
-export type ProductVariantDisplayReference = z.infer<
-  typeof ProductVariantDisplayReferenceSchema
->;
-
 export const MasterProductOperationsMetadataSchema = z.object({
   id: z.string().uuid(),
   code: ProductCodeSchema,
@@ -147,6 +145,7 @@ export const MasterProductOperationsMetadataSchema = z.object({
   imageUrls: z.array(z.string().min(1)),
   displayImageUrls: z.array(z.string().min(1)),
   abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   profitTag: z.string().nullable(),
   adTier: z.string().nullable(),
   adBudgetLimit: z.number().int().nonnegative().nullable(),
@@ -158,13 +157,13 @@ export type MasterProductOperationsMetadata = z.infer<
   typeof MasterProductOperationsMetadataSchema
 >;
 
-export const ProductVariantSummarySchema = z.object({
+export const ChannelOptionSummarySchema = z.object({
   total: z.number().int().nonnegative(),
   active: z.number().int().nonnegative(),
   configured: z.number().int().nonnegative(),
   warning: z.number().int().nonnegative(),
 }).strict();
-export type ProductVariantSummary = z.infer<typeof ProductVariantSummarySchema>;
+export type ChannelOptionSummary = z.infer<typeof ChannelOptionSummarySchema>;
 
 export const ProductDepletionProjectionSchema = z.object({
   coverage: z.enum(['ready', 'shared', 'no_direct_sales']),
@@ -176,23 +175,105 @@ export type ProductDepletionProjection = z.infer<
   typeof ProductDepletionProjectionSchema
 >;
 
+const ProductOperationsMetricFreshnessSchema = z.object({
+  status: z.enum(['READY', 'STALE', 'MISSING']),
+  coverageStartDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  capturedAt: zIsoDate.nullable(),
+}).strict();
+
+export const ProductOperationsDataSourceStatusSchema = z.object({
+  status: z.enum(['CURRENT', 'OUTDATED', 'NOT_COLLECTED', 'UPDATING', 'ACTION_REQUIRED', 'FAILED']),
+  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  capturedAt: zIsoDate.nullable(),
+  lastErrorAt: zIsoDate.nullable(),
+  attentionReason: z.string().trim().min(1).max(120).nullable().optional(),
+}).strict().superRefine((source, context) => {
+  if (source.status === 'NOT_COLLECTED' && (source.coverageEndDate !== null || source.capturedAt !== null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['coverageEndDate'],
+      message: 'not-collected sources cannot claim coverage or capture time',
+    });
+  }
+});
+export type ProductOperationsDataSourceStatus = z.infer<
+  typeof ProductOperationsDataSourceStatusSchema
+>;
+
+export const ProductOperationsDataStatusSchema = z.object({
+  displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  lastCompletedRefreshAt: zIsoDate.nullable(),
+  activeRun: OperationRunSchema.nullable(),
+  sources: z.object({
+    traffic: ProductOperationsDataSourceStatusSchema,
+    advertising: ProductOperationsDataSourceStatusSchema,
+    sellpiaProfit: ProductOperationsDataSourceStatusSchema,
+    abc: ProductOperationsDataSourceStatusSchema,
+  }).strict(),
+  abcSummary: z.object({
+    classifiedProductCount: z.number().int().nonnegative(),
+    unclassifiedProductCount: z.number().int().nonnegative(),
+    mappingRequiredProductCount: z.number().int().nonnegative(),
+    orderEvidenceRequiredProductCount: z.number().int().nonnegative()
+      .describe('Legacy compatibility field; new profitability evaluations always return zero'),
+    otherPendingProductCount: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type ProductOperationsDataStatus = z.infer<
+  typeof ProductOperationsDataStatusSchema
+>;
+
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
+    isSelling: z.boolean(),
     updatedAt: zIsoDate,
     depletion: ProductDepletionProjectionSchema,
-    variantSummary: ProductVariantSummarySchema,
+    channelOptionSummary: ChannelOptionSummarySchema,
     inventoryUnits: z.number().int().nonnegative(),
     inventoryStatus: ProductInventoryStatusSchema,
     channelCount: z.number().int().nonnegative(),
     channelStatus: ProductChannelStatusSchema,
+    activeChannels: z.array(z.object({
+      channelAccountId: z.string().uuid(),
+      channel: z.string().min(1),
+      channelAccountName: z.string().min(1),
+    }).strict()),
     traffic: z.number().int().nonnegative().nullable(),
+    visitorCount: z.number().int().nonnegative().nullable(),
+    viewCount: z.number().int().nonnegative().nullable(),
+    cartAddCount: z.number().int().nonnegative().nullable(),
     orderCount: z.number().int().nonnegative().nullable(),
+    salesQuantity: z.number().int().nonnegative().nullable(),
     salesAmount: z.number().int().nonnegative().nullable(),
     adSpend: z.number().int().nonnegative().nullable(),
+    adSpendRate: z.number().finite().nonnegative().nullable(),
+    metricsFreshness: z.object({
+      traffic: ProductOperationsMetricFreshnessSchema,
+      advertising: ProductOperationsMetricFreshnessSchema,
+    }).strict(),
     profit: z.number().int().nullable(),
+    contributionProfitVelocity30: z.number().finite().nullable(),
+    contributionMargin: z.number().finite().nullable(),
   });
 export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
+>;
+
+export const ProductOperationsActiveChannelSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  channel: z.string().min(1),
+  channelAccountName: z.string().min(1),
+}).strict();
+export type ProductOperationsActiveChannel = z.infer<
+  typeof ProductOperationsActiveChannelSchema
+>;
+
+export const ProductOperationsChannelProductCountSchema = ProductOperationsActiveChannelSchema.extend({
+  count: z.number().int().nonnegative(),
+}).strict();
+export type ProductOperationsChannelProductCount = z.infer<
+  typeof ProductOperationsChannelProductCountSchema
 >;
 
 export const ProductOperationsListSummarySchema = z.object({
@@ -202,10 +283,30 @@ export const ProductOperationsListSummarySchema = z.object({
     C: z.number().int().nonnegative(),
     unclassified: z.number().int().nonnegative(),
   }).strict(),
-  channelConnectionCounts: z.object({
-    connected: z.number().int().nonnegative(),
-    unconnected: z.number().int().nonnegative(),
+  abcStatusCounts: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
+  abcContributionProfitByGrade: z.object({
+    A: z.number().int(),
+    B: z.number().int(),
+    C: z.number().int(),
+  }).strict(),
+  abcContributionProfitShareByGrade: z.object({
+    A: z.number().finite(),
+    B: z.number().finite(),
+    C: z.number().finite(),
+  }).strict(),
+  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({
     sellable: z.number().int().nonnegative(),
     partial_out_of_stock: z.number().int().nonnegative(),
@@ -214,6 +315,7 @@ export const ProductOperationsListSummarySchema = z.object({
     review_required: z.number().int().nonnegative(),
   }).strict(),
   negativeProfitCount: z.number().int().nonnegative(),
+  imminentProductCount: z.number().int().nonnegative(),
   reorderProductCount: z.number().int().nonnegative(),
   depletionCoveredProductCount: z.number().int().nonnegative(),
   sharedDepletionProductCount: z.number().int().nonnegative(),
@@ -233,54 +335,6 @@ export type MasterProductOperationsListResponse = z.infer<
   typeof MasterProductOperationsListResponseSchema
 >;
 
-export const ProductVariantComponentDetailSchema = z.object({
-  id: z.string().uuid(),
-  sellpiaInventorySkuId: z.string().uuid(),
-  code: z.string().min(1),
-  name: z.string().min(1),
-  optionName: z.string().nullable(),
-  barcode: z.string().nullable(),
-  currentStock: z.number().int().nonnegative(),
-  activeCommitmentQuantity: z.number().int().nonnegative(),
-  availableStock: z.number().int().nonnegative(),
-  isActive: z.boolean(),
-  quantity: z.number().int().positive(),
-  source: ProductVariantComponentSourceSchema,
-  confirmedBy: z.string().uuid().nullable(),
-  confirmedAt: zIsoDate,
-}).strict();
-export type ProductVariantComponentDetail = z.infer<
-  typeof ProductVariantComponentDetailSchema
->;
-
-export const ProductVariantDetailSchema = z.object({
-  id: z.string().uuid(),
-  code: ProductCodeSchema,
-  displayReference: ProductVariantDisplayReferenceSchema,
-  name: ProductNameSchema,
-  optionLabel: z.string().nullable(),
-  isDefault: z.boolean(),
-  isActive: z.boolean(),
-  components: z.array(ProductVariantComponentDetailSchema).max(50),
-  capacity: z.number().int().nonnegative().nullable(),
-  warningState: ProductVariantWarningStateSchema,
-}).strict().superRefine((variant, ctx) => {
-  variant.components.forEach((component, index) => {
-    const expectedAvailableStock = Math.max(
-      component.currentStock - component.activeCommitmentQuantity,
-      0,
-    );
-    if (component.availableStock !== expectedAvailableStock) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['components', index, 'availableStock'],
-        message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
-      });
-    }
-  });
-});
-export type ProductVariantDetail = z.infer<typeof ProductVariantDetailSchema>;
-
 export const ProductChannelListingSummarySchema = z.object({
   id: z.string().uuid(),
   channelAccountId: z.string().uuid(),
@@ -290,6 +344,28 @@ export const ProductChannelListingSummarySchema = z.object({
   displayName: z.string().nullable(),
   status: z.string().nullable(),
   isActive: z.boolean(),
+  options: z.array(z.object({
+    id: z.string().uuid(),
+    externalOptionId: z.string().min(1),
+    itemName: z.string().nullable(),
+    sellerSku: z.string().nullable(),
+    barcode: z.string().nullable(),
+    status: z.string().nullable(),
+    isActive: z.boolean(),
+    capacity: z.number().int().nonnegative().nullable(),
+    inventoryComponents: z.array(z.object({
+      id: z.string().uuid(),
+      sellpiaInventorySkuId: z.string().uuid(),
+      code: z.string().min(1),
+      name: z.string().min(1),
+      optionName: z.string().nullable(),
+      barcode: z.string().nullable(),
+      currentStock: z.number().int().nonnegative(),
+      availableStock: z.number().int().nonnegative(),
+      isActive: z.boolean(),
+      quantity: z.number().int().positive(),
+    }).strict()).max(50),
+  }).strict()),
 }).strict();
 export type ProductChannelListingSummary = z.infer<
   typeof ProductChannelListingSummarySchema
@@ -302,18 +378,24 @@ export const MasterProductOperationsDetailSchema =
     inventoryStatus: ProductInventoryStatusSchema,
     inventoryUnits: z.number().int().nonnegative(),
     channelListings: z.array(ProductChannelListingSummarySchema),
-    variants: z.array(ProductVariantDetailSchema),
   });
 export type MasterProductOperationsDetail = z.infer<
   typeof MasterProductOperationsDetailSchema
 >;
 
-export const ProductVariantRecipeComponentInputSchema = z.object({
+export const ChannelOptionInventoryComponentInputSchema = z.object({
   sellpiaInventorySkuId: z.string().uuid(),
   quantity: z.number().int().positive(),
 }).strict();
-export type ProductVariantRecipeComponentInput = z.infer<
-  typeof ProductVariantRecipeComponentInputSchema
+export type ChannelOptionInventoryComponentInput = z.infer<
+  typeof ChannelOptionInventoryComponentInputSchema
+>;
+
+export const ReplaceChannelOptionInventoryInputSchema = z.object({
+  components: z.array(ChannelOptionInventoryComponentInputSchema).max(50),
+}).strict().superRefine(rejectDuplicateRecipeComponents);
+export type ReplaceChannelOptionInventoryInput = z.infer<
+  typeof ReplaceChannelOptionInventoryInputSchema
 >;
 
 function rejectDuplicateRecipeComponents(
@@ -333,21 +415,6 @@ function rejectDuplicateRecipeComponents(
     seen.add(key);
   });
 }
-
-const CreateProductVariantFieldsSchema = z.object({
-  code: ProductCodeSchema,
-  name: ProductNameSchema,
-  optionLabel: z.string().trim().min(1).max(200).nullable().optional(),
-  isDefault: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-  components: z.array(ProductVariantRecipeComponentInputSchema).max(50).optional(),
-}).strict();
-
-export const CreateProductVariantInputSchema =
-  CreateProductVariantFieldsSchema.superRefine(rejectDuplicateRecipeComponents);
-export type CreateProductVariantInput = z.infer<
-  typeof CreateProductVariantInputSchema
->;
 
 const MasterProductMutationFieldsSchema = z.object({
   code: ProductCodeSchema,
@@ -377,7 +444,6 @@ export const CreateMasterProductInputSchema = z.object({
   adBudgetLimit: z.number().int().nonnegative().nullable().optional(),
   healthScore: z.number().int().min(0).max(100).nullable().optional(),
   isActive: z.boolean().optional(),
-  variants: z.array(CreateProductVariantInputSchema).min(1).optional(),
 }).strict();
 export type CreateMasterProductInput = z.infer<
   typeof CreateMasterProductInputSchema
@@ -390,92 +456,4 @@ export const UpdateMasterProductInputSchema =
   );
 export type UpdateMasterProductInput = z.infer<
   typeof UpdateMasterProductInputSchema
->;
-
-export const UpdateProductVariantInputSchema = z.object({
-  code: ProductCodeSchema.optional(),
-  name: ProductNameSchema.optional(),
-  optionLabel: z.string().trim().min(1).max(200).nullable().optional(),
-  isDefault: z.boolean().optional(),
-  isActive: z.boolean().optional(),
-}).strict().refine(
-  (value) => Object.keys(value).length > 0,
-  { message: 'At least one variant field is required' },
-);
-export type UpdateProductVariantInput = z.infer<
-  typeof UpdateProductVariantInputSchema
->;
-
-const RecipeExpectationConfirmedAtSchema = zIsoDate.superRefine((value, ctx) => {
-  if (value instanceof Date) return;
-  if (!z.string().datetime({ offset: true }).safeParse(value).success) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Expected an ISO 8601 date-time',
-    });
-  }
-});
-
-const ProductVariantRecipeExpectationSchema = ProductVariantComponentDetailSchema.pick({
-  id: true,
-  sellpiaInventorySkuId: true,
-  quantity: true,
-  source: true,
-  confirmedBy: true,
-  confirmedAt: true,
-}).extend({
-  confirmedAt: RecipeExpectationConfirmedAtSchema,
-});
-
-export const ReplaceProductVariantRecipeInputSchema = z.object({
-  components: z.array(ProductVariantRecipeComponentInputSchema).max(50),
-  expectedRecipe: z.array(ProductVariantRecipeExpectationSchema).max(50),
-}).strict().superRefine(rejectDuplicateRecipeComponents);
-export type ReplaceProductVariantRecipeInput = z.infer<
-  typeof ReplaceProductVariantRecipeInputSchema
->;
-
-export const MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES = 100;
-
-const CreateProductVariantRecipeIfEmptySchema = z.object({
-  productVariantId: z.string().uuid(),
-  components: z.array(ProductVariantRecipeComponentInputSchema).min(1).max(50),
-}).strict().superRefine(rejectDuplicateRecipeComponents);
-
-export const CreateProductVariantRecipesIfEmptyInputSchema = z.object({
-  recipes: z.array(CreateProductVariantRecipeIfEmptySchema)
-    .min(1)
-    .max(MAX_CREATE_IF_EMPTY_PRODUCT_VARIANT_RECIPES),
-}).strict().superRefine((value, context) => {
-  const seen = new Set<string>();
-  value.recipes.forEach((recipe, index) => {
-    const key = recipe.productVariantId.toLowerCase();
-    if (seen.has(key)) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['recipes', index, 'productVariantId'],
-        message: 'recipes must target distinct ProductVariants',
-      });
-    }
-    seen.add(key);
-  });
-});
-export type CreateProductVariantRecipesIfEmptyInput = z.infer<
-  typeof CreateProductVariantRecipesIfEmptyInputSchema
->;
-
-export const PlanProductVariantRecipesIfEmptyResponseSchema = z.object({
-  pendingProductVariantIds: z.array(z.string().uuid()),
-  unchangedProductVariantIds: z.array(z.string().uuid()),
-}).strict();
-export type PlanProductVariantRecipesIfEmptyResponse = z.infer<
-  typeof PlanProductVariantRecipesIfEmptyResponseSchema
->;
-
-export const CreateProductVariantRecipesIfEmptyResponseSchema = z.object({
-  appliedProductVariantIds: z.array(z.string().uuid()),
-  unchangedProductVariantIds: z.array(z.string().uuid()),
-}).strict();
-export type CreateProductVariantRecipesIfEmptyResponse = z.infer<
-  typeof CreateProductVariantRecipesIfEmptyResponseSchema
 >;

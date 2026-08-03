@@ -29,20 +29,37 @@ describe('Sellpia product inventory projection', () => {
           generation: '12',
         }],
       },
+      inventoryProducts: [inventoryProduct('A')],
       destinations: [{
         sellpiaInventorySkuId: SKU_ID,
-        unitsPerVariant: 1,
+        unitsPerSale: 1,
         masterProductId: '22222222-2222-4222-8222-222222222222',
         masterProductCode: 'MP-1',
         masterProductName: 'Product',
-        productVariantId: '33333333-3333-4333-8333-333333333333',
-        productVariantCode: 'PV-1',
-        productVariantName: 'Variant',
+        channelListingOptionId: '33333333-3333-4333-8333-333333333333',
+        channelListingId: '44444444-4444-4444-8444-444444444444',
+        channel: 'coupang',
+        externalOptionId: 'option-1',
+        optionName: 'Variant',
         abcGrade: 'A',
+        abcEvaluation: null,
+        displayImage: null,
       }],
     });
 
     expect(resolved.matchedSkuIds).toEqual([SKU_ID]);
+    const rowOne = result.byProductKey.get('row-1');
+    expect(rowOne?.inventoryResolution.status).toBe('matched');
+    if (rowOne?.inventoryResolution.status !== 'matched') {
+      throw new Error('Expected a matched inventory resolution');
+    }
+    expect(rowOne.inventoryResolution.inventoryProduct).toEqual({
+      masterProductId: '22222222-2222-4222-8222-222222222222',
+      masterProductCode: 'MP-1',
+      masterProductName: 'Product',
+      abcGrade: 'A',
+      abcEvaluation: null,
+    });
     expect(result.byProductKey.get('row-1')).toMatchObject({
       inventoryResolution: {
         status: 'matched',
@@ -50,6 +67,7 @@ describe('Sellpia product inventory projection', () => {
         activeCommitmentQuantity: 80,
         availableStock: 20,
         salesRowCount: 2,
+        inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222', abcGrade: 'A' },
       },
       monthsOfAvailableStockLeft: 0.4,
       reorderPoint: 75,
@@ -63,6 +81,7 @@ describe('Sellpia product inventory projection', () => {
       matchedSalesRows: 2,
       matchedSkus: 1,
       unlinkedSkus: 0,
+      abcStatusCounts: { CALIBRATION_PENDING: 0 },
     });
   });
 
@@ -76,6 +95,7 @@ describe('Sellpia product inventory projection', () => {
         snapshot: { collected: false, generation: null, verifiedAt: null },
         items: [],
       },
+      inventoryProducts: [],
       destinations: [],
     });
 
@@ -109,6 +129,7 @@ describe('Sellpia product inventory projection', () => {
           generation: '12',
         }],
       },
+      inventoryProducts: [inventoryProduct(null)],
       destinations: [
         destination('variant-1', 'https://cdn.example/one.jpg'),
         destination('variant-2', 'https://cdn.example/two.jpg'),
@@ -118,8 +139,8 @@ describe('Sellpia product inventory projection', () => {
     expect(result.byProductKey.get('row-1')?.inventoryResolution).toMatchObject({
       status: 'matched',
       destinations: [
-        { productVariantId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
-        { productVariantId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
+        { channelListingOptionId: 'variant-1', abcGrade: null, displayImage: { url: 'https://cdn.example/one.jpg' } },
+        { channelListingOptionId: 'variant-2', abcGrade: null, displayImage: { url: 'https://cdn.example/two.jpg' } },
       ],
     });
   });
@@ -136,17 +157,31 @@ function product(key: string, code: string, quantities: number[]) {
   };
 }
 
-function destination(productVariantId: string, url: string) {
+function inventoryProduct(abcGrade: 'A' | 'B' | 'C' | null) {
   return {
     sellpiaInventorySkuId: SKU_ID,
-    unitsPerVariant: 1,
     masterProductId: '22222222-2222-4222-8222-222222222222',
     masterProductCode: 'MP-1',
     masterProductName: 'Product',
-    productVariantId,
-    productVariantCode: productVariantId,
-    productVariantName: productVariantId,
+    abcGrade,
+    abcEvaluation: null,
+  };
+}
+
+function destination(channelListingOptionId: string, url: string) {
+  return {
+    sellpiaInventorySkuId: SKU_ID,
+    unitsPerSale: 1,
+    masterProductId: '22222222-2222-4222-8222-222222222222',
+    masterProductCode: 'MP-1',
+    masterProductName: 'Product',
+    channelListingOptionId,
+    channelListingId: '44444444-4444-4444-8444-444444444444',
+    channel: 'coupang',
+    externalOptionId: channelListingOptionId,
+    optionName: channelListingOptionId,
     abcGrade: null,
+    abcEvaluation: null,
     displayImage: {
       url,
       source: 'channel_catalog' as const,

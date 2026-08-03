@@ -47,7 +47,7 @@ type OrderLineProjection = {
   quantity: number;
   totalPrice: number;
   listingOption: {
-    productVariant: { components: RecipeComponent[] } | null;
+    inventoryComponents: RecipeComponent[];
   } | null;
 };
 
@@ -281,11 +281,10 @@ export class SupplierStatsService {
           totalPrice: true,
           listingOption: {
             select: {
-              productVariant: {
+              inventoryComponents: {
                 select: {
-                  components: {
-                    select: { sellpiaInventorySkuId: true, quantity: true },
-                  },
+                  sellpiaInventorySkuId: true,
+                  quantity: true,
                 },
               },
             },
@@ -326,7 +325,7 @@ export class SupplierStatsService {
 
     let unallocatedRevenue = 0;
     for (const line of orderLines) {
-      const components = line.listingOption?.productVariant?.components ?? [];
+      const components = line.listingOption?.inventoryComponents ?? [];
       const allocations = components.map((component) => {
         const primary = primaryBySellpiaSkuId.get(component.sellpiaInventorySkuId);
         if (primary && component.quantity > 0) {

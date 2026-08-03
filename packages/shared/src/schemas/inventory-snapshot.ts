@@ -40,15 +40,16 @@ export type InventorySkuLinkedProduct = z.infer<
   typeof InventorySkuLinkedProductSchema
 >;
 
-export const InventorySkuLinkedVariantSchema = z.object({
+export const InventorySkuLinkedChannelOptionSchema = z.object({
   id: z.string().uuid(),
   masterProductId: z.string().uuid(),
-  code: z.string().min(1),
-  name: z.string().min(1),
-  optionLabel: z.string().nullable(),
+  channelListingId: z.string().uuid(),
+  channel: z.string().min(1),
+  externalOptionId: z.string().min(1),
+  itemName: z.string().nullable(),
 }).strict();
-export type InventorySkuLinkedVariant = z.infer<
-  typeof InventorySkuLinkedVariantSchema
+export type InventorySkuLinkedChannelOption = z.infer<
+  typeof InventorySkuLinkedChannelOptionSchema
 >;
 
 export const InventorySkuSnapshotItemSchema = z.object({
@@ -64,10 +65,10 @@ export const InventorySkuSnapshotItemSchema = z.object({
   stockValue: z.number().int().nonnegative().nullable(),
   lastImportRunId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),
-  linkedVariantCount: z.number().int().nonnegative(),
+  linkedChannelOptionCount: z.number().int().nonnegative(),
   linkedProductCount: z.number().int().nonnegative(),
   linkedProducts: z.array(InventorySkuLinkedProductSchema),
-  linkedVariants: z.array(InventorySkuLinkedVariantSchema),
+  linkedChannelOptions: z.array(InventorySkuLinkedChannelOptionSchema),
   linkStatus: SellpiaInventorySkuLinkStatusSchema,
 }).strict().superRefine((value, ctx) => {
   if (value.purchasePrice === null && value.stockValue !== null) {
@@ -84,27 +85,27 @@ export const InventorySkuSnapshotItemSchema = z.object({
       message: 'Stock value is required when purchase price is present',
     });
   }
-  const shouldBeLinked = value.linkedVariantCount > 0;
+  const shouldBeLinked = value.linkedChannelOptionCount > 0;
   if (shouldBeLinked !== (value.linkStatus === 'linked')) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['linkStatus'],
-      message: 'Link status must agree with the linked variant count',
+      message: 'Link status must agree with the linked channel option count',
     });
   }
   if (
     (value.linkStatus === 'unlinked' && value.linkedProductCount !== 0)
     || (value.linkStatus === 'linked' && value.linkedProductCount === 0)
-    || value.linkedProductCount > value.linkedVariantCount
+    || value.linkedProductCount > value.linkedChannelOptionCount
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['linkedProductCount'],
-      message: 'Linked product count must agree with linked variants',
+      message: 'Linked product count must agree with linked channel options',
     });
   }
   const linkedProductIds = new Set(value.linkedProducts.map(({ id }) => id));
-  const linkedVariantIds = new Set(value.linkedVariants.map(({ id }) => id));
+  const linkedChannelOptionIds = new Set(value.linkedChannelOptions.map(({ id }) => id));
   if (
     linkedProductIds.size !== value.linkedProducts.length
     || value.linkedProductCount !== value.linkedProducts.length
@@ -116,21 +117,21 @@ export const InventorySkuSnapshotItemSchema = z.object({
     });
   }
   if (
-    linkedVariantIds.size !== value.linkedVariants.length
-    || value.linkedVariantCount !== value.linkedVariants.length
+    linkedChannelOptionIds.size !== value.linkedChannelOptions.length
+    || value.linkedChannelOptionCount !== value.linkedChannelOptions.length
   ) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['linkedVariants'],
-      message: 'Linked variant destinations must be distinct and agree with linkedVariantCount',
+      path: ['linkedChannelOptions'],
+      message: 'Linked channel options must be distinct and agree with linkedChannelOptionCount',
     });
   }
-  value.linkedVariants.forEach((variant, index) => {
-    if (!linkedProductIds.has(variant.masterProductId)) {
+  value.linkedChannelOptions.forEach((option, index) => {
+    if (!linkedProductIds.has(option.masterProductId)) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
-        path: ['linkedVariants', index, 'masterProductId'],
-        message: 'Linked variant must belong to a published linked product destination',
+        path: ['linkedChannelOptions', index, 'masterProductId'],
+        message: 'Linked channel option must belong to a linked product destination',
       });
     }
   });

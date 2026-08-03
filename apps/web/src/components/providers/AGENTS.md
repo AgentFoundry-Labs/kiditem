@@ -15,7 +15,9 @@ here affect every route.
 - React Query devtools lazy loading policy
 - Sellpia freshness projection. `SellpiaInventorySyncProvider` only keeps
   freshness query state warm; server-issued OperationRuns and the extension
-  browser runtime own claim, collection, upload, heartbeat, and finalization.
+  browser runtime own claim, scoped collection, upload, heartbeat, and
+  finalization. `inventory` collects only physical stock; `full` additionally
+  stores product-profit evidence before completing the inventory generation.
 
 ## State Rules
 

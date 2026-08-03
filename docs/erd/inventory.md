@@ -136,17 +136,20 @@ erDiagram
     String lastCompletedImportRunId FK
     DateTime refreshRequestedAt
     String refreshReason
+    String requestedSyncScope
     DateTime syncNotBefore
     String activeSyncToken
     String activeSyncOwnerUserId FK
     DateTime activeSyncStartedAt
     DateTime activeSyncLeaseExpiresAt
+    String activeSyncScope
     BigInt requestedGeneration
     BigInt activeGeneration
     BigInt verifiedGeneration
     BigInt failedGeneration
     DateTime lastAttemptAt
     String lastAttemptStatus
+    String lastAttemptSyncScope
     String lastErrorCode
     String lastErrorMessage
     String freshnessFence
@@ -237,7 +240,7 @@ erDiagram
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
 | SellpiaInventorySku | organization | references external | Core | Organization |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Channels | SellpiaManualMatchAlias |
-| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ProductVariantComponent |
+| SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ChannelListingOptionInventoryComponent |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | PurchaseOrderItem |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | RocketPurchaseConfirmationAllocation |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Supply | SupplierProduct |

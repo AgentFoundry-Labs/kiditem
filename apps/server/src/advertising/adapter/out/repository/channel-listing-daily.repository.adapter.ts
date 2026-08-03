@@ -100,6 +100,18 @@ export class ChannelListingDailyRepositoryAdapter
       input.metrics?.traffic,
       LISTING_TRAFFIC_METRIC_KEYS,
     );
+    const adProvenance = input.metrics?.ad
+      ? {
+          adCoverageStatus: Object.values(input.metrics.ad)
+            .some((value) => typeof value === 'number' && value !== 0)
+            ? 'OBSERVED'
+            : 'CONFIRMED_ZERO',
+          adObservedAt: observedAt,
+        }
+      : {};
+    const trafficProvenance = input.metrics?.traffic
+      ? { trafficCoverageStatus: 'OBSERVED', trafficObservedAt: observedAt }
+      : {};
 
     return withAdIngestRepositoryTransaction(this.prisma, async (tx) => {
       const row = await tx.channelListingDailySnapshot.upsert({
@@ -136,6 +148,8 @@ export class ChannelListingDailyRepositoryAdapter
           categoryRank: input.categoryRank ?? null,
           ...adMetricsCreate,
           ...trafficMetricsCreate,
+          ...adProvenance,
+          ...trafficProvenance,
         },
         update: {
           sampleCount: { increment: 1 },
@@ -147,6 +161,8 @@ export class ChannelListingDailyRepositoryAdapter
           ...observedState,
           ...adMetricsUpdate,
           ...trafficMetricsUpdate,
+          ...adProvenance,
+          ...trafficProvenance,
         },
         select: { id: true },
       });

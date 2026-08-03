@@ -73,15 +73,11 @@ export async function buildPerListingMetrics(
                 commissionRate: true,
                 shippingCost: true,
                 otherCost: true,
-                productVariant: {
+                inventoryComponents: {
                   select: {
-                    components: {
-                      select: {
-                        quantity: true,
-                        sellpiaInventorySku: {
-                          select: { purchasePrice: true },
-                        },
-                      },
+                    quantity: true,
+                    sellpiaInventorySku: {
+                      select: { purchasePrice: true },
                     },
                   },
                 },
@@ -186,7 +182,7 @@ export async function buildPerListingMetrics(
       g.orderIds.add(o.id);
 
       const option = li.listingOption;
-      const componentCost = (option.productVariant?.components ?? []).reduce(
+      const componentCost = option.inventoryComponents.reduce(
         (sum, component) => sum
           + (component.sellpiaInventorySku.purchasePrice ?? 0)
             * component.quantity,

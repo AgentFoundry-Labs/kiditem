@@ -175,6 +175,30 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     return rows.map(mapOperationRunRow);
   }
 
+  async listChildRuns(input: {
+    organizationId: string;
+    parentRunId: string;
+  }): Promise<OperationRunRecord[]> {
+    const rows = await this.prisma.operationRun.findMany({
+      where: { organizationId: input.organizationId, parentRunId: input.parentRunId },
+      include: runInclude,
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(mapOperationRunRow);
+  }
+
+  async listWaitingDependencyParents(input: {
+    limit: number;
+  }): Promise<OperationRunRecord[]> {
+    const rows = await this.prisma.operationRun.findMany({
+      where: { status: 'waiting_dependency' },
+      include: runInclude,
+      orderBy: { updatedAt: 'asc' },
+      take: input.limit,
+    });
+    return rows.map(mapOperationRunRow);
+  }
+
   async transition(
     input: OperationRunTransition,
   ): Promise<OperationRunRecord | null> {
@@ -199,6 +223,9 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     if (input.claimedAt !== undefined) data.claimedAt = input.claimedAt;
     if (input.leaseExpiresAt !== undefined) {
       data.leaseExpiresAt = input.leaseExpiresAt;
+    }
+    if (input.attemptDelta !== undefined) {
+      data.attempts = { increment: input.attemptDelta };
     }
 
     const updated = await this.prisma.operationRun.updateMany({

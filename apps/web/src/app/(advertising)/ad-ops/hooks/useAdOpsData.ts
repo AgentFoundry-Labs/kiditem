@@ -10,8 +10,6 @@ import type {
   AdProductSnapshot,
   AdRulesData,
   AdWeeklyPlan,
-  AdsHubData,
-  AdBenchmarkData,
   AdTrendsData,
   ExposureAnalysisData,
 } from '@kiditem/shared/advertising';
@@ -50,6 +48,12 @@ const DEFAULT_ROAS_THRESHOLDS: RoasThresholds = {
   poor: 100,
 };
 
+// The page refresh button explicitly invalidates these queries, so a short
+// freshness window removes needless remount/tab refetches without hiding a
+// deliberate operator refresh.
+const AD_OPS_METRIC_STALE_TIME = 60_000;
+const EXTENSION_STATUS_STALE_TIME = 5 * 60_000;
+
 // H3 — `/api/ads/extension/status` shape moved to current-state semantics.
 // `snapshotCount` is now `rawSnapshotCount` (counts ChannelScrapeSnapshot rows
 // instead of legacy AdSnapshot), and `itemWinnerCount` is now
@@ -61,25 +65,6 @@ const DEFAULT_ROAS_THRESHOLDS: RoasThresholds = {
 // not user-facing — the raw page slug ('itemwinner', 'campaign', ...) carries
 // no operator value beyond what `latestScrapeAt` already conveys.
 type ExtensionStatusResponse = AdExtensionStatus;
-
-type TrafficSummaryResponse = {
-  days: number;
-  revenue: number;
-  orders: number;
-  salesQty: number;
-  visitors: number;
-  views: number;
-  cartAdds: number;
-  prevRevenue: number;
-  prevOrders: number;
-  revenueChange: number;
-  ordersChange: number;
-};
-
-type RecommendResponse = {
-  cards: Record<string, unknown>[];
-  keyMetrics: Record<string, unknown> | null;
-};
 
 export type RegisterCampaignPayload = {
   grade: string;
@@ -131,9 +116,9 @@ export function useAdsConfig(): RoasThresholds {
 }
 
 export function useAdOpsData(period: string, tab: string) {
-  const days = period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
   const campPeriod = period;
-  const trafficDays = days;
+  const needsStrategyPlan = tab === 'status' || tab === 'strategy';
+  const needsExtensionStatus = tab === 'status';
 
   const campaigns = useQuery({
     queryKey: queryKeys.ads.campaigns(campPeriod),
@@ -142,6 +127,7 @@ export function useAdOpsData(period: string, tab: string) {
         .get<AdCampaignSnapshot[]>(`/api/ads/campaigns?period=${campPeriod}`)
         .then(toCampaignsResponse),
     placeholderData: previousData => previousData,
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const rules = useQuery({
@@ -149,39 +135,31 @@ export function useAdOpsData(period: string, tab: string) {
     queryFn: () =>
       apiClient.get<AdRulesData>(`/api/ads/strategy/rules?period=${period}`),
     placeholderData: previousData => previousData,
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const wingStatus = useQuery({
     queryKey: queryKeys.ads.extensionStatus(),
     queryFn: () =>
       apiClient.get<ExtensionStatusResponse>(`/api/ads/extension/status`),
+    enabled: needsExtensionStatus,
+    staleTime: EXTENSION_STATUS_STALE_TIME,
   });
 
   const strategy = useQuery({
     queryKey: queryKeys.ads.plan(period),
     queryFn: () =>
       apiClient.get<AdWeeklyPlan>(`/api/ads/strategy/plan?period=${period}`),
+    enabled: needsStrategyPlan,
     placeholderData: previousData => previousData,
-  });
-
-  const adsHub = useQuery({
-    queryKey: [...queryKeys.ads.list(), days] as const,
-    queryFn: () =>
-      apiClient.get<AdsHubData>(`/api/ads?days=${days}`),
-    placeholderData: previousData => previousData,
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const dashboard = useQuery({
     queryKey: queryKeys.dashboard.adBaseline(),
     queryFn: () =>
       apiClient.get<DashboardAdSummary>('/api/dashboard/ad'),
-  });
-
-  const recommend = useQuery({
-    queryKey: queryKeys.ads.recommend(period),
-    queryFn: () =>
-      apiClient.get<RecommendResponse>(`/api/ads/strategy/recommend`),
-    placeholderData: previousData => previousData,
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const trends = useQuery({
@@ -189,20 +167,7 @@ export function useAdOpsData(period: string, tab: string) {
     queryFn: () =>
       apiClient.get<AdTrendsData>(`/api/ads/campaigns/trends?period=${period}`),
     placeholderData: previousData => previousData,
-  });
-
-  const benchmark = useQuery({
-    queryKey: queryKeys.ads.benchmark(period),
-    queryFn: () =>
-      apiClient.get<AdBenchmarkData>(`/api/ads/benchmark?days=${days}`),
-    placeholderData: previousData => previousData,
-  });
-
-  const trafficSummary = useQuery({
-    queryKey: ['traffic', 'summary', trafficDays] as const,
-    queryFn: () =>
-      apiClient.get<TrafficSummaryResponse>(`/api/traffic/summary?days=${trafficDays}`),
-    placeholderData: previousData => previousData,
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const exposure = useQuery({
@@ -210,24 +175,24 @@ export function useAdOpsData(period: string, tab: string) {
     queryFn: () =>
       apiClient.get<ExposureAnalysisData>(`/api/ads/exposure-analysis`),
     enabled: tab === 'exposure',
+    staleTime: AD_OPS_METRIC_STALE_TIME,
   });
 
   const isLoading =
     campaigns.isLoading ||
     rules.isLoading ||
-    wingStatus.isLoading ||
-    strategy.isLoading ||
-    adsHub.isLoading ||
-    dashboard.isLoading;
+    dashboard.isLoading ||
+    (needsExtensionStatus && wingStatus.isLoading) ||
+    (needsStrategyPlan && strategy.isLoading);
   const isRefreshing =
     !isLoading && (
       campaigns.isFetching ||
       rules.isFetching ||
+      wingStatus.isFetching ||
       strategy.isFetching ||
-      adsHub.isFetching ||
       trends.isFetching ||
-      benchmark.isFetching ||
-      trafficSummary.isFetching
+      dashboard.isFetching ||
+      exposure.isFetching
     );
 
   return {
@@ -235,13 +200,9 @@ export function useAdOpsData(period: string, tab: string) {
     rules,
     wingStatus,
     strategy,
-    adsHub,
     dashboard,
-    recommend,
     trends,
-    benchmark,
     exposure,
-    trafficSummary,
     isLoading,
     isRefreshing,
   };

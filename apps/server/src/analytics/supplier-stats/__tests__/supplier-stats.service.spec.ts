@@ -43,7 +43,7 @@ function orderLine(params: {
     quantity: params.quantity,
     totalPrice: params.totalPrice,
     listingOption: {
-      productVariant: { components: params.components },
+      inventoryComponents: params.components,
     },
   };
 }

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductHubDetailPage from './page';
 
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), replace: vi.fn() }));
-const variantPanel = vi.hoisted(() => vi.fn());
+const inventoryPanel = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '11111111-1111-4111-8111-111111111111' }),
@@ -19,13 +19,14 @@ vi.mock('../components/ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 정보 수정</div> : null,
 }));
 
-vi.mock('./components/ProductVariantPanel', () => ({
-  default: (props: { variants: Array<{ name: string }> }) => {
-    variantPanel(props);
-    return <section><h2>판매 옵션</h2>{props.variants.map((variant) => <p key={variant.name}>{variant.name}</p>)}</section>;
+vi.mock('./components/ChannelOptionInventoryPanel', () => ({
+  default: (props: { channelListings: Array<{ id: string }> }) => {
+    inventoryPanel(props);
+    return <section><h2>채널 판매 옵션 · 재고 구성</h2></section>;
   },
 }));
 
+const channelOptionId = '22222222-2222-4222-8222-222222222222';
 const product = {
   id: '11111111-1111-4111-8111-111111111111',
   code: 'CP-11111111-1111-4111-8111-111111111111',
@@ -52,22 +53,21 @@ const product = {
   updatedAt: '2026-07-16T00:00:00.000Z',
   inventoryStatus: 'sellable' as const,
   inventoryUnits: 24,
-  channelListings: [],
-  variants: [{
-    id: '22222222-2222-4222-8222-222222222222',
-    code: 'KI-100-DEFAULT',
-    displayReference: {
-      type: 'product_variant_code' as const,
-      label: '옵션 코드',
-      value: 'KI-100-DEFAULT',
-    },
-    name: '기본 옵션',
-    optionLabel: null,
-    isDefault: true,
-    isActive: true,
-    components: [],
-    capacity: 12,
-    warningState: 'none' as const,
+  channelListings: [{
+    id: '33333333-3333-4333-8333-333333333333',
+    channel: 'coupang',
+    channelAccountName: '쿠팡 본계정',
+    externalId: '13712531060',
+    displayName: '동물 친구들 블록',
+    saleStatus: '판매중',
+    options: [{
+      id: channelOptionId,
+      externalOptionId: 'option-1',
+      itemName: '기본 옵션',
+      sellerSku: 'SELLER-1',
+      capacity: 12,
+      inventoryComponents: [],
+    }],
   }],
 };
 
@@ -75,28 +75,32 @@ describe('/product-hub/[id] MasterProduct detail', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     navigation.params = new URLSearchParams();
-    variantPanel.mockClear();
-    navigation.replace.mockClear();
     vi.mocked(useQuery).mockReturnValue({ data: product, isLoading: false, error: null } as ReturnType<typeof useQuery>);
   });
 
-  it('opens only an exact recipe variant deep link and preserves unrelated params when it closes', () => {
-    navigation.params = new URLSearchParams(`recipeVariant=${product.variants[0]!.id}&recipeSearch=SP-77&tab=history`);
+  it('opens only an exact channel option deep link and preserves unrelated params when it closes', () => {
+    navigation.params = new URLSearchParams(`inventoryOption=${channelOptionId}&recipeSearch=SP-77&tab=history`);
     render(<ProductHubDetailPage />);
-    const props = variantPanel.mock.lastCall?.[0] as { recipeVariantId?: string; initialInventorySearch?: string; onRecipeDialogClose: () => void };
-    expect(props.recipeVariantId).toBe(product.variants[0]!.id);
+
+    const props = inventoryPanel.mock.lastCall?.[0] as {
+      inventoryOptionId?: string;
+      initialInventorySearch?: string;
+      onInventoryDialogClose: () => void;
+    };
+    expect(props.inventoryOptionId).toBe(channelOptionId);
     expect(props.initialInventorySearch).toBe('SP-77');
-    props.onRecipeDialogClose();
+    props.onInventoryDialogClose();
     expect(navigation.replace).toHaveBeenCalledWith('/product-hub/11111111-1111-4111-8111-111111111111?tab=history');
   });
 
-  it('does not open a recipe dialog for an unknown variant id', () => {
-    navigation.params = new URLSearchParams('recipeVariant=99999999-9999-4999-8999-999999999999&recipeSearch=SP-77');
+  it('does not open inventory editing for an unknown channel option id', () => {
+    navigation.params = new URLSearchParams('inventoryOption=99999999-9999-4999-8999-999999999999&recipeSearch=SP-77');
     render(<ProductHubDetailPage />);
-    expect((variantPanel.mock.lastCall?.[0] as { recipeVariantId?: string }).recipeVariantId).toBeUndefined();
+
+    expect((inventoryPanel.mock.lastCall?.[0] as { inventoryOptionId?: string }).inventoryOptionId).toBeUndefined();
   });
 
-  it('reads the product owner and preserves a product detail entry', () => {
+  it('reads the product owner and renders direct channel inventory composition', () => {
     render(<ProductHubDetailPage />);
 
     const options = vi.mocked(useQuery).mock.calls[0]?.[0] as {
@@ -106,15 +110,11 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     expect(options.queryKey).toEqual(['products', 'operations', 'detail', product.id]);
     expect(options.queryFn.toString()).toContain('/api/products/masters/');
     expect(options.queryFn.toString()).not.toContain('/api/inventory/sellpia-skus/');
-    expect(options.queryFn.toString()).not.toContain('/api/channels/sku-availability');
     expect(vi.mocked(useQuery)).toHaveBeenCalledTimes(1);
     expect(screen.getByRole('heading', { level: 1, name: product.name })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: '상품 운영 정보' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: '판매 옵션' })).toBeInTheDocument();
-    expect(screen.getByText('기본 옵션')).toBeInTheDocument();
-    expect(screen.queryByText('채널 SKU 전체 현황')).not.toBeInTheDocument();
-    expect(screen.getAllByText(/Coupang Wing 상품번호/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/13712531060/).length).toBeGreaterThan(0);
+    expect(screen.getByRole('heading', { name: '채널 판매 옵션 · 재고 구성' })).toBeInTheDocument();
+    expect(inventoryPanel).toHaveBeenCalledWith(expect.objectContaining({ channelListings: product.channelListings }));
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
@@ -124,5 +124,14 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     fireEvent.click(screen.getByRole('button', { name: '상품 정보 수정' }));
     expect(screen.getByRole('dialog')).toHaveTextContent('상품 정보 수정');
     expect(screen.queryByLabelText('재고 수량')).not.toBeInTheDocument();
+  });
+
+  it('opens the already-loaded ABC evaluation evidence from the detail facts', () => {
+    render(<ProductHubDetailPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '동물 친구들 블록 ABC 근거 보기' }));
+
+    expect(screen.getByRole('dialog', { name: 'ABC 평가 근거' })).toBeInTheDocument();
+    expect(screen.getByText(/상품 이익 = 매출/)).toBeInTheDocument();
   });
 });

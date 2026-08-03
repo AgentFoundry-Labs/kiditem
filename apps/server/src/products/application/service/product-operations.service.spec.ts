@@ -6,7 +6,7 @@ import type { ProductOperationsRepositoryPort } from '../port/out/repository/pro
 const organizationId = '00000000-0000-4000-8000-000000000001';
 const userId = '00000000-0000-4000-8000-000000000002';
 const productId = '00000000-0000-4000-8000-000000000003';
-const variantId = '00000000-0000-4000-8000-000000000004';
+const channelListingOptionId = '00000000-0000-4000-8000-000000000004';
 const skuId = '00000000-0000-4000-8000-000000000005';
 
 describe('ProductOperationsService', () => {
@@ -15,10 +15,34 @@ describe('ProductOperationsService', () => {
     const first = rawListProduct(productId);
     const secondId = '00000000-0000-4000-8000-000000000006';
     const second = rawListProduct(secondId);
+    first.activeChannelProducts = [{
+      channelAccountId: '00000000-0000-4000-8000-000000000101',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }];
+    second.activeChannelProducts = [{
+      channelAccountId: '00000000-0000-4000-8000-000000000101',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }, {
+      channelAccountId: '00000000-0000-4000-8000-000000000102',
+      channel: 'coupang_rocket',
+      channelAccountName: 'Coupang Rocket',
+    }];
+    second.isActive = false;
     repository.listProducts.mockResolvedValue({
       items: [first, second],
       page: 1,
       limit: 1,
+      sellingChannelProducts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000101',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }, {
+        channelAccountId: '00000000-0000-4000-8000-000000000102',
+        channel: 'coupang_rocket',
+        channelAccountName: 'Coupang Rocket',
+      }],
     });
     const inventory = {
       findBySkuIds: vi.fn().mockResolvedValue({
@@ -50,10 +74,11 @@ describe('ProductOperationsService', () => {
       ])),
     };
     const service = new ProductOperationsService(
-      repository,
+      repository as never,
       inventory as never,
       depletion as never,
       makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -79,15 +104,108 @@ describe('ProductOperationsService', () => {
     expect(result.items[0]).toMatchObject({
       inventoryUnits: 20,
       depletion: { needsReorder: true },
+      visitorCount: 11,
+      viewCount: 22,
+      cartAddCount: 3,
+      orderCount: 4,
+      salesQuantity: 5,
+      salesAmount: 35_000,
+      adSpend: 3_500,
+      adSpendRate: 10,
     });
     expect(result.summary).toMatchObject({
       reorderProductCount: 1,
       depletionCoveredProductCount: 2,
       sharedDepletionProductCount: 1,
     });
+    expect(result.summary.channelProductCounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ channelAccountName: 'Coupang Wing', count: 1 }),
+      expect.objectContaining({ channelAccountName: 'Coupang Rocket', count: 1 }),
+    ]));
   });
 
-  it('creates one default variant when variants are omitted', async () => {
+  it('uses the same inventory command predicates for counts and filtered product rows', async () => {
+    const attentionId = '10000000-0000-4000-8000-000000000011';
+    const outOfStockId = '10000000-0000-4000-8000-000000000012';
+    const imminentId = '10000000-0000-4000-8000-000000000013';
+    const reorderId = '10000000-0000-4000-8000-000000000014';
+    const outOfStockSkuId = '10000000-0000-4000-8000-000000000021';
+    const imminentSkuId = '10000000-0000-4000-8000-000000000022';
+    const reorderSkuId = '10000000-0000-4000-8000-000000000023';
+    const attention = rawListProduct(attentionId);
+    attention.inventorySkuIds = [];
+    attention.inventoryOptions[0]!.inventoryComponents = [];
+    const outOfStock = rawListProduct(outOfStockId);
+    outOfStock.inventorySkuIds = [outOfStockSkuId];
+    outOfStock.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = outOfStockSkuId;
+    const imminent = rawListProduct(imminentId);
+    imminent.inventorySkuIds = [imminentSkuId];
+    imminent.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = imminentSkuId;
+    const reorder = rawListProduct(reorderId);
+    reorder.inventorySkuIds = [reorderSkuId];
+    reorder.inventoryOptions[0]!.inventoryComponents[0]!.sellpiaInventorySkuId = reorderSkuId;
+    const repository = makeRepository();
+    repository.listProducts.mockResolvedValue({
+      items: [attention, outOfStock, imminent, reorder],
+      page: 1,
+      limit: 50,
+    });
+    const service = new ProductOperationsService(
+      repository as never,
+      {
+        findBySkuIds: vi.fn().mockResolvedValue({
+          snapshot: { collected: true, generation: '12', verifiedAt: '2026-08-03T00:00:00.000Z' },
+          items: [
+            inventoryAvailability(outOfStockSkuId, 0),
+            inventoryAvailability(imminentSkuId, 12),
+            inventoryAvailability(reorderSkuId, 12),
+          ],
+        }),
+      } as never,
+      {
+        findByMasterProductIds: vi.fn().mockResolvedValue(new Map([
+          [attentionId, depletionProjection(false, null)],
+          [outOfStockId, depletionProjection(false, null)],
+          [imminentId, depletionProjection(false, 2)],
+          [reorderId, depletionProjection(true, 1)],
+        ])),
+      } as never,
+      makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository() as never,
+    );
+    const baseQuery = {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'active',
+      adStatus: 'all',
+    } as const;
+
+    const overview = await service.listProducts(organizationId, baseQuery);
+    expect(overview.summary).toMatchObject({
+      imminentProductCount: 1,
+      reorderProductCount: 1,
+    });
+
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'attention',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: attentionId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'out_of_stock',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: outOfStockId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'imminent',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: imminentId }] });
+    await expect(service.listProducts(organizationId, {
+      ...baseQuery,
+      inventoryFocus: 'reorder',
+    })).resolves.toMatchObject({ total: 1, items: [{ id: reorderId }] });
+  });
+
+  it('creates only the MasterProduct without a synthetic option layer', async () => {
     const repository = makeRepository();
     const service = makeService(repository);
 
@@ -98,19 +216,12 @@ describe('ProductOperationsService', () => {
 
     expect(repository.createProduct).toHaveBeenCalledWith({
       organizationId,
-      userId,
       product: expect.objectContaining({
         code: 'KI-001',
         name: 'Product',
-        variants: [expect.objectContaining({
-          code: 'KI-001-DEFAULT',
-          name: 'Product',
-          isDefault: true,
-          isActive: true,
-          components: [],
-        })],
       }),
     });
+    expect(repository.createProduct.mock.calls[0]?.[0].product).not.toHaveProperty('variants');
   });
 
   it('keeps direct product images ahead of channel display media', async () => {
@@ -302,55 +413,26 @@ describe('ProductOperationsService', () => {
     );
   });
 
-  it('atomically forwards supplied variants and their recipes', async () => {
+  it('rejects duplicate and non-positive option inventory components before persistence', async () => {
     const repository = makeRepository();
     const service = makeService(repository);
 
-    await service.createProduct(organizationId, userId, {
-      code: 'KI-002',
-      name: 'Bundle',
-      variants: [{
-        code: 'KI-002-2PK',
-        name: '2 pack',
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-      }],
-    });
-
-    expect(repository.createProduct).toHaveBeenCalledWith({
+    await expect(service.replaceChannelOptionInventory(
       organizationId,
-      userId,
-      product: expect.objectContaining({
-        variants: [expect.objectContaining({
-          code: 'KI-002-2PK',
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-        })],
-      }),
-    });
-  });
-
-  it('rejects duplicate and non-positive recipe components before persistence', async () => {
-    const repository = makeRepository();
-    const service = makeService(repository);
-
-    await expect(service.replaceRecipe(
-      organizationId,
-      userId,
-      variantId,
+      channelListingOptionId,
       {
         components: [
           { sellpiaInventorySkuId: skuId, quantity: 1 },
           { sellpiaInventorySkuId: skuId, quantity: 2 },
         ],
-        expectedRecipe: [],
       },
     )).rejects.toBeInstanceOf(BadRequestException);
-    await expect(service.replaceRecipe(
+    await expect(service.replaceChannelOptionInventory(
       organizationId,
-      userId,
-      variantId,
-      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }], expectedRecipe: [] },
+      channelListingOptionId,
+      { components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }] },
     )).rejects.toBeInstanceOf(BadRequestException);
-    expect(repository.replaceRecipe).not.toHaveBeenCalled();
+    expect(repository.replaceChannelOptionInventory).not.toHaveBeenCalled();
   });
 
   it('passes every detail and mutation through an organization fence', async () => {
@@ -359,26 +441,8 @@ describe('ProductOperationsService', () => {
 
     await service.getProduct(organizationId, productId);
     await service.updateProduct(organizationId, productId, { name: 'Renamed' });
-    await service.createVariant(organizationId, userId, productId, {
-      code: 'KI-001-L',
-      name: 'Large',
-    });
-    await service.updateVariant(organizationId, variantId, { name: 'Large+' });
-    await service.replaceRecipe(organizationId, userId, variantId, {
+    await service.replaceChannelOptionInventory(organizationId, channelListingOptionId, {
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      expectedRecipe: [],
-    });
-    await service.createRecipesIfEmpty(organizationId, userId, {
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
-    });
-    await service.planRecipesIfEmpty(organizationId, {
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
     });
 
     expect(repository.getProduct).toHaveBeenCalledWith(organizationId, productId);
@@ -387,45 +451,16 @@ describe('ProductOperationsService', () => {
       productId,
       { name: 'Renamed' },
     );
-    expect(repository.createVariant).toHaveBeenCalledWith({
+    expect(repository.replaceChannelOptionInventory).toHaveBeenCalledWith({
       organizationId,
-      userId,
-      masterProductId: productId,
-      variant: expect.objectContaining({ code: 'KI-001-L' }),
-    });
-    expect(repository.updateVariant).toHaveBeenCalledWith(
-      organizationId,
-      variantId,
-      { name: 'Large+' },
-    );
-    expect(repository.replaceRecipe).toHaveBeenCalledWith({
-      organizationId,
-      userId,
-      productVariantId: variantId,
+      channelListingOptionId,
       components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      expectedRecipe: [],
-    });
-    expect(repository.createManualRecipesIfEmpty).toHaveBeenCalledWith({
-      organizationId,
-      userId,
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
-    });
-    expect(repository.planManualRecipesIfEmpty).toHaveBeenCalledWith({
-      organizationId,
-      recipes: [{
-        productVariantId: variantId,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 3 }],
-      }],
     });
   });
 });
 
 function makeRepository() {
   const product = rawProduct();
-  const variant = product.variants[0]!;
   return {
     listProducts: vi.fn().mockResolvedValue({
       items: [],
@@ -436,17 +471,7 @@ function makeRepository() {
     getProduct: vi.fn().mockResolvedValue(product),
     createProduct: vi.fn().mockResolvedValue(product),
     updateProduct: vi.fn().mockResolvedValue(product),
-    createVariant: vi.fn().mockResolvedValue(variant),
-    updateVariant: vi.fn().mockResolvedValue(variant),
-    replaceRecipe: vi.fn().mockResolvedValue(variant),
-    createManualRecipesIfEmpty: vi.fn().mockResolvedValue({
-      appliedProductVariantIds: [],
-      unchangedProductVariantIds: [variant.id],
-    }),
-    planManualRecipesIfEmpty: vi.fn().mockResolvedValue({
-      pendingProductVariantIds: [],
-      unchangedProductVariantIds: [variant.id],
-    }),
+    replaceChannelOptionInventory: vi.fn().mockResolvedValue({ masterProductId: product.id }),
   } as unknown as {
     [K in keyof ProductOperationsRepositoryPort]: ReturnType<typeof vi.fn>;
   };
@@ -456,12 +481,18 @@ function makeCatalogDisplayMedia() {
   return { findDisplayMedia: vi.fn().mockResolvedValue(new Map()) };
 }
 
+function makeDataStatusRepository() {
+  return {
+    read: vi.fn().mockResolvedValue({ displayDataAsOf: '2026-07-31' }),
+  };
+}
+
 function makeService(
   repository: ReturnType<typeof makeRepository>,
   media = makeCatalogDisplayMedia(),
 ) {
   return new ProductOperationsService(
-    repository,
+    repository as never,
     {
       findBySkuIds: vi.fn().mockResolvedValue({
         snapshot: { collected: false, generation: null, verifiedAt: null },
@@ -472,7 +503,28 @@ function makeService(
       findByMasterProductIds: vi.fn().mockResolvedValue(new Map()),
     } as never,
     media as never,
+    makeDataStatusRepository() as never,
   );
+}
+
+function inventoryAvailability(sellpiaInventorySkuId: string, availableStock: number) {
+  return {
+    sellpiaInventorySkuId,
+    currentStock: availableStock,
+    activeCommitmentQuantity: 0,
+    availableStock,
+    isActive: true,
+    generation: '12',
+  };
+}
+
+function depletionProjection(needsReorder: boolean, months: number | null) {
+  return {
+    coverage: months === null ? 'no_direct_sales' as const : 'ready' as const,
+    needsReorder,
+    reorderSkuCount: needsReorder ? 1 : 0,
+    minMonthsOfAvailableStockLeft: months,
+  };
 }
 
 function rawProduct() {
@@ -487,6 +539,7 @@ function rawProduct() {
     tags: [],
     imageUrls: [],
     abcGrade: null,
+    abcEvaluation: null,
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
@@ -495,17 +548,8 @@ function rawProduct() {
     isActive: true,
     createdAt: new Date('2026-07-17T00:00:00.000Z'),
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
+    inventorySkuIds: [],
     channelListings: [],
-    variants: [{
-      id: variantId,
-      code: 'PV-1',
-      displayReference: { type: 'product_variant_code' as const, label: '옵션 코드', value: 'PV-1' },
-      name: 'Variant',
-      optionLabel: null,
-      isDefault: true,
-      isActive: true,
-      components: [],
-    }],
   };
 }
 
@@ -518,14 +562,39 @@ function rawListProduct(id: string) {
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
+    activeChannelProducts: [],
     traffic: null,
-    orderCount: null,
-    salesAmount: null,
-    adSpend: null,
+    visitorCount: 11,
+    viewCount: 22,
+    cartAddCount: 3,
+    orderCount: 4,
+    salesQuantity: 5,
+    salesAmount: 35_000,
+    adSpend: 3_500,
+    adSpendRate: 10,
+    metricsFreshness: {
+      traffic: {
+        status: 'READY' as const,
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+      advertising: {
+        status: 'READY' as const,
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    },
     profit: null,
-    variants: product.variants.map((variant) => ({
-      ...variant,
-      components: [{
+    inventorySkuIds: [skuId],
+    inventoryOptions: [{
+      id: channelListingOptionId,
+      externalOptionId: 'OPTION-1',
+      sellerSku: 'SELLER-1',
+      itemName: 'Inventory option',
+      isActive: true,
+      inventoryComponents: [{
         id: '00000000-0000-4000-8000-000000000007',
         sellpiaInventorySkuId: skuId,
         code: 'SKU-1',
@@ -537,6 +606,6 @@ function rawListProduct(id: string) {
         confirmedBy: null,
         confirmedAt: new Date('2026-07-17T00:00:00.000Z'),
       }],
-    })),
+    }],
   };
 }

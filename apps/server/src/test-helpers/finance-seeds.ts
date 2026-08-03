@@ -49,9 +49,8 @@ export async function setupMaster(
 // ---------------------------------------------------------------------------
 
 /**
- * The final model has no inventory-side ProductOption. Create one reusable
- * ProductVariant backed by one physical SellpiaInventorySku and return the
- * variant ID. setupChannelListing links its channel option to that variant.
+ * Create one physical SellpiaInventorySku and return its ID. The channel
+ * listing helper attaches it directly to the sellable channel option.
  */
 export async function setupProductOption(
   prisma: PrismaClient,
@@ -67,9 +66,6 @@ export async function setupProductOption(
   const master = await prisma.masterProduct.findFirstOrThrow({
     where: { id: opts.masterId, organizationId: opts.organizationId },
     select: { code: true, name: true },
-  });
-  const existingVariantCount = await prisma.productVariant.count({
-    where: { organizationId: opts.organizationId, masterProductId: opts.masterId },
   });
   const inventorySku = await prisma.sellpiaInventorySku.create({
     data: {
@@ -88,27 +84,7 @@ export async function setupProductOption(
     },
     select: { id: true },
   });
-  const variant = await prisma.productVariant.create({
-    data: {
-      organizationId: opts.organizationId,
-      masterProductId: opts.masterId,
-      code: opts.sku,
-      name: `${master.name} ${opts.sku}`,
-      optionLabel: opts.sku,
-      isDefault: existingVariantCount === 0,
-    },
-    select: { id: true },
-  });
-  await prisma.productVariantComponent.create({
-    data: {
-      organizationId: opts.organizationId,
-      productVariantId: variant.id,
-      sellpiaInventorySkuId: inventorySku.id,
-      quantity: 1,
-      source: 'deterministic',
-    },
-  });
-  return variant;
+  return inventorySku;
 }
 
 // ---------------------------------------------------------------------------
@@ -158,22 +134,14 @@ export async function setupChannelListing(
       imageUrls: true,
     },
   });
-  const variant = await prisma.productVariant.findFirstOrThrow({
+  const inventorySku = await prisma.sellpiaInventorySku.findFirstOrThrow({
     where: {
       id: opts.optionId,
       organizationId: opts.organizationId,
-      masterProductId: opts.masterId,
     },
-    select: {
-      components: {
-        select: {
-          sellpiaInventorySku: { select: { rawJson: true } },
-        },
-        take: 1,
-      },
-    },
+    select: { rawJson: true },
   });
-  const rawPricing = variant.components[0]?.sellpiaInventorySku.rawJson;
+  const rawPricing = inventorySku.rawJson;
   const pricing =
     rawPricing &&
     typeof rawPricing === 'object' &&
@@ -211,7 +179,6 @@ export async function setupChannelListing(
     data: {
       organizationId: opts.organizationId,
       listingId: listing.id,
-      productVariantId: opts.optionId,
       externalOptionId: opts.externalOptionId,
       sellerSku: opts.externalOptionId,
       commissionRate:
@@ -222,6 +189,14 @@ export async function setupChannelListing(
         'otherCost' in pricing ? Number(pricing.otherCost) : 0,
     },
     select: { id: true },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId: opts.organizationId,
+      channelListingOptionId: listingOption.id,
+      sellpiaInventorySkuId: opts.optionId,
+      quantity: 1,
+    },
   });
 
   return { listingId: listing.id, listingOptionId: listingOption.id };

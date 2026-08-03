@@ -26,13 +26,16 @@ not what an operator does to it. Inventory operations live in
   projection. Matched rows expose physical current stock without separate
   commitment or available-stock columns. Reorder and months-left remain
   backend-owned signals.
-- Its refresh action schedules the shared Sellpia synchronization. The global
-  coordinator owns both inventory and depletion collection; this analysis
-  component must not run a second product-profit collector.
-- Every matched destination renders its nullable stored
-  `MasterProduct.abcGrade`; shared SKUs may therefore show multiple destination
-  grades. Filters and summaries use those same values and keep unclassified
-  destinations separate from C.
+- Its refresh action explicitly requests the shared Sellpia `inventory` scope.
+  It only collects physical current stock; Product Management's separate
+  `full` scope owns product-profit collection and automatic ABC recalculation.
+- Every matched Sellpia row renders the one stored grade and current automatic
+  ABC calculation status of its canonical inventory MasterProduct. Shared
+  channel destinations never create additional grades. A/B/C, observation,
+  calibration, source-stale, and unpublished filters use that canonical
+  snapshot without treating any of them as C.
+  This is display/filter context only: never alter depletion, stock, or reorder
+  formulas and keep policy/profit explanation in Product Management.
 - Destination images are read-only active Coupang catalog media selected for
   the matched option/product. Do not copy the URL into Inventory or use AI
   thumbnail quality grades as product ABC.
@@ -46,8 +49,8 @@ not what an operator does to it. Inventory operations live in
 - Do not turn the whole route into a redirect to `/inventory-hub`. Per-tab
   redirects for moved views are the supported mechanism.
 - Do not write Sellpia stock or duplicate backend capacity calculations.
-- Do not infer a single operating product for a shared SKU or merge this route
-  into `/product-hub`; use links between the two independent screens.
+- Do not infer grades from channel destinations. Use the source SKU's canonical
+  MasterProduct and keep this analysis route separate from `/product-hub`.
 
 ## Verification
 

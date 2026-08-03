@@ -41,7 +41,7 @@ function renderEditor(options?: {
     <QueryClientProvider client={client}>
       <RocketInlineRecipeEditor
         masterProductId="44444444-4444-4444-8444-444444444444"
-        productVariantId="55555555-5555-4555-8555-555555555555"
+        channelListingOptionId="55555555-5555-4555-8555-555555555555"
         productName="상품 1"
         existingComponents={options?.existingComponents ?? []}
         onSaved={options?.onSaved ?? vi.fn().mockResolvedValue(undefined)}
@@ -156,12 +156,9 @@ describe("<RocketInlineRecipeEditor />", () => {
     ).toBeEnabled();
   });
 
-  it("creates the empty variant recipe and asks the Rocket preview to recalculate", async () => {
+  it("creates the empty channel option inventory recipe and asks the Rocket preview to recalculate", async () => {
     const onSaved = vi.fn().mockResolvedValue(undefined);
-    vi.mocked(apiClient.post).mockResolvedValue({
-      appliedProductVariantIds: ["55555555-5555-4555-8555-555555555555"],
-      unchangedProductVariantIds: [],
-    });
+    vi.mocked(apiClient.put).mockResolvedValue({ id: "55555555-5555-4555-8555-555555555555" });
     const { invalidate } = renderEditor({ onSaved });
 
     fireEvent.change(
@@ -185,18 +182,13 @@ describe("<RocketInlineRecipeEditor />", () => {
     );
 
     await waitFor(() =>
-      expect(apiClient.post).toHaveBeenCalledWith(
-        "/api/products/variant-recipes/create-if-empty",
+      expect(apiClient.put).toHaveBeenCalledWith(
+        "/api/products/channel-options/55555555-5555-4555-8555-555555555555/inventory-components",
         {
-          recipes: [
+          components: [
             {
-              productVariantId: "55555555-5555-4555-8555-555555555555",
-              components: [
-                {
-                  sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
-                  quantity: 12,
-                },
-              ],
+              sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
+              quantity: 12,
             },
           ],
         },
@@ -215,27 +207,25 @@ describe("<RocketInlineRecipeEditor />", () => {
     expect(onSaved).toHaveBeenCalledTimes(1);
   });
 
-  it("replaces an existing recipe with optimistic recipe evidence", async () => {
+  it("replaces an existing channel option inventory recipe", async () => {
     const onSaved = vi.fn().mockResolvedValue(undefined);
     vi.mocked(apiClient.getParsed).mockImplementation(async (url) => {
       if (String(url).includes("/api/products/masters/")) {
         return {
-          variants: [{
-            id: "55555555-5555-4555-8555-555555555555",
-            components: [{
-              id: "77777777-7777-4777-8777-777777777777",
-              sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
-              code: "SP-OLD",
-              name: "잘못 연결된 상품",
-              optionName: null,
-              currentStock: 5,
-              activeCommitmentQuantity: 0,
-              availableStock: 5,
-              isActive: true,
-              quantity: 2,
-              source: "manual",
-              confirmedBy: null,
-              confirmedAt: "2026-07-29T00:00:00.000Z",
+          channelListings: [{
+            options: [{
+              id: "55555555-5555-4555-8555-555555555555",
+              inventoryComponents: [{
+                id: "77777777-7777-4777-8777-777777777777",
+                sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
+                code: "SP-OLD",
+                name: "잘못 연결된 상품",
+                optionName: null,
+                currentStock: 5,
+                availableStock: 5,
+                isActive: true,
+                quantity: 2,
+              }],
             }],
           }],
         } as never;
@@ -273,19 +263,11 @@ describe("<RocketInlineRecipeEditor />", () => {
     );
 
     await waitFor(() => expect(apiClient.put).toHaveBeenCalledWith(
-      "/api/products/variants/55555555-5555-4555-8555-555555555555/components",
+      "/api/products/channel-options/55555555-5555-4555-8555-555555555555/inventory-components",
       {
         components: [{
           sellpiaInventorySkuId: candidate.sellpiaInventorySkuId,
           quantity: 1,
-        }],
-        expectedRecipe: [{
-          id: "77777777-7777-4777-8777-777777777777",
-          sellpiaInventorySkuId: "88888888-8888-4888-8888-888888888888",
-          quantity: 2,
-          source: "manual",
-          confirmedBy: null,
-          confirmedAt: "2026-07-29T00:00:00.000Z",
         }],
       },
     ));

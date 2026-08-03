@@ -11,8 +11,9 @@ import {
 const sellpiaInventorySkuId = '00000000-0000-4000-8000-000000000001';
 const runId = '00000000-0000-4000-8000-000000000002';
 const productId = '00000000-0000-4000-8000-000000000003';
-const firstVariantId = '00000000-0000-4000-8000-000000000004';
-const secondVariantId = '00000000-0000-4000-8000-000000000005';
+const firstChannelOptionId = '00000000-0000-4000-8000-000000000004';
+const secondChannelOptionId = '00000000-0000-4000-8000-000000000005';
+const channelListingId = '00000000-0000-4000-8000-000000000006';
 
 const snapshotItem = {
   sellpiaInventorySkuId,
@@ -27,12 +28,12 @@ const snapshotItem = {
   stockValue: 8_000,
   lastImportRunId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
-  linkedVariantCount: 2,
+  linkedChannelOptionCount: 2,
   linkedProductCount: 1,
   linkedProducts: [{ id: productId, code: 'KI-001', name: 'KidItem 상품' }],
-  linkedVariants: [
-    { id: firstVariantId, masterProductId: productId, code: 'KI-001-A', name: '파랑', optionLabel: '색상: 파랑' },
-    { id: secondVariantId, masterProductId: productId, code: 'KI-001-B', name: '빨강', optionLabel: '색상: 빨강' },
+  linkedChannelOptions: [
+    { id: firstChannelOptionId, masterProductId: productId, channelListingId, channel: 'coupang', externalOptionId: 'option-blue', itemName: '파랑' },
+    { id: secondChannelOptionId, masterProductId: productId, channelListingId, channel: 'coupang', externalOptionId: 'option-red', itemName: '빨강' },
   ],
   linkStatus: 'linked',
 };
@@ -131,15 +132,15 @@ describe('InventorySku snapshot contracts', () => {
   it('requires link status to agree with derived link counts', () => {
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      linkedVariantCount: 0,
+      linkedChannelOptionCount: 0,
       linkedProductCount: 0,
     })).toThrow();
     expect(InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      linkedVariantCount: 0,
+      linkedChannelOptionCount: 0,
       linkedProductCount: 0,
       linkedProducts: [],
-      linkedVariants: [],
+      linkedChannelOptions: [],
       linkStatus: 'unlinked',
     }).linkStatus).toBe('unlinked');
   });
@@ -151,10 +152,10 @@ describe('InventorySku snapshot contracts', () => {
     })).toThrow();
     expect(() => InventorySkuSnapshotItemSchema.parse({
       ...snapshotItem,
-      linkedVariants: [{
-        ...snapshotItem.linkedVariants[0],
+      linkedChannelOptions: [{
+        ...snapshotItem.linkedChannelOptions[0],
         masterProductId: '00000000-0000-4000-8000-000000000099',
-      }, snapshotItem.linkedVariants[1]],
+      }, snapshotItem.linkedChannelOptions[1]],
     })).toThrow();
   });
 

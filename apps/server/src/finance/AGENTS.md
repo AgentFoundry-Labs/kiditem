@@ -43,6 +43,11 @@ in Supply, but the backend capability owner is finance.
   by supply.
 - Settlement reconciliation reads order-owned settlement tables through finance
   services.
+- Product profitability evidence is assembled here from Analytics' exact Sellpia
+  monthly facts and Advertising's listing-daily spend facts. Orders, order-line
+  links, and Wing collection are not ABC inputs. Finance never calculates a
+  formula, score, or ABC grade; Products is the sole
+  formula/evaluation/grade owner.
 
 ## Boundary Rules
 

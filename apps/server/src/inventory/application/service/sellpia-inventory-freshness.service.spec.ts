@@ -31,7 +31,7 @@ describe('SellpiaInventoryFreshnessService', () => {
     vi.setSystemTime(new Date('2026-07-15T00:00:00.000Z'));
     repository = new MemoryFreshnessRepository();
     operationAlerts = { fail: vi.fn().mockResolvedValue(null) };
-    service = new SellpiaInventoryFreshnessService(repository, operationAlerts);
+    service = new SellpiaInventoryFreshnessService(repository, operationAlerts as never);
   });
 
   afterEach(() => {
@@ -963,17 +963,20 @@ function makeState(
     lastCompletedImportRunId: null,
     refreshRequestedAt: null,
     refreshReason: 'legacy_manual_import',
+    requestedSyncScope: 'inventory',
     syncNotBefore: null,
     activeSyncToken: null,
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
     activeSyncLeaseExpiresAt: null,
+    activeSyncScope: null,
     requestedGeneration: 1n,
     activeGeneration: null,
     verifiedGeneration: 1n,
     failedGeneration: null,
     lastAttemptAt: null,
     lastAttemptStatus: null,
+    lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: '00000000-0000-4000-8000-000000000099',

@@ -1,21 +1,46 @@
-import type { MasterProductAbcPolicyResponse, ProductAbcGrade } from '@kiditem/shared/product-abc';
+import type {
+  ProductAbcEvaluation,
+  ProductAbcFormulaSummary,
+  ProductAbcGrade,
+} from '@kiditem/shared/product-abc';
 
 export const MASTER_PRODUCT_ABC_REPOSITORY_PORT = Symbol(
   'MASTER_PRODUCT_ABC_REPOSITORY_PORT',
 );
 
-export type MasterProductAbcPolicyRecord = MasterProductAbcPolicyResponse & {
+export type MasterProductAbcFormulaStateRecord = Readonly<{
   revision: number;
-};
+  formulaVersionId: string | null;
+  formula: ProductAbcFormulaSummary | null;
+}>;
 
 export interface MasterProductAbcRepositoryPort {
-  findPolicy(organizationId: string): Promise<MasterProductAbcPolicyRecord | null>;
-  publishGrades(input: {
+  listSellingMasterProductIds(organizationId: string): Promise<readonly string[]>;
+  reconcileInventoryActivity(organizationId: string): Promise<{
+    deactivatedMasterProductIds: readonly string[];
+    reactivatedMasterProductIds: readonly string[];
+  }>;
+  getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord>;
+  ensureInitialFormula(input: {
     organizationId: string;
-    policy: MasterProductAbcPolicyRecord;
-    sourceCapturedAt: Date | null;
-    grades: ReadonlyMap<string, ProductAbcGrade | null>;
-    metricValues: ReadonlyMap<string, number | null>;
-    allowPolicyReplacement?: boolean;
-  }): Promise<{ changedProductCount: number; policy: MasterProductAbcPolicyRecord; stale: boolean }>;
+    expectedRevision: number;
+    formula: ProductAbcFormulaSummary;
+  }): Promise<{ state: MasterProductAbcFormulaStateRecord; created: boolean; stale: boolean }>;
+  findCurrentEvaluations(input: {
+    organizationId: string;
+    masterProductIds: readonly string[];
+  }): Promise<ReadonlyMap<string, ProductAbcEvaluation>>;
+  publishEvaluations(input: {
+    organizationId: string;
+    expectedFormulaStateRevision: number;
+    formulaVersionId: string | null;
+    evaluations: ReadonlyMap<string, ProductAbcEvaluation>;
+    reason: string;
+  }): Promise<{ changedProductCount: number; stale: boolean }>;
 }
+
+export type MasterProductAbcPublishedGrade = Readonly<{
+  masterProductId: string;
+  abcGrade: ProductAbcGrade | null;
+  evaluation: ProductAbcEvaluation;
+}>;

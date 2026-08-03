@@ -1,22 +1,16 @@
 import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import {
   CreateMasterProductInputSchema,
-  CreateProductVariantRecipesIfEmptyInputSchema,
-  CreateProductVariantInputSchema,
   MasterProductOperationsListQuerySchema,
+  type ProductOperationsChannelProductCount,
+  type ProductOperationsInventoryFocus,
+  ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
-  UpdateProductVariantInputSchema,
-  ReplaceProductVariantRecipeInputSchema,
-  type CreateMasterProductInput,
-  type CreateProductVariantInput,
-  type UpdateMasterProductInput,
-  type UpdateProductVariantInput,
   type ProductDepletionProjection,
   type ProductOperationsListSummary,
 } from '@kiditem/shared/product-operations';
 import {
   PRODUCT_OPERATIONS_REPOSITORY_PORT,
-  type NormalizedCreateProductVariant,
   type ProductOperationsRepositoryPort,
 } from '../port/out/repository/product-operations.repository.port';
 import {
@@ -30,13 +24,16 @@ import {
 import {
   mapProductOperationsDetail,
   mapProductOperationsListItem,
-  mapProductOperationsVariant,
 } from '../../mapper/product-operations-inventory.mapper';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
 } from '../../../ai/application/port/in/workspace/catalog-display-media.port';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
+import {
+  PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
+  type ProductOperationsDataStatusRepositoryPort,
+} from '../port/out/repository/product-operations-data-status.repository.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -51,6 +48,8 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly depletion: SellpiaProductDepletionReadPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
+    @Inject(PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT)
+    private readonly dataStatusRepository: ProductOperationsDataStatusRepositoryPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -59,27 +58,33 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawQuery,
       'Invalid product operations query',
     );
-    const raw = await this.repository.listProducts(organizationId, query);
+    const [raw, dataStatus] = await Promise.all([
+      this.repository.listProducts(organizationId, query),
+      this.dataStatusRepository.read(organizationId, query.periodDays),
+    ]);
     const inventoryBySkuId = await this.loadInventory(
       organizationId,
-      raw.items.flatMap(({ variants }) => variants),
+      raw.items.flatMap(({ inventorySkuIds }) => inventorySkuIds),
     );
     const placeholder = noDirectSales();
     const hydrated = raw.items.map((item) =>
       mapProductOperationsListItem(item, inventoryBySkuId, placeholder));
-    const filtered = query.inventoryStatus
+    const inventoryFiltered = query.inventoryStatus
       ? hydrated.filter(({ inventoryStatus }) =>
         inventoryStatus === query.inventoryStatus)
       : hydrated;
-    const summaryMasterProductIds = filtered.map(({ id }) => id);
+    const summaryMasterProductIds = inventoryFiltered.map(({ id }) => id);
     const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
       organizationId,
       masterProductIds: summaryMasterProductIds,
     });
-    const items = filtered.map((item) => ({
+    const withDepletion = inventoryFiltered.map((item) => ({
       ...item,
       depletion: depletionByMasterProductId.get(item.id) ?? placeholder,
     }));
+    const items = query.inventoryFocus
+      ? withDepletion.filter((item) => matchesInventoryFocus(item, query.inventoryFocus!))
+      : withDepletion;
     const offset = (query.page - 1) * query.limit;
     const pageItems = items.slice(offset, offset + query.limit);
     return {
@@ -87,7 +92,13 @@ export class ProductOperationsService implements ProductOperationsPort {
       total: items.length,
       page: query.page,
       limit: query.limit,
-      summary: summarizeProducts(items),
+      summary: {
+        ...summarizeProducts(
+          items,
+          summarizeChannelProducts(raw.sellingChannelProducts ?? []),
+        ),
+        displayDataAsOf: dataStatus.displayDataAsOf,
+      },
     };
   }
 
@@ -95,7 +106,10 @@ export class ProductOperationsService implements ProductOperationsPort {
     const product = await this.repository.getProduct(organizationId, masterProductId);
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      await this.loadInventory(
+        organizationId,
+        product.inventorySkuIds,
+      ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
@@ -110,22 +124,13 @@ export class ProductOperationsService implements ProductOperationsPort {
       omitLegacyAbcGrade(rawInput),
       'Invalid MasterProduct creation',
     );
-    const variants = input.variants?.map(normalizeVariant) ?? [{
-      code: `${input.code.slice(0, 92)}-DEFAULT`,
-      name: input.name,
-      optionLabel: null,
-      isDefault: true,
-      isActive: true,
-      components: [],
-    }];
     const product = await this.repository.createProduct({
       organizationId,
-      userId,
-      product: { ...input, variants },
+      product: input,
     });
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      new Map(),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
@@ -147,117 +152,36 @@ export class ProductOperationsService implements ProductOperationsPort {
     );
     const mapped = mapProductOperationsDetail(
       product,
-      await this.loadInventory(organizationId, product.variants),
+      await this.loadInventory(
+        organizationId,
+        product.inventorySkuIds,
+      ),
     );
     return (await this.applyDisplayImages(organizationId, [mapped]))[0]!;
   }
 
-  async createVariant(
+  async replaceChannelOptionInventory(
     organizationId: string,
-    userId: string,
-    masterProductId: string,
+    channelListingOptionId: string,
     rawInput: unknown,
   ) {
     const input = parseOrBadRequest(
-      CreateProductVariantInputSchema,
+      ReplaceChannelOptionInventoryInputSchema,
       rawInput,
-      'Invalid ProductVariant creation',
+      'Invalid channel option inventory replacement',
     );
-    const variant = await this.repository.createVariant({
+    return this.repository.replaceChannelOptionInventory({
       organizationId,
-      userId,
-      masterProductId,
-      variant: normalizeVariant(input),
-    });
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
-    );
-  }
-
-  async updateVariant(
-    organizationId: string,
-    productVariantId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      UpdateProductVariantInputSchema,
-      rawInput,
-      'Invalid ProductVariant update',
-    );
-    const variant = await this.repository.updateVariant(
-      organizationId,
-      productVariantId,
-      input,
-    );
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
-    );
-  }
-
-  async replaceRecipe(
-    organizationId: string,
-    userId: string,
-    productVariantId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      ReplaceProductVariantRecipeInputSchema,
-      rawInput,
-      'Invalid ProductVariant recipe replacement',
-    );
-    const variant = await this.repository.replaceRecipe({
-      organizationId,
-      userId,
-      productVariantId,
+      channelListingOptionId,
       components: input.components,
-      expectedRecipe: input.expectedRecipe,
-    });
-    return mapProductOperationsVariant(
-      variant,
-      await this.loadInventory(organizationId, [variant]),
-    );
-  }
-
-  async planRecipesIfEmpty(
-    organizationId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      CreateProductVariantRecipesIfEmptyInputSchema,
-      rawInput,
-      'Invalid create-if-empty ProductVariant recipe plan',
-    );
-    return this.repository.planManualRecipesIfEmpty({
-      organizationId,
-      recipes: input.recipes,
-    });
-  }
-
-  async createRecipesIfEmpty(
-    organizationId: string,
-    userId: string,
-    rawInput: unknown,
-  ) {
-    const input = parseOrBadRequest(
-      CreateProductVariantRecipesIfEmptyInputSchema,
-      rawInput,
-      'Invalid create-if-empty ProductVariant recipe batch',
-    );
-    return this.repository.createManualRecipesIfEmpty({
-      organizationId,
-      userId,
-      recipes: input.recipes,
     });
   }
 
   private async loadInventory(
     organizationId: string,
-    variants: Array<{ components: Array<{ sellpiaInventorySkuId: string }> }>,
+    inventorySkuIds: string[],
   ) {
-    const sellpiaInventorySkuIds = [...new Set(variants.flatMap(({ components }) =>
-      components.map(({ sellpiaInventorySkuId }) => sellpiaInventorySkuId)))].sort(
+    const sellpiaInventorySkuIds = [...new Set(inventorySkuIds)].sort(
         (left, right) => left.localeCompare(right),
       );
     const availability = await this.inventory.findBySkuIds({
@@ -335,20 +259,34 @@ function noDirectSales(): ProductDepletionProjection {
 
 function summarizeProducts(
   products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+  channelProductCounts: ProductOperationsChannelProductCount[],
 ): ProductOperationsListSummary {
-  return products.reduce<ProductOperationsListSummary>((counts, product) => {
+  const counts = products.reduce<ProductOperationsListSummary>((counts, product) => {
     const abcGrade = product.abcGrade;
     if (abcGrade === 'A' || abcGrade === 'B' || abcGrade === 'C') {
       counts.abcGradeCounts[abcGrade] += 1;
     } else {
       counts.abcGradeCounts.unclassified += 1;
     }
-    counts.channelConnectionCounts[
-      product.channelCount > 0 ? 'connected' : 'unconnected'
-    ] += 1;
+    const evaluation = product.abcEvaluation;
+    if (evaluation) {
+      const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
+        ? 'INSUFFICIENT_EVIDENCE'
+        : evaluation.calculationStatus;
+      counts.abcStatusCounts[calculationStatus] += 1;
+      if (abcGrade && evaluation.weightedContributionProfit !== null) {
+        counts.abcContributionProfitByGrade[abcGrade] += Math.round(
+          evaluation.weightedContributionProfit,
+        );
+      }
+      if (!counts.abcFormula && evaluation.formula) counts.abcFormula = evaluation.formula;
+    }
     counts.inventoryStatusCounts[product.inventoryStatus] += 1;
     if (product.profit !== null && product.profit < 0) {
       counts.negativeProfitCount += 1;
+    }
+    if (matchesInventoryFocus(product, 'imminent')) {
+      counts.imminentProductCount += 1;
     }
     if (product.depletion.needsReorder) counts.reorderProductCount += 1;
     if (product.depletion.coverage !== 'no_direct_sales') {
@@ -360,7 +298,22 @@ function summarizeProducts(
     return counts;
   }, {
     abcGradeCounts: { A: 0, B: 0, C: 0, unclassified: 0 },
-    channelConnectionCounts: { connected: 0, unconnected: 0 },
+    abcStatusCounts: {
+      READY: 0,
+      INSUFFICIENT_EVIDENCE: 0,
+      SOURCE_UNMAPPED: 0,
+      CALIBRATION_PENDING: 0,
+      RECALCULATING: 0,
+      SELLPIA_SOURCE_STALE: 0,
+      AD_SOURCE_STALE: 0,
+      ORDERS_SOURCE_STALE: 0,
+      CALCULATION_ERROR: 0,
+    },
+    abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
+    abcContributionProfitShareByGrade: { A: 0, B: 0, C: 0 },
+    abcFormula: null,
+    displayDataAsOf: conservativeDisplayDataAsOf(products),
+    channelProductCounts,
     inventoryStatusCounts: {
       sellable: 0,
       partial_out_of_stock: 0,
@@ -369,22 +322,68 @@ function summarizeProducts(
       review_required: 0,
     },
     negativeProfitCount: 0,
+    imminentProductCount: 0,
     reorderProductCount: 0,
     depletionCoveredProductCount: 0,
     sharedDepletionProductCount: 0,
   });
+  const contributionTotal = Object.values(counts.abcContributionProfitByGrade)
+    .reduce((sum, value) => sum + value, 0);
+  if (contributionTotal !== 0) {
+    for (const grade of ['A', 'B', 'C'] as const) {
+      counts.abcContributionProfitShareByGrade[grade] =
+        counts.abcContributionProfitByGrade[grade] / contributionTotal;
+    }
+  }
+  return counts;
 }
 
-function normalizeVariant(
-  input: CreateProductVariantInput,
-): NormalizedCreateProductVariant {
-  return {
-    ...input,
-    optionLabel: input.optionLabel ?? null,
-    isDefault: input.isDefault ?? false,
-    isActive: input.isActive ?? true,
-    components: input.components ?? [],
-  };
+const IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE = 1.5;
+const IMMINENT_STOCK_MAX_MONTHS_INCLUSIVE = 3;
+
+function matchesInventoryFocus(
+  product: Pick<ReturnType<typeof mapProductOperationsListItem>, 'inventoryStatus' | 'depletion'>,
+  focus: ProductOperationsInventoryFocus,
+): boolean {
+  if (focus === 'attention') {
+    return product.inventoryStatus === 'configuration_required'
+      || product.inventoryStatus === 'review_required';
+  }
+  if (focus === 'out_of_stock') return product.inventoryStatus === 'out_of_stock';
+  if (focus === 'reorder') return product.depletion.needsReorder;
+  const months = product.depletion.minMonthsOfAvailableStockLeft;
+  return !product.depletion.needsReorder
+    && months !== null
+    && months > IMMINENT_STOCK_MIN_MONTHS_EXCLUSIVE
+    && months <= IMMINENT_STOCK_MAX_MONTHS_INCLUSIVE;
+}
+
+function summarizeChannelProducts(
+  channelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>,
+): ProductOperationsChannelProductCount[] {
+  const counts = new Map<string, ProductOperationsChannelProductCount>();
+  for (const channelProduct of channelProducts) {
+    const existing = counts.get(channelProduct.channelAccountId);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      counts.set(channelProduct.channelAccountId, { ...channelProduct, count: 1 });
+    }
+  }
+  return [...counts.values()].sort((left, right) =>
+    left.channelAccountName.localeCompare(right.channelAccountName)
+    || left.channelAccountId.localeCompare(right.channelAccountId));
+}
+
+function conservativeDisplayDataAsOf(
+  products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+): string | null {
+  const dates = products.flatMap((product) => [
+    product.metricsFreshness.traffic.coverageEndDate,
+    product.metricsFreshness.advertising.coverageEndDate,
+    product.abcEvaluation?.sourceFreshness.evaluationCutoffDate ?? null,
+  ]).filter((date): date is string => date !== null);
+  return dates.length > 0 ? dates.reduce((earliest, date) => date < earliest ? date : earliest) : null;
 }
 
 function parseOrBadRequest<T>(

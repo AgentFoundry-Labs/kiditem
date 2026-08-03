@@ -16,6 +16,7 @@ import type {
   ChannelCatalogImportRepositoryPort,
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../../../application/service/coupang-wing-workbook.parser';
+import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
@@ -596,17 +597,9 @@ function assertCanonicalCoupangAccountIdentity(account: {
   externalAccountId: string | null;
   vendorId: string | null;
 }): void {
-  const externalAccountId = account.externalAccountId?.trim();
-  if (!externalAccountId) {
+  if (!resolveCoupangVendorId(account)) {
     throw new BadRequestException(
-      'Coupang Wing catalog imports require a nonblank external account identity',
-    );
-  }
-
-  const vendorId = account.vendorId?.trim();
-  if (vendorId && vendorId !== externalAccountId) {
-    throw new ConflictException(
-      'Coupang account vendor identity conflicts with its external account identity',
+      'Coupang Wing catalog imports require a vendor identity',
     );
   }
 }

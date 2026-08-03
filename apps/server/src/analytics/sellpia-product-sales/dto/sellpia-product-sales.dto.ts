@@ -1,9 +1,9 @@
 import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
+  Equals,
   IsArray,
   IsInt,
-  IsNumber,
   IsOptional,
   IsString,
   Matches,
@@ -23,16 +23,20 @@ export class SellpiaProductSalesIngestMonthDto {
   @Matches(/^\d{4}-\d{2}$/, { message: 'yearMonth must be YYYY-MM' })
   yearMonth!: string;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   orderQty!: number;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   orderAmount!: number;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   inQty!: number;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   inAmount!: number;
 }
 
@@ -62,10 +66,12 @@ export class SellpiaProductSalesIngestItemDto {
   @MaxLength(200)
   providerName?: string;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   salePrice!: number;
 
-  @IsNumber({ allowInfinity: false, allowNaN: false })
+  @IsInt()
+  @Min(0)
   buyPrice!: number;
 
   @IsOptional()
@@ -90,13 +96,28 @@ export class SellpiaProductSalesRangeDto {
   to!: string;
 }
 
+export class SellpiaProductSalesProvenanceDto {
+  @Equals('sellpia_stat_prd_profit')
+  source!: 'sellpia_stat_prd_profit';
+
+  @Equals('ORDER_TIME_SUPPLY_COST')
+  costBasis!: 'ORDER_TIME_SUPPLY_COST';
+
+  @Equals(true)
+  vatIncluded!: true;
+}
+
 export class SellpiaProductSalesIngestBodyDto {
   @ValidateNested()
   @Type(() => SellpiaProductSalesRangeDto)
   range!: SellpiaProductSalesRangeDto;
 
+  @ValidateNested()
+  @Type(() => SellpiaProductSalesProvenanceDto)
+  provenance!: SellpiaProductSalesProvenanceDto;
+
   @IsArray()
-  @ArrayMaxSize(5000)
+  @ArrayMaxSize(20_000)
   @ValidateNested({ each: true })
   @Type(() => SellpiaProductSalesIngestItemDto)
   products!: SellpiaProductSalesIngestItemDto[];

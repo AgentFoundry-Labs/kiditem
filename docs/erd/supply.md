@@ -106,7 +106,7 @@ erDiagram
     String organizationId FK
     String confirmationLineId FK
     String sellpiaInventorySkuId FK
-    Int unitsPerVariant
+    Int unitsPerSale
     Int quantity
     DateTime createdAt
   }
@@ -123,7 +123,6 @@ erDiagram
     Int confirmedQuantity
     String shortageReason
     String channelListingOptionId FK
-    String productVariantId FK
     String collectedOrderLineItemId
     DateTime collectedAt
     DateTime createdAt
@@ -211,7 +210,6 @@ erDiagram
 | RocketPurchaseConfirmationAllocation | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
 | RocketPurchaseConfirmationLine | channelListingOption | references external | Core | ChannelListingOption |
 | RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
-| RocketPurchaseConfirmationLine | productVariant | references external | Core | ProductVariant |
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | sourceImportRun | references external | Core | SourceImportRun |
 | Supplier | organization | references external | Core | Organization |

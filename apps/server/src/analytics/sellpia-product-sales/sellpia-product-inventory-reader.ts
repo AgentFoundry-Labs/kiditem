@@ -14,6 +14,11 @@ import {
   resolveSellpiaProductInventoryRows,
   type SellpiaProductInventoryProjectionInput,
 } from './sellpia-product-inventory-projection';
+import {
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
 
 @Injectable()
 export class SellpiaProductInventoryReader {
@@ -33,84 +38,68 @@ export class SellpiaProductInventoryReader {
   ) {
     const candidates = await this.prisma.sellpiaInventorySku.findMany({
       where: { organizationId },
-      select: { id: true, code: true, barcode: true, isActive: true },
+      select: {
+        id: true,
+        code: true,
+        barcode: true,
+        isActive: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            abcEvaluation: { include: { formulaVersion: true } },
+          },
+        },
+      },
     });
     const resolved = resolveSellpiaProductInventoryRows(products, candidates);
+    const canonicalProductBySkuId = new Map(candidates.flatMap((candidate) => {
+      const product = candidate.masterProduct;
+      if (!product) return [];
+      const abcGrade = productAbcGrade(product.abcGrade);
+      return [[candidate.id, {
+        sellpiaInventorySkuId: candidate.id,
+        masterProductId: product.id,
+        masterProductCode: product.code,
+        masterProductName: product.name,
+        abcGrade,
+        abcEvaluation: toAbcEvaluation(product.abcEvaluation, product.abcGrade),
+      }] as const];
+    }));
     const availability = await this.inventory.findBySkuIds({
       organizationId,
       sellpiaInventorySkuIds: resolved.matchedSkuIds,
     });
     const destinationRows = resolved.matchedSkuIds.length > 0
-      ? await this.prisma.productVariantComponent.findMany({
+      ? await this.prisma.channelListingOptionInventoryComponent.findMany({
         where: {
           organizationId,
           sellpiaInventorySkuId: { in: resolved.matchedSkuIds },
-          productVariant: {
-            is: {
+          channelListingOption: {
+            organizationId,
+            isActive: true,
+            listing: {
               organizationId,
               isActive: true,
-              masterProduct: {
-                is: { organizationId, isActive: true },
-              },
+              channelAccount: { organizationId, status: 'active' },
             },
           },
         },
         select: {
           sellpiaInventorySkuId: true,
           quantity: true,
-          productVariant: {
+          channelListingOption: {
             select: {
               id: true,
-              code: true,
-              name: true,
-              masterProduct: {
+              externalOptionId: true,
+              itemName: true,
+              listing: {
                 select: {
                   id: true,
-                  code: true,
-                  name: true,
-                  abcGrade: true,
-                  originChannelListingId: true,
-                },
-              },
-              channelListingOptions: {
-                where: {
-                  organizationId,
-                  isActive: true,
-                  listing: {
-                    is: {
-                      organizationId,
-                      isActive: true,
-                      channelAccount: {
-                        is: {
-                          organizationId,
-                          status: 'active',
-                        },
-                      },
-                    },
-                  },
-                },
-                select: {
-                  organizationId: true,
-                  productVariantId: true,
-                  externalOptionId: true,
-                  isActive: true,
-                  listing: {
-                    select: {
-                      id: true,
-                      organizationId: true,
-                      masterProductId: true,
-                      externalId: true,
-                      isActive: true,
-                      channelAccount: {
-                        select: {
-                          organizationId: true,
-                          channel: true,
-                          status: true,
-                          isPrimary: true,
-                        },
-                      },
-                    },
-                  },
+                  externalId: true,
+                  channelAccount: { select: { channel: true, isPrimary: true } },
                 },
               },
             },
@@ -119,12 +108,12 @@ export class SellpiaProductInventoryReader {
       })
       : [];
     const mediaRequests = uniqueMediaRequests(organizationId, destinationRows);
-    let mediaByVariantId = new Map<string, Awaited<ReturnType<
+    let mediaByOptionId = new Map<string, Awaited<ReturnType<
       CatalogDisplayMediaPort['findDisplayMedia']
     >> extends Map<string, infer Media> ? Media : never>();
     if (mediaRequests.length > 0) {
       try {
-        mediaByVariantId = await this.catalogDisplayMedia.findDisplayMedia({
+        mediaByOptionId = await this.catalogDisplayMedia.findDisplayMedia({
           organizationId,
           requests: mediaRequests,
         });
@@ -139,26 +128,151 @@ export class SellpiaProductInventoryReader {
       products,
       resolutions: resolved.resolutions,
       availability,
-      destinations: destinationRows.map((row) => ({
+      inventoryProducts: [...canonicalProductBySkuId.values()],
+      destinations: destinationRows.flatMap((row) => {
+        const product = canonicalProductBySkuId.get(row.sellpiaInventorySkuId);
+        if (!product) return [];
+        return [{
         sellpiaInventorySkuId: row.sellpiaInventorySkuId,
-        unitsPerVariant: row.quantity,
-        masterProductId: row.productVariant.masterProduct.id,
-        masterProductCode: row.productVariant.masterProduct.code,
-        masterProductName: row.productVariant.masterProduct.name,
-        productVariantId: row.productVariant.id,
-        productVariantCode: row.productVariant.code,
-        productVariantName: row.productVariant.name,
-        abcGrade:
-          row.productVariant.masterProduct.abcGrade === 'A'
-          || row.productVariant.masterProduct.abcGrade === 'B'
-          || row.productVariant.masterProduct.abcGrade === 'C'
-            ? row.productVariant.masterProduct.abcGrade
-            : null,
-        displayImage: mediaByVariantId.get(row.productVariant.id) ?? null,
-      })),
+        unitsPerSale: row.quantity,
+        masterProductId: product.masterProductId,
+        masterProductCode: product.masterProductCode,
+        masterProductName: product.masterProductName,
+        channelListingOptionId: row.channelListingOption.id,
+        channelListingId: row.channelListingOption.listing.id,
+        channel: row.channelListingOption.listing.channelAccount.channel,
+        externalOptionId: row.channelListingOption.externalOptionId,
+        optionName: row.channelListingOption.itemName,
+        abcGrade: product.abcGrade,
+        abcEvaluation: product.abcEvaluation,
+        displayImage: mediaByOptionId.get(row.channelListingOption.id) ?? null,
+      }];
+      }),
     });
     return { availability, projection };
   }
+}
+
+function toAbcEvaluation(
+  row: {
+    calculationStatus: string;
+    rawScore: { toNumber(): number } | null;
+    adjustedScore: { toNumber(): number } | null;
+    reliability: { toNumber(): number } | null;
+    weightedRevenue: { toNumber(): number } | null;
+    weightedOrderTimeCogs: { toNumber(): number } | null;
+    weightedAdSpend: { toNumber(): number } | null;
+    weightedContributionProfit: { toNumber(): number } | null;
+    profitVelocity30: { toNumber(): number } | null;
+    weightedContributionMargin: { toNumber(): number } | null;
+    lossRecurrence: { toNumber(): number } | null;
+    paidOrderCount: number;
+    observationDays: number;
+    firstValidPaidSaleAt: Date | null;
+    sourceCoverageStartDate: Date | null;
+    sourceCoverageEndDate: Date | null;
+    sellpiaCoverageStartDate: Date | null;
+    sellpiaCoverageEndDate: Date | null;
+    sellpiaSourceStatus: string;
+    sellpiaSourceCapturedAt: Date | null;
+    advertisingCoverageStartDate: Date | null;
+    advertisingCoverageEndDate: Date | null;
+    advertisingSourceStatus: string;
+    advertisingSourceCapturedAt: Date | null;
+    ordersSourceStatus: string;
+    ordersCoverageStartDate: Date | null;
+    ordersCoverageEndDate: Date | null;
+    ordersSourceCapturedAt: Date | null;
+    mappingSourceStatus: string;
+    mappingInventoryGeneration: bigint | null;
+    mappingVerifiedAt: Date | null;
+    costComponentsJson: unknown;
+    statusDetail: string | null;
+    calculatedAt: Date | null;
+    formulaVersion: { formulaJson: unknown } | null;
+  } | null,
+  abcGrade: string | null,
+): ProductAbcEvaluation | null {
+  if (!row || !row.costComponentsJson) return null;
+  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
+  if (!cutoff) return null;
+  const formula = row.formulaVersion
+    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
+    : null;
+  const parsed = ProductAbcEvaluationSchema.safeParse({
+    abcGrade: productAbcGrade(abcGrade),
+    calculationStatus: row.calculationStatus,
+    rawScore: decimalToFinite(row.rawScore),
+    adjustedScore: decimalToFinite(row.adjustedScore),
+    reliability: decimalToFinite(row.reliability),
+    weightedRevenue: decimalToFinite(row.weightedRevenue),
+    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
+    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
+    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
+    profitVelocity30: decimalToFinite(row.profitVelocity30),
+    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
+    lossRecurrence: decimalToFinite(row.lossRecurrence),
+    paidOrderCount: row.paidOrderCount,
+    observationDays: row.observationDays,
+    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
+    formula: formula?.success ? formula.data : null,
+    sourceFreshness: {
+      evaluationCutoffDate: calendarDate(cutoff),
+      sellpia: {
+        status: row.sellpiaSourceStatus,
+        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
+          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
+          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
+          : null,
+        capturedAt: row.sellpiaSourceCapturedAt,
+      },
+      advertising: {
+        status: row.advertisingSourceStatus,
+        coverageStartDate: row.advertisingCoverageStartDate
+          ? calendarDate(row.advertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.advertisingCoverageEndDate
+          ? calendarDate(row.advertisingCoverageEndDate)
+          : null,
+        capturedAt: row.advertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.ordersSourceStatus,
+        coverageStartDate: row.ordersCoverageStartDate
+          ? calendarDate(row.ordersCoverageStartDate)
+          : null,
+        coverageEndDate: row.ordersCoverageEndDate
+          ? calendarDate(row.ordersCoverageEndDate)
+          : null,
+        capturedAt: row.ordersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.mappingSourceStatus,
+        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
+        verifiedAt: row.mappingVerifiedAt,
+      },
+    },
+    costBreakdown: row.costComponentsJson,
+    statusDetail: row.statusDetail,
+    calculatedAt: row.calculatedAt,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
+  return value === 'A' || value === 'B' || value === 'C' ? value : null;
+}
+
+function decimalToFinite(value: { toNumber(): number } | null): number | null {
+  if (value === null) return null;
+  const number = value.toNumber();
+  return Number.isFinite(number) ? number : null;
+}
+
+function calendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
 }
 
 type DestinationOptionTarget = CatalogDisplayMediaTarget & {
@@ -179,86 +293,37 @@ export function compareOptionTargets(
 }
 
 function uniqueMediaRequests(
-  organizationId: string,
+  _organizationId: string,
   rows: readonly {
-    productVariant: {
+    channelListingOption: {
       id: string;
-      masterProduct: { id: string; originChannelListingId?: string | null };
-      channelListingOptions?: readonly DestinationOptionSource[];
+      externalOptionId: string;
+      listing: {
+        id: string;
+        externalId: string;
+        channelAccount: { isPrimary: boolean };
+      };
     };
   }[],
 ) {
-  const candidatesByVariantId = new Map<string, DestinationOptionTarget[]>();
+  const byOptionId = new Map<string, DestinationOptionTarget>();
   for (const row of rows) {
-    const variant = row.productVariant;
-    const candidates = selectDestinationOptionTargets({
-      organizationId,
-      productVariantId: variant.id,
-      masterProductId: variant.masterProduct.id,
-      originChannelListingId: variant.masterProduct.originChannelListingId ?? null,
-      options: variant.channelListingOptions ?? [],
-    });
-    if (candidates.length > 0 && !candidatesByVariantId.has(variant.id)) {
-      candidatesByVariantId.set(variant.id, candidates);
+    const option = row.channelListingOption;
+    if (!byOptionId.has(option.id)) {
+      byOptionId.set(option.id, {
+        channelListingId: option.listing.id,
+        externalOptionId: option.externalOptionId,
+        isOrigin: false,
+        isPrimaryAccount: option.listing.channelAccount.isPrimary,
+        listingExternalId: option.listing.externalId,
+      });
     }
   }
-  return [...candidatesByVariantId.entries()].map(([key, candidates]) => ({
+  return [...byOptionId.entries()].map(([key, candidate]) => ({
     key,
-    candidates: candidates.map(({ channelListingId, externalOptionId }) => ({
-      channelListingId,
-      externalOptionId,
-    })),
+    candidates: [{
+      channelListingId: candidate.channelListingId,
+      externalOptionId: candidate.externalOptionId,
+    }],
   }));
-}
-
-type DestinationOptionSource = {
-  organizationId: string;
-  productVariantId: string | null;
-  externalOptionId: string;
-  isActive: boolean;
-  listing: {
-    id: string;
-    organizationId: string;
-    masterProductId: string | null;
-    externalId: string;
-    isActive: boolean;
-    channelAccount: {
-      organizationId: string;
-      channel: string;
-      status: string;
-      isPrimary: boolean;
-    };
-  };
-};
-
-function selectDestinationOptionTargets(input: {
-  organizationId: string;
-  productVariantId: string;
-  masterProductId: string;
-  originChannelListingId: string | null;
-  options: readonly DestinationOptionSource[];
-}): DestinationOptionTarget[] {
-  return input.options.flatMap((option) => {
-    const listing = option.listing;
-    const account = listing.channelAccount;
-    if (
-      option.organizationId !== input.organizationId
-      || option.productVariantId !== input.productVariantId
-      || !option.isActive
-      || !option.externalOptionId.trim()
-      || listing.organizationId !== input.organizationId
-      || listing.masterProductId !== input.masterProductId
-      || !listing.isActive
-      || account.organizationId !== input.organizationId
-      || !account.channel.trim()
-      || account.status !== 'active'
-    ) return [];
-    return [{
-      channelListingId: listing.id,
-      externalOptionId: option.externalOptionId,
-      isOrigin: listing.id === input.originChannelListingId,
-      isPrimaryAccount: account.isPrimary,
-      listingExternalId: listing.externalId,
-    }];
-  }).sort(compareOptionTargets);
 }

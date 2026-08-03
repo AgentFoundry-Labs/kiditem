@@ -97,7 +97,8 @@ export class MarketplaceRegistrationRepositoryAdapter
       masterProductId?: string;
       optionLinks?: Array<{
         externalOptionId: string;
-        productVariantId: string;
+        sellpiaInventorySkuId: string;
+        quantity: number;
       }>;
     },
   ) {
@@ -299,27 +300,44 @@ async function upsertExactOptionLinks(
           { sellerSku: link.providerOptionKey },
         ],
       },
-      select: { id: true, externalOptionId: true, productVariantId: true },
+      select: {
+        id: true,
+        externalOptionId: true,
+        inventoryComponents: {
+          select: { sellpiaInventorySkuId: true, quantity: true },
+        },
+      },
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
     if (existing.some((option) =>
-      option.productVariantId !== null
-      && option.productVariantId !== link.productVariantId)) {
+      option.inventoryComponents.length > 0
+      && (option.inventoryComponents.length !== 1
+        || option.inventoryComponents[0]!.sellpiaInventorySkuId
+          !== link.sellpiaInventorySkuId
+        || option.inventoryComponents[0]!.quantity !== link.quantity))) {
       throw new ConflictException(
-        'Marketplace option already has a different confirmed ProductVariant.',
+        'Marketplace option already has a different inventory recipe.',
       );
     }
     const target = existing.find((option) => option.externalOptionId === externalOptionId)
       ?? existing[0];
     if (!target) {
-      await tx.channelListingOption.create({
+      const createdOption = await tx.channelListingOption.create({
         data: {
           organizationId,
           listingId,
           externalOptionId,
           sellerSku: link.providerOptionKey,
-          productVariantId: link.productVariantId,
           isActive: true,
+        },
+        select: { id: true },
+      });
+      await tx.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId,
+          channelListingOptionId: createdOption.id,
+          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+          quantity: link.quantity,
         },
       });
       continue;
@@ -330,31 +348,39 @@ async function upsertExactOptionLinks(
         organizationId,
         listingId,
         isActive: true,
-        OR: [
-          { productVariantId: null },
-          { productVariantId: link.productVariantId },
-        ],
       },
       data: {
         sellerSku: link.providerOptionKey,
-        productVariantId: link.productVariantId,
         isActive: true,
       },
     });
     if (updated.count !== 1) {
       throw new ConflictException(
-        'Marketplace option changed while confirming its ProductVariant.',
+        'Marketplace option changed while confirming its inventory recipe.',
       );
+    }
+    if (target.inventoryComponents.length === 0) {
+      await tx.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId,
+          channelListingOptionId: target.id,
+          sellpiaInventorySkuId: link.sellpiaInventorySkuId,
+          quantity: link.quantity,
+        },
+      });
     }
   }
 }
 
 async function assertExactProductGraph(
-  client: Pick<Prisma.TransactionClient, 'masterProduct' | 'productVariant'>,
+  client: Pick<Prisma.TransactionClient, 'masterProduct' | 'sellpiaInventorySku'>,
   input: {
     organizationId: string;
     masterProductId?: string;
-    optionLinks: ReadonlyArray<{ productVariantId: string }>;
+    optionLinks: ReadonlyArray<{
+      sellpiaInventorySkuId: string;
+      quantity: number;
+    }>;
   },
 ): Promise<void> {
   if (!input.masterProductId) {
@@ -377,19 +403,21 @@ async function assertExactProductGraph(
     );
   }
   if (input.optionLinks.length === 0) return;
-  const variantIds = [...new Set(input.optionLinks.map((link) => link.productVariantId))];
-  const variants = await client.productVariant.findMany({
+  if (input.optionLinks.some((link) => !Number.isSafeInteger(link.quantity) || link.quantity <= 0)) {
+    throw new BadRequestException('Every option inventory quantity must be a positive integer.');
+  }
+  const skuIds = [...new Set(input.optionLinks.map((link) => link.sellpiaInventorySkuId))];
+  const skus = await client.sellpiaInventorySku.findMany({
     where: {
       organizationId: input.organizationId,
-      masterProductId: input.masterProductId,
       isActive: true,
-      id: { in: variantIds },
+      id: { in: skuIds },
     },
     select: { id: true },
   });
-  if (new Set(variants.map((variant) => variant.id)).size !== variantIds.length) {
+  if (new Set(skus.map((sku) => sku.id)).size !== skuIds.length) {
     throw new BadRequestException(
-      'Every KidItem-first ProductVariant must belong to the linked MasterProduct.',
+      'Every KidItem-first inventory SKU must be active and belong to the organization.',
     );
   }
 }

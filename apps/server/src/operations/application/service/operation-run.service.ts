@@ -13,10 +13,15 @@ import type {
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
   'waiting_runtime',
+  'waiting_dependency',
   'running',
   'attention_required',
 ];
@@ -28,6 +33,8 @@ export class OperationRunService implements OperationRunnerPort {
     private readonly registry: OperationHandlerRegistryPort,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
+    private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
   ) {}
 
   async start(command: StartOperationCommand): Promise<OperationRun> {
@@ -91,6 +98,16 @@ export class OperationRunService implements OperationRunnerPort {
     if (!CANCELLABLE_OPERATION_STATUSES.includes(existing.status)) {
       return this.toWire(existing);
     }
+
+    const reason = command.reason ?? 'operator_cancelled';
+    await this.registry.getHandler(existing.operationKey).cancel?.({
+      runId: existing.id,
+      organizationId: existing.organizationId,
+      operationKey: existing.operationKey,
+      reason,
+      requestedByUserId: command.requestedByUserId,
+    });
+    await this.compositeCoordinator.cancelChildren(existing, reason);
 
     const cancelled = await this.repository.transition({
       organizationId: command.organizationId,

@@ -3,18 +3,23 @@ import { buildDashboardContext } from '../../domain/context';
 import type { DashboardInventoryRepositoryPort } from '../port/out/repository/dashboard-inventory.repository.port';
 import { DashboardInventoryService } from './dashboard-inventory.service';
 
-function buildRepository(
+function repository(
   overrides: Partial<DashboardInventoryRepositoryPort> = {},
 ): DashboardInventoryRepositoryPort {
   return {
     countActiveProductsByGrade: vi.fn().mockResolvedValue([]),
+    countActiveProductsByAbcStatus: vi.fn().mockResolvedValue([]),
+    findActiveAbcContributions: vi.fn().mockResolvedValue([]),
+    countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(0),
+    findAbcFormula: vi.fn().mockResolvedValue(null),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
-    countChannelLinkedProducts: vi.fn().mockResolvedValue(0),
     fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
     countOutOfStockMasterProducts: vi.fn().mockResolvedValue(0),
-    countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(0),
-    countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([]),
+    getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+      linkedMasterProductCount: 0,
+      mappingStatusRows: [],
+    }),
     findGradeHistory: vi.fn().mockResolvedValue([]),
     countLowCtrThumbnails: vi.fn().mockResolvedValue(0),
     findAGradeReviewCounts: vi.fn().mockResolvedValue([]),
@@ -23,71 +28,65 @@ function buildRepository(
 }
 
 describe('DashboardInventoryService', () => {
-  it('reports factual Sellpia zero-stock and channel mapping-attention SKU counts', async () => {
-    const repository = buildRepository({
-      countOutOfStockMasterProducts: vi.fn().mockResolvedValue(7),
-      countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(3),
-      countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([
-        { mappingStatus: 'matched', count: 8 },
-        { mappingStatus: 'unmatched', count: 2 },
-        { mappingStatus: 'needs_review', count: 1 },
-      ]),
-    });
-
-    const result = await new DashboardInventoryService(repository).getSummary(
-      buildDashboardContext(
-        undefined,
-        undefined,
-        undefined,
-        new Date('2026-07-12T00:00:00.000Z'),
-      ),
-      '11111111-1111-4111-8111-111111111111',
-    );
-
-    expect(result.warnings).toMatchObject({
-      outOfStockSkus: 7,
-      mappingAttentionSkus: 3,
-    });
-    expect(result.warnings).not.toHaveProperty('needReorder');
-    expect(result.mappingStatusCounts).toEqual({ matched: 8, unmatched: 2, needsReview: 1 });
-  });
-
-  it('returns fixed stored A/B/C counts and keeps unclassified products separate', async () => {
-    const repository = buildRepository({
+  it('reports automatic calculation statuses and contribution, not cumulative-portfolio lifecycle buckets', async () => {
+    const result = await new DashboardInventoryService(repository({
+      countActiveProducts: vi.fn().mockResolvedValue(8),
       countActiveProductsByGrade: vi.fn().mockResolvedValue([
-        { abcGrade: 'A', count: 2 },
-        { abcGrade: 'B', count: 1 },
-        { abcGrade: null, count: 4 },
-        { abcGrade: 'legacy', count: 9 },
+        { abcGrade: 'A', count: 2 }, { abcGrade: 'B', count: 1 },
       ]),
-      countActiveProducts: vi.fn().mockResolvedValue(7),
+      countActiveProductsByAbcStatus: vi.fn().mockResolvedValue([
+        { calculationStatus: 'READY', count: 3 },
+        { calculationStatus: 'INSUFFICIENT_EVIDENCE', count: 2 },
+        { calculationStatus: 'SELLPIA_SOURCE_STALE', count: 1 },
+      ]),
+      findActiveAbcContributions: vi.fn().mockResolvedValue([
+        { abcGrade: 'A', weightedContributionProfit: 800 },
+        { abcGrade: 'B', weightedContributionProfit: 200 },
+      ]),
+      countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(5),
+      getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+        linkedMasterProductCount: 6,
+        mappingStatusRows: [],
+      }),
+    })).getSummary(buildDashboardContext(), '11111111-1111-4111-8111-111111111111');
+
+    expect(result).toMatchObject({
+      gradeCount: { A: 2, B: 1, C: 0 },
+      classifiedProductCount: 3,
+      unclassifiedProductCount: 5,
+      abcStatusCount: {
+        READY: 3, INSUFFICIENT_EVIDENCE: 2, SELLPIA_SOURCE_STALE: 1,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 800, B: 200, C: 0 },
+        shareByGrade: { A: 0.8, B: 0.2, C: 0 },
+      },
+      abcFormula: null,
     });
-
-    const result = await new DashboardInventoryService(repository).getSummary(
-      buildDashboardContext(),
-      '11111111-1111-4111-8111-111111111111',
-    );
-
-    expect(result.gradeCount).toEqual({ A: 2, B: 1, C: 0 });
-    expect(result.classifiedProductCount).toBe(3);
-    expect(result.unclassifiedProductCount).toBe(4);
+    expect(result).not.toHaveProperty('abcLifecycleCount');
+    expect(result).not.toHaveProperty('abcRiskCount');
   });
 
-  it('counts nullable automatic MasterProduct grade history transitions', async () => {
-    const repository = buildRepository({
+  it('keeps factual inventory/mapping warning counts and grade transitions', async () => {
+    const result = await new DashboardInventoryService(repository({
+      countOutOfStockMasterProducts: vi.fn().mockResolvedValue(7),
+      getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+        linkedMasterProductCount: 8,
+        mappingStatusRows: [
+          { mappingStatus: 'matched', count: 8 },
+          { mappingStatus: 'unmatched', count: 2 },
+          { mappingStatus: 'needs_review', count: 1 },
+        ],
+      }),
       findGradeHistory: vi.fn().mockResolvedValue([
-        { oldGrade: null, newGrade: 'A' },
-        { oldGrade: 'A', newGrade: null },
-        { oldGrade: 'B', newGrade: 'C' },
-        { oldGrade: 'C', newGrade: 'A' },
+        { oldGrade: null, newGrade: 'A' }, { oldGrade: 'A', newGrade: null },
+        { oldGrade: 'B', newGrade: 'C' }, { oldGrade: 'C', newGrade: 'A' },
       ]),
-    });
+    })).getSummary(buildDashboardContext(), '11111111-1111-4111-8111-111111111111');
 
-    const result = await new DashboardInventoryService(repository).getSummary(
-      buildDashboardContext(),
-      '11111111-1111-4111-8111-111111111111',
-    );
-
+    expect(result.warnings).toMatchObject({ outOfStockSkus: 7, mappingAttentionSkus: 3 });
+    expect(result.channelLinkedProducts).toBe(8);
+    expect(result.mappingStatusCounts).toEqual({ matched: 8, unmatched: 2, needsReview: 1 });
     expect(result.gradeChanges).toEqual({ upgraded: 2, downgraded: 2, total: 4 });
   });
 });

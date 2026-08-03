@@ -14,6 +14,7 @@ export type BootstrapAuthoritativeInventoryArgs = {
   organizationId: string;
   organizationName: string;
   organizationSlug: string;
+  coupangVendorId: string;
   coupangAccountId?: string;
   rocketAccountId?: string;
 };
@@ -30,7 +31,8 @@ export type BootstrapAuthoritativeInventoryPlan = {
     organizationId: string;
     channel: 'coupang' | 'rocket';
     name: string;
-    externalAccountId: 'dev-wing' | 'dev-rocket';
+    externalAccountId: string;
+    vendorId: string;
     status: 'active';
     isPrimary: true;
   }>;
@@ -61,9 +63,11 @@ export function parseBootstrapArgs(argv: string[]): BootstrapAuthoritativeInvent
   };
   const organizationId = value('organization-id');
   const organizationName = value('organization-name');
+  const coupangVendorId = value('coupang-vendor-id');
   if (!organizationId) throw new Error('--organization-id is required');
   if (!UUID_PATTERN.test(organizationId)) throw new Error('--organization-id must be a UUID');
   if (!organizationName?.trim()) throw new Error('--organization-name is required');
+  if (!coupangVendorId?.trim()) throw new Error('--coupang-vendor-id is required');
 
   const coupangAccountId = optionalUuid(value('coupang-account-id'), '--coupang-account-id');
   const rocketAccountId = optionalUuid(value('rocket-account-id'), '--rocket-account-id');
@@ -71,6 +75,7 @@ export function parseBootstrapArgs(argv: string[]): BootstrapAuthoritativeInvent
     organizationId,
     organizationName: organizationName.trim(),
     organizationSlug: value('organization-slug')?.trim() || slugify(organizationName),
+    coupangVendorId: coupangVendorId.trim(),
     ...(coupangAccountId ? { coupangAccountId } : {}),
     ...(rocketAccountId ? { rocketAccountId } : {}),
   };
@@ -82,14 +87,14 @@ export function buildBootstrapPlan(
   const account = (
     channel: 'coupang' | 'rocket',
     name: string,
-    externalAccountId: 'dev-wing' | 'dev-rocket',
     id?: string,
   ) => ({
     ...(id ? { id } : {}),
     organizationId: args.organizationId,
     channel,
     name,
-    externalAccountId,
+    externalAccountId: args.coupangVendorId,
+    vendorId: args.coupangVendorId,
     status: 'active' as const,
     isPrimary: true as const,
   });
@@ -102,8 +107,8 @@ export function buildBootstrapPlan(
       isActive: true,
     },
     channelAccounts: [
-      account('coupang', 'Coupang Wing', 'dev-wing', args.coupangAccountId),
-      account('rocket', 'Coupang Rocket', 'dev-rocket', args.rocketAccountId),
+      account('coupang', 'Coupang Wing', args.coupangAccountId),
+      account('rocket', 'Coupang Rocket', args.rocketAccountId),
     ],
   };
 }
@@ -138,6 +143,7 @@ export async function bootstrapAuthoritativeInventoryDevelopment(
         channel: account.channel,
         name: account.name,
         externalAccountId: account.externalAccountId,
+        vendorId: account.vendorId,
         status: account.status,
         isPrimary: account.isPrimary,
       };

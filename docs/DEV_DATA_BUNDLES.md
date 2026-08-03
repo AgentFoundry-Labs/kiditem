@@ -426,10 +426,9 @@ select 'account_kpi', count(*) from channel_account_daily_kpi_snapshots where ch
 현재 재고 권한과 채널 매칭은 다음 두 층으로 검증한다.
 
 - Sellpia 권한 재고: `sellpia_inventory_skus.current_stock`
-- 상품/옵션 연결: `channel_listings.master_product_id`와
-  `channel_listing_options.product_variant_id`
-- 중앙 레시피: `product_variant_components`의
-  `product_variant_id` → `sellpia_inventory_sku_id` + `quantity`
+- 상품 연결: `channel_listings.master_product_id`
+- 옵션별 수량 차감: `channel_listing_option_inventory_components`의
+  `channel_listing_option_id` → `sellpia_inventory_sku_id` + `quantity`
 - Drive reference Excel: 과거 비교 증거일 뿐 DB 재고나 매칭 권한이
   아니다.
 
@@ -443,25 +442,25 @@ select
   clo.external_option_id as vendor_item_id,
   clo.item_name,
   case
-    when cl.master_product_id is null or clo.product_variant_id is null then 'unmatched'
-    when pvc.id is null or sisku.is_active = false then 'needs_review'
+    when cl.master_product_id is null then 'product_unmatched'
+    when coic.id is null or sisku.is_active = false then 'needs_review'
     else 'matched'
   end as mapping_status,
   mp.code as operating_product_code,
   mp.name as operating_product_name,
-  pv.code as variant_code,
   sisku.code as sellpia_code,
   sisku.name as sellpia_name,
   sisku.option_name,
   sisku.current_stock,
-  pvc.quantity as units_per_sale
+  coic.quantity as units_per_sale
 from channel_listing_options clo
 join channel_listings cl on cl.id = clo.listing_id
 join channel_accounts ca on ca.id = cl.channel_account_id
 left join master_products mp on mp.id = cl.master_product_id
-left join product_variants pv on pv.id = clo.product_variant_id
-left join product_variant_components pvc on pvc.product_variant_id = pv.id
-left join sellpia_inventory_skus sisku on sisku.id = pvc.sellpia_inventory_sku_id
+left join channel_listing_option_inventory_components coic
+  on coic.channel_listing_option_id = clo.id
+left join sellpia_inventory_skus sisku
+  on sisku.id = coic.sellpia_inventory_sku_id
 where ca.channel = 'coupang'
 order by cl.external_id, clo.external_option_id
 limit 100;

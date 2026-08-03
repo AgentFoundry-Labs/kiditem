@@ -30,28 +30,30 @@ const SNAPSHOT_BASE_SELECT = {
 function snapshotSelect(organizationId: string) {
   return {
     ...SNAPSHOT_BASE_SELECT,
-    variantComponents: {
+    channelListingOptionInventoryComponents: {
       where: {
         organizationId,
-        productVariant: {
+        channelListingOption: {
           organizationId,
           isActive: true,
-          masterProduct: { organizationId },
+          listing: {
+            organizationId,
+            isActive: true,
+            masterProductId: { not: null },
+          },
         },
       },
       select: {
-        productVariantId: true,
-        productVariant: {
+        channelListingOption: {
           select: {
             id: true,
-            code: true,
-            name: true,
-            optionLabel: true,
-            masterProduct: {
+            externalOptionId: true,
+            itemName: true,
+            listing: {
               select: {
                 id: true,
-                code: true,
-                name: true,
+                masterProduct: { select: { id: true, code: true, name: true } },
+                channelAccount: { select: { channel: true } },
               },
             },
           },
@@ -145,29 +147,33 @@ implements InventorySkuSnapshotListRepositoryPort {
             COUNT(*) FILTER (WHERE purchase_price IS NULL)::bigint AS "unpricedSkuCount",
             COUNT(*) FILTER (WHERE EXISTS (
               SELECT 1
-              FROM product_variant_components pvc
-              INNER JOIN product_variants pv
-                ON pv.id = pvc.product_variant_id
-                AND pv.organization_id = ${organizationId}::uuid
-                AND pv.is_active = TRUE
-              INNER JOIN master_products mp
-                ON mp.id = pv.master_product_id
-                AND mp.organization_id = ${organizationId}::uuid
-              WHERE pvc.organization_id = ${organizationId}::uuid
-                AND pvc.sellpia_inventory_sku_id = sku.id
+              FROM channel_listing_option_inventory_components component
+              INNER JOIN channel_listing_options option
+                ON option.id = component.channel_listing_option_id
+                AND option.organization_id = ${organizationId}::uuid
+                AND option.is_active = TRUE
+              INNER JOIN channel_listings listing
+                ON listing.id = option.listing_id
+                AND listing.organization_id = ${organizationId}::uuid
+                AND listing.is_active = TRUE
+                AND listing.master_product_id IS NOT NULL
+              WHERE component.organization_id = ${organizationId}::uuid
+                AND component.sellpia_inventory_sku_id = sku.id
             ))::bigint AS "linkedSkus",
             COUNT(*) FILTER (WHERE NOT EXISTS (
               SELECT 1
-              FROM product_variant_components pvc
-              INNER JOIN product_variants pv
-                ON pv.id = pvc.product_variant_id
-                AND pv.organization_id = ${organizationId}::uuid
-                AND pv.is_active = TRUE
-              INNER JOIN master_products mp
-                ON mp.id = pv.master_product_id
-                AND mp.organization_id = ${organizationId}::uuid
-              WHERE pvc.organization_id = ${organizationId}::uuid
-                AND pvc.sellpia_inventory_sku_id = sku.id
+              FROM channel_listing_option_inventory_components component
+              INNER JOIN channel_listing_options option
+                ON option.id = component.channel_listing_option_id
+                AND option.organization_id = ${organizationId}::uuid
+                AND option.is_active = TRUE
+              INNER JOIN channel_listings listing
+                ON listing.id = option.listing_id
+                AND listing.organization_id = ${organizationId}::uuid
+                AND listing.is_active = TRUE
+                AND listing.master_product_id IS NOT NULL
+              WHERE component.organization_id = ${organizationId}::uuid
+                AND component.sellpia_inventory_sku_id = sku.id
             ))::bigint AS "unlinkedSkus"
           FROM sellpia_inventory_skus sku
           WHERE sku.organization_id = ${organizationId}::uuid
@@ -218,8 +224,8 @@ implements InventorySkuSnapshotListRepositoryPort {
             && importedAtByRunId.has(row.lastImportRunId)
             ? row.lastImportRunId
             : null;
-          const { linkedProducts, linkedVariants } = linkedDestinations(
-            row.variantComponents,
+          const { linkedProducts, linkedChannelOptions } = linkedDestinations(
+            row.channelListingOptionInventoryComponents,
           );
           return {
             sellpiaInventorySkuId: row.id,
@@ -235,10 +241,10 @@ implements InventorySkuSnapshotListRepositoryPort {
             lastImportedAt: verifiedImportRunId
               ? importedAtByRunId.get(verifiedImportRunId) ?? null
               : null,
-            linkedVariantCount: linkedVariants.length,
+            linkedChannelOptionCount: linkedChannelOptions.length,
             linkedProductCount: linkedProducts.length,
             linkedProducts,
-            linkedVariants,
+            linkedChannelOptions,
           };
         }),
         total,
@@ -268,8 +274,8 @@ implements InventorySkuSnapshotListRepositoryPort {
       && row.lastImportRun.status === 'completed'
       ? row.lastImportRun
       : null;
-    const { linkedProducts, linkedVariants } = linkedDestinations(
-      row.variantComponents,
+    const { linkedProducts, linkedChannelOptions } = linkedDestinations(
+      row.channelListingOptionInventoryComponents,
     );
     return {
       sellpiaInventorySkuId: row.id,
@@ -283,10 +289,10 @@ implements InventorySkuSnapshotListRepositoryPort {
       isActive: row.isActive,
       lastImportRunId: verifiedImport?.id ?? null,
       lastImportedAt: verifiedImport?.importedAt ?? null,
-      linkedVariantCount: linkedVariants.length,
+      linkedChannelOptionCount: linkedChannelOptions.length,
       linkedProductCount: linkedProducts.length,
       linkedProducts,
-      linkedVariants,
+      linkedChannelOptions,
     } satisfies InventorySkuSnapshotRepositoryRow;
   }
 
@@ -313,46 +319,52 @@ implements InventorySkuSnapshotListRepositoryPort {
   }
 }
 
-type VariantComponentDestination = {
-  productVariantId: string;
-  productVariant: {
+type ChannelOptionComponentDestination = {
+  channelListingOption: {
     id: string;
-    code: string;
-    name: string;
-    optionLabel: string | null;
-    masterProduct: {
+    externalOptionId: string;
+    itemName: string | null;
+    listing: {
       id: string;
-      code: string;
-      name: string;
+      masterProduct: { id: string; code: string; name: string } | null;
+      channelAccount: { channel: string };
     };
   };
 };
 
-function linkedDestinations(components: VariantComponentDestination[]) {
-  const linkedVariantById = new Map(
-    components.map(({ productVariant }) => [
-      productVariant.id,
+function linkedDestinations(components: ChannelOptionComponentDestination[]) {
+  const linkedChannelOptionById = new Map(
+    components.flatMap(({ channelListingOption }) => {
+      const masterProduct = channelListingOption.listing.masterProduct;
+      if (!masterProduct) return [];
+      return [[
+      channelListingOption.id,
       {
-        id: productVariant.id,
-        masterProductId: productVariant.masterProduct.id,
-        code: productVariant.code,
-        name: productVariant.name,
-        optionLabel: productVariant.optionLabel,
+        id: channelListingOption.id,
+        masterProductId: masterProduct.id,
+        channelListingId: channelListingOption.listing.id,
+        channel: channelListingOption.listing.channelAccount.channel,
+        externalOptionId: channelListingOption.externalOptionId,
+        itemName: channelListingOption.itemName,
       },
-    ]),
+    ] as const];
+    }),
   );
   const linkedProductById = new Map(
-    components.map(({ productVariant }) => [
-      productVariant.masterProduct.id,
-      productVariant.masterProduct,
-    ]),
+    components.flatMap(({ channelListingOption }) => {
+      const masterProduct = channelListingOption.listing.masterProduct;
+      return masterProduct ? [[masterProduct.id, masterProduct] as const] : [];
+    }),
   );
   const byCodeThenId = <T extends { code: string; id: string }>(left: T, right: T) =>
     left.code.localeCompare(right.code) || left.id.localeCompare(right.id);
 
   return {
     linkedProducts: [...linkedProductById.values()].sort(byCodeThenId),
-    linkedVariants: [...linkedVariantById.values()].sort(byCodeThenId),
+    linkedChannelOptions: [...linkedChannelOptionById.values()].sort((left, right) =>
+      left.channel.localeCompare(right.channel)
+      || left.externalOptionId.localeCompare(right.externalOptionId)
+      || left.id.localeCompare(right.id)),
   };
 }
 
@@ -375,7 +387,7 @@ function snapshotWhere(
         : {}),
     ...(query.linkStatus
       ? {
-          variantComponents: query.linkStatus === 'linked'
+          channelListingOptionInventoryComponents: query.linkStatus === 'linked'
             ? { some: activeComponentWhere(organizationId) }
             : { none: activeComponentWhere(organizationId) },
         }
@@ -396,12 +408,16 @@ function snapshotWhere(
 function activeComponentWhere(organizationId: string) {
   return {
     organizationId,
-    productVariant: {
+    channelListingOption: {
       organizationId,
       isActive: true,
-      masterProduct: { organizationId },
+      listing: {
+        organizationId,
+        isActive: true,
+        masterProductId: { not: null },
+      },
     },
-  } satisfies Prisma.ProductVariantComponentWhereInput;
+  } satisfies Prisma.ChannelListingOptionInventoryComponentWhereInput;
 }
 
 function activeStatusSql(

@@ -1,28 +1,22 @@
 import { z } from 'zod';
 import { ChannelAccountListItemSchema, type ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import {
-  ChannelRecipeSuggestionResponseSchema,
-  ChannelProductCandidateListResponseSchema,
+  ChannelProductAutoMatchResponseSchema,
   ChannelProductMatchingQueueResponseSchema,
-  ChannelVariantCandidateListResponseSchema,
-  LinkChannelListingOptionRecipeInputSchema,
-  LinkChannelListingOptionRecipeResponseSchema,
-  LinkChannelListingOptionInputSchema,
-  LinkChannelListingProductInputSchema,
-  type ChannelRecipeSuggestionResponse,
-  type ChannelProductCandidateListResponse,
+  type ChannelProductAutoMatchResponse,
   type ChannelProductMatchingQueueResponse,
-  type ChannelVariantCandidateListResponse,
-  type LinkChannelListingOptionRecipeInput,
-  type LinkChannelListingOptionRecipeResponse,
-  type LinkChannelListingOptionInput,
-  type LinkChannelListingProductInput,
 } from '@kiditem/shared/channel-product-matching';
 import {
   ProductRecipeComponentCandidateListResponseSchema,
   type ProductRecipeComponentCandidateListResponse,
+  type ReplaceChannelOptionInventoryInput,
 } from '@kiditem/shared/product-operations';
-import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import {
+  CoupangRocketMatchingCsvImportResponseSchema,
+  CoupangWingCatalogImportResponseSchema,
+  type CoupangRocketMatchingCsvImportResponse,
+  type CoupangWingCatalogImportResponse,
+} from '@kiditem/shared/source-import';
 import {
   SellpiaManualMatchImportResponseSchema,
   SellpiaManualMatchSnapshotSchema,
@@ -32,11 +26,6 @@ import {
   type SellpiaManualMatchTargetsResponse,
 } from '@kiditem/shared/sellpia-manual-match';
 import { apiClient } from '@/lib/api-client';
-export {
-  applyChannelRecipeAutomation,
-  getChannelRecipeAutomationPreview,
-} from '@/lib/channel-recipe-automation-api';
-
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function listChannelAccounts(): Promise<ChannelAccountListItem[]> {
@@ -74,43 +63,24 @@ export async function importSellpiaManualMatchSnapshot(
   return SellpiaManualMatchImportResponseSchema.parse(response);
 }
 
-export function listChannelProductCandidates(
-  channelListingId: string,
-  search = '',
-): Promise<ChannelProductCandidateListResponse> {
-  return apiClient.getParsed(
-    candidateUrl(`/api/channels/product-mappings/${encodeURIComponent(channelListingId)}/candidates`, search),
-    ChannelProductCandidateListResponseSchema,
+export async function autoMatchChannelProducts(
+  channelAccountId?: string,
+): Promise<ChannelProductAutoMatchResponse> {
+  const response = await apiClient.post<unknown>(
+    '/api/channels/product-mappings/auto-match',
+    channelAccountId ? { channelAccountId } : {},
   );
+  return ChannelProductAutoMatchResponseSchema.parse(response);
 }
 
-export function listChannelVariantCandidates(
-  channelListingOptionId: string,
-  search = '',
-): Promise<ChannelVariantCandidateListResponse> {
-  return apiClient.getParsed(
-    candidateUrl(`/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/candidates`, search),
-    ChannelVariantCandidateListResponseSchema,
-  );
-}
-
-export function getChannelRecipeSuggestion(
-  channelListingOptionId: string,
-): Promise<ChannelRecipeSuggestionResponse> {
-  return apiClient.getParsed(
-    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe-suggestions`,
-    ChannelRecipeSuggestionResponseSchema,
-  );
-}
-
-export function listRecipeComponentCandidates(params: {
+export function listRecipeComponentCandidates(input: {
   search: string;
-  includeOutOfStock?: boolean;
+  includeOutOfStock: boolean;
 }): Promise<ProductRecipeComponentCandidateListResponse> {
   const query = new URLSearchParams({
-    search: params.search.trim(),
+    search: input.search.trim(),
     limit: '20',
-    stockStatus: params.includeOutOfStock ? 'all' : 'in_stock',
+    stockStatus: input.includeOutOfStock ? 'all' : 'in_stock',
   });
   return apiClient.getParsed(
     `/api/products/recipe-component-candidates?${query.toString()}`,
@@ -118,38 +88,24 @@ export function listRecipeComponentCandidates(params: {
   );
 }
 
-export async function linkChannelListingProduct(
-  channelListingId: string,
-  input: LinkChannelListingProductInput,
-): Promise<void> {
-  const body = LinkChannelListingProductInputSchema.parse(input);
-  await apiClient.put<void>(
-    `/api/channels/product-mappings/${encodeURIComponent(channelListingId)}/master-product`,
-    body,
-  );
-}
+export type ProductInventoryMatchingSaveInput = {
+  channelListingId: string;
+  options: Array<{
+    channelListingOptionId: string;
+    components: ReplaceChannelOptionInventoryInput['components'];
+  }>;
+};
 
-export async function linkChannelListingOption(
-  channelListingOptionId: string,
-  input: LinkChannelListingOptionInput,
+export async function saveProductInventoryMatching(
+  input: ProductInventoryMatchingSaveInput,
 ): Promise<void> {
-  const body = LinkChannelListingOptionInputSchema.parse(input);
-  await apiClient.put<void>(
-    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/product-variant`,
-    body,
-  );
-}
-
-export async function linkChannelListingOptionRecipe(
-  channelListingOptionId: string,
-  input: LinkChannelListingOptionRecipeInput,
-): Promise<LinkChannelListingOptionRecipeResponse> {
-  const body = LinkChannelListingOptionRecipeInputSchema.parse(input);
-  const response = await apiClient.put<unknown>(
-    `/api/channels/product-mappings/options/${encodeURIComponent(channelListingOptionId)}/recipe`,
-    body,
-  );
-  return LinkChannelListingOptionRecipeResponseSchema.parse(response);
+  for (const option of [...input.options].sort((left, right) =>
+    left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
+    await apiClient.put(
+      `/api/products/channel-options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
+      { components: option.components },
+    );
+  }
 }
 
 export function importCoupangWingCatalog(
@@ -165,7 +121,15 @@ export function importCoupangWingCatalog(
   );
 }
 
-function candidateUrl(base: string, search: string): string {
-  const normalized = search.trim();
-  return normalized ? `${base}?search=${encodeURIComponent(normalized)}` : base;
+export function importCoupangRocketMatchingCsv(
+  channelAccountId: string,
+  file: File,
+): Promise<CoupangRocketMatchingCsvImportResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiClient.uploadParsed(
+    `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-rocket-matching`,
+    CoupangRocketMatchingCsvImportResponseSchema,
+    form,
+  );
 }

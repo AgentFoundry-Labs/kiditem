@@ -135,15 +135,11 @@ describe('ActionBoardService.getTasks', () => {
         isActive: true,
         organizationId: 'organization-1',
         OR: [
-          { productVariantId: null },
-          { productVariant: { is: { components: { none: {} } } } },
+          { listing: { is: { masterProductId: null } } },
+          { inventoryComponents: { none: {} } },
           {
-            productVariant: {
-              is: {
-                components: {
-                  some: { sellpiaInventorySku: { is: { isActive: false } } },
-                },
-              },
+            inventoryComponents: {
+              some: { sellpiaInventorySku: { is: { isActive: false } } },
             },
           },
         ],

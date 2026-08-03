@@ -499,11 +499,13 @@ function assertValidCampaignSweepMarker(payload: ExtensionSyncDto): void {
     !hasDailyCollectionContract ||
     (
       payload.campaignDailyCollectionComplete === true &&
-      payload.campaignDailyWindowDays === 31 &&
+      Number.isInteger(payload.campaignDailyWindowDays) &&
+      (payload.campaignDailyWindowDays ?? 0) >= 1 &&
+      (payload.campaignDailyWindowDays ?? 0) <= 31 &&
       isExactDailyWindow(
         payload.campaignDailyFrom,
         payload.campaignDailyTo,
-        payload.campaignDailyWindowDays,
+        payload.campaignDailyWindowDays!,
       )
     );
   const valid =

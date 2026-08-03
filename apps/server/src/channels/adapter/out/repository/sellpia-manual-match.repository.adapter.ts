@@ -11,6 +11,7 @@ const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_wing_catalog',
   'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
+  'coupang_rocket_matching_csv',
 ] as const;
 const PUBLISHED_BROWSER_CATALOG_SOURCE = 'coupang_catalog_browser';
 
@@ -108,14 +109,21 @@ implements SellpiaManualMatchRepositoryPort {
     });
     const candidates = new Set<string>();
     for (const listing of listings) {
-      const listingName = listing.displayName?.trim()
-        || listing.channelName?.trim()
-        || null;
-      if (listingName) candidates.add(listingName);
+      const listingNames = [...new Set([listing.channelName, listing.displayName]
+        .map((value) => value?.trim() ?? '')
+        .filter(Boolean))];
+      for (const listingName of listingNames) candidates.add(listingName);
       for (const option of listing.options) {
         const itemName = option.itemName?.trim() || null;
-        if (itemName) candidates.add(itemName);
-        if (listingName && itemName) candidates.add(`${listingName}:${itemName}`);
+        if (itemName) {
+          if (listingNames.length === 0) {
+            candidates.add(itemName);
+          } else {
+            for (const listingName of listingNames) {
+              candidates.add(`${listingName}:${itemName}`);
+            }
+          }
+        }
       }
     }
     return [...candidates].sort();

@@ -374,20 +374,12 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       optionId: option.id,
       externalOptionId: 'VI-T-BUNDLE',
     });
-    const secondaryComponent = await prisma.productVariantComponent.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: secondaryOption.id,
-      },
-      select: { sellpiaInventorySkuId: true },
-    });
-    await prisma.productVariantComponent.create({
+    await prisma.channelListingOptionInventoryComponent.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: option.id,
-        sellpiaInventorySkuId: secondaryComponent.sellpiaInventorySkuId,
+        channelListingOptionId: listing.listingOptionId,
+        sellpiaInventorySkuId: secondaryOption.id,
         quantity: 2,
-        source: 'manual',
       },
     });
     await seedOrderWithLineItems(prisma, {

@@ -11,7 +11,7 @@ describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
       { sellpiaInventorySku: { code: 'SP-002' } },
     ]);
     const adapter = new ConfirmedChannelComponentReferenceRepositoryAdapter({
-      productVariantComponent: { findMany },
+      channelListingOptionInventoryComponent: { findMany },
     } as never);
 
     await expect(adapter.listReferencedSellpiaProductCodes(ORGANIZATION_ID))
@@ -19,7 +19,13 @@ describe('ConfirmedChannelComponentReferenceRepositoryAdapter', () => {
     expect(findMany).toHaveBeenCalledWith({
       where: {
         organizationId: ORGANIZATION_ID,
-        productVariant: { organizationId: ORGANIZATION_ID },
+        channelListingOption: {
+          organizationId: ORGANIZATION_ID,
+          listing: {
+            organizationId: ORGANIZATION_ID,
+            masterProductId: { not: null },
+          },
+        },
         sellpiaInventorySku: { organizationId: ORGANIZATION_ID },
       },
       select: { sellpiaInventorySku: { select: { code: true } } },

@@ -57,7 +57,7 @@ function row(
     barcode: '8800000000001',
     orderQuantity: 3,
     reason,
-    channelSkuId,
+    channelListingOptionId: channelSkuId,
     components: reason === 'insufficient_capacity' ? [{
       sellpiaInventorySkuId: '99999999-9999-4999-8999-999999999999',
       quantity: 1,

@@ -18,7 +18,7 @@ import {
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const RUN_ID = '22222222-2222-4222-8222-222222222222';
 const MASTER_PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
-const PRODUCT_VARIANT_ID = '44444444-4444-4444-8444-444444444444';
+const CHANNEL_LISTING_OPTION_ID = '44444444-4444-4444-8444-444444444444';
 const SELLPIA_INVENTORY_SKU_ID = '55555555-5555-4555-8555-555555555555';
 const CONFIRMATION_ID = '66666666-6666-4666-8666-666666666666';
 
@@ -92,17 +92,6 @@ function publication() {
       createdSkuCount: 1,
       updatedSkuCount: 0,
     },
-    recipeAutomation: {
-      evaluatedProducts: 1,
-      appliedProducts: 1,
-      appliedVariants: 1,
-      affectedOptions: 1,
-      quantityReviewProducts: 0,
-      operatorReviewProducts: 0,
-      blockedProducts: 0,
-      alreadyConfiguredProducts: 0,
-      skippedExistingVariants: 0,
-    },
   });
 }
 
@@ -120,13 +109,11 @@ describe('Rocket purchase preview contract', () => {
     expect(isRocketWorkbookBlockingReason(null)).toBe(false);
   });
 
-  it('publishes the scoped deterministic recipe automation result with the Rocket catalog', () => {
+  it('publishes the scoped Rocket catalog changes without a recipe automation payload', () => {
     const published = publication();
 
-    expect(published.recipeAutomation).toMatchObject({
-      appliedProducts: 1,
-      appliedVariants: 1,
-    });
+    expect(published.changes).toMatchObject({ createdProductCount: 1, createdSkuCount: 1 });
+    expect(published).not.toHaveProperty('recipeAutomation');
   });
 
   it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
@@ -300,9 +287,8 @@ describe('Rocket purchase preview contract', () => {
         maxQuantity: 0,
         editedQuantity: null,
         reason: 'collection_incomplete',
-        channelSkuId: null,
+        channelListingOptionId: null,
         masterProductId: null,
-        productVariantId: null,
         components: [],
       }],
     });
@@ -314,7 +300,7 @@ describe('Rocket purchase preview contract', () => {
     expect(response).not.toHaveProperty('submissionAttempt');
   });
 
-  it('keeps product, variant, and physical Sellpia identities distinct', () => {
+  it('keeps product, channel option, and physical Sellpia identities distinct', () => {
     const response = RocketPurchasePreviewResponseSchema.parse({
       status: 'ready',
       collectionRunId: RUN_ID,
@@ -331,9 +317,8 @@ describe('Rocket purchase preview contract', () => {
         maxQuantity: 5,
         editedQuantity: null,
         reason: null,
-        channelSkuId: ACCOUNT_ID,
+        channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
         masterProductId: MASTER_PRODUCT_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
           code: 'SP-100',
@@ -349,14 +334,14 @@ describe('Rocket purchase preview contract', () => {
     if (response.status !== 'ready') throw new Error('Expected ready preview');
     expect(response.rows[0]).toMatchObject({
       masterProductId: MASTER_PRODUCT_ID,
-      productVariantId: PRODUCT_VARIANT_ID,
+      channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
       components: [{ sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID }],
     });
     expect(response.rows[0]?.components[0]).not.toHaveProperty('masterProductId');
   });
 
   it.each(['configuration_required', 'review_required'] as const)(
-    'accepts the central recipe warning reason %s',
+    'accepts the option-component warning reason %s',
     (reason) => {
       const parsed = RocketPurchasePreviewResponseSchema.parse({
         status: 'ready',
@@ -374,9 +359,8 @@ describe('Rocket purchase preview contract', () => {
           maxQuantity: 0,
           editedQuantity: null,
           reason,
-          channelSkuId: ACCOUNT_ID,
+          channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
           masterProductId: MASTER_PRODUCT_ID,
-          productVariantId: PRODUCT_VARIANT_ID,
           components: [],
         }],
       });
@@ -402,9 +386,8 @@ describe('Rocket purchase preview contract', () => {
         maxQuantity: 0,
         editedQuantity: null,
         reason: 'collection_incomplete',
-        channelSkuId: null,
+        channelListingOptionId: null,
         masterProductId: null,
-        productVariantId: null,
         components: [],
       }],
     })).toThrow(/plannedDeliveryDate/i);
@@ -427,9 +410,8 @@ describe('Rocket purchase preview contract', () => {
         maxQuantity: 2,
         editedQuantity: null,
         reason: 'insufficient_capacity',
-        channelSkuId: ACCOUNT_ID,
+        channelListingOptionId: CHANNEL_LISTING_OPTION_ID,
         masterProductId: MASTER_PRODUCT_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
           code: 'SP-100',

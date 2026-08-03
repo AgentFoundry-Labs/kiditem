@@ -5,8 +5,8 @@ import {
 } from './kiditem-first-registration-links';
 
 const masterProductId = '00000000-0000-4000-8000-000000000001';
-const firstVariantId = '00000000-0000-4000-8000-000000000002';
-const secondVariantId = '00000000-0000-4000-8000-000000000003';
+const firstInventorySkuId = '00000000-0000-4000-8000-000000000002';
+const secondInventorySkuId = '00000000-0000-4000-8000-000000000003';
 
 describe('KidItem-first registration links', () => {
   it('normalizes exact identities and derives provider option keys from the frozen order', () => {
@@ -14,8 +14,8 @@ describe('KidItem-first registration links', () => {
       registrationInput: {
         masterProductId: ` ${masterProductId} `,
         optionLinks: [
-          { externalOptionId: ' BLUE ', productVariantId: firstVariantId },
-          { externalOptionId: 'LARGE', productVariantId: secondVariantId },
+          { externalOptionId: ' BLUE ', sellpiaInventorySkuId: firstInventorySkuId, quantity: 1 },
+          { externalOptionId: 'LARGE', sellpiaInventorySkuId: secondInventorySkuId, quantity: 10 },
         ],
         listingPayload: { items: [{}, {}] },
       },
@@ -24,12 +24,14 @@ describe('KidItem-first registration links', () => {
       optionLinks: [
         {
           externalOptionId: 'BLUE',
-          productVariantId: firstVariantId,
+          sellpiaInventorySkuId: firstInventorySkuId,
+          quantity: 1,
           providerOptionKey: 'submission-key',
         },
         {
           externalOptionId: 'LARGE',
-          productVariantId: secondVariantId,
+          sellpiaInventorySkuId: secondInventorySkuId,
+          quantity: 10,
           providerOptionKey: 'submission-key:1',
         },
       ],
@@ -52,8 +54,8 @@ describe('KidItem-first registration links', () => {
       registrationInput: {
         masterProductId,
         optionLinks: [
-          { externalOptionId: 'OPTION-1', productVariantId: firstVariantId },
-          { externalOptionId: 'ＯＰＴＩＯＮ－１', productVariantId: secondVariantId },
+          { externalOptionId: 'OPTION-1', sellpiaInventorySkuId: firstInventorySkuId, quantity: 1 },
+          { externalOptionId: 'ＯＰＴＩＯＮ－１', sellpiaInventorySkuId: secondInventorySkuId, quantity: 1 },
         ],
         listingPayload: { items: [{}, {}] },
       },
@@ -65,7 +67,7 @@ describe('KidItem-first registration links', () => {
       registrationInput: {
         masterProductId,
         optionLinks: [
-          { externalOptionId: 'BLUE', productVariantId: firstVariantId },
+          { externalOptionId: 'BLUE', sellpiaInventorySkuId: firstInventorySkuId, quantity: 1 },
         ],
         listingPayload: { items: [{}, {}] },
       },

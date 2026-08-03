@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ConfirmedOrdersRepositoryAdapter } from './confirmed-orders.repository.adapter';
 
 describe('ConfirmedOrdersRepositoryAdapter', () => {
-  it('reads the organization-fenced central variant recipe for picking', async () => {
+  it('reads the organization-fenced channel-option recipe for picking', async () => {
     const findMany = vi.fn().mockResolvedValue([{
       id: 'order-1',
       lineItems: [{
@@ -10,20 +10,17 @@ describe('ConfirmedOrdersRepositoryAdapter', () => {
         quantity: 2,
         listingOption: {
           organizationId: 'org-1',
-          productVariant: {
+          inventoryComponents: [{
             organizationId: 'org-1',
-            components: [{
+            sellpiaInventorySkuId: 'sku-1',
+            quantity: 2,
+            sellpiaInventorySku: {
               organizationId: 'org-1',
-              sellpiaInventorySkuId: 'sku-1',
-              quantity: 2,
-              sellpiaInventorySku: {
-                organizationId: 'org-1',
-                code: 'SP-001',
-                name: 'Widget',
-                optionName: null,
-              },
-            }],
-          },
+              code: 'SP-001',
+              name: 'Widget',
+              optionName: null,
+            },
+          }],
         },
       }],
     }]);
@@ -55,7 +52,7 @@ describe('ConfirmedOrdersRepositoryAdapter', () => {
         lineItems: expect.objectContaining({
           select: expect.objectContaining({
             listingOption: expect.objectContaining({
-              select: expect.objectContaining({ productVariant: expect.any(Object) }),
+              select: expect.objectContaining({ inventoryComponents: expect.any(Object) }),
             }),
           }),
         }),
@@ -71,20 +68,17 @@ describe('ConfirmedOrdersRepositoryAdapter', () => {
         quantity: 1,
         listingOption: {
           organizationId: 'org-1',
-          productVariant: {
+          inventoryComponents: [{
             organizationId: 'org-1',
-            components: [{
-              organizationId: 'org-1',
-              sellpiaInventorySkuId: 'foreign-sku',
-              quantity: 1,
-              sellpiaInventorySku: {
-                organizationId: 'org-2',
-                code: 'SP-FOREIGN',
-                name: 'Foreign',
-                optionName: null,
-              },
-            }],
-          },
+            sellpiaInventorySkuId: 'foreign-sku',
+            quantity: 1,
+            sellpiaInventorySku: {
+              organizationId: 'org-2',
+              code: 'SP-FOREIGN',
+              name: 'Foreign',
+              optionName: null,
+            },
+          }],
         },
       }],
     }]);

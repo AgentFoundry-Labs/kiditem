@@ -17,9 +17,6 @@ import {
   type SellpiaRecipeEvidencePort,
 } from '../port/out/cross-domain/sellpia-recipe-evidence.port';
 import {
-  type ChannelRecipeAutomationContext,
-} from '../port/out/repository/channel-recipe-automation-context.repository.port';
-import {
   SELLPIA_MANUAL_MATCH_REPOSITORY_PORT,
   type SellpiaManualMatchRepositoryPort,
 } from '../port/out/repository/sellpia-manual-match.repository.port';
@@ -58,7 +55,6 @@ export class ChannelRecipeSuggestionService {
     if (!context) throw new NotFoundException('ChannelListingOption was not found');
 
     const [suggestion] = await this.suggestBatch(organizationId, [{
-      productVariantId: context.productVariantId!,
       masterProductId: context.masterProductId!,
       selectedChannelListingOptionIds: [channelListingOptionId],
       allLinkedOptions: context.options,
@@ -76,7 +72,6 @@ export class ChannelRecipeSuggestionService {
     },
   ): Promise<ChannelRecipeSuggestionResponse> {
     return this.suggestContexts(organizationId, [{
-      productVariantId: null,
       masterProductId: null,
       selectedChannelListingOptionIds: [input.sourceCandidateId],
       allLinkedOptions: [{
@@ -109,7 +104,7 @@ export class ChannelRecipeSuggestionService {
 
   async suggestBatch(
     organizationId: string,
-    contexts: ChannelRecipeAutomationContext[],
+    contexts: RecipeSuggestionContext[],
   ): Promise<ChannelRecipeSuggestionResponse[]> {
     return this.suggestContexts(organizationId, contexts);
   }
@@ -207,7 +202,6 @@ export class ChannelRecipeSuggestionService {
           }));
       return ChannelRecipeSuggestionResponseSchema.parse(classifyChannelRecipeSuggestion({
         channelListingOptionId: context.selectedChannelListingOptionIds[0]!,
-        productVariantId: context.productVariantId,
         masterProductId: context.masterProductId,
         options: context.allLinkedOptions,
         existingComponents: context.existingComponents,
@@ -223,7 +217,7 @@ export class ChannelRecipeSuggestionService {
 }
 
 function manualMatchAliasCandidates(
-  options: ChannelRecipeAutomationContext['allLinkedOptions'],
+  options: RecipeSuggestionContext['allLinkedOptions'],
 ): Array<{ channelValue: string; normalizedValue: string }> {
   const byNormalizedValue = new Map<string, string>();
   for (const option of options) {
@@ -246,19 +240,32 @@ function manualMatchAliasCandidates(
     .sort((left, right) => left.normalizedValue.localeCompare(right.normalizedValue));
 }
 
-type RecipeSuggestionContext = Omit<
-  ChannelRecipeAutomationContext,
-  'productVariantId' | 'masterProductId'
-> & {
-  productVariantId: string | null;
+type RecipeSuggestionContext = {
   masterProductId: string | null;
+  selectedChannelListingOptionIds: string[];
+  allLinkedOptions: Array<{
+    channelListingOptionId: string;
+    listingName: string | null;
+    itemName: string | null;
+    sellerSku: string | null;
+    modelNumber: string | null;
+    barcode: string | null;
+  }>;
+  existingComponents: Array<{
+    sellpiaInventorySkuId: string;
+    code: string;
+    quantity: number;
+    source: 'manual' | 'deterministic';
+    confirmedBy: string | null;
+    confirmedAt: Date | string;
+  }>;
 };
 
 function evidenceForCode(
   channelValue: string | null,
   kind: 'seller_sku_code' | 'model_number_code',
   skus: Awaited<ReturnType<SellpiaRecipeEvidencePort['findByCodes']>>,
-  options: ChannelRecipeAutomationContext['allLinkedOptions'],
+  options: RecipeSuggestionContext['allLinkedOptions'],
 ) {
   if (!channelValue?.trim()) return [];
   return skus.filter((sku) => sku.code === channelValue.trim()).map((sku) => ({
@@ -280,7 +287,7 @@ function normalizePhysicalBarcode(value: string | null): string | null {
 }
 
 function evidenceForNames(
-  options: ChannelRecipeAutomationContext['allLinkedOptions'],
+  options: RecipeSuggestionContext['allLinkedOptions'],
   skus: Awaited<ReturnType<SellpiaRecipeEvidencePort['findByNormalizedNames']>>,
 ) {
   const nameOptionEvidence: Array<{

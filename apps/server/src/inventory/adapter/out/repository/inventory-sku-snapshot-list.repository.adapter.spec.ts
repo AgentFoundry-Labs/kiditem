@@ -20,19 +20,25 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
           salePrice: null,
           isActive: true,
           lastImportRunId: UNVERIFIED_RUN_ID,
-          variantComponents: [
+          channelListingOptionInventoryComponents: [
             {
-              productVariantId: 'variant-1',
-              productVariant: {
-                id: 'variant-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null,
-                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              channelListingOption: {
+                id: 'option-1', externalOptionId: 'OPTION-1', itemName: '옵션 1',
+                listing: {
+                  id: 'listing-1',
+                  masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+                  channelAccount: { channel: 'coupang' },
+                },
               },
             },
             {
-              productVariantId: 'variant-2',
-              productVariant: {
-                id: 'variant-2', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑',
-                masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+              channelListingOption: {
+                id: 'option-2', externalOptionId: 'OPTION-2', itemName: '옵션 2',
+                listing: {
+                  id: 'listing-1',
+                  masterProduct: { id: 'product-1', code: 'PRODUCT-1', name: '상품 1' },
+                  channelAccount: { channel: 'coupang' },
+                },
               },
             },
           ],
@@ -97,12 +103,12 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
     expect(result.rows[0]).toMatchObject({
       lastImportRunId: null,
       lastImportedAt: null,
-      linkedVariantCount: 2,
+      linkedChannelOptionCount: 2,
       linkedProductCount: 1,
       linkedProducts: [{ id: 'product-1', code: 'PRODUCT-1', name: '상품 1' }],
-      linkedVariants: [
-        { id: 'variant-1', masterProductId: 'product-1', code: 'VARIANT-1', name: '옵션 1', optionLabel: null },
-        { id: 'variant-2', masterProductId: 'product-1', code: 'VARIANT-2', name: '옵션 2', optionLabel: '색상: 파랑' },
+      linkedChannelOptions: [
+        { id: 'option-1', masterProductId: 'product-1', channelListingId: 'listing-1', channel: 'coupang', externalOptionId: 'OPTION-1', itemName: '옵션 1' },
+        { id: 'option-2', masterProductId: 'product-1', channelListingId: 'listing-1', channel: 'coupang', externalOptionId: 'OPTION-2', itemName: '옵션 2' },
       ],
     });
     expect(result.summary).toEqual({
@@ -117,8 +123,8 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
     });
     const summarySql = String(tx.$queryRaw.mock.calls[0]?.[0]);
     expect(summarySql).toContain('EXISTS');
-    expect(summarySql).toContain('product_variant_components');
-    expect(summarySql).toContain('pvc.organization_id =');
+    expect(summarySql).toContain('channel_listing_option_inventory_components');
+    expect(summarySql).toContain('component.organization_id =');
   });
 
   it('scopes a single snapshot read by both organization and inventory SKU id', async () => {
@@ -133,7 +139,7 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       salePrice: 2_000,
       isActive: true,
       lastImportRunId: UNVERIFIED_RUN_ID,
-      variantComponents: [],
+      channelListingOptionInventoryComponents: [],
       lastImportRun: {
         id: UNVERIFIED_RUN_ID,
         sourceType: 'sellpia_inventory',
@@ -155,10 +161,10 @@ describe('InventorySkuSnapshotListRepositoryAdapter', () => {
       sellpiaInventorySkuId: SKU_ID,
       lastImportRunId: UNVERIFIED_RUN_ID,
       lastImportedAt: new Date('2026-07-12T00:00:00.000Z'),
-      linkedVariantCount: 0,
+      linkedChannelOptionCount: 0,
       linkedProductCount: 0,
       linkedProducts: [],
-      linkedVariants: [],
+      linkedChannelOptions: [],
     });
   });
 

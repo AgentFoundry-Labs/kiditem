@@ -50,7 +50,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
-              components: [],
+              inventoryComponents: [],
             },
           },
           {
@@ -61,7 +61,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
-              components: [],
+              inventoryComponents: [],
             },
           },
           {
@@ -72,7 +72,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
               commissionRate: 0.1,
               shippingCost: 999,
               otherCost: 0,
-              components: [],
+              inventoryComponents: [],
             },
           },
         ],
@@ -92,7 +92,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 10000,
-            listingOption: { costPriceOverride: 5000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, components: [] },
+            listingOption: { costPriceOverride: 5000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, inventoryComponents: [] },
           },
         ],
       },
@@ -102,7 +102,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           {
             quantity: 1,
             totalPrice: 8000,
-            listingOption: { costPriceOverride: 4000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, components: [] },
+            listingOption: { costPriceOverride: 4000, commissionRate: 0.1, shippingCost: 999, otherCost: 0, inventoryComponents: [] },
           },
         ],
       },
@@ -138,7 +138,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
               commissionRate: 0.1,
               shippingCost: 3000,
               otherCost: 0,
-              components: [],
+              inventoryComponents: [],
             },
           },
         ],
@@ -156,7 +156,7 @@ describe('ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
 
   it('status filter (cancelled/returned/refunded) excludes shipping accumulation via order.findMany where', async () => {
     const findManyMock = vi.fn().mockResolvedValue([
-      { shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, listingOption: { costPriceOverride: 5000, commissionRate: 0.1, otherCost: 0, components: [] } }] },
+      { shippingPrice: 3000, lineItems: [{ quantity: 1, totalPrice: 10000, listingOption: { costPriceOverride: 5000, commissionRate: 0.1, otherCost: 0, inventoryComponents: [] } }] },
     ]);
     const prisma: PrismaMock = {
       order: { findMany: findManyMock },

@@ -8,7 +8,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
   'check-sellpia-cutover-preflight.ts',
-  'check-sellpia-db-push-warning.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
@@ -31,7 +30,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'seed-order-collection-mall-accounts.ts',
   'staging-db-baseline.ts',
   'storage-cache-control.ts',
-  'transfer-channel-recipes.ts',
   'vitest.config.ts',
 ]);
 

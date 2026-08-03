@@ -21,26 +21,21 @@ export class ConfirmedOrdersRepositoryAdapter implements ConfirmedOrdersPort {
             listingOption: {
               select: {
                 organizationId: true,
-                productVariant: {
+                inventoryComponents: {
+                  where: {
+                    organizationId,
+                    sellpiaInventorySku: { organizationId },
+                  },
                   select: {
                     organizationId: true,
-                    components: {
-                      where: {
-                        organizationId,
-                        sellpiaInventorySku: { organizationId },
-                      },
+                    sellpiaInventorySkuId: true,
+                    quantity: true,
+                    sellpiaInventorySku: {
                       select: {
                         organizationId: true,
-                        sellpiaInventorySkuId: true,
-                        quantity: true,
-                        sellpiaInventorySku: {
-                          select: {
-                            organizationId: true,
-                            code: true,
-                            name: true,
-                            optionName: true,
-                          },
-                        },
+                        code: true,
+                        name: true,
+                        optionName: true,
                       },
                     },
                   },
@@ -68,34 +63,30 @@ export class ConfirmedOrdersRepositoryAdapter implements ConfirmedOrdersPort {
 function toPickingListingOption(
   listingOption: {
     organizationId: string;
-    productVariant: {
+    inventoryComponents: Array<{
       organizationId: string;
-      components: Array<{
+      sellpiaInventorySkuId: string;
+      quantity: number;
+      sellpiaInventorySku: {
         organizationId: string;
-        sellpiaInventorySkuId: string;
-        quantity: number;
-        sellpiaInventorySku: {
-          organizationId: string;
-          code: string;
-          name: string;
-          optionName: string | null;
-        };
-      }>;
-    } | null;
+        code: string;
+        name: string;
+        optionName: string | null;
+      };
+    }>;
   } | null,
   organizationId: string,
 ): PickingSourceOrder['lineItems'][number]['listingOption'] {
   if (
     listingOption?.organizationId !== organizationId
-    || listingOption.productVariant?.organizationId !== organizationId
-    || listingOption.productVariant.components.some((component) => (
+    || listingOption.inventoryComponents.some((component) => (
       component.organizationId !== organizationId
       || component.sellpiaInventorySku.organizationId !== organizationId
     ))
   ) return null;
 
   return {
-    components: listingOption.productVariant.components.map((component) => ({
+    components: listingOption.inventoryComponents.map((component) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       quantity: component.quantity,
       sellpiaInventorySku: {

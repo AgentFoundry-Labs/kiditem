@@ -15,7 +15,6 @@ const sku = (overrides: Partial<ChannelRecipeSuggestionInput['codeEvidence'][num
 
 const input = (overrides: Partial<ChannelRecipeSuggestionInput> = {}): ChannelRecipeSuggestionInput => ({
   channelListingOptionId: '00000000-0000-4000-8000-000000000001',
-  productVariantId: '00000000-0000-4000-8000-000000000002',
   masterProductId: '00000000-0000-4000-8000-000000000003',
   options: [{
     channelListingOptionId: '00000000-0000-4000-8000-000000000001',
@@ -62,6 +61,12 @@ describe('classifyChannelRecipeSuggestion', () => {
   it.each([
     ['18 개입', 18],
     ['5 개 묶음', 5],
+    ['2개입 x 3세트', 6],
+    ['3팩×2', 6],
+    ['2 x 3개', 6],
+    ['１＋１', 2],
+    ['4종 세트', 4],
+    ['3종 택1', 1],
   ])('auto-confirms explicit title quantity %s when Sellpia item_count agrees', (title, quantity) => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], listingName: `키즈 식판 ${title}` }],
@@ -77,6 +82,24 @@ describe('classifyChannelRecipeSuggestion', () => {
       status: 'confirmed_manual_match_alias',
       automationDecision: 'auto_apply',
       recommendedQuantity: quantity,
+    });
+  });
+
+  it('keeps contradictory combined title quantities under review', () => {
+    const result = classifyChannelRecipeSuggestion(input({
+      options: [{ ...input().options[0], listingName: '키즈 식판 2개입 x 3세트' }],
+      manualMatchEvidence: [{
+        channelValue: '키즈 식판 2개입 x 3세트',
+        normalizedValue: '키즈식판2개입x3세트',
+        quantity: 5,
+        sku: sku(),
+      }],
+    }));
+
+    expect(result).toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      recommendedQuantity: null,
     });
   });
 
@@ -185,7 +208,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     })]);
   });
 
-  it('does not infer quantity from matching pack-like title text', () => {
+  it('infers the deduction quantity from matching pack-like title text', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '2개 세트' }],
       codeEvidence: [{
@@ -194,12 +217,12 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 2개 세트' }),
       }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(2);
   });
 
-  it('does not derive a component ratio from title numbers', () => {
+  it('derives a component ratio from title numbers', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{
@@ -208,18 +231,19 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 5개입' }),
       }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(10);
   });
 
-  it('keeps a multi-unit channel pack under review when the Sellpia unit has no pack evidence', () => {
+  it('uses a multi-unit channel pack as the deduction quantity when the Sellpia unit has no pack evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(10);
   });
 
   it('auto-applies one unique physical barcode candidate', () => {

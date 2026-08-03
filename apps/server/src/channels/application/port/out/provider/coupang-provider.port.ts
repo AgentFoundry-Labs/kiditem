@@ -74,6 +74,7 @@ export interface SellerProductDetailResponse {
 export interface OrderSheetResponse {
   code: string;
   message: string;
+  nextToken?: string;
   data?: Array<{
     shipmentBoxId: number;
     orderId: number;

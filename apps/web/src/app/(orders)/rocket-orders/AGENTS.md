@@ -48,10 +48,10 @@ selecting a calendar date only narrows the preview.
 - Opening or recalculating an operator preview uses the latest stored Sellpia
   snapshot immediately and never waits for a background refresh. Official
   workbook export remains server-fenced by a fresh inventory generation.
-- Product/option identity and recipe-review blockers link to the existing
+- Product-link and component-review blockers link to the existing
   Product Hub matching center. A `configuration_required` row already has a
-  confirmed `ProductVariant`, so it creates the empty Sellpia component recipe
-  directly in the Rocket table through the Products-owned create-if-empty API.
+  confirmed channel option identity, so it creates the empty Sellpia component
+  rule directly in the Rocket table through the Products-owned endpoint.
   A configured row displays each Sellpia component code and name and may replace
   the complete recipe inline through Products' expected-recipe-fenced manual API.
   After any correction, rerun the same saved-source preview; do not collect from
@@ -71,12 +71,13 @@ selecting a calendar date only narrows the preview.
   `RocketPoCatalogLine`. The durable Rocket workflow and exact workbook artifact
   are stored by Supply; Rocket does not create inventory commitments.
 - Every downloaded workbook line, including a zero-quantity line, requires
-  its current confirmed active `ProductVariantComponent` recipe. Never export
+  its current confirmed active `ChannelListingOptionInventoryComponent` rule.
+  Never export
   a draft workbook from an unmapped or stock-only row.
 - Workbook download must not call a marketplace provider or mutate Sellpia
   physical stock. Reopening saved evidence reruns current Inventory freshness
   and capacity.
-- Inline Rocket recipe repair may select active Sellpia inventory identities and
+- Inline Rocket component repair may select active Sellpia inventory identities and
   positive component quantities only. It may create an empty recipe or replace
   an operator-reviewed complete recipe with optimistic current-recipe evidence;
   it does not infer product identity or mutate stock.

@@ -9,9 +9,10 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { ProductEditorDialog } from '../components/ProductEditorDialog';
+import { ProductAbcDetailDialog } from '../components/ProductAbcDetailDialog';
 import ProductHeader from './components/ProductHeader';
 import ProductInfoCards from './components/ProductInfoCards';
-import ProductVariantPanel from './components/ProductVariantPanel';
+import ChannelOptionInventoryPanel from './components/ChannelOptionInventoryPanel';
 
 export default function ProductHubDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,7 @@ export default function ProductHubDetailPage() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const [editorOpen, setEditorOpen] = useState(false);
+  const [abcDetailOpen, setAbcDetailOpen] = useState(false);
   const { data: product, isLoading, error } = useQuery({
     queryKey: queryKeys.products.operations.detail(id),
     queryFn: () => apiClient.getParsed(
@@ -38,13 +40,15 @@ export default function ProductHubDetailPage() {
       </div>
     );
   }
-  const recipeVariantId = searchParams.get('recipeVariant') ?? undefined;
-  const validRecipeVariantId = product.variants.some((variant) => variant.id === recipeVariantId)
-    ? recipeVariantId
+  const inventoryOptionId = searchParams.get('inventoryOption') ?? undefined;
+  const validInventoryOptionId = product.channelListings
+    .flatMap(({ options }) => options)
+    .some((option) => option.id === inventoryOptionId)
+    ? inventoryOptionId
     : undefined;
   const closeRecipeDialog = () => {
     const next = new URLSearchParams(searchParams.toString());
-    next.delete('recipeVariant');
+    next.delete('inventoryOption');
     next.delete('recipeSearch');
     const suffix = next.toString();
     router.replace(suffix ? `${pathname}?${suffix}` : pathname);
@@ -53,18 +57,24 @@ export default function ProductHubDetailPage() {
   return (
     <div className="space-y-6">
       <ProductHeader product={product} onEdit={() => setEditorOpen(true)} />
-      <ProductInfoCards product={product} />
-      <ProductVariantPanel
-        variants={product.variants}
-        recipeVariantId={validRecipeVariantId}
-        initialInventorySearch={validRecipeVariantId ? searchParams.get('recipeSearch') ?? undefined : undefined}
-        onRecipeDialogClose={closeRecipeDialog}
+      <ProductInfoCards product={product} onOpenAbcDetail={() => setAbcDetailOpen(true)} />
+      <ChannelOptionInventoryPanel
+        channelListings={product.channelListings}
+        inventoryOptionId={validInventoryOptionId}
+        initialInventorySearch={validInventoryOptionId ? searchParams.get('recipeSearch') ?? undefined : undefined}
+        onInventoryDialogClose={closeRecipeDialog}
       />
       <ProductEditorDialog
         open={editorOpen}
         onOpenChange={setEditorOpen}
         onSaved={() => undefined}
         product={product}
+      />
+      <ProductAbcDetailDialog
+        open={abcDetailOpen}
+        onOpenChange={setAbcDetailOpen}
+        product={product}
+        showProductLink={false}
       />
     </div>
   );

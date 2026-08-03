@@ -4,7 +4,6 @@ import type {
   ChannelOptionMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
 import type { ChannelProductCandidate } from '../../../../domain/channel-product-candidate-ranking';
-import type { ChannelVariantCandidate } from '../../../../domain/channel-variant-candidate-ranking';
 
 export type ChannelProductMatchingQuery = Readonly<{
   channelAccountId?: string;
@@ -24,22 +23,6 @@ export type ChannelProductCandidateContext = Readonly<{
     score: number | null;
   } | null;
   candidates: readonly ChannelProductCandidate[];
-}>;
-
-export type ChannelVariantCandidateContext = Readonly<{
-  optionId: string;
-  externalOptionId: string;
-  productVariantId: string | null;
-  masterProductId: string | null;
-  sellerSku: string | null;
-  barcode: string | null;
-  itemName: string | null;
-  aiSuggestion: {
-    productVariantId: string;
-    explanation: string;
-    score: number | null;
-  } | null;
-  candidates: readonly ChannelVariantCandidate[];
 }>;
 
 export type ChannelAvailabilityRepositoryRow = Readonly<{
@@ -63,25 +46,17 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
     status: string | null;
     updatedAt: Date;
   };
-  variant: null | {
-    id: string;
-    masterProductId: string;
+  inventoryComponents: ReadonlyArray<{
+    sellpiaInventorySkuId: string;
     code: string;
     name: string;
+    optionName: string | null;
+    barcode: string | null;
+    currentStock: number;
+    purchasePrice: number | null;
     isActive: boolean;
-    components: ReadonlyArray<{
-      sellpiaInventorySkuId: string;
-      code: string;
-      name: string;
-      optionName: string | null;
-      barcode: string | null;
-      currentStock: number;
-      purchasePrice: number | null;
-      isActive: boolean;
-      quantity: number;
-      source: 'manual' | 'deterministic';
-    }>;
-  };
+    quantity: number;
+  }>;
 }>;
 
 export const CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT = Symbol(
@@ -98,21 +73,19 @@ export interface ChannelProductMatchingRepositoryPort {
     channelListingId: string,
     search?: string,
   ): Promise<ChannelProductCandidateContext | null>;
-  getVariantCandidateContext(
-    organizationId: string,
-    channelListingOptionId: string,
-    search?: string,
-  ): Promise<ChannelVariantCandidateContext | null>;
   linkProduct(input: {
     organizationId: string;
     channelListingId: string;
     masterProductId: string | null;
   }): Promise<void>;
-  linkOption(input: {
+  autoMatch(input: {
     organizationId: string;
-    channelListingOptionId: string;
-    productVariantId: string | null;
-  }): Promise<void>;
+    channelAccountId?: string;
+  }): Promise<{
+    evaluatedListings: number;
+    matchedListings: number;
+    configuredOptions: number;
+  }>;
   listAvailabilityRows(
     organizationId: string,
     query: {

@@ -5,6 +5,7 @@ import type { MasterProductOperationsListResponse } from '@kiditem/shared/produc
 
 const state = vi.hoisted(() => ({
   abcGrade: '',
+  dataStatusOpen: false,
   activeStatus: 'active' as const,
   adStatus: 'all' as const,
   category: '',
@@ -21,6 +22,7 @@ const state = vi.hoisted(() => ({
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: 'A',
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -34,23 +36,64 @@ const state = vi.hoisted(() => ({
         reorderSkuCount: 1,
         minMonthsOfAvailableStockLeft: 0.5,
       },
-      variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
+      channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 17,
       inventoryStatus: 'configuration_required' as const,
       channelCount: 1,
       channelStatus: 'partial' as const,
+      activeChannels: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }],
       traffic: null,
+      visitorCount: null,
+      viewCount: null,
+      cartAddCount: null,
       orderCount: 4,
+      salesQuantity: null,
       salesAmount: 35_000,
       adSpend: null,
+      adSpendRate: null,
+      metricsFreshness: {
+        traffic: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      },
       profit: null,
+      contributionProfitVelocity30: null,
+      contributionMargin: null,
     }],
     total: 126,
     page: 2,
     limit: 50,
     summary: {
       abcGradeCounts: { A: 37, B: 29, C: 50, unclassified: 10 },
-      channelConnectionCounts: { connected: 120, unconnected: 6 },
+      abcStatusCounts: {
+        READY: 104,
+        INSUFFICIENT_EVIDENCE: 4,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 8,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfitByGrade: { A: 12_000, B: 2_000, C: -500 },
+      abcContributionProfitShareByGrade: { A: 0.89, B: 0.15, C: -0.04 },
+      abcFormula: null,
+      displayDataAsOf: '2026-07-31',
+      channelProductCounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+        count: 120,
+      }, {
+        channelAccountId: '00000000-0000-4000-8000-000000000005',
+        channel: 'coupang_rocket',
+        channelAccountName: 'Coupang Rocket',
+        count: 6,
+      }],
       inventoryStatusCounts: {
         sellable: 81,
         partial_out_of_stock: 7,
@@ -59,6 +102,7 @@ const state = vi.hoisted(() => ({
         review_required: 14,
       },
       negativeProfitCount: 8,
+      imminentProductCount: 5,
       reorderProductCount: 12,
       depletionCoveredProductCount: 54,
       sharedDepletionProductCount: 7,
@@ -70,6 +114,7 @@ const state = vi.hoisted(() => ({
   goToPage: vi.fn(),
   handleSearch: vi.fn((event: { preventDefault: () => void }) => event.preventDefault()),
   inventoryStatus: 'all' as const,
+  inventoryFocus: 'all' as const,
   isFetching: false,
   isLoading: false,
   isPlaceholderData: false,
@@ -78,10 +123,12 @@ const state = vi.hoisted(() => ({
   refetch: vi.fn(),
   search: '',
   setAbcGrade: vi.fn(),
+  setDataStatusOpen: vi.fn(),
   setActiveStatus: vi.fn(),
   setAdStatus: vi.fn(),
   setCategory: vi.fn(),
   setInventoryStatus: vi.fn(),
+  setInventoryFocus: vi.fn(),
   setPeriodDays: vi.fn(),
   setSearch: vi.fn(),
   totalPages: 3,
@@ -94,12 +141,12 @@ vi.mock('../hooks/useProductHubPageState', () => ({
   useProductHubPageState: () => state,
 }));
 
-vi.mock('./ProductEditorDialog', () => ({
-  ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 만들기</div> : null,
+vi.mock('./ProductAbcDetailDialog', () => ({
+  ProductAbcDetailDialog: ({ open, product }: { open: boolean; product: { name: string } | null }) => open ? <div role="dialog">{product?.name} ABC 평가 근거</div> : null,
 }));
 
-vi.mock('./MasterProductAbcPolicyDialog', () => ({
-  MasterProductAbcPolicyDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">자동 ABC 정책</div> : null,
+vi.mock('./ProductOperationsDataStatusAction', () => ({
+  ProductOperationsDataStatusAction: () => <button type="button">데이터 갱신</button>,
 }));
 
 describe('<ProductsPageContent>', () => {
@@ -115,12 +162,19 @@ describe('<ProductsPageContent>', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
-    expect(screen.getByText('카탈로그 상품 전체')).toBeInTheDocument();
-    expect(screen.getByText('채널 연결')).toBeInTheDocument();
-    expect(screen.getByText('채널 미연결')).toBeInTheDocument();
-    expect(screen.queryByText('현재 페이지 채널 연결')).not.toBeInTheDocument();
-    const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
+    expect(screen.getByText('판매중 재고상품')).toBeInTheDocument();
+    expect(screen.getByText('판매중 채널 등록상품')).toBeInTheDocument();
+    const channelCard = screen.getByText('판매중 채널 등록상품').closest('article');
+    expect(channelCard).not.toBeNull();
+    expect(within(channelCard!).getByText('Coupang Wing')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('Coupang Rocket')).toBeInTheDocument();
+    expect(screen.queryByText('채널 연결')).not.toBeInTheDocument();
+    expect(screen.queryByText('채널 미연결')).not.toBeInTheDocument();
+    expect(screen.queryByText('알림')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sellpia 가져오기 내역')).not.toBeInTheDocument();
+    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('B등급')).toBeInTheDocument();
@@ -128,18 +182,17 @@ describe('<ProductsPageContent>', () => {
     expect(within(catalogCard!).getByText('미분류')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('37')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('10')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('6')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('120')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('6')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText(/현재 페이지 A등급/)).not.toBeInTheDocument();
     expect(screen.getByText('재고관리')).toBeInTheDocument();
-    expect(screen.getByText('임박 재고')).toBeInTheDocument();
-    expect(screen.getByText('발주 필요')).toBeInTheDocument();
+    expect(screen.getAllByText('임박 재고').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('발주 필요').length).toBeGreaterThan(0);
     expect(screen.getByText('손익점검')).toBeInTheDocument();
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
-    expect(screen.getByText('적자상품')).toBeInTheDocument();
-    expect(screen.getByText('이익률 3%↓')).toBeInTheDocument();
-    expect(screen.getByText('핵심상품')).toBeInTheDocument();
-    expect(screen.getByText('알림')).toBeInTheDocument();
+    expect(screen.getByText('A등급 이익')).toBeInTheDocument();
+    expect(screen.getByText('B등급 이익')).toBeInTheDocument();
+    expect(screen.getByText('데이터 갱신')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
@@ -147,13 +200,15 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
+    expect(screen.queryByRole('combobox', { name: 'ABC 상태' })).not.toBeInTheDocument();
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
-    expect(screen.getByText(/공유 SKU 기준/)).toBeInTheDocument();
+    expect(screen.queryByText(/공유 SKU 기준/)).not.toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
     expect(inventoryCard).not.toBeNull();
-    expect(within(inventoryCard!).getByText('기준 미정')).toBeInTheDocument();
+    expect(within(inventoryCard!).getByText('5')).toBeInTheDocument();
+    expect(within(inventoryCard!).queryByText('기준 미정')).not.toBeInTheDocument();
     expect(inventoryCard).not.toHaveTextContent('17');
   });
 
@@ -177,33 +232,27 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
-  it('keeps the staged header and enables period, category, and product creation controls', () => {
+  it('keeps the staged header focused on period and data controls without manual product creation', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByRole('button', { name: '트래픽 업로드' })).toBeDisabled();
-    expect(screen.getByRole('link', { name: 'Sellpia 동기화' })).toHaveAttribute(
-      'href',
-      '/inventory-hub?tab=sellpia-sync',
-    );
+    expect(screen.getByRole('button', { name: '데이터 갱신' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '트래픽 업로드' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7일' }));
     expect(state.setPeriodDays).toHaveBeenCalledWith(7);
     fireEvent.click(screen.getByRole('button', { name: '완구/놀이' }));
     expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
-    fireEvent.click(screen.getByRole('button', { name: '+ 상품 추가' }));
-    expect(screen.getByRole('dialog', { name: '' })).toHaveTextContent('상품 만들기');
-    fireEvent.click(screen.getByRole('button', { name: '자동 ABC 정책' }));
-    expect(screen.getAllByRole('dialog', { name: '' }).at(-1)).toHaveTextContent('자동 ABC 정책');
+    expect(screen.queryByRole('button', { name: '+ 상품 추가' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });
 
-  it('uses full-result operating summaries and only applies the matching inventory filter', () => {
+  it('uses full-result operating summaries with one inventory command card', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.queryByText(/현재 페이지/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /품절 상품/ }));
-    expect(state.setInventoryStatus).toHaveBeenCalledWith('out_of_stock');
-    expect(screen.queryByRole('button', { name: /재고위험/ })).not.toBeInTheDocument();
-    expect(screen.getAllByText('재고위험').length).toBeGreaterThan(0);
+    expect(screen.queryByRole('link', { name: /발주하기/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '재고 설정 확인 상품 보기' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '품절 상품 보기' })).toBeInTheDocument();
     expect(screen.getAllByText('9').length).toBeGreaterThan(0);
     expect(screen.getAllByText('29').length).toBeGreaterThan(0);
     expect(screen.getAllByText('8').length).toBeGreaterThan(0);
@@ -219,6 +268,36 @@ describe('<ProductsPageContent>', () => {
     expect(state.setAbcGrade).toHaveBeenCalledWith('unclassified');
   });
 
+  it('routes automatic ABC grade summaries without exposing calculation-state filters', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'A등급 상품 보기' }));
+    expect(state.setAbcGrade).toHaveBeenCalledWith('A');
+    expect(screen.queryByRole('button', { name: '관찰 중 상품 보기' })).not.toBeInTheDocument();
+  });
+
+  it('filters the product list from each inventory command-center indicator', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '재고 설정 확인 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '품절 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '임박 재고 상품 보기' }));
+    fireEvent.click(screen.getByRole('button', { name: '발주 필요 상품 보기' }));
+
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(1, 'attention');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(2, 'out_of_stock');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(3, 'imminent');
+    expect(state.setInventoryFocus).toHaveBeenNthCalledWith(4, 'reorder');
+  });
+
+  it('opens the row evaluation evidence without fetching another product payload', () => {
+    render(<ProductsPageContent headingLevel={1} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '스테이지 상품 ABC 근거 보기' }));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('스테이지 상품 ABC 평가 근거');
+  });
+
   it('keeps overview metrics global while filters change only the product list result', () => {
     state.data = {
       ...defaultData,
@@ -226,17 +305,32 @@ describe('<ProductsPageContent>', () => {
       summary: {
         ...defaultData.summary,
         abcGradeCounts: { A: 1, B: 2, C: 5, unclassified: 1 },
-        channelConnectionCounts: { connected: 8, unconnected: 1 },
+        channelProductCounts: [{
+          channelAccountId: '00000000-0000-4000-8000-000000000004',
+          channel: 'coupang',
+          channelAccountName: 'Coupang Wing',
+          count: 8,
+        }, {
+          channelAccountId: '00000000-0000-4000-8000-000000000005',
+          channel: 'coupang_rocket',
+          channelAccountName: 'Coupang Rocket',
+          count: 1,
+        }],
       },
     };
     state.overviewData = defaultData;
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
+    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('Coupang Wing')).not.toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('채널 연결')).not.toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('채널 미연결')).not.toBeInTheDocument();
+    const channelCard = screen.getByText('판매중 채널 등록상품').closest('article');
+    expect(channelCard).not.toBeNull();
+    expect(within(channelCard!).getByText('120')).toBeInTheDocument();
     expect(screen.getByText('9개 표시')).toBeInTheDocument();
   });
 

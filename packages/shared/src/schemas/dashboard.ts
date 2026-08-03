@@ -1,7 +1,11 @@
 import { z } from 'zod';
 import { AlertKindSchema, AlertStatusSchema } from './alerts.js';
 import { zIsoDate } from './common.js';
-import { ProductAbcGradeSchema } from './product-abc.js';
+import {
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  ProductAbcGradeSchema,
+} from './product-abc.js';
 
 // ─── Shared building blocks ───────────────────────────────────────────────
 
@@ -34,6 +38,7 @@ export const TopProductSchema = z.object({
   name: z.string(),
   organization: z.string(),
   grade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   revenue: z.number(),
   netProfit: z.number(),
   profitRate: z.number(),
@@ -74,6 +79,8 @@ export const TrafficKpiSchema = z.object({
   profitRate: z.number().optional(),
   costCoverage: z.number().optional(),
   needsScrape: z.boolean().optional(),
+  trafficAvailable: z.boolean().optional(),
+  trafficObservedAt: zIsoDate.nullable().optional(),
 });
 
 export const PlanAchievementSchema = z.object({
@@ -274,6 +281,30 @@ export const DashboardInventorySummarySchema = z.object({
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
   }).strict(),
+  abcStatusCount: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
+  }).strict(),
+  abcContributionProfit: z.object({
+    amountByGrade: z.object({
+      A: z.number().int(),
+      B: z.number().int(),
+      C: z.number().int(),
+    }).strict(),
+    shareByGrade: z.object({
+      A: z.number().finite(),
+      B: z.number().finite(),
+      C: z.number().finite(),
+    }).strict(),
+  }).strict(),
+  abcFormula: ProductAbcFormulaSummarySchema.nullable(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),
   mappingStatusCounts: z.object({
@@ -409,29 +440,42 @@ export const SellpiaSalesSummarySchema = z.object({
 // 상품별 이익현황(stat_prd_profit)의 월별 판매수량으로 상품별 1개월/2개월 평균
 // 소진량 + 월별 추이를 산정. 재고 분석(/stock-ops) 섹션. 메이크샵 주문 기준.
 
-// Ingest 요청(확장 크롤 결과) — 상품별 월별 배열.
+// Ingest 요청(확장 크롤 결과) — 상품별 월별 배열. 매출총이익 ABC는 주문시점 원가가
+// 명시된 Sellpia 상품별 이익현황 응답만 수용한다.
+const SellpiaProductSalesNonnegativeIntSchema = z.number().finite().int().nonnegative();
 export const SellpiaProductSalesIngestMonthSchema = z.object({
-  yearMonth: z.string(), // "YYYY-MM"
-  orderQty: z.number(),
-  orderAmount: z.number(),
-  inQty: z.number(),
-  inAmount: z.number(),
-});
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/),
+  orderQty: SellpiaProductSalesNonnegativeIntSchema,
+  orderAmount: SellpiaProductSalesNonnegativeIntSchema,
+  inQty: SellpiaProductSalesNonnegativeIntSchema,
+  inAmount: SellpiaProductSalesNonnegativeIntSchema,
+}).strict();
 export const SellpiaProductSalesIngestItemSchema = z.object({
-  productCode: z.string().min(1),
-  optionCode: z.string(),
-  productName: z.string(),
-  optionName: z.string().optional(),
-  providerName: z.string().optional(),
-  salePrice: z.number(),
-  buyPrice: z.number(),
-  barcode: z.string().optional(),
-  months: z.array(SellpiaProductSalesIngestMonthSchema),
-});
+  productCode: z.string().trim().min(1).max(64),
+  optionCode: z.string().max(64),
+  productName: z.string().trim().min(1).max(400),
+  optionName: z.string().max(400).optional(),
+  providerName: z.string().max(200).optional(),
+  salePrice: SellpiaProductSalesNonnegativeIntSchema,
+  buyPrice: SellpiaProductSalesNonnegativeIntSchema,
+  barcode: z.string().max(64).optional(),
+  // 응답에 없는 월을 클라이언트가 0으로 만들어 내지 않는다. 수집된 실제 월 버킷만
+  // 전송하며, 서버는 payload-level request range로 증거 범위를 계산한다.
+  months: z.array(SellpiaProductSalesIngestMonthSchema).max(24),
+}).strict();
+export const SellpiaProductSalesProvenanceSchema = z.object({
+  source: z.literal('sellpia_stat_prd_profit'),
+  costBasis: z.literal('ORDER_TIME_SUPPLY_COST'),
+  vatIncluded: z.literal(true),
+}).strict();
 export const SellpiaProductSalesIngestPayloadSchema = z.object({
-  range: z.object({ from: z.string(), to: z.string() }),
-  products: z.array(SellpiaProductSalesIngestItemSchema),
-});
+  range: z.object({
+    from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict(),
+  provenance: SellpiaProductSalesProvenanceSchema,
+  products: z.array(SellpiaProductSalesIngestItemSchema).max(20_000),
+}).strict();
 export const SellpiaProductSalesIngestResultSchema = z.object({
   upserted: z.number().int().nonnegative(),
   productCount: z.number().int().nonnegative(),
@@ -460,12 +504,23 @@ export const SellpiaProductDestinationSchema = z.object({
   masterProductId: z.string().uuid(),
   masterProductCode: z.string().min(1),
   masterProductName: z.string().min(1),
-  productVariantId: z.string().uuid(),
-  productVariantCode: z.string().min(1),
-  productVariantName: z.string().min(1),
-  unitsPerVariant: z.number().int().positive(),
+  channelListingOptionId: z.string().uuid(),
+  channelListingId: z.string().uuid(),
+  channel: z.string().min(1),
+  externalOptionId: z.string().min(1),
+  optionName: z.string().nullable(),
+  unitsPerSale: z.number().int().positive(),
   abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
   displayImage: SellpiaProductDestinationDisplayImageSchema.nullable(),
+}).strict();
+
+export const SellpiaInventoryMasterProductSchema = z.object({
+  masterProductId: z.string().uuid(),
+  masterProductCode: z.string().min(1),
+  masterProductName: z.string().min(1),
+  abcGrade: ProductAbcGradeSchema.nullable(),
+  abcEvaluation: ProductAbcEvaluationSchema.nullable(),
 }).strict();
 
 export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
@@ -486,6 +541,7 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
       activeCommitmentQuantity: z.number().int().nonnegative(),
       availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
+      inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
       destinations: z.array(SellpiaProductDestinationSchema),
     }).strict(),
   ],
@@ -557,6 +613,22 @@ export const SellpiaProductSalesSummarySchema = z.object({
     A: z.number().int().nonnegative(),
     B: z.number().int().nonnegative(),
     C: z.number().int().nonnegative(),
+  }).strict(),
+  abcStatusCounts: z.object({
+    READY: z.number().int().nonnegative(),
+    INSUFFICIENT_EVIDENCE: z.number().int().nonnegative(),
+    SOURCE_UNMAPPED: z.number().int().nonnegative(),
+    CALIBRATION_PENDING: z.number().int().nonnegative(),
+    RECALCULATING: z.number().int().nonnegative(),
+    SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
+    AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
+    CALCULATION_ERROR: z.number().int().nonnegative(),
+  }).strict(),
+  abcContributionProfitByGrade: z.object({
+    A: z.number().int(),
+    B: z.number().int(),
+    C: z.number().int(),
   }).strict(),
   classifiedProductCount: z.number().int().nonnegative(),
   unclassifiedProductCount: z.number().int().nonnegative(),

@@ -137,13 +137,13 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         externalOptionId: true,
         sellerSku: true,
         itemName: true,
-        productVariantId: true,
         listing: {
           select: {
             externalId: true,
             channelName: true,
             displayName: true,
             category: true,
+            masterProduct: { select: { abcGrade: true } },
           },
         },
       },
@@ -163,7 +163,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
             row.listing.displayName ??
             row.listing.externalId,
           category: row.listing.category,
-          productVariantId: row.productVariantId,
+          abcGrade: toAbcGrade(row.listing.masterProduct?.abcGrade ?? null),
         });
       } else if (!previous.category && row.listing.category) {
         previous.category = row.listing.category;
@@ -631,4 +631,8 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       WHERE organization_id = ${organizationId}::uuid
     `;
   }
+}
+
+function toAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
+  return value === 'A' || value === 'B' || value === 'C' ? value : null;
 }

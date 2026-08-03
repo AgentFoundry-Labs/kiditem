@@ -3,7 +3,7 @@ Consult this document first instead of relying on memorized knowledge.
 # channels — Marketplace Sync + SKU Matching
 
 `src/channels/` owns marketplace accounts, listing/option metadata, Coupang
-catalog/order/return sync, product/variant matching, channel sellable-capacity
+catalog/order/return sync, listing-to-product matching, channel sellable-capacity
 projections, account-scoped registration, and channel dashboard reads. Provider
 calls stay behind provider adapters.
 
@@ -43,12 +43,15 @@ channels/
 - Logical `ChannelProduct` is Prisma `ChannelListing`; logical `ChannelSku` is
   `ChannelListingOption`. Each option stores independent provider metadata for
   one account; `optionId` is not inventory truth.
-- `ChannelListing.masterProductId` and
-  `ChannelListingOption.productVariantId` are nullable confirmed identity links.
+- `ChannelListing.masterProductId` is a derived summary only when all listing
+  options resolve to one canonical inventory product. `ChannelListingOption`
+  remains the marketplace sellable option identity and its recipe is the
+  matching source of truth.
 - A registration-created `ChannelListing.sourceCandidateId` is immutable
   provenance.
-- Physical quantities come only from the linked Products-owned
-  `ProductVariantComponent` recipe. Channels owns no recipe or stock table.
+- Physical quantities come only from the Products-owned direct
+  `ChannelListingOptionInventoryComponent` relation to Inventory's
+  `SellpiaInventorySku`. Channels owns no stock table.
 - Daily snapshots and scrape audit rows support reporting reads.
 
 ## Registration Contract
@@ -66,10 +69,9 @@ channels/
   detail publication promotes the same row to immutable `vendorItemId` under the
   shared listing lock; a single source-fenced provisional may transfer its link
   when the actual row was published first. Multiple candidates are an error.
-- Products transactionally creates or exactly reuses channel-origin products
-  and variants. Channels writes only still-null links after organization and
-  parent validation. A newer non-null manual link wins over stale registration
-  intent and produces a conflict.
+- Catalog publication never creates `MasterProduct` rows. It preserves existing
+  listing links and direct option inventory compositions while refreshing
+  provider identity and metadata.
 - Registration resolves identity by organization, account, and external listing
   ID without creating a `MasterProduct`. Listing resolution/reactivation
   preserves recipe and content metadata and attaches the immutable
@@ -77,38 +79,34 @@ channels/
 
 ## Catalog, Matching, And Capacity Contract
 
-- Matching reads completed Wing/Rocket catalogs plus product-detail chunks
-  already atomically published by a running Wing collection. An incomplete
-  workbook import stays excluded, and only a complete full snapshot may drive
-  absence or deactivation reconciliation.
+- Matching reads the organization's persisted `ChannelListing` and
+  `ChannelListingOption` rows. Source-import completion and snapshot provenance
+  must not filter the operator matching workspace; only a complete full
+  snapshot may drive absence or deactivation reconciliation.
 - Catalog media remains attached to the channel listing's AI-owned content
   workspace. Matching reads may return that media as a display fallback, but
   collection and matching never write it into `MasterProduct.imageUrls`.
-- Candidate rows are live evidence and are never persisted or auto-confirmed.
-  Catalog publication may reuse identity only from unique, non-conflicting typed
-  seller-SKU or safely normalized physical-barcode evidence; names, raw aliases,
-  and AI never confirm product or variant identity.
-- Matching has explicit create-if-empty recipe commands. Automatic apply is
-  version-fenced. Operator-reviewed option recipe linking may create the same
-  one-SKU empty recipe from a selected active Sellpia SKU and positive integer
-  quantity. Neither command overwrites an existing different recipe or changes
-  identity links.
+- Candidate rows are live evidence and never persist. The automatic command
+  may fill an empty option composition or recalculate a one-component quantity
+  from common deterministic evidence; it never changes a SKU or multi-component
+  composition.
 - Automatic recipe evidence must be unique and non-conflicting. Exact
   identifiers/names or threshold-clearing names may apply; incompatible,
   ambiguous, unverifiable, raw-alias, and AI evidence requires review. Read
   [`docs/runbooks/channel-sellpia-matching.md`](../../../../docs/runbooks/channel-sellpia-matching.md)
   before changing this policy or its operator workflow.
-- Safe children apply independently. Complete, vendor-matched Rocket
-  publication may invoke the same server-recomputed policy for its published
-  groups; incomplete/mismatched collections may not.
-- Confirmed recipes alone drive capacity. Invalid/review-required SKUs return
+- Safe options apply independently. Complete, vendor-matched Rocket publication
+  may reuse the same stored channel identities; incomplete collections may not
+  invent matches.
+- Direct option compositions alone drive capacity. Invalid components return
   `null`; zero means valid capacity is exhausted. Reads never reserve stock.
-- Matching state derives from nullable links and recipe validity. Do not restore
-  persisted `mappingStatus`; recollection updates provider facts without clearing
-  confirmed links.
+- Matching state derives from recipe validity. Do not restore persisted
+  `mappingStatus`; recollection updates provider facts without clearing
+  confirmed recipes. A null listing summary is valid for incomplete or
+  multi-inventory-product listings.
 - Common availability resolves as
   `sellableStock = min(floor(component.availableStock / component.quantity))`
-  over the linked recipe components.
+  over the option's direct components.
 
 ## Listing Deletion Contract
 
@@ -122,18 +120,17 @@ channels/
 
 - `POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing`
 - `GET /api/channels/sku-availability`
-- `GET /api/channels/product-mappings/recipe-automation/preview`
-- `POST /api/channels/product-mappings/recipe-automation/apply`
-- `PUT /api/channels/product-mappings/options/:channelListingOptionId/recipe`
+- `GET /api/channels/product-mappings`
+- `POST /api/channels/product-mappings/auto-match`
 - Matching queue reads retain product and option relations, while the operator
   workspace groups option rows beneath their product.
-- Product link commands accept only nullable `masterProductId`; option link
-  commands accept only nullable `productVariantId`.
+- The legacy product-link command may clear all recipes. A non-null value is
+  accepted only when the saved recipes already derive that
+  exact MasterProduct; it cannot create an independent identity link.
 
-Channel component replacement endpoints are not a final ownership surface.
-Products owns complete recipe replacement and the narrow create-if-empty recipe
-writer. Channels owns identity links and orchestrates the version-fenced,
-explicit deterministic command through that Products port.
+Products owns direct option component replacement and derived listing-summary
+recalculation. Channels owns listing/option identities and its conservative
+automatic option-to-Sellpia matching transaction.
 
 ## Cross-Domain Ports
 
@@ -162,15 +159,13 @@ explicit deterministic command through that Products port.
   its tests when semantics change.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
-- Product/option link commands never create a recipe or write
-  `SellpiaInventorySku.currentStock`; only the separate recipe commands may
-  invoke Products' create-if-empty writers under the policy above.
+- Explicit product-link commands never create a composition or write
+  `SellpiaInventorySku.currentStock`. `auto-match` may fill a null link/empty
+  composition or recalculate one component quantity under the policy above.
 - Wing catalog collection attaches provider media to the listing content
-  workspace. In the same publication transaction it may call Products to
-  create/reuse channel-origin identities, then write only still-null listing
-  and option links after tenant and parent validation. It preserves existing
-  links and content selection and never creates or changes component recipes,
-  physical stock, or inferred quantities.
+  workspace and refreshes only Channels-owned listing/option identities. It
+  preserves existing product links and direct option compositions and never
+  creates `MasterProduct` rows, changes physical stock, or infers quantities.
 - Wing/Rocket use separate `ChannelAccount` rows (`coupang` / `rocket`); never
   infer a channel from an account display name.
 - Wing and Rocket currently share one Coupang vendor identity even though their

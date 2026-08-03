@@ -16,7 +16,6 @@ import type { PrismaClient } from '@prisma/client';
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
 const MASTER_PRODUCT_ID = '21000000-0000-4000-8000-000000000003';
-const PRODUCT_VARIANT_ID = '21000000-0000-4000-8000-000000000004';
 const LISTING_ID = '21000000-0000-4000-8000-000000000005';
 const OPTION_ID = '21000000-0000-4000-8000-000000000006';
 const SELLPIA_SKU_ID = '21000000-0000-4000-8000-000000000007';
@@ -75,16 +74,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         name: 'Rocket item',
       },
     });
-    await prisma.productVariant.create({
-      data: {
-        id: PRODUCT_VARIANT_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: MASTER_PRODUCT_ID,
-        code: 'PV-ROCKET-1',
-        name: 'Default',
-        isDefault: true,
-      },
-    });
     await prisma.sellpiaInventorySku.create({
       data: {
         id: SELLPIA_SKU_ID,
@@ -92,15 +81,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         code: 'SP-ROCKET-1',
         name: 'Rocket component',
         currentStock: 5,
-      },
-    });
-    await prisma.productVariantComponent.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
-        sellpiaInventorySkuId: SELLPIA_SKU_ID,
-        quantity: 1,
-        source: 'manual',
       },
     });
     await prisma.channelListing.create({
@@ -117,8 +97,15 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         id: OPTION_ID,
         organizationId: TEST_ORGANIZATION_ID,
         listingId: LISTING_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
         externalOptionId: 'SKU-1',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: OPTION_ID,
+        sellpiaInventorySkuId: SELLPIA_SKU_ID,
+        quantity: 1,
       },
     });
     await prisma.sellpiaInventoryState.create({
@@ -209,11 +196,11 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
-  it('rejects when the confirmed ProductVariant recipe changed after preview', async () => {
-    await prisma.productVariantComponent.updateMany({
+  it('rejects when the confirmed channel-option recipe changed after preview', async () => {
+    await prisma.channelListingOptionInventoryComponent.updateMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
+        channelListingOptionId: OPTION_ID,
       },
       data: { quantity: 2 },
     });
@@ -229,10 +216,10 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       '21000000-0000-4000-8000-000000000017',
       0,
     );
-    await prisma.productVariantComponent.deleteMany({
+    await prisma.channelListingOptionInventoryComponent.deleteMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
+        channelListingOptionId: OPTION_ID,
       },
     });
 
@@ -430,11 +417,13 @@ function confirmationInput(
         maxQuantity: 4,
         editedQuantity: quantity,
         reason: null,
-        channelSkuId: OPTION_ID,
+        channelListingOptionId: OPTION_ID,
         masterProductId: MASTER_PRODUCT_ID,
-        productVariantId: PRODUCT_VARIANT_ID,
         components: [{
           sellpiaInventorySkuId: SELLPIA_SKU_ID,
+          code: 'SP-ROCKET-1',
+          name: 'Rocket component',
+          optionName: null,
           quantity: 1,
           currentStock: 5,
           isActive: true,

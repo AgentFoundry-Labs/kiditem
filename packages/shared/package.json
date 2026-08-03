@@ -150,11 +150,6 @@
       "import": "./dist/channel-product-matching.js",
       "require": "./dist/channel-product-matching.cjs"
     },
-    "./channel-recipe-automation": {
-      "types": "./dist/channel-recipe-automation.d.ts",
-      "import": "./dist/channel-recipe-automation.js",
-      "require": "./dist/channel-recipe-automation.cjs"
-    },
     "./source-import": {
       "types": "./dist/source-import.d.ts",
       "import": "./dist/source-import.js",
@@ -353,9 +348,6 @@
       ],
       "channel-product-matching": [
         "dist/channel-product-matching.d.ts"
-      ],
-      "channel-recipe-automation": [
-        "dist/channel-recipe-automation.d.ts"
       ],
       "source-import": [
         "dist/source-import.d.ts"

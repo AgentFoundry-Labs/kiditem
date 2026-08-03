@@ -4,46 +4,39 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { Package } from 'lucide-react';
 import type { SellpiaProductDestination } from '@kiditem/shared/dashboard';
-import { cn } from '@/lib/utils';
 
 export type ProductOutflowDestinationsProps = {
   destinations: SellpiaProductDestination[];
 };
 
-const ABC_STYLE = {
-  A: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  B: 'bg-sky-50 text-sky-700 ring-sky-200',
-  C: 'bg-slate-100 text-slate-600 ring-slate-200',
-  unclassified: 'bg-amber-50 text-amber-700 ring-amber-200',
-} as const;
-
 export function ProductOutflowDestinations({
   destinations,
 }: ProductOutflowDestinationsProps) {
-  const [failedImageVariantIds, setFailedImageVariantIds] = useState<Set<string>>(
+  const [failedImageOptionIds, setFailedImageOptionIds] = useState<Set<string>>(
     () => new Set(),
   );
   if (destinations.length === 0) {
-    return <span className="whitespace-nowrap text-xs font-semibold text-slate-400">운영 상품 미연결</span>;
+    return <span className="whitespace-nowrap text-xs font-semibold text-slate-400">연결된 채널 상품 없음</span>;
   }
 
   return (
     <div
       className="min-w-0 space-y-1"
       title={destinations.map((destination) => (
-        `${destination.masterProductName} · ${destination.productVariantName}`
+        `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`
       )).join('\n')}
     >
       {destinations.slice(0, 2).map((destination) => {
-        const alt = `${destination.masterProductName} · ${destination.productVariantName}`;
+        const alt = `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`;
         const displayImage = destination.displayImage;
         const showImage = displayImage
-          && !failedImageVariantIds.has(destination.productVariantId);
+          && !failedImageOptionIds.has(destination.channelListingOptionId);
         return (
           <Link
-            key={destination.productVariantId}
+            key={destination.channelListingOptionId}
             href={`/product-hub/${destination.masterProductId}`}
             aria-label={alt}
+            title={destinationTitle(destination)}
             className="flex min-w-0 items-center gap-1.5 text-xs font-semibold text-violet-700 hover:underline"
           >
             {showImage ? (
@@ -51,9 +44,9 @@ export function ProductOutflowDestinations({
                 src={displayImage.url}
                 alt={alt}
                 className="h-9 w-9 shrink-0 rounded object-cover bg-slate-100"
-                onError={() => setFailedImageVariantIds((current) => {
+                onError={() => setFailedImageOptionIds((current) => {
                   const next = new Set(current);
-                  next.add(destination.productVariantId);
+                  next.add(destination.channelListingOptionId);
                   return next;
                 })}
               />
@@ -68,14 +61,6 @@ export function ProductOutflowDestinations({
             )}
             <span className="min-w-0">
               <span className="block truncate">{alt}</span>
-              <span
-                className={cn(
-                  'mt-0.5 inline-flex rounded px-1 py-px text-[10px] font-bold leading-none ring-1',
-                  ABC_STYLE[destination.abcGrade ?? 'unclassified'],
-                )}
-              >
-                {destination.abcGrade ? `${destination.abcGrade}등급` : '미분류'}
-              </span>
             </span>
           </Link>
         );
@@ -85,4 +70,11 @@ export function ProductOutflowDestinations({
       ) : null}
     </div>
   );
+}
+
+function destinationTitle(destination: SellpiaProductDestination): string {
+  const identity = `${destination.masterProductName} · ${destination.optionName ?? destination.externalOptionId}`;
+  const evaluation = destination.abcEvaluation;
+  if (!evaluation) return `${identity} · ABC 평가 미발행`;
+  return `${identity} · 수익성 ABC · ${evaluation.calculationStatus} · 수익 데이터 관찰 ${evaluation.observationDays}일`;
 }

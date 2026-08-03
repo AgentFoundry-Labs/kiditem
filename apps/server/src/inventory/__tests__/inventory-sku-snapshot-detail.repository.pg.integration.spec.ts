@@ -59,7 +59,6 @@ describe('Sellpia snapshot detail tenant boundary (PG integration)', () => {
       name: '우리 상품',
       currentStock: 3,
       stockValue: 3_000,
-      linkedVariantCount: 0,
       linkedProductCount: 0,
       linkStatus: 'unlinked',
     });

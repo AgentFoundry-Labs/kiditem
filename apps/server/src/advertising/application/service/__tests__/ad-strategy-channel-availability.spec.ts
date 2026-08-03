@@ -67,6 +67,13 @@ describe('AdStrategyService ChannelSku availability', () => {
 
     await service.getRules('14d', '44444444-4444-4444-8444-444444444444');
 
+    expect(strategyContextRepo.loadStrategyContext).toHaveBeenCalledWith(
+      '44444444-4444-4444-8444-444444444444',
+      expect.any(Number),
+      expect.any(Number),
+      '14d',
+      expect.anything(),
+    );
     expect(availabilityPort.findByListingIds).toHaveBeenCalledWith(
       '44444444-4444-4444-8444-444444444444',
       [listing.id],

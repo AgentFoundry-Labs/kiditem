@@ -55,7 +55,7 @@ describe('SellpiaInventoryFreshnessController', () => {
       sourceAccountKey: 'kiditem',
       confirmed: true,
     });
-    await controller.requestRefresh(ORG_ID, USER, { reason: 'manual_request' });
+    await controller.requestRefresh(ORG_ID, USER, { reason: 'manual_request', scope: 'inventory' });
     await controller.claimDue(ORG_ID, USER, {});
     await controller.heartbeat(ORG_ID, USER, TOKEN, {});
     await controller.fail(ORG_ID, USER, TOKEN, {
@@ -76,6 +76,7 @@ describe('SellpiaInventoryFreshnessController', () => {
       organizationId: ORG_ID,
       userId: USER_ID,
       reason: 'manual_request',
+      scope: 'inventory',
     });
     expect(port.claimDue).toHaveBeenCalledWith({ organizationId: ORG_ID, userId: USER_ID });
     expect(port.heartbeat).toHaveBeenCalledWith({
@@ -122,6 +123,7 @@ function makePort() {
     verifiedGeneration: '0',
     refreshRequestedAt: '2026-07-15T00:00:00.000Z',
     refreshReason: 'initial_snapshot',
+    requestedSyncScope: 'inventory',
     syncNotBefore: null,
     activeSync: null,
     lastAttempt: null,

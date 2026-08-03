@@ -1,230 +1,157 @@
-# Collect Channel Identities And Confirm Sellpia Recipes
+# Match Channel Listings And Sellpia Inventory
 
 ## Purpose
 
-Use this runbook to collect marketplace identities, review Sellpia evidence,
-and explicitly confirm the physical component recipe consumed by a sale. The
-workflow has four stages:
+Use this runbook to connect marketplace catalog options to the physical Sellpia
+inventory consumed by each sale. `MasterProduct` is the canonical inventory
+product created from that source identity, not a separate channel product. The
+model has three explicit layers:
 
-1. collect and finalize account-scoped marketplace identities;
-2. review the version-fenced deterministic preview;
-3. explicitly apply only safe create-if-empty recipes;
-4. confirm every remaining Bill of Materials (BOM) on product detail.
+```text
+MasterProduct <- SellpiaInventorySku.masterProductId
+SellpiaInventorySku
+  <- ChannelListingOptionInventoryComponent
+ChannelListing
+  -> ChannelListingOption
+  -> ChannelListingOptionInventoryComponent
+```
 
-`SellpiaInventorySku` is the physical Sellpia product-code snapshot.
-`ProductVariantComponent` is the central, reusable recipe for one KidItem
-variant. They are never interchangeable. A recipe changes only through a
-version-fenced explicit automation command or an operator's manual complete
-replacement.
+`MasterProduct` is the inventory product and sole ABC-grade owner.
+`ChannelListing` is one channel listing. `ChannelListingOption` is a sellable
+channel option. `SellpiaInventorySku` is the physical stock authority. There is
+no intermediate ProductVariant or second recipe layer. Multiple channel
+products/options may consume one MasterProduct. A listing-level MasterProduct
+is merely an automatic single-product summary.
 
 Inventory freshness and publication are owned by
 [Sellpia Inventory Freshness Operations](sellpia-inventory-freshness.md).
 
 ## Prerequisites
 
-- The operator is signed in to the intended KidItem organization.
-- A completed Sellpia snapshot is available for that organization.
-- The intended marketplace account is active and has the expected channel:
-  `coupang` for Wing or `rocket` for Rocket.
-- Approved provider workbooks and collection artifacts remain outside Git.
-- Before starting a recipe campaign, any interrupted Coupang collection must
-  be finalized. Do not review a partial collection as though it were complete.
+- Sign in to the intended KidItem organization.
+- Complete a Sellpia inventory snapshot for that organization.
+- Select an active `coupang` or `rocket` ChannelAccount.
+- Finish any interrupted catalog collection before treating absent listings or
+  options as inactive.
 
 ## Safety And Ownership
 
-- Inventory alone publishes `SellpiaInventorySku.currentStock` and active
-  state. Import, matching, recipe review, and capacity preview never write
-  physical stock.
-- A recipe specifies every physical Sellpia component and its positive integer
-  quantity for one sale. A single sale may require several components or more
-  than one unit of a component.
-- Recipe reads and writes are organization-scoped. Inactive or foreign
-  Sellpia identities cannot be confirmed as components.
-- Matching may preview evidence and existing recipe status without mutation.
-  Its only write is the version-fenced, explicitly invoked deterministic
-  command, which creates an empty recipe as one active Sellpia component with a
-  verified positive integer quantity and never replaces an existing recipe.
-- Products' complete-recipe replacement API remains the only manual recipe
-  mutation owner. Product detail is its ordinary UI; an explicitly reviewed
-  private transfer artifact may call Products' manual batch plan/create-if-empty
-  APIs for staging replay under
-  [`channel-recipe-transfer.md`](channel-recipe-transfer.md).
-- A later channel recollection may change channel identity links but must not
-  rewrite the central product-variant recipe.
+- Only Inventory publishes `SellpiaInventorySku.currentStock` and active state.
+- Matching and capacity reads never decrement or otherwise mutate physical
+  stock.
+- A complete option recipe is the matching source of truth. The nullable
+  `ChannelListing.masterProductId` summary is derived only when every option
+  resolves to one MasterProduct. Candidate evidence is never confirmed truth.
+- One option component row stores an active Sellpia SKU and the positive integer
+  quantity consumed by one sale. A sale may consume multiple SKUs.
+- Component reads and writes are organization-fenced. A complete replacement
+  uses the expected current components, so concurrent or stale edits conflict.
+- Catalog recollection preserves option component rules. It does not create a
+  channel-origin MasterProduct; it derives the listing summary from recipes.
 
-## Stage 1 — Collect And Finalize Channel Identities
+## Stage 1 — Collect Channel Listings
 
 ### Coupang Wing
 
-1. Open `/product-hub/matching` and select the intended active Coupang
-   account.
-2. Import the approved Wing detail workbook. The import is account-scoped and
-   preserves stable identities and confirmed recipes on a re-import.
-3. Let collection complete, then verify the source run and matching queue are
-   finalized before beginning recipe review.
-4. If collection was interrupted, resolve or finalize that collection first.
-   Do not begin a recipe campaign from an incomplete queue.
+1. Open `/product-hub/matching` and select the Coupang account.
+2. Run the Wing catalog collection from the authenticated Chrome extension.
+3. Wait for complete finalization before reviewing missing listings/options.
+4. Confirm that re-collection preserved already linked products and components.
 
 ### Rocket
 
-Rocket identities are published through the complete preview collection in
-`/rocket-orders`. Confirm the selected active Rocket account,
-exact vendor identity, collection completeness, and canonical artifact hash
-before moving to evidence review. A partial collection does not inactivate
-older identities.
+Rocket listings/options are published from the complete collection on
+`/rocket-orders`. Confirm the active Rocket account, exact vendor identity,
+collection completeness, and source artifact before reviewing components.
 
-## Stage 2 — Review The Version-Fenced Preview
+## Stage 2 — Configure Option Inventory Consumption
 
-Open `/product-hub/matching` to review a channel option’s identity evidence,
-candidate Sellpia rows, active state, and current recipe status. This stage
-proposes work; loading or filtering it does not create or edit a recipe. The
-preview version hashes its business decisions, so changed evidence makes an
-older apply request conflict instead of silently applying stale results.
+For every `ChannelListingOption`, including currently stopped options:
 
-| Evidence | Meaning | Operator action |
-| --- | --- | --- |
-| Exact Sellpia code | A typed seller SKU or model number exactly identifies one active Sellpia code. | It may be automatic when all deterministic evidence agrees, the product name is compatible, the recipe is empty, and the pack ratio is verified. |
-| Exact physical-barcode evidence | A valid 8–14 digit typed barcode uniquely identifies one active physical Sellpia row. | It may be automatic under the same name-compatible, empty-recipe, no-conflict, verified-ratio rules. |
-| Stored generic barcode | A value stored on marketplace or catalog metadata without physical-barcode provenance. | It is not proof of a physical barcode and cannot confirm a recipe. |
-| Strict normalized product name + option | NFKC, case-folded, whitespace-free product and option values exactly identify one active Sellpia row. | It may be automatic as a unique complete pair under the same empty-recipe and verified-ratio rules. |
-| Unique exact normalized product name | One active Sellpia row has the exact normalized product name. | It may be automatic when unique and its pack ratio is verified; duplicate exact names require review. |
-| Unique contained name | One contained-name candidate leads and scores at least `0.6`. | It may be automatic only when the runner-up is neither another normalized-name nor contained-name candidate and the pack ratio is verified. |
-| Unique fuzzy name | One fuzzy candidate scores at least `0.82` with a runner-up margin of at least `0.12`. | It may be automatic only with a verified pack ratio; lower or close scores require review. |
-| AI, generic search, or manual candidate | A potentially useful candidate without the policy's deterministic threshold evidence. | Review-only; verify independently. |
+1. Verify the physical Sellpia SKU IDs/codes and active state.
+2. Enter every SKU unit consumed by one option sale as a positive integer.
+3. Review the complete component list, including components that must remain.
+4. Save the complete replacement and reopen it to verify IDs and quantities
+   round-trip.
+5. Confirm `SellpiaInventorySku.currentStock` did not change.
 
-Automatic eligibility requires the applicable evidence to resolve to one active
-Sellpia SKU without ambiguity or conflict. Exact identifiers also require a
-compatible product name. A channel pack with no multi-unit count uses quantity
-`1`; matching channel and Sellpia pack counts also use `1`; otherwise the
-largest channel count divided by the largest Sellpia count must be a positive
-integer. Missing physical pack evidence, non-integer ratios, uncertain BOMs,
-AI, raw aliases, and below-threshold or close-ranked names remain review-only.
-
-Use `/product-hub/options` to inspect the complete read-only Sellpia inventory
-and its recipe-coverage counters. It can show confirmed destinations and
-unlinked SKU counts, but it cannot edit stock, identity, linkage, or recipe
-quantity.
-
-## Stage 3 — Explicitly Apply Safe Empty Recipes
-
-1. Filter the preview by automatic reason and inspect representative rows for
-   exact code, unique physical barcode, and strict product-name plus option.
-2. Verify that each candidate has one physical component, no hidden
-   multi-component BOM, and a correct displayed channel-to-Sellpia unit ratio.
-3. Invoke `상품·재고 자동 매칭` for the exact displayed proposal version. The
-   command is the explicit action and does not open a second confirmation dialog.
-4. The backend re-computes the preview. If it changed, refresh and review again.
-5. Products locks each variant and creates one deterministic component with the
-   policy's verified positive integer quantity only when its recipe is still
-   empty. Concurrent or existing recipes are skipped and preserved.
-6. Refresh the matching, product operations, reverse-link, product-outflow, and
-   Rocket preview screens. Confirm capacity now uses common availability and
-   that `SellpiaInventorySku.currentStock` did not change.
-
-Do not apply the batch when a sampled automatic row has a wrong physical item,
-unrepresented pack size, or hidden BOM. Tighten the deterministic rule first
-and generate a new preview.
-
-## Stage 4 — Confirm Remaining Recipes On Product Detail
-
-1. From the proposal, open the destination product detail and choose the
-   specific KidItem variant.
-2. Verify the physical Sellpia SKU IDs/codes, active status, and every unit
-   consumed by one sale. Do not infer a quantity from a name, model string,
-   `4개`/`8개` text, bundle wording, or candidate rank.
-3. Enter every component of the BOM with a positive integer quantity. Review
-   the complete replacement, including any existing components that must stay.
-4. The operator explicitly saves the full recipe from product detail. The
-   resulting atomic replacement is the confirmed mapping truth.
-5. Reopen the detail and verify the component IDs/codes/quantities round-trip.
-   Confirm that Sellpia stock did not change.
-
-Representative confirmed shapes are:
+Representative rules:
 
 ```text
-A -> X x 1
-B -> X x 8
-C -> X x 1 + Y x 2
+channel option A -> Sellpia X x 1
+channel option B -> Sellpia X x 8
+channel option C -> Sellpia X x 1 + Sellpia Y x 2
 ```
 
-To remove a wrong recipe, explicitly save the intended complete replacement
-(including an empty recipe when appropriate). Evidence must never invent a
-replacement component.
+Saving each recipe automatically derives the listing summary. If all options
+resolve to the same MasterProduct it is linked once; if an option is missing or
+the listing consumes multiple MasterProducts, the summary remains null. The
+option recipes remain valid in both cases.
 
-## Capacity Semantics
+The deterministic matching command may fill an empty component list only when
+organization-fenced evidence uniquely selects one active Sellpia SKU and the
+pack ratio is a verified positive integer. It applies one common title quantity
+rule to every channel: for example, `10개입` becomes 10 and `2개입 x 3세트`
+becomes 6. It also corrects the quantity of an existing one-component recipe
+from that rule, but never changes its selected Sellpia SKU or automatically
+alters a multi-component BOM. Conflicting identifiers or title quantities, an
+uncertain pack/BOM, generic barcode, raw alias, similarity, rank, or AI
+requires operator review.
 
-For a confirmed active recipe:
+Use `/product-hub/options` to inspect the complete read-only Sellpia collection
+and confirmed channel-option destinations. That screen cannot edit stock,
+identity, or component quantity.
+
+## Capacity And Quantity-Deduction Semantics
+
+For one option's confirmed active component list:
 
 ```text
 availableStock = max(currentStock - activeCommitmentQuantity, 0)
-component capacity = floor(availableStock / component.quantity)
-sellableStock = minimum component capacity
+componentCapacity = floor(availableStock / component.quantity)
+optionCapacity = minimum componentCapacity
 ```
 
-- A recipe `B -> X x 8` has capacity `floor(X.availableStock / 8)`.
-- A mixed recipe reports the minimum capacity and its bottleneck component.
-- Unmapped, review-only, or inactive-component recipes are not safe sellable
-  quantities. Keep them visible for correction.
-- Capacity is a read projection: it never reserves, issues, or deducts stock.
+Shared Sellpia SKUs consume one common availability pool during a preview or
+allocation. The component list defines how many physical units one sale
+consumes; it does not directly decrement `currentStock`. A completed Sellpia
+snapshot remains the evidence for real-world stock changes.
+
+An empty component list is `configuration_required`. An inactive referenced SKU
+is `needs_review`. Neither is treated as a confirmed zero-capacity product.
 
 ## Recovery
 
 | Symptom | Safe recovery |
 | --- | --- |
-| Coupang collection is interrupted | Finalize or resolve the collection before starting the recipe campaign. Do not rely on a partial queue. |
-| Account not found or wrong channel | Select an active organization-owned account with the expected exact channel. |
-| Workbook or collection artifact is rejected | Correct the provider artifact and retry. Existing metadata and recipes remain intact. |
-| Preview version conflicts on apply | Refresh the preview, inspect the changed decisions, and invoke the command with the new version. |
-| Exact code/barcode/name+option candidate has pack or BOM uncertainty | Do not automate it. Verify physical identity and the complete BOM on product detail. |
-| Exact/contained/fuzzy name evidence is duplicated, below threshold, or close-ranked | Review candidates, verify independently, then explicitly confirm the recipe on product detail. |
-| AI or generic search evidence is the only evidence | Treat it as review-only and confirm the complete recipe on product detail. |
-| Stored barcode is the only evidence | Obtain physical-barcode provenance; a generic stored value is not enough. |
-| Component is inactive or foreign | Select a valid active, organization-owned Sellpia SKU and explicitly replace the full recipe. |
-| Capacity is unavailable | Verify the complete active recipe and refresh Sellpia when stale. Do not substitute zero or edit stock. |
+| Catalog collection is interrupted | Resume/finalize it before reviewing absence. |
+| Wrong account/channel | Select an active organization-owned account with the exact channel. |
+| Listing summary points to the wrong product | Clear the option recipes and save the correct Sellpia SKU/quantity rules; the summary is rebuilt automatically. |
+| Component evidence is ambiguous | Verify the physical item and full BOM, then save a complete replacement. |
+| Component is inactive or foreign | Select a valid active organization-owned Sellpia SKU. |
+| Expected-component conflict | Refresh the option and reapply the reviewed complete list. |
+| Capacity is unavailable | Verify components and refresh Sellpia when stale; never substitute zero or edit stock. |
 
 ## Verification
 
 ```bash
-rtk npm exec --workspace=apps/server vitest -- run src/channels/domain/channel-recipe-suggestion.spec.ts
-rtk npm exec vitest -- run packages/shared/src/schemas/inventory-snapshot.spec.ts
-rtk npm exec --workspace=apps/server vitest -- run src/inventory/adapter/out/repository/inventory-sku-snapshot-list.repository.adapter.spec.ts
-rtk npm run test:integration --workspace=apps/server -- src/channels/__tests__/channel-recipe-automation.pg.integration.spec.ts
-rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/inventory-sku-snapshot-list.repository.pg.integration.spec.ts
+rtk npm exec --workspace=apps/server vitest -- run \
+  src/channels/application/service/__tests__/channel-product-matching.service.spec.ts \
+  src/channels/application/service/__tests__/channel-sku-availability.service.spec.ts \
+  src/products/application/service/product-operations.service.spec.ts
 rtk npm exec --workspace=apps/web vitest -- run 'src/app/(catalog)/product-hub'
-rtk npm run check:idor
-rtk npm run check:tenant-scope
 rtk npm run build --workspace=packages/shared
 rtk npm run build --workspace=apps/server
 rtk npm run build --workspace=apps/web
 ```
 
-Acceptance must show that recipe coverage is exhaustive for the requested
-active-status scope, linkage is organization-fenced, preview reads do not
-mutate, deterministic apply creates only empty one-component recipes with the
-verified recommended quantity, product detail remains the only complete
-replacement surface, capacity uses available stock, and physical stock is
-unchanged.
+Acceptance must show that catalog collection preserves confirmed data, listing
+links and option components are organization-fenced, candidate reads do not
+mutate, capacity uses direct component quantities and common availability, and
+physical Sellpia stock is unchanged.
 
 ## Blockers
 
-Stop and report when the active organization/account cannot be established,
-the Coupang collection is unfinished, sampled automatic evidence contradicts
-the physical item or BOM, channel or physical identity provenance is incomplete,
-the BOM cannot be checked component by component, a foreign or inactive
-component would be used, or a non-Inventory path would write stock.
-
-## Final Report Format
-
-```text
-Organization: <sanitized id>
-Channel account: <sanitized id>; channel <coupang|rocket>
-Collection: <Wing workbook|Rocket collection>; finalized <yes/no>; rows <count>
-Evidence reviewed: exact code <n>; verified physical barcode <n>; exact name <n>; high-confidence name <n>; candidate/AI <n>
-Preview: auto code <n>; auto barcode <n>; auto exact name <n>; auto high-confidence name <n>; quantity review <n>; conflict/ambiguous <n>; name review <n>; no match <n>
-Applied: variants <n>; affected options <n>; skipped existing <n>
-Operator-confirmed remaining recipes: <component shapes>
-Recipe automation writes: empty recipe only; one component; quantities <distribution>
-Non-Inventory currentStock writes: 0
-Automated gates: <commands and result>
-Blockers: <none or exact blocker>
-```
+Stop and report when the organization/account cannot be established, collection
+is incomplete, the physical item or BOM cannot be verified, a foreign/inactive
+component would be used, or any non-Inventory path would write physical stock.

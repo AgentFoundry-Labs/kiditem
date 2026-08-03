@@ -12,13 +12,23 @@ import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber, formatDateTime } from '@/lib/utils';
 import { fetchSellpiaProductSales } from '@/lib/sellpia-product-sales-api';
 import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import { ProductOutflowDestinations } from './ProductOutflowDestinations';
 
 const MONTHS_WINDOW = 13; // 1년(완결 12개월 + 진행 월)
 
 // 정렬 키: 고정 지표('avg2m'|'currentStock') 또는 특정 연월("YYYY-MM").
 type SortKey = 'avg2m' | 'currentStock' | string;
-type FilterKey = 'all' | 'reorder' | 'mapping' | 'dead' | 'anomaly' | 'A' | 'B' | 'C' | 'unclassified';
+type FilterKey =
+  | 'all'
+  | 'reorder'
+  | 'mapping'
+  | 'dead'
+  | 'anomaly'
+  | 'A'
+  | 'B'
+  | 'C'
+  | 'unclassified';
 
 export default function ProductOutflow() {
   const [search, setSearch] = useState('');
@@ -155,10 +165,10 @@ function ProductOutflowTable({
     else if (filter === 'anomaly') list = list.filter((p) => p.anomaly);
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === filter));
+        && p.inventoryResolution.inventoryProduct?.abcGrade === filter);
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.destinations.some((destination) => destination.abcGrade === null));
+        && p.inventoryResolution.inventoryProduct?.abcGrade === null);
     }
 
     const vms: RowVM[] = list.map((row) => {
@@ -212,6 +222,7 @@ function ProductOutflowTable({
                     : c.tone === 'orange' ? 'bg-orange-500 text-white ring-orange-500'
                     : c.tone === 'emerald' ? 'bg-emerald-600 text-white ring-emerald-600'
                     : c.tone === 'sky' ? 'bg-sky-600 text-white ring-sky-600'
+                    : c.tone === 'violet' ? 'bg-violet-600 text-white ring-violet-600'
                     : 'bg-slate-900 text-white ring-slate-900'
                   : 'bg-white text-slate-500 ring-slate-200 hover:bg-slate-50',
               )}
@@ -243,14 +254,15 @@ function ProductOutflowTable({
         <table className="text-sm border-separate border-spacing-0 min-w-max">
           <thead className="sticky top-0 z-20">
             <tr className="text-slate-500 text-xs bg-slate-50">
-              <th className="sticky left-0 z-30 bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 min-w-[260px]">상품</th>
+              <th className="sticky left-0 z-40 w-14 min-w-14 bg-slate-50 px-1 py-2 text-center font-semibold border-b border-slate-200">등급</th>
+              <th className="sticky left-14 z-30 bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 min-w-[260px]">상품</th>
               <th className="bg-slate-50 text-left font-semibold px-3 py-2 border-b border-slate-200 whitespace-nowrap">매입처</th>
               {hasStock && (
                 <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                   <HeaderSort k="currentStock">현재고</HeaderSort>
                 </th>
               )}
-              <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">운영 상품</th>
+              <th className="min-w-[220px] bg-slate-50 px-3 py-2 text-left font-semibold border-b border-slate-200 whitespace-nowrap">채널 상품</th>
               {hasStock && <th className="bg-slate-50 px-3 py-2 text-right font-semibold border-b border-slate-200 whitespace-nowrap">발주</th>}
               <th className="bg-slate-50 px-3 py-2 text-right border-b border-slate-200 whitespace-nowrap">
                 <HeaderSort k="avg2m">월평균</HeaderSort>
@@ -293,7 +305,16 @@ function ProductRow({ vm, monthsDesc, hasStock, sortKey }: { vm: RowVM; monthsDe
   const rowBg = p.deadStock ? 'bg-rose-50/40' : 'bg-white';
   return (
     <tr className={cn('border-t border-slate-50 group', rowBg)}>
-      <td className={cn('sticky left-0 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
+      <td className={cn('sticky left-0 z-20 w-14 min-w-14 px-1 py-2 text-center border-b border-slate-50', rowBg, 'group-hover:bg-slate-50')}>
+        {resolution.status === 'matched'
+          ? <ProductAbcBadge
+              grade={resolution.inventoryProduct?.abcGrade ?? null}
+              evaluation={resolution.inventoryProduct?.abcEvaluation ?? null}
+              compact
+            />
+          : <span className="text-xs text-slate-300">—</span>}
+      </td>
+      <td className={cn('sticky left-14 z-10 px-3 py-2 border-b border-slate-50 max-w-[300px]', rowBg, 'group-hover:bg-slate-50')}>
         <div className="flex min-w-0 items-center gap-1.5">
           <span className="text-slate-800 truncate" title={p.productName}>{p.productName}</span>
         </div>

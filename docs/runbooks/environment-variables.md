@@ -155,7 +155,7 @@ these variables only enable the server processes that honor it.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---:|---|---|
-| `OPERATION_RUNTIME_WORKER_ENABLED` | Domain/composite OperationRuns should execute | Operation run worker | Set `1` only after the control-plane tables are deployed. Default is disabled. Browser operations transition to `waiting_runtime` and are claimed by the extension. |
+| `OPERATION_RUNTIME_WORKER_ENABLED` | Domain/composite OperationRuns should execute | Operation run worker | Set `1` only after the control-plane tables are deployed. Default is disabled; local `npm run dev:all` enables it explicitly. Browser operations transition to `waiting_runtime` and are claimed by the extension. |
 | `OPERATION_RUNTIME_WORKER_INTERVAL_MS` | Worker polling cadence needs tuning | Operation run worker | Optional positive integer; defaults to `2000`. |
 | `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
 | `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |

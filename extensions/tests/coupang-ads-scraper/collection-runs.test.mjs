@@ -454,3 +454,47 @@ test('worker reload reattaches a live tab and restarts extension work from zero'
     ['startScheduledScrape', 0],
   ]);
 });
+
+test('worker reload leaves a live Sellpia operation session to its owning runtime', async () => {
+  const { calls, controller, sessionsById } = createRuntime([
+    session({
+      runId: 'sellpia-operation',
+      producer: 'inventory.sellpia',
+      restartStrategy: 'extension',
+    }),
+    session({
+      runId: 'scheduled',
+      producer: 'advertising.scrape_targets',
+      restartStrategy: 'extension',
+    }),
+  ]);
+
+  await controller.recover();
+
+  assert.deepEqual(calls, [
+    ['reattach', 'scheduled'],
+    ['attach', 'scheduled', 90, 9],
+    ['restart', 'scheduled', null],
+    ['loadScheduledTargets'],
+    ['startScheduledScrape', 0],
+  ]);
+  assert.equal(sessionsById.get('sellpia-operation').status, 'running');
+});
+
+test('worker reload turns an unrecoverable advertising sync into actionable attention', async () => {
+  const { calls, controller, sessionsById } = createRuntime([
+    session({
+      runId: 'stale-ad-sync',
+      producer: 'advertising.ad_sync',
+      restartStrategy: 'extension',
+    }),
+  ]);
+
+  await controller.recover();
+
+  assert.deepEqual(calls, [
+    ['reattach', 'stale-ad-sync'],
+    ['attention', 'stale-ad-sync', 'manual_confirmation'],
+  ]);
+  assert.equal(sessionsById.get('stale-ad-sync').status, 'attention_required');
+});

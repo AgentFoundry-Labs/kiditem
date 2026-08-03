@@ -18,16 +18,16 @@ describe('InventorySummaryCards', () => {
     render(<InventorySummaryCards summary={summary} />);
 
     expect(screen.getAllByTestId('inventory-summary-card')).toHaveLength(3);
-    expect(screen.getByText('전체 상품')).toBeInTheDocument();
-    expect(screen.getByText('재고 있음')).toBeInTheDocument();
-    expect(screen.getByText('재고 없음')).toBeInTheDocument();
+    expect(screen.getByText('전체 재고 SKU')).toBeInTheDocument();
+    expect(screen.getByText('재고 있는 SKU')).toBeInTheDocument();
+    expect(screen.getByText('품절 SKU')).toBeInTheDocument();
     expect(screen.queryByText('평가 재고자산')).not.toBeInTheDocument();
   });
 
   it('uses theme-aware semantic colors for the slate summary card', () => {
     render(<InventorySummaryCards summary={summary} />);
 
-    expect(screen.getByText('전체 상품').closest('[data-testid="inventory-summary-card"]')).toHaveClass(
+    expect(screen.getByText('전체 재고 SKU').closest('[data-testid="inventory-summary-card"]')).toHaveClass(
       'border-[var(--border)]',
       'bg-[var(--surface)]',
     );

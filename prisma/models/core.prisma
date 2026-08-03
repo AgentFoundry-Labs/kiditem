@@ -141,15 +141,16 @@ model Organization {
   actionTasks ActionTask[]
 
   // Product operations, Sellpia physical items, and channel catalogs
-  masterProducts                   MasterProduct[]
-  masterProductAbcPolicy           MasterProductAbcPolicy?
-  masterProductAbcGradeHistories   MasterProductAbcGradeHistory[]
-  productVariants                  ProductVariant[]
-  productVariantComponents         ProductVariantComponent[]
-  sellpiaInventorySkus             SellpiaInventorySku[]
-  channelListings                  ChannelListing[]
-  channelListingOptions            ChannelListingOption[]
-  channelListingDeletionOperations ChannelListingDeletionOperation[] @relation("ChannelListingDeletionOperationOrganization")
+  masterProducts                          MasterProduct[]
+  masterProductAbcFormulaVersions         MasterProductAbcFormulaVersion[]
+  masterProductAbcFormulaState            MasterProductAbcFormulaState?
+  masterProductAbcEvaluations             MasterProductAbcEvaluation[]
+  masterProductAbcGradeHistories          MasterProductAbcGradeHistory[]
+  sellpiaInventorySkus                    SellpiaInventorySku[]
+  channelListings                         ChannelListing[]
+  channelListingOptions                   ChannelListingOption[]
+  channelListingOptionInventoryComponents ChannelListingOptionInventoryComponent[]
+  channelListingDeletionOperations        ChannelListingDeletionOperation[]        @relation("ChannelListingDeletionOperationOrganization")
 
   // Channels — market-data snapshots (Wave C0)
   channelScrapeRuns                  ChannelScrapeRun[]
@@ -386,6 +387,8 @@ model SourceImportRun {
   createdBy                    String?   @map("created_by")
   attemptToken                 String    @default(uuid()) @map("attempt_token") @db.Uuid
   publicationSequence          BigInt?   @map("publication_sequence") @db.BigInt
+  coverageStartDate            DateTime? @map("coverage_start_date") @db.Date
+  coverageEndDate              DateTime? @map("coverage_end_date") @db.Date
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -408,6 +411,7 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])
+  @@index([organizationId, sourceType, status, coverageEndDate])
   @@index([channelAccountId])
   @@index([manualFreshExportConfirmedBy])
   @@map("source_import_runs")
@@ -432,7 +436,7 @@ model CategoryMapping {
 }
 
 /// @namespace Core
-/// @describe KidItem-operated product identity and product-level operating metadata.
+/// @describe Organization-owned canonical inventory product and sole official product ABC identity.
 model MasterProduct {
   id                     String    @id @default(uuid()) @db.Uuid
   organizationId         String    @map("organization_id") @db.Uuid
@@ -457,10 +461,11 @@ model MasterProduct {
 
   organization         Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   provenanceCandidate  SourcingCandidate?             @relation("SourcingCandidateProvenance")
-  variants             ProductVariant[]
   channelListings      ChannelListing[]               @relation("ChannelListingOperationalProduct")
   originChannelListing ChannelListing?                @relation("ChannelListingOriginProduct", fields: [originChannelListingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   processingCosts      ProcessingCost[]
+  inventorySkus        SellpiaInventorySku[]          @relation("MasterProductInventorySkus")
+  abcEvaluation        MasterProductAbcEvaluation?
   abcGradeHistories    MasterProductAbcGradeHistory[]
 
   @@unique([organizationId, code])
@@ -472,102 +477,136 @@ model MasterProduct {
 }
 
 /// @namespace Core
-/// @describe Organization-owned automatic MasterProduct ABC calculation policy.
-model MasterProductAbcPolicy {
-  id                   String    @id @default(uuid()) @db.Uuid
-  organizationId       String    @unique @map("organization_id") @db.Uuid
-  metric               String    @default("SALES_QUANTITY")
-  periodDays           Int       @default(30) @map("period_days")
-  aCumulativeThreshold Int       @default(70) @map("a_cumulative_threshold")
-  bCumulativeThreshold Int       @default(90) @map("b_cumulative_threshold")
-  revision             Int       @default(0)
-  lastCalculatedAt     DateTime? @map("last_calculated_at") @db.Timestamptz
-  sourceCapturedAt     DateTime? @map("source_captured_at") @db.Timestamptz
-  createdAt            DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @describe Immutable organization-owned formula versions for automatic product profitability ABC.
+model MasterProductAbcFormulaVersion {
+  id                      String    @id @default(uuid()) @db.Uuid
+  organizationId          String    @map("organization_id") @db.Uuid
+  formulaKey              String    @default("ABC_V1") @map("formula_key")
+  version                 Int
+  calculationCodeChecksum String    @map("calculation_code_checksum")
+  formulaJson             Json      @map("formula_json") @db.JsonB
+  formulaChecksum         String    @map("formula_checksum")
+  trainingStartDate       DateTime  @map("training_start_date") @db.Date
+  trainingEndDate         DateTime  @map("training_end_date") @db.Date
+  sampleCount             Int       @default(0) @map("sample_count")
+  foldCount               Int       @default(0) @map("fold_count")
+  calibrationMetricsJson  Json      @map("calibration_metrics_json") @db.JsonB
+  firstActivatedAt        DateTime? @map("first_activated_at") @db.Timestamptz
+  createdAt               DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt               DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  organization       Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  activeFormulaState MasterProductAbcFormulaState?  @relation("MasterProductAbcFormulaStateActiveFormula")
+  evaluations        MasterProductAbcEvaluation[]   @relation("MasterProductAbcFormulaVersionEvaluations")
+  gradeHistories     MasterProductAbcGradeHistory[] @relation("MasterProductAbcFormulaVersionGradeHistories")
 
-  @@map("master_product_abc_policies")
+  @@unique([id, organizationId], map: "master_product_abc_formula_versions_id_org_key")
+  @@unique([organizationId, formulaKey, version], map: "master_product_abc_formula_versions_org_key_version_key")
+  @@unique([organizationId, formulaChecksum], map: "master_product_abc_formula_versions_org_checksum_key")
+  @@index([organizationId, formulaKey, createdAt])
+  @@map("master_product_abc_formula_versions")
 }
 
 /// @namespace Core
-/// @describe Immutable publication history for automatic MasterProduct ABC grade changes.
-model MasterProductAbcGradeHistory {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  masterProductId String   @map("master_product_id") @db.Uuid
-  oldGrade        String?  @map("old_grade")
-  newGrade        String?  @map("new_grade")
-  metric          String
-  periodDays      Int      @map("period_days")
-  metricValue     Decimal? @map("metric_value") @db.Decimal(20, 6)
-  calculatedAt    DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+/// @describe One Prisma-owned current-formula pointer for each organization.
+model MasterProductAbcFormulaState {
+  organizationId         String    @id @map("organization_id") @db.Uuid
+  activeFormulaVersionId String?   @map("active_formula_version_id") @db.Uuid
+  activatedAt            DateTime? @map("activated_at") @db.Timestamptz
+  revision               Int       @default(0)
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct MasterProduct @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization         Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  activeFormulaVersion MasterProductAbcFormulaVersion? @relation("MasterProductAbcFormulaStateActiveFormula", fields: [activeFormulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([activeFormulaVersionId, organizationId], map: "master_product_abc_formula_states_active_formula_org_key")
+  @@index([activeFormulaVersionId])
+  @@map("master_product_abc_formula_states")
+}
+
+/// @namespace Core
+/// @describe Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct.
+model MasterProductAbcEvaluation {
+  id                           String    @id @default(uuid()) @db.Uuid
+  organizationId               String    @map("organization_id") @db.Uuid
+  masterProductId              String    @map("master_product_id") @db.Uuid
+  formulaVersionId             String?   @map("formula_version_id") @db.Uuid
+  calculationStatus            String    @default("CALIBRATION_PENDING") @map("calculation_status")
+  rawScore                     Decimal?  @map("raw_score") @db.Decimal(12, 6)
+  adjustedScore                Decimal?  @map("adjusted_score") @db.Decimal(12, 6)
+  reliability                  Decimal?  @db.Decimal(12, 6)
+  weightedRevenue              Decimal?  @map("weighted_revenue") @db.Decimal(20, 6)
+  weightedOrderTimeCogs        Decimal?  @map("weighted_order_time_cogs") @db.Decimal(20, 6)
+  weightedAdSpend              Decimal?  @map("weighted_ad_spend") @db.Decimal(20, 6)
+  weightedContributionProfit   Decimal?  @map("weighted_contribution_profit") @db.Decimal(20, 6)
+  profitVelocity30             Decimal?  @map("profit_velocity_30") @db.Decimal(20, 6)
+  weightedContributionMargin   Decimal?  @map("weighted_contribution_margin") @db.Decimal(12, 6)
+  lossRecurrence               Decimal?  @map("loss_recurrence") @db.Decimal(12, 6)
+  paidOrderCount               Int       @default(0) @map("paid_order_count")
+  observationDays              Int       @default(0) @map("observation_days")
+  firstValidPaidSaleAt         DateTime? @map("first_valid_paid_sale_at") @db.Timestamptz
+  sourceCoverageStartDate      DateTime? @map("source_coverage_start_date") @db.Date
+  sourceCoverageEndDate        DateTime? @map("source_coverage_end_date") @db.Date
+  evaluationCutoffDate         DateTime? @map("evaluation_cutoff_date") @db.Date
+  sellpiaCoverageStartDate     DateTime? @map("sellpia_coverage_start_date") @db.Date
+  sellpiaCoverageEndDate       DateTime? @map("sellpia_coverage_end_date") @db.Date
+  sellpiaSourceStatus          String    @default("MISSING") @map("sellpia_source_status")
+  sellpiaSourceCapturedAt      DateTime? @map("sellpia_source_captured_at") @db.Timestamptz
+  advertisingCoverageStartDate DateTime? @map("advertising_coverage_start_date") @db.Date
+  advertisingCoverageEndDate   DateTime? @map("advertising_coverage_end_date") @db.Date
+  advertisingSourceStatus      String    @default("MISSING") @map("advertising_source_status")
+  advertisingSourceCapturedAt  DateTime? @map("advertising_source_captured_at") @db.Timestamptz
+  ordersSourceStatus           String    @default("MISSING") @map("orders_source_status")
+  ordersCoverageStartDate      DateTime? @map("orders_coverage_start_date") @db.Date
+  ordersCoverageEndDate        DateTime? @map("orders_coverage_end_date") @db.Date
+  ordersSourceCapturedAt       DateTime? @map("orders_source_captured_at") @db.Timestamptz
+  mappingSourceStatus          String    @default("STALE") @map("mapping_source_status")
+  mappingInventoryGeneration   BigInt?   @map("mapping_inventory_generation") @db.BigInt
+  mappingVerifiedAt            DateTime? @map("mapping_verified_at") @db.Timestamptz
+  costComponentsJson           Json?     @map("cost_components_json") @db.JsonB
+  statusDetail                 String?   @map("status_detail") @db.VarChar(500)
+  runToken                     String?   @map("run_token") @db.Uuid
+  calculatedAt                 DateTime? @map("calculated_at") @db.Timestamptz
+
+  organization   Organization                    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct  MasterProduct                   @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  formulaVersion MasterProductAbcFormulaVersion? @relation("MasterProductAbcFormulaVersionEvaluations", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([masterProductId, organizationId])
+  @@index([organizationId, calculationStatus])
+  @@index([organizationId, evaluationCutoffDate])
+  @@index([organizationId, formulaVersionId])
+  @@index([masterProductId])
+  @@map("master_product_abc_evaluations")
+}
+
+/// @namespace Core
+/// @describe Immutable publication history for automatic product profitability ABC grade changes.
+model MasterProductAbcGradeHistory {
+  id                         String   @id @default(uuid()) @db.Uuid
+  organizationId             String   @map("organization_id") @db.Uuid
+  masterProductId            String   @map("master_product_id") @db.Uuid
+  formulaVersionId           String   @map("formula_version_id") @db.Uuid
+  oldGrade                   String?  @map("old_grade")
+  newGrade                   String?  @map("new_grade")
+  calculationStatus          String   @map("calculation_status")
+  adjustedScore              Decimal? @map("adjusted_score") @db.Decimal(12, 6)
+  weightedContributionProfit Decimal? @map("weighted_contribution_profit") @db.Decimal(20, 6)
+  weightedContributionMargin Decimal? @map("weighted_contribution_margin") @db.Decimal(12, 6)
+  sourceCutoffDate           DateTime @map("source_cutoff_date") @db.Date
+  reason                     String   @db.VarChar(100)
+  calculatedAt               DateTime @default(now()) @map("calculated_at") @db.Timestamptz
+
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  masterProduct  MasterProduct                  @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  formulaVersion MasterProductAbcFormulaVersion @relation("MasterProductAbcFormulaVersionGradeHistories", fields: [formulaVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@index([organizationId, calculatedAt])
+  @@index([organizationId, formulaVersionId])
   @@index([masterProductId])
   @@index([masterProductId, calculatedAt])
   @@map("master_product_abc_grade_histories")
-}
-
-/// @namespace Core
-/// @describe Reusable sellable unit beneath one MasterProduct. Code is stable organization-scoped identity.
-model ProductVariant {
-  id              String  @id @default(uuid()) @db.Uuid
-  organizationId  String  @map("organization_id") @db.Uuid
-  masterProductId String  @map("master_product_id") @db.Uuid
-  code            String
-  name            String
-  optionLabel     String? @map("option_label")
-  isDefault       Boolean @default(false) @map("is_default")
-  isActive        Boolean @default(true) @map("is_active")
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization                    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  masterProduct                   MasterProduct                    @relation(fields: [masterProductId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  components                      ProductVariantComponent[]
-  channelListingOptions           ChannelListingOption[]
-  rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
-
-  @@unique([organizationId, code])
-  @@unique([id, organizationId], map: "product_variants_id_org_key")
-  @@unique([masterProductId], map: "product_variants_active_default_master_key", where: raw("is_default = true AND is_active = true"))
-  @@index([organizationId])
-  @@index([masterProductId])
-  @@index([organizationId, isActive])
-  @@map("product_variants")
-}
-
-/// @namespace Core
-/// @describe Central confirmed variant recipe. source: manual | deterministic; quantity is positive and validated by shared/service contracts.
-model ProductVariantComponent {
-  id                    String   @id @default(uuid()) @db.Uuid
-  organizationId        String   @map("organization_id") @db.Uuid
-  productVariantId      String   @map("product_variant_id") @db.Uuid
-  sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  quantity              Int // positive; validated by shared/service contracts
-  source                String // manual | deterministic
-  confirmedBy           String?  @map("confirmed_by") @db.Uuid
-  confirmedAt           DateTime @default(now()) @map("confirmed_at") @db.Timestamptz
-  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt             DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization        Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  productVariant      ProductVariant      @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sellpiaInventorySku SellpiaInventorySku @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([productVariantId, sellpiaInventorySkuId])
-  @@index([organizationId])
-  @@index([productVariantId])
-  @@index([sellpiaInventorySkuId])
-  @@index([organizationId, productVariantId])
-  @@index([organizationId, sellpiaInventorySkuId])
-  @@map("product_variant_components")
 }
 
 /// @namespace Core
@@ -648,10 +687,9 @@ model ChannelListing {
 /// @namespace Core
 /// @describe One sellable SKU under a channel listing.
 model ChannelListingOption {
-  id               String  @id @default(uuid()) @db.Uuid
-  listingId        String  @map("listing_id") @db.Uuid
-  organizationId   String  @map("organization_id") @db.Uuid
-  productVariantId String? @map("product_variant_id") @db.Uuid
+  id             String @id @default(uuid()) @db.Uuid
+  listingId      String @map("listing_id") @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
 
   externalOptionId  String   @map("external_option_id") @db.VarChar(60)
   itemName          String?  @map("item_name")
@@ -673,10 +711,10 @@ model ChannelListingOption {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  listing                         ChannelListing                   @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  organization                    Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  productVariant                  ProductVariant?                  @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  lastImportRun                   SourceImportRun?                 @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  listing                         ChannelListing                           @relation(fields: [listingId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization                    Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  inventoryComponents             ChannelListingOptionInventoryComponent[]
+  lastImportRun                   SourceImportRun?                         @relation("ChannelSkuLastImport", fields: [lastImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   orderLineItems                  OrderLineItem[]
   orderReturnLineItems            OrderReturnLineItem[]
   rocketPurchaseConfirmationLines RocketPurchaseConfirmationLine[]
@@ -693,8 +731,27 @@ model ChannelListingOption {
   @@unique([id, organizationId], map: "channel_listing_options_id_org_key")
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
-  @@index([productVariantId])
-  @@index([organizationId, productVariantId])
   @@index([lastImportRunId])
   @@map("channel_listing_options")
+}
+
+/// @namespace Core
+/// @describe Confirmed Sellpia inventory consumption for one channel sellable option.
+model ChannelListingOptionInventoryComponent {
+  id                     String   @id @default(uuid()) @db.Uuid
+  organizationId         String   @map("organization_id") @db.Uuid
+  channelListingOptionId String   @map("channel_listing_option_id") @db.Uuid
+  sellpiaInventorySkuId  String   @map("sellpia_inventory_sku_id") @db.Uuid
+  quantity               Int
+  createdAt              DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  channelListingOption ChannelListingOption @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  sellpiaInventorySku  SellpiaInventorySku  @relation(fields: [sellpiaInventorySkuId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([channelListingOptionId, sellpiaInventorySkuId])
+  @@index([organizationId, channelListingOptionId], map: "channel_option_inventory_components_org_option_idx")
+  @@index([organizationId, sellpiaInventorySkuId], map: "channel_option_inventory_components_org_sku_idx")
+  @@map("channel_listing_option_inventory_components")
 }

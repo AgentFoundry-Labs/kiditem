@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { ArchiveX, Bell, X } from 'lucide-react';
+import { ArchiveX, Bell, EyeOff, RotateCcw, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import { isActivePanelItem, usePanelStore } from './lib/panel-store';
 import { recoverStalePanelOperations } from './lib/panel-recovery';
@@ -14,13 +15,14 @@ export function PanelSheet() {
   const isOpen = usePanelStore((s) => s.isOpen);
   const setOpen = usePanelStore((s) => s.setOpen);
   const byId = usePanelStore((s) => s.byId);
+  const hiddenRunIds = usePanelStore((s) => s.hiddenRunIds);
   const dismissItem = usePanelStore((s) => s.dismissItem);
+  const hideRunItems = usePanelStore((s) => s.hideRunItems);
+  const restoreHiddenRunItems = usePanelStore((s) => s.restoreHiddenRunItems);
   const connectionStatus = usePanelStore((s) => s.connectionStatus);
   const recoveryLastRunRef = useRef(0);
   const recoveryInFlightRef = useRef(false);
 
-  // byId ref만 의존하면 안정적 — Object.values()를 selector 안에서 호출하면
-  // 매 렌더 새 배열 레퍼런스로 infinite loop (useSyncExternalStore getSnapshot 경고).
   const { active, recent, runningCount } = useMemo(
     () => partitionByStatus(Object.values(byId)),
     [byId],
@@ -29,24 +31,23 @@ export function PanelSheet() {
     () => [...active, ...recent].filter(isDismissablePanelAlert),
     [active, recent],
   );
+  const activeWorkflowRuns = useMemo(
+    () => active.filter((item) => item.kind === 'run'),
+    [active],
+  );
   const visibleItems = [...active, ...recent];
+  const hiddenRunCount = Object.keys(hiddenRunIds).length;
 
   useEffect(() => {
     if (!isOpen) return;
     const now = Date.now();
-    if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) {
-      return;
-    }
+    if (recoveryInFlightRef.current || now - recoveryLastRunRef.current < 30_000) return;
     recoveryInFlightRef.current = true;
     recoveryLastRunRef.current = now;
     const afterSeq = usePanelStore.getState().lastSeq;
     void recoverStalePanelOperations(afterSeq)
-      .then((items) => {
-        usePanelStore.getState().handleSnapshot(items, true);
-      })
-      .catch((err) => {
-        console.warn('[panel] stale operation recovery failed', err);
-      })
+      .then((items) => usePanelStore.getState().handleSnapshot(items, true))
+      .catch((err) => console.warn('[panel] stale operation recovery failed', err))
       .finally(() => {
         recoveryInFlightRef.current = false;
       });
@@ -70,22 +71,67 @@ export function PanelSheet() {
     }
   };
 
+  const hideActiveWorkflowRuns = () => {
+    if (activeWorkflowRuns.length === 0) return;
+    hideRunItems(activeWorkflowRuns.map((item) => item.id));
+    toast.success(`${activeWorkflowRuns.length}개의 진행 중 워크플로우를 화면에서 숨겼습니다.`);
+  };
+
+  const restoreHiddenWorkflowRuns = async () => {
+    restoreHiddenRunItems();
+    try {
+      const items = await apiClient.get<PanelItem[]>('/api/panel/snapshot');
+      usePanelStore.getState().handleSnapshot(items, true);
+      toast.success('숨긴 워크플로우를 다시 표시했습니다.');
+    } catch (error) {
+      console.warn('[panel] failed to restore hidden workflow runs', error);
+      toast.error('숨긴 워크플로우를 다시 불러오지 못했습니다.');
+    }
+  };
+
+  const clearVisibleItems = async () => {
+    if (isClearing || visibleItems.length === 0) return;
+    setIsClearing(true);
+    hideRunItems(visibleItems.map((item) => item.id));
+    try {
+      await Promise.allSettled(visibleItems
+        .filter((item) => item.kind === 'alert')
+        .map((item) => apiClient.post(`/api/alerts/${encodeURIComponent(item.id)}/dismiss`)));
+      toast.success(`${visibleItems.length}개의 알림을 화면에서 정리했습니다.`);
+    } finally {
+      setIsClearing(false);
+    }
+  };
+
   return (
     <Dialog.Root open={isOpen} onOpenChange={setOpen}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-[100] bg-black/10" />
-        <Dialog.Content className="fixed right-0 top-0 z-[110] h-full w-96 bg-white border-l border-slate-200 shadow-xl flex flex-col">
-          <div className="flex items-center justify-between px-4 py-3.5 border-b border-slate-200">
-            <Dialog.Title className="text-sm font-semibold text-slate-900 flex items-center gap-2">
-              <Bell className="w-4 h-4 text-slate-500" />
+        <Dialog.Content className="fixed right-0 top-0 z-[110] flex h-full w-96 flex-col border-l border-slate-200 bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3.5">
+            <Dialog.Title className="flex items-center gap-2 text-sm font-semibold text-slate-900">
+              <Bell className="h-4 w-4 text-slate-500" />
               알림
             </Dialog.Title>
             <div className="flex items-center gap-1.5">
               {runningCount > 0 && (
-                <span className="flex items-center gap-1 text-xs font-semibold px-2 py-0.5 bg-violet-100 text-violet-700 rounded-full">
-                  <span className="w-1 h-1 bg-violet-500 rounded-full animate-pulse" />
+                <span className="flex items-center gap-1 rounded-full bg-violet-100 px-2 py-0.5 text-xs font-semibold text-violet-700">
+                  <span className="h-1 w-1 animate-pulse rounded-full bg-violet-500" />
                   {runningCount} 진행
                 </span>
+              )}
+              {visibleItems.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void clearVisibleItems()}
+                  disabled={isClearing}
+                  aria-label="현재 알림 모두 정리"
+                  title="현재 보이는 알림을 이 브라우저에서 모두 숨깁니다"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <ArchiveX className="h-3 w-3" />
+                  모두 정리
+                </button>
               )}
               {dismissableAlerts.length > 0 && (
                 <button
@@ -96,8 +142,32 @@ export function PanelSheet() {
                   title="완료 알림 정리"
                   className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <ArchiveX className="w-3 h-3" />
+                  <ArchiveX className="h-3 w-3" />
                   완료 정리
+                </button>
+              )}
+              {activeWorkflowRuns.length > 0 && (
+                <button
+                  type="button"
+                  onClick={hideActiveWorkflowRuns}
+                  aria-label="진행 중 워크플로우 화면에서 정리"
+                  title="실제 실행은 중단하지 않고 이 브라우저의 알림 화면에서만 숨깁니다"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <EyeOff className="h-3 w-3" />
+                  진행 정리
+                </button>
+              )}
+              {hiddenRunCount > 0 && (
+                <button
+                  type="button"
+                  onClick={() => void restoreHiddenWorkflowRuns()}
+                  aria-label="숨긴 워크플로우 다시 표시"
+                  title="숨긴 워크플로우 다시 표시"
+                  className="inline-flex items-center gap-1 rounded border border-slate-200 px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <RotateCcw className="h-3 w-3" />
+                  복원
                 </button>
               )}
               <button
@@ -106,7 +176,7 @@ export function PanelSheet() {
                 onClick={() => setOpen(false)}
                 className="p-1 text-slate-400 hover:text-slate-600"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </button>
             </div>
           </div>
@@ -115,7 +185,7 @@ export function PanelSheet() {
           </Dialog.Description>
 
           {connectionStatus !== 'connected' && (
-            <div className="px-4 py-1.5 text-xs text-amber-700 bg-amber-50 border-b border-amber-100">
+            <div className="border-b border-amber-100 bg-amber-50 px-4 py-1.5 text-xs text-amber-700">
               {connectionStatus === 'connecting' && '연결 중...'}
               {connectionStatus === 'disconnected' && '연결 끊김 — 재시도 중'}
               {connectionStatus === 'polling_fallback' && '폴링 모드'}
@@ -123,9 +193,7 @@ export function PanelSheet() {
           )}
 
           <div className="flex-1 overflow-y-auto">
-            {visibleItems.map((item) => (
-              <PanelItemRow key={item.id} item={item} />
-            ))}
+            {visibleItems.map((item) => <PanelItemRow key={item.id} item={item} />)}
             {visibleItems.length === 0 && (
               <div className="px-4 py-8 text-center text-sm text-slate-400">
                 표시할 알림이 없습니다
@@ -150,7 +218,6 @@ function partitionByStatus(items: PanelItem[]) {
       recent.push(item);
     }
   }
-  // 시간 역순
   active.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   recent.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
   return { active, recent, runningCount };

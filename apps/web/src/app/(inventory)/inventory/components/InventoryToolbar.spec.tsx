@@ -33,7 +33,7 @@ describe('InventoryToolbar', () => {
 
     expect(screen.getByRole('heading', { name: '재고 현황' })).toBeInTheDocument();
     expect(screen.queryByText('재고/발주 관리')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '셀피아 동기화' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '셀피아 재고 동기화' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '바코드 출력' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '엑셀' })).toBeInTheDocument();
     const includeOutOfStock = screen.getByRole('checkbox', { name: '품절상품 포함' });

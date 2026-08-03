@@ -82,15 +82,11 @@ conversion.
 
 ## Sellpia Inventory Contract
 
-- Advertise `collectSellpiaInventoryJsonV1` only for the hardened inactive-tab,
-  managed-lifecycle JSON collector. The web app must reject an older unpacked
-  extension and request a reload instead of falling back to an Excel collector.
-- `collectSellpiaInventory` runs only against the inactive
-  `https://kiditem.sellpia.com/product_list_total.html` page and posts the fixed
-  `mode=soldout_manager`, `soldout_include=Y`, and `limit=0` full-snapshot
-  request to `/product_search.ajax.html`. The existing
-  `https://*.sellpia.com/*` host permission covers this authenticated
-  same-origin request.
+- Advertise `collectSellpiaInventoryJsonV1` only for the managed inactive-tab
+  JSON collector; reject legacy extensions instead of falling back to Excel.
+- `collectSellpiaInventory` uses the inactive `product_list_total.html` page
+  and fixed `soldout_manager`, `soldout_include=Y`, `limit=0` full-snapshot
+  request to `/product_search.ajax.html` under the existing Sellpia permission.
 - Reuse requires an exact matching tab with `active === false`. If every match
   is active, create a separate inactive managed tab; never execute the download
   request in the user's foreground tab.
@@ -98,19 +94,22 @@ conversion.
   deferred terminal handling even when an untrusted message omits or falsifies
   `deferTerminal`. Successful collection stays running until import
   finalization.
-- Attach extension-created tabs to the run as owned immediately after creation,
-  before readiness checks or page execution, so restart and cancellation can
-  reclaim them.
-- Accept only a bounded, non-empty response of at most 20,000 rows. Every row
-  must have a valid product/option identity and bounded stock/price integers;
-  duplicate identities, partial rows, invalid JSON, and oversized responses
-  fail the run.
-- Return only the versioned normalized snapshot fields required by Inventory,
-  sorted by product-option identity with an exact `rowCount`. Never return the
-  raw Sellpia response, response headers, cookies, or credentials.
-- Only login attention retains an extension-created inactive Sellpia tab for
-  the explicit generic open action. Never return cookies, credentials, response
-  headers, DOM text, or raw error/response bodies.
+- Attach created tabs to the run before checks or execution so restart and
+  cancellation can reclaim them.
+- Accept 1–20,000 rows with valid identities and bounded stock/price integers;
+  duplicates, partial rows, invalid JSON, or overflow fail the run.
+- Return only versioned normalized rows sorted by identity with exact
+  `rowCount`; never return raw responses, headers, cookies, or credentials.
+- Only login attention retains a created inactive tab for the generic open
+  action; never expose DOM text or raw error/response bodies.
+
+## Sellpia Product-Profit Evidence Contract
+
+- `collectSellpiaProductProfitEvidenceV1` means full-range, `buy_point=R`,
+  VAT-included order-time cost with bounded zero-filled months.
+- Only `scope=full` OperationRuns collect and ingest this evidence through
+  NestJS before inventory publication; `inventory` never scrapes it.
+- Malformed, partial, duplicate, or oversized evidence fails the whole read.
 
 ## Rocket Purchase-Order Collection Contract
 

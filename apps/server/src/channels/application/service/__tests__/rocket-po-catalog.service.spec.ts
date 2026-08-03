@@ -72,27 +72,10 @@ function repository() {
   } satisfies Record<keyof RocketPoCatalogRepositoryPort, ReturnType<typeof vi.fn>>;
 }
 
-function recipeAutomation() {
-  return {
-    applySafeForOptions: vi.fn().mockResolvedValue({
-      evaluatedProducts: 1,
-      appliedProducts: 1,
-      appliedVariants: 1,
-      affectedOptions: 1,
-      quantityReviewProducts: 0,
-      operatorReviewProducts: 0,
-      blockedProducts: 0,
-      alreadyConfiguredProducts: 0,
-      skippedExistingVariants: 0,
-    }),
-  };
-}
-
-function service(repo = repository(), automation = recipeAutomation()) {
+function service(repo = repository()) {
   return {
     repo,
-    automation,
-    service: new RocketPoCatalogService(repo, automation as never),
+    service: new RocketPoCatalogService(repo),
   };
 }
 
@@ -119,7 +102,7 @@ describe('RocketPoCatalogService', () => {
   it('accepts a complete empty collection without vendor identity or publication', async () => {
     const repo = repository();
     repo.findActiveRocketAccount.mockResolvedValue({ vendorId: null });
-    const { service: catalogService, automation } = service(repo);
+    const { service: catalogService } = service(repo);
 
     const result = await catalogService.publishAndResolve({
       organizationId,
@@ -138,7 +121,6 @@ describe('RocketPoCatalogService', () => {
     expect(result.catalog).toBeNull();
     expect(result.identities).toEqual([]);
     expect(repo.publish).not.toHaveBeenCalled();
-    expect(automation.applySafeForOptions).not.toHaveBeenCalled();
   });
 
   it('uses complete Supplier Hub evidence to claim an unconfigured Rocket vendor once', async () => {
@@ -303,51 +285,4 @@ describe('RocketPoCatalogService', () => {
     }));
   });
 
-  it('applies safe recipes for the newly published Rocket options before returning the catalog', async () => {
-    const { service: catalogService, automation } = service();
-
-    const result = await catalogService.publishAndResolve({
-      organizationId,
-      userId,
-      request: request(),
-    });
-
-    expect(automation.applySafeForOptions).toHaveBeenCalledWith({
-      organizationId,
-      channelAccountId,
-      channelListingOptionIds: ['sku-1'],
-    });
-    expect(result.catalog).toEqual(expect.objectContaining({
-      recipeAutomation: expect.objectContaining({
-        appliedProducts: 1,
-        appliedVariants: 1,
-      }),
-    }));
-  });
-
-  it('does not rerun recipe automation when reopening an already published collection', async () => {
-    const repo = repository();
-    const original = await repo.publish();
-    repo.publish.mockReset().mockResolvedValue({ ...original, duplicate: true });
-    const { service: catalogService, automation } = service(repo);
-
-    const result = await catalogService.publishAndResolve({
-      organizationId,
-      userId,
-      request: request(),
-    });
-
-    expect(automation.applySafeForOptions).not.toHaveBeenCalled();
-    expect(result.catalog?.recipeAutomation).toEqual({
-      evaluatedProducts: 0,
-      appliedProducts: 0,
-      appliedVariants: 0,
-      affectedOptions: 0,
-      quantityReviewProducts: 0,
-      operatorReviewProducts: 0,
-      blockedProducts: 0,
-      alreadyConfiguredProducts: 0,
-      skippedExistingVariants: 0,
-    });
-  });
 });

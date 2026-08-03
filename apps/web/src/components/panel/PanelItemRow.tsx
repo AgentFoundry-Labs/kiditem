@@ -7,6 +7,7 @@ import {
   Bot,
   Box,
   CheckCircle2,
+  EyeOff,
   Image,
   Loader2,
   Workflow,
@@ -15,6 +16,7 @@ import {
 import { PANEL_RUN_SOURCES } from '@kiditem/shared/panel';
 import { cn, timeAgo } from '@/lib/utils';
 import { PanelAlertRow } from './PanelAlertRow';
+import { usePanelStore } from './lib/panel-store';
 import type { LucideIcon } from 'lucide-react';
 import type { PanelItem, PanelRunItem } from '@kiditem/shared/panel';
 
@@ -29,10 +31,11 @@ const PANEL_ICONS: Record<string, LucideIcon> = {
 export function PanelItemRow({ item }: { item: PanelItem }) {
   if (item.kind === 'run') return <RunRow item={item} />;
   if (item.kind === 'alert') return <PanelAlertRow item={item} />;
-  return null; // exhaustive — never
+  return null;
 }
 
 function RunRow({ item }: { item: PanelRunItem }) {
+  const hideRunItems = usePanelStore((state) => state.hideRunItems);
   const meta = PANEL_RUN_SOURCES[item.source];
   const IconComponent = PANEL_ICONS[meta.iconName] ?? Box;
   const badge = runStatusBadge(item.status);
@@ -49,7 +52,7 @@ function RunRow({ item }: { item: PanelRunItem }) {
       )}>
         <IconComponent className="w-3.5 h-3.5" />
       </div>
-      <div className="flex-1 min-w-0">
+      <div className="min-w-0 flex-1">
         <div className="flex items-start justify-between gap-2">
           <span className="truncate text-sm font-medium text-slate-900">{item.title}</span>
         </div>
@@ -90,6 +93,17 @@ function RunRow({ item }: { item: PanelRunItem }) {
           </Link>
         </div>
       </div>
+      {active && (
+        <button
+          type="button"
+          onClick={() => hideRunItems([item.id])}
+          aria-label="워크플로우 화면에서 숨기기"
+          title="실제 실행은 중단하지 않고 이 브라우저의 알림 화면에서만 숨깁니다"
+          className="rounded border border-slate-200 p-1 text-slate-400 opacity-0 transition hover:bg-slate-50 hover:text-slate-600 focus:opacity-100 group-hover:opacity-100"
+        >
+          <EyeOff className="h-3 w-3" />
+        </button>
+      )}
     </div>
   );
 }

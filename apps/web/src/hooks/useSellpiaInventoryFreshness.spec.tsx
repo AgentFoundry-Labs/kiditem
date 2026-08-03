@@ -107,6 +107,25 @@ describe('useSellpiaInventoryFreshness', () => {
     expect(operations.startSellpiaInventoryRefreshAction).toHaveBeenCalledWith({
       sourceSurface: 'dashboard',
       reason: 'retry',
+      scope: 'inventory',
+    });
+  });
+
+  it('forwards the full scope to the shared browser operation', async () => {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const { result } = renderHook(
+      () => useSellpiaInventoryFreshness({ enabled: true }),
+      { wrapper: wrapper(client) },
+    );
+
+    await act(async () => {
+      await result.current.requestRefresh('full');
+    });
+
+    expect(operations.startSellpiaInventoryRefreshAction).toHaveBeenCalledWith({
+      sourceSurface: 'domain_screen',
+      reason: 'manual_request',
+      scope: 'full',
     });
   });
 
