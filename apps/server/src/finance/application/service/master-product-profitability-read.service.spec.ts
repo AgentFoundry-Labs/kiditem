@@ -25,23 +25,20 @@ function sourceFact(overrides: Partial<{
   };
 }
 
-function paidOrder(orderId: string, paidAt: string) {
-  return {
-    orderId,
-    order: { paidAt: new Date(paidAt) },
-    listingOption: { listing: { masterProductId: MASTER_ID } },
-  };
-}
-
 function makeService(input: {
   sellpia?: unknown;
   ad?: unknown;
-  orders?: unknown[];
   masters?: unknown[];
 } = {}) {
   const sellpiaFacts = {
     readProfitFacts: vi.fn().mockResolvedValue(input.sellpia ?? {
-      evidence: [{ masterProductId: MASTER_ID, mappingStatus: 'MAPPED', monthlyFacts: [sourceFact()] }],
+      evidence: [{
+        masterProductId: MASTER_ID,
+        mappingStatus: 'MAPPED',
+        mappingInventoryGeneration: '7',
+        mappingVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
+        monthlyFacts: [sourceFact()],
+      }],
       orphanFacts: [],
     }),
   };
@@ -56,23 +53,65 @@ function makeService(input: {
     }]),
   };
   const prisma = {
-    orderLineItem: { findMany: vi.fn().mockResolvedValue(input.orders ?? []) },
     masterProduct: { findMany: vi.fn().mockResolvedValue(input.masters ?? []) },
   };
   const Service = MasterProductProfitabilityReadService as unknown as new (
     sellpiaFacts: unknown, adSpend: unknown, prisma: unknown,
   ) => MasterProductProfitabilityReadService;
-  return { service: new Service(sellpiaFacts, adSpend, prisma), sellpiaFacts, adSpend, prisma };
+  return {
+    service: new Service(sellpiaFacts, adSpend, prisma),
+    sellpiaFacts,
+    adSpend,
+    prisma,
+  };
 }
 
 describe('MasterProductProfitabilityReadService', () => {
-  it('uses distinct paid orders for eligibility and emits all seven contribution-cost components', async () => {
-    const { service, prisma } = makeService({
-      orders: [
-        paidOrder('order-1', '2026-06-16T00:00:00.000Z'),
-        paidOrder('order-1', '2026-06-16T00:00:00.000Z'),
-      ],
+  it('assembles profitability without a paid-order source', async () => {
+    const sellpiaFacts = {
+      readProfitFacts: vi.fn().mockResolvedValue({
+        evidence: [{
+          masterProductId: MASTER_ID,
+          mappingStatus: 'MAPPED',
+          mappingInventoryGeneration: '7',
+          mappingVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
+          monthlyFacts: [sourceFact()],
+        }],
+        orphanFacts: [],
+      }),
+    };
+    const adSpend = {
+      readDailyAdSpend: vi.fn().mockResolvedValue([{
+        masterProductId: MASTER_ID,
+        status: 'OBSERVED',
+        coverageStartDate: sourceFact().coverageStartDate,
+        coverageEndDate: AS_OF,
+        capturedAt: new Date('2026-07-16T00:00:00.000Z'),
+        dailyFacts: [{ businessDate: AS_OF, adSpend: 100 }],
+      }]),
+    };
+    const prisma = { masterProduct: { findMany: vi.fn().mockResolvedValue([]) } };
+    const Service = MasterProductProfitabilityReadService as unknown as new (
+      sellpiaFacts: unknown, adSpend: unknown, prisma: unknown,
+    ) => MasterProductProfitabilityReadService;
+
+    const [evidence] = await new Service(sellpiaFacts, adSpend, prisma).readMany({
+      organizationId: ORGANIZATION_ID,
+      masterProductIds: [MASTER_ID],
+      asOfDate: AS_OF,
+      scope: 'ACTIVE_EVALUATION',
     });
+
+    expect(evidence).toMatchObject({
+      ordersStatus: 'NOT_APPLIED',
+      paidOrderCount: 0,
+      observationDays: 401,
+      eligibilityReached: true,
+    });
+  });
+
+  it('derives observation from Sellpia profit coverage and emits all seven contribution-cost components', async () => {
+    const { service } = makeService();
 
     const [evidence] = await service.readMany({
       organizationId: ORGANIZATION_ID,
@@ -85,8 +124,10 @@ describe('MasterProductProfitabilityReadService', () => {
       masterProductId: MASTER_ID,
       sellpiaStatus: 'READY',
       adStatus: 'READY',
-      paidOrderCount: 1,
-      observationDays: 30,
+      ordersStatus: 'NOT_APPLIED',
+      mappingStatus: 'READY',
+      paidOrderCount: 0,
+      observationDays: 401,
       eligibilityReached: true,
       monthlyFacts: [expect.objectContaining({
         contributionProfit: 500,
@@ -103,19 +144,20 @@ describe('MasterProductProfitabilityReadService', () => {
         },
       })],
     });
-    expect(prisma.orderLineItem.findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        order: { is: expect.objectContaining({ status: { notIn: ['cancelled', 'returned', 'refunded'] } }) },
-      }),
-    }));
   });
 
-  it('reaches eligibility at 20 distinct orders even before 30 observation days', async () => {
+  it('keeps a no-sale product immediately eligible with zero observation days', async () => {
     const { service } = makeService({
-      orders: Array.from({ length: 20 }, (_, index) => paidOrder(
-        `order-${index}`, '2026-07-14T00:00:00.000Z',
-      )),
+      sellpia: {
+        evidence: [{
+          masterProductId: MASTER_ID,
+          mappingStatus: 'MAPPED',
+          mappingInventoryGeneration: '7',
+          mappingVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
+          monthlyFacts: [sourceFact({ revenue: 0, sellpiaInAmount: 0 })],
+        }],
+        orphanFacts: [],
+      },
     });
 
     const [evidence] = await service.readMany({
@@ -125,7 +167,7 @@ describe('MasterProductProfitabilityReadService', () => {
       scope: 'ACTIVE_EVALUATION',
     });
 
-    expect(evidence).toMatchObject({ paidOrderCount: 20, observationDays: 2, eligibilityReached: true });
+    expect(evidence).toMatchObject({ paidOrderCount: 0, observationDays: 0, eligibilityReached: true });
   });
 
   it('keeps unavailable advertising evidence non-numeric instead of treating it as zero spend', async () => {
@@ -158,10 +200,7 @@ describe('MasterProductProfitabilityReadService', () => {
   it('marks a failed Sellpia source stale instead of publishing a missing source as zero evidence', async () => {
     const sellpiaFacts = { readProfitFacts: vi.fn().mockRejectedValue(new Error('source unavailable')) };
     const adSpend = { readDailyAdSpend: vi.fn().mockResolvedValue([]) };
-    const prisma = {
-      orderLineItem: { findMany: vi.fn().mockResolvedValue([]) },
-      masterProduct: { findMany: vi.fn().mockResolvedValue([]) },
-    };
+    const prisma = { masterProduct: { findMany: vi.fn().mockResolvedValue([]) } };
     const Service = MasterProductProfitabilityReadService as unknown as new (
       sellpiaFacts: unknown, adSpend: unknown, prisma: unknown,
     ) => MasterProductProfitabilityReadService;

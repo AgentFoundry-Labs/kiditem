@@ -11,6 +11,7 @@ import type {
   CoupangSyncReturnPayload,
   ProductListingSyncResult,
 } from '../../../application/port/out/repository/channel-sync.repository.port';
+import { COUPANG_WING_ORDER_SOURCE_TYPE } from '../../../application/port/out/repository/channel-sync.repository.port';
 
 type ListingForProductSync = {
   id: string;
@@ -264,6 +265,7 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
     organizationId: string,
     channelAccountId: string,
     payload: CoupangSyncOrderPayload,
+    sourceImportRunId?: string,
   ): Promise<void> {
     const shipmentBoxId = String(payload.shipmentBoxId);
     const orderItems = payload.orderItems ?? [];
@@ -299,12 +301,16 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
             memo: payload.parcelPrintMessage ?? null,
             metadata: metadata as Prisma.InputJsonValue,
             channelAccountId,
+            orderedAt: new Date(payload.orderedAt),
+            paidAt: payload.paidAt ? new Date(payload.paidAt) : null,
+            ...(sourceImportRunId ? { sourceImportRunId } : {}),
         };
         const order = existingOrder
           ? await tx.order.update({ where: { id: existingOrder.id }, data: orderUpdate })
           : await tx.order.create({ data: {
             organizationId,
             channelAccountId,
+            ...(sourceImportRunId ? { sourceImportRunId } : {}),
             externalOrderId: shipmentBoxId,
             externalNumber: payload.orderId ? String(payload.orderId) : null,
             status: normalizeCoupangOrderStatus(payload.status) ?? 'ACCEPT',
@@ -393,6 +399,71 @@ export class ChannelSyncRepositoryAdapter implements ChannelSyncRepositoryPort {
       },
       { timeout: 15_000 },
     );
+  }
+
+  async startOrderImport(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ id: string }> {
+    return this.prisma.sourceImportRun.create({
+      data: {
+        organizationId: input.organizationId,
+        channelAccountId: input.channelAccountId,
+        sourceType: COUPANG_WING_ORDER_SOURCE_TYPE,
+        status: 'running',
+        rowCount: 0,
+      },
+      select: { id: true },
+    });
+  }
+
+  async completeOrderImport(input: {
+    organizationId: string;
+    sourceImportRunId: string;
+    rowCount: number;
+    coverageStartDate: Date | null;
+    coverageEndDate: Date | null;
+  }): Promise<void> {
+    const completed = await this.prisma.sourceImportRun.updateMany({
+      where: {
+        id: input.sourceImportRunId,
+        organizationId: input.organizationId,
+        sourceType: COUPANG_WING_ORDER_SOURCE_TYPE,
+        status: 'running',
+      },
+      data: {
+        status: 'completed',
+        rowCount: input.rowCount,
+        coverageStartDate: input.coverageStartDate,
+        coverageEndDate: input.coverageEndDate,
+        importedAt: new Date(),
+        errorCode: null,
+        errorMessage: null,
+      },
+    });
+    if (completed.count !== 1) {
+      throw new BadRequestException('Canonical Coupang order import is no longer running.');
+    }
+  }
+
+  async failOrderImport(input: {
+    organizationId: string;
+    sourceImportRunId: string;
+    errorMessage: string;
+  }): Promise<void> {
+    await this.prisma.sourceImportRun.updateMany({
+      where: {
+        id: input.sourceImportRunId,
+        organizationId: input.organizationId,
+        sourceType: COUPANG_WING_ORDER_SOURCE_TYPE,
+        status: 'running',
+      },
+      data: {
+        status: 'failed',
+        errorCode: 'ORDER_IMPORT_INCOMPLETE',
+        errorMessage: input.errorMessage.slice(0, 500),
+      },
+    });
   }
 
   async syncSingleReturn(

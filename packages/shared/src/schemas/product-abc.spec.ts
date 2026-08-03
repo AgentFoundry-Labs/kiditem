@@ -15,7 +15,6 @@ const formula = {
   activatedAt: '2026-08-01T00:00:00.000Z',
   halfLifeDays: 90,
   weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  orderShrinkK: 20,
   dayShrinkK: 30,
   cutoffs: { cToB: 40, bToA: 70 },
   normalizationKnots: {
@@ -52,7 +51,8 @@ describe('automatic product profitability ABC contracts', () => {
     });
     expect(ProductAbcCalculationStatusSchema.options).toEqual([
       'READY', 'INSUFFICIENT_EVIDENCE', 'SOURCE_UNMAPPED', 'CALIBRATION_PENDING',
-      'RECALCULATING', 'SELLPIA_SOURCE_STALE', 'AD_SOURCE_STALE', 'CALCULATION_ERROR',
+      'RECALCULATING', 'SELLPIA_SOURCE_STALE', 'AD_SOURCE_STALE', 'ORDERS_SOURCE_STALE',
+      'CALCULATION_ERROR',
     ]);
 
     const module = await contracts();
@@ -89,6 +89,12 @@ describe('automatic product profitability ABC contracts', () => {
         advertising: {
           status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z',
         },
+        orders: {
+          status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z',
+        },
+        mapping: {
+          status: 'READY', inventoryGeneration: '77', verifiedAt: '2026-08-01T00:00:00.000Z',
+        },
       },
       costBreakdown,
       statusDetail: null,
@@ -122,6 +128,8 @@ describe('automatic product profitability ABC contracts', () => {
         evaluationCutoffDate: '2026-07-31',
         sellpia: { status: 'READY', coverageStartDate: '2025-06-28', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z' },
         advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        orders: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        mapping: { status: 'STALE', inventoryGeneration: null, verifiedAt: null },
       },
       costBreakdown,
       statusDetail: null,
@@ -134,6 +142,12 @@ describe('automatic product profitability ABC contracts', () => {
       abcGrade: 'B',
       calculationStatus: 'AD_SOURCE_STALE',
       statusDetail: '광고 일별 원천 범위가 완전하지 않습니다.',
+    }).abcGrade).toBe('B');
+    expect(ProductAbcEvaluationSchema.parse({
+      ...base,
+      abcGrade: 'B',
+      calculationStatus: 'ORDERS_SOURCE_STALE',
+      statusDetail: '결제 주문 원천 범위가 완전하지 않습니다.',
     }).abcGrade).toBe('B');
     expect(() => ProductAbcEvaluationSchema.parse({ ...base, abcGrade: 'A', calculationStatus: 'CALIBRATION_PENDING' })).toThrow();
   });

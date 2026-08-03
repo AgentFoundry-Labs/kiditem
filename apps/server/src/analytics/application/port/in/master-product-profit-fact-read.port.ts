@@ -17,7 +17,9 @@ export type MasterProductMonthlyProfitFact = Readonly<{
 
 export type MasterProductProfitFactEvidence = Readonly<{
   masterProductId: string;
-  mappingStatus: 'MAPPED' | 'UNMAPPED';
+  mappingStatus: 'MAPPED' | 'UNMAPPED' | 'AMBIGUOUS' | 'STALE';
+  mappingInventoryGeneration: string | null;
+  mappingVerifiedAt: Date | null;
   monthlyFacts: readonly MasterProductMonthlyProfitFact[];
 }>;
 

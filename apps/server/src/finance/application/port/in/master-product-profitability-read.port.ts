@@ -10,6 +10,8 @@ export type MasterProductProfitabilityScope =
 
 export type MasterProductSellpiaStatus = 'READY' | 'STALE' | 'UNMAPPED' | 'MISSING';
 export type MasterProductAdvertisingStatus = 'READY' | 'CONFIRMED_ZERO' | 'STALE' | 'MISSING';
+export type MasterProductOrdersStatus = 'NOT_APPLIED';
+export type MasterProductMappingStatus = 'READY' | 'UNMAPPED' | 'AMBIGUOUS' | 'STALE';
 
 export type MonthlyContributionFact = Readonly<{
   yearMonth: string;
@@ -42,6 +44,17 @@ export type MasterProductProfitabilityEvidence = Readonly<{
   sellpiaCapturedAt: Date | null;
   /** Latest upstream capture used for the advertising-cost window. */
   advertisingCapturedAt: Date | null;
+  advertisingCoverageStartDate: Date | null;
+  advertisingCoverageEndDate: Date | null;
+  ordersStatus: MasterProductOrdersStatus;
+  ordersCoverageStartDate: Date | null;
+  ordersCoverageEndDate: Date | null;
+  ordersCapturedAt: Date | null;
+  orderLinkedLineCount: number;
+  orderUnlinkedLineCount: number;
+  mappingStatus: MasterProductMappingStatus;
+  mappingInventoryGeneration: string | null;
+  mappingVerifiedAt: Date | null;
   monthlyFacts: readonly MonthlyContributionFact[];
 }>;
 

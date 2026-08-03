@@ -14,6 +14,7 @@ const clientPath = path.join(
 function createHarness() {
   const fetchCalls = [];
   const alarmNames = [];
+  const alarmOptions = [];
   const alarmListeners = [];
   const claim = {
     runId: '11111111-1111-4111-8111-111111111111',
@@ -30,7 +31,10 @@ function createHarness() {
       onStartup: { addListener() {} },
     },
     alarms: {
-      create(name) { alarmNames.push(name); },
+      create(name, options) {
+        alarmNames.push(name);
+        alarmOptions.push(options);
+      },
       onAlarm: { addListener(listener) { alarmListeners.push(listener); } },
     },
   };
@@ -72,7 +76,7 @@ function createHarness() {
     environmentContext,
     runtimeId: 'test-runtime',
   });
-  return { alarmListeners, alarmNames, client, fetchCalls };
+  return { alarmListeners, alarmNames, alarmOptions, client, fetchCalls };
 }
 
 test('claims one server-owned browser operation and reports with the fenced attempt token', async () => {
@@ -90,11 +94,14 @@ test('claims one server-owned browser operation and reports with the fenced atte
 });
 
 test('checks queued browser operations immediately when the service worker starts', async () => {
-  const { alarmNames, client, fetchCalls } = createHarness();
+  const { alarmNames, alarmOptions, client, fetchCalls } = createHarness();
 
   client.install();
   await new Promise((resolve) => setImmediate(resolve));
 
   assert.deepEqual(alarmNames, ['kiditem-operation-runtime-claim:office']);
+  assert.equal(alarmOptions.length, 1);
+  assert.equal(alarmOptions[0].delayInMinutes, 0.5);
+  assert.equal(alarmOptions[0].periodInMinutes, 0.5);
   assert.equal(fetchCalls[0]?.path, '/api/operation-runtime/browser/claim');
 });

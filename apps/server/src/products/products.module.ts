@@ -17,22 +17,32 @@ import { CategoriesModule } from './categories/categories.module';
 import { PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT } from './application/port/in/product-variant-recipe-automation.port';
 import { ProductVariantRecipeAutomationService } from './application/service/product-variant-recipe-automation.service';
 import { MasterProductAbcService } from './application/service/master-product-abc.service';
-import { MasterProductAbcSalesIngestedBridge } from './application/service/master-product-abc-sales-ingested.bridge';
 import { MasterProductAbcRepositoryAdapter } from './adapter/out/repository/master-product-abc.repository.adapter';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/repository/master-product-abc.repository.port';
 import { ProductVariantAbcGradeReadAdapter } from './adapter/out/repository/product-variant-abc-grade-read.adapter';
 import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/product-variant-abc-grade-read.port';
+import { OperationsModule } from '../operations/operations.module';
+import { ProductOperationsDataStatusService } from './application/service/product-operations-data-status.service';
+import { ProductOperationsDataStatusRepositoryAdapter } from './adapter/out/repository/product-operations-data-status.repository.adapter';
+import { PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT } from './application/port/out/repository/product-operations-data-status.repository.port';
+import {
+  ProductProfitabilityAbcOperationHandler,
+  ProductProfitabilityRefreshOperationHandler,
+} from './adapter/in/operation/product-profitability.operation-handler';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
   controllers: [ProductOperationsController],
   providers: [
     ProductOperationsService,
+    ProductOperationsDataStatusService,
+    ProductOperationsDataStatusRepositoryAdapter,
+    ProductProfitabilityRefreshOperationHandler,
+    ProductProfitabilityAbcOperationHandler,
     ProductRecipeComponentCandidateService,
     ProductVariantRecipeService,
     ProductVariantRecipeAutomationService,
     MasterProductAbcService,
-    MasterProductAbcSalesIngestedBridge,
     MasterProductAbcRepositoryAdapter,
     ProductVariantAbcGradeReadAdapter,
     ChannelCatalogProductProvisioningService,
@@ -49,6 +59,10 @@ import { PRODUCT_VARIANT_ABC_GRADE_READ_PORT } from './application/port/in/produ
     {
       provide: PRODUCT_OPERATIONS_REPOSITORY_PORT,
       useExisting: ProductOperationsRepositoryAdapter,
+    },
+    {
+      provide: PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
+      useExisting: ProductOperationsDataStatusRepositoryAdapter,
     },
     {
       provide: PRODUCT_VARIANT_RECIPE_AUTOMATION_PORT,

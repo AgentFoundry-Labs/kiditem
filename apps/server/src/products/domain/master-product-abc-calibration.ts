@@ -14,7 +14,7 @@ export const PRODUCT_ABC_CALCULATION_MANIFEST = {
   sourceGrain: 'SELLPIA_PRODUCT_OPTION_MONTH',
   decay: 'EXPONENTIAL_HALF_LIFE',
   normalization: 'FROZEN_LINEAR_QUANTILE_KNOTS',
-  reliability: 'GEOMETRIC_ORDER_DAY_SHRINKAGE',
+  reliability: 'OBSERVATION_DAY_SHRINKAGE',
   boundaries: 'TIE_SAFE_ORDERED_ONE_DIMENSIONAL_SEGMENTATION',
   hardGuard: 'NON_POSITIVE_WEIGHTED_CONTRIBUTION_IS_C',
 } as const;
@@ -28,7 +28,6 @@ export type ProductAbcCalibrationExample = Readonly<{
   originMonth: string;
   asOfDate: Date;
   facts: readonly ProfitabilityContributionFact[];
-  paidOrderCount: number;
   observationDays: number;
   nextMonthProfitVelocity: number;
 }>;
@@ -36,7 +35,6 @@ export type ProductAbcCalibrationExample = Readonly<{
 export type ProductAbcCalibrationCandidate = Readonly<{
   halfLifeDays: number;
   weights: Readonly<{ profit: number; margin: number; persistence: number }>;
-  orderShrinkK: number;
   dayShrinkK: number;
 }>;
 
@@ -107,15 +105,12 @@ export function productAbcCandidateGrid(): ProductAbcCalibrationCandidate[] {
       for (let margin = 0; margin <= 20 - profit; margin += 1) {
         const persistence = 20 - profit - margin;
         if (profit < margin || profit < persistence) continue;
-        for (const orderShrinkK of [5, 10, 20, 40, 80]) {
-          for (const dayShrinkK of [7, 14, 30, 60, 120]) {
-            candidates.push({
-              halfLifeDays,
-              weights: { profit: profit / 20, margin: margin / 20, persistence: persistence / 20 },
-              orderShrinkK,
-              dayShrinkK,
-            });
-          }
+        for (const dayShrinkK of [7, 14, 30, 60, 120]) {
+          candidates.push({
+            halfLifeDays,
+            weights: { profit: profit / 20, margin: margin / 20, persistence: persistence / 20 },
+            dayShrinkK,
+          });
         }
       }
     }
@@ -187,7 +182,6 @@ function scoreExamples(
       facts: example.facts,
       asOfDate: example.asOfDate,
       formula: parameters,
-      paidOrderCount: example.paidOrderCount,
       observationDays: example.observationDays,
     });
     return score.adjustedScore === null ? [] : [{
@@ -261,7 +255,6 @@ function refitFormula(input: {
     activatedAt: input.activatedAt.toISOString(),
     halfLifeDays: input.candidate.halfLifeDays,
     weights: input.candidate.weights,
-    orderShrinkK: input.candidate.orderShrinkK,
     dayShrinkK: input.candidate.dayShrinkK,
     cutoffs,
     normalizationKnots: {

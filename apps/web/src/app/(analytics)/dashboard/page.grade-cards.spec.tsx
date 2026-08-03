@@ -111,6 +111,7 @@ beforeEach(() => {
           RECALCULATING: 0,
           SELLPIA_SOURCE_STALE: 2,
           AD_SOURCE_STALE: 1,
+          ORDERS_SOURCE_STALE: 0,
           CALCULATION_ERROR: 1,
         },
         abcContributionProfit: {
@@ -164,14 +165,15 @@ describe('Dashboard automatic ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
-    expect(screen.getByRole('link', { name: /관찰·보정 대기/ })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: /계산·보정 대기/ })).toHaveAttribute(
       'href',
-      '/product-hub?abcCalculationStatus=INSUFFICIENT_EVIDENCE',
+      '/product-hub?abcGrade=unclassified',
     );
     expect(screen.getByRole('link', { name: /원천 확인 필요/ })).toHaveAttribute(
       'href',
-      '/product-hub?abcCalculationStatus=SELLPIA_SOURCE_STALE',
+      '/product-hub?dataStatus=abc',
     );
+    expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
     expect(screen.getByText(/검증 표본을 수집하면 수식 보정을 시작합니다/)).toBeInTheDocument();
   });
 });

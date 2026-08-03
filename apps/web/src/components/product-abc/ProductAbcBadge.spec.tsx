@@ -9,7 +9,7 @@ describe('ProductAbcBadge', () => {
 
     expect(screen.getByText('A등급')).toBeInTheDocument();
     expect(screen.getByText('신뢰도 80%')).toBeInTheDocument();
-    expect(screen.getByLabelText(/A등급 · 상태 계산 완료 · 유효 주문 40건 · 관찰 60일 · 수식 v1/)).toBeInTheDocument();
+    expect(screen.getByLabelText('A등급')).toBeInTheDocument();
   });
 
   it('uses calculation state before publication and preserves the last grade when a source is stale', () => {
@@ -27,12 +27,12 @@ describe('ProductAbcBadge', () => {
         })}
       />,
     );
-    expect(screen.getByText('관찰 중')).toBeInTheDocument();
+    expect(screen.getByText('미분류')).toBeInTheDocument();
 
     rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation({
       abcGrade: 'B', calculationStatus: 'SELLPIA_SOURCE_STALE',
     })} />);
     expect(screen.getByText('B등급')).toBeInTheDocument();
-    expect(screen.getByText('셀피아 갱신 필요')).toBeInTheDocument();
+    expect(screen.queryByText('셀피아 갱신 필요')).not.toBeInTheDocument();
   });
 });

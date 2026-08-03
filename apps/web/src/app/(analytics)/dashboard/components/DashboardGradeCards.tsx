@@ -20,7 +20,9 @@ export function DashboardGradeCards({
   gradeCount, classifiedProductCount, unclassifiedProductCount, abcStatusCount, abcContributionProfit, abcFormula, gradeChanges,
 }: DashboardGradeCardsProps) {
   const changes = gradeChanges ?? { upgraded: 0, downgraded: 0, total: 0 };
-  const sourceAttention = abcStatusCount.SOURCE_UNMAPPED + abcStatusCount.SELLPIA_SOURCE_STALE + abcStatusCount.AD_SOURCE_STALE;
+  const sourceAttention = abcStatusCount.SOURCE_UNMAPPED
+    + abcStatusCount.SELLPIA_SOURCE_STALE
+    + abcStatusCount.AD_SOURCE_STALE;
 
   return <section className="space-y-2" aria-label="수익성 ABC 현황">
     <div className="flex flex-wrap items-center justify-between gap-2">
@@ -29,11 +31,11 @@ export function DashboardGradeCards({
     </div>
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
       {(['A', 'B', 'C'] as const).map((grade) => <GradeCard key={grade} grade={grade} count={gradeCount[grade]} total={classifiedProductCount} contribution={abcContributionProfit.amountByGrade[grade]} />)}
-      <StatusCard label="관찰·보정 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE + abcStatusCount.CALIBRATION_PENDING + abcStatusCount.RECALCULATING} description="신상품도 같은 조건을 충족하면 자동 평가" href="/product-hub?abcCalculationStatus=INSUFFICIENT_EVIDENCE" tone="sky" />
-      <StatusCard label="원천 확인 필요" count={sourceAttention + abcStatusCount.CALCULATION_ERROR} description="셀피아·광고비 수집 또는 매핑을 확인" href="/product-hub?abcCalculationStatus=SELLPIA_SOURCE_STALE" tone="amber" />
+      <StatusCard label="계산·보정 대기" count={abcStatusCount.INSUFFICIENT_EVIDENCE + abcStatusCount.CALIBRATION_PENDING + abcStatusCount.RECALCULATING} description="신상품도 주문 조건 없이 자동 평가" href="/product-hub?abcGrade=unclassified" tone="sky" />
+      <StatusCard label="원천 확인 필요" count={sourceAttention + abcStatusCount.CALCULATION_ERROR} description="셀피아·광고비 수집 또는 매핑을 확인" href="/product-hub?dataStatus=abc" tone="amber" />
     </div>
     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-slate-100 bg-slate-50 px-3 py-2 text-xs text-slate-500">
-      <Link href="/product-hub?abcCalculationStatus=READY" className="font-semibold text-emerald-700 hover:underline">계산 완료 {formatNumber(abcStatusCount.READY)}개</Link>
+      <Link href="/product-hub" className="font-semibold text-emerald-700 hover:underline">계산 완료 {formatNumber(abcStatusCount.READY)}개</Link>
       <span aria-hidden="true">·</span><span>최근 7일 상승 {formatNumber(changes.upgraded)} / 하락 {formatNumber(changes.downgraded)}</span>
       <span className="hidden lg:inline" aria-hidden="true">·</span>
       <span className="text-slate-400">{abcFormula ? `ABC_V1 v${abcFormula.version} · 반감기 ${abcFormula.halfLifeDays}일 · 활성화 ${formatDate(abcFormula.activatedAt)}` : '검증 표본을 수집하면 수식 보정을 시작합니다.'}</span>
@@ -47,7 +49,7 @@ function GradeCard({ grade, count, total, contribution }: { grade: ProductAbcGra
     <div className="mb-1 flex items-center justify-between"><span className="text-sm font-bold text-slate-900">{grade}등급</span><span className="text-xs text-slate-400">{GRADE_LABELS[grade]}</span></div>
     <div className="text-2xl font-extrabold tabular-nums text-slate-900">{formatNumber(count)}<span className="ml-0.5 text-sm">개</span></div>
     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-100"><div className={cn('h-full rounded-full', grade === 'C' ? 'bg-red-500' : 'bg-purple-600')} style={{ width: `${Math.min(percent, 100)}%` }} /></div>
-    <div className="mt-1 text-xs text-slate-400">가중 공헌이익 {formatNumber(contribution)}원</div>
+    <div className="mt-1 text-xs text-slate-400">가중 상품 이익 {formatNumber(contribution)}원</div>
   </Link>;
 }
 

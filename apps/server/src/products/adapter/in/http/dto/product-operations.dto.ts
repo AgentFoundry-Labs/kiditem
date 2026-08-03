@@ -21,6 +21,12 @@ const INVENTORY_STATUSES = [
 const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
 const PERIOD_DAYS = [7, 14, 30] as const;
 
+export class ProductOperationsDataStatusQueryDto {
+  @Type(() => Number)
+  @IsIn(PERIOD_DAYS)
+  periodDays: (typeof PERIOD_DAYS)[number] = 30;
+}
+
 export class ProductOperationsListQueryDto {
   @Type(() => Number)
   @IsInt()

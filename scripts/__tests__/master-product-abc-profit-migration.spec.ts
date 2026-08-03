@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 const modulePath = '../data-migrations/v0.1.30/001_reset_legacy_product_abc_grades.js';
+const sourceFreshnessModulePath = '../data-migrations/v0.1.30/002_backfill_profitability_source_freshness.js';
 
 describe('automatic profitability ABC migration', () => {
   it('clears incompatible legacy ABC records before the formula-version schema switch', async () => {
@@ -51,5 +52,17 @@ describe('automatic profitability ABC migration', () => {
         deletedLegacyPolicyCount: 0,
       },
     });
+  });
+
+  it('copies legacy shared coverage into Sellpia provenance only', async () => {
+    const { backfillProfitabilitySourceFreshness } = await import(sourceFreshnessModulePath);
+    const executeRaw = vi.fn().mockResolvedValue(3);
+
+    await expect(backfillProfitabilitySourceFreshness.run({ $executeRaw: executeRaw } as never))
+      .resolves.toEqual({
+        affectedRows: 3,
+        details: { updatedEvaluationCount: 3 },
+      });
+    expect(executeRaw).toHaveBeenCalledTimes(1);
   });
 });

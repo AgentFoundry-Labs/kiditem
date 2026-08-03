@@ -31,7 +31,7 @@ export class MasterProductAbcService {
       const asOfDate = completedKstCalendarDate(calculatedAt);
       let state = await this.repository.getFormulaState(organizationId);
       state = await this.ensureInitialFormula({ organizationId, state, asOfDate, calculatedAt });
-      const activeIds = await this.repository.listActiveMasterProductIds(organizationId);
+      const activeIds = await this.repository.listSellingMasterProductIds(organizationId);
       const [evidence, previous] = await Promise.all([
         activeIds.length === 0
           ? Promise.resolve([] as readonly MasterProductProfitabilityEvidence[])
@@ -93,7 +93,8 @@ function calibrationExamples(
 ): ProductAbcCalibrationExample[] {
   return evidence.flatMap((product) => {
     if (product.sellpiaStatus !== 'READY'
-      || (product.adStatus !== 'READY' && product.adStatus !== 'CONFIRMED_ZERO')) return [];
+      || (product.adStatus !== 'READY' && product.adStatus !== 'CONFIRMED_ZERO')
+      || product.mappingStatus !== 'READY') return [];
     const facts = [...product.monthlyFacts]
       .filter((fact) => fact.contributionProfit !== null && fact.adSpend !== null && fact.negativeCoveredDays !== null)
       .sort((left, right) => left.coverageEndDate.getTime() - right.coverageEndDate.getTime());
@@ -101,12 +102,13 @@ function calibrationExamples(
     for (let index = 0; index < facts.length - 1; index += 1) {
       const origin = facts[index]!;
       const next = facts[index + 1]!;
-      const paidOrderCount = product.validPaidOrderDates
-        .filter((date) => date <= origin.coverageEndDate).length;
-      const observationDays = product.firstValidPaidSaleAt
-        ? kstCalendarDaysInclusive(product.firstValidPaidSaleAt, origin.coverageEndDate)
+      const observationStart = facts
+        .slice(0, index + 1)
+        .find((fact) => fact.revenue > 0 || fact.sellpiaInAmount > 0)
+        ?.coverageStartDate ?? null;
+      const observationDays = observationStart
+        ? kstCalendarDaysInclusive(observationStart, origin.coverageEndDate)
         : 0;
-      if (observationDays < 30 && paidOrderCount < 20) continue;
       examples.push({
         masterProductId: product.masterProductId,
         originMonth: origin.yearMonth,
@@ -121,7 +123,6 @@ function calibrationExamples(
           contributionProfit: fact.contributionProfit!,
           negativeCoveredDays: fact.negativeCoveredDays!,
         })),
-        paidOrderCount,
         observationDays,
         nextMonthProfitVelocity: 30 * next.contributionProfit! / next.coveredDays,
       });

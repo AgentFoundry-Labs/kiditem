@@ -13,7 +13,6 @@ const AS_OF = new Date('2026-07-31T00:00:00.000Z');
 const formula = {
   halfLifeDays: 90,
   weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  orderShrinkK: 20,
   dayShrinkK: 30,
   normalizationKnots: {
     profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
@@ -69,13 +68,13 @@ describe('automatic profitability score', () => {
   });
 
   it('is monotonic for contribution and margin, inverse for loss, and shrinks with evidence', () => {
-    const base = calculateProfitabilityScore({ facts: [fact()], asOfDate: AS_OF, formula, paidOrderCount: 20, observationDays: 30 });
-    const betterProfit = calculateProfitabilityScore({ facts: [fact({ contributionProfit: 600 })], asOfDate: AS_OF, formula, paidOrderCount: 20, observationDays: 30 });
-    const worseLoss = calculateProfitabilityScore({ facts: [fact({ negativeCoveredDays: 10 })], asOfDate: AS_OF, formula, paidOrderCount: 20, observationDays: 30 });
+    const base = calculateProfitabilityScore({ facts: [fact()], asOfDate: AS_OF, formula, observationDays: 30 });
+    const betterProfit = calculateProfitabilityScore({ facts: [fact({ contributionProfit: 600 })], asOfDate: AS_OF, formula, observationDays: 30 });
+    const worseLoss = calculateProfitabilityScore({ facts: [fact({ negativeCoveredDays: 10 })], asOfDate: AS_OF, formula, observationDays: 30 });
     expect(betterProfit.rawScore).toBeGreaterThanOrEqual(base.rawScore!);
     expect(worseLoss.rawScore).toBeLessThanOrEqual(base.rawScore!);
-    expect(calculateReliability({ paidOrderCount: 20, observationDays: 30, orderShrinkK: 20, dayShrinkK: 30 })).toBeGreaterThan(0);
-    expect(calculateReliability({ paidOrderCount: 1_000_000, observationDays: 1_000_000, orderShrinkK: 20, dayShrinkK: 30 })).toBeLessThan(1);
+    expect(calculateReliability({ observationDays: 30, dayShrinkK: 30 })).toBeGreaterThan(0);
+    expect(calculateReliability({ observationDays: 1_000_000, dayShrinkK: 30 })).toBeLessThan(1);
   });
 
   it('uses stable canonical checksums independent of object field order', () => {

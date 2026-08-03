@@ -78,5 +78,5 @@ function destinationTitle(destination: SellpiaProductDestination): string {
   const identity = `${destination.masterProductName} · ${destination.productVariantName}`;
   const evaluation = destination.abcEvaluation;
   if (!evaluation) return `${identity} · ABC 평가 미발행`;
-  return `${identity} · 수익성 ABC · ${evaluation.calculationStatus} · 유효 주문 ${evaluation.paidOrderCount}건`;
+  return `${identity} · 수익성 ABC · ${evaluation.calculationStatus} · 수익 데이터 관찰 ${evaluation.observationDays}일`;
 }

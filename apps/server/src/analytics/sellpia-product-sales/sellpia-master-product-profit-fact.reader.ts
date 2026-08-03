@@ -146,6 +146,8 @@ export class SellpiaMasterProductProfitFactReader
       mappingStatus: (mappedSkuIdsByMaster.get(masterProductId)?.size ?? 0) > 0
         ? 'MAPPED'
         : 'UNMAPPED',
+      mappingInventoryGeneration: null,
+      mappingVerifiedAt: null,
       monthlyFacts: (factsByMaster.get(masterProductId) ?? []).sort((left, right) =>
         left.yearMonth.localeCompare(right.yearMonth)),
     }));

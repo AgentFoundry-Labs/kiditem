@@ -74,21 +74,21 @@ describe('ProductOutflow', () => {
     renderProductOutflow();
 
     expect(await screen.findByText('계산 완료 상품')).toBeInTheDocument();
-    expect(screen.getByText('관찰 중 상품')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /관찰 중\s*1/ })).toBeInTheDocument();
+    expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /ABC 매핑 필요\s*1/ })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: /관찰 중\s*1/ }));
+    fireEvent.click(screen.getByRole('button', { name: /ABC 매핑 필요\s*1/ }));
     await waitFor(() => expect(screen.queryByText('계산 완료 상품')).not.toBeInTheDocument());
-    expect(screen.getByText('관찰 중 상품')).toBeInTheDocument();
+    expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
   });
 });
 
 function summary(hasData: boolean): SellpiaProductSalesSummary {
   const rows = hasData ? [
     row('ready', '계산 완료 상품', 'A', productAbcEvaluation()),
-    row('observing', '관찰 중 상품', null, productAbcEvaluation({
+    row('unmapped', '매핑 필요 상품', null, productAbcEvaluation({
       abcGrade: null,
-      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+      calculationStatus: 'SOURCE_UNMAPPED',
       formula: null,
       rawScore: null,
       adjustedScore: null,
@@ -120,12 +120,13 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
     abcCounts: { A: hasData ? 1 : 0, B: 0, C: 0 },
     abcStatusCounts: {
       READY: hasData ? 1 : 0,
-      INSUFFICIENT_EVIDENCE: hasData ? 1 : 0,
-      SOURCE_UNMAPPED: 0,
+      INSUFFICIENT_EVIDENCE: 0,
+      SOURCE_UNMAPPED: hasData ? 1 : 0,
       CALIBRATION_PENDING: 0,
       RECALCULATING: 0,
       SELLPIA_SOURCE_STALE: 0,
       AD_SOURCE_STALE: 0,
+      ORDERS_SOURCE_STALE: 0,
       CALCULATION_ERROR: 0,
     },
     abcContributionProfitByGrade: { A: hasData ? 120_000 : 0, B: 0, C: 0 },

@@ -1,6 +1,7 @@
 import type { OrderSheetResponse } from '../provider/coupang-provider.port';
 
 export const CHANNEL_SYNC_REPOSITORY_PORT = Symbol('CHANNEL_SYNC_REPOSITORY_PORT');
+export const COUPANG_WING_ORDER_SOURCE_TYPE = 'coupang_wing_orders';
 
 export interface SyncResult {
   synced: number;
@@ -80,7 +81,27 @@ export interface ChannelSyncRepositoryPort {
     organizationId: string,
     channelAccountId: string,
     payload: CoupangSyncOrderPayload,
+    sourceImportRunId?: string,
   ): Promise<void>;
+
+  startOrderImport(input: {
+    organizationId: string;
+    channelAccountId: string;
+  }): Promise<{ id: string }>;
+
+  completeOrderImport(input: {
+    organizationId: string;
+    sourceImportRunId: string;
+    rowCount: number;
+    coverageStartDate: Date | null;
+    coverageEndDate: Date | null;
+  }): Promise<void>;
+
+  failOrderImport(input: {
+    organizationId: string;
+    sourceImportRunId: string;
+    errorMessage: string;
+  }): Promise<void>;
 
   syncSingleReturn(
     organizationId: string,

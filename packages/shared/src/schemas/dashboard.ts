@@ -287,6 +287,7 @@ export const DashboardInventorySummarySchema = z.object({
     RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
     CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfit: z.object({
@@ -608,6 +609,7 @@ export const SellpiaProductSalesSummarySchema = z.object({
     RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
     CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfitByGrade: z.object({

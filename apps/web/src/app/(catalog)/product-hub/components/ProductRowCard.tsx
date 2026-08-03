@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
-import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { MasterProductImage } from './MasterProductImage';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
@@ -30,10 +30,6 @@ export function ProductRowCard({
     : isOutOfStock
       ? 'border-rose-200 bg-rose-50/40'
       : 'border-[var(--border-subtle)] bg-[var(--card-bg)]';
-  const adRatio = product.adSpend !== null && product.salesAmount !== null && product.salesAmount > 0
-    ? Math.round((product.adSpend / product.salesAmount) * 100)
-    : null;
-
   return (
     <article className={`relative overflow-hidden rounded-2xl border px-6 py-5 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md ${alertStyle}`}>
       {isWarning || isOutOfStock ? (
@@ -92,13 +88,13 @@ export function ProductRowCard({
         </div>
 
         <Metric value={product.inventoryUnits} label="재고" />
-        <Metric value={product.traffic} label="방문" />
-        <Metric value={null} label="조회" />
-        <Metric value={null} label="장바구니" />
+        <Metric value={product.visitorCount} label="방문" />
+        <Metric value={product.viewCount} label="조회" />
+        <Metric value={product.cartAddCount} label="장바구니" />
         <Metric value={product.orderCount} label="주문" />
-        <Metric value={null} label="판매" />
+        <Metric value={product.salesQuantity} label="판매" />
         <Metric value={product.salesAmount} label="매출" currency />
-        <Metric value={adRatio} label="광고비율" suffix="%" />
+        <Metric value={product.adSpendRate} label="광고비율" suffix="%" />
         <div className="flex justify-end">
           <Link
             href={`/product-hub/${product.id}`}
@@ -117,10 +113,9 @@ export function ProductRowCard({
         <span>채널 {formatNumber(product.channelCount)}개</span>
         <span>활성 옵션 {formatNumber(product.variantSummary.active)}개</span>
         <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
-        <span>광고비 {product.adSpend === null ? '미수집' : `${formatKRW(product.adSpend)}원`}</span>
-        <span>이익 {product.profit === null ? '미수집' : `${formatKRW(product.profit)}원`}</span>
-        <span>상품 건강도 {product.healthScore === null ? '미수집' : `${formatNumber(product.healthScore)}점`}</span>
-        <span className="ml-auto">최종 수정 {formatDateTime(product.updatedAt)}</span>
+        <span>광고비 {product.adSpend === null ? '—' : `${formatKRW(product.adSpend)}원`}</span>
+        <span>이익 {product.profit === null ? '—' : `${formatKRW(product.profit)}원`}</span>
+        <span>상품 건강도 {product.healthScore === null ? '—' : `${formatNumber(product.healthScore)}점`}</span>
       </div>
     </article>
   );
@@ -133,10 +128,10 @@ function Metric({ value, label, currency, suffix }: {
   suffix?: string;
 }) {
   return (
-    <div className="text-right" title={value === null ? `${label} 데이터가 아직 수집되지 않았습니다.` : undefined}>
+    <div className="text-right">
       <p className={`font-black leading-none tabular-nums ${value === null ? 'text-[12px] text-[var(--text-muted)]' : 'text-[22px] text-[var(--text-primary)]'}`}>
         {value === null
-          ? '미수집'
+          ? '—'
           : currency
             ? `${formatKRW(value)}원`
             : `${formatNumber(value)}${suffix ?? ''}`}

@@ -1,8 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import Link from 'next/link';
-import { BarChart3, Download, Package, RefreshCw, Search, Upload } from 'lucide-react';
+import { Package, RefreshCw, Search } from 'lucide-react';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
@@ -11,9 +10,10 @@ import { ProductCategoryTabs } from './ProductCategoryTabs';
 import { ProductEditorDialog } from './ProductEditorDialog';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
-import { ProductProfitabilitySyncAction } from './ProductProfitabilitySyncAction';
+import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
 import { ProductRowCard } from './ProductRowCard';
 import { ProductsColumnHeader } from './ProductsColumnHeader';
+import { SellpiaSyncAction } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
@@ -76,32 +76,13 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
               </button>
             ))}
           </div>
-          <button
-            type="button"
-            disabled
-            title="트래픽 업로드는 현재 카탈로그 원본에서 지원하지 않습니다."
-            className="flex h-9 cursor-not-allowed items-center gap-1.5 rounded-xl bg-[var(--surface-sunken)] px-4 text-[13px] font-semibold text-[var(--text-muted)] opacity-55"
-          >
-            <BarChart3 size={14} /> 트래픽 업로드
-          </button>
-          <button
-            type="button"
-            disabled
-            aria-label="Excel 내보내기"
-            title="전체 Sellpia 내보내기는 재고 동기화 화면에서 관리합니다."
-            className="flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-xl bg-[var(--surface-sunken)] text-[var(--text-muted)] opacity-55"
-          >
-            <Download size={14} />
-          </button>
-          <Link
-            href="/inventory-hub?tab=sellpia-sync"
-            aria-label="Sellpia 동기화"
-            title="Sellpia 자동 동기화 현황을 확인합니다."
-            className="inline-flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--surface-sunken)] text-[var(--text-secondary)]"
-          >
-            <Upload size={14} />
-          </Link>
-          <ProductProfitabilitySyncAction />
+          <ProductOperationsDataStatusAction
+            open={state.dataStatusOpen}
+            onOpenChange={state.setDataStatusOpen}
+            displayDataAsOf={state.overviewData?.summary.displayDataAsOf ?? null}
+            periodDays={state.periodDays}
+          />
+          <SellpiaSyncAction compact />
           <button
             type="button"
             onClick={() => setEditorOpen(true)}
@@ -117,7 +98,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           data={state.overviewData}
           onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
           onShowAbcGrade={state.setAbcGrade}
-          onShowAbcCalculationStatus={state.setAbcCalculationStatus}
         />
       ) : null}
 
@@ -143,22 +123,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
           <option value="all">전체 상태</option>
           <option value="active">판매중</option>
           <option value="inactive">판매중지</option>
-        </select>
-        <select
-          aria-label="ABC 상태"
-          value={state.abcCalculationStatus}
-          onChange={(event) => state.setAbcCalculationStatus(event.target.value as typeof state.abcCalculationStatus)}
-          className="h-10 rounded-xl border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 text-[14px] font-medium text-[var(--text-secondary)]"
-        >
-          <option value="">전체 ABC 상태</option>
-          <option value="READY">계산 완료</option>
-          <option value="INSUFFICIENT_EVIDENCE">관찰 중</option>
-          <option value="SOURCE_UNMAPPED">셀피아 매핑 필요</option>
-          <option value="CALIBRATION_PENDING">수식 보정 대기</option>
-          <option value="RECALCULATING">재계산 중</option>
-          <option value="SELLPIA_SOURCE_STALE">셀피아 원천 갱신 필요</option>
-          <option value="AD_SOURCE_STALE">광고비 원천 갱신 필요</option>
-          <option value="CALCULATION_ERROR">계산 확인 필요</option>
         </select>
         <div
           className="flex items-center rounded-xl bg-[var(--surface-sunken)] p-1"

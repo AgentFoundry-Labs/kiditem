@@ -388,6 +388,8 @@ model SourceImportRun {
   createdBy                    String?   @map("created_by")
   attemptToken                 String    @default(uuid()) @map("attempt_token") @db.Uuid
   publicationSequence          BigInt?   @map("publication_sequence") @db.BigInt
+  coverageStartDate            DateTime? @map("coverage_start_date") @db.Date
+  coverageEndDate              DateTime? @map("coverage_end_date") @db.Date
   createdAt                    DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -410,6 +412,7 @@ model SourceImportRun {
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([id, organizationId], map: "source_import_runs_id_org_key")
   @@index([organizationId, sourceType, status, createdAt])
+  @@index([organizationId, sourceType, status, coverageEndDate])
   @@index([channelAccountId])
   @@index([manualFreshExportConfirmedBy])
   @@map("source_import_runs")
@@ -546,10 +549,22 @@ model MasterProductAbcEvaluation {
   firstValidPaidSaleAt       DateTime? @map("first_valid_paid_sale_at") @db.Timestamptz
   sourceCoverageStartDate    DateTime? @map("source_coverage_start_date") @db.Date
   sourceCoverageEndDate      DateTime? @map("source_coverage_end_date") @db.Date
+  evaluationCutoffDate       DateTime? @map("evaluation_cutoff_date") @db.Date
+  sellpiaCoverageStartDate   DateTime? @map("sellpia_coverage_start_date") @db.Date
+  sellpiaCoverageEndDate     DateTime? @map("sellpia_coverage_end_date") @db.Date
   sellpiaSourceStatus        String    @default("MISSING") @map("sellpia_source_status")
   sellpiaSourceCapturedAt    DateTime? @map("sellpia_source_captured_at") @db.Timestamptz
+  advertisingCoverageStartDate DateTime? @map("advertising_coverage_start_date") @db.Date
+  advertisingCoverageEndDate DateTime? @map("advertising_coverage_end_date") @db.Date
   advertisingSourceStatus    String    @default("MISSING") @map("advertising_source_status")
   advertisingSourceCapturedAt DateTime? @map("advertising_source_captured_at") @db.Timestamptz
+  ordersSourceStatus         String    @default("MISSING") @map("orders_source_status")
+  ordersCoverageStartDate    DateTime? @map("orders_coverage_start_date") @db.Date
+  ordersCoverageEndDate      DateTime? @map("orders_coverage_end_date") @db.Date
+  ordersSourceCapturedAt     DateTime? @map("orders_source_captured_at") @db.Timestamptz
+  mappingSourceStatus        String    @default("STALE") @map("mapping_source_status")
+  mappingInventoryGeneration BigInt?   @map("mapping_inventory_generation") @db.BigInt
+  mappingVerifiedAt          DateTime? @map("mapping_verified_at") @db.Timestamptz
   costComponentsJson         Json?     @map("cost_components_json") @db.JsonB
   statusDetail               String?   @map("status_detail") @db.VarChar(500)
   runToken                   String?   @map("run_token") @db.Uuid
@@ -561,6 +576,7 @@ model MasterProductAbcEvaluation {
 
   @@unique([masterProductId, organizationId])
   @@index([organizationId, calculationStatus])
+  @@index([organizationId, evaluationCutoffDate])
   @@index([organizationId, formulaVersionId])
   @@index([masterProductId])
   @@map("master_product_abc_evaluations")

@@ -22,6 +22,7 @@ const STATUS_LABEL = {
   RECALCULATING: '재계산 중',
   SELLPIA_SOURCE_STALE: '셀피아 원천 갱신 필요',
   AD_SOURCE_STALE: '광고비 원천 갱신 필요',
+  ORDERS_SOURCE_STALE: '이전 계산 결과 · 재계산 필요',
   CALCULATION_ERROR: '계산 확인 필요',
 } as const;
 
@@ -35,7 +36,7 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
         <Dialog.Content className="fixed left-1/2 top-1/2 z-[130] max-h-[92vh] w-[min(94vw,680px)] -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--surface)] p-6 shadow-2xl">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">수익성 ABC 근거</Dialog.Title>
+              <Dialog.Title className="text-lg font-extrabold text-[var(--text-primary)]">ABC 평가 근거</Dialog.Title>
               <Dialog.Description className="mt-1 text-sm text-[var(--text-secondary)]">{product?.name ?? '선택한 상품'}의 자동 수익성 평가입니다.</Dialog.Description>
             </div>
             <Dialog.Close aria-label="닫기" className="rounded-lg p-2 text-[var(--text-tertiary)] hover:bg-[var(--surface-sunken)]"><X size={18} /></Dialog.Close>
@@ -49,22 +50,23 @@ export function ProductAbcDetailDialog({ open, onOpenChange, product, showProduc
 
             <section className="rounded-xl border border-[var(--border-subtle)] p-4">
               <h3 className="text-sm font-extrabold text-[var(--text-primary)]">계산식</h3>
-              <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">공헌이익 = 매출 − 주문 시점 매입액 − 광고비 − 판매 수수료 − 출고물류비 − 반품손실 − 기타 변동비</p>
+              <p className="mt-2 text-sm font-semibold text-[var(--text-secondary)]">상품 이익 = 매출 − 주문 시점 매입액 − 광고비 − 판매 수수료 − 출고물류비 − 반품손실 − 기타 변동비</p>
               <p className="mt-1 text-xs leading-5 text-[var(--text-tertiary)]">현재 판매 수수료·출고물류비·반품손실·기타 변동비는 공식에 포함되며, 원천 연결 전까지 0원(미적용)으로 표시됩니다.</p>
             </section>
 
             {evaluation ? <>
               <dl className="grid gap-x-6 gap-y-3 rounded-xl border border-[var(--border-subtle)] p-4 sm:grid-cols-2">
                 <DetailRow label="평가 상태" value={STATUS_LABEL[evaluation.calculationStatus]} />
-                <DetailRow label="유효 주문 / 관찰" value={`${evaluation.paidOrderCount}건 / ${evaluation.observationDays}일`} />
-                <DetailRow label="가중 공헌이익" value={money(evaluation.weightedContributionProfit)} />
-                <DetailRow label="30일 공헌이익 속도" value={money(evaluation.profitVelocity30)} />
-                <DetailRow label="가중 공헌이익률" value={percent(evaluation.weightedContributionMargin)} />
+                <DetailRow label="수익 데이터 관찰" value={`${evaluation.observationDays}일`} />
+                <DetailRow label="이익" value={money(evaluation.weightedContributionProfit)} />
+                <DetailRow label="월 환산 이익" value={money(evaluation.profitVelocity30)} />
+                <DetailRow label="이익률" value={percent(evaluation.weightedContributionMargin)} />
                 <DetailRow label="손실 발생 비율" value={percent(evaluation.lossRecurrence)} />
                 <DetailRow label="보정 점수" value={evaluation.adjustedScore === null ? '계산 전' : evaluation.adjustedScore.toFixed(1)} />
                 <DetailRow label="계산 시각" value={evaluation.calculatedAt ? formatDateTime(evaluation.calculatedAt) : '아직 계산하지 않음'} />
                 <DetailRow label="셀피아 원천" value={sourceValue(evaluation.sourceFreshness.sellpia.status, evaluation.sourceFreshness.sellpia.coverageEndDate)} />
                 <DetailRow label="광고비 원천" value={sourceValue(evaluation.sourceFreshness.advertising.status, evaluation.sourceFreshness.advertising.coverageEndDate)} />
+                <DetailRow label="상품 매핑" value={evaluation.sourceFreshness.mapping ? `${evaluation.sourceFreshness.mapping.status}${evaluation.sourceFreshness.mapping.inventoryGeneration ? ` · 재고 세대 ${evaluation.sourceFreshness.mapping.inventoryGeneration}` : ''}` : 'STALE'} />
               </dl>
 
               <section className="rounded-xl border border-[var(--border-subtle)] p-4">

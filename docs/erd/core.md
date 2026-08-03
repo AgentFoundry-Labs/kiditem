@@ -166,10 +166,22 @@ erDiagram
     DateTime firstValidPaidSaleAt
     DateTime sourceCoverageStartDate
     DateTime sourceCoverageEndDate
+    DateTime evaluationCutoffDate
+    DateTime sellpiaCoverageStartDate
+    DateTime sellpiaCoverageEndDate
     String sellpiaSourceStatus
     DateTime sellpiaSourceCapturedAt
+    DateTime advertisingCoverageStartDate
+    DateTime advertisingCoverageEndDate
     String advertisingSourceStatus
     DateTime advertisingSourceCapturedAt
+    String ordersSourceStatus
+    DateTime ordersCoverageStartDate
+    DateTime ordersCoverageEndDate
+    DateTime ordersSourceCapturedAt
+    String mappingSourceStatus
+    BigInt mappingInventoryGeneration
+    DateTime mappingVerifiedAt
     Json costComponentsJson
     String statusDetail
     String runToken
@@ -281,6 +293,8 @@ erDiagram
     String createdBy
     String attemptToken
     BigInt publicationSequence
+    DateTime coverageStartDate
+    DateTime coverageEndDate
     DateTime createdAt
     DateTime updatedAt
   }

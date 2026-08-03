@@ -33,6 +33,13 @@ const handler: OperationHandler = {
   },
 };
 
+const compositeCoordinator = {
+  waitForChild: vi.fn(),
+  listChildren: vi.fn().mockResolvedValue([]),
+  resumeTerminalChildren: vi.fn(),
+  cancelChildren: vi.fn(),
+};
+
 function makeRecord(input: Partial<CreateOperationRunRecord> = {}) {
   return {
     id: RUN_ID,
@@ -86,7 +93,7 @@ describe('OperationRunService', () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);
     const repository = makeRepository();
-    const service = new OperationRunService(registry, repository);
+    const service = new OperationRunService(registry, repository, compositeCoordinator);
     const command = {
       organizationId: ORG_ID,
       operationKey: definition.key,
@@ -107,7 +114,7 @@ describe('OperationRunService', () => {
   it('rejects a trigger that the definition does not allow', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);
-    const service = new OperationRunService(registry, makeRepository());
+    const service = new OperationRunService(registry, makeRepository(), compositeCoordinator);
 
     await expect(
       service.start({

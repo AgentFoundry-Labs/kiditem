@@ -7,6 +7,7 @@ import {
 } from '../../../advertising/application/port/in/master-product-ad-spend-read.port';
 import {
   MASTER_PRODUCT_PROFIT_FACT_READ_PORT,
+  type MasterProductProfitFactEvidence,
   type MasterProductProfitFactReadPort,
 } from '../../../analytics/application/port/in/master-product-profit-fact-read.port';
 import { PrismaService } from '../../../prisma/prisma.service';
@@ -20,7 +21,6 @@ import {
 } from '../port/in/master-product-profitability-read.port';
 
 const DEFERRED_ZERO = { amount: 0, status: 'NOT_APPLIED' } as const;
-const EXCLUDED_ORDER_STATUSES = ['cancelled', 'returned', 'refunded'] as const;
 
 @Injectable()
 export class MasterProductProfitabilityReadService
@@ -46,10 +46,11 @@ export class MasterProductProfitabilityReadService
       from: addUtcDays(atUtcCalendarDay(input.asOfDate), -400),
       to: atUtcCalendarDay(input.asOfDate),
     };
-    const [sellpiaRead, paidOrders] = await Promise.all([
-      this.readSellpiaFacts(input.organizationId, masterProductIds, sourceRange),
-      this.readPaidOrders(input.organizationId, masterProductIds, input.asOfDate),
-    ]);
+    const sellpiaRead = await this.readSellpiaFacts(
+      input.organizationId,
+      masterProductIds,
+      sourceRange,
+    );
     const sellpiaSnapshot = sellpiaRead.evidence;
     const sellpiaByMaster = new Map(sellpiaSnapshot.map((evidence) => [
       evidence.masterProductId,
@@ -68,25 +69,32 @@ export class MasterProductProfitabilityReadService
         : sellpiaStatusOf(sellpia, sourceRange);
       const ad = adEvidenceByMaster.get(masterProductId) ?? missingAdEvidence(masterProductId);
       const adStatus = toAdvertisingStatus(ad.status);
-      const orders = paidOrders.get(masterProductId) ?? [];
-      const firstValidPaidSaleAt = orders[0] ?? null;
-      const observationDays = firstValidPaidSaleAt
-        ? kstCalendarDaysInclusive(firstValidPaidSaleAt, input.asOfDate)
-        : 0;
       const monthlyFacts = (sellpia?.monthlyFacts ?? []).map((fact) =>
         toContributionFact(fact, ad, adStatus));
+      const observationDays = profitabilityObservationDays(monthlyFacts, input.asOfDate);
       return {
         masterProductId,
         asOfDate: sourceRange.to,
-        firstValidPaidSaleAt,
-        validPaidOrderDates: orders,
-        paidOrderCount: orders.length,
+        firstValidPaidSaleAt: null,
+        validPaidOrderDates: [],
+        paidOrderCount: 0,
         observationDays,
-        eligibilityReached: observationDays >= 30 || orders.length >= 20,
+        eligibilityReached: true,
         sellpiaStatus,
         adStatus,
         sellpiaCapturedAt: latestCapturedAt(sellpia?.monthlyFacts ?? []),
         advertisingCapturedAt: ad.capturedAt,
+        advertisingCoverageStartDate: ad.coverageStartDate,
+        advertisingCoverageEndDate: ad.coverageEndDate,
+        ordersStatus: 'NOT_APPLIED',
+        ordersCoverageStartDate: null,
+        ordersCoverageEndDate: null,
+        ordersCapturedAt: null,
+        orderLinkedLineCount: 0,
+        orderUnlinkedLineCount: 0,
+        mappingStatus: mappingStatusOf(sellpia),
+        mappingInventoryGeneration: sellpia?.mappingInventoryGeneration ?? null,
+        mappingVerifiedAt: sellpia?.mappingVerifiedAt ?? null,
         monthlyFacts,
       } satisfies MasterProductProfitabilityEvidence;
     });
@@ -118,21 +126,7 @@ export class MasterProductProfitabilityReadService
     range: { from: Date; to: Date },
   ): Promise<{
     failed: boolean;
-    evidence: readonly {
-      masterProductId: string;
-      mappingStatus: 'MAPPED' | 'UNMAPPED';
-      monthlyFacts: readonly {
-        coverageStartDate: Date;
-        coverageEndDate: Date;
-        yearMonth: string;
-        coveredDays: number;
-        revenue: number;
-        sellpiaInAmount: number;
-        sourceProductCodes: readonly string[];
-        sourceOptionCodes: readonly string[];
-        capturedAt: Date;
-      }[];
-    }[];
+    evidence: readonly MasterProductProfitFactEvidence[];
   }> {
     try {
       const snapshot = await this.sellpiaFacts.readProfitFacts({
@@ -146,7 +140,9 @@ export class MasterProductProfitabilityReadService
         failed: true,
         evidence: masterProductIds.map((masterProductId) => ({
           masterProductId,
-          mappingStatus: 'MAPPED' as const,
+          mappingStatus: 'STALE' as const,
+          mappingInventoryGeneration: null,
+          mappingVerifiedAt: null,
           monthlyFacts: [],
         })),
       };
@@ -180,58 +176,26 @@ export class MasterProductProfitabilityReadService
     }
   }
 
-  private async readPaidOrders(
-    organizationId: string,
-    masterProductIds: readonly string[],
-    asOfDate: Date,
-  ): Promise<Map<string, Date[]>> {
-    const rows = await this.prisma.orderLineItem.findMany({
-      where: {
-        organizationId,
-        listingOption: {
-          is: {
-            organizationId,
-            listing: { is: { organizationId, masterProductId: { in: [...masterProductIds] } } },
-          },
-        },
-        order: {
-          is: {
-            organizationId,
-            paidAt: { not: null, lte: asOfDate },
-            status: { notIn: [...EXCLUDED_ORDER_STATUSES] },
-          },
-        },
-      },
-      select: {
-        orderId: true,
-        order: { select: { paidAt: true } },
-        listingOption: { select: { listing: { select: { masterProductId: true } } } },
-      },
-    });
-    const byMaster = new Map<string, Map<string, Date>>();
-    for (const row of rows) {
-      const masterProductId = row.listingOption?.listing.masterProductId;
-      const paidAt = row.order.paidAt;
-      if (!masterProductId || !paidAt) continue;
-      const orders = byMaster.get(masterProductId) ?? new Map<string, Date>();
-      orders.set(row.orderId, paidAt);
-      byMaster.set(masterProductId, orders);
-    }
-    return new Map([...byMaster.entries()].map(([masterProductId, orders]) => [
-      masterProductId,
-      [...orders.values()].sort((left, right) => left.getTime() - right.getTime()),
-    ]));
-  }
 }
 
 function sellpiaStatusOf(
-  evidence: { mappingStatus: 'MAPPED' | 'UNMAPPED'; monthlyFacts: readonly { coverageStartDate: Date; coverageEndDate: Date }[] } | undefined,
+  evidence: MasterProductProfitFactEvidence | undefined,
   expectedRange: { from: Date; to: Date },
 ): MasterProductSellpiaStatus {
   if (!evidence) return 'STALE';
-  if (evidence.mappingStatus === 'UNMAPPED') return 'UNMAPPED';
+  if (evidence.mappingStatus === 'UNMAPPED' || evidence.mappingStatus === 'AMBIGUOUS') return 'UNMAPPED';
   if (evidence.monthlyFacts.length === 0) return 'MISSING';
   return hasGapFreeCoverage(evidence.monthlyFacts, expectedRange) ? 'READY' : 'STALE';
+}
+
+function mappingStatusOf(evidence: MasterProductProfitFactEvidence | undefined) {
+  switch (evidence?.mappingStatus) {
+    case 'MAPPED': return 'READY' as const;
+    case 'UNMAPPED': return 'UNMAPPED' as const;
+    case 'AMBIGUOUS': return 'AMBIGUOUS' as const;
+    case 'STALE':
+    default: return 'STALE' as const;
+  }
 }
 
 function hasGapFreeCoverage(
@@ -360,6 +324,17 @@ function kstCalendarDaysInclusive(first: Date, asOf: Date): number {
   const firstKst = kstEpochDay(first);
   const asOfKst = kstEpochDay(asOf);
   return Math.max(0, asOfKst - firstKst + 1);
+}
+
+function profitabilityObservationDays(
+  facts: readonly MonthlyContributionFact[],
+  asOfDate: Date,
+): number {
+  const observedStarts = facts
+    .filter((fact) => fact.revenue > 0 || fact.sellpiaInAmount > 0)
+    .map((fact) => fact.coverageStartDate.getTime());
+  if (observedStarts.length === 0) return 0;
+  return kstCalendarDaysInclusive(new Date(Math.min(...observedStarts)), asOfDate);
 }
 
 function kstEpochDay(date: Date): number {

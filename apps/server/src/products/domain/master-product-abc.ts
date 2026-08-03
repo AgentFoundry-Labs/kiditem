@@ -41,7 +41,10 @@ export function evaluateMasterProductAbc(
     calculatedAt: input.calculatedAt,
   } as const;
 
-  if (evidence.sellpiaStatus === 'UNMAPPED') {
+  if (evidence.sellpiaStatus === 'UNMAPPED'
+    || evidence.mappingStatus === 'UNMAPPED'
+    || evidence.mappingStatus === 'AMBIGUOUS'
+    || evidence.mappingStatus === 'STALE') {
     return unavailableEvaluation(base, 'SOURCE_UNMAPPED', '셀피아 상품·옵션 매핑이 확인되지 않았습니다.');
   }
   if (evidence.sellpiaStatus !== 'READY') {
@@ -59,13 +62,6 @@ export function evaluateMasterProductAbc(
       detail: '광고비 원천이 최신 전체 범위를 충족하지 않습니다.',
       previous: input.previousNormalEvaluation,
     });
-  }
-  if (!evidence.eligibilityReached) {
-    return unavailableEvaluation(
-      base,
-      'INSUFFICIENT_EVIDENCE',
-      '최초 유효 유료 판매 후 30일 또는 유효 유료 주문 20건이 필요합니다.',
-    );
   }
   if (!input.formula) {
     return unavailableEvaluation(base, 'CALIBRATION_PENDING', '검증된 ABC 수식 버전이 아직 없습니다.');
@@ -86,7 +82,6 @@ export function evaluateMasterProductAbc(
       facts,
       asOfDate: evidence.asOfDate,
       formula: formulaParameters(input.formula),
-      paidOrderCount: evidence.paidOrderCount,
       observationDays: evidence.observationDays,
     });
     if (
@@ -163,7 +158,7 @@ function unavailableEvaluation(
   base: EvaluationBase,
   calculationStatus: Extract<
     ProductAbcCalculationStatus,
-    'INSUFFICIENT_EVIDENCE' | 'SOURCE_UNMAPPED' | 'CALIBRATION_PENDING'
+    'SOURCE_UNMAPPED' | 'CALIBRATION_PENDING'
   >,
   statusDetail: string,
 ): ProductAbcEvaluation {
@@ -234,7 +229,6 @@ function formulaParameters(formula: ProductAbcFormulaSummary): ProfitabilityForm
   return {
     halfLifeDays: formula.halfLifeDays,
     weights: formula.weights,
-    orderShrinkK: formula.orderShrinkK,
     dayShrinkK: formula.dayShrinkK,
     normalizationKnots: formula.normalizationKnots,
   };
@@ -272,9 +266,28 @@ function sourceFreshnessFor(evidence: MasterProductProfitabilityEvidence): Produ
     },
     advertising: {
       status: evidence.adStatus,
-      coverageStartDate,
-      coverageEndDate,
+      coverageStartDate: evidence.advertisingCoverageStartDate
+        ? calendarDate(evidence.advertisingCoverageStartDate)
+        : null,
+      coverageEndDate: evidence.advertisingCoverageEndDate
+        ? calendarDate(evidence.advertisingCoverageEndDate)
+        : null,
       capturedAt: evidence.advertisingCapturedAt,
+    },
+    orders: {
+      status: evidence.ordersStatus,
+      coverageStartDate: evidence.ordersCoverageStartDate
+        ? calendarDate(evidence.ordersCoverageStartDate)
+        : null,
+      coverageEndDate: evidence.ordersCoverageEndDate
+        ? calendarDate(evidence.ordersCoverageEndDate)
+        : null,
+      capturedAt: evidence.ordersCapturedAt ?? null,
+    },
+    mapping: {
+      status: evidence.mappingStatus,
+      inventoryGeneration: evidence.mappingInventoryGeneration,
+      verifiedAt: evidence.mappingVerifiedAt,
     },
   };
 }

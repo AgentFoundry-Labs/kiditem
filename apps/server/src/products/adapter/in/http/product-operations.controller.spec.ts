@@ -9,6 +9,7 @@ describe('ProductOperationsController', () => {
       {} as never,
       {} as never,
       candidates as never,
+      {} as never,
     );
 
     await expect(controller.listRecipeComponentCandidates(
@@ -24,7 +25,12 @@ describe('ProductOperationsController', () => {
   it('forwards recipe snapshots and preserves a 409 current projection', async () => {
     const conflict = new ConflictException({ message: 'changed', currentRecipe: [{ id: 'component-1' }] });
     const recipes = { replaceRecipe: vi.fn().mockRejectedValue(conflict) };
-    const controller = new ProductOperationsController({} as never, recipes as never, {} as never);
+    const controller = new ProductOperationsController(
+      {} as never,
+      recipes as never,
+      {} as never,
+      {} as never,
+    );
     const organizationId = '00000000-0000-4000-8000-000000000001';
     const user = { id: '00000000-0000-4000-8000-000000000002' };
     const variantId = '00000000-0000-4000-8000-000000000003';
@@ -47,7 +53,12 @@ describe('ProductOperationsController', () => {
         unchangedProductVariantIds: [],
       }),
     };
-    const controller = new ProductOperationsController({} as never, recipes as never, {} as never);
+    const controller = new ProductOperationsController(
+      {} as never,
+      recipes as never,
+      {} as never,
+      {} as never,
+    );
     const organizationId = '00000000-0000-4000-8000-000000000001';
     const user = { id: '00000000-0000-4000-8000-000000000002' };
     const body = { recipes: [] };

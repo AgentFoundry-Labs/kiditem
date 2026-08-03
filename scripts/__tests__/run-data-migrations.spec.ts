@@ -41,6 +41,7 @@ describe("data migration registry", () => {
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
       "v0.1.26:001_initialize_master_product_abc_policy",
       "v0.1.30:001_reset_legacy_product_abc_grades",
+      "v0.1.30:002_backfill_profitability_source_freshness",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -48,6 +49,7 @@ describe("data migration registry", () => {
       ),
     ).toEqual([
       "v0.1.21:001_backfill_inventory_commitments",
+      "v0.1.30:002_backfill_profitability_source_freshness",
     ]);
   });
 
@@ -66,6 +68,9 @@ describe("data migration registry", () => {
     );
     expect(migrationIds).toContain(
       "v0.1.30:001_reset_legacy_product_abc_grades",
+    );
+    expect(migrationIds).toContain(
+      "v0.1.30:002_backfill_profitability_source_freshness",
     );
   });
 

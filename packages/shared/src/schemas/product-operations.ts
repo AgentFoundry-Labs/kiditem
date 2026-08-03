@@ -6,6 +6,7 @@ import {
   ProductAbcFormulaSummarySchema,
   ProductAbcGradeSchema,
 } from './product-abc.js';
+import { OperationRunSchema } from './operations.js';
 
 export const ProductInventoryStatusSchema = z.enum([
   'sellable',
@@ -189,6 +190,54 @@ export type ProductDepletionProjection = z.infer<
   typeof ProductDepletionProjectionSchema
 >;
 
+const ProductOperationsMetricFreshnessSchema = z.object({
+  status: z.enum(['READY', 'STALE', 'MISSING']),
+  coverageStartDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  capturedAt: zIsoDate.nullable(),
+}).strict();
+
+export const ProductOperationsDataSourceStatusSchema = z.object({
+  status: z.enum(['CURRENT', 'OUTDATED', 'NOT_COLLECTED', 'UPDATING', 'FAILED']),
+  coverageEndDate: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  capturedAt: zIsoDate.nullable(),
+  lastErrorAt: zIsoDate.nullable(),
+}).strict().superRefine((source, context) => {
+  if (source.status === 'NOT_COLLECTED' && (source.coverageEndDate !== null || source.capturedAt !== null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['coverageEndDate'],
+      message: 'not-collected sources cannot claim coverage or capture time',
+    });
+  }
+});
+export type ProductOperationsDataSourceStatus = z.infer<
+  typeof ProductOperationsDataSourceStatusSchema
+>;
+
+export const ProductOperationsDataStatusSchema = z.object({
+  displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
+  lastCompletedRefreshAt: zIsoDate.nullable(),
+  activeRun: OperationRunSchema.nullable(),
+  sources: z.object({
+    traffic: ProductOperationsDataSourceStatusSchema,
+    advertising: ProductOperationsDataSourceStatusSchema,
+    sellpiaProfit: ProductOperationsDataSourceStatusSchema,
+    abc: ProductOperationsDataSourceStatusSchema,
+  }).strict(),
+  abcSummary: z.object({
+    classifiedProductCount: z.number().int().nonnegative(),
+    unclassifiedProductCount: z.number().int().nonnegative(),
+    mappingRequiredProductCount: z.number().int().nonnegative(),
+    orderEvidenceRequiredProductCount: z.number().int().nonnegative()
+      .describe('Legacy compatibility field; new profitability evaluations always return zero'),
+    otherPendingProductCount: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type ProductOperationsDataStatus = z.infer<
+  typeof ProductOperationsDataStatusSchema
+>;
+
 export const MasterProductOperationsListItemSchema =
   MasterProductOperationsMetadataSchema.extend({
     updatedAt: zIsoDate,
@@ -199,9 +248,18 @@ export const MasterProductOperationsListItemSchema =
     channelCount: z.number().int().nonnegative(),
     channelStatus: ProductChannelStatusSchema,
     traffic: z.number().int().nonnegative().nullable(),
+    visitorCount: z.number().int().nonnegative().nullable(),
+    viewCount: z.number().int().nonnegative().nullable(),
+    cartAddCount: z.number().int().nonnegative().nullable(),
     orderCount: z.number().int().nonnegative().nullable(),
+    salesQuantity: z.number().int().nonnegative().nullable(),
     salesAmount: z.number().int().nonnegative().nullable(),
     adSpend: z.number().int().nonnegative().nullable(),
+    adSpendRate: z.number().finite().nonnegative().nullable(),
+    metricsFreshness: z.object({
+      traffic: ProductOperationsMetricFreshnessSchema,
+      advertising: ProductOperationsMetricFreshnessSchema,
+    }).strict(),
     profit: z.number().int().nullable(),
     contributionProfitVelocity30: z.number().finite().nullable(),
     contributionMargin: z.number().finite().nullable(),
@@ -225,6 +283,7 @@ export const ProductOperationsListSummarySchema = z.object({
     RECALCULATING: z.number().int().nonnegative(),
     SELLPIA_SOURCE_STALE: z.number().int().nonnegative(),
     AD_SOURCE_STALE: z.number().int().nonnegative(),
+    ORDERS_SOURCE_STALE: z.number().int().nonnegative(),
     CALCULATION_ERROR: z.number().int().nonnegative(),
   }).strict(),
   abcContributionProfitByGrade: z.object({
@@ -238,6 +297,7 @@ export const ProductOperationsListSummarySchema = z.object({
     C: z.number().finite(),
   }).strict(),
   abcFormula: ProductAbcFormulaSummarySchema.nullable(),
+  displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
   channelConnectionCounts: z.object({
     connected: z.number().int().nonnegative(),
     unconnected: z.number().int().nonnegative(),

@@ -13,7 +13,6 @@ const formula: ProductAbcFormulaSummary = {
   activatedAt: calculatedAt,
   halfLifeDays: 90,
   weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  orderShrinkK: 20,
   dayShrinkK: 30,
   cutoffs: { cToB: 50, bToA: 80 },
   normalizationKnots: {
@@ -49,6 +48,17 @@ function evidence(input: Partial<MasterProductProfitabilityEvidence> = {}) {
     adStatus: 'READY',
     sellpiaCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
     advertisingCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    advertisingCoverageStartDate: coverageStartDate,
+    advertisingCoverageEndDate: coverageEndDate,
+    ordersStatus: 'READY',
+    ordersCoverageStartDate: coverageStartDate,
+    ordersCoverageEndDate: coverageEndDate,
+    ordersCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+    orderLinkedLineCount: 30,
+    orderUnlinkedLineCount: 0,
+    mappingStatus: 'READY',
+    mappingInventoryGeneration: '7',
+    mappingVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
     monthlyFacts: [{
       yearMonth: '2026-06',
       coverageStartDate,
@@ -146,11 +156,28 @@ describe('evaluateMasterProductAbc', () => {
     });
   });
 
-  it('leaves insufficient, unmapped, and uncalibrated products ungraded', () => {
-    expect(evaluate({ evidence: evidence({ eligibilityReached: false, paidOrderCount: 2 }) })).toMatchObject({
-      abcGrade: null,
-      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+  it('grades from profitability evidence without paid-order evidence', () => {
+    const value = evidence({
+      firstValidPaidSaleAt: null,
+      validPaidOrderDates: [],
+      paidOrderCount: 0,
+      observationDays: 0,
+      eligibilityReached: false,
+      ordersStatus: 'MISSING',
+      ordersCoverageStartDate: null,
+      ordersCoverageEndDate: null,
+      ordersCapturedAt: null,
+      orderLinkedLineCount: 0,
+      orderUnlinkedLineCount: 0,
     });
+
+    expect(evaluate({ evidence: value })).toMatchObject({
+      abcGrade: 'B',
+      calculationStatus: 'READY',
+    });
+  });
+
+  it('leaves unmapped and uncalibrated products ungraded', () => {
     expect(evaluate({ evidence: evidence({ sellpiaStatus: 'UNMAPPED' }) })).toMatchObject({
       abcGrade: null,
       calculationStatus: 'SOURCE_UNMAPPED',
@@ -176,6 +203,19 @@ describe('evaluateMasterProductAbc', () => {
     })).toMatchObject({
       abcGrade: 'B',
       calculationStatus: 'AD_SOURCE_STALE',
+    });
+  });
+
+  it('keeps unresolved and unverified identity separate from no-sale evidence', () => {
+    expect(evaluate({ evidence: evidence({ mappingStatus: 'AMBIGUOUS' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+      sourceFreshness: { mapping: { status: 'AMBIGUOUS', inventoryGeneration: '7' } },
+    });
+    expect(evaluate({ evidence: evidence({ mappingStatus: 'STALE' }) })).toMatchObject({
+      abcGrade: null,
+      calculationStatus: 'SOURCE_UNMAPPED',
+      sourceFreshness: { mapping: { status: 'STALE' } },
     });
   });
 

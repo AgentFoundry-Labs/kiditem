@@ -3,7 +3,6 @@ import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { useQuery } from '@tanstack/react-query';
 import {
   MasterProductOperationsListResponseSchema,
-  type ProductOperationsAbcCalculationStatusFilter,
   type ProductInventoryStatus,
   type ProductOperationsActiveStatus,
   type ProductOperationsAdStatus,
@@ -37,17 +36,6 @@ const AD_STATUSES: readonly ProductOperationsAdStatus[] = [
   'unconfigured',
 ];
 const PERIOD_DAYS: readonly ProductOperationsPeriodDays[] = [7, 14, 30];
-const ABC_CALCULATION_STATUSES: readonly ProductOperationsAbcCalculationStatusFilter[] = [
-  'READY',
-  'INSUFFICIENT_EVIDENCE',
-  'SOURCE_UNMAPPED',
-  'CALIBRATION_PENDING',
-  'RECALCULATING',
-  'SELLPIA_SOURCE_STALE',
-  'AD_SOURCE_STALE',
-  'CALCULATION_ERROR',
-];
-
 export function useProductHubPageState() {
   const pathname = usePathname();
   const router = useRouter();
@@ -77,12 +65,7 @@ export function useProductHubPageState() {
     : 30;
   const category = searchParams.get('category') ?? '';
   const abcGrade = searchParams.get('abcGrade') ?? '';
-  const abcCalculationStatusParam = searchParams.get('abcCalculationStatus');
-  const abcCalculationStatus: ProductOperationsAbcCalculationStatusFilter | '' = ABC_CALCULATION_STATUSES.includes(
-    abcCalculationStatusParam as ProductOperationsAbcCalculationStatusFilter,
-  )
-    ? abcCalculationStatusParam as ProductOperationsAbcCalculationStatusFilter
-    : '';
+  const dataStatusOpen = searchParams.get('dataStatus') === 'abc';
   const page = Number.isInteger(pageParam) && pageParam > 0 ? pageParam : 1;
 
   useEffect(() => {
@@ -111,9 +94,8 @@ export function useProductHubPageState() {
     if (urlSearch.trim()) params.set('query', urlSearch.trim());
     if (category.trim()) params.set('category', category.trim());
     if (abcGrade.trim()) params.set('abcGrade', abcGrade.trim());
-    if (abcCalculationStatus) params.set('abcCalculationStatus', abcCalculationStatus);
     return params;
-  }, [abcCalculationStatus, abcGrade, activeStatus, adStatus, category, inventoryStatus, page, periodDays, urlSearch]);
+  }, [abcGrade, activeStatus, adStatus, category, inventoryStatus, page, periodDays, urlSearch]);
 
   const queryKeyParams = useMemo(
     () => Object.fromEntries(queryParams.entries()),
@@ -165,11 +147,11 @@ export function useProductHubPageState() {
 
   return {
     abcGrade,
-    abcCalculationStatus,
     activeStatus,
     adStatus,
     category,
     data: listQuery.data,
+    dataStatusOpen,
     errorMessage: listQuery.error
       ? (isApiError(listQuery.error) ? listQuery.error.detail : '상품 운영 목록을 불러오지 못했습니다.')
       : null,
@@ -190,16 +172,11 @@ export function useProductHubPageState() {
     setAbcGrade: (value: string) => {
       updateListParams({
         abcGrade: value || undefined,
-        abcCalculationStatus: undefined,
         page: '1',
       });
     },
-    setAbcCalculationStatus: (value: ProductOperationsAbcCalculationStatusFilter | '') => {
-      updateListParams({
-        abcGrade: undefined,
-        abcCalculationStatus: value || undefined,
-        page: '1',
-      });
+    setDataStatusOpen: (open: boolean) => {
+      updateListParams({ dataStatus: open ? 'abc' : undefined });
     },
     setActiveStatus: (value: ProductOperationsActiveStatus) => {
       updateListParams({ activeStatus: value, page: '1' });

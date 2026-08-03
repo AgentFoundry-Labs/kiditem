@@ -5,6 +5,7 @@ import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { ProductsModule } from "../products/products.module";
+import { OperationsModule } from "../operations/operations.module";
 
 import { AdvertisingActionsController } from "./adapter/in/http/advertising-actions.controller";
 import { AdvertisingCampaignsController } from "./adapter/in/http/advertising-campaigns.controller";
@@ -69,6 +70,12 @@ import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ing
 import { WingSalesRankIngestHandler } from "./application/service/wing-sales-rank-ingest.handler";
 import { RawScrapeIngestHandler } from "./application/service/raw-scrape-ingest.handler";
 import { TrafficIngestHandler } from "./application/service/traffic-ingest.handler";
+import { AdvertisingProfitabilityOperationHandler } from "./adapter/in/operation/advertising-profitability.operation-handler";
+import { ProfitabilityAdRefreshController } from "./adapter/in/http/profitability-ad-refresh.controller";
+import { ProfitabilityAdRefreshService } from "./application/service/profitability-ad-refresh.service";
+import { ProfitabilityAdRefreshRepositoryAdapter } from "./adapter/out/repository/profitability-ad-refresh.repository.adapter";
+import { PROFITABILITY_AD_REFRESH_PORT } from "./application/port/in/profitability-ad-refresh.port";
+import { PROFITABILITY_AD_REFRESH_REPOSITORY_PORT } from "./application/port/out/repository/profitability-ad-refresh.repository.port";
 
 // transitional facade — grandfathered by AGENTS.md
 import { ChannelScrapePersistenceService } from "./services/channel-scrape-persistence.service";
@@ -179,6 +186,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AutomationModule,
     ChannelsModule,
     ProductsModule,
+    OperationsModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -194,6 +202,7 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankController,
     CompetitorTrackingController,
     WingTrackedProductController,
+    ProfitabilityAdRefreshController,
   ],
   providers: [
     // adapter/out/repository
@@ -212,6 +221,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
     WingTrackedProductRepositoryAdapter,
+    ProfitabilityAdRefreshRepositoryAdapter,
     KiditemStorefrontAdapter,
     // adapter/out/automation
     OperationAlertAdapter,
@@ -245,6 +255,16 @@ const REPOSITORY_PORT_BINDINGS = [
     WingSalesRankIngestHandler,
     RawScrapeIngestHandler,
     TrafficIngestHandler,
+    AdvertisingProfitabilityOperationHandler,
+    ProfitabilityAdRefreshService,
+    {
+      provide: PROFITABILITY_AD_REFRESH_PORT,
+      useExisting: ProfitabilityAdRefreshService,
+    },
+    {
+      provide: PROFITABILITY_AD_REFRESH_REPOSITORY_PORT,
+      useExisting: ProfitabilityAdRefreshRepositoryAdapter,
+    },
     // services/* — transitional facade (grandfathered)
     ChannelScrapePersistenceService,
     // port bindings

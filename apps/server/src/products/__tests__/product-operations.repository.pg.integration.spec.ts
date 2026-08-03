@@ -22,6 +22,7 @@ import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/ou
 import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
 
 describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   let prisma: PrismaClient;
@@ -42,6 +43,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       new CatalogDisplayMediaService(
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
+      new ProductOperationsDataStatusRepositoryAdapter(prismaService),
     );
   });
 
@@ -353,53 +355,52 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
   });
 
-  it('hydrates lifecycle evaluations and keeps stage, risk, and unpublished filters distinct', async () => {
-    const official = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-OFFICIAL', name: 'Official' });
-    const fresh = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-NEW', name: 'New' });
-    const provisional = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-PROVISIONAL', name: 'Provisional' });
-    const loss = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-LOSS', name: 'Loss' });
-    const zero = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-ZERO', name: 'Zero' });
-    const dataQuality = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-DATA', name: 'Data quality' });
-    const legacy = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-LEGACY', name: 'Legacy' });
+  it('hydrates automatic ABC statuses and keeps status, grade, and organization filters distinct', async () => {
+    const observing = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-OBSERVING', name: 'Observing' });
+    const mapping = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-MAPPING', name: 'Mapping' });
+    const orderStale = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-ORDER-STALE', name: 'Order stale' });
+    const unpublished = await service.createProduct(TEST_ORGANIZATION_ID, TEST_USER_ID, { code: 'ABC-UNPUBLISHED', name: 'Unpublished' });
     const foreign = await service.createProduct(OTHER_ORGANIZATION_ID, OTHER_USER_ID, { code: 'ABC-FOREIGN', name: 'Foreign' });
-    await prisma.masterProduct.update({ where: { id: official.id }, data: { abcGrade: 'A' } });
+    await prisma.masterProduct.update({ where: { id: orderStale.id }, data: { abcGrade: 'B' } });
     const calculatedAt = new Date('2026-07-24T00:00:00.000Z');
     await prisma.masterProductAbcEvaluation.createMany({
       data: [
-        evaluationRow(official.id, 'ESTABLISHED', 'ELIGIBLE', [], 12, calculatedAt),
-        evaluationRow(fresh.id, 'NEW', 'ELIGIBLE', ['LIMITED_HISTORY'], 2, calculatedAt),
-        evaluationRow(provisional.id, 'PROVISIONAL', 'ELIGIBLE', ['LIMITED_HISTORY'], 4, calculatedAt, 'B'),
-        evaluationRow(loss.id, 'ESTABLISHED', 'ELIGIBLE', ['LOSS'], 12, calculatedAt),
-        evaluationRow(zero.id, 'ESTABLISHED', 'ELIGIBLE', ['ZERO_VALUE'], 12, calculatedAt),
-        evaluationRow(dataQuality.id, 'ESTABLISHED', 'MISSING_COST', [], 12, calculatedAt),
-        evaluationRow(foreign.id, 'ESTABLISHED', 'ELIGIBLE', [], 12, calculatedAt, null, OTHER_ORGANIZATION_ID),
+        automaticEvaluationRow(observing.id, 'INSUFFICIENT_EVIDENCE', calculatedAt),
+        automaticEvaluationRow(mapping.id, 'SOURCE_UNMAPPED', calculatedAt, TEST_ORGANIZATION_ID, 'UNMAPPED'),
+        automaticEvaluationRow(orderStale.id, 'ORDERS_SOURCE_STALE', calculatedAt, TEST_ORGANIZATION_ID, 'READY', 'STALE'),
+        automaticEvaluationRow(foreign.id, 'INSUFFICIENT_EVIDENCE', calculatedAt, OTHER_ORGANIZATION_ID),
       ],
     });
 
     const all = await service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30 });
-    expect(all.total).toBe(7);
-    expect(all.items.find((item) => item.id === fresh.id)).toMatchObject({
+    expect(all.total).toBe(4);
+    expect(all.items.find((item) => item.id === observing.id)).toMatchObject({
       abcGrade: null,
-      abcEvaluation: { lifecycleStage: 'NEW', observedCompleteMonths: 2 },
+      abcEvaluation: { calculationStatus: 'INSUFFICIENT_EVIDENCE' },
     });
     expect(all.summary).toMatchObject({
-      abcGradeCounts: { A: 1, B: 0, C: 0, unclassified: 1 },
-      abcLifecycleCounts: { NEW: 1, PROVISIONAL: 1, ESTABLISHED: 4 },
-      abcRiskCounts: { loss: 1, zeroValue: 1, dataQuality: 1 },
+      abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 3 },
+      abcStatusCounts: {
+        INSUFFICIENT_EVIDENCE: 1,
+        SOURCE_UNMAPPED: 1,
+        ORDERS_SOURCE_STALE: 1,
+        CALIBRATION_PENDING: 1,
+      },
     });
 
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcStage: 'NEW' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: fresh.id })] });
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcStage: 'PROVISIONAL' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: provisional.id })] });
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'LOSS' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: loss.id })] });
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'ZERO_VALUE' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: zero.id })] });
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcRisk: 'DATA_QUALITY' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: dataQuality.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
+    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: observing.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'SOURCE_UNMAPPED',
+    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: mapping.id })] });
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'ORDERS_SOURCE_STALE',
+    })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: orderStale.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcGrade: 'unclassified' }))
-      .resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: legacy.id })] });
+      .resolves.toMatchObject({ total: 3 });
+    expect(all.items.map((item) => item.id)).not.toContain(foreign.id);
+    expect(all.items.map((item) => item.id)).toContain(unpublished.id);
   });
 
   it('allows organization-local codes and rejects organization-local variant collisions', async () => {
@@ -782,8 +783,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
     expect(byId.get(withFacts.id)).toMatchObject({
       channelCount: 1,
-      traffic: 20,
+      traffic: null,
+      visitorCount: null,
+      viewCount: 20,
+      cartAddCount: null,
       orderCount: 3,
+      salesQuantity: null,
       salesAmount: 40_000,
       adSpend: 5_000,
       profit: 12_000,
@@ -801,27 +806,37 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   }
 
-  function evaluationRow(
+  function automaticEvaluationRow(
     masterProductId: string,
-    lifecycleStage: 'NEW' | 'PROVISIONAL' | 'ESTABLISHED',
-    eligibilityReason: 'ELIGIBLE' | 'MISSING_COST',
-    riskFlags: Array<'LOSS' | 'ZERO_VALUE' | 'LIMITED_HISTORY'>,
-    observedCompleteMonths: number,
+    calculationStatus: 'INSUFFICIENT_EVIDENCE' | 'SOURCE_UNMAPPED' | 'ORDERS_SOURCE_STALE',
     calculatedAt: Date,
-    provisionalGrade: 'A' | 'B' | 'C' | null = null,
     organizationId = TEST_ORGANIZATION_ID,
+    mappingSourceStatus: 'READY' | 'UNMAPPED' = 'READY',
+    ordersSourceStatus: 'READY' | 'STALE' = 'READY',
   ) {
     return {
       organizationId,
       masterProductId,
-      provisionalGrade,
-      lifecycleStage,
-      confidence: observedCompleteMonths >= 12 ? 'HIGH' : observedCompleteMonths >= 6 ? 'MEDIUM' : 'LOW',
-      eligibilityReason,
-      riskFlags,
-      observedCompleteMonths,
-      observationStartMonth: '2025-07',
+      calculationStatus,
+      evaluationCutoffDate: calculatedAt,
+      sellpiaSourceStatus: 'READY',
+      advertisingSourceStatus: 'READY',
+      ordersSourceStatus,
+      mappingSourceStatus,
+      costComponentsJson: automaticCostComponents(),
       calculatedAt,
+    };
+  }
+
+  function automaticCostComponents() {
+    return {
+      recognizedRevenue: { amount: 0, status: 'OBSERVED' },
+      orderTimeCogs: { amount: 0, status: 'OBSERVED' },
+      advertisingSpend: { amount: 0, status: 'OBSERVED' },
+      marketplaceCommission: { amount: 0, status: 'NOT_APPLIED' },
+      outboundFulfillment: { amount: 0, status: 'NOT_APPLIED' },
+      returnLoss: { amount: 0, status: 'NOT_APPLIED' },
+      otherVariableCost: { amount: 0, status: 'NOT_APPLIED' },
     };
   }
 

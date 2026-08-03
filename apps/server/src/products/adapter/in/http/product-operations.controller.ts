@@ -15,10 +15,12 @@ import { ProductOperationsService } from '../../../application/service/product-o
 import { ProductRecipeComponentCandidateService } from '../../../application/service/product-recipe-component-candidate.service';
 import { ProductVariantRecipeService } from '../../../application/service/product-variant-recipe.service';
 import {
+  ProductOperationsDataStatusQueryDto,
   ProductOperationsListQueryDto,
   ProductRecipeComponentCandidateQueryDto,
 } from './dto/product-operations.dto';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { ProductOperationsDataStatusService } from '../../../application/service/product-operations-data-status.service';
 
 @Controller('products')
 export class ProductOperationsController {
@@ -26,6 +28,7 @@ export class ProductOperationsController {
     private readonly products: ProductOperationsService,
     private readonly recipes: ProductVariantRecipeService,
     private readonly recipeCandidates: ProductRecipeComponentCandidateService,
+    private readonly dataStatus: ProductOperationsDataStatusService,
   ) {}
 
   @Get('masters')
@@ -34,6 +37,14 @@ export class ProductOperationsController {
     @Query() query: ProductOperationsListQueryDto,
   ) {
     return this.products.listProducts(organizationId, query);
+  }
+
+  @Get('masters/data-status')
+  getDataStatus(
+    @CurrentOrganization() organizationId: string,
+    @Query() query: ProductOperationsDataStatusQueryDto,
+  ) {
+    return this.dataStatus.getStatus(organizationId, query.periodDays);
   }
 
   @Get('recipe-component-candidates')

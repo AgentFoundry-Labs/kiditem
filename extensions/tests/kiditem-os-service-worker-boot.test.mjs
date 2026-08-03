@@ -189,6 +189,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
     // 쿠팡
+    'profitabilityAdvertisingRefreshV1',
     'coupangCatalogSnapshot',
     'wingFormPortV1',
     'coupangKeywordRank',
@@ -223,6 +224,15 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+});
+
+test('수익성 광고비 갱신은 정확한 브라우저 operation key로만 등록된다', () => {
+  const { context } = bootServiceWorker();
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('advertising.refresh_profitability_spend'),
+    'function',
+  );
+  assert.equal(context.KidItemDomains.runOperation('advertising.generic'), null);
 });
 
 test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인으로 전달한다', () => {

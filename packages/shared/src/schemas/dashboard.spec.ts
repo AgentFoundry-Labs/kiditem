@@ -30,6 +30,7 @@ describe('dashboard schemas', () => {
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {
@@ -65,6 +66,7 @@ describe('dashboard schemas', () => {
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {
@@ -108,6 +110,7 @@ describe('dashboard schemas', () => {
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfit: {

@@ -34,7 +34,6 @@ const abcEvaluation = {
     activatedAt: '2026-07-18T00:00:00.000Z',
     halfLifeDays: 90,
     weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-    orderShrinkK: 20,
     dayShrinkK: 30,
     cutoffs: { cToB: 45, bToA: 70 },
     normalizationKnots: {
@@ -51,6 +50,8 @@ const abcEvaluation = {
     evaluationCutoffDate: '2026-07-17',
     sellpia: { status: 'READY' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
     advertising: { status: 'CONFIRMED_ZERO' as const, coverageStartDate: '2025-06-12', coverageEndDate: '2026-07-17', capturedAt: '2026-07-18T00:00:00.000Z' },
+    orders: { status: 'NOT_APPLIED' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+    mapping: { status: 'READY' as const, inventoryGeneration: '4', verifiedAt: '2026-07-18T00:00:00.000Z' },
   },
   costBreakdown: {
     recognizedRevenue: { amount: 200, status: 'OBSERVED' as const },
@@ -222,6 +223,7 @@ describe('Sellpia product-sales inventory contracts', () => {
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfitByGrade: { A: 100, B: 0, C: 0 },

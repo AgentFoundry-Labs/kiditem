@@ -431,7 +431,7 @@ test("a new collection run clears stale sweep state while same-run navigation re
   );
   assert.equal(
     values.get("kiditem_ad_sweep_run_v2"),
-    "new-run:2:daily31-v1",
+    "new-run:2:daily-window-v2",
   );
 
   values.set("kiditem_ad_sweep_seen_v2", JSON.stringify(["campaign:new"]));
@@ -480,7 +480,7 @@ test("a new collection run clears stale sweep state while same-run navigation re
   );
   assert.equal(
     values.get("kiditem_ad_sweep_run_v2"),
-    "new-run:3:daily31-v1",
+    "new-run:3:daily-window-v2",
   );
 });
 
@@ -2634,6 +2634,28 @@ test("campaign daily window contains 31 exact business dates ending yesterday", 
     "2024-02-29",
     "2024-02-28",
   ]);
+});
+
+test("profitability slices accept a contiguous server-owned window of at most 31 days", () => {
+  const contract = loadContract();
+  const slice = contract.normalizeProfitabilitySlice({
+    sliceId: "2025-06-27_2025-06-29",
+    startDate: "2025-06-27",
+    endDate: "2025-06-29",
+    businessDates: ["2025-06-27", "2025-06-28", "2025-06-29"],
+  });
+
+  assert.deepEqual({ ...slice }, {
+    sliceId: "2025-06-27_2025-06-29",
+    startDate: "2025-06-27",
+    endDate: "2025-06-29",
+    businessDates: ["2025-06-27", "2025-06-28", "2025-06-29"],
+  });
+  assert.equal(contract.normalizeProfitabilitySlice({
+    startDate: "2025-06-27",
+    endDate: "2025-06-29",
+    businessDates: ["2025-06-27", "2025-06-29"],
+  }), null);
 });
 
 test("yesterday follows the Asia/Seoul boundary regardless of browser timezone", () => {

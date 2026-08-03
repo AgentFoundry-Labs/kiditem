@@ -90,9 +90,12 @@ compatibility CRUD. It never owns physical stock.
   Products evaluates Finance's source-freshness and time-decayed contribution-
   profit evidence, persists its calculation status/formula/evaluation snapshot,
   updates only changed grades with history, and recalculates after authoritative
-  Sellpia product-profit ingest. Eligibility is 30 inclusive KST days since the
-  first valid paid sale or 20 distinct paid orders; insufficient or unmapped
-  evidence remains `null` rather than synthetic C.
+  Sellpia product-profit ingest. Every currently selling mapped product is
+  evaluated immediately when complete Sellpia and Advertising evidence and an
+  active formula exist. Paid-order count and first-paid-sale age do not gate
+  grading. The earliest nonzero Sellpia profit bucket supplies observation age
+  for score shrinkage only; unresolved identity remains `null` rather than a
+  synthetic C or provisional grade.
 - Products calibrates an initial frozen formula and preserves its checksum,
   knots, and version. Evaluation/publication is organization-locked so an
   older metric snapshot cannot overwrite a newer completed publication; stale

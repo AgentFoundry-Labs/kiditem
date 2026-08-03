@@ -27,7 +27,13 @@ export class MasterProductAdSpendReadAdapter
         organizationId: input.organizationId,
         masterProductId: { in: masterProductIds },
         isActive: true,
-        channelAccount: { is: { organizationId: input.organizationId, status: 'active' } },
+        channelAccount: {
+          is: {
+            organizationId: input.organizationId,
+            channel: 'coupang',
+            status: 'active',
+          },
+        },
       },
       select: { id: true, masterProductId: true },
     });
@@ -44,12 +50,15 @@ export class MasterProductAdSpendReadAdapter
           organizationId: input.organizationId,
           listingId: { in: listingIds },
           businessDate: { in: allExpectedDates },
+          adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+          adObservedAt: { not: null },
         },
         select: {
           listingId: true,
           businessDate: true,
           adSpend: true,
-          lastObservedAt: true,
+          adCoverageStatus: true,
+          adObservedAt: true,
         },
       });
     const listingsByMaster = new Map<string, string[]>();
@@ -153,7 +162,9 @@ function dateKey(date: Date): string {
   return date.toISOString().slice(0, 10);
 }
 
-function latestCapturedAt(rows: readonly { lastObservedAt: Date }[]): Date | null {
+function latestCapturedAt(rows: readonly { adObservedAt: Date | null }[]): Date | null {
   return rows.reduce<Date | null>((latest, row) =>
-    !latest || row.lastObservedAt > latest ? row.lastObservedAt : latest, null);
+    row.adObservedAt && (!latest || row.adObservedAt > latest)
+      ? row.adObservedAt
+      : latest, null);
 }

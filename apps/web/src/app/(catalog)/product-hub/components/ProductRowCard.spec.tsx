@@ -24,6 +24,19 @@ describe('ProductRowCard', () => {
 
     expect(onOpenAbcDetail).toHaveBeenCalledWith(expect.objectContaining({ id: '11111111-1111-4111-8111-111111111111' }));
   });
+
+  it('renders every stored operating metric and uses a dash only for absent values', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText('11')).toBeInTheDocument();
+    expect(screen.getByText('22')).toBeInTheDocument();
+    expect(screen.getByText('3')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+    expect(screen.getByText('5')).toBeInTheDocument();
+    expect(screen.getByText('35,000원')).toBeInTheDocument();
+    expect(screen.getByText('10%')).toBeInTheDocument();
+    expect(screen.queryByText('미수집')).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsListItem {
@@ -58,10 +71,31 @@ function product(): MasterProductOperationsListItem {
     inventoryStatus: 'configuration_required',
     channelCount: 1,
     channelStatus: 'listed',
-    traffic: null,
-    orderCount: null,
-    salesAmount: null,
-    adSpend: null,
+    traffic: 11,
+    visitorCount: 11,
+    viewCount: 22,
+    cartAddCount: 3,
+    orderCount: 4,
+    salesQuantity: 5,
+    salesAmount: 35_000,
+    adSpend: 3_500,
+    adSpendRate: 10,
+    metricsFreshness: {
+      traffic: {
+        status: 'READY',
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: '2026-08-01T00:00:00.000Z',
+      },
+      advertising: {
+        status: 'READY',
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: '2026-08-01T00:00:00.000Z',
+      },
+    },
     profit: null,
+    contributionProfitVelocity30: 120_000,
+    contributionMargin: 0.32,
   };
 }

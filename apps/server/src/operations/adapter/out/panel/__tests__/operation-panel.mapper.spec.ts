@@ -51,6 +51,14 @@ describe('mapOperationRunToPanelItem', () => {
     });
   });
 
+  it('maps a parent waiting on its child to the visible running state', () => {
+    expect(mapOperationRunToPanelItem(run('waiting_dependency'))).toMatchObject({
+      status: 'running',
+      phase: 'waiting_dependency',
+      subtitle: '하위 작업 실행 중',
+    });
+  });
+
   it('preserves operator attention as phase without changing the panel wire status', () => {
     expect(mapOperationRunToPanelItem(run('attention_required'))).toMatchObject({
       status: 'pending',

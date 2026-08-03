@@ -15,7 +15,7 @@ export type MasterProductAbcFormulaStateRecord = Readonly<{
 }>;
 
 export interface MasterProductAbcRepositoryPort {
-  listActiveMasterProductIds(organizationId: string): Promise<readonly string[]>;
+  listSellingMasterProductIds(organizationId: string): Promise<readonly string[]>;
   getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord>;
   ensureInitialFormula(input: {
     organizationId: string;

@@ -86,10 +86,19 @@ function productInclude(organizationId: string, periodStart?: Date) {
             ...(periodStart ? { businessDate: { gte: periodStart } } : {}),
           },
           select: {
+            businessDate: true,
+            trafficVisitors: true,
             trafficViews: true,
+            trafficCartAdds: true,
             trafficOrders: true,
+            trafficSalesQty: true,
             trafficRevenue: true,
             adSpend: true,
+            adCoverageStatus: true,
+            adObservedAt: true,
+            trafficCoverageStatus: true,
+            trafficObservedAt: true,
+            lastObservedAt: true,
           },
         },
         profitLoss: {
@@ -770,6 +779,15 @@ function toListItem(
   const dailyFacts = row.channelListings.flatMap(
     (listing) => listing.channelListingDailySnapshots,
   );
+  const trafficFacts = dailyFacts.filter(hasTrafficEvidence);
+  const advertisingFacts = dailyFacts.filter(hasAdvertisingEvidence);
+  const visitorCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficVisitors);
+  const viewCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficViews);
+  const cartAddCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficCartAdds);
+  const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
+  const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
+  const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
+  const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
   const profits = row.channelListings.flatMap((listing) =>
     listing.profitLoss.filter((fact) => monthEndUtc(fact.year, fact.month) >= periodStart),
   );
@@ -783,14 +801,91 @@ function toListItem(
       : activeListings.length < row.channelListings.length
         ? 'partial'
         : 'listed',
-    traffic: nullableSum(dailyFacts, (fact) => fact.trafficViews),
-    orderCount: nullableSum(dailyFacts, (fact) => fact.trafficOrders),
-    salesAmount: nullableSum(dailyFacts, (fact) => fact.trafficRevenue),
-    adSpend: nullableSum(dailyFacts, (fact) => fact.adSpend),
+    traffic: visitorCount,
+    visitorCount,
+    viewCount,
+    cartAddCount,
+    orderCount,
+    salesQuantity,
+    salesAmount,
+    adSpend,
+    adSpendRate: adSpend !== null && salesAmount !== null && salesAmount > 0
+      ? (adSpend / salesAmount) * 100
+      : null,
+    metricsFreshness: {
+      traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
+      advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
+    },
     profit: nullableSum(profits, (fact) => fact.netProfit),
     contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
     contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
+}
+
+function dailyMetricFreshness(
+  facts: readonly {
+    businessDate: Date;
+    lastObservedAt: Date;
+    adObservedAt: Date | null;
+    trafficObservedAt: Date | null;
+  }[],
+  source: 'traffic' | 'advertising',
+) {
+  if (facts.length === 0) {
+    return {
+      status: 'MISSING' as const,
+      coverageStartDate: null,
+      coverageEndDate: null,
+      capturedAt: null,
+    };
+  }
+  const first = facts[0]!;
+  const coverageStart = facts.reduce(
+    (earliest, fact) => fact.businessDate < earliest ? fact.businessDate : earliest,
+    first.businessDate,
+  );
+  const coverageEnd = facts.reduce(
+    (latest, fact) => fact.businessDate > latest ? fact.businessDate : latest,
+    first.businessDate,
+  );
+  const capturedAt = facts.reduce(
+    (latest, fact) => {
+      const observedAt = source === 'traffic'
+        ? fact.trafficObservedAt ?? fact.lastObservedAt
+        : fact.adObservedAt ?? fact.lastObservedAt;
+      return observedAt > latest ? observedAt : latest;
+    },
+    source === 'traffic'
+      ? first.trafficObservedAt ?? first.lastObservedAt
+      : first.adObservedAt ?? first.lastObservedAt,
+  );
+  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return {
+    status: calendarDate(coverageEnd) >= yesterdayKst ? 'READY' as const : 'STALE' as const,
+    coverageStartDate: calendarDate(coverageStart),
+    coverageEndDate: calendarDate(coverageEnd),
+    capturedAt,
+  };
+}
+
+function hasTrafficEvidence(
+  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
+): boolean {
+  return fact.trafficCoverageStatus !== null
+    || fact.trafficVisitors !== 0
+    || fact.trafficViews !== 0
+    || fact.trafficCartAdds !== 0
+    || fact.trafficOrders !== 0
+    || fact.trafficSalesQty !== 0
+    || fact.trafficRevenue !== 0;
+}
+
+function hasAdvertisingEvidence(
+  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
+): boolean {
+  return fact.adCoverageStatus !== null || fact.adSpend !== 0;
 }
 
 function metadata(row: ProductRow) {
@@ -834,7 +929,7 @@ function productAbcEvaluation(
   abcGrade: string | null,
 ) : ProductAbcEvaluation | null {
   if (!row) return null;
-  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
+  const cutoff = row.evaluationCutoffDate ?? row.sourceCoverageEndDate ?? row.calculatedAt;
   if (!cutoff || !row.costComponentsJson) return null;
   const formula = row.formulaVersion
     ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
@@ -860,15 +955,38 @@ function productAbcEvaluation(
       evaluationCutoffDate: calendarDate(cutoff),
       sellpia: {
         status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
+          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
+          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
+          : null,
         capturedAt: row.sellpiaSourceCapturedAt,
       },
       advertising: {
         status: row.advertisingSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.advertisingCoverageStartDate
+          ? calendarDate(row.advertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.advertisingCoverageEndDate
+          ? calendarDate(row.advertisingCoverageEndDate)
+          : null,
         capturedAt: row.advertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.ordersSourceStatus,
+        coverageStartDate: row.ordersCoverageStartDate
+          ? calendarDate(row.ordersCoverageStartDate)
+          : null,
+        coverageEndDate: row.ordersCoverageEndDate
+          ? calendarDate(row.ordersCoverageEndDate)
+          : null,
+        capturedAt: row.ordersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.mappingSourceStatus,
+        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
+        verifiedAt: row.mappingVerifiedAt,
       },
     },
     costBreakdown: row.costComponentsJson,
@@ -930,6 +1048,15 @@ function toVariantDetail(
 
 function nullableSum<T>(rows: readonly T[], value: (row: T) => number): number | null {
   return rows.length === 0 ? null : rows.reduce((sum, row) => sum + value(row), 0);
+}
+
+function nullableTrafficMetricSum<T extends { trafficCoverageStatus: string | null }>(
+  rows: readonly T[],
+  value: (row: T) => number,
+): number | null {
+  const evidencedRows = rows.filter((row) =>
+    row.trafficCoverageStatus !== null || value(row) !== 0);
+  return nullableSum(evidencedRows, value);
 }
 
 function startOfUtcDay(date: Date): Date {

@@ -16,7 +16,6 @@ export function productAbcFormula(
     activatedAt: '2026-08-01T00:00:00.000Z',
     halfLifeDays: 90,
     weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-    orderShrinkK: 20,
     dayShrinkK: 30,
     cutoffs: { cToB: 45, bToA: 70 },
     normalizationKnots: {
@@ -69,6 +68,17 @@ export function productAbcEvaluation(
         coverageStartDate: '2025-06-26',
         coverageEndDate: '2026-07-31',
         capturedAt: '2026-08-01T00:00:00.000Z',
+      },
+      orders: {
+        status: 'NOT_APPLIED',
+        coverageStartDate: null,
+        coverageEndDate: null,
+        capturedAt: null,
+      },
+      mapping: {
+        status: 'READY',
+        inventoryGeneration: '1',
+        verifiedAt: '2026-08-01T00:00:00.000Z',
       },
     },
     costBreakdown: {

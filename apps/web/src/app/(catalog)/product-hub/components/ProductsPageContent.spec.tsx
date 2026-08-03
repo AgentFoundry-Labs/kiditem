@@ -5,7 +5,7 @@ import type { MasterProductOperationsListResponse } from '@kiditem/shared/produc
 
 const state = vi.hoisted(() => ({
   abcGrade: '',
-  abcCalculationStatus: '',
+  dataStatusOpen: false,
   activeStatus: 'active' as const,
   adStatus: 'all' as const,
   category: '',
@@ -42,10 +42,21 @@ const state = vi.hoisted(() => ({
       channelCount: 1,
       channelStatus: 'partial' as const,
       traffic: null,
+      visitorCount: null,
+      viewCount: null,
+      cartAddCount: null,
       orderCount: 4,
+      salesQuantity: null,
       salesAmount: 35_000,
       adSpend: null,
+      adSpendRate: null,
+      metricsFreshness: {
+        traffic: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      },
       profit: null,
+      contributionProfitVelocity30: null,
+      contributionMargin: null,
     }],
     total: 126,
     page: 2,
@@ -60,9 +71,13 @@ const state = vi.hoisted(() => ({
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfitByGrade: { A: 12_000, B: 2_000, C: -500 },
+      abcContributionProfitShareByGrade: { A: 0.89, B: 0.15, C: -0.04 },
+      abcFormula: null,
+      displayDataAsOf: '2026-07-31',
       channelConnectionCounts: { connected: 120, unconnected: 6 },
       inventoryStatusCounts: {
         sellable: 81,
@@ -91,7 +106,7 @@ const state = vi.hoisted(() => ({
   refetch: vi.fn(),
   search: '',
   setAbcGrade: vi.fn(),
-  setAbcCalculationStatus: vi.fn(),
+  setDataStatusOpen: vi.fn(),
   setActiveStatus: vi.fn(),
   setAdStatus: vi.fn(),
   setCategory: vi.fn(),
@@ -116,8 +131,12 @@ vi.mock('./ProductAbcDetailDialog', () => ({
   ProductAbcDetailDialog: ({ open, product }: { open: boolean; product: { name: string } | null }) => open ? <div role="dialog">{product?.name} ABC 평가 근거</div> : null,
 }));
 
-vi.mock('./ProductProfitabilitySyncAction', () => ({
-  ProductProfitabilitySyncAction: () => <button type="button">수익성 데이터 갱신</button>,
+vi.mock('./ProductOperationsDataStatusAction', () => ({
+  ProductOperationsDataStatusAction: ({ displayDataAsOf }: { displayDataAsOf: string | null }) => <button type="button">{displayDataAsOf ? `데이터 기준 ${displayDataAsOf}` : '데이터 기준 없음'}</button>,
+}));
+
+vi.mock('@/app/(inventory)/_shared/SellpiaSyncAction', () => ({
+  SellpiaSyncAction: () => <button type="button">재고 동기화</button>,
 }));
 
 describe('<ProductsPageContent>', () => {
@@ -133,6 +152,7 @@ describe('<ProductsPageContent>', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '재고 동기화' })).toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
     expect(screen.getByText('카탈로그 상품 전체')).toBeInTheDocument();
     expect(screen.getByText('채널 연결')).toBeInTheDocument();
@@ -145,8 +165,6 @@ describe('<ProductsPageContent>', () => {
     expect(within(catalogCard!).getByText('C등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('미분류')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('37')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('4')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('8')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('10')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
     expect(within(catalogCard!.querySelector('div.grid')!).getByText('6')).toBeInTheDocument();
@@ -156,9 +174,9 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('발주 필요')).toBeInTheDocument();
     expect(screen.getByText('손익점검')).toBeInTheDocument();
     expect(screen.getByText('점검 대상')).toBeInTheDocument();
-    expect(screen.getByText('A 공헌이익')).toBeInTheDocument();
-    expect(screen.getByText('B 공헌이익')).toBeInTheDocument();
-    expect(screen.getByText('수익성 데이터 갱신')).toBeInTheDocument();
+    expect(screen.getByText('A등급 이익')).toBeInTheDocument();
+    expect(screen.getByText('B등급 이익')).toBeInTheDocument();
+    expect(screen.getByText('데이터 기준 2026-07-31')).toBeInTheDocument();
     expect(screen.getByText('알림')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
@@ -167,7 +185,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('columnheader', { name: '매출' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '광고비율' })).toBeInTheDocument();
     expect(screen.getByRole('option', { name: '미분류' })).toHaveValue('unclassified');
-    expect(screen.getByRole('option', { name: '관찰 중' })).toHaveValue('INSUFFICIENT_EVIDENCE');
+    expect(screen.queryByRole('combobox', { name: 'ABC 상태' })).not.toBeInTheDocument();
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
@@ -201,11 +219,8 @@ describe('<ProductsPageContent>', () => {
   it('keeps the staged header and enables period, category, and product creation controls without ABC policy controls', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
-    expect(screen.getByRole('button', { name: '트래픽 업로드' })).toBeDisabled();
-    expect(screen.getByRole('link', { name: 'Sellpia 동기화' })).toHaveAttribute(
-      'href',
-      '/inventory-hub?tab=sellpia-sync',
-    );
+    expect(screen.getByRole('button', { name: '데이터 기준 2026-07-31' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: '트래픽 업로드' })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: '7일' }));
     expect(state.setPeriodDays).toHaveBeenCalledWith(7);
@@ -239,17 +254,12 @@ describe('<ProductsPageContent>', () => {
     expect(state.setAbcGrade).toHaveBeenCalledWith('unclassified');
   });
 
-  it('routes automatic ABC grade and calculation-status summaries to their filters', () => {
+  it('routes automatic ABC grade summaries without exposing calculation-state filters', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     fireEvent.click(screen.getByRole('button', { name: 'A등급 상품 보기' }));
     expect(state.setAbcGrade).toHaveBeenCalledWith('A');
-    fireEvent.click(screen.getByRole('button', { name: '관찰 중 상품 보기' }));
-    expect(state.setAbcCalculationStatus).toHaveBeenCalledWith('INSUFFICIENT_EVIDENCE');
-    fireEvent.click(screen.getByRole('button', { name: '수식 보정 대기 상품 보기' }));
-    expect(state.setAbcCalculationStatus).toHaveBeenCalledWith('CALIBRATION_PENDING');
-    fireEvent.click(screen.getByRole('button', { name: '원천 확인 상품 보기' }));
-    expect(state.setAbcCalculationStatus).toHaveBeenCalledWith('SELLPIA_SOURCE_STALE');
+    expect(screen.queryByRole('button', { name: '관찰 중 상품 보기' })).not.toBeInTheDocument();
   });
 
   it('opens the row evaluation evidence without fetching another product payload', () => {

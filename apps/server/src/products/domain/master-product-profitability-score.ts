@@ -3,7 +3,6 @@ import { createHash } from 'node:crypto';
 export type ProfitabilityFormulaParameters = Readonly<{
   halfLifeDays: number;
   weights: Readonly<{ profit: number; margin: number; persistence: number }>;
-  orderShrinkK: number;
   dayShrinkK: number;
   normalizationKnots: Readonly<{
     profitVelocity: readonly NormalizationKnot[];
@@ -99,13 +98,9 @@ export function calculateProfitabilityScore(input: {
   facts: readonly ProfitabilityContributionFact[];
   asOfDate: Date;
   formula: ProfitabilityFormulaParameters;
-  paidOrderCount: number;
   observationDays: number;
 }): ProfitabilityScore {
   validateFormulaParameters(input.formula);
-  if (!Number.isInteger(input.paidOrderCount) || input.paidOrderCount < 0) {
-    throw new Error('paidOrderCount must be a non-negative integer');
-  }
   if (!Number.isInteger(input.observationDays) || input.observationDays < 0) {
     throw new Error('observationDays must be a non-negative integer');
   }
@@ -126,9 +121,7 @@ export function calculateProfitabilityScore(input: {
     input.formula.normalizationKnots.lossRecurrence,
   );
   const reliability = calculateReliability({
-    paidOrderCount: input.paidOrderCount,
     observationDays: input.observationDays,
-    orderShrinkK: input.formula.orderShrinkK,
     dayShrinkK: input.formula.dayShrinkK,
   });
   if (normalizedContributionMargin === null) {
@@ -157,20 +150,14 @@ export function calculateProfitabilityScore(input: {
 }
 
 export function calculateReliability(input: {
-  paidOrderCount: number;
   observationDays: number;
-  orderShrinkK: number;
   dayShrinkK: number;
 }): number {
-  assertFinitePositive(input.orderShrinkK, 'orderShrinkK');
   assertFinitePositive(input.dayShrinkK, 'dayShrinkK');
-  if (!Number.isFinite(input.paidOrderCount) || input.paidOrderCount < 0
-    || !Number.isFinite(input.observationDays) || input.observationDays < 0) {
+  if (!Number.isFinite(input.observationDays) || input.observationDays < 0) {
     throw new Error('Reliability evidence must be non-negative and finite');
   }
-  const orderReliability = input.paidOrderCount / (input.paidOrderCount + input.orderShrinkK);
-  const dayReliability = input.observationDays / (input.observationDays + input.dayShrinkK);
-  const reliability = Math.sqrt(orderReliability * dayReliability);
+  const reliability = input.observationDays / (input.observationDays + input.dayShrinkK);
   if (!Number.isFinite(reliability) || reliability < 0 || reliability >= 1) {
     throw new Error('Reliability must be finite and in [0, 1)');
   }
@@ -231,7 +218,6 @@ function validateFormulaParameters(formula: ProfitabilityFormulaParameters): voi
     || Object.values(weights).some((weight) => weight < 0)) {
     throw new Error('Formula weights are invalid');
   }
-  assertFinitePositive(formula.orderShrinkK, 'orderShrinkK');
   assertFinitePositive(formula.dayShrinkK, 'dayShrinkK');
   normalizeKnots(formula.normalizationKnots.profitVelocity);
   normalizeKnots(formula.normalizationKnots.contributionMargin);

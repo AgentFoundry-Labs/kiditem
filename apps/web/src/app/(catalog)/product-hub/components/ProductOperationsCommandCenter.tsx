@@ -5,21 +5,18 @@ import Link from 'next/link';
 import { AlertTriangle, Bell, ClipboardList, PackageX } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
-import type { ProductOperationsAbcCalculationStatusFilter } from '@kiditem/shared/product-operations';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 type Props = {
   data: MasterProductOperationsListResponse;
   onShowOutOfStock: () => void;
   onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
-  onShowAbcCalculationStatus: (status: ProductOperationsAbcCalculationStatusFilter) => void;
 };
 
 export function ProductOperationsCommandCenter({
   data,
   onShowOutOfStock,
   onShowAbcGrade,
-  onShowAbcCalculationStatus,
 }: Props) {
   const { connected: connectedCount, unconnected: unconnectedCount } =
     data.summary.channelConnectionCounts;
@@ -37,7 +34,6 @@ export function ProductOperationsCommandCenter({
     C: cGradeCount,
     unclassified: unclassifiedGradeCount,
   } = data.summary.abcGradeCounts;
-  const abcStatus = data.summary.abcStatusCounts;
   const contribution = data.summary.abcContributionProfitByGrade;
 
   return (
@@ -61,13 +57,10 @@ export function ProductOperationsCommandCenter({
           </div>
         </div>
         <div className="mt-auto">
-          <Breakdown label="관찰 중" value={abcStatus.INSUFFICIENT_EVIDENCE} tone="text-sky-700" onClick={() => onShowAbcCalculationStatus('INSUFFICIENT_EVIDENCE')} />
-          <Breakdown label="수식 보정 대기" value={abcStatus.CALIBRATION_PENDING} tone="text-sky-700" onClick={() => onShowAbcCalculationStatus('CALIBRATION_PENDING')} />
           <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
           <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
           <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
           <Breakdown label="미분류" value={unclassifiedGradeCount} onClick={() => onShowAbcGrade('unclassified')} />
-          <Breakdown label="원천 확인" value={abcStatus.SELLPIA_SOURCE_STALE + abcStatus.AD_SOURCE_STALE + abcStatus.SOURCE_UNMAPPED} tone="text-amber-600" onClick={() => onShowAbcCalculationStatus('SELLPIA_SOURCE_STALE')} />
         </div>
       </article>
 
@@ -106,9 +99,9 @@ export function ProductOperationsCommandCenter({
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
         <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
-        <Breakdown label="A 공헌이익" value={`${formatNumber(contribution.A)}원`} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
-        <Breakdown label="B 공헌이익" value={`${formatNumber(contribution.B)}원`} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
-        <Breakdown label="C 공헌이익" value={`${formatNumber(contribution.C)}원`} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
+        <Breakdown label="A등급 이익" value={`${formatNumber(contribution.A)}원`} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
+        <Breakdown label="B등급 이익" value={`${formatNumber(contribution.B)}원`} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
+        <Breakdown label="C등급 이익" value={`${formatNumber(contribution.C)}원`} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
       </OperationsCard>
 
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">

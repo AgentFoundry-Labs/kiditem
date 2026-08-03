@@ -82,6 +82,7 @@ export interface OperationRunTransition {
   claimedAt?: Date | null;
   leaseExpiresAt?: Date | null;
   expectedAttemptToken?: string | null;
+  attemptDelta?: number;
 }
 
 export interface OperationScheduleRecord {
@@ -126,6 +127,13 @@ export interface OperationRunRepositoryPort {
   listRuns(input: {
     organizationId: string;
     status?: OperationStatus;
+    limit: number;
+  }): Promise<OperationRunRecord[]>;
+  listChildRuns(input: {
+    organizationId: string;
+    parentRunId: string;
+  }): Promise<OperationRunRecord[]>;
+  listWaitingDependencyParents(input: {
     limit: number;
   }): Promise<OperationRunRecord[]>;
   transition(input: OperationRunTransition): Promise<OperationRunRecord | null>;

@@ -9,6 +9,7 @@ import {
   MasterProductOperationsListQuerySchema,
   MasterProductOperationsListResponseSchema,
   ProductOperationsAbcCalculationStatusFilterSchema,
+  ProductOperationsDataStatusSchema,
   ProductOperationsListSummarySchema,
   ProductDepletionProjectionSchema,
   ProductInventoryStatusSchema,
@@ -64,11 +65,13 @@ describe('product operations contracts', () => {
         RECALCULATING: 0,
         SELLPIA_SOURCE_STALE: 0,
         AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
         CALCULATION_ERROR: 0,
       },
       abcContributionProfitByGrade: { A: 400_000, B: 150_000, C: -30_000 },
       abcContributionProfitShareByGrade: { A: 0.77, B: 0.29, C: -0.06 },
       abcFormula: null,
+      displayDataAsOf: '2026-07-31',
       channelConnectionCounts: { connected: 4, unconnected: 6 },
       inventoryStatusCounts: {
         sellable: 6,
@@ -81,7 +84,28 @@ describe('product operations contracts', () => {
       reorderProductCount: 2,
       depletionCoveredProductCount: 6,
       sharedDepletionProductCount: 1,
-    }).abcStatusCounts.READY).toBe(6);
+    }).displayDataAsOf).toBe('2026-07-31');
+
+    expect(ProductOperationsDataStatusSchema.parse({
+      displayDataAsOf: '2026-07-31',
+      lastCompletedRefreshAt: '2026-08-01T00:00:00.000Z',
+      activeRun: null,
+      sources: {
+        traffic: { status: 'OUTDATED', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+        advertising: { status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null },
+        sellpiaProfit: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+        abc: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+      },
+      abcSummary: {
+        classifiedProductCount: 6,
+        unclassifiedProductCount: 4,
+        mappingRequiredProductCount: 1,
+        orderEvidenceRequiredProductCount: 2,
+        otherPendingProductCount: 1,
+      },
+    }).sources.advertising).toEqual({
+      status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null,
+    });
   });
 
   it('requires raw and calculated display image URLs separately', () => {
@@ -221,9 +245,18 @@ describe('product operations contracts', () => {
       channelCount: 2,
       channelStatus: 'partial',
       traffic: null,
+      visitorCount: null,
+      viewCount: null,
+      cartAddCount: null,
       orderCount: null,
+      salesQuantity: null,
       salesAmount: null,
       adSpend: null,
+      adSpendRate: null,
+      metricsFreshness: {
+        traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      },
       profit: null,
       contributionProfitVelocity30: null,
       contributionMargin: null,
@@ -245,11 +278,13 @@ describe('product operations contracts', () => {
           RECALCULATING: 1,
           SELLPIA_SOURCE_STALE: 1,
           AD_SOURCE_STALE: 1,
+          ORDERS_SOURCE_STALE: 0,
           CALCULATION_ERROR: 0,
         },
         abcContributionProfitByGrade: { A: 4_000_000, B: 1_000_000, C: -200_000 },
         abcContributionProfitShareByGrade: { A: 0.83, B: 0.21, C: -0.04 },
         abcFormula: null,
+        displayDataAsOf: '2026-07-31',
         channelConnectionCounts: { connected: 71, unconnected: 9 },
         inventoryStatusCounts: {
           sellable: 41,
@@ -269,7 +304,9 @@ describe('product operations contracts', () => {
     expect(response.summary.channelConnectionCounts.connected).toBe(71);
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);
+    expect(response.summary.displayDataAsOf).toBe('2026-07-31');
     expect(response.items[0]?.abcGrade).toBe('A');
+    expect(response.items[0]?.viewCount).toBeNull();
     expect(response.items[0]?.depletion.coverage).toBe('shared');
   });
 

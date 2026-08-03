@@ -93,6 +93,7 @@ const catalogCollectionWindows = Object.fromEntries(
     }),
   ]),
 );
+const profitabilityAdUploadContexts = new Map();
 function collectionWindowFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return collectionWindows[environmentId];
@@ -447,6 +448,46 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       })
       .catch((e) => sendResponse({ success: false, error: e.message }));
     return true; // async response
+  }
+
+  if (msg.action === "syncProfitabilityReportToServer") {
+    const payload = msg.payload || {};
+    const context = profitabilityAdUploadContexts.get(payload.collectionRunId);
+    Promise.resolve()
+      .then(async () => {
+        if (!context) throw new Error("profitability_report_upload_context_missing");
+        const senderUrl = new URL(sender?.url || sender?.tab?.url || "");
+        if (senderUrl.origin !== "https://advertising.coupang.com") {
+          throw new Error("profitability_report_sender_invalid");
+        }
+        const boundEnvironmentId = await coupangEnvironment.environmentForTab(sender?.tab?.id);
+        if (
+          boundEnvironmentId !== context.environmentId ||
+          (msg.environmentId && msg.environmentId !== context.environmentId)
+        ) {
+          throw new Error("profitability_report_environment_mismatch");
+        }
+        const response = await authedFetch(
+          context.environmentId,
+          `/api/ads/profitability-refresh/runs/${context.operationRunId}/slices/${encodeURIComponent(context.sliceId)}/report`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "x-operation-attempt-token": context.attemptToken,
+            },
+            body: JSON.stringify(payload),
+          },
+        );
+        const body = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(body?.message || `profitability_report_upload_http_${response.status}`);
+        }
+        return { success: true, body };
+      })
+      .then(sendResponse)
+      .catch((error) => sendResponse({ success: false, error: error?.message || String(error) }));
+    return true;
   }
 });
 
@@ -4548,7 +4589,147 @@ async function handleScrapeTargets(
     startedAt,
     producer: prepared.producer,
     environmentId: options.environmentId,
+    operationPayload: options.operationPayload || null,
+    retainOwnedWindow: options.retainOwnedWindow === true,
   });
+}
+
+async function runAdvertisingProfitabilityOperation(operation) {
+  const headers = {
+    "Content-Type": "application/json",
+    "x-operation-attempt-token": operation.attemptToken,
+  };
+  const request = async (path, options = {}) => {
+    const response = await authedFetch(operation.environmentId, path, {
+      ...options,
+      headers: { ...headers, ...(options.headers || {}) },
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const error = new Error(payload?.message || `profitability_ad_refresh_http_${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return payload;
+  };
+
+  let completedSliceCount = 0;
+  let lastSlice = null;
+  let retainedCollectionRunId = null;
+  let preserveAttentionWindow = false;
+  try {
+    for (let iteration = 0; iteration < 20; iteration += 1) {
+      const next = await request(
+        `/api/ads/profitability-refresh/runs/${operation.runId}/next-slice`,
+      );
+      if (next?.complete === true) {
+        const finalized = await request(
+          `/api/ads/profitability-refresh/runs/${operation.runId}/finalize`,
+          { method: "POST", body: "{}" },
+        );
+        await operation.heartbeat(1);
+        return {
+          status: "succeeded",
+          result: {
+            completedSliceCount,
+            coverageStartDate: finalized.coverageStartDate,
+            coverageEndDate: finalized.coverageEndDate,
+            completedDayCount: finalized.completedDayCount,
+            totalDayCount: finalized.totalDayCount,
+          },
+        };
+      }
+      const targets = collectionRuns.validateScrapeTargets(next?.targets || []);
+      if (!targets || targets.length === 0) {
+        return {
+          status: "attention_required",
+          attentionReason: "advertising_targets_not_configured",
+        };
+      }
+      lastSlice = next;
+      await operation.heartbeat(
+        Math.min(0.95, Number(next.completedDayCount || 0) / Math.max(1, Number(next.totalDayCount || 1))),
+      );
+      const collectionRunId = collectionRuns.createRunId();
+      retainedCollectionRunId = collectionRunId;
+      profitabilityAdUploadContexts.set(collectionRunId, {
+        operationRunId: operation.runId,
+        attemptToken: operation.attemptToken,
+        environmentId: operation.environmentId,
+        sliceId: next.sliceId,
+      });
+      let result;
+      try {
+        result = await handleScrapeTargets(
+          targets,
+          collectionRunId,
+          Date.now(),
+          {
+            producer: "advertising.ad_sync",
+            restartStrategy: "extension",
+            environmentId: operation.environmentId,
+            retainOwnedWindow: true,
+            operationPayload: {
+              profitabilitySlice: {
+                sliceId: next.sliceId,
+                startDate: next.startDate,
+                endDate: next.endDate,
+                businessDates: next.businessDates,
+              },
+            },
+          },
+        );
+      } finally {
+        profitabilityAdUploadContexts.delete(collectionRunId);
+      }
+      if (!result?.success) {
+        preserveAttentionWindow = result?.attentionRequired === true;
+        return {
+          status: result?.attentionRequired ? "attention_required" : "failed",
+          ...(result?.attentionRequired
+            ? { attentionReason: result?.reason || "advertising_collection_attention" }
+            : {
+                errorCode: "advertising_collection_failed",
+                errorMessage: result?.error || "Advertising collection failed.",
+              }),
+        };
+      }
+      await request(
+        `/api/ads/profitability-refresh/runs/${operation.runId}/slices/${encodeURIComponent(next.sliceId)}/finalize`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            collectionRunId,
+            completedTargetCount: result.completed || 0,
+          }),
+        },
+      );
+      completedSliceCount += 1;
+    }
+    return {
+      status: "failed",
+      errorCode: "advertising_slice_limit_exceeded",
+      errorMessage: `Advertising refresh exceeded the bounded slice count after ${lastSlice?.sliceId || "unknown"}.`,
+    };
+  } catch (error) {
+    if (error?.status === 422 && /targets_not_configured/.test(error.message || "")) {
+      return {
+        status: "attention_required",
+        attentionReason: "advertising_targets_not_configured",
+      };
+    }
+    return {
+      status: "failed",
+      errorCode: "advertising_profitability_refresh_failed",
+      errorMessage: error?.message || "Advertising profitability refresh failed.",
+    };
+  } finally {
+    if (retainedCollectionRunId && !preserveAttentionWindow) {
+      await collectionWindowFor(operation.environmentId)
+        .close(retainedCollectionRunId)
+        .catch(() => false);
+    }
+  }
 }
 
 async function cancelBatchScrape(runId = null, environmentId) {
@@ -4698,7 +4879,11 @@ KidItemDomains.register({
   externalPorts: {
     [WING_FORM_PORT_NAME]: (port) => handleWingFormPort(port),
   },
+  operations: {
+    "advertising.refresh_profitability_spend": runAdvertisingProfitabilityOperation,
+  },
   capabilities: {
+    profitabilityAdvertisingRefreshV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",
     coupangKeywordSuggestions: true,

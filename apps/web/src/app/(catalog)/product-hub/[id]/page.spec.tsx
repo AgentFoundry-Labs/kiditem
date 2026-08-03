@@ -132,6 +132,6 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     fireEvent.click(screen.getByRole('button', { name: '동물 친구들 블록 ABC 근거 보기' }));
 
     expect(screen.getByRole('dialog', { name: 'ABC 평가 근거' })).toBeInTheDocument();
-    expect(screen.getByText('매출총이익 = 결제금액 - 주문 시점 매입금액')).toBeInTheDocument();
+    expect(screen.getByText(/상품 이익 = 매출/)).toBeInTheDocument();
   });
 });

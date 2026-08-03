@@ -12,6 +12,7 @@ import { rekeyAdCampaignProductTargets } from "./v0.1.25/004_rekey_ad_campaign_p
 import { removeAmbiguousAdCampaignAccountKpis } from "./v0.1.25/005_remove_ambiguous_ad_campaign_account_kpis";
 import { initializeMasterProductAbcPolicy } from "./v0.1.26/001_initialize_master_product_abc_policy";
 import { resetLegacyProductAbcGrades } from "./v0.1.30/001_reset_legacy_product_abc_grades";
+import { backfillProfitabilitySourceFreshness } from "./v0.1.30/002_backfill_profitability_source_freshness";
 import type { DataMigration } from "./types";
 
 export {
@@ -38,6 +39,7 @@ export const dataMigrations: readonly DataMigration[] = [
   removeAmbiguousAdCampaignAccountKpis,
   initializeMasterProductAbcPolicy,
   resetLegacyProductAbcGrades,
+  backfillProfitabilitySourceFreshness,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

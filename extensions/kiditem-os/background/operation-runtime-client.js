@@ -173,8 +173,8 @@
     function installAlarms() {
       for (const environmentId of environmentContext.environmentIds) {
         chromeApi.alarms.create(environmentContext.alarmName(ALARM_BASE, environmentId), {
-          delayInMinutes: 1,
-          periodInMinutes: 1,
+          delayInMinutes: 0.5,
+          periodInMinutes: 0.5,
         });
       }
     }

@@ -46,6 +46,8 @@ export const queryKeys = {
         [...queryKeys.products.operations.all, 'detail', id] as const,
       mutations: () =>
         [...queryKeys.products.operations.all, 'mutation'] as const,
+      dataStatus: (periodDays: number) =>
+        [...queryKeys.products.operations.all, 'data-status', periodDays] as const,
       recipeCandidates: (params: Record<string, string>) =>
         [
           ...queryKeys.products.operations.all,

@@ -20,7 +20,8 @@ or top-level read paths change.
 
 ## Goal
 
-Give every eligible `MasterProduct` one automatic A, B, or C grade that answers
+Give every currently selling, source-resolved `MasterProduct` one automatic A,
+B, or C grade that answers
 one question: how valuable and durable is this product's current contribution
 profitability?
 
@@ -36,11 +37,12 @@ there is no provisional-versus-official grade system.
 - B means positive contribution profit without A-level magnitude or
   persistence.
 - C means loss-making or persistently very low profit contribution.
-- A product becomes eligible after either 30 calendar observation days from
-  its first valid paid sale or 20 distinct valid paid orders, whichever occurs
-  first.
-- Before eligibility, the result is `INSUFFICIENT_EVIDENCE`, not a provisional
-  A/B/C grade.
+- A currently selling mapped product receives A, B, or C immediately when
+  Sellpia profit evidence, Advertising evidence, and an active formula are
+  available. Paid-order count and first-paid-sale age are not grade inputs or
+  eligibility gates.
+- Short history does not create a preliminary state. Its score is shrunk toward
+  the neutral score according to the observed Sellpia profit-history duration.
 - Sellpia `stat_prd_profit` supplies product-option monthly revenue, quantity,
   and order-time supply cost.
 - V1 deducts authoritative advertising spend. Marketplace commission,
@@ -51,9 +53,12 @@ there is no provisional-versus-official grade system.
 - Time decay, score weights, shrinkage strength, and grade boundaries are
   calibrated from historical outcomes, validated out of time, and frozen in a
   versioned formula. They are not recalculated on every sync.
-- A successful full Sellpia sync recalculates ABC automatically. An
-  inventory-only sync is a distinct button and workflow and never collects
-  profit data or recalculates ABC.
+- `수익성 데이터 갱신` is one Products-owned composite operation. It runs a
+  full Sellpia evidence collection, authoritative Advertising backfill, and
+  exactly one Products ABC calculation in that order. A successful Sellpia
+  child never publishes ABC by itself.
+- `재고 동기화` is a distinct button and `scope: inventory` workflow. It never
+  collects product-profit data or recalculates ABC.
 
 ## Non-Goals
 
@@ -120,15 +125,67 @@ non-additive trailing keyword snapshots or duplicate owner streams.
 A confirmed no-ad product contributes zero actual ad spend. Missing or failed
 advertising coverage is not equivalent to zero: publication retains the last
 normal grade and exposes `AD_SOURCE_STALE` until a complete source snapshot is
-available.
+available. The browser collector uses Coupang's official advertising-report
+surface, one calendar-month range at a time, with `일별`, all campaigns, and
+`캠페인 > 광고그룹 > 상품` fixed. It joins every virtualized grid row, requires
+the collected count to equal the provider row count, and requires product-row
+daily spend to equal the provider daily summary before upload. The backend
+then replaces that exact slice atomically and publishes authoritative listing
+zeros only after the completeness marker exists.
 
-### Eligibility evidence
+The initial backfill reuses one owned report window across calendar-month
+slices. Subsequent runs plan only incomplete dates plus the correction window.
+Coverage planning reads one aggregate row per business date rather than
+materializing every listing-day row in the application. Fast grid scrolling
+is allowed only with exact row-count and provider daily-total checks still
+enforced; a slower retry pass handles virtualized rows that render late.
 
-Orders supplies the first valid paid-sale time and distinct valid paid-order
-count for each resolved `MasterProduct`. Cancelled and fully refunded orders do
-not count. `observationDays` is elapsed KST calendar days from the first valid
-paid sale through the evaluation date, not merely the count of dates on which
-sales occurred.
+### Observation evidence
+
+`observationDays` is the elapsed KST calendar duration from the earliest
+Sellpia monthly profit bucket with nonzero recognized revenue or order-time
+supply cost through the evaluation cutoff. It controls score shrinkage only;
+zero days does not block A/B/C publication.
+
+Orders, order lines, paid timestamps, and Wing collection are outside the ABC
+calculation boundary. ABC neither reads nor repairs them. Mapping remains a
+read-only identity prerequisite because Sellpia and Advertising facts must
+resolve uniquely to the owning `MasterProduct`.
+
+## Complete Profitability Refresh
+
+Products owns the parent `products.refresh_profitability_evidence` operation.
+Operations coordinates these children with `parentRunId`, one active child at
+a time, and a stable per-parent idempotency key:
+
+1. `inventory.refresh_sellpia_snapshot` with `scope: full` publishes the
+   continuous Sellpia stock-identity and product-profit evidence;
+2. `advertising.refresh_profitability_spend` fills authoritative exact-day ad
+   evidence through yesterday KST in resumable calendar-month report slices;
+   and
+3. `products.recalculate_profitability_abc` reads Sellpia, Advertising, and
+   mapping freshness at one cutoff and publishes ABC once.
+
+Retry resumes the first incomplete child and does not repeat an already
+succeeded publication. Cancelling the parent cascades only to a cancellable
+child. Missing per-product mapping evidence is a published evaluation status,
+not permission for the refresh to repair that domain.
+
+ABC publication is restricted to the current selling cohort: an active master
+product connected to an active channel account and an active catalog
+listing/option, excluding explicit paused, stopped, deleted, or rejected sale
+states. This uses the catalog's durable activity contract because some provider
+feeds expose approval/condition values such as `승인완료` and `NEW` instead of
+a literal `판매중` flag. When a product leaves the selling cohort, its stored
+grade is cleared during the next recalculation so it cannot remain in
+Dashboard, Product Management, or Product Outflow grade totals.
+
+Product Management reads its visit, view, cart, order, sales, revenue, and ad
+ratio values from existing `ChannelListingDailySnapshot` facts. Those traffic
+metrics are display-only and never enter ABC. A zero is rendered only when the
+producer declared coverage; an absent metric remains `—`. The page header shows
+one conservative `데이터 기준` date, while the `상품 운영 데이터 현황` modal
+owns per-source coverage, capture time, progress, failures, and recovery links.
 
 ## Contribution-Profit V1
 
@@ -215,17 +272,17 @@ Values beyond the calibrated range clamp to 0 or 100.
 
 ### Sparse-evidence shrinkage
 
-After eligibility, sparse observations may receive A, B, or C, but their score
-is shrunk toward the organization-neutral score rather than being published as
-a separate provisional grade:
+Sparse observations receive A, B, or C immediately, but their score is shrunk
+toward the organization-neutral score rather than being published as a
+separate provisional grade:
 
 ```text
 adjustedScore = 50 + reliability * (rawScore - 50)
 ```
 
-Reliability is a deterministic function of valid-order count and observation
-days. Its strength parameters are selected during calibration, stored in the
-formula version, and constrained to increase monotonically as evidence grows.
+Reliability is a deterministic function of observation days. Its strength
+parameter is selected during calibration, stored in the formula version, and
+constrained to increase monotonically as observed history grows.
 
 ### Calibration dataset
 
@@ -290,13 +347,15 @@ The current evaluation has one of these states:
 | State | Published behavior |
 |---|---|
 | `READY` | Publish A, B, or C from the active formula. |
-| `INSUFFICIENT_EVIDENCE` | Publish no grade while observation is under 30 days and valid paid orders are under 20. |
 | `SOURCE_UNMAPPED` | Publish no grade for unresolved source identity. |
 | `CALIBRATION_PENDING` | Publish no new-model grade until a formula passes validation. |
 | `RECALCULATING` | Never expose a legacy grade as a new-model grade during cutover. |
 | `SELLPIA_SOURCE_STALE` | Retain the last normal grade and expose the stale state. |
 | `AD_SOURCE_STALE` | Retain the last normal grade and expose the stale state. |
 | `CALCULATION_ERROR` | Retain the last normal grade and expose the failure. |
+
+`INSUFFICIENT_EVIDENCE` and `ORDERS_SOURCE_STALE` remain accepted only when
+reading legacy evaluation snapshots. New calculations never emit them.
 
 Status is separate from grade. A stale A remains visibly A with a stale badge;
 it does not become `null` or C. Products records a grade-history row only when
@@ -315,7 +374,6 @@ flowchart LR
   Extension["Sellpia extension"] --> Analytics["Analytics monthly source facts"]
   Advertising["Advertising additive daily spend"] --> Finance["Finance profitability read model"]
   Analytics --> Finance
-  Orders["Orders eligibility evidence"] --> Finance
   Finance --> Products["Products evaluation and publication"]
   Products --> Dashboard
   Products --> ProductManagement["Product Management"]
@@ -458,7 +516,7 @@ The existing Sellpia sync location displays separate `전체 동기화` and
 5. Run shadow evaluation and verify invariants without exposing legacy grades
    as new grades.
 6. Execute the registered `v0.1.30` semantic-reset migration and publish all
-   eligible products with the active formula.
+   currently selling mapped products with the active formula.
 7. Switch Dashboard, Product Management, and Product Outflow to the new shared
    read contract.
 8. Remove legacy lifecycle/provisional/cumulative policy APIs, schema fields,
@@ -490,10 +548,10 @@ runtime overlap must remain safe until the contract step.
   constant, and increasing loss recurrence cannot raise it.
 - Prove zero/negative weighted contribution profit is C.
 - Prove exact ties receive the same score and grade.
-- Prove 30 observation days or 20 valid paid orders activates ordinary A/B/C,
-  while earlier evidence remains `INSUFFICIENT_EVIDENCE`.
-- Prove more evidence monotonically reduces shrinkage without creating a
-  provisional grade.
+- Prove a currently selling mapped product receives ordinary A/B/C without
+  paid-order evidence or a minimum observation period.
+- Prove increasing Sellpia observation duration monotonically reduces
+  shrinkage without creating a provisional grade.
 - Prove source or calculation failure preserves the last normal grade with an
   explicit state.
 
@@ -515,8 +573,8 @@ runtime overlap must remain safe until the contract step.
 - The same product shows the same grade/state/formula version on all three
   surfaces.
 - Filters, sorting, deep links, and read-only explanation behave consistently.
-- `INSUFFICIENT_EVIDENCE`, stale, unmapped, recalculating, and error states are
-  not rendered as A/B/C.
+- Stale, unmapped, recalculating, and error states are not rendered as A/B/C;
+  legacy `INSUFFICIENT_EVIDENCE` remains readable but is never newly emitted.
 - No criteria-selection or grade-edit modal remains.
 - Every detailed profitability view discloses V1's four deferred cost inputs.
 

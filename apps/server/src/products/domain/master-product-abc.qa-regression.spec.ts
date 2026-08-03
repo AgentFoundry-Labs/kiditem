@@ -6,7 +6,7 @@ const formula: ProductAbcFormulaSummary = {
   formulaKey: 'ABC_V1', version: 1,
   calculationCodeChecksum: 'a'.repeat(64), formulaChecksum: 'b'.repeat(64),
   activatedAt: new Date('2026-08-01T00:00:00.000Z'), halfLifeDays: 90,
-  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 }, orderShrinkK: 20, dayShrinkK: 30,
+  weights: { profit: 0.5, margin: 0.3, persistence: 0.2 }, dayShrinkK: 30,
   cutoffs: { cToB: 40, bToA: 70 },
   normalizationKnots: {
     profitVelocity: [{ value: 0, score: 0 }, { value: 100, score: 100 }],
@@ -27,6 +27,12 @@ function evaluate(masterProductId: string) {
       validPaidOrderDates: [], paidOrderCount: 30, observationDays: 61, eligibilityReached: true,
       sellpiaStatus: 'READY', adStatus: 'READY',
       sellpiaCapturedAt: new Date('2026-08-01T00:00:00.000Z'), advertisingCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      advertisingCoverageStartDate: start, advertisingCoverageEndDate: end,
+      ordersStatus: 'READY', ordersCoverageStartDate: start, ordersCoverageEndDate: end,
+      ordersCapturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      orderLinkedLineCount: 30, orderUnlinkedLineCount: 0,
+      mappingStatus: 'READY', mappingInventoryGeneration: '7',
+      mappingVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
       monthlyFacts: [{
         yearMonth: '2026-06', coverageStartDate: start, coverageEndDate: end, coveredDays: 30,
         coverageMidpointEpochDay: 0, revenue: 1_000, sellpiaInAmount: 200, adSpend: 100,

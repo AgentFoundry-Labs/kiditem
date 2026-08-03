@@ -16,6 +16,7 @@ export const ProductAbcCalculationStatusSchema = z.enum([
   'RECALCULATING',
   'SELLPIA_SOURCE_STALE',
   'AD_SOURCE_STALE',
+  'ORDERS_SOURCE_STALE',
   'CALCULATION_ERROR',
 ]);
 export type ProductAbcCalculationStatus = z.infer<
@@ -49,6 +50,26 @@ export const ProductAbcAdvertisingSourceStatusSchema = z.enum([
 ]);
 export type ProductAbcAdvertisingSourceStatus = z.infer<
   typeof ProductAbcAdvertisingSourceStatusSchema
+>;
+
+export const ProductAbcOrdersSourceStatusSchema = z.enum([
+  'READY',
+  'STALE',
+  'MISSING',
+  'NOT_APPLIED',
+]);
+export type ProductAbcOrdersSourceStatus = z.infer<
+  typeof ProductAbcOrdersSourceStatusSchema
+>;
+
+export const ProductAbcMappingSourceStatusSchema = z.enum([
+  'READY',
+  'UNMAPPED',
+  'AMBIGUOUS',
+  'STALE',
+]);
+export type ProductAbcMappingSourceStatus = z.infer<
+  typeof ProductAbcMappingSourceStatusSchema
 >;
 
 const ProductAbcObservedCostComponentSchema = z.object({
@@ -136,7 +157,6 @@ export const ProductAbcFormulaSummarySchema = z.object({
   activatedAt: zIsoDate,
   halfLifeDays: z.number().int().min(30).max(365),
   weights: ProductAbcFormulaWeightsSchema,
-  orderShrinkK: FiniteNumberSchema.positive(),
   dayShrinkK: FiniteNumberSchema.positive(),
   cutoffs: ProductAbcFormulaCutoffsSchema,
   normalizationKnots: ProductAbcNormalizationKnotsSchema,
@@ -164,36 +184,57 @@ export type ProductAbcFormulaSummary = z.infer<
   typeof ProductAbcFormulaSummarySchema
 >;
 
-const ProductAbcSourceFreshnessItemSchema = z.object({
-  status: z.enum(['READY', 'CONFIRMED_ZERO', 'STALE', 'UNMAPPED', 'MISSING']),
-  coverageStartDate: CalendarDateSchema.nullable(),
-  coverageEndDate: CalendarDateSchema.nullable(),
-  capturedAt: zIsoDate.nullable(),
-}).strict().superRefine((source, context) => {
-  if ((source.coverageStartDate === null) !== (source.coverageEndDate === null)) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'source coverage bounds must both be present or absent',
-    });
-  }
-  if (
-    source.coverageStartDate
-    && source.coverageEndDate
-    && source.coverageStartDate > source.coverageEndDate
-  ) {
-    context.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['coverageEndDate'],
-      message: 'source coverage end must not precede source coverage start',
-    });
-  }
-});
+function dateRangeSourceFreshness<T extends [string, ...string[]]>(
+  statuses: T,
+) {
+  return z.object({
+    status: z.enum(statuses),
+    coverageStartDate: CalendarDateSchema.nullable(),
+    coverageEndDate: CalendarDateSchema.nullable(),
+    capturedAt: zIsoDate.nullable(),
+  }).strict().superRefine((source, context) => {
+    if ((source.coverageStartDate === null) !== (source.coverageEndDate === null)) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['coverageEndDate'],
+        message: 'source coverage bounds must both be present or absent',
+      });
+    }
+    if (
+      source.coverageStartDate
+      && source.coverageEndDate
+      && source.coverageStartDate > source.coverageEndDate
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['coverageEndDate'],
+        message: 'source coverage end must not precede source coverage start',
+      });
+    }
+  });
+}
+
+const ProductAbcSellpiaSourceFreshnessSchema = dateRangeSourceFreshness([
+  'READY', 'STALE', 'UNMAPPED', 'MISSING',
+]);
+const ProductAbcAdvertisingSourceFreshnessSchema = dateRangeSourceFreshness([
+  'READY', 'CONFIRMED_ZERO', 'STALE', 'MISSING',
+]);
+const ProductAbcOrdersSourceFreshnessSchema = dateRangeSourceFreshness([
+  'READY', 'STALE', 'MISSING', 'NOT_APPLIED',
+]);
+const ProductAbcMappingSourceFreshnessSchema = z.object({
+  status: ProductAbcMappingSourceStatusSchema,
+  inventoryGeneration: z.string().min(1).nullable(),
+  verifiedAt: zIsoDate.nullable(),
+}).strict();
 
 export const ProductAbcSourceFreshnessSchema = z.object({
   evaluationCutoffDate: CalendarDateSchema,
-  sellpia: ProductAbcSourceFreshnessItemSchema,
-  advertising: ProductAbcSourceFreshnessItemSchema,
+  sellpia: ProductAbcSellpiaSourceFreshnessSchema,
+  advertising: ProductAbcAdvertisingSourceFreshnessSchema,
+  orders: ProductAbcOrdersSourceFreshnessSchema,
+  mapping: ProductAbcMappingSourceFreshnessSchema,
 }).strict();
 export type ProductAbcSourceFreshness = z.infer<
   typeof ProductAbcSourceFreshnessSchema

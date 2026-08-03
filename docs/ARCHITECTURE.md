@@ -166,7 +166,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | Path | Kind | Ownership / Surfaces |
 |---|---|---|
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
-| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, daily facts, strategy/action generation. |
+| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
 | `apps/server/src/ai` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
@@ -178,7 +178,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
-| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, and durable Sellpia workbook submission idempotency/audit. |
+| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, durable Sellpia workbook submission idempotency/audit, and read-only canonical paid-order profitability evidence. |
 | `apps/server/src/operations` | Platform | Code-owned operation catalog, schedules, top-level run ledger, engine dispatch, and browser-runtime leases. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
@@ -746,9 +746,12 @@ variant destination. Analytics persists raw Sellpia product-profit coverage;
 Finance assembles source-freshness and time-decayed contribution-profit
 evidence; Products owns the automatic ABC formula calibration, evaluation,
 publication, and changed-grade history. The formula persists its checksum,
-normalization knots, and version. Product Hub's explicit `full` Sellpia scope
-collects product-profit evidence and triggers evaluation, while stock-ops'
-`inventory` scope collects only physical stock. Product Hub, product-outflow,
+normalization knots, and version. Product Hub's Products-owned composite runs
+the `full` Sellpia evidence child, the Advertising exact-day backfill child,
+and one Products calculation child in order. The separate `inventory` action
+collects only physical stock and never recalculates ABC. Orders and mapping are
+read-only readiness inputs; the composite never repairs either. Product Hub,
+product-outflow,
 Dashboard, and Advertising consume the stored grade/evaluation snapshot;
 missing evidence remains unclassified instead of C and stale source states
 preserve the last published grade. Organization-locked publication fences stale
@@ -756,6 +759,12 @@ concurrent calculations. AI thumbnail analysis quality grades remain an
 independent product-registration signal. Product-outflow may display matched
 active Coupang catalog media through AI's read-only media capability without
 copying image URLs into Inventory.
+
+Product Hub renders visit/view/cart/order/sales/revenue/ad-rate from existing
+listing daily facts independently of ABC. Missing fields remain null instead
+of becoming zero. One organization-wide conservative data-basis date appears
+in the header; one status modal owns source-specific freshness, composite
+progress/failure, and aggregate order/mapping recovery counts.
 
 The frontend preserves the active route ownership and compositions recorded in
 the Frontend Route Map and nearest route guides. One shared coordinator/drawer

@@ -26,7 +26,6 @@ function examples() {
           contributionProfit: level * 80,
           negativeCoveredDays: 0,
         }],
-        paidOrderCount: 20 + originIndex,
         observationDays: 40 + originIndex,
         nextMonthProfitVelocity: level * 10,
       };
@@ -36,7 +35,6 @@ function examples() {
 const candidates = [{
   halfLifeDays: 90,
   weights: { profit: 0.5, margin: 0.3, persistence: 0.2 },
-  orderShrinkK: 20,
   dayShrinkK: 30,
 }] as const;
 

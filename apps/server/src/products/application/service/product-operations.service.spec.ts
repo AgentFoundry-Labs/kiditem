@@ -54,6 +54,7 @@ describe('ProductOperationsService', () => {
       inventory as never,
       depletion as never,
       makeCatalogDisplayMedia() as never,
+      makeDataStatusRepository() as never,
     );
 
     const result = await service.listProducts(organizationId, {
@@ -79,6 +80,14 @@ describe('ProductOperationsService', () => {
     expect(result.items[0]).toMatchObject({
       inventoryUnits: 20,
       depletion: { needsReorder: true },
+      visitorCount: 11,
+      viewCount: 22,
+      cartAddCount: 3,
+      orderCount: 4,
+      salesQuantity: 5,
+      salesAmount: 35_000,
+      adSpend: 3_500,
+      adSpendRate: 10,
     });
     expect(result.summary).toMatchObject({
       reorderProductCount: 1,
@@ -456,6 +465,12 @@ function makeCatalogDisplayMedia() {
   return { findDisplayMedia: vi.fn().mockResolvedValue(new Map()) };
 }
 
+function makeDataStatusRepository() {
+  return {
+    read: vi.fn().mockResolvedValue({ displayDataAsOf: '2026-07-31' }),
+  };
+}
+
 function makeService(
   repository: ReturnType<typeof makeRepository>,
   media = makeCatalogDisplayMedia(),
@@ -472,6 +487,7 @@ function makeService(
       findByMasterProductIds: vi.fn().mockResolvedValue(new Map()),
     } as never,
     media as never,
+    makeDataStatusRepository() as never,
   );
 }
 
@@ -520,9 +536,28 @@ function rawListProduct(id: string) {
     channelCount: 0,
     channelStatus: 'unlisted' as const,
     traffic: null,
-    orderCount: null,
-    salesAmount: null,
-    adSpend: null,
+    visitorCount: 11,
+    viewCount: 22,
+    cartAddCount: 3,
+    orderCount: 4,
+    salesQuantity: 5,
+    salesAmount: 35_000,
+    adSpend: 3_500,
+    adSpendRate: 10,
+    metricsFreshness: {
+      traffic: {
+        status: 'READY' as const,
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+      advertising: {
+        status: 'READY' as const,
+        coverageStartDate: '2026-07-01',
+        coverageEndDate: '2026-07-31',
+        capturedAt: new Date('2026-08-01T00:00:00.000Z'),
+      },
+    },
     profit: null,
     variants: product.variants.map((variant) => ({
       ...variant,

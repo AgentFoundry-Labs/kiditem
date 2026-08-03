@@ -37,6 +37,10 @@ import {
   type CatalogDisplayMediaPort,
 } from '../../../ai/application/port/in/workspace/catalog-display-media.port';
 import type { ProductOperationsPort } from '../port/in/product-operations.port';
+import {
+  PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT,
+  type ProductOperationsDataStatusRepositoryPort,
+} from '../port/out/repository/product-operations-data-status.repository.port';
 
 @Injectable()
 export class ProductOperationsService implements ProductOperationsPort {
@@ -51,6 +55,8 @@ export class ProductOperationsService implements ProductOperationsPort {
     private readonly depletion: SellpiaProductDepletionReadPort,
     @Inject(CATALOG_DISPLAY_MEDIA_PORT)
     private readonly catalogDisplayMedia: CatalogDisplayMediaPort,
+    @Inject(PRODUCT_OPERATIONS_DATA_STATUS_REPOSITORY_PORT)
+    private readonly dataStatusRepository: ProductOperationsDataStatusRepositoryPort,
   ) {}
 
   async listProducts(organizationId: string, rawQuery: unknown) {
@@ -59,7 +65,10 @@ export class ProductOperationsService implements ProductOperationsPort {
       rawQuery,
       'Invalid product operations query',
     );
-    const raw = await this.repository.listProducts(organizationId, query);
+    const [raw, dataStatus] = await Promise.all([
+      this.repository.listProducts(organizationId, query),
+      this.dataStatusRepository.read(organizationId, query.periodDays),
+    ]);
     const inventoryBySkuId = await this.loadInventory(
       organizationId,
       raw.items.flatMap(({ variants }) => variants),
@@ -87,7 +96,10 @@ export class ProductOperationsService implements ProductOperationsPort {
       total: items.length,
       page: query.page,
       limit: query.limit,
-      summary: summarizeProducts(items),
+      summary: {
+        ...summarizeProducts(items),
+        displayDataAsOf: dataStatus.displayDataAsOf,
+      },
     };
   }
 
@@ -380,11 +392,13 @@ function summarizeProducts(
       RECALCULATING: 0,
       SELLPIA_SOURCE_STALE: 0,
       AD_SOURCE_STALE: 0,
+      ORDERS_SOURCE_STALE: 0,
       CALCULATION_ERROR: 0,
     },
     abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
     abcContributionProfitShareByGrade: { A: 0, B: 0, C: 0 },
     abcFormula: null,
+    displayDataAsOf: conservativeDisplayDataAsOf(products),
     channelConnectionCounts: { connected: 0, unconnected: 0 },
     inventoryStatusCounts: {
       sellable: 0,
@@ -407,6 +421,17 @@ function summarizeProducts(
     }
   }
   return counts;
+}
+
+function conservativeDisplayDataAsOf(
+  products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+): string | null {
+  const dates = products.flatMap((product) => [
+    product.metricsFreshness.traffic.coverageEndDate,
+    product.metricsFreshness.advertising.coverageEndDate,
+    product.abcEvaluation?.sourceFreshness.evaluationCutoffDate ?? null,
+  ]).filter((date): date is string => date !== null);
+  return dates.length > 0 ? dates.reduce((earliest, date) => date < earliest ? date : earliest) : null;
 }
 
 function normalizeVariant(

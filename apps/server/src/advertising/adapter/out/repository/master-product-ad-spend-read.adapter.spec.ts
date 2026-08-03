@@ -19,7 +19,8 @@ function row(listingId: string, date: string, adSpend: number) {
     listingId,
     businessDate: new Date(`${date}T00:00:00.000Z`),
     adSpend,
-    lastObservedAt: new Date('2026-07-03T01:00:00.000Z'),
+    adCoverageStatus: adSpend === 0 ? 'CONFIRMED_ZERO' : 'OBSERVED',
+    adObservedAt: new Date('2026-07-03T01:00:00.000Z'),
   };
 }
 
@@ -59,6 +60,30 @@ describe('MasterProductAdSpendReadAdapter', () => {
       rows: [],
     }).adapter.readDailyAdSpend({ organizationId: ORGANIZATION_ID, requests: [request], asOfDate: new Date('2026-07-02T00:00:00.000Z') }))
       .resolves.toEqual([expect.objectContaining({ status: 'MISSING', dailyFacts: [] })]);
+  });
+
+  it('does not accept a traffic-owned numeric zero as advertising evidence', async () => {
+    const request = { masterProductId: 'master-1', coverage: COVERAGE };
+    const { adapter, prisma } = makeAdapter({
+      listings: [{ id: 'listing-a', masterProductId: 'master-1' }],
+      rows: [],
+    });
+
+    await expect(adapter.readDailyAdSpend({
+      organizationId: ORGANIZATION_ID,
+      requests: [request],
+      asOfDate: new Date('2026-07-02T00:00:00.000Z'),
+    })).resolves.toEqual([
+      expect.objectContaining({ status: 'MISSING', dailyFacts: [] }),
+    ]);
+    expect(prisma.channelListingDailySnapshot.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          adCoverageStatus: { in: ['OBSERVED', 'CONFIRMED_ZERO'] },
+          adObservedAt: { not: null },
+        }),
+      }),
+    );
   });
 
   it('marks gaps and cutoff mismatch stale instead of inventing daily zeroes', async () => {

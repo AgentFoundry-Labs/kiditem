@@ -16,13 +16,8 @@ import type {
 export class MasterProductAbcRepositoryAdapter implements MasterProductAbcRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  async listActiveMasterProductIds(organizationId: string): Promise<readonly string[]> {
-    const products = await this.prisma.masterProduct.findMany({
-      where: { organizationId, isActive: true },
-      select: { id: true },
-      orderBy: { id: 'asc' },
-    });
-    return products.map((product) => product.id);
+  async listSellingMasterProductIds(organizationId: string): Promise<readonly string[]> {
+    return sellingMasterProductIds(this.prisma, organizationId);
   }
 
   async getFormulaState(organizationId: string): Promise<MasterProductAbcFormulaStateRecord> {
@@ -116,7 +111,18 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
       ) {
         return { changedProductCount: 0, stale: true };
       }
-      const ids = [...input.evaluations.keys()].sort();
+      const candidateIds = [...input.evaluations.keys()].sort();
+      const ids = candidateIds.length === 0
+        ? []
+        : await sellingMasterProductIds(tx, input.organizationId, candidateIds);
+      const cleared = await tx.masterProduct.updateMany({
+        where: {
+          organizationId: input.organizationId,
+          abcGrade: { not: null },
+          ...(ids.length > 0 ? { id: { notIn: ids } } : {}),
+        },
+        data: { abcGrade: null },
+      });
       const products = ids.length === 0 ? [] : await tx.masterProduct.findMany({
         where: { organizationId: input.organizationId, id: { in: ids }, isActive: true },
         select: { id: true, abcGrade: true },
@@ -174,9 +180,76 @@ export class MasterProductAbcRepositoryAdapter implements MasterProductAbcReposi
           })),
         });
       }
-      return { changedProductCount: changed.length, stale: false };
+      return { changedProductCount: changed.length + cleared.count, stale: false };
     });
   }
+}
+
+const STOPPED_SALE_STATUSES = [
+  'paused',
+  'suspend',
+  'suspended',
+  'inactive',
+  'deleted',
+  'draft',
+  'rejected',
+  'stopped',
+  'discontinued',
+  'off_sale',
+  'not_on_sale',
+  '판매중지',
+  '판매 중지',
+  '판매중단',
+  '판매 중단',
+  '판매종료',
+  '판매 종료',
+  '승인반려',
+] as const;
+
+async function sellingMasterProductIds(
+  prisma: PrismaService | Prisma.TransactionClient,
+  organizationId: string,
+  candidateIds?: readonly string[],
+): Promise<string[]> {
+  if (candidateIds && candidateIds.length === 0) return [];
+  const candidateFilter = candidateIds
+    ? Prisma.sql`AND mp.id IN (${Prisma.join(candidateIds.map((id) => Prisma.sql`${id}::uuid`))})`
+    : Prisma.empty;
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+    SELECT DISTINCT mp.id
+    FROM master_products mp
+    JOIN channel_listings cl
+      ON cl.organization_id = mp.organization_id
+     AND cl.master_product_id = mp.id
+     AND cl.is_active = TRUE
+    JOIN channel_accounts ca
+      ON ca.organization_id = cl.organization_id
+     AND ca.id = cl.channel_account_id
+     AND ca.status = 'active'
+    WHERE mp.organization_id = ${organizationId}::uuid
+      AND mp.is_active = TRUE
+      ${candidateFilter}
+      AND TRIM(LOWER(COALESCE(cl.status, '')))
+        NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
+      AND TRIM(LOWER(COALESCE(
+          cl.raw_json ->> 'saleStatus',
+          cl.raw_json ->> 'salesStatus',
+          cl.raw_json ->> 'sale_status',
+          cl.raw_json ->> '판매상태',
+          ''
+        ))) NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
+      AND EXISTS (
+        SELECT 1
+        FROM channel_listing_options clo
+        WHERE clo.organization_id = mp.organization_id
+          AND clo.listing_id = cl.id
+          AND clo.is_active = TRUE
+          AND TRIM(LOWER(COALESCE(clo.status, '')))
+            NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
+      )
+    ORDER BY mp.id ASC
+  `);
+  return rows.map((row) => row.id);
 }
 
 function evaluationData(input: {
@@ -206,10 +279,22 @@ function evaluationData(input: {
     firstValidPaidSaleAt: dateOrNull(evaluation.firstValidPaidSaleAt),
     sourceCoverageStartDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.sellpia.coverageStartDate),
     sourceCoverageEndDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.sellpia.coverageEndDate),
+    evaluationCutoffDate: atUtcCalendarDate(evaluation.sourceFreshness.evaluationCutoffDate),
+    sellpiaCoverageStartDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.sellpia.coverageStartDate),
+    sellpiaCoverageEndDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.sellpia.coverageEndDate),
     sellpiaSourceStatus: evaluation.sourceFreshness.sellpia.status,
     sellpiaSourceCapturedAt: dateOrNull(evaluation.sourceFreshness.sellpia.capturedAt),
+    advertisingCoverageStartDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.advertising.coverageStartDate),
+    advertisingCoverageEndDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.advertising.coverageEndDate),
     advertisingSourceStatus: evaluation.sourceFreshness.advertising.status,
     advertisingSourceCapturedAt: dateOrNull(evaluation.sourceFreshness.advertising.capturedAt),
+    ordersSourceStatus: evaluation.sourceFreshness.orders.status,
+    ordersCoverageStartDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.orders.coverageStartDate),
+    ordersCoverageEndDate: atUtcCalendarDateOrNull(evaluation.sourceFreshness.orders.coverageEndDate),
+    ordersSourceCapturedAt: dateOrNull(evaluation.sourceFreshness.orders.capturedAt),
+    mappingSourceStatus: evaluation.sourceFreshness.mapping.status,
+    mappingInventoryGeneration: bigIntOrNull(evaluation.sourceFreshness.mapping.inventoryGeneration),
+    mappingVerifiedAt: dateOrNull(evaluation.sourceFreshness.mapping.verifiedAt),
     costComponentsJson: evaluation.costBreakdown as unknown as Prisma.InputJsonValue,
     statusDetail: evaluation.statusDetail,
     calculatedAt: dateOrNull(evaluation.calculatedAt),
@@ -246,16 +331,28 @@ function evaluationRecord(row: {
   firstValidPaidSaleAt: Date | null;
   sourceCoverageStartDate: Date | null;
   sourceCoverageEndDate: Date | null;
+  evaluationCutoffDate: Date | null;
+  sellpiaCoverageStartDate: Date | null;
+  sellpiaCoverageEndDate: Date | null;
   sellpiaSourceStatus: string;
   sellpiaSourceCapturedAt: Date | null;
+  advertisingCoverageStartDate: Date | null;
+  advertisingCoverageEndDate: Date | null;
   advertisingSourceStatus: string;
   advertisingSourceCapturedAt: Date | null;
+  ordersSourceStatus: string;
+  ordersCoverageStartDate: Date | null;
+  ordersCoverageEndDate: Date | null;
+  ordersSourceCapturedAt: Date | null;
+  mappingSourceStatus: string;
+  mappingInventoryGeneration: bigint | null;
+  mappingVerifiedAt: Date | null;
   costComponentsJson: Prisma.JsonValue | null;
   statusDetail: string | null;
   calculatedAt: Date | null;
   formulaVersion: { formulaJson: Prisma.JsonValue } | null;
 }): ProductAbcEvaluation | null {
-  const cutoff = row.sourceCoverageEndDate ?? row.calculatedAt;
+  const cutoff = row.evaluationCutoffDate ?? row.sourceCoverageEndDate ?? row.calculatedAt;
   if (!cutoff || !row.costComponentsJson) return null;
   const parsed = ProductAbcEvaluationSchema.safeParse({
     abcGrade: productGrade(row.masterProduct.abcGrade),
@@ -278,15 +375,38 @@ function evaluationRecord(row: {
       evaluationCutoffDate: calendarDate(cutoff),
       sellpia: {
         status: row.sellpiaSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
+          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
+          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
+          : null,
         capturedAt: row.sellpiaSourceCapturedAt,
       },
       advertising: {
         status: row.advertisingSourceStatus,
-        coverageStartDate: row.sourceCoverageStartDate ? calendarDate(row.sourceCoverageStartDate) : null,
-        coverageEndDate: row.sourceCoverageEndDate ? calendarDate(row.sourceCoverageEndDate) : null,
+        coverageStartDate: row.advertisingCoverageStartDate
+          ? calendarDate(row.advertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.advertisingCoverageEndDate
+          ? calendarDate(row.advertisingCoverageEndDate)
+          : null,
         capturedAt: row.advertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.ordersSourceStatus,
+        coverageStartDate: row.ordersCoverageStartDate
+          ? calendarDate(row.ordersCoverageStartDate)
+          : null,
+        coverageEndDate: row.ordersCoverageEndDate
+          ? calendarDate(row.ordersCoverageEndDate)
+          : null,
+        capturedAt: row.ordersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.mappingSourceStatus,
+        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
+        verifiedAt: row.mappingVerifiedAt,
       },
     },
     costBreakdown: row.costComponentsJson,
@@ -315,6 +435,10 @@ async function lockOrganization(tx: Prisma.TransactionClient, organizationId: st
 
 function decimalOrNull(value: number | null): Prisma.Decimal | null {
   return value === null ? null : new Prisma.Decimal(value);
+}
+
+function bigIntOrNull(value: string | null): bigint | null {
+  return value && /^\d+$/.test(value) ? BigInt(value) : null;
 }
 
 function decimalToFinite(value: Prisma.Decimal | null): number | null {

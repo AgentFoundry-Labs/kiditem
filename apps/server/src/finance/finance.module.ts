@@ -23,7 +23,11 @@ import { MasterProductProfitabilityReadService } from './application/service/mas
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/master-product-profitability-read.port';
 
 @Module({
-  imports: [AutomationModule, AnalyticsModule, AdvertisingProfitabilityReadModule],
+  imports: [
+    AutomationModule,
+    AnalyticsModule,
+    AdvertisingProfitabilityReadModule,
+  ],
   controllers: [
     ProfitLossController,
     SalesAnalysisController,
