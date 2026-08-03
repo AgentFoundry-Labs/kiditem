@@ -231,12 +231,11 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });
 
-  it('uses full-result operating summaries and only applies the matching inventory filter', () => {
+  it('uses full-result operating summaries without a duplicate out-of-stock action', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.queryByText(/현재 페이지/)).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /품절 상품/ }));
-    expect(state.setInventoryStatus).toHaveBeenCalledWith('out_of_stock');
+    expect(screen.queryByRole('button', { name: /품절 상품/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /재고위험/ })).not.toBeInTheDocument();
     expect(screen.getAllByText('재고위험').length).toBeGreaterThan(0);
     expect(screen.getAllByText('9').length).toBeGreaterThan(0);

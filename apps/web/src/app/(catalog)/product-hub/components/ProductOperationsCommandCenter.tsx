@@ -2,20 +2,18 @@
 
 import type { ReactNode } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, Bell, ClipboardList, PackageX } from 'lucide-react';
+import { AlertTriangle, Bell, ClipboardList } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
 import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
 import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 type Props = {
   data: MasterProductOperationsListResponse;
-  onShowOutOfStock: () => void;
   onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
 };
 
 export function ProductOperationsCommandCenter({
   data,
-  onShowOutOfStock,
   onShowAbcGrade,
 }: Props) {
   const { connected: connectedCount, unconnected: unconnectedCount } =
@@ -66,13 +64,6 @@ export function ProductOperationsCommandCenter({
 
       <article className="min-h-[270px] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] shadow-sm">
         <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
-          <QuickButton
-            icon={PackageX}
-            label="품절 상품"
-            count={outOfStockCount}
-            tone="blue"
-            onClick={onShowOutOfStock}
-          />
           <Link
             href="/stock-ops?tab=product-outflow"
             className="flex flex-1 items-center gap-3 bg-violet-50 px-4 py-3 text-left text-violet-700 transition-colors hover:bg-violet-100"
@@ -199,7 +190,7 @@ function QuickButton({
   tone,
   onClick,
 }: {
-  icon: typeof PackageX;
+  icon: typeof AlertTriangle;
   label: string;
   count: number;
   tone: 'blue' | 'orange';

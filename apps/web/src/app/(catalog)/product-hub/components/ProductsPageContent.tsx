@@ -96,7 +96,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
       {state.overviewData ? (
         <ProductOperationsCommandCenter
           data={state.overviewData}
-          onShowOutOfStock={() => state.setInventoryStatus('out_of_stock')}
           onShowAbcGrade={state.setAbcGrade}
         />
       ) : null}
