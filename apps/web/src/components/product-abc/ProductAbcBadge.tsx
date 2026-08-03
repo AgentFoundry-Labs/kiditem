@@ -8,10 +8,13 @@ export type ProductAbcBadgeProps = {
   showConfidence?: boolean;
 };
 
-const TONE_CLASS = {
-  grade: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
-  neutral: 'bg-slate-100 text-slate-600 ring-slate-200',
-} as const;
+const GRADE_TONE_CLASS: Record<ProductAbcGrade, string> = {
+  A: 'bg-emerald-100 text-emerald-800 ring-emerald-300',
+  B: 'bg-amber-100 text-amber-800 ring-amber-300',
+  C: 'bg-rose-100 text-rose-800 ring-rose-300',
+};
+
+const NEUTRAL_TONE_CLASS = 'bg-slate-100 text-slate-700 ring-slate-300';
 
 export function ProductAbcBadge({
   grade,
@@ -21,15 +24,16 @@ export function ProductAbcBadge({
 }: ProductAbcBadgeProps) {
   const hasPublishedGrade = grade !== null;
   const primary = hasPublishedGrade ? `${grade}등급` : '미분류';
-  const tone = hasPublishedGrade ? 'grade' : 'neutral';
+  const displayLabel = grade ?? '미분류';
+  const toneClass = grade === null ? NEUTRAL_TONE_CLASS : GRADE_TONE_CLASS[grade];
 
   return (
     <span className={cn('inline-flex max-w-full items-center gap-1', compact && 'gap-0.5')} aria-label={primary} title={primary}>
       <span className={cn(
-        'inline-flex items-center rounded px-1.5 py-0.5 text-xs font-bold leading-none ring-1',
-        compact && 'px-1 py-px text-[10px]', TONE_CLASS[tone],
+        'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-extrabold leading-none ring-1',
+        compact && 'px-2 py-0.5 text-[13px]', toneClass,
       )}>
-        {primary}
+        {displayLabel}
       </span>
       {showConfidence && evaluation?.reliability != null ? (
         <span className={cn('text-[11px] font-medium text-[var(--text-secondary)]', compact && 'text-[10px]')}>

@@ -7,7 +7,7 @@ describe('ProductAbcBadge', () => {
   it('renders the published automatic grade and its reliability', () => {
     render(<ProductAbcBadge grade="A" evaluation={productAbcEvaluation()} showConfidence />);
 
-    expect(screen.getByText('A등급')).toBeInTheDocument();
+    expect(screen.getByText('A')).toBeInTheDocument();
     expect(screen.getByText('신뢰도 80%')).toBeInTheDocument();
     expect(screen.getByLabelText('A등급')).toBeInTheDocument();
   });
@@ -32,7 +32,30 @@ describe('ProductAbcBadge', () => {
     rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation({
       abcGrade: 'B', calculationStatus: 'SELLPIA_SOURCE_STALE',
     })} />);
-    expect(screen.getByText('B등급')).toBeInTheDocument();
+    expect(screen.getByText('B')).toBeInTheDocument();
     expect(screen.queryByText('셀피아 갱신 필요')).not.toBeInTheDocument();
+  });
+
+  it('uses distinct, legible tones for A, B, and C grades in dense lists', () => {
+    const { rerender } = render(
+      <ProductAbcBadge grade="A" evaluation={productAbcEvaluation()} compact />,
+    );
+    expect(screen.getByText('A')).toHaveClass(
+      'bg-emerald-100',
+      'text-emerald-800',
+      'text-[13px]',
+    );
+
+    rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation()} compact />);
+    expect(screen.getByText('B')).toHaveClass(
+      'bg-amber-100',
+      'text-amber-800',
+    );
+
+    rerender(<ProductAbcBadge grade="C" evaluation={productAbcEvaluation()} compact />);
+    expect(screen.getByText('C')).toHaveClass(
+      'bg-rose-100',
+      'text-rose-800',
+    );
   });
 });
