@@ -225,9 +225,8 @@ export function classifyChannelRecipeSuggestion(
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
     const quantity = manualMatchQuantity ?? inferRecipeQuantity(
-        input.options.flatMap((option) => [option.listingName, option.itemName]),
-        sku,
-      );
+      input.options.flatMap((option) => [option.listingName, option.itemName]),
+    );
     if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
@@ -242,7 +241,6 @@ export function classifyChannelRecipeSuggestion(
     if (exactSkuIds.size === 1) {
       const quantity = inferRecipeQuantity(
         input.options.flatMap((option) => [option.listingName, option.itemName]),
-        input.nameEvidence[0]!.sku,
       );
       if (quantity !== null) {
         return looseNameDecision(base, input.nameEvidence, 'exact_name', 'auto_apply', quantity,
@@ -327,12 +325,10 @@ function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
 
 export function inferRecipeQuantity(
   channelValues: Array<string | null>,
-  _sku: ChannelRecipeSuggestionSku,
 ): number | null {
-  const channel = packCounts(channelValues);
-  const channelMulti = channel.filter((count) => count > 1);
-  if (channelMulti.length === 0) return 1;
-  return null;
+  const quantities = packCounts(channelValues);
+  if (quantities.length === 0) return 1;
+  return quantities.length === 1 ? quantities[0]! : null;
 }
 
 function packCounts(values: Array<string | null>): number[] {
@@ -452,7 +448,6 @@ function decideSimilarity(
   }
   const quantity = inferRecipeQuantity(
     input.options.flatMap((option) => [option.listingName, option.itemName]),
-    best.sku,
   );
   if (quantity === null) {
     return similarityDecision(base, evidence, 'quantity_review', 'quantity_review', null,

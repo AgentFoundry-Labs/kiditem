@@ -57,6 +57,7 @@ export type ProductOperationsRepositoryListResult = {
   items: ProductOperationsRepositoryListItem[];
   page: number;
   limit: number;
+  sellingChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
 };
 
 export type ProductOperationsDisplayMediaTarget = Readonly<{

@@ -164,7 +164,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByRole('heading', { level: 1, name: '상품 운영 센터' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
-    expect(screen.getByText('판매중 상품')).toBeInTheDocument();
+    expect(screen.getByText('판매중 재고상품')).toBeInTheDocument();
     expect(screen.getByText('판매중 채널 등록상품')).toBeInTheDocument();
     const channelCard = screen.getByText('판매중 채널 등록상품').closest('article');
     expect(channelCard).not.toBeNull();
@@ -174,7 +174,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText('채널 미연결')).not.toBeInTheDocument();
     expect(screen.queryByText('알림')).not.toBeInTheDocument();
     expect(screen.queryByText('Sellpia 가져오기 내역')).not.toBeInTheDocument();
-    const catalogCard = screen.getByText('판매중 상품').closest('article');
+    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('B등급')).toBeInTheDocument();
@@ -322,7 +322,7 @@ describe('<ProductsPageContent>', () => {
 
     render(<ProductsPageContent headingLevel={1} />);
 
-    const catalogCard = screen.getByText('판매중 상품').closest('article');
+    const catalogCard = screen.getByText('판매중 재고상품').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText('Coupang Wing')).not.toBeInTheDocument();

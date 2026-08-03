@@ -11,6 +11,7 @@ import { ChannelAccountListController } from './adapter/in/http/channel-account-
 import { RocketAccountController } from './adapter/in/http/rocket-account.controller';
 import { ChannelListingController } from './adapter/in/http/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/http/channel-catalog-import.controller';
+import { RocketSellpiaMatchingCsvImportController } from './adapter/in/http/rocket-sellpia-matching-csv-import.controller';
 import { ChannelCatalogCollectionController } from './adapter/in/http/channel-catalog-collection.controller';
 import { ChannelProductMatchingController } from './adapter/in/http/channel-product-matching.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/http/channel-sku-availability.controller';
@@ -21,6 +22,7 @@ import { ChannelListingRepositoryAdapter } from './adapter/out/repository/channe
 import { MarketplaceRegistrationRepositoryAdapter } from './adapter/out/repository/marketplace-registration.repository.adapter';
 import { ChannelSyncRepositoryAdapter } from './adapter/out/repository/channel-sync.repository.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
+import { RocketSellpiaMatchingCsvImportRepositoryAdapter } from './adapter/out/repository/rocket-sellpia-matching-csv-import.repository.adapter';
 import { ChannelCatalogCollectionRepositoryAdapter } from './adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from './adapter/out/repository/channel-product-matching.repository.adapter';
@@ -38,6 +40,7 @@ import { ChannelAccountQueryService } from './application/service/channel-accoun
 import { MarketplaceRegistrationService } from './application/service/marketplace-registration.service';
 import { ChannelAccountService } from './application/service/channel-account.service';
 import { ChannelCatalogImportService } from './application/service/channel-catalog-import.service';
+import { RocketSellpiaMatchingCsvImportService } from './application/service/rocket-sellpia-matching-csv-import.service';
 import { ChannelCatalogCollectionService } from './application/service/channel-catalog-collection.service';
 import { ChannelProductMatchingService } from './application/service/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from './application/service/channel-recipe-suggestion.service';
@@ -52,6 +55,7 @@ import { ChannelsOperationAlertAdapter } from './adapter/out/automation/operatio
 import { CHANNELS_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from './application/port/in/capability/marketplace-registration.port';
 import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
+import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
 import {
   CHANNEL_ACCOUNT_REPOSITORY_PORT,
   COUPANG_CREDENTIALS_PORT,
@@ -63,6 +67,7 @@ import {
 } from './application/port/out/repository/channel-listing.repository.port';
 import { CHANNEL_SYNC_REPOSITORY_PORT } from './application/port/out/repository/channel-sync.repository.port';
 import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
+import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-collection.repository.port';
 import { CHANNEL_CATALOG_PUBLICATION_PORT } from './application/port/out/repository/channel-catalog-publication.port';
 import { CHANNEL_CATALOG_COLLECTION_PORT } from './application/port/in/channel-catalog-collection.port';
@@ -83,6 +88,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     RocketAccountController,
     ChannelListingController,
     ChannelCatalogImportController,
+    RocketSellpiaMatchingCsvImportController,
     ChannelCatalogCollectionController,
     ChannelProductMatchingController,
     ChannelSkuAvailabilityController,
@@ -97,6 +103,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     MarketplaceRegistrationService,
     ChannelAccountService,
     ChannelCatalogImportService,
+    RocketSellpiaMatchingCsvImportService,
     ChannelCatalogCollectionService,
     ChannelProductMatchingService,
     ChannelRecipeSuggestionService,
@@ -112,6 +119,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     MarketplaceRegistrationRepositoryAdapter,
     ChannelSyncRepositoryAdapter,
     ChannelCatalogImportRepositoryAdapter,
+    RocketSellpiaMatchingCsvImportRepositoryAdapter,
     ChannelCatalogCollectionRepositoryAdapter,
     ChannelCatalogPublicationRepositoryAdapter,
     ChannelProductMatchingRepositoryAdapter,
@@ -143,6 +151,14 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     {
       provide: CHANNEL_CATALOG_IMPORT_PORT,
       useExisting: ChannelCatalogImportService,
+    },
+    {
+      provide: ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT,
+      useExisting: RocketSellpiaMatchingCsvImportRepositoryAdapter,
+    },
+    {
+      provide: ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT,
+      useExisting: RocketSellpiaMatchingCsvImportService,
     },
     {
       provide: CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,

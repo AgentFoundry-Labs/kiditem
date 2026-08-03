@@ -85,7 +85,6 @@ export class ProductOperationsService implements ProductOperationsPort {
     const items = query.inventoryFocus
       ? withDepletion.filter((item) => matchesInventoryFocus(item, query.inventoryFocus!))
       : withDepletion;
-    const summaryMasterProductIdSet = new Set(items.map(({ id }) => id));
     const offset = (query.page - 1) * query.limit;
     const pageItems = items.slice(offset, offset + query.limit);
     return {
@@ -96,8 +95,7 @@ export class ProductOperationsService implements ProductOperationsPort {
       summary: {
         ...summarizeProducts(
           items,
-          summarizeChannelProducts(raw.items.filter((item) =>
-            item.isActive && summaryMasterProductIdSet.has(item.id))),
+          summarizeChannelProducts(raw.sellingChannelProducts ?? []),
         ),
         displayDataAsOf: dataStatus.displayDataAsOf,
       },
@@ -361,19 +359,15 @@ function matchesInventoryFocus(
 }
 
 function summarizeChannelProducts(
-  products: Array<{
-    activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
-  }>,
+  channelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>,
 ): ProductOperationsChannelProductCount[] {
   const counts = new Map<string, ProductOperationsChannelProductCount>();
-  for (const product of products) {
-    for (const channelProduct of product.activeChannelProducts) {
-      const existing = counts.get(channelProduct.channelAccountId);
-      if (existing) {
-        existing.count += 1;
-      } else {
-        counts.set(channelProduct.channelAccountId, { ...channelProduct, count: 1 });
-      }
+  for (const channelProduct of channelProducts) {
+    const existing = counts.get(channelProduct.channelAccountId);
+    if (existing) {
+      existing.count += 1;
+    } else {
+      counts.set(channelProduct.channelAccountId, { ...channelProduct, count: 1 });
     }
   }
   return [...counts.values()].sort((left, right) =>

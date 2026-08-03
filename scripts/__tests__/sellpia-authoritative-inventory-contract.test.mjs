@@ -84,6 +84,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/supply/__tests__/rocket-final-order-reconciliation.pg.integration.spec.ts",
   "apps/server/src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts",
   "apps/server/src/supply/__tests__/rocket-purchase-confirmation.pg.integration.spec.ts",
+  "scripts/data-migrations/v0.1.30/004_canonical_master_inventory_identity.ts",
   "scripts/__tests__/sellpia-authoritative-inventory-contract.test.mjs",
 ]);
 

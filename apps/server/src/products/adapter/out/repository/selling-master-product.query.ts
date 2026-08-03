@@ -1,31 +1,20 @@
 import { Prisma } from '@prisma/client';
+import {
+  isChannelListingOnSale,
+  resolveChannelListingSaleStatus,
+} from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
 
-const STOPPED_SALE_STATUSES = [
-  'paused',
-  'suspend',
-  'suspended',
-  'inactive',
-  'deleted',
-  'draft',
-  'rejected',
-  'stopped',
-  'discontinued',
-  'off_sale',
-  'not_on_sale',
-  '판매중지',
-  '판매 중지',
-  '판매중단',
-  '판매 중단',
-  '판매종료',
-  '판매 종료',
-  '승인반려',
-] as const;
+const SELLING_CHANNELS = ['coupang', 'rocket'];
 
 /**
  * MasterProducts that can actually sell now. This predicate is shared by ABC
  * publication and the product-operation selling filter so their populations
  * cannot diverge.
+ *
+ * The selling decision is based on the same latest channel snapshot that the
+ * channel matching workspace uses. A record-level `ChannelListing.status`
+ * such as "승인완료" is not by itself a sale status.
  */
 export async function listSellingMasterProductIds(
   prisma: PrismaService | Prisma.TransactionClient,
@@ -33,47 +22,84 @@ export async function listSellingMasterProductIds(
   candidateIds?: readonly string[],
 ): Promise<string[]> {
   if (candidateIds && candidateIds.length === 0) return [];
-  const candidateFilter = candidateIds
-    ? Prisma.sql`AND mp.id IN (${Prisma.join(candidateIds.map((id) => Prisma.sql`${id}::uuid`))})`
-    : Prisma.empty;
-  const rows = await prisma.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT DISTINCT mp.id
-    FROM master_products mp
-    JOIN sellpia_inventory_skus sku
-      ON sku.organization_id = mp.organization_id
-     AND sku.master_product_id = mp.id
-     AND sku.is_active = TRUE
-     AND sku.current_stock > 0
-    JOIN channel_listing_option_inventory_components component
-      ON component.organization_id = sku.organization_id
-     AND component.sellpia_inventory_sku_id = sku.id
-    JOIN channel_listing_options clo
-      ON clo.organization_id = component.organization_id
-     AND clo.id = component.channel_listing_option_id
-     AND clo.is_active = TRUE
-    JOIN channel_listings cl
-      ON cl.organization_id = clo.organization_id
-     AND cl.id = clo.listing_id
-     AND cl.is_active = TRUE
-    JOIN channel_accounts ca
-      ON ca.organization_id = cl.organization_id
-     AND ca.id = cl.channel_account_id
-     AND ca.status = 'active'
-    WHERE mp.organization_id = ${organizationId}::uuid
-      AND mp.is_active = TRUE
-      ${candidateFilter}
-      AND TRIM(LOWER(COALESCE(cl.status, '')))
-        NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-      AND TRIM(LOWER(COALESCE(
-          cl.raw_json ->> 'saleStatus',
-          cl.raw_json ->> 'salesStatus',
-          cl.raw_json ->> 'sale_status',
-          cl.raw_json ->> '판매상태',
-          ''
-        ))) NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-      AND TRIM(LOWER(COALESCE(clo.status, '')))
-        NOT IN (${Prisma.join(STOPPED_SALE_STATUSES)})
-    ORDER BY mp.id ASC
-  `);
-  return rows.map((row) => row.id);
+  const candidateIdSet = candidateIds ? new Set(candidateIds) : null;
+  const listings = await prisma.channelListing.findMany({
+    where: {
+      organizationId,
+      channelAccount: {
+        is: {
+          organizationId,
+          status: 'active',
+          channel: { in: SELLING_CHANNELS },
+        },
+      },
+    },
+    select: {
+      isActive: true,
+      status: true,
+      rawJson: true,
+      channelListingDailySnapshots: {
+        where: { organizationId },
+        orderBy: [{ businessDate: 'desc' }, { lastObservedAt: 'desc' }],
+        take: 1,
+        select: { saleStatus: true },
+      },
+      options: {
+        where: { organizationId },
+        select: {
+          status: true,
+          inventoryComponents: {
+            where: { organizationId },
+            select: {
+              sellpiaInventorySku: {
+                select: {
+                  isActive: true,
+                  currentStock: true,
+                  masterProductId: true,
+                  masterProduct: { select: { isActive: true } },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  });
+  const masterProductIds = new Set<string>();
+  for (const listing of listings) {
+    const saleStatus = resolveChannelListingSaleStatus({
+      latestSnapshotStatus: listing.channelListingDailySnapshots[0]?.saleStatus,
+      rawStatus: rawSaleStatus(listing.rawJson),
+      optionStatuses: listing.options.map((option) => option.status),
+      listingStatus: listing.status,
+      isActive: listing.isActive,
+    });
+    if (!isChannelListingOnSale(saleStatus)) continue;
+
+    for (const option of listing.options) {
+      for (const component of option.inventoryComponents) {
+        const sku = component.sellpiaInventorySku;
+        if (
+          sku.isActive
+          && sku.currentStock > 0
+          && sku.masterProduct?.isActive
+          && sku.masterProductId
+          && (!candidateIdSet || candidateIdSet.has(sku.masterProductId))
+        ) {
+          masterProductIds.add(sku.masterProductId);
+        }
+      }
+    }
+  }
+  return [...masterProductIds].sort();
+}
+
+function rawSaleStatus(value: unknown): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return null;
 }

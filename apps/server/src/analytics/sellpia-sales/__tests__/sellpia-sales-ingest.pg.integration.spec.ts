@@ -382,6 +382,7 @@ function makeService(prisma: PrismaClient | PrismaService): SellpiaSalesService 
       clicks: 0,
       conversions: 0,
       orders: 0,
+      isCollected: false,
       hasData: false,
       lastObservedAt: null,
     }),

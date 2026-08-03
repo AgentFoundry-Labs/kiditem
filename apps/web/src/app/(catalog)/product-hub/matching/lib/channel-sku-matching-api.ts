@@ -11,7 +11,12 @@ import {
   type ProductRecipeComponentCandidateListResponse,
   type ReplaceChannelOptionInventoryInput,
 } from '@kiditem/shared/product-operations';
-import { CoupangWingCatalogImportResponseSchema, type CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import {
+  CoupangRocketMatchingCsvImportResponseSchema,
+  CoupangWingCatalogImportResponseSchema,
+  type CoupangRocketMatchingCsvImportResponse,
+  type CoupangWingCatalogImportResponse,
+} from '@kiditem/shared/source-import';
 import {
   SellpiaManualMatchImportResponseSchema,
   SellpiaManualMatchSnapshotSchema,
@@ -112,6 +117,19 @@ export function importCoupangWingCatalog(
   return apiClient.uploadParsed(
     `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-wing`,
     CoupangWingCatalogImportResponseSchema,
+    form,
+  );
+}
+
+export function importCoupangRocketMatchingCsv(
+  channelAccountId: string,
+  file: File,
+): Promise<CoupangRocketMatchingCsvImportResponse> {
+  const form = new FormData();
+  form.append('file', file);
+  return apiClient.uploadParsed(
+    `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-rocket-matching`,
+    CoupangRocketMatchingCsvImportResponseSchema,
     form,
   );
 }

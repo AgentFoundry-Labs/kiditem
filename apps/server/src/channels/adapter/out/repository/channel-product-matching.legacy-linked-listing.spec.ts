@@ -88,4 +88,29 @@ describe('channel listings as the matching workspace source', () => {
 
     expect(queue.products[0]?.listing.saleStatus).toBe('판매중지');
   });
+
+  it('keeps an imported non-selling supplier status instead of falling back to record activity', async () => {
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: '00000000-0000-4000-8000-000000000002',
+          externalId: '12345678',
+          displayName: 'Stopped Rocket listing',
+          status: '비활성',
+          rawJson: null,
+          isActive: true,
+          masterProductId: null,
+          updatedAt: new Date('2026-08-03T00:00:00.000Z'),
+          channelAccount: { id: 'account-1', channel: 'rocket', name: 'Rocket' },
+          masterProduct: null,
+          channelListingDailySnapshots: [],
+          options: [],
+        }]),
+      },
+    } as never);
+
+    const queue = await repository.listQueue(organizationId, {});
+
+    expect(queue.products[0]?.listing.saleStatus).toBe('비활성');
+  });
 });

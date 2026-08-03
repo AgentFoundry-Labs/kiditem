@@ -6,7 +6,9 @@ import {
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { projectChannelOptionCapacity } from '../../../../products/domain/channel-option-capacity';
+import { inferRecipeQuantity } from '../../../domain/channel-recipe-suggestion';
 import { lockChannelListingRow } from './channel-listing-row-lock';
+import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import type {
   ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
@@ -19,6 +21,7 @@ const COMPLETED_CATALOG_SOURCE_TYPES = [
   'coupang_wing_catalog',
   'coupang_rocket_catalog_seed',
   'coupang_rocket_po_catalog',
+  'coupang_rocket_matching_csv',
 ] as const;
 
 function listingInclude(organizationId: string) {
@@ -68,6 +71,12 @@ type ListingRow = Prisma.ChannelListingGetPayload<{
   include: ReturnType<typeof listingInclude>;
 }>;
 type OptionRow = ListingRow['options'][number];
+type ActiveSellpiaSku = {
+  id: string;
+  code: string;
+  barcode: string | null;
+  masterProductId: string | null;
+};
 
 @Injectable()
 export class ChannelProductMatchingRepositoryAdapter
@@ -237,13 +246,23 @@ implements ChannelProductMatchingRepositoryPort {
             id: true,
             displayName: true,
             channelName: true,
+            rawJson: true,
             masterProductId: true,
             options: {
               where: { organizationId: input.organizationId },
               select: {
                 id: true,
                 itemName: true,
-                inventoryComponents: { select: { id: true } },
+                sellerSku: true,
+                modelNumber: true,
+                barcode: true,
+                inventoryComponents: {
+                  select: {
+                    id: true,
+                    sellpiaInventorySkuId: true,
+                    quantity: true,
+                  },
+                },
               },
             },
           },
@@ -266,13 +285,41 @@ implements ChannelProductMatchingRepositoryPort {
         rows.push(alias);
         aliasesByName.set(alias.normalizedAlias, rows);
       }
+      const activeSkus: ActiveSellpiaSku[] = await tx.sellpiaInventorySku.findMany({
+        where: { organizationId: input.organizationId, isActive: true },
+        select: { id: true, code: true, barcode: true, masterProductId: true },
+      });
+      const activeSkusByBarcode = new Map<string, ActiveSellpiaSku[]>();
+      for (const sku of activeSkus) {
+        const barcode = normalizePhysicalBarcode(sku.barcode);
+        if (!barcode) continue;
+        const rows = activeSkusByBarcode.get(barcode) ?? [];
+        rows.push(sku);
+        activeSkusByBarcode.set(barcode, rows);
+      }
+      const activeSkusByCode = new Map<string, ActiveSellpiaSku[]>();
+      for (const sku of activeSkus) {
+        const code = sku.code.trim();
+        if (!code) continue;
+        const rows = activeSkusByCode.get(code) ?? [];
+        rows.push(sku);
+        activeSkusByCode.set(code, rows);
+      }
       let matchedListings = 0;
       let configuredOptions = 0;
       for (const listing of listings) {
         const listingNames = listingAliasTitles(listing);
+        const csvTargetSku = uniqueRocketCsvTargetSku(listing, activeSkusByBarcode);
 
         for (const option of listing.options) {
-          if (option.inventoryComponents.length > 0) continue;
+          const existingComponent = option.inventoryComponents.length === 1
+            ? option.inventoryComponents[0]!
+            : null;
+          const providerIdentifierSku = uniqueProviderIdentifierSku(
+            option,
+            activeSkusByCode,
+            activeSkusByBarcode,
+          );
           const exactAliases = exactAliasesForOption(
             aliasesByName,
             listingNames,
@@ -282,20 +329,79 @@ implements ChannelProductMatchingRepositoryPort {
             `${alias.sellpiaInventorySkuId}:${alias.itemCount}`,
             alias,
           ]));
-          if (recipes.size !== 1) continue;
-          const recipe = [...recipes.values()][0]!;
+          const aliasSkuIds = new Set(exactAliases.map((alias) =>
+            alias.sellpiaInventorySkuId));
+          if (csvTargetSku) aliasSkuIds.add(csvTargetSku.id);
+          if (providerIdentifierSku) aliasSkuIds.add(providerIdentifierSku.id);
+          if (aliasSkuIds.size !== 1) {
+            const quantity = inferRecipeQuantity([
+              listing.channelName,
+              listing.displayName,
+              option.itemName,
+            ]);
+            if (
+              !existingComponent
+              || quantity === null
+              || existingComponent.quantity === quantity
+            ) continue;
+            const updated = await tx.channelListingOptionInventoryComponent.updateMany({
+              where: { id: existingComponent.id, organizationId: input.organizationId },
+              data: { quantity },
+            });
+            if (updated.count !== 1) {
+              throw new NotFoundException('ChannelListingOptionInventoryComponent was not found');
+            }
+            configuredOptions += 1;
+            continue;
+          }
+          const aliasRecipe = recipes.size === 1 ? [...recipes.values()][0]! : null;
+          if (recipes.size > 1) continue;
           if (
-            !recipe.sellpiaInventorySku.isActive
-            || !recipe.sellpiaInventorySku.masterProductId
+            aliasRecipe
+            && (
+              !aliasRecipe.sellpiaInventorySku.isActive
+              || !aliasRecipe.sellpiaInventorySku.masterProductId
+            )
           ) continue;
-          await tx.channelListingOptionInventoryComponent.create({
-            data: {
-              organizationId: input.organizationId,
-              channelListingOptionId: option.id,
-              sellpiaInventorySkuId: recipe.sellpiaInventorySkuId,
-              quantity: recipe.itemCount,
-            },
+          const sellpiaInventorySkuId = csvTargetSku?.id
+            ?? providerIdentifierSku?.id
+            ?? aliasRecipe?.sellpiaInventorySkuId;
+          if (!sellpiaInventorySkuId) continue;
+          const quantity = aliasRecipe?.itemCount ?? inferRecipeQuantity([
+            listing.channelName,
+            listing.displayName,
+            option.itemName,
+          ]);
+          if (quantity === null) continue;
+          const masterProductId = csvTargetSku?.masterProductId
+            ?? providerIdentifierSku?.masterProductId
+            ?? aliasRecipe?.sellpiaInventorySku.masterProductId
+            ?? null;
+          if (!masterProductId) continue;
+          if (option.inventoryComponents.length === 0) {
+            await tx.channelListingOptionInventoryComponent.create({
+              data: {
+                organizationId: input.organizationId,
+                channelListingOptionId: option.id,
+                sellpiaInventorySkuId,
+                quantity,
+              },
+            });
+            configuredOptions += 1;
+            continue;
+          }
+          if (
+            !existingComponent
+            || existingComponent.sellpiaInventorySkuId !== sellpiaInventorySkuId
+            || existingComponent.quantity === quantity
+          ) continue;
+          const updated = await tx.channelListingOptionInventoryComponent.updateMany({
+            where: { id: existingComponent.id, organizationId: input.organizationId },
+            data: { quantity },
           });
+          if (updated.count !== 1) {
+            throw new NotFoundException('ChannelListingOptionInventoryComponent was not found');
+          }
           configuredOptions += 1;
         }
         const resolvedMasterProductId = await resolveListingMasterProductId(
@@ -563,42 +669,19 @@ function optionIdentity(option: OptionRow) {
 }
 
 function saleStatusFromListing(listing: ListingRow): string | null {
-  const snapshotStatus = listing.channelListingDailySnapshots?.[0]?.saleStatus?.trim();
-  if (snapshotStatus) return snapshotStatus;
-
   const raw = asRecord(listing.rawJson);
-  const rawStatus = firstString(raw, [
-    'saleStatus',
-    'salesStatus',
-    'sale_status',
-    '판매상태',
-  ]);
-  if (rawStatus) return rawStatus;
-
-  const optionSaleStatus = listing.options
-    .map((option) => option.status)
-    .find((status) => isExplicitOnSaleStatus(status));
-  if (optionSaleStatus) return optionSaleStatus;
-
-  if (isKoreanSaleListingStatus(listing.status)) return listing.status;
-  return listing.isActive ? 'active' : null;
-}
-
-function isExplicitOnSaleStatus(status: string | null | undefined): boolean {
-  const normalized = status?.trim().toLocaleLowerCase();
-  return normalized === 'on_sale'
-    || normalized === 'selling'
-    || normalized === 'sale'
-    || normalized === '판매중'
-    || normalized === '판매 중'
-    || normalized === '활성';
-}
-
-function isKoreanSaleListingStatus(status: string | null | undefined): boolean {
-  const normalized = status?.trim();
-  return normalized === '판매중'
-    || normalized === '판매 중'
-    || normalized === '활성';
+  return resolveChannelListingSaleStatus({
+    latestSnapshotStatus: listing.channelListingDailySnapshots?.[0]?.saleStatus,
+    rawStatus: firstString(raw, [
+      'saleStatus',
+      'salesStatus',
+      'sale_status',
+      '판매상태',
+    ]),
+    optionStatuses: listing.options.map((option) => option.status),
+    listingStatus: listing.status,
+    isActive: listing.isActive,
+  });
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
@@ -662,4 +745,53 @@ function listingAliasTitles(listing: {
   return [...new Set([listing.channelName, listing.displayName]
     .map((value) => value?.trim() ?? '')
     .filter(Boolean))];
+}
+
+function uniqueRocketCsvTargetSku(
+  listing: Pick<ListingRow, 'rawJson'>,
+  activeSkusByBarcode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
+): ActiveSellpiaSku | null {
+  const raw = asRecord(listing.rawJson);
+  if (raw.source !== 'coupang_rocket_matching_csv' || !isConfirmedRocketCsvMatch(raw)) {
+    return null;
+  }
+  const barcode = normalizePhysicalBarcode(firstString(raw, ['sellpiaBarcode']));
+  if (!barcode) return null;
+  const matches = activeSkusByBarcode.get(barcode) ?? [];
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function uniqueProviderIdentifierSku(
+  option: {
+    sellerSku: string | null;
+    modelNumber: string | null;
+    barcode: string | null;
+  },
+  activeSkusByCode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
+  activeSkusByBarcode: ReadonlyMap<string, readonly ActiveSellpiaSku[]>,
+): ActiveSellpiaSku | null {
+  const matches = [option.sellerSku, option.modelNumber]
+    .map((code) => code?.trim() ?? '')
+    .filter(Boolean)
+    .flatMap((code) => activeSkusByCode.get(code) ?? []);
+  const barcode = normalizePhysicalBarcode(option.barcode);
+  if (barcode) matches.push(...(activeSkusByBarcode.get(barcode) ?? []));
+  const distinct = [...new Map(matches.map((sku) => [sku.id, sku])).values()];
+  return distinct.length === 1 ? distinct[0]! : null;
+}
+
+function isConfirmedRocketCsvMatch(raw: Record<string, unknown>): boolean {
+  const matchMethod = firstString(raw, ['matchMethod']);
+  const confidence = firstString(raw, ['confidence']);
+  const matchStatus = firstString(raw, ['matchStatus']);
+  return matchMethod === '바코드확정'
+    || confidence === 'high'
+    || confidence === '확정'
+    || matchStatus === '확정';
+}
+
+function normalizePhysicalBarcode(value: string | null): string | null {
+  if (!value) return null;
+  const normalized = value.replace(/[^0-9]/g, '');
+  return /^\d{8,14}$/.test(normalized) ? normalized : null;
 }

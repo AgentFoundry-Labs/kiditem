@@ -15,6 +15,8 @@ export interface WingTrafficMetrics {
   views: number;
   cartAdds: number;
   conversionRate: number;
+  /** A traffic source was collected for the requested period, even if all metrics are zero. */
+  isCollected: boolean;
   hasData: boolean;
   lastObservedAt: Date | null;
 }

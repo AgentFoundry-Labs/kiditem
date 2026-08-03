@@ -34,6 +34,15 @@ describe('ProductOperationsService', () => {
       items: [first, second],
       page: 1,
       limit: 1,
+      sellingChannelProducts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000101',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }, {
+        channelAccountId: '00000000-0000-4000-8000-000000000102',
+        channel: 'coupang_rocket',
+        channelAccountName: 'Coupang Rocket',
+      }],
     });
     const inventory = {
       findBySkuIds: vi.fn().mockResolvedValue({
@@ -111,9 +120,7 @@ describe('ProductOperationsService', () => {
     });
     expect(result.summary.channelProductCounts).toEqual(expect.arrayContaining([
       expect.objectContaining({ channelAccountName: 'Coupang Wing', count: 1 }),
-    ]));
-    expect(result.summary.channelProductCounts).not.toEqual(expect.arrayContaining([
-      expect.objectContaining({ channelAccountName: 'Coupang Rocket' }),
+      expect.objectContaining({ channelAccountName: 'Coupang Rocket', count: 1 }),
     ]));
   });
 

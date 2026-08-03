@@ -8,7 +8,7 @@ describe('DashboardInventoryRepositoryAdapter', () => {
       masterProductAbcEvaluation: { groupBy: vi.fn().mockResolvedValue([]), findMany: vi.fn().mockResolvedValue([]) },
       masterProductAbcFormulaState: { findUnique: vi.fn().mockResolvedValue(null) },
       sellpiaInventorySku: { count: vi.fn().mockResolvedValue(0) },
-      channelListing: { groupBy: vi.fn().mockResolvedValue([]) },
+      channelListing: { findMany: vi.fn().mockResolvedValue([]) },
       channelListingOption: { count: vi.fn().mockResolvedValue(0) },
     };
     const repository = new DashboardInventoryRepositoryAdapter(prisma as never);
@@ -19,7 +19,7 @@ describe('DashboardInventoryRepositoryAdapter', () => {
     await repository.countUnclassifiedActiveProducts('org-1');
     await repository.findAbcFormula('org-1');
     await repository.countActiveProducts('org-1');
-    await repository.countChannelLinkedProducts('org-1');
+    await repository.getSellingChannelMappingSummary('org-1');
     await repository.findAGradeReviewCounts('org-1');
     await repository.countOutOfStockMasterProducts('org-1');
 
@@ -37,15 +37,14 @@ describe('DashboardInventoryRepositoryAdapter', () => {
     expect(prisma.masterProduct.count).toHaveBeenCalledWith({
       where: { organizationId: 'org-1', isActive: true, abcGrade: null },
     });
-    expect(prisma.channelListing.groupBy).toHaveBeenCalledWith({
-      by: ['masterProductId'],
-      where: {
+    expect(prisma.channelListing.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
         organizationId: 'org-1',
-        isActive: true,
-        masterProductId: { not: null },
-        masterProduct: { is: { organizationId: 'org-1', isActive: true } },
-      },
-    });
+        channelAccount: {
+          is: expect.objectContaining({ status: 'active' }),
+        },
+      }),
+    }));
   });
 
   it('reads Products-owned grade history only', async () => {
@@ -60,4 +59,47 @@ describe('DashboardInventoryRepositoryAdapter', () => {
       select: { oldGrade: true, newGrade: true },
     });
   });
+
+  it('counts mapping attention from selling options using the latest channel snapshot', async () => {
+    const repository = new DashboardInventoryRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          listing('판매중', [{ inventoryComponents: [] }, {
+            inventoryComponents: [{
+              sellpiaInventorySku: {
+                isActive: true,
+                currentStock: 1,
+                masterProductId: 'master-1',
+                masterProduct: { isActive: true },
+              },
+            }],
+          }]),
+          listing('판매중지', [{ inventoryComponents: [] }]),
+        ]),
+      },
+      channelListingOption: { count: vi.fn().mockResolvedValue(0) },
+    } as never);
+
+    await expect(repository.getSellingChannelMappingSummary('org-1')).resolves.toEqual({
+      linkedMasterProductCount: 1,
+      mappingStatusRows: [
+        { mappingStatus: 'unmatched', count: 1 },
+        { mappingStatus: 'needs_review', count: 0 },
+        { mappingStatus: 'matched', count: 1 },
+      ],
+    });
+  });
 });
+
+function listing(
+  snapshotStatus: string,
+  options: Array<{ inventoryComponents: Array<{ sellpiaInventorySku: { isActive: boolean; currentStock: number; masterProductId: string | null; masterProduct: { isActive: boolean } | null } }> }>,
+) {
+  return {
+    isActive: true,
+    status: 'active',
+    rawJson: { saleStatus: '판매중' },
+    channelListingDailySnapshots: [{ saleStatus: snapshotStatus }],
+    options,
+  };
+}

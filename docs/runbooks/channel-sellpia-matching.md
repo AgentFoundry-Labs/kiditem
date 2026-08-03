@@ -90,9 +90,13 @@ option recipes remain valid in both cases.
 
 The deterministic matching command may fill an empty component list only when
 organization-fenced evidence uniquely selects one active Sellpia SKU and the
-pack ratio is a verified positive integer. It never replaces existing
-components. Conflicting identifiers, an uncertain pack/BOM, generic barcode,
-raw alias, similarity, rank, or AI requires operator review.
+pack ratio is a verified positive integer. It applies one common title quantity
+rule to every channel: for example, `10개입` becomes 10 and `2개입 x 3세트`
+becomes 6. It also corrects the quantity of an existing one-component recipe
+from that rule, but never changes its selected Sellpia SKU or automatically
+alters a multi-component BOM. Conflicting identifiers or title quantities, an
+uncertain pack/BOM, generic barcode, raw alias, similarity, rank, or AI
+requires operator review.
 
 Use `/product-hub/options` to inspect the complete read-only Sellpia collection
 and confirmed channel-option destinations. That screen cannot edit stock,

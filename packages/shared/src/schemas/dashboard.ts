@@ -79,6 +79,8 @@ export const TrafficKpiSchema = z.object({
   profitRate: z.number().optional(),
   costCoverage: z.number().optional(),
   needsScrape: z.boolean().optional(),
+  trafficAvailable: z.boolean().optional(),
+  trafficObservedAt: zIsoDate.nullable().optional(),
 });
 
 export const PlanAchievementSchema = z.object({

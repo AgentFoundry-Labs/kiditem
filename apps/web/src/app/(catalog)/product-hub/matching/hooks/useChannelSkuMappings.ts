@@ -6,6 +6,7 @@ import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
+  importCoupangRocketMatchingCsv,
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
   listChannelAccounts,
@@ -17,7 +18,10 @@ import {
   collectSellpiaManualMatchSnapshot,
   finalizeSellpiaManualMatchCollection,
 } from '../lib/sellpia-manual-match-collection';
-import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import type {
+  CoupangRocketMatchingCsvImportResponse,
+  CoupangWingCatalogImportResponse,
+} from '@kiditem/shared/source-import';
 
 export function useChannelAccounts() {
   return useQuery({ queryKey: queryKeys.channelAccounts.active(), queryFn: listChannelAccounts });
@@ -132,17 +136,29 @@ export function useSaveProductInventoryMatching() {
   });
 }
 
-export function useImportCoupangWingCatalog() {
+export type ChannelCatalogImportSource = 'wing' | 'rocket';
+
+type ChannelCatalogImportResponse =
+  | CoupangWingCatalogImportResponse
+  | CoupangRocketMatchingCsvImportResponse;
+
+export function useImportChannelCatalog() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ channelAccountId, file }: { channelAccountId: string; file: File }): Promise<{
-      response: CoupangWingCatalogImportResponse;
-      automaticMatching: WingAutomaticMatchingResult;
+    mutationFn: async (input: {
+      source: ChannelCatalogImportSource;
+      channelAccountId: string;
+      file: File;
+    }): Promise<{
+      response: ChannelCatalogImportResponse;
+      automaticMatching: CatalogAutomaticMatchingResult;
     }> => {
-      const response = await importCoupangWingCatalog(channelAccountId, file);
+      const response = input.source === 'wing'
+        ? await importCoupangWingCatalog(input.channelAccountId, input.file)
+        : await importCoupangRocketMatchingCsv(input.channelAccountId, input.file);
       return {
         response,
-        automaticMatching: await collectAndAutoConfigureWing(channelAccountId),
+        automaticMatching: await collectAndAutoConfigureChannel(input.channelAccountId),
       };
     },
     onSettled: () => Promise.all([
@@ -154,7 +170,7 @@ export function useImportCoupangWingCatalog() {
   });
 }
 
-type WingAutomaticMatchingResult = {
+export type CatalogAutomaticMatchingResult = {
   collectedAliases: number;
   evaluatedListings: number;
   matchedListings: number;
@@ -162,9 +178,9 @@ type WingAutomaticMatchingResult = {
   error: string | null;
 };
 
-async function collectAndAutoConfigureWing(
+async function collectAndAutoConfigureChannel(
   channelAccountId: string,
-): Promise<WingAutomaticMatchingResult> {
+): Promise<CatalogAutomaticMatchingResult> {
   let collected: Awaited<ReturnType<typeof collectSellpiaManualMatchSnapshot>> | null = null;
   try {
     const targets = await getSellpiaManualMatchTargets();

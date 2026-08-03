@@ -208,7 +208,7 @@ describe('classifyChannelRecipeSuggestion', () => {
     })]);
   });
 
-  it('does not infer quantity from matching pack-like title text', () => {
+  it('infers the deduction quantity from matching pack-like title text', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '2개 세트' }],
       codeEvidence: [{
@@ -217,12 +217,12 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 2개 세트' }),
       }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(2);
   });
 
-  it('does not derive a component ratio from title numbers', () => {
+  it('derives a component ratio from title numbers', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{
@@ -231,18 +231,19 @@ describe('classifyChannelRecipeSuggestion', () => {
         sku: sku({ name: '키즈 식판 5개입' }),
       }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.automationDecision).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(10);
   });
 
-  it('keeps a multi-unit channel pack under review when the Sellpia unit has no pack evidence', () => {
+  it('uses a multi-unit channel pack as the deduction quantity when the Sellpia unit has no pack evidence', () => {
     const result = classifyChannelRecipeSuggestion(input({
       options: [{ ...input().options[0], itemName: '블루 10개입' }],
       codeEvidence: [{ kind: 'seller_sku_code', channelValue: 'SP-001', sku: sku() }],
     }));
-    expect(result.status).toBe('quantity_review');
-    expect(result.recommendedQuantity).toBeNull();
+    expect(result.status).toBe('unique_code');
+    expect(result.automationDecision).toBe('auto_apply');
+    expect(result.recommendedQuantity).toBe(10);
   });
 
   it('auto-applies one unique physical barcode candidate', () => {

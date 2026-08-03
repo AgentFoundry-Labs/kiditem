@@ -36,6 +36,11 @@ export interface DashboardPerListingMetrics {
   profitRate: number;
 }
 
+export interface SellingChannelMappingSummary {
+  linkedMasterProductCount: number;
+  mappingStatusRows: Array<{ mappingStatus: string; count: number }>;
+}
+
 export interface DashboardInventoryRepositoryPort {
   countActiveProductsByGrade(organizationId: string): Promise<GradeCountRow[]>;
   countActiveProductsByAbcStatus(organizationId: string): Promise<AbcStatusCountRow[]>;
@@ -44,17 +49,15 @@ export interface DashboardInventoryRepositoryPort {
   findAbcFormula(organizationId: string): Promise<ProductAbcFormulaSummary | null>;
   findUnreadAlerts(organizationId: string, limit: number): Promise<DashboardAlertItem[]>;
   countActiveProducts(organizationId: string): Promise<number>;
-  countChannelLinkedProducts(organizationId: string): Promise<number>;
   fetchPerListingMetrics(
     organizationId: string,
     monthStart: Date,
     monthEnd: Date,
   ): Promise<DashboardPerListingMetrics[]>;
   countOutOfStockMasterProducts(organizationId: string): Promise<number>;
-  countMappingAttentionChannelSkus(organizationId: string): Promise<number>;
-  countChannelSkusByMappingStatus(
+  getSellingChannelMappingSummary(
     organizationId: string,
-  ): Promise<Array<{ mappingStatus: string; count: number }>>;
+  ): Promise<SellingChannelMappingSummary>;
   findGradeHistory(organizationId: string, since: Date): Promise<GradeChangeRow[]>;
   countLowCtrThumbnails(organizationId: string): Promise<number>;
   findAGradeReviewCounts(organizationId: string): Promise<AGradeReviewRow[]>;

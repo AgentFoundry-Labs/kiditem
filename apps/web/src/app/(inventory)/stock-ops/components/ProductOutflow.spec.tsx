@@ -69,17 +69,19 @@ describe('ProductOutflow', () => {
     await waitFor(() => expect(requestRefresh).toHaveBeenCalledWith('inventory'));
   });
 
-  it('shows automatic ABC statuses and filters linked products by calculation status', async () => {
+  it('keeps ABC evidence in rows but removes ABC-specific filters from outflow', async () => {
     productSalesApi.fetch.mockResolvedValueOnce(summary(true));
     renderProductOutflow();
 
     expect(await screen.findByText('계산 완료 상품')).toBeInTheDocument();
     expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /ABC 매핑 필요\s*1/ })).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: /ABC 매핑 필요\s*1/ }));
-    await waitFor(() => expect(screen.queryByText('계산 완료 상품')).not.toBeInTheDocument());
-    expect(screen.getByText('매핑 필요 상품')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /A등급\s*1/ })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /ABC 매핑 필요/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /재계산 중/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /셀피아 갱신 필요/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /광고비 갱신 필요/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /계산 확인/ })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /미분류\s*0/ })).toBeInTheDocument();
   });
 
   it('does not show the retired formula-calibration status as a stock filter', async () => {

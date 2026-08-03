@@ -14,11 +14,12 @@ function repository(
     findAbcFormula: vi.fn().mockResolvedValue(null),
     findUnreadAlerts: vi.fn().mockResolvedValue([]),
     countActiveProducts: vi.fn().mockResolvedValue(0),
-    countChannelLinkedProducts: vi.fn().mockResolvedValue(0),
     fetchPerListingMetrics: vi.fn().mockResolvedValue([]),
     countOutOfStockMasterProducts: vi.fn().mockResolvedValue(0),
-    countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(0),
-    countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([]),
+    getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+      linkedMasterProductCount: 0,
+      mappingStatusRows: [],
+    }),
     findGradeHistory: vi.fn().mockResolvedValue([]),
     countLowCtrThumbnails: vi.fn().mockResolvedValue(0),
     findAGradeReviewCounts: vi.fn().mockResolvedValue([]),
@@ -30,7 +31,6 @@ describe('DashboardInventoryService', () => {
   it('reports automatic calculation statuses and contribution, not cumulative-portfolio lifecycle buckets', async () => {
     const result = await new DashboardInventoryService(repository({
       countActiveProducts: vi.fn().mockResolvedValue(8),
-      countChannelLinkedProducts: vi.fn().mockResolvedValue(6),
       countActiveProductsByGrade: vi.fn().mockResolvedValue([
         { abcGrade: 'A', count: 2 }, { abcGrade: 'B', count: 1 },
       ]),
@@ -44,6 +44,10 @@ describe('DashboardInventoryService', () => {
         { abcGrade: 'B', weightedContributionProfit: 200 },
       ]),
       countUnclassifiedActiveProducts: vi.fn().mockResolvedValue(5),
+      getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+        linkedMasterProductCount: 6,
+        mappingStatusRows: [],
+      }),
     })).getSummary(buildDashboardContext(), '11111111-1111-4111-8111-111111111111');
 
     expect(result).toMatchObject({
@@ -66,12 +70,14 @@ describe('DashboardInventoryService', () => {
   it('keeps factual inventory/mapping warning counts and grade transitions', async () => {
     const result = await new DashboardInventoryService(repository({
       countOutOfStockMasterProducts: vi.fn().mockResolvedValue(7),
-      countMappingAttentionChannelSkus: vi.fn().mockResolvedValue(3),
-      countChannelSkusByMappingStatus: vi.fn().mockResolvedValue([
-        { mappingStatus: 'matched', count: 8 },
-        { mappingStatus: 'unmatched', count: 2 },
-        { mappingStatus: 'needs_review', count: 1 },
-      ]),
+      getSellingChannelMappingSummary: vi.fn().mockResolvedValue({
+        linkedMasterProductCount: 8,
+        mappingStatusRows: [
+          { mappingStatus: 'matched', count: 8 },
+          { mappingStatus: 'unmatched', count: 2 },
+          { mappingStatus: 'needs_review', count: 1 },
+        ],
+      }),
       findGradeHistory: vi.fn().mockResolvedValue([
         { oldGrade: null, newGrade: 'A' }, { oldGrade: 'A', newGrade: null },
         { oldGrade: 'B', newGrade: 'C' }, { oldGrade: 'C', newGrade: 'A' },
@@ -79,6 +85,7 @@ describe('DashboardInventoryService', () => {
     })).getSummary(buildDashboardContext(), '11111111-1111-4111-8111-111111111111');
 
     expect(result.warnings).toMatchObject({ outOfStockSkus: 7, mappingAttentionSkus: 3 });
+    expect(result.channelLinkedProducts).toBe(8);
     expect(result.mappingStatusCounts).toEqual({ matched: 8, unmatched: 2, needsReview: 1 });
     expect(result.gradeChanges).toEqual({ upgraded: 2, downgraded: 2, total: 4 });
   });

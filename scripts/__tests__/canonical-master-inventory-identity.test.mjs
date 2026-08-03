@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { planCanonicalInventoryLinks } from '../data-migrations/v0.1.30/canonical-master-inventory-identity.ts';
+import { planCanonicalInventoryLinks } from '../data-migrations/helpers/canonical-master-inventory-identity.ts';
 
 describe('canonical MasterProduct inventory identity migration policy', () => {
   it('creates one canonical product identity per physical SKU', () => {

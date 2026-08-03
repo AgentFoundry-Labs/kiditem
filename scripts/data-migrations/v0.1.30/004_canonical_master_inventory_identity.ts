@@ -1,5 +1,5 @@
 import type { DataMigration } from '../types';
-import { planCanonicalInventoryLinks } from './canonical-master-inventory-identity';
+import { planCanonicalInventoryLinks } from '../helpers/canonical-master-inventory-identity';
 
 export const canonicalMasterInventoryIdentity: DataMigration = {
   id: 'v0.1.30:004_canonical_master_inventory_identity',

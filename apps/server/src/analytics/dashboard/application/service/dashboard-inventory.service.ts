@@ -42,11 +42,9 @@ export class DashboardInventoryService {
         abcFormula,
         unreadAlerts,
         totalActiveProducts,
-        channelLinkedProducts,
         perListingMetrics,
         outOfStockMasterProducts,
-        mappingAttentionSkus,
-        mappingStatusRows,
+        channelMappingSummary,
         gradeChangesRows,
         lowCtrProducts,
         aGradeReviewRows,
@@ -58,15 +56,13 @@ export class DashboardInventoryService {
         this.repository.findAbcFormula(organizationId),
         this.repository.findUnreadAlerts(organizationId, 10),
         this.repository.countActiveProducts(organizationId),
-        this.repository.countChannelLinkedProducts(organizationId),
         this.repository.fetchPerListingMetrics(
           organizationId,
           ctx.monthStart,
           ctx.monthEnd,
         ),
         this.repository.countOutOfStockMasterProducts(organizationId),
-        this.repository.countMappingAttentionChannelSkus(organizationId),
-        this.repository.countChannelSkusByMappingStatus(organizationId),
+        this.repository.getSellingChannelMappingSummary(organizationId),
         this.repository.findGradeHistory(organizationId, sevenDaysAgo),
         this.repository.countLowCtrThumbnails(organizationId),
         this.repository.findAGradeReviewCounts(organizationId),
@@ -138,6 +134,11 @@ export class DashboardInventoryService {
       const highAdProducts = perListingMetrics.filter(
         (m) => m.revenue > 0 && m.adCost > 0 && (m.adCost / m.revenue) * 100 > 15,
       ).length;
+      const mappingAttentionSkus = (
+        channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0
+      ) + (
+        channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0
+      );
 
       const warnings: Warnings = {
         minusProducts,
@@ -153,15 +154,18 @@ export class DashboardInventoryService {
         msg: 'dashboard-inventory.getSummary',
         organizationId,
         totalActiveProducts,
-        channelLinkedProducts,
+        channelLinkedProducts: channelMappingSummary.linkedMasterProductCount,
         alertsCount: unreadAlerts.length,
         gradeChangesCount: gradeChangesRows.length,
       });
 
       return {
         totalProducts: totalActiveProducts,
-        channelLinkedProducts,
-        channelUnlinkedProducts: Math.max(totalActiveProducts - channelLinkedProducts, 0),
+        channelLinkedProducts: channelMappingSummary.linkedMasterProductCount,
+        channelUnlinkedProducts: Math.max(
+          totalActiveProducts - channelMappingSummary.linkedMasterProductCount,
+          0,
+        ),
         classifiedProductCount,
         unclassifiedProductCount,
         gradeCount,
@@ -169,10 +173,10 @@ export class DashboardInventoryService {
         abcContributionProfit,
         abcFormula,
         mappingStatusCounts: {
-          matched: mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
-          unmatched: mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,
+          matched: channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'matched')?.count ?? 0,
+          unmatched: channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'unmatched')?.count ?? 0,
           needsReview:
-            mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0,
+            channelMappingSummary.mappingStatusRows.find((row) => row.mappingStatus === 'needs_review')?.count ?? 0,
         },
         alerts: unreadAlerts,
         warnings,

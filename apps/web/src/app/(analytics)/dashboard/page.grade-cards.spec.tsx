@@ -176,4 +176,23 @@ describe('Dashboard automatic ABC grade cards', () => {
     expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
     expect(screen.getByText(/수익성 이력 표본을 수집하면 자동 평가를 시작합니다/)).toBeInTheDocument();
   });
+
+  it('does not render missing Wing traffic as a zero-valued product signal', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('Wing 트래픽 기준 · 미수집')).toBeInTheDocument();
+    expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량—');
+    expect(screen.getByText('방문자').parentElement).toHaveTextContent('방문자—');
+    expect(screen.getByText('조회').parentElement).toHaveTextContent('조회—');
+    expect(screen.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
+  });
 });

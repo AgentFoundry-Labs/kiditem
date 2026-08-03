@@ -86,10 +86,10 @@ channels/
 - Catalog media remains attached to the channel listing's AI-owned content
   workspace. Matching reads may return that media as a display fallback, but
   collection and matching never write it into `MasterProduct.imageUrls`.
-- Candidate rows are live evidence and are never persisted. Explicit operator
-  confirmation writes option composition. The single automatic matching
-  command may fill a still-empty option composition only when one conservative
-  deterministic candidate remains; it then derives the listing summary.
+- Candidate rows are live evidence and never persist. The automatic command
+  may fill an empty option composition or recalculate a one-component quantity
+  from common deterministic evidence; it never changes a SKU or multi-component
+  composition.
 - Automatic recipe evidence must be unique and non-conflicting. Exact
   identifiers/names or threshold-clearing names may apply; incompatible,
   ambiguous, unverifiable, raw-alias, and AI evidence requires review. Read
@@ -159,10 +159,9 @@ automatic option-to-Sellpia matching transaction.
   its tests when semantics change.
 - Per-listing sync transactions continue on individual failure and increment
   result errors.
-- Explicit product-link commands never create an inventory composition or write
-  `SellpiaInventorySku.currentStock`. The single conservative `auto-match`
-  transaction may fill a still-null product link and still-empty direct option
-  composition only under the deterministic policy above.
+- Explicit product-link commands never create a composition or write
+  `SellpiaInventorySku.currentStock`. `auto-match` may fill a null link/empty
+  composition or recalculate one component quantity under the policy above.
 - Wing catalog collection attaches provider media to the listing content
   workspace and refreshes only Channels-owned listing/option identities. It
   preserves existing product links and direct option compositions and never

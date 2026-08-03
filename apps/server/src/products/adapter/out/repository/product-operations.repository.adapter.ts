@@ -14,6 +14,10 @@ import {
   ProductAbcFormulaSummarySchema,
   type ProductAbcEvaluation,
 } from '@kiditem/shared/product-abc';
+import {
+  isChannelListingOnSale,
+  resolveChannelListingSaleStatus,
+} from '@kiditem/shared/channel-listing';
 import type {
   ProductOperationsRepositoryDetail,
   ProductOperationsDisplayMediaTarget,
@@ -146,10 +150,10 @@ implements ProductOperationsRepositoryPort {
     const periodStart = startOfUtcDay(
       new Date(Date.now() - (query.periodDays - 1) * 86_400_000),
     );
-    const sellingMasterProductIds = await listSellingMasterProductIds(
-      this.prisma,
-      organizationId,
-    );
+    const [sellingMasterProductIds, sellingChannelProducts] = await Promise.all([
+      listSellingMasterProductIds(this.prisma, organizationId),
+      this.listSellingChannelProducts(organizationId),
+    ]);
     const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
     const rows = await this.prisma.masterProduct.findMany({
       where: productListWhere(organizationId, query, sellingMasterProductIds),
@@ -164,7 +168,57 @@ implements ProductOperationsRepositoryPort {
       )),
       page: query.page,
       limit: query.limit,
+      sellingChannelProducts,
     };
+  }
+
+  private async listSellingChannelProducts(organizationId: string) {
+    const rows = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        channelAccount: {
+          is: {
+            organizationId,
+            status: 'active',
+            channel: { in: ['coupang', 'rocket'] },
+          },
+        },
+      },
+      select: {
+        isActive: true,
+        status: true,
+        rawJson: true,
+        channelAccount: {
+          select: { id: true, channel: true, name: true },
+        },
+        channelListingDailySnapshots: {
+          where: { organizationId },
+          orderBy: [
+            { businessDate: 'desc' },
+            { lastObservedAt: 'desc' },
+          ],
+          take: 1,
+          select: { saleStatus: true },
+        },
+        options: {
+          where: { organizationId },
+          select: { status: true },
+        },
+      },
+    });
+    return rows.flatMap((row) => isChannelListingOnSale(
+      resolveChannelListingSaleStatus({
+        latestSnapshotStatus: row.channelListingDailySnapshots[0]?.saleStatus,
+        rawStatus: rawSaleStatus(row.rawJson),
+        optionStatuses: row.options.map((option) => option.status),
+        listingStatus: row.status,
+        isActive: row.isActive,
+      }),
+    ) ? [{
+      channelAccountId: row.channelAccount.id,
+      channel: row.channelAccount.channel,
+      channelAccountName: row.channelAccount.name,
+    }] : []);
   }
 
   async getProduct(
@@ -284,6 +338,16 @@ function compareDisplayMediaTargets(
     || Number(right.isPrimaryAccount) - Number(left.isPrimaryAccount)
     || left.listingExternalId.localeCompare(right.listingExternalId)
     || left.channelListingId.localeCompare(right.channelListingId);
+}
+
+function rawSaleStatus(value: Prisma.JsonValue | null): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
+  }
+  return null;
 }
 
 function productListWhere(

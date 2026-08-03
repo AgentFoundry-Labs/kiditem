@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { issueBrowserCollectionRunId } from '@/lib/browser-collection-session';
 import {
   autoMatchChannelProducts,
+  importCoupangRocketMatchingCsv,
   getSellpiaManualMatchTargets,
   importCoupangWingCatalog,
   importSellpiaManualMatchSnapshot,
@@ -16,13 +17,14 @@ import {
 } from '../lib/sellpia-manual-match-collection';
 import {
   useChannelProductMappings,
-  useImportCoupangWingCatalog,
+  useImportChannelCatalog,
   useRunChannelProductMatching,
 } from './useChannelSkuMappings';
 
 vi.mock('../lib/channel-sku-matching-api', () => ({
   autoMatchChannelProducts: vi.fn(),
   getSellpiaManualMatchTargets: vi.fn(),
+  importCoupangRocketMatchingCsv: vi.fn(),
   importCoupangWingCatalog: vi.fn(),
   importSellpiaManualMatchSnapshot: vi.fn(),
   listChannelAccounts: vi.fn(),
@@ -135,12 +137,12 @@ describe('channel product matching hooks', () => {
       configuredOptions: 3,
     });
     const client = createClient();
-    const hook = renderHook(() => useImportCoupangWingCatalog(), { wrapper: wrapper(client) });
+    const hook = renderHook(() => useImportChannelCatalog(), { wrapper: wrapper(client) });
     const file = new File(['wing'], 'wing.xlsx');
 
     let result;
     await act(async () => {
-      result = await hook.result.current.mutateAsync({ channelAccountId: ACCOUNT_A, file });
+      result = await hook.result.current.mutateAsync({ source: 'wing', channelAccountId: ACCOUNT_A, file });
     });
 
     expect(importCoupangWingCatalog).toHaveBeenCalledWith(ACCOUNT_A, file);
@@ -159,6 +161,32 @@ describe('channel product matching hooks', () => {
     });
   });
 
+  it('uses the same automatic matching workflow after a Rocket matching CSV upload', async () => {
+    const snapshot = manualMatchSnapshot();
+    vi.mocked(importCoupangRocketMatchingCsv).mockResolvedValue(rocketImportResponse());
+    vi.mocked(getSellpiaManualMatchTargets).mockResolvedValue(manualMatchTargets());
+    vi.mocked(collectSellpiaManualMatchSnapshot).mockResolvedValue({
+      extensionId: 'extension-1', runId: RUN_ID, snapshot,
+    });
+    vi.mocked(importSellpiaManualMatchSnapshot).mockResolvedValue(manualMatchImportResponse());
+    vi.mocked(finalizeSellpiaManualMatchCollection).mockResolvedValue(undefined);
+    vi.mocked(autoMatchChannelProducts).mockResolvedValue({
+      evaluatedListings: 2,
+      matchedListings: 1,
+      configuredOptions: 2,
+    });
+    const client = createClient();
+    const hook = renderHook(() => useImportChannelCatalog(), { wrapper: wrapper(client) });
+    const file = new File(['rocket'], 'rocket443-sellpia-matching.csv');
+
+    await act(async () => {
+      await hook.result.current.mutateAsync({ source: 'rocket', channelAccountId: ACCOUNT_B, file });
+    });
+
+    expect(importCoupangRocketMatchingCsv).toHaveBeenCalledWith(ACCOUNT_B, file);
+    expect(autoMatchChannelProducts).toHaveBeenCalledWith(ACCOUNT_B);
+  });
+
   it('keeps the Wing workbook import completed when Sellpia collection needs login', async () => {
     vi.mocked(importCoupangWingCatalog).mockResolvedValue(importResponse());
     vi.mocked(getSellpiaManualMatchTargets).mockResolvedValue(manualMatchTargets());
@@ -166,11 +194,12 @@ describe('channel product matching hooks', () => {
       new Error('Sellpia 로그인이 필요합니다.'),
     );
     const client = createClient();
-    const hook = renderHook(() => useImportCoupangWingCatalog(), { wrapper: wrapper(client) });
+    const hook = renderHook(() => useImportChannelCatalog(), { wrapper: wrapper(client) });
 
     let result;
     await act(async () => {
       result = await hook.result.current.mutateAsync({
+        source: 'wing',
         channelAccountId: ACCOUNT_A,
         file: new File(['wing'], 'wing.xlsx'),
       });
@@ -277,6 +306,25 @@ function importResponse() {
       createdSkuCount: 1,
       updatedSkuCount: 0,
       skippedRowCount: 0,
+    },
+  };
+}
+
+function rocketImportResponse() {
+  const response = importResponse();
+  return {
+    ...response,
+    run: {
+      ...response.run,
+      sourceType: 'coupang_rocket_matching_csv' as const,
+      channelAccountId: ACCOUNT_B,
+      fileName: 'rocket443-sellpia-matching.csv',
+    },
+    changes: {
+      createdProductCount: 1,
+      updatedProductCount: 0,
+      createdSkuCount: 1,
+      updatedSkuCount: 0,
     },
   };
 }

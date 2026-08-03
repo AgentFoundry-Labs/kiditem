@@ -35,7 +35,7 @@ vi.mock('./components/ProductInventoryMatchingTable', async (importOriginal) => 
     },
   };
 });
-vi.mock('./components/CoupangWingCatalogImportDialog', () => ({ CoupangWingCatalogImportDialog: () => null }));
+vi.mock('./components/ChannelCatalogImportDialog', () => ({ ChannelCatalogImportDialog: () => null }));
 vi.mock('./components/ProductLinkDialog', () => ({ ProductLinkDialog: () => null }));
 
 const accounts = [{
@@ -84,6 +84,31 @@ function queue() {
   };
 }
 
+function optionRow(
+  listingId: string,
+  inventoryComponents: Array<{ id: string }>,
+  capacity = 0,
+) {
+  return {
+    channelAccount: { id: accounts[0]!.id, channel: 'coupang', name: '쿠팡 본계정' },
+    listing: {
+      id: listingId,
+      externalId: `external-${listingId.slice(0, 4)}`,
+      masterProductId: null,
+    },
+    option: {
+      id: `option-${listingId.slice(0, 4)}`,
+      externalOptionId: `option-external-${listingId.slice(0, 4)}`,
+      itemName: null,
+      sellerSku: null,
+      barcode: null,
+      updatedAt: '2026-08-03T00:00:00.000Z',
+      inventoryComponents,
+    },
+    capacity,
+  };
+}
+
 describe('/product-hub/matching', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -115,6 +140,30 @@ describe('/product-hub/matching', () => {
     expect(screen.getByText('external-4444')).toBeInTheDocument();
   });
 
+  it('opens the combined attention view for selling options that are unmatched or need quantity review', () => {
+    navigation.params = new URLSearchParams('status=attention');
+    mappings.data = {
+      ...queue(),
+      products: [
+        productRow('33333333-3333-4333-8333-333333333333', '판매중', false),
+        productRow('44444444-4444-4444-8444-444444444444', '판매중', true),
+        productRow('55555555-5555-4555-8555-555555555555', '판매중', true),
+      ],
+      options: [
+        optionRow('33333333-3333-4333-8333-333333333333', []),
+        optionRow('44444444-4444-4444-8444-444444444444', [{ id: 'component-matched' }], 12),
+        optionRow('55555555-5555-4555-8555-555555555555', [{ id: 'component-review' }], null),
+      ],
+    };
+
+    render(<MatchingPage />);
+
+    expect(screen.getByRole('radio', { name: '매칭 확인 필요' })).toBeChecked();
+    expect(screen.getByText('external-3333')).toBeInTheDocument();
+    expect(screen.getByText('external-5555')).toBeInTheDocument();
+    expect(screen.queryByText('external-4444')).not.toBeInTheDocument();
+  });
+
   it('runs automatic matching for all selected channel accounts', () => {
     render(<MatchingPage />);
 
@@ -123,6 +172,13 @@ describe('/product-hub/matching', () => {
     expect(autoMatch.mutate).toHaveBeenCalledWith({
       channelAccountIds: [accounts[0]!.id, accounts[1]!.id].sort(),
     });
+  });
+
+  it('offers one product-file upload command regardless of the current channel checklist', () => {
+    render(<MatchingPage />);
+
+    expect(screen.getAllByRole('button', { name: '상품 파일 가져오기' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: /쿠팡 Wing 상품 엑셀 가져오기/ })).not.toBeInTheDocument();
   });
 
   it('renders every supported account as an always-visible checklist', () => {

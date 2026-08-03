@@ -8,7 +8,7 @@ import {
   ProductInventoryMatchingTable,
   productMatchingStatus,
 } from './components/ProductInventoryMatchingTable';
-import { CoupangWingCatalogImportDialog } from './components/CoupangWingCatalogImportDialog';
+import { ChannelCatalogImportDialog } from './components/ChannelCatalogImportDialog';
 import { ProductLinkDialog } from './components/ProductLinkDialog';
 import { isChannelListingOnSale } from './lib/channel-listing-sale-status';
 import { Pagination } from '@/components/ui/Pagination';
@@ -25,6 +25,7 @@ import type {
 const SEARCH_DEBOUNCE_MS = 300;
 const STATUS_OPTIONS = [
   ['all', '전체'],
+  ['attention', '매칭 확인 필요'],
   ['matched', '매칭 완료'],
   ['quantity_review', '매칭 수량 검토'],
   ['unmatched', '미매칭 상품'],
@@ -153,10 +154,13 @@ export default function MatchingPage() {
   const filteredProducts = useMemo(() => selectedProducts.filter((row) => {
     if (activeOnly && !onSaleListingIdSet.has(row.listing.id)) return false;
     if (status === 'all') return true;
-    return productMatchingStatus(
+    const matchingStatus = productMatchingStatus(
       row,
       optionsByListingId.get(row.listing.id) ?? [],
-    ) === status;
+    );
+    return status === 'attention'
+      ? matchingStatus === 'unmatched' || matchingStatus === 'quantity_review'
+      : matchingStatus === status;
   }), [activeOnly, onSaleListingIdSet, optionsByListingId, selectedProducts, status]);
   const pageRows = filteredProducts.slice((page - 1) * 50, page * 50);
   const pageListingIds = new Set(pageRows.map((row) => row.listing.id));
@@ -208,11 +212,14 @@ export default function MatchingPage() {
           >
             {autoMatch.isPending ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />} 자동 매칭
           </button>
-          {selectedAccount?.channel === 'coupang' ? (
-            <button type="button" onClick={() => setImportOpen(true)} className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700">
-              <Upload size={14} /> 쿠팡 Wing 상품 엑셀 가져오기
-            </button>
-          ) : null}
+          <button
+            type="button"
+            disabled={channelAccounts.length === 0}
+            onClick={() => setImportOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-3 py-2 text-sm text-white hover:bg-purple-700 disabled:opacity-50"
+          >
+            <Upload size={14} /> 상품 파일 가져오기
+          </button>
         </div>
       </div>
 
@@ -332,7 +339,13 @@ export default function MatchingPage() {
       ) : null}
       {selectedAccountIds.length > 0 && !mappingsQuery.error && filteredProducts.length > 50 ? <Pagination page={page} limit={50} total={filteredProducts.length} onPageChange={(nextPage) => updateUrl({ page: String(nextPage) }, false)} /> : null}
 
-      <CoupangWingCatalogImportDialog open={importOpen} account={selectedAccount?.channel === 'coupang' ? selectedAccount : null} onOpenChange={setImportOpen} onSuccess={() => void mappingsQuery.refetch()} />
+      <ChannelCatalogImportDialog
+        open={importOpen}
+        accounts={channelAccounts}
+        defaultAccount={selectedAccount}
+        onOpenChange={setImportOpen}
+        onSuccess={() => void mappingsQuery.refetch()}
+      />
       {productTarget ? <ProductLinkDialog open row={productTarget} options={selectedOptions.filter(({ listing }) => listing.id === productTarget.listing.id)} onOpenChange={(next) => { if (!next) setProductTarget(null); }} /> : null}
     </div>
   );
@@ -361,6 +374,7 @@ function formatCount(value: number): string {
 }
 
 function normalizedOperatorStatus(value: string | null): typeof STATUS_OPTIONS[number][0] {
+  if (value === 'attention') return 'attention';
   if (value === 'matched' || value === 'auto_apply' || value === 'already_configured') {
     return 'matched';
   }

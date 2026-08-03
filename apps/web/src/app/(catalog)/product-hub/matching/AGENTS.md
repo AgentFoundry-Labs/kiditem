@@ -1,7 +1,7 @@
 # product-hub/matching — Channel Product Matching
 
 `app/(catalog)/product-hub/matching/` owns `/product-hub/matching`: Coupang Wing
-catalog import and channel/Sellpia matching review. Each
+workbook / Rocket matching-CSV catalog import and channel/Sellpia matching review. Each
 `ChannelListingOption` owns its direct inventory-consumption rule. The listing
 MasterProduct is an automatic summary only when every option resolves to the
 same canonical inventory product.
@@ -12,6 +12,7 @@ same canonical inventory product.
 React Query + apiClient
   -> GET /api/channels/accounts
   -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
+  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-rocket-matching
   -> /api/channels/product-mappings (queue, candidates, confirmations)
   -> /api/channels/product-mappings/auto-match
   -> /api/products/channel-options/:channelListingOptionId/inventory-components
@@ -28,8 +29,9 @@ React Query + apiClient
   uses the option's expected-component-fenced complete replacement contract.
   The single `상품 매칭 실행` command may fill an empty rule only when evidence
   resolves one active Sellpia SKU and a verified positive pack quantity.
-- Coupang/Rocket share the queue; only Coupang imports Wing workbooks. The
-  account checklist combines queues.
+- Coupang/Rocket share the queue. One product-file dialog selects Wing workbook
+  or Rocket matching CSV and the corresponding account; the account checklist
+  combines queues.
 - Browser catalog publication preserves component rules but does not create or
   infer them. Matching remains the
   operator correction and component-attention workspace for

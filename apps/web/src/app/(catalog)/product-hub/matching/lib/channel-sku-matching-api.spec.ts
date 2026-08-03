@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import {
   autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
+  importCoupangRocketMatchingCsv,
   importSellpiaManualMatchSnapshot,
   listChannelProductMappings,
   listRecipeComponentCandidates,
@@ -47,6 +48,27 @@ describe('channel product matching API', () => {
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/channels/product-mappings/auto-match',
       { channelAccountId: ACCOUNT_ID },
+    );
+  });
+
+  it('uploads a Rocket-Sellpia matching CSV through the Rocket catalog endpoint', async () => {
+    const file = new File(['rocket'], 'rocket443-sellpia-matching.csv', { type: 'text/csv' });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValue({
+      duplicate: false,
+      changes: {
+        createdProductCount: 266,
+        updatedProductCount: 177,
+        createdSkuCount: 266,
+        updatedSkuCount: 177,
+      },
+    });
+
+    await importCoupangRocketMatchingCsv(ACCOUNT_ID, file);
+
+    expect(apiClient.uploadParsed).toHaveBeenCalledWith(
+      `/api/channels/accounts/${ACCOUNT_ID}/catalog-imports/coupang-rocket-matching`,
+      expect.any(Object),
+      expect.any(FormData),
     );
   });
 

@@ -28,11 +28,6 @@ type FilterKey =
   | 'A'
   | 'B'
   | 'C'
-  | 'SOURCE_UNMAPPED'
-  | 'RECALCULATING'
-  | 'SELLPIA_SOURCE_STALE'
-  | 'AD_SOURCE_STALE'
-  | 'CALCULATION_ERROR'
   | 'unclassified';
 
 export default function ProductOutflow() {
@@ -149,11 +144,6 @@ function ProductOutflowTable({
     chips.push({ key: 'A', label: 'A등급', count: summary.abcCounts.A, tone: 'emerald' });
     chips.push({ key: 'B', label: 'B등급', count: summary.abcCounts.B, tone: 'sky' });
     chips.push({ key: 'C', label: 'C등급', count: summary.abcCounts.C, tone: 'slate' });
-    chips.push({ key: 'SOURCE_UNMAPPED', label: 'ABC 매핑 필요', count: summary.abcStatusCounts?.SOURCE_UNMAPPED ?? 0, tone: 'orange' });
-    chips.push({ key: 'RECALCULATING', label: '재계산 중', count: summary.abcStatusCounts?.RECALCULATING ?? 0, tone: 'sky' });
-    chips.push({ key: 'SELLPIA_SOURCE_STALE', label: '셀피아 갱신 필요', count: summary.abcStatusCounts?.SELLPIA_SOURCE_STALE ?? 0, tone: 'orange' });
-    chips.push({ key: 'AD_SOURCE_STALE', label: '광고비 갱신 필요', count: summary.abcStatusCounts?.AD_SOURCE_STALE ?? 0, tone: 'orange' });
-    chips.push({ key: 'CALCULATION_ERROR', label: '계산 확인', count: summary.abcStatusCounts?.CALCULATION_ERROR ?? 0, tone: 'rose' });
     chips.push({ key: 'unclassified', label: '미분류', count: summary.unclassifiedProductCount, tone: 'slate' });
     return chips;
   }, [summary, hasStock]);
@@ -176,12 +166,6 @@ function ProductOutflowTable({
     else if (filter === 'A' || filter === 'B' || filter === 'C') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.inventoryProduct?.abcGrade === filter);
-    } else if (filter === 'SOURCE_UNMAPPED'
-      || filter === 'RECALCULATING'
-      || filter === 'SELLPIA_SOURCE_STALE' || filter === 'AD_SOURCE_STALE'
-      || filter === 'CALCULATION_ERROR') {
-      list = list.filter((p) => p.inventoryResolution.status === 'matched'
-        && p.inventoryResolution.inventoryProduct?.abcEvaluation?.calculationStatus === filter);
     } else if (filter === 'unclassified') {
       list = list.filter((p) => p.inventoryResolution.status === 'matched'
         && p.inventoryResolution.inventoryProduct?.abcGrade === null);
