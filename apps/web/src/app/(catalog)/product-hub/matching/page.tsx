@@ -348,12 +348,12 @@ function MatchingSummaryCards({ summary }: {
   };
 }) {
   const cards = [
-    ['조회 상품', formatCount(summary.productCount), '현재 계정·판매 상태 기준'],
-    ['운영상품 연결', `${formatCount(summary.linkedProductCount)} / ${formatCount(summary.productCount)}`, 'ChannelListing → MasterProduct'],
-    ['재고 매칭', `${formatCount(summary.configuredOptionCount)} / ${formatCount(summary.optionCount)}`, '채널 옵션 → Sellpia 재고'],
-    ['수량 검토', formatCount(summary.quantityReviewCount), '재고 연결 후 판매 가능 미확정'],
+    ['조회 상품', formatCount(summary.productCount)],
+    ['운영상품 연결', `${formatCount(summary.linkedProductCount)} / ${formatCount(summary.productCount)}`],
+    ['옵션별 재고 설정', `${formatCount(summary.configuredOptionCount)} / ${formatCount(summary.optionCount)}`],
+    ['수량 검토', formatCount(summary.quantityReviewCount)],
   ] as const;
-  return <section aria-label="상품 매칭 요약" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value, detail]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-2xl font-extrabold text-slate-900">{value}</p><p className="mt-1 text-xs text-slate-500">{detail}</p></div>)}</section>;
+  return <section aria-label="상품 매칭 요약" className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">{cards.map(([label, value]) => <div key={label} className="rounded-2xl border border-slate-200 bg-white p-4"><p className="text-xs font-bold text-slate-500">{label}</p><p className="mt-1 text-2xl font-extrabold text-slate-900">{value}</p></div>)}</section>;
 }
 
 function formatCount(value: number): string {
