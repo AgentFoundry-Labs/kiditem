@@ -157,11 +157,11 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   });
 
   it.each([null, '   '])(
-    'rejects a Coupang account whose canonical external identity is %j before claiming',
+    'rejects a Coupang account whose vendor and external identities are both missing (%j)',
     async (externalAccountId) => {
       await prisma.channelAccount.update({
         where: { id: WING_ACCOUNT_ID },
-        data: { externalAccountId },
+        data: { externalAccountId, vendorId: null },
       });
 
       await expect(
@@ -176,21 +176,24 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     },
   );
 
-  it('rejects a Coupang account whose vendorId conflicts with its canonical external identity', async () => {
+  it('uses vendorId when a legacy external account alias differs', async () => {
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
-      data: { vendorId: 'different-vendor' },
+      data: {
+        externalAccountId: 'legacy-wing-alias',
+        vendorId: 'vendor-primary',
+      },
     });
 
     await expect(
       service.importCoupangWing(
-        importInput({ fileHash: fileHash('conflicting-account-identities') }),
+        importInput({ fileHash: fileHash('vendor-with-legacy-external-alias') }),
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).resolves.toMatchObject({ duplicate: false });
 
-    expect(await prisma.sourceImportRun.count()).toBe(0);
-    expect(await prisma.channelListing.count()).toBe(0);
-    expect(await prisma.channelListingOption.count()).toBe(0);
+    expect(await prisma.sourceImportRun.count()).toBe(1);
+    expect(await prisma.channelListing.count()).toBe(1);
+    expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
   it('revalidates the canonical account identity when publishing a claimed import', async () => {
@@ -206,7 +209,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
-      data: { externalAccountId: null },
+      data: { externalAccountId: null, vendorId: null },
     });
 
     await expect(

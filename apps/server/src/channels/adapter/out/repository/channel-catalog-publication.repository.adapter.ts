@@ -21,6 +21,7 @@ import type {
   ChannelCatalogChunkPublicationResult,
   ChannelCatalogPublicationResult,
 } from '../../../application/port/out/repository/channel-catalog-publication.port';
+import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 
 const CHANNEL = 'coupang';
@@ -403,12 +404,8 @@ function assertCanonicalAccount(account: {
   externalAccountId: string | null;
   vendorId: string | null;
 }): void {
-  const identity = account.externalAccountId?.trim();
-  if (!identity) {
-    throw new BadRequestException('Coupang account requires externalAccountId');
-  }
-  if (account.vendorId?.trim() && account.vendorId.trim() !== identity) {
-    throw new ConflictException('Coupang account vendorId conflicts with externalAccountId');
+  if (!resolveCoupangVendorId(account)) {
+    throw new BadRequestException('Coupang account requires a vendor identity');
   }
 }
 

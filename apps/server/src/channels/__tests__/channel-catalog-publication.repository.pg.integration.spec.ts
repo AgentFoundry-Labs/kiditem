@@ -94,6 +94,26 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       .toMatchObject({ url: 'https://example.com/P-1.jpg' });
   });
 
+  it('publishes scraper data when vendorId differs from a legacy external alias', async () => {
+    await prisma.channelAccount.update({
+      where: { id: ACCOUNT_ID },
+      data: {
+        externalAccountId: 'legacy-wing-alias',
+        vendorId: 'vendor-primary',
+      },
+    });
+
+    await expect(publish(await createCollectionRun(prisma), SNAPSHOT_A, [
+      product('P-1', 'S-1'),
+    ])).resolves.toMatchObject({
+      duplicate: false,
+      changes: {
+        createdProductCount: 1,
+        createdSkuCount: 1,
+      },
+    });
+  });
+
   it('preserves a confirmed product link and direct option components on recollection', async () => {
     await publish(await createCollectionRun(prisma), SNAPSHOT_A, [
       product('P-1', 'S-1'),

@@ -12,6 +12,7 @@ import type {
   ChannelCatalogCollectionRunRecord,
   ChannelCatalogCollectionWithChunks,
 } from '../../../application/port/out/repository/channel-catalog-collection.repository.port';
+import { resolveCoupangVendorId } from '../../../domain/coupang-account-identity';
 
 const CHANNEL = 'coupang';
 const SOURCE = 'coupang_wing_catalog_browser';
@@ -221,15 +222,9 @@ implements ChannelCatalogCollectionRepositoryPort {
         'Coupang Wing catalog collection requires a channel=coupang account',
       );
     }
-    const externalAccountId = account.externalAccountId?.trim();
-    if (!externalAccountId) {
+    if (!resolveCoupangVendorId(account)) {
       throw new BadRequestException(
-        'Coupang channel account requires a canonical externalAccountId',
-      );
-    }
-    if (account.vendorId?.trim() && account.vendorId.trim() !== externalAccountId) {
-      throw new ConflictException(
-        'Coupang channel account vendorId conflicts with externalAccountId',
+        'Coupang channel account requires a vendor identity',
       );
     }
   }
