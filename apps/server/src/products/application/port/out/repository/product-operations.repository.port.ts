@@ -3,6 +3,7 @@ import type {
   MasterProductOperationsDetail,
   MasterProductOperationsListItem,
   MasterProductOperationsListQuery,
+  ProductOperationsChannelProductCount,
   ReplaceChannelOptionInventoryInput,
   UpdateMasterProductInput,
 } from '@kiditem/shared/product-operations';
@@ -45,6 +46,7 @@ export type ProductOperationsRepositoryListItem = Omit<
   | 'inventoryUnits'
   | 'inventoryStatus'
 > & {
+  activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
   inventoryOptions: ProductOperationsRepositoryOption[];
 };
 

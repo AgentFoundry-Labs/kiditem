@@ -70,7 +70,12 @@ describe('product operations contracts', () => {
       abcContributionProfitShareByGrade: { A: 0.77, B: 0.29, C: -0.06 },
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
-      channelConnectionCounts: { connected: 4, unconnected: 6 },
+      channelProductCounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+        count: 4,
+      }],
       inventoryStatusCounts: {
         sellable: 6,
         partial_out_of_stock: 1,
@@ -283,7 +288,12 @@ describe('product operations contracts', () => {
         abcContributionProfitShareByGrade: { A: 0.83, B: 0.21, C: -0.04 },
         abcFormula: null,
         displayDataAsOf: '2026-07-31',
-        channelConnectionCounts: { connected: 71, unconnected: 9 },
+        channelProductCounts: [{
+          channelAccountId: '00000000-0000-4000-8000-000000000004',
+          channel: 'coupang',
+          channelAccountName: 'Coupang Wing',
+          count: 71,
+        }],
         inventoryStatusCounts: {
           sellable: 41,
           partial_out_of_stock: 8,
@@ -299,7 +309,7 @@ describe('product operations contracts', () => {
     });
     expect(response.summary.abcGradeCounts.A).toBe(23);
     expect(response.summary.abcGradeCounts.unclassified).toBe(0);
-    expect(response.summary.channelConnectionCounts.connected).toBe(71);
+    expect(response.summary.channelProductCounts[0]?.count).toBe(71);
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);
     expect(response.summary.displayDataAsOf).toBe('2026-07-31');

@@ -72,7 +72,11 @@ export function mapProductOperationsListItem(
   inventoryBySkuId: AvailabilityBySkuId,
   depletion: ProductDepletionProjection,
 ): MasterProductOperationsListItem {
-  const { inventoryOptions: rawOptions, ...metadata } = product;
+  const {
+    activeChannelProducts: _activeChannelProducts,
+    inventoryOptions: rawOptions,
+    ...metadata
+  } = product;
   const options = rawOptions.map((option) => hydrateOption(option, inventoryBySkuId));
   const projections = options.map((option) => projectChannelOptionCapacity(
     option.inventoryComponents.map((component) => ({

@@ -243,6 +243,16 @@ export type MasterProductOperationsListItem = z.infer<
   typeof MasterProductOperationsListItemSchema
 >;
 
+export const ProductOperationsChannelProductCountSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  channel: z.string().min(1),
+  channelAccountName: z.string().min(1),
+  count: z.number().int().nonnegative(),
+}).strict();
+export type ProductOperationsChannelProductCount = z.infer<
+  typeof ProductOperationsChannelProductCountSchema
+>;
+
 export const ProductOperationsListSummarySchema = z.object({
   abcGradeCounts: z.object({
     A: z.number().int().nonnegative(),
@@ -273,10 +283,7 @@ export const ProductOperationsListSummarySchema = z.object({
   }).strict(),
   abcFormula: ProductAbcFormulaSummarySchema.nullable(),
   displayDataAsOf: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/).nullable(),
-  channelConnectionCounts: z.object({
-    connected: z.number().int().nonnegative(),
-    unconnected: z.number().int().nonnegative(),
-  }).strict(),
+  channelProductCounts: z.array(ProductOperationsChannelProductCountSchema),
   inventoryStatusCounts: z.object({
     sellable: z.number().int().nonnegative(),
     partial_out_of_stock: z.number().int().nonnegative(),

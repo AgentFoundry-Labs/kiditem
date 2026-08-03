@@ -31,7 +31,7 @@ export function ProductAbcBadge({
     <span className={cn('inline-flex max-w-full items-center gap-1', compact && 'gap-0.5')} aria-label={primary} title={primary}>
       <span className={cn(
         'inline-flex items-center rounded-md px-2.5 py-1 text-sm font-extrabold leading-none ring-1',
-        compact && 'px-2 py-0.5 text-[13px]', toneClass,
+        compact && 'h-9 min-w-9 justify-center px-2 py-0 text-lg', toneClass,
       )}>
         {displayLabel}
       </span>

@@ -25,6 +25,7 @@ export function ProductRowCard({
   const isWarning = product.inventoryStatus === 'configuration_required'
     || product.inventoryStatus === 'review_required';
   const isOutOfStock = product.inventoryStatus === 'out_of_stock';
+  const categoryLabel = categoryLabelForList(product.category);
   const alertStyle = isWarning
     ? 'border-amber-300 bg-amber-50/70'
     : isOutOfStock
@@ -58,19 +59,18 @@ export function ProductRowCard({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
-                {product.category ?? '미분류'}
-              </span>
+              {categoryLabel ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
+                {categoryLabel}
+              </span> : null}
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {product.isActive ? '판매중' : '판매중지'}
               </span>
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 {INVENTORY_LABELS[product.inventoryStatus]}
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${product.depletion.needsReorder ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-                {product.depletion.coverage === 'shared' ? '공유 SKU 기준' : product.depletion.coverage === 'ready' ? '직접 판매 기준' : '직접 판매 없음'}
-                {product.depletion.needsReorder ? ` · 발주 필요 ${product.depletion.reorderSkuCount}` : ''}
-              </span>
+              {product.depletion.needsReorder ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                발주 필요 {product.depletion.reorderSkuCount}
+              </span> : null}
             </div>
             <Link
               href={`/product-hub/${product.id}`}
@@ -139,4 +139,10 @@ function Metric({ value, label, currency, suffix }: {
       <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">{label}</p>
     </div>
   );
+}
+
+function categoryLabelForList(category: string | null): string | null {
+  const normalized = category?.trim();
+  if (!normalized) return '미분류';
+  return /^[\d\s/._-]+$/.test(normalized) ? null : normalized;
 }

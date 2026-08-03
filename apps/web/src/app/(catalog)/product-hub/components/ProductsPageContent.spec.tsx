@@ -78,7 +78,17 @@ const state = vi.hoisted(() => ({
       abcContributionProfitShareByGrade: { A: 0.89, B: 0.15, C: -0.04 },
       abcFormula: null,
       displayDataAsOf: '2026-07-31',
-      channelConnectionCounts: { connected: 120, unconnected: 6 },
+      channelProductCounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+        count: 120,
+      }, {
+        channelAccountId: '00000000-0000-4000-8000-000000000005',
+        channel: 'coupang_rocket',
+        channelAccountName: 'Coupang Rocket',
+        count: 6,
+      }],
       inventoryStatusCounts: {
         sellable: 81,
         partial_out_of_stock: 7,
@@ -123,10 +133,6 @@ vi.mock('../hooks/useProductHubPageState', () => ({
   useProductHubPageState: () => state,
 }));
 
-vi.mock('./ProductEditorDialog', () => ({
-  ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 만들기</div> : null,
-}));
-
 vi.mock('./ProductAbcDetailDialog', () => ({
   ProductAbcDetailDialog: ({ open, product }: { open: boolean; product: { name: string } | null }) => open ? <div role="dialog">{product?.name} ABC 평가 근거</div> : null,
 }));
@@ -151,9 +157,15 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText('매출 · 광고 · 재고 · 수익성 통합 관리')).toBeInTheDocument();
     expect(screen.getByText('카탈로그 상품 전체')).toBeInTheDocument();
-    expect(screen.getByText('채널 연결')).toBeInTheDocument();
-    expect(screen.getByText('채널 미연결')).toBeInTheDocument();
-    expect(screen.queryByText('현재 페이지 채널 연결')).not.toBeInTheDocument();
+    expect(screen.getByText('채널별 판매중 상품')).toBeInTheDocument();
+    const channelCard = screen.getByText('채널별 판매중 상품').closest('article');
+    expect(channelCard).not.toBeNull();
+    expect(within(channelCard!).getByText('Coupang Wing')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('Coupang Rocket')).toBeInTheDocument();
+    expect(screen.queryByText('채널 연결')).not.toBeInTheDocument();
+    expect(screen.queryByText('채널 미연결')).not.toBeInTheDocument();
+    expect(screen.queryByText('알림')).not.toBeInTheDocument();
+    expect(screen.queryByText('Sellpia 가져오기 내역')).not.toBeInTheDocument();
     const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('A등급')).toBeInTheDocument();
@@ -162,8 +174,8 @@ describe('<ProductsPageContent>', () => {
     expect(within(catalogCard!).getByText('미분류')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('37')).toBeInTheDocument();
     expect(within(catalogCard!).getByText('10')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
-    expect(within(catalogCard!.querySelector('div.grid')!).getByText('6')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('120')).toBeInTheDocument();
+    expect(within(channelCard!).getByText('6')).toBeInTheDocument();
     expect(within(catalogCard!).queryByText(/현재 페이지 A등급/)).not.toBeInTheDocument();
     expect(screen.getByText('재고관리')).toBeInTheDocument();
     expect(screen.getByText('임박 재고')).toBeInTheDocument();
@@ -173,7 +185,6 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('A등급 이익')).toBeInTheDocument();
     expect(screen.getByText('B등급 이익')).toBeInTheDocument();
     expect(screen.getByText('데이터 기준 2026-07-31')).toBeInTheDocument();
-    expect(screen.getByText('알림')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '전체 카테고리' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '완구/놀이' })).toBeInTheDocument();
     expect(screen.getByRole('columnheader', { name: '상품' })).toBeInTheDocument();
@@ -185,7 +196,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.getByText('스테이지 상품')).toBeInTheDocument();
     expect(screen.getByText(/KI-001/)).toBeInTheDocument();
     expect(screen.getAllByText('재고 연결 필요').length).toBeGreaterThan(0);
-    expect(screen.getByText(/공유 SKU 기준/)).toBeInTheDocument();
+    expect(screen.queryByText(/공유 SKU 기준/)).not.toBeInTheDocument();
     const inventoryCard = screen.getByText('재고관리').closest('article');
     expect(inventoryCard).not.toBeNull();
     expect(within(inventoryCard!).getByText('기준 미정')).toBeInTheDocument();
@@ -212,7 +223,7 @@ describe('<ProductsPageContent>', () => {
     expect(screen.queryByText(/CP-11111111/)).not.toBeInTheDocument();
   });
 
-  it('keeps the staged header and enables period, category, and product creation controls without ABC policy controls', () => {
+  it('keeps the staged header focused on period and data controls without manual product creation', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.getByRole('button', { name: '데이터 기준 2026-07-31' })).toBeEnabled();
@@ -222,16 +233,16 @@ describe('<ProductsPageContent>', () => {
     expect(state.setPeriodDays).toHaveBeenCalledWith(7);
     fireEvent.click(screen.getByRole('button', { name: '완구/놀이' }));
     expect(state.setCategory).toHaveBeenCalledWith('완구/놀이');
-    fireEvent.click(screen.getByRole('button', { name: '+ 상품 추가' }));
-    expect(screen.getByRole('dialog', { name: '' })).toHaveTextContent('상품 만들기');
+    expect(screen.queryByRole('button', { name: '+ 상품 추가' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '자동 ABC 정책' })).not.toBeInTheDocument();
   });
 
-  it('uses full-result operating summaries without a duplicate out-of-stock action', () => {
+  it('uses full-result operating summaries without a duplicate inventory action card', () => {
     render(<ProductsPageContent headingLevel={1} />);
 
     expect(screen.queryByText(/현재 페이지/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /품절 상품/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: /발주하기/ })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /재고위험/ })).not.toBeInTheDocument();
     expect(screen.getAllByText('재고위험').length).toBeGreaterThan(0);
     expect(screen.getAllByText('9').length).toBeGreaterThan(0);
@@ -272,7 +283,17 @@ describe('<ProductsPageContent>', () => {
       summary: {
         ...defaultData.summary,
         abcGradeCounts: { A: 1, B: 2, C: 5, unclassified: 1 },
-        channelConnectionCounts: { connected: 8, unconnected: 1 },
+        channelProductCounts: [{
+          channelAccountId: '00000000-0000-4000-8000-000000000004',
+          channel: 'coupang',
+          channelAccountName: 'Coupang Wing',
+          count: 8,
+        }, {
+          channelAccountId: '00000000-0000-4000-8000-000000000005',
+          channel: 'coupang_rocket',
+          channelAccountName: 'Coupang Rocket',
+          count: 1,
+        }],
       },
     };
     state.overviewData = defaultData;
@@ -282,7 +303,12 @@ describe('<ProductsPageContent>', () => {
     const catalogCard = screen.getByText('카탈로그 상품 전체').closest('article');
     expect(catalogCard).not.toBeNull();
     expect(within(catalogCard!).getByText('126')).toBeInTheDocument();
-    expect(within(catalogCard!).getByText('120')).toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('Coupang Wing')).not.toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('채널 연결')).not.toBeInTheDocument();
+    expect(within(catalogCard!).queryByText('채널 미연결')).not.toBeInTheDocument();
+    const channelCard = screen.getByText('채널별 판매중 상품').closest('article');
+    expect(channelCard).not.toBeNull();
+    expect(within(channelCard!).getByText('120')).toBeInTheDocument();
     expect(screen.getByText('9개 표시')).toBeInTheDocument();
   });
 

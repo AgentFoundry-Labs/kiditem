@@ -15,6 +15,21 @@ describe('ProductOperationsService', () => {
     const first = rawListProduct(productId);
     const secondId = '00000000-0000-4000-8000-000000000006';
     const second = rawListProduct(secondId);
+    first.activeChannelProducts = [{
+      channelAccountId: '00000000-0000-4000-8000-000000000101',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }];
+    second.activeChannelProducts = [{
+      channelAccountId: '00000000-0000-4000-8000-000000000101',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }, {
+      channelAccountId: '00000000-0000-4000-8000-000000000102',
+      channel: 'coupang_rocket',
+      channelAccountName: 'Coupang Rocket',
+    }];
+    second.isActive = false;
     repository.listProducts.mockResolvedValue({
       items: [first, second],
       page: 1,
@@ -94,6 +109,12 @@ describe('ProductOperationsService', () => {
       depletionCoveredProductCount: 2,
       sharedDepletionProductCount: 1,
     });
+    expect(result.summary.channelProductCounts).toEqual(expect.arrayContaining([
+      expect.objectContaining({ channelAccountName: 'Coupang Wing', count: 1 }),
+    ]));
+    expect(result.summary.channelProductCounts).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ channelAccountName: 'Coupang Rocket' }),
+    ]));
   });
 
   it('creates only the MasterProduct without a synthetic option layer', async () => {
@@ -432,6 +453,7 @@ function rawListProduct(id: string) {
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
+    activeChannelProducts: [],
     traffic: null,
     visitorCount: 11,
     viewCount: 22,

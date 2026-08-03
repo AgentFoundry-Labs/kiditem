@@ -7,7 +7,6 @@ import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
 import { PERIOD_OPTIONS } from '../lib/product-page-config';
 import { ProductCategoryTabs } from './ProductCategoryTabs';
-import { ProductEditorDialog } from './ProductEditorDialog';
 import { ProductAbcDetailDialog } from './ProductAbcDetailDialog';
 import { ProductOperationsCommandCenter } from './ProductOperationsCommandCenter';
 import { ProductOperationsDataStatusAction } from './ProductOperationsDataStatusAction';
@@ -17,7 +16,6 @@ import type { MasterProductOperationsListItem } from '@kiditem/shared/product-op
 
 export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useProductHubPageState();
-  const [editorOpen, setEditorOpen] = useState(false);
   const [abcDetailProduct, setAbcDetailProduct] = useState<MasterProductOperationsListItem | null>(null);
   const data = state.data;
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
@@ -81,13 +79,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
             displayDataAsOf={state.overviewData?.summary.displayDataAsOf ?? null}
             periodDays={state.periodDays}
           />
-          <button
-            type="button"
-            onClick={() => setEditorOpen(true)}
-            className="flex h-9 items-center gap-1.5 rounded-xl bg-[var(--primary)] px-4 text-[13px] font-semibold text-white"
-          >
-            + 상품 추가
-          </button>
         </div>
       </header>
 
@@ -238,11 +229,6 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
         </div>
       ) : null}
 
-      <ProductEditorDialog
-        open={editorOpen}
-        onOpenChange={setEditorOpen}
-        onSaved={() => undefined}
-      />
       <ProductAbcDetailDialog
         open={abcDetailProduct !== null}
         onOpenChange={(open) => !open && setAbcDetailProduct(null)}

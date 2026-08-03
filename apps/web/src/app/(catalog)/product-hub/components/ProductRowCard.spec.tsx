@@ -37,6 +37,21 @@ describe('ProductRowCard', () => {
     expect(screen.getByText('10%')).toBeInTheDocument();
     expect(screen.queryByText('미수집')).not.toBeInTheDocument();
   });
+
+  it('hides opaque category references and stock-basis labels from the product list', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      category: '64681/1937',
+      depletion: {
+        ...product().depletion,
+        coverage: 'shared',
+      },
+    }} />);
+
+    expect(screen.queryByText('64681/1937')).not.toBeInTheDocument();
+    expect(screen.queryByText('공유 SKU 기준')).not.toBeInTheDocument();
+    expect(screen.queryByText('직접 판매 기준')).not.toBeInTheDocument();
+  });
 });
 
 function product(): MasterProductOperationsListItem {

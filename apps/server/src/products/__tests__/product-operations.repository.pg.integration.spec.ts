@@ -150,6 +150,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         value: '13712531060',
       },
     });
+    expect(page.summary.channelProductCounts).toEqual([{
+      channelAccountId,
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+      count: 1,
+    }]);
     expect(detail).toMatchObject({
       code: internalCode,
       displayReference: {
@@ -307,7 +313,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(page.items).toHaveLength(1);
     expect(page.total).toBe(4);
     expect(page.summary.abcGradeCounts).toEqual({ A: 2, B: 1, C: 0, unclassified: 1 });
-    expect(page.summary.channelConnectionCounts).toEqual({ connected: 0, unconnected: 4 });
+    expect(page.summary.channelProductCounts).toEqual([]);
     expect(page.summary.inventoryStatusCounts).toEqual({
       sellable: 0,
       partial_out_of_stock: 0,

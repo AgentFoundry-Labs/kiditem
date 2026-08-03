@@ -374,6 +374,11 @@ function toListItem(
   return {
     ...metadata(row),
     updatedAt: row.updatedAt,
+    activeChannelProducts: activeListings.map((listing) => ({
+      channelAccountId: listing.channelAccountId,
+      channel: listing.channelAccount.channel,
+      channelAccountName: listing.channelAccount.name,
+    })),
     inventoryOptions: activeListings.flatMap((listing) =>
       listing.options.map(toRepositoryOption)),
     channelCount: activeListings.length,

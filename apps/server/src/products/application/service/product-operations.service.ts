@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common'
 import {
   CreateMasterProductInputSchema,
   MasterProductOperationsListQuerySchema,
+  type ProductOperationsChannelProductCount,
   ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
   type ProductDepletionProjection,
@@ -72,6 +73,7 @@ export class ProductOperationsService implements ProductOperationsPort {
         inventoryStatus === query.inventoryStatus)
       : hydrated;
     const summaryMasterProductIds = filtered.map(({ id }) => id);
+    const summaryMasterProductIdSet = new Set(summaryMasterProductIds);
     const depletionByMasterProductId = await this.depletion.findByMasterProductIds({
       organizationId,
       masterProductIds: summaryMasterProductIds,
@@ -88,7 +90,11 @@ export class ProductOperationsService implements ProductOperationsPort {
       page: query.page,
       limit: query.limit,
       summary: {
-        ...summarizeProducts(items),
+        ...summarizeProducts(
+          items,
+          summarizeChannelProducts(raw.items.filter((item) =>
+            item.isActive && summaryMasterProductIdSet.has(item.id))),
+        ),
         displayDataAsOf: dataStatus.displayDataAsOf,
       },
     };
@@ -257,6 +263,7 @@ function noDirectSales(): ProductDepletionProjection {
 
 function summarizeProducts(
   products: Array<ReturnType<typeof mapProductOperationsListItem>>,
+  channelProductCounts: ProductOperationsChannelProductCount[],
 ): ProductOperationsListSummary {
   const counts = products.reduce<ProductOperationsListSummary>((counts, product) => {
     const abcGrade = product.abcGrade;
@@ -277,9 +284,6 @@ function summarizeProducts(
     } else {
       counts.abcStatusCounts.CALIBRATION_PENDING += 1;
     }
-    counts.channelConnectionCounts[
-      product.channelCount > 0 ? 'connected' : 'unconnected'
-    ] += 1;
     counts.inventoryStatusCounts[product.inventoryStatus] += 1;
     if (product.profit !== null && product.profit < 0) {
       counts.negativeProfitCount += 1;
@@ -309,7 +313,7 @@ function summarizeProducts(
     abcContributionProfitShareByGrade: { A: 0, B: 0, C: 0 },
     abcFormula: null,
     displayDataAsOf: conservativeDisplayDataAsOf(products),
-    channelConnectionCounts: { connected: 0, unconnected: 0 },
+    channelProductCounts,
     inventoryStatusCounts: {
       sellable: 0,
       partial_out_of_stock: 0,
@@ -331,6 +335,27 @@ function summarizeProducts(
     }
   }
   return counts;
+}
+
+function summarizeChannelProducts(
+  products: Array<{
+    activeChannelProducts: Array<Omit<ProductOperationsChannelProductCount, 'count'>>;
+  }>,
+): ProductOperationsChannelProductCount[] {
+  const counts = new Map<string, ProductOperationsChannelProductCount>();
+  for (const product of products) {
+    for (const channelProduct of product.activeChannelProducts) {
+      const existing = counts.get(channelProduct.channelAccountId);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        counts.set(channelProduct.channelAccountId, { ...channelProduct, count: 1 });
+      }
+    }
+  }
+  return [...counts.values()].sort((left, right) =>
+    left.channelAccountName.localeCompare(right.channelAccountName)
+    || left.channelAccountId.localeCompare(right.channelAccountId));
 }
 
 function conservativeDisplayDataAsOf(

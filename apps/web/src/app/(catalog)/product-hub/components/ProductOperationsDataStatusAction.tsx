@@ -25,6 +25,7 @@ export function ProductOperationsDataStatusAction({
   const refresh = useMutation({
     mutationFn: () => startProductProfitabilityRefreshAction({ sourceSurface: 'domain_screen' }),
     onSuccess: async () => {
+      onOpenChange(false);
       toast.success('수익성 데이터 갱신을 시작했습니다.');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.dataStatus(periodDays) }),

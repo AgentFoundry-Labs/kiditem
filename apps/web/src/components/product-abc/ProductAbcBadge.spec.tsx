@@ -43,7 +43,7 @@ describe('ProductAbcBadge', () => {
     expect(screen.getByText('A')).toHaveClass(
       'bg-emerald-100',
       'text-emerald-800',
-      'text-[13px]',
+      'text-lg',
     );
 
     rerender(<ProductAbcBadge grade="B" evaluation={productAbcEvaluation()} compact />);
