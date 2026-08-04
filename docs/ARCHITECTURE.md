@@ -583,8 +583,8 @@ No bulk cutover backfill copies legacy preparation or deletion rows into these
 operation ledgers. The registration runtime may import one scoped legacy
 preparation under its row lock when that row is actually claimed; it never
 turns an uncertain legacy provider attempt into a fresh create.
-The staging cutover rebuilds non-auth application data against the final schema,
-and environments with data worth preserving require a separately reviewed,
+The retired hosted database was not authoritative and was deleted without a
+cutover. Environments with data worth preserving require a separately reviewed,
 hash-bound migration before adopting this ownership model. Listing deletion
 authorization and uncertainty live in `ChannelListingDeletionOperation`; an
 extension-observed success alone remains `reconciling/uncertain` and cannot
@@ -600,8 +600,8 @@ for the same account are rejected deterministically.
 
 Historical sourcing migrations populated compatibility rows for older candidate
 and content models. This reconstruction intentionally adds no registration or
-deletion ledger backfill because staging application data is rebuilt and there
-is no legacy marketplace operation history to preserve.
+deletion ledger backfill because the authoritative Office dataset has no legacy
+marketplace operation history to preserve.
 
 `ContentWorkspace.ownerType` is `sourcing_candidate`, `channel_listing`, or
 `direct_detail_page`. Registration branches selected artifact/revision metadata

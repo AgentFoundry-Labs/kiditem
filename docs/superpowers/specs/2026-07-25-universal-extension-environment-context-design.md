@@ -2,7 +2,11 @@
 
 ## Status and Authority
 
-Approved by the user in the design conversation on 2026-07-25.
+Approved by the user in the design conversation on 2026-07-25, then superseded
+for environment availability by
+[Hosted Environment Decommission Design](2026-08-04-staging-decommission-design.md).
+The staging values below are retained only as the historical input to this
+design; supported runtime environments are now `local` and `office`.
 
 This change is classified as a cross-layer authentication and browser-platform
 boundary. It may cross the shared web authentication bridge, the three Chrome

@@ -136,7 +136,7 @@ If the release includes durable data migrations, run the approved phase order
 against the Office database with a fresh backup in place:
 
 ```powershell
-npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --target local `
+npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
 
 & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
@@ -145,7 +145,7 @@ npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --targ
   -ApplySchema `
   -AcceptDataLoss
 
-npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target local `
+npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
 ```
 

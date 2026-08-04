@@ -11,15 +11,15 @@ describe('getImageDownloadFetchInit', () => {
   it('does not attach credentials to cross-origin public image URLs', () => {
     expect(
       getImageDownloadFetchInit(
-        'https://gheoobctiarluauprvro.supabase.co/storage/v1/object/public/kiditem-staging-assets/image.jpg',
-        'http://3.106.120.252',
+        'https://cdn.example.com/image.jpg',
+        'http://kiditem-office',
       ),
     ).toBeUndefined();
   });
 
   it('includes credentials for same-origin API image URLs', () => {
     expect(
-      getImageDownloadFetchInit('/api/assets/rendered-image.jpg', 'http://3.106.120.252'),
+      getImageDownloadFetchInit('/api/assets/rendered-image.jpg', 'http://kiditem-office'),
     ).toEqual({ credentials: 'include' });
   });
 });

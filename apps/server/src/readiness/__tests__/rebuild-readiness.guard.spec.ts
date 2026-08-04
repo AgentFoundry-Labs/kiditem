@@ -26,7 +26,7 @@ describe('RebuildReadinessGuard', () => {
     const prisma = {
       systemSetting: {
         findUnique: vi.fn(async () => ({
-          value: { state: 'snapshot_required', target: 'staging', originRunId: '12345' },
+          value: { state: 'snapshot_required', target: 'office', originRunId: '12345' },
         })),
       },
     };
@@ -89,7 +89,7 @@ describe('RebuildReadinessGuard', () => {
     const prisma = {
       systemSetting: {
         findUnique: vi.fn(async () => ({
-          value: { state: 'snapshot_required', target: 'staging', originRunId: '12345' },
+          value: { state: 'snapshot_required', target: 'office', originRunId: '12345' },
         })),
       },
     };

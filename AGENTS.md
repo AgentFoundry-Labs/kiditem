@@ -105,21 +105,21 @@ business rewrites.
 
 ## CI/CD + Infrastructure
 
-- GitHub Actions is the only supported release entrypoint. Do not add local
-  deploy scripts, `docker save` / `docker load` SSH streaming, or manual EC2
-  bootstrap scripts as an alternate production/staging path.
+- GitHub Actions is the only supported Office release entrypoint. Do not add
+  hosted staging/production workflows, local image builds, `docker save` /
+  `docker load` SSH streaming, or manual EC2 bootstrap scripts as alternate
+  paths.
 - Runtime images are built by GitHub Actions, pushed to GHCR, and deployed by
-  immutable digest refs. Mutable tags such as `staging` or
-  `production-candidate` are human pointers only.
-- GitHub Environment variables/secrets are the release-time configuration
-  source of truth. Local `.secrets/` files are operator conveniences and must
-  not become durable deploy inputs.
-- Terraform owns long-lived host shape: EC2 bootstrap, security group rules,
-  Docker/nginx installation, root volume size, and Elastic IP allocation.
-  Manual console changes must be backfilled into Terraform or documented as
-  temporary drift in the relevant runbook.
-- Changes under `.github/workflows/`, `deploy/`, `docker-compose*.yml`,
-  `infra/terraform/`, or deployment runbooks must keep
+  immutable digest refs. The mutable `office-candidate` tag is a human pointer
+  only.
+- The GitHub `office` Environment owns release identity/approval. Protected
+  Office runtime env files remain on the operator-managed host and must not be
+  copied into workflow artifacts or committed under `.secrets/`.
+- There is no Terraform-owned host. Introduce reproducible home-server
+  provisioning only through a separately reviewed Office infrastructure
+  design; do not revive the retired EC2 topology.
+- Changes under `.github/workflows/`, `deploy/`, `docker-compose*.yml`, or
+  deployment runbooks must keep
   [`docs/runbooks/deployment-architecture.md`](docs/runbooks/deployment-architecture.md)
   and the PR checks aligned.
 - Add or keep a regression gate before deleting a legacy deploy path. Once the

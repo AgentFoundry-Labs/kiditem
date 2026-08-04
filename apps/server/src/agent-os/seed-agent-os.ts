@@ -2,7 +2,7 @@
  * Idempotent seed for Agent OS per-organization runtime instances.
  *
  * This file lives under `src/` so production Docker images can run the same
- * seed entrypoint before staging starts a new API image. The root
+ * seed entrypoint before Office starts a new API image. The root
  * `scripts/seed-agent-os.ts` wrapper calls this module for local/dev usage.
  */
 import { config } from 'dotenv';

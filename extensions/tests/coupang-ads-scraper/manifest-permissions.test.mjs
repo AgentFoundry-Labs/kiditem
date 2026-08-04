@@ -18,24 +18,19 @@ test("seller catalog collection can inspect Coupang seller shops", async () => {
   );
 });
 
-test('Wing form image fetch has debugger access and only the committed storage hosts', async () => {
+test('Wing form image fetch has debugger access and only local/Office storage hosts', async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, 'utf8'));
 
   assert.ok(manifest.permissions.includes('debugger'));
   assert.ok(manifest.host_permissions.includes('http://localhost:9000/*'));
   assert.ok(manifest.host_permissions.includes('http://kiditem-office:9000/*'));
-  assert.ok(
-    manifest.host_permissions.includes(
-      'https://gheoobctiarluauprvro.storage.supabase.co/*',
-    ),
-  );
   assert.equal(
     manifest.host_permissions.some((pattern) => pattern === 'https://*.supabase.co/*'),
     false,
   );
 });
 
-test("web bridge reaches local, office, and staging KidItem origins", async () => {
+test("web bridge reaches local and Office KidItem origins", async () => {
   const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
 
   const externalMatches = manifest.externally_connectable?.matches ?? [];
@@ -46,10 +41,6 @@ test("web bridge reaches local, office, and staging KidItem origins", async () =
   assert.ok(
     externalMatches.includes("http://kiditem-office/*"),
     "office web origin must be externally connectable",
-  );
-  assert.ok(
-    externalMatches.includes("https://staging.merchon.org/*"),
-    "staging web origin must be externally connectable for chrome.runtime.sendMessage",
   );
 
   const hostBridge = (manifest.content_scripts ?? []).find((entry) =>
@@ -63,9 +54,5 @@ test("web bridge reaches local, office, and staging KidItem origins", async () =
   assert.ok(
     hostBridge.matches.includes("http://kiditem-office/*"),
     "host-bridge must inject on the office server",
-  );
-  assert.ok(
-    hostBridge.matches.includes("https://staging.merchon.org/*"),
-    "host-bridge must inject on staging so the web app can discover the extension id",
   );
 });

@@ -1,13 +1,13 @@
 /**
  * Shared CLI argument parser for repo scripts. Three callers (`dev-data.ts`,
- * `dev-data-coupang.ts`, `staging-db-baseline.ts`) used to inline the same
+ * durable scripts used to inline the same
  * argv → `{ command, values, flags }` parser plus the same `value` /
  * `values` / `bool` / `requiredValue` accessors. This module is the single
  * source of truth.
  *
  * Type-blind on purpose: each caller passes the command union it accepts and
  * the default command. The command validation stays at the caller so that
- * dev-data's `Command` type and staging-db-baseline's `Command` type can
+ * individual scripts' `Command` types can
  * stay narrow and explicit at the call site.
  */
 

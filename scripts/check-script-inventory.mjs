@@ -4,10 +4,8 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
-  'authoritative-inventory-rebuild.ts',
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
-  'check-sellpia-cutover-preflight.ts',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
@@ -28,8 +26,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'safe-prisma-db-push.mjs',
   'seed-agent-os.ts',
   'seed-order-collection-mall-accounts.ts',
-  'staging-db-baseline.ts',
-  'storage-cache-control.ts',
   'vitest.config.ts',
 ]);
 
@@ -68,9 +64,6 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   const undocumented = expected.filter((file) => !readme.includes(`scripts/${file}`));
 
   const missingPackageHooks = [];
-  if (!packageScripts['check:sellpia-cutover-preflight']) {
-    missingPackageHooks.push('check:sellpia-cutover-preflight');
-  }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }

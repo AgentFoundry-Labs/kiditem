@@ -121,13 +121,9 @@ describe('BrowserCollectionSessionViewSchema', () => {
       ...createSession(),
       environmentId: 'office',
     }).environmentId).toBe('office');
-    expect(BrowserCollectionSessionViewSchema.parse({
-      ...createSession(),
-      environmentId: 'staging',
-    }).environmentId).toBe('staging');
     expect(() => BrowserCollectionSessionViewSchema.parse({
       ...createSession(),
-      environmentId: 'production',
+      environmentId: 'staging',
     })).toThrow();
   });
 

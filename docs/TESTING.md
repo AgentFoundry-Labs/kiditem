@@ -273,7 +273,7 @@ node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
 
-검증 실패는 staging 또는 `main` promotion 전에 fix-forward 한다. Release image 는
+검증 실패는 Office 승격 또는 `main` promotion 전에 fix-forward 한다. Release image 는
 별도 build workflow 에서 다시 clean build 하므로 배포 산출물 계약은 유지된다.
 
 ## FAQ
