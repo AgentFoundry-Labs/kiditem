@@ -12,10 +12,13 @@ implements ConfirmedChannelComponentReferencePort {
   async listReferencedSellpiaProductCodes(
     organizationId: string,
   ): Promise<string[]> {
-    const references = await this.prisma.productVariantComponent.findMany({
+    const references = await this.prisma.channelListingOptionInventoryComponent.findMany({
       where: {
         organizationId,
-        productVariant: { organizationId },
+        channelListingOption: {
+          organizationId,
+          listing: { organizationId, masterProductId: { not: null } },
+        },
         sellpiaInventorySku: { organizationId },
       },
       select: { sellpiaInventorySku: { select: { code: true } } },

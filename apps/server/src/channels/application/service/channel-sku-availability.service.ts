@@ -4,7 +4,7 @@ import type {
   ChannelSkuAvailabilityListResponse,
   ChannelSkuAvailabilityQuery,
 } from '@kiditem/shared/channel-sku-availability';
-import { projectVariantCapacity } from '../../../products/domain/product-variant-capacity';
+import { projectChannelOptionCapacity } from '../../../products/domain/channel-option-capacity';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
 import {
@@ -93,8 +93,8 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
     rows: ChannelAvailabilityRepositoryRow[],
   ): Promise<ChannelSkuAvailabilityItem[]> {
     const sellpiaInventorySkuIds = [...new Set(rows.flatMap((row) =>
-      row.variant?.components.map(({ sellpiaInventorySkuId }) =>
-        sellpiaInventorySkuId) ?? []))].sort((left, right) =>
+      row.inventoryComponents.map(({ sellpiaInventorySkuId }) =>
+        sellpiaInventorySkuId)))].sort((left, right) =>
       left.localeCompare(right));
     const availability = await this.inventory.findBySkuIds({
       organizationId,
@@ -112,7 +112,7 @@ function toAvailabilityItem(
   row: ChannelAvailabilityRepositoryRow,
   inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
 ): ChannelSkuAvailabilityItem {
-  const components = row.variant?.components.map((component) => {
+  const components = row.inventoryComponents.map((component) => {
     const inventory = inventoryBySkuId.get(component.sellpiaInventorySkuId);
     return {
       ...component,
@@ -121,30 +121,28 @@ function toAvailabilityItem(
       availableStock: inventory?.availableStock ?? 0,
       isActive: inventory?.isActive ?? false,
     };
-  }) ?? [];
-  const projection = row.variant
-    ? projectVariantCapacity(components.map((component) => ({
+  });
+  const projection = projectChannelOptionCapacity(components.map((component) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       currentStock: component.currentStock,
       activeCommitmentQuantity: component.activeCommitmentQuantity,
       availableStock: component.availableStock,
       quantity: component.quantity,
       isActive: component.isActive,
-    })))
-    : null;
-  const recipeStatus = !row.variant
-    ? 'unmatched' as const
-    : !row.variant.isActive
-      ? 'review_required' as const
-    : projection?.warningState === 'none'
+    })));
+  const recipeStatus = components.length === 0
+    ? row.listing.masterProductId
+      ? 'configuration_required' as const
+      : 'unmatched' as const
+    : projection.warningState === 'none'
       ? 'matched' as const
-      : projection!.warningState;
+      : projection.warningState;
   const mappingStatus = recipeStatus === 'matched'
     ? 'matched' as const
     : recipeStatus === 'unmatched'
       ? 'unmatched' as const
       : 'needs_review' as const;
-  const sellableStock = mappingStatus === 'matched' ? projection!.capacity : null;
+  const sellableStock = mappingStatus === 'matched' ? projection.capacity : null;
   const componentCapacities = components.map((component) => ({
     component,
     capacity: Math.floor(component.availableStock / component.quantity),
@@ -173,9 +171,6 @@ function toAvailabilityItem(
       sellableStock,
       updatedAt: row.option.updatedAt,
     },
-    productVariantId: row.variant?.id ?? null,
-    variantCode: row.variant?.code ?? null,
-    variantName: row.variant?.name ?? null,
     recipeStatus,
     components: componentCapacities.map(({ component, capacity }) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
@@ -189,13 +184,10 @@ function toAvailabilityItem(
       purchasePrice: component.purchasePrice,
       isActive: component.isActive,
       quantity: component.quantity,
-      source: component.source,
       componentCapacity: capacity,
       isBottleneck: mappingStatus === 'matched' && capacity === sellableStock,
     })),
-    warnings: !row.variant?.isActive && row.variant !== null
-      ? ['variant_inactive']
-      : recipeStatus === 'configuration_required'
+    warnings: recipeStatus === 'configuration_required'
       ? ['configuration_required']
       : components.some((component) => !component.isActive)
         ? ['component_inactive']

@@ -39,7 +39,7 @@ type WorkbookDecision = {
   shortageReason: string | null;
   allocations: Array<{
     sellpiaInventorySkuId: string;
-    unitsPerVariant: number;
+    unitsPerSale: number;
     quantity: number;
   }>;
 };
@@ -162,21 +162,11 @@ implements RocketWorkbookExportTransactionPort {
               confirmedQuantity: decision.workbookQuantity,
               shortageReason: decision.shortageReason,
               organization: { connect: { id: input.organizationId } },
-              ...(decision.source.channelSkuId ? {
+              ...(decision.source.channelListingOptionId ? {
                 channelListingOption: {
                   connect: {
                     id_organizationId: {
-                      id: decision.source.channelSkuId,
-                      organizationId: input.organizationId,
-                    },
-                  },
-                },
-              } : {}),
-              ...(decision.source.productVariantId ? {
-                productVariant: {
-                  connect: {
-                    id_organizationId: {
-                      id: decision.source.productVariantId,
+                      id: decision.source.channelListingOptionId,
                       organizationId: input.organizationId,
                     },
                   },
@@ -184,7 +174,7 @@ implements RocketWorkbookExportTransactionPort {
               } : {}),
               allocations: {
                 create: decision.allocations.map((allocation) => ({
-                  unitsPerVariant: allocation.unitsPerVariant,
+                  unitsPerSale: allocation.unitsPerSale,
                   quantity: allocation.quantity,
                   organization: { connect: { id: input.organizationId } },
                   sellpiaInventorySku: {
@@ -437,8 +427,7 @@ function buildDecisions(
       );
     }
     if (
-      !source.channelSkuId
-      || !source.productVariantId
+      !source.channelListingOptionId
       || source.components.length === 0
       || source.components.some((component) => !component.isActive)
     ) {
@@ -453,7 +442,7 @@ function buildDecisions(
       shortageReason: request.shortageReasons[requestRow.poLineId] ?? null,
       allocations: source.components.map((component) => ({
         sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-        unitsPerVariant: component.quantity,
+        unitsPerSale: component.quantity,
         quantity: workbookQuantity * component.quantity,
       })).filter(({ quantity }) => quantity > 0),
     };
@@ -466,30 +455,27 @@ async function assertCurrentRecipes(
   channelAccountId: string,
   decisions: WorkbookDecision[],
 ): Promise<void> {
-  const variantIds = [...new Set(decisions.flatMap(({ source }) =>
-    source.productVariantId ? [source.productVariantId] : []))];
-  if (variantIds.length === 0) return;
-  const variants = await tx.productVariant.findMany({
-    where: { id: { in: variantIds }, organizationId, isActive: true },
+  const optionIds = [...new Set(decisions.flatMap(({ source }) =>
+    source.channelListingOptionId ? [source.channelListingOptionId] : []))];
+  if (optionIds.length === 0) return;
+  const options = await tx.channelListingOption.findMany({
+    where: {
+      id: { in: optionIds },
+      organizationId,
+      isActive: true,
+      listing: { channelAccountId, isActive: true, masterProductId: { not: null } },
+    },
     select: {
       id: true,
-      components: {
+      inventoryComponents: {
         select: { sellpiaInventorySkuId: true, quantity: true },
         orderBy: { sellpiaInventorySkuId: 'asc' },
       },
-      channelListingOptions: {
-        where: {
-          organizationId,
-          isActive: true,
-          listing: { channelAccountId, isActive: true },
-        },
-        select: { id: true },
-      },
     },
   });
-  const byId = new Map(variants.map((variant) => [variant.id, variant]));
+  const byId = new Map(options.map((option) => [option.id, option]));
   for (const decision of decisions) {
-    const variant = byId.get(decision.source.productVariantId!);
+    const option = byId.get(decision.source.channelListingOptionId!);
     const expected = decision.source.components
       .map(({ sellpiaInventorySkuId, quantity }) => ({
         sellpiaInventorySkuId,
@@ -498,14 +484,11 @@ async function assertCurrentRecipes(
       .sort((left, right) =>
         left.sellpiaInventorySkuId.localeCompare(right.sellpiaInventorySkuId));
     if (
-      !variant
-      || !variant.channelListingOptions.some(
-        ({ id }) => id === decision.source.channelSkuId,
-      )
-      || JSON.stringify(variant.components) !== JSON.stringify(expected)
+      !option
+      || JSON.stringify(option.inventoryComponents) !== JSON.stringify(expected)
     ) {
       throw new ConflictException(
-        'ProductVariant recipe changed after Rocket preview.',
+        'Channel option inventory recipe changed after Rocket preview.',
       );
     }
   }
@@ -632,8 +615,7 @@ function workbookRequestHash(
       orderQuantity: row.orderQty,
       workbookQuantity: input.request.editedQuantities[row.poLineId],
       shortageReason: input.request.shortageReasons[row.poLineId] ?? null,
-      channelSkuId: preview?.channelSkuId ?? null,
-      productVariantId: preview?.productVariantId ?? null,
+      channelListingOptionId: preview?.channelListingOptionId ?? null,
       components: [...(preview?.components ?? [])]
         .map(({ sellpiaInventorySkuId, quantity }) => ({
           sellpiaInventorySkuId,

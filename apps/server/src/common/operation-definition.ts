@@ -36,10 +36,19 @@ export interface OperationCancelContext {
   requestedByUserId: string | null;
 }
 
+export interface StartChildOperation {
+  operationKey: string;
+  input: Record<string, unknown>;
+  idempotencyKey: string;
+}
+
 export type OperationHandlerResult =
   | { kind: 'completed'; result: Record<string, unknown> }
   | { kind: 'delegated'; nativeRunType: string; nativeRunId: string }
-  | { kind: 'waiting_runtime' };
+  | { kind: 'waiting_runtime' }
+  | { kind: 'waiting_dependency'; child: StartChildOperation }
+  | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
+  | { kind: 'failed'; code: string; message: string };
 
 export interface OperationHandler {
   execute(context: OperationHandlerContext): Promise<OperationHandlerResult>;

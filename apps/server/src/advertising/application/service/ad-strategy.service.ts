@@ -97,10 +97,10 @@ export class AdStrategyService {
 
   /** ABC 등급 규칙 기반 recommendations + 요약. */
   async getRules(
-    _period: '7d' | '14d' | 'month',
+    period: '7d' | '14d' | 'month',
     organizationId: string,
   ): Promise<AdRulesData> {
-    const recommendations = await this.buildActions(organizationId);
+    const recommendations = await this.buildActions(organizationId, period);
     return toAdRulesData(recommendations);
   }
 
@@ -116,6 +116,7 @@ export class AdStrategyService {
         organizationId,
         year,
         month,
+        period,
         config,
       ),
       this.accountKpiRepo.findCoupangAdsDaily(organizationId, period),
@@ -182,7 +183,7 @@ export class AdStrategyService {
    * agent task 의존 없음 (B2b 복원).
    */
   async getRecommendations(organizationId: string): Promise<AdStrategyRecommendation[]> {
-    const actions = await this.buildActions(organizationId);
+    const actions = await this.buildActions(organizationId, '14d');
     return toRecommendationCards(actions);
   }
 
@@ -370,13 +371,17 @@ export class AdStrategyService {
   // ─────────────────────────────────────────────────────────────
 
   /** getRules / getRecommendations 공통 — strategy context hydrate 후 rule 평가. */
-  private async buildActions(organizationId: string): Promise<AdStrategyAction[]> {
+  private async buildActions(
+    organizationId: string,
+    period: '7d' | '14d' | 'month',
+  ): Promise<AdStrategyAction[]> {
     const { year, month } = getCurrentPeriod();
     const config = await this.adConfigService.getConfig(organizationId);
     const ctx = await this.strategyContextRepo.loadStrategyContext(
       organizationId,
       year,
       month,
+      period,
       config,
     );
     const listings = await this.loadExactAvailability(

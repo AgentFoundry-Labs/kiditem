@@ -21,10 +21,9 @@ npm run test:scripts
 | path | owner / purpose | entrypoint |
 |---|---|---|
 | `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only rebuild guard; staging account-only export/restore plus production selective Coupang replay and source/readiness verification | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
-| `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
+| `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-sellpia-cutover-preflight.ts` | manual read-only diagnostic for the retired expand-release preservation/account/content/tenant assumptions; not part of current CI/CD | `npm run check:sellpia-cutover-preflight` |
-| `scripts/check-sellpia-db-push-warning.mjs` | manual diagnostic for the retired additive/composite-key Prisma warning allowlist; not part of current CI/CD | direct operator troubleshooting only |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
@@ -47,7 +46,6 @@ npm run test:scripts
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/staging-deploy.md` |
 | `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
 | `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
-| `scripts/transfer-channel-recipes.ts` | exports confirmed local channel recipes to a stable-identity artifact and plans/applies create-if-empty manual recipes through authenticated local or staging APIs | `npm run recipes:transfer`, `docs/runbooks/channel-recipe-transfer.md` |
 
 ## Support Files
 
@@ -56,7 +54,6 @@ npm run test:scripts
 | `scripts/.shared-interface-names-baseline.txt` | existing exported Zod contracts not yet renamed to `FooSchema` |
 | `scripts/.shared-root-imports-baseline.txt` | baseline for `check-shared-root-imports.sh` |
 | `scripts/.tenant-scope-allowlist.txt` | narrow false-positive allowlist for `check-tenant-scope.sh` |
-| `scripts/channel-recipe-mappings/` | explicitly reviewed, shareable channel external ID → Sellpia SKU/quantity datasets; never contains organization/account UUIDs, credentials, names, prices, stock, or raw payloads |
 | `scripts/vitest.config.ts` | isolated Vitest config for script helper tests |
 | `scripts/__tests__/` | tests for script helpers and runbook automation |
 

@@ -459,6 +459,8 @@ export class DashboardSalesService {
         netProfit: 0,
         profitRate: 0,
         needsScrape: false,
+        trafficAvailable: wingCur.isCollected,
+        trafficObservedAt: wingCur.lastObservedAt?.toISOString() ?? null,
       } satisfies TrafficKpi;
     }
     return {
@@ -473,6 +475,8 @@ export class DashboardSalesService {
       source: wing ? 'wing' : undefined,
       netProfit: cur.netProfit,
       profitRate: pct1(cur.netProfit, cur.revenue),
+      trafficAvailable: wingCur.isCollected,
+      trafficObservedAt: wingCur.lastObservedAt?.toISOString() ?? null,
     } satisfies TrafficKpi;
   }
 }

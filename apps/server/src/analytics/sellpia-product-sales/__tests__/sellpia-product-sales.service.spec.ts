@@ -6,6 +6,11 @@ import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-read
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
 
 const ORGANIZATION_ID = 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
+const PRODUCT_PROFIT_PROVENANCE = {
+  source: 'sellpia_stat_prd_profit',
+  costBasis: 'ORDER_TIME_SUPPLY_COST',
+  vatIncluded: true,
+} as const;
 
 function makePrisma() {
   const callOrder: string[] = [];
@@ -36,7 +41,7 @@ function makePrisma() {
   const prisma = {
     sellpiaProductMonthlySales: { upsert, createMany, deleteMany, findMany },
     sellpiaInventorySku: { findMany: inventoryFindMany },
-    productVariantComponent: { findMany: destinationFindMany },
+    channelListingOptionInventoryComponent: { findMany: destinationFindMany },
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => {
       const result = await callback(tx);
       callOrder.push('commit');
@@ -108,6 +113,7 @@ describe('SellpiaProductSalesService.ingest', () => {
     const { prisma, service, deleteMany, createMany, queryRaw, eventEmitter, callOrder } = makePrisma();
     const body: SellpiaProductSalesIngestBodyDto = {
       range: { from: '2026-05-16', to: '2026-07-15' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [
         {
           productCode: '9882',
@@ -146,6 +152,10 @@ describe('SellpiaProductSalesService.ingest', () => {
         optionCode: '1',
         yearMonth: '2026-06',
         orderQty: 13030,
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+        coverageStartDate: new Date('2026-06-01T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-06-30T00:00:00.000Z'),
         productName: '2000바풍투톤슬라임',
       }),
     );
@@ -161,6 +171,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     const result = await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-04-15', to: '2026-06-02' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     });
 
@@ -181,6 +192,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     await expect(service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     })).rejects.toThrow('write failed');
     expect(eventEmitter.emitAsync).not.toHaveBeenCalled();
@@ -195,6 +207,7 @@ describe('SellpiaProductSalesService.ingest', () => {
 
     await expect(service.ingest(ORGANIZATION_ID, {
       range,
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [],
     })).rejects.toThrow('Invalid Sellpia product-sales range');
     expect(prisma.$transaction).not.toHaveBeenCalled();
@@ -205,6 +218,7 @@ describe('SellpiaProductSalesService.ingest', () => {
     const { prisma, service, createMany } = makePrisma();
     await service.ingest(ORGANIZATION_ID, {
       range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
       products: [
         { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 5, orderAmount: 0, inQty: 0, inAmount: 0 }] },
         { productCode: '1', optionCode: '', productName: 'A', salePrice: 0, buyPrice: 0, months: [{ yearMonth: '2026-06', orderQty: 9, orderAmount: 0, inQty: 0, inAmount: 0 }] },
@@ -213,6 +227,42 @@ describe('SellpiaProductSalesService.ingest', () => {
     const inserted = prisma.$transaction.mock.calls.length ? createMany.mock.calls.flatMap((c) => (c[0] as { data: { orderQty: number }[] }).data) : [];
     expect(inserted).toHaveLength(1); // 중복 병합
     expect(inserted[0].orderQty).toBe(9); // 마지막 값
+  });
+
+  it('payload-level request range와 월의 실제 교집합을 서버에서 저장한다', async () => {
+    const { service, createMany } = makePrisma();
+    await service.ingest(ORGANIZATION_ID, {
+      range: { from: '2026-05-16', to: '2026-07-15' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
+      products: [{
+        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
+        months: [
+          { yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 },
+          { yearMonth: '2026-06', orderQty: 2, orderAmount: 200, inQty: 0, inAmount: 100 },
+          { yearMonth: '2026-07', orderQty: 3, orderAmount: 300, inQty: 0, inAmount: 150 },
+        ],
+      }],
+    });
+    const inserted = createMany.mock.calls.flatMap((call) =>
+      (call[0] as { data: Array<{ yearMonth: string; coverageStartDate: Date; coverageEndDate: Date }> }).data);
+    expect(inserted).toEqual(expect.arrayContaining([
+      expect.objectContaining({ yearMonth: '2026-05', coverageStartDate: new Date('2026-05-16T00:00:00.000Z'), coverageEndDate: new Date('2026-05-31T00:00:00.000Z') }),
+      expect.objectContaining({ yearMonth: '2026-06', coverageStartDate: new Date('2026-06-01T00:00:00.000Z'), coverageEndDate: new Date('2026-06-30T00:00:00.000Z') }),
+      expect.objectContaining({ yearMonth: '2026-07', coverageStartDate: new Date('2026-07-01T00:00:00.000Z'), coverageEndDate: new Date('2026-07-15T00:00:00.000Z') }),
+    ]));
+  });
+
+  it('요청 범위 밖의 월을 조용히 무시하지 않는다', async () => {
+    const { service, prisma } = makePrisma();
+    await expect(service.ingest(ORGANIZATION_ID, {
+      range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: PRODUCT_PROFIT_PROVENANCE,
+      products: [{
+        productCode: 'SKU-1', optionCode: '', productName: '상품', salePrice: 1, buyPrice: 1,
+        months: [{ yearMonth: '2026-05', orderQty: 1, orderAmount: 100, inQty: 0, inAmount: 50 }],
+      }],
+    })).rejects.toThrow('outside request range');
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
 
@@ -326,6 +376,15 @@ describe('SellpiaProductSalesService.getSummary', () => {
         code: true,
         barcode: true,
         isActive: true,
+        masterProduct: {
+          select: {
+            id: true,
+            code: true,
+            name: true,
+            abcGrade: true,
+            abcEvaluation: { include: { formulaVersion: true } },
+          },
+        },
       },
     });
     expect(inventoryAvailability).toHaveBeenCalledWith({
@@ -351,7 +410,7 @@ describe('SellpiaProductSalesService.getSummary', () => {
     expect(out.reorderCount).toBe(1);
   });
 
-  it('destination의 저장 등급을 실제 필터 결과인 판매 행 기준으로 집계한다', async () => {
+  it('재고상품의 canonical MasterProduct 등급을 채널 연결 수와 무관하게 집계한다', async () => {
     const {
       service,
       findMany,
@@ -364,8 +423,14 @@ describe('SellpiaProductSalesService.getSummary', () => {
       row({ productCode: 'SKU-2', yearMonth: '2026-06', orderQty: 20 }),
     ]);
     const inventoryRows = [
-      inventoryRow(1, 'SKU-1', 100, null),
-      inventoryRow(2, 'SKU-2', 100, null),
+      {
+        ...inventoryRow(1, 'SKU-1', 100, null),
+        masterProduct: inventoryMasterProduct('master-a', 'A'),
+      },
+      {
+        ...inventoryRow(2, 'SKU-2', 100, null),
+        masterProduct: inventoryMasterProduct('master-c', 'C'),
+      },
     ];
     inventoryFindMany.mockResolvedValueOnce(inventoryRows);
     inventoryAvailability.mockResolvedValueOnce(collectedInventory(inventoryRows));
@@ -379,15 +444,15 @@ describe('SellpiaProductSalesService.getSummary', () => {
 
     const out = await service.getSummary(ORGANIZATION_ID);
 
-    expect(out.abcCounts).toEqual({ A: 2, B: 0, C: 1 });
+    expect(out.abcCounts).toEqual({ A: 1, B: 0, C: 1 });
     expect(out.classifiedProductCount).toBe(2);
-    expect(out.unclassifiedProductCount).toBe(1);
+    expect(out.unclassifiedProductCount).toBe(0);
     expect(out.products.flatMap((product) =>
       product.inventoryResolution.status === 'matched'
         ? product.inventoryResolution.destinations
         : [])).toEqual(expect.arrayContaining([
       expect.objectContaining({ masterProductId: 'master-a', abcGrade: 'A' }),
-      expect.objectContaining({ masterProductId: 'master-null', abcGrade: null }),
+      expect.objectContaining({ masterProductId: 'master-c', abcGrade: 'C' }),
     ]));
   });
 
@@ -495,18 +560,22 @@ function destinationRow(
   return {
     sellpiaInventorySkuId,
     quantity: 1,
-    productVariant: {
+    channelListingOption: {
       id: variantId,
-      code: variantId,
-      name: variantId,
-      masterProduct: {
-        id: masterProductId,
-        code: masterProductId,
-        name: masterProductId,
-        abcGrade,
-        originChannelListingId: null,
+      externalOptionId: variantId,
+      itemName: variantId,
+      listing: {
+        id: `listing-${variantId}`,
+        externalId: variantId,
+        masterProduct: {
+          id: masterProductId,
+          code: masterProductId,
+          name: masterProductId,
+          abcGrade,
+          abcEvaluation: null,
+        },
+        channelAccount: { channel: 'coupang', isPrimary: true },
       },
-      channelListingOptions: [],
     },
   };
 }
@@ -523,6 +592,19 @@ function inventoryRow(
     barcode,
     currentStock,
     isActive: true,
+  };
+}
+
+function inventoryMasterProduct(
+  id: string,
+  abcGrade: 'A' | 'B' | 'C' | null,
+) {
+  return {
+    id,
+    code: id,
+    name: id,
+    abcGrade,
+    abcEvaluation: null,
   };
 }
 

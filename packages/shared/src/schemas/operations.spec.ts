@@ -3,6 +3,7 @@ import {
   BrowserOperationReportRequestSchema,
   CreateOperationRunRequestSchema,
   OperationRunSchema,
+  OperationStatusSchema,
   UpsertOperationScheduleRequestSchema,
 } from './operations.js';
 
@@ -61,5 +62,10 @@ describe('Operation wire contracts', () => {
         updatedAt: '2026-08-01T00:00:00.000Z',
       }),
     ).toMatchObject({ status: 'queued' });
+  });
+
+  it('keeps a composite parent waiting for a child as a non-terminal state', () => {
+    expect(OperationStatusSchema.parse('waiting_dependency')).toBe('waiting_dependency');
+    expect(OperationStatusSchema.options).toContain('waiting_dependency');
   });
 });

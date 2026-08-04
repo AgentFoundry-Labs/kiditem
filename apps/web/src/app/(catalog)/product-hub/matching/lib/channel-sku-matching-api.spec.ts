@@ -1,18 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
-  linkChannelListingOption,
-  linkChannelListingProduct,
-  applyChannelRecipeAutomation,
-  getChannelRecipeSuggestion,
-  getChannelRecipeAutomationPreview,
+  autoMatchChannelProducts,
   getSellpiaManualMatchTargets,
+  importCoupangRocketMatchingCsv,
   importSellpiaManualMatchSnapshot,
-  linkChannelListingOptionRecipe,
-  listRecipeComponentCandidates,
-  listChannelProductCandidates,
   listChannelProductMappings,
-  listChannelVariantCandidates,
+  listRecipeComponentCandidates,
+  saveProductInventoryMatching,
 } from './channel-sku-matching-api';
 
 vi.mock('@/lib/api-client', () => ({
@@ -20,16 +15,14 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
-const OPTION_ID = '22222222-2222-4222-8222-222222222222';
-const PRODUCT_ID = '33333333-3333-4333-8333-333333333333';
-const VARIANT_ID = '44444444-4444-4444-8444-444444444444';
 const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
+const OPTION_ID = '44444444-4444-4444-8444-444444444444';
 
 describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('reads the two-level queue with canonical account and search filters', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, linked: 0, unlinked: 0, recipeConfirmed: 0, configurationRequired: 0, reviewRequired: 0 } } });
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ products: [], options: [], counts: { products: { all: 0, linked: 0, unlinked: 0 }, options: { all: 0, configured: 0, unconfigured: 0 } } });
 
     await listChannelProductMappings({ channelAccountId: 'account/unsafe', search: '  우산  ' });
 
@@ -39,152 +32,74 @@ describe('channel product matching API', () => {
     );
   });
 
-  it('keeps product and variant candidate lookup side-effect-free', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
-
-    await listChannelProductCandidates(`${LISTING_ID}/unsafe`, ' KI-1 ');
-    await listChannelVariantCandidates(`${OPTION_ID}/unsafe`, ' 분홍 ');
-
-    expect(apiClient.getParsed).toHaveBeenNthCalledWith(1,
-      `/api/channels/product-mappings/${encodeURIComponent(`${LISTING_ID}/unsafe`)}/candidates?search=KI-1`,
-      expect.any(Object),
-    );
-    expect(apiClient.getParsed).toHaveBeenNthCalledWith(2,
-      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/candidates?search=${encodeURIComponent('분홍')}`,
-      expect.any(Object),
-    );
-    expect(apiClient.put).not.toHaveBeenCalled();
-  });
-
-  it('reads a recipe suggestion without issuing a mutation', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      channelListingOptionId: OPTION_ID,
-      productVariantId: VARIANT_ID,
-      masterProductId: PRODUCT_ID,
-      status: 'no_match',
-      reason: 'No evidence matched an active Sellpia SKU.',
-      channelEvidence: [],
-      existingComponents: [],
-      proposals: [],
-    });
-
-    await getChannelRecipeSuggestion(`${OPTION_ID}/unsafe`);
-
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/options/${encodeURIComponent(`${OPTION_ID}/unsafe`)}/recipe-suggestions`,
-      expect.any(Object),
-    );
-    expect(apiClient.put).not.toHaveBeenCalled();
-  });
-
-  it('searches active Sellpia recipe candidates through the Products API', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
-
-    await listRecipeComponentCandidates({
-      search: ' SP-1 ',
-      includeOutOfStock: true,
-    });
-
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      '/api/products/recipe-component-candidates?search=SP-1&limit=20&stockStatus=all',
-      expect.any(Object),
-    );
-  });
-
-  it('reads and applies a version-fenced account recipe preview', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      channelAccountId: ACCOUNT_ID,
-      proposalVersion: 'a'.repeat(64),
-      generatedAt: '2026-07-18T00:00:00.000Z',
-      summary: {
-        products: 0,
-        autoApplyProducts: 0,
-        quantityReviewProducts: 0,
-        operatorReviewProducts: 0,
-        blockedProducts: 0,
-        alreadyConfiguredProducts: 0,
-        variants: 0,
-        affectedOptions: 0,
-        autoApply: 0,
-        quantityReview: 0,
-        operatorReview: 0,
-        blocked: 0,
-        alreadyConfigured: 0,
-      },
-      productGroups: [],
-      items: [],
-    });
+  it('runs deterministic direct matching for one account', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({
-      proposalVersion: 'a'.repeat(64),
-      appliedProducts: 1,
-      skippedProducts: 0,
-      appliedVariants: 1,
-      affectedOptions: 2,
-      skippedExistingVariants: 0,
+      evaluatedListings: 3,
+      matchedListings: 2,
+      configuredOptions: 4,
     });
 
-    await getChannelRecipeAutomationPreview(`${ACCOUNT_ID}/unsafe`);
-    await applyChannelRecipeAutomation({
-      channelAccountId: ACCOUNT_ID,
-      proposalVersion: 'a'.repeat(64),
+    await expect(autoMatchChannelProducts(ACCOUNT_ID)).resolves.toEqual({
+      evaluatedListings: 3,
+      matchedListings: 2,
+      configuredOptions: 4,
     });
 
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/recipe-automation/preview?channelAccountId=${encodeURIComponent(`${ACCOUNT_ID}/unsafe`)}`,
-      expect.any(Object),
-    );
     expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/product-mappings/recipe-automation/apply',
-      { channelAccountId: ACCOUNT_ID, proposalVersion: 'a'.repeat(64) },
+      '/api/channels/product-mappings/auto-match',
+      { channelAccountId: ACCOUNT_ID },
     );
   });
 
-  it('confirms listing-to-product and option-to-variant separately', async () => {
+  it('uploads a Rocket-Sellpia matching CSV through the Rocket catalog endpoint', async () => {
+    const file = new File(['rocket'], 'rocket443-sellpia-matching.csv', { type: 'text/csv' });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValue({
+      duplicate: false,
+      changes: {
+        createdProductCount: 266,
+        updatedProductCount: 177,
+        createdSkuCount: 266,
+        updatedSkuCount: 177,
+      },
+    });
+
+    await importCoupangRocketMatchingCsv(ACCOUNT_ID, file);
+
+    expect(apiClient.uploadParsed).toHaveBeenCalledWith(
+      `/api/channels/accounts/${ACCOUNT_ID}/catalog-imports/coupang-rocket-matching`,
+      expect.any(Object),
+      expect.any(FormData),
+    );
+  });
+
+  it('searches Products-owned Sellpia inventory candidates', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ items: [] });
+
+    await listRecipeComponentCandidates({ search: ' SP-100 ', includeOutOfStock: true });
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/products/recipe-component-candidates?search=SP-100&limit=20&stockStatus=all',
+      expect.any(Object),
+    );
+  });
+
+  it('saves option inventory compositions without a separate product link command', async () => {
     vi.mocked(apiClient.put).mockResolvedValue(undefined);
 
-    await expect(linkChannelListingProduct(
-      LISTING_ID,
-      { masterProductId: PRODUCT_ID },
-    )).resolves.toBeUndefined();
-    await expect(linkChannelListingOption(
-      OPTION_ID,
-      { productVariantId: VARIANT_ID },
-    )).resolves.toBeUndefined();
-
-    expect(apiClient.put).toHaveBeenNthCalledWith(1,
-      `/api/channels/product-mappings/${LISTING_ID}/master-product`,
-      { masterProductId: PRODUCT_ID },
-    );
-    expect(apiClient.put).toHaveBeenNthCalledWith(2,
-      `/api/channels/product-mappings/options/${OPTION_ID}/product-variant`,
-      { productVariantId: VARIANT_ID },
-    );
-  });
-
-  it('links one Sellpia recipe component to a confirmed channel option', async () => {
-    vi.mocked(apiClient.put).mockResolvedValue({
-      channelListingOptionId: OPTION_ID,
-      productVariantId: VARIANT_ID,
-      sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
-      quantity: 2,
-      status: 'created',
+    await saveProductInventoryMatching({
+      channelListingId: LISTING_ID,
+      options: [{
+        channelListingOptionId: OPTION_ID,
+        components: [{
+          sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
+          quantity: 10,
+        }],
+      }],
     });
 
-    await expect(linkChannelListingOptionRecipe(
-      OPTION_ID,
-      {
-        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
-        quantity: 2,
-      },
-    )).resolves.toMatchObject({ status: 'created' });
-
-    expect(apiClient.put).toHaveBeenCalledWith(
-      `/api/channels/product-mappings/options/${OPTION_ID}/recipe`,
-      {
-        sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666',
-        quantity: 2,
-      },
-    );
+    expect(apiClient.put.mock.calls).toEqual([
+      [`/api/products/channel-options/${OPTION_ID}/inventory-components`, { components: [{ sellpiaInventorySkuId: '66666666-6666-4666-8666-666666666666', quantity: 10 }] }],
+    ]);
   });
 
   it('reads and imports the bounded Sellpia manual-match snapshot', async () => {

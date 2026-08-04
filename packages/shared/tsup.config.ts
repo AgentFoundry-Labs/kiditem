@@ -31,7 +31,6 @@ export default defineConfig({
     'src/product-operations.ts',
     'src/product-abc.ts',
     'src/channel-product-matching.ts',
-    'src/channel-recipe-automation.ts',
     'src/source-import.ts',
     'src/sellpia-inventory-freshness.ts',
     'src/sellpia-order-transmission.ts',

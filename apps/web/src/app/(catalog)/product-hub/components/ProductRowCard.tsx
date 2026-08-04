@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
-import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { formatKRW, formatNumber } from '@/lib/utils';
 import { MasterProductImage } from './MasterProductImage';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
 
 const INVENTORY_LABELS = {
@@ -14,19 +15,22 @@ const INVENTORY_LABELS = {
   review_required: '검토 필요',
 } as const;
 
-export function ProductRowCard({ product }: { product: MasterProductOperationsListItem }) {
+export function ProductRowCard({
+  product,
+  onOpenAbcDetail,
+}: {
+  product: MasterProductOperationsListItem;
+  onOpenAbcDetail?: (product: MasterProductOperationsListItem) => void;
+}) {
   const isWarning = product.inventoryStatus === 'configuration_required'
     || product.inventoryStatus === 'review_required';
   const isOutOfStock = product.inventoryStatus === 'out_of_stock';
+  const categoryLabel = categoryLabelForList(product.category);
   const alertStyle = isWarning
     ? 'border-amber-300 bg-amber-50/70'
     : isOutOfStock
       ? 'border-rose-200 bg-rose-50/40'
       : 'border-[var(--border-subtle)] bg-[var(--card-bg)]';
-  const adRatio = product.adSpend !== null && product.salesAmount !== null && product.salesAmount > 0
-    ? Math.round((product.adSpend / product.salesAmount) * 100)
-    : null;
-
   return (
     <article className={`relative overflow-hidden rounded-2xl border px-6 py-5 shadow-sm transition hover:border-[var(--border-strong)] hover:shadow-md ${alertStyle}`}>
       {isWarning || isOutOfStock ? (
@@ -35,8 +39,16 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
       <div className="grid grid-cols-[minmax(420px,1.45fr)_repeat(8,minmax(76px,.42fr))_72px] items-center gap-4">
         <div className="flex min-w-0 items-center gap-5">
           <div className="w-14 shrink-0 text-center">
-            <p className="text-sm font-extrabold text-[var(--text-secondary)]">{product.abcGrade ?? '미분류'}</p>
-            <p className="mt-1 text-[10px] font-semibold text-[var(--text-muted)]">등급</p>
+            {onOpenAbcDetail ? (
+              <button
+                type="button"
+                onClick={() => onOpenAbcDetail(product)}
+                aria-label={`${product.name} ABC 근거 보기`}
+                className="rounded-md p-1 text-left transition-colors hover:bg-[var(--surface-sunken)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+              >
+                <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} compact />
+              </button>
+            ) : <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} compact />}
           </div>
           <div className="flex h-[88px] w-[88px] shrink-0 items-center justify-center overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-muted)]">
             <MasterProductImage
@@ -47,19 +59,18 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-1.5">
-              <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
-                {product.category ?? '미분류'}
-              </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
-                {product.isActive ? '판매중' : '판매중지'}
+              {categoryLabel ? <span className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-black text-slate-600">
+                {categoryLabel}
+              </span> : null}
+              <span className={`rounded px-1.5 py-0.5 text-[10px] font-semibold ${product.isSelling ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
+                {product.isSelling ? '판매중' : '판매중지'}
               </span>
               <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${isWarning ? 'bg-amber-100 text-amber-800' : isOutOfStock ? 'bg-rose-100 text-rose-700' : 'bg-emerald-50 text-emerald-700'}`}>
                 {INVENTORY_LABELS[product.inventoryStatus]}
               </span>
-              <span className={`rounded px-1.5 py-0.5 text-[10px] font-bold ${product.depletion.needsReorder ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-600'}`}>
-                {product.depletion.coverage === 'shared' ? '공유 SKU 기준' : product.depletion.coverage === 'ready' ? '직접 판매 기준' : '직접 판매 없음'}
-                {product.depletion.needsReorder ? ` · 발주 필요 ${product.depletion.reorderSkuCount}` : ''}
-              </span>
+              {product.depletion.needsReorder ? <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">
+                발주 필요 {product.depletion.reorderSkuCount}
+              </span> : null}
             </div>
             <Link
               href={`/product-hub/${product.id}`}
@@ -70,20 +81,33 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
             <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
               {product.displayReference.label} {product.displayReference.value} · {product.brand ?? '브랜드 미등록'}
             </p>
+            {product.activeChannels.length > 0 ? (
+              <div aria-label="판매 채널" className="mt-1 flex flex-wrap items-center gap-1">
+                <span className="text-[11px] font-semibold text-[var(--text-muted)]">채널</span>
+                {product.activeChannels.map((channel) => (
+                  <span
+                    key={channel.channelAccountId}
+                    className="rounded bg-violet-50 px-1.5 py-0.5 text-[10px] font-bold text-violet-700"
+                  >
+                    {channel.channelAccountName}
+                  </span>
+                ))}
+              </div>
+            ) : null}
             <p className="mt-1 text-[11px] text-[var(--text-muted)]">
-              옵션 {formatNumber(product.variantSummary.total)}개 · 구성 완료 {formatNumber(product.variantSummary.configured)}개
+              옵션 {formatNumber(product.channelOptionSummary.total)}개 · 구성 완료 {formatNumber(product.channelOptionSummary.configured)}개
             </p>
           </div>
         </div>
 
         <Metric value={product.inventoryUnits} label="재고" />
-        <Metric value={product.traffic} label="방문" />
-        <Metric value={null} label="조회" />
-        <Metric value={null} label="장바구니" />
+        <Metric value={product.visitorCount} label="방문" />
+        <Metric value={product.viewCount} label="조회" />
+        <Metric value={product.cartAddCount} label="장바구니" />
         <Metric value={product.orderCount} label="주문" />
-        <Metric value={null} label="판매" />
+        <Metric value={product.salesQuantity} label="판매" />
         <Metric value={product.salesAmount} label="매출" currency />
-        <Metric value={adRatio} label="광고비율" suffix="%" />
+        <Metric value={product.adSpendRate} label="광고비율" suffix="%" />
         <div className="flex justify-end">
           <Link
             href={`/product-hub/${product.id}`}
@@ -100,12 +124,11 @@ export function ProductRowCard({ product }: { product: MasterProductOperationsLi
           {INVENTORY_LABELS[product.inventoryStatus]}
         </span>
         <span>채널 {formatNumber(product.channelCount)}개</span>
-        <span>활성 옵션 {formatNumber(product.variantSummary.active)}개</span>
+        <span>활성 옵션 {formatNumber(product.channelOptionSummary.active)}개</span>
         <span>{product.depletion.minMonthsOfAvailableStockLeft === null ? '가용재고 소진 미계산' : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`}</span>
-        <span>광고비 {product.adSpend === null ? '미수집' : `${formatKRW(product.adSpend)}원`}</span>
-        <span>이익 {product.profit === null ? '미수집' : `${formatKRW(product.profit)}원`}</span>
-        <span>상품 건강도 {product.healthScore === null ? '미수집' : `${formatNumber(product.healthScore)}점`}</span>
-        <span className="ml-auto">최종 수정 {formatDateTime(product.updatedAt)}</span>
+        <span>광고비 {product.adSpend === null ? '—' : `${formatKRW(product.adSpend)}원`}</span>
+        <span>이익 {product.profit === null ? '—' : `${formatKRW(product.profit)}원`}</span>
+        <span>상품 건강도 {product.healthScore === null ? '—' : `${formatNumber(product.healthScore)}점`}</span>
       </div>
     </article>
   );
@@ -118,10 +141,10 @@ function Metric({ value, label, currency, suffix }: {
   suffix?: string;
 }) {
   return (
-    <div className="text-right" title={value === null ? `${label} 데이터가 아직 수집되지 않았습니다.` : undefined}>
+    <div className="text-right">
       <p className={`font-black leading-none tabular-nums ${value === null ? 'text-[12px] text-[var(--text-muted)]' : 'text-[22px] text-[var(--text-primary)]'}`}>
         {value === null
-          ? '미수집'
+          ? '—'
           : currency
             ? `${formatKRW(value)}원`
             : `${formatNumber(value)}${suffix ?? ''}`}
@@ -129,4 +152,10 @@ function Metric({ value, label, currency, suffix }: {
       <p className="mt-2 text-[11px] font-medium text-[var(--text-muted)]">{label}</p>
     </div>
   );
+}
+
+function categoryLabelForList(category: string | null): string | null {
+  const normalized = category?.trim();
+  if (!normalized) return '미분류';
+  return /^[\d\s/._-]+$/.test(normalized) ? null : normalized;
 }

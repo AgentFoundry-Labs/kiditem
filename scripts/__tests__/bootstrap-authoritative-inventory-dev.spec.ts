@@ -6,6 +6,7 @@ import {
 } from '../bootstrap-authoritative-inventory-dev';
 
 const organizationId = '11111111-1111-4111-8111-111111111111';
+const coupangVendorId = 'VENDOR-DEV-001';
 
 describe('authoritative inventory development bootstrap', () => {
   it('accepts only local, non-production database URLs', () => {
@@ -28,13 +29,16 @@ describe('authoritative inventory development bootstrap', () => {
   });
 
   it('builds only organization and Wing/Rocket channel-account metadata', () => {
-    expect(buildBootstrapPlan({
-      organizationId,
-      organizationName: 'KidItem Dev',
-      organizationSlug: 'kiditem-dev',
-      coupangAccountId: '22222222-2222-4222-8222-222222222222',
-      rocketAccountId: '33333333-3333-4333-8333-333333333333',
-    })).toEqual({
+    const args = parseBootstrapArgs([
+      '--organization-id', organizationId,
+      '--organization-name', 'KidItem Dev',
+      '--organization-slug', 'kiditem-dev',
+      '--coupang-vendor-id', coupangVendorId,
+      '--coupang-account-id', '22222222-2222-4222-8222-222222222222',
+      '--rocket-account-id', '33333333-3333-4333-8333-333333333333',
+    ]);
+
+    expect(buildBootstrapPlan(args)).toEqual({
       organization: {
         id: organizationId,
         name: 'KidItem Dev',
@@ -47,7 +51,8 @@ describe('authoritative inventory development bootstrap', () => {
           organizationId,
           channel: 'coupang',
           name: 'Coupang Wing',
-          externalAccountId: 'dev-wing',
+          externalAccountId: coupangVendorId,
+          vendorId: coupangVendorId,
           status: 'active',
           isPrimary: true,
         },
@@ -56,7 +61,8 @@ describe('authoritative inventory development bootstrap', () => {
           organizationId,
           channel: 'rocket',
           name: 'Coupang Rocket',
-          externalAccountId: 'dev-rocket',
+          externalAccountId: coupangVendorId,
+          vendorId: coupangVendorId,
           status: 'active',
           isPrimary: true,
         },
@@ -64,14 +70,46 @@ describe('authoritative inventory development bootstrap', () => {
     });
   });
 
+  it('rejects development bootstrap without the real Coupang Vendor ID', () => {
+    expect(() => parseBootstrapArgs([
+      '--organization-id', organizationId,
+      '--organization-name', 'KidItem Dev',
+    ])).toThrow(/coupang-vendor-id/i);
+  });
+
+  it('keeps accepting a directly built plan with the canonical Vendor ID', () => {
+    expect(buildBootstrapPlan({
+      organizationId,
+      organizationName: 'KidItem Dev',
+      organizationSlug: 'kiditem-dev',
+      coupangVendorId,
+      coupangAccountId: '22222222-2222-4222-8222-222222222222',
+      rocketAccountId: '33333333-3333-4333-8333-333333333333',
+    }).channelAccounts)
+      .toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          channel: 'coupang',
+          externalAccountId: coupangVendorId,
+          vendorId: coupangVendorId,
+        }),
+        expect.objectContaining({
+          channel: 'rocket',
+          externalAccountId: coupangVendorId,
+          vendorId: coupangVendorId,
+        }),
+      ]));
+  });
+
   it('parses the documented CLI and rejects missing identity arguments', () => {
     expect(parseBootstrapArgs([
       '--organization-id', organizationId,
       '--organization-name', 'KidItem Dev',
+      '--coupang-vendor-id', coupangVendorId,
     ])).toMatchObject({
       organizationId,
       organizationName: 'KidItem Dev',
       organizationSlug: 'kiditem-dev',
+      coupangVendorId,
     });
 
     expect(() => parseBootstrapArgs(['--organization-name', 'KidItem Dev']))

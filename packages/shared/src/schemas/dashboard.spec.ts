@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DashboardInventorySummarySchema,
+  SellpiaProductSalesIngestPayloadSchema,
   SellpiaSalesIngestPayloadSchema,
   SellpiaSalesSummarySchema,
   TopProductSchema,
@@ -14,12 +15,65 @@ describe('dashboard schemas', () => {
     responseShape: 'empty_object' as const,
     explicitEmpty: true as const,
   };
+
+  it('uses stored profitability status, contribution profit, and formula context', () => {
+    expect(DashboardInventorySummarySchema.parse({
+      totalProducts: 5,
+      channelLinkedProducts: 3,
+      channelUnlinkedProducts: 2,
+      gradeCount: { A: 1, B: 2, C: 1 },
+      abcStatusCount: {
+        READY: 4,
+        INSUFFICIENT_EVIDENCE: 1,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 200_000, B: 80_000, C: -20_000 },
+        shareByGrade: { A: 0.77, B: 0.31, C: -0.08 },
+      },
+      abcFormula: null,
+      classifiedProductCount: 4,
+      unclassifiedProductCount: 1,
+      mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
+      alerts: [],
+      warnings: {
+        minusProducts: 0,
+        lowProfitProducts: 0,
+        highAdProducts: 0,
+        outOfStockSkus: 4,
+        mappingAttentionSkus: 2,
+      },
+    }).abcStatusCount.READY).toBe(4);
+  });
+
   it('keeps inventory summary channel coverage counts', () => {
     const summary = DashboardInventorySummarySchema.parse({
       totalProducts: 5,
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      abcStatusCount: {
+        READY: 5,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
+        shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+      },
+      abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 1, needsReview: 1 },
@@ -48,6 +102,22 @@ describe('dashboard schemas', () => {
       channelLinkedProducts: 3,
       channelUnlinkedProducts: 2,
       gradeCount: { A: 1, B: 2, C: 2 },
+      abcStatusCount: {
+        READY: 5,
+        INSUFFICIENT_EVIDENCE: 0,
+        SOURCE_UNMAPPED: 0,
+        CALIBRATION_PENDING: 0,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfit: {
+        amountByGrade: { A: 250_000, B: 100_000, C: -20_000 },
+        shareByGrade: { A: 0.76, B: 0.30, C: -0.06 },
+      },
+      abcFormula: null,
       classifiedProductCount: 5,
       unclassifiedProductCount: 0,
       mappingStatusCounts: { matched: 10, unmatched: 0, needsReview: 0 },
@@ -91,8 +161,8 @@ describe('dashboard schemas', () => {
       profitRate: 20,
     };
 
-    expect(TopProductSchema.parse({ ...base, grade: null }).grade).toBeNull();
-    expect(() => TopProductSchema.parse({ ...base, grade: 'manual' })).toThrow();
+    expect(TopProductSchema.parse({ ...base, grade: null, abcEvaluation: null }).grade).toBeNull();
+    expect(() => TopProductSchema.parse({ ...base, grade: 'manual', abcEvaluation: null })).toThrow();
   });
 
   it('requires the Sellpia receipt profit after collected Coupang ad spend', () => {
@@ -171,6 +241,43 @@ describe('dashboard schemas', () => {
       range,
       sellers: [{ sellerId: '118', sellerName: '스마트스토어', days: [] }],
       capturedAt,
+    }).success).toBe(false);
+  });
+
+  it('requires bounded integer monthly facts with explicit order-time-cost provenance', () => {
+    const payload = {
+      range: { from: '2026-06-01', to: '2026-06-30' },
+      provenance: {
+        source: 'sellpia_stat_prd_profit',
+        costBasis: 'ORDER_TIME_SUPPLY_COST',
+        vatIncluded: true,
+      },
+      products: [{
+        productCode: 'SKU-1',
+        optionCode: '',
+        productName: '상품',
+        salePrice: 1_000,
+        buyPrice: 400,
+        months: [{
+          yearMonth: '2026-06', orderQty: 0, orderAmount: 0, inQty: 0, inAmount: 0,
+        }],
+      }],
+    };
+
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse(payload).success).toBe(true);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      provenance: { ...payload.provenance, costBasis: 'CURRENT_BUY_PRICE' },
+    }).success).toBe(false);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      products: [{ ...payload.products[0], months: [{
+        ...payload.products[0].months[0], orderAmount: 1.5,
+      }] }],
+    }).success).toBe(false);
+    expect(SellpiaProductSalesIngestPayloadSchema.safeParse({
+      ...payload,
+      products: Array.from({ length: 20_001 }, () => payload.products[0]),
     }).success).toBe(false);
   });
 });

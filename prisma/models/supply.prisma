@@ -240,7 +240,6 @@ model RocketPurchaseConfirmationLine {
   confirmedQuantity        Int       @map("confirmed_quantity")
   shortageReason           String?   @map("shortage_reason")
   channelListingOptionId   String?   @map("channel_listing_option_id") @db.Uuid
-  productVariantId         String?   @map("product_variant_id") @db.Uuid
   collectedOrderLineItemId String?   @map("collected_order_line_item_id") @db.Uuid
   collectedAt              DateTime? @map("collected_at") @db.Timestamptz
   createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz
@@ -248,14 +247,12 @@ model RocketPurchaseConfirmationLine {
   organization         Organization                           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   confirmation         RocketPurchaseConfirmation             @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
   channelListingOption ChannelListingOption?                  @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  productVariant       ProductVariant?                        @relation(fields: [productVariantId, organizationId], references: [id, organizationId], onDelete: Restrict)
   allocations          RocketPurchaseConfirmationAllocation[]
 
   @@unique([id, organizationId], map: "rocket_purchase_confirmation_lines_id_org_key")
   @@unique([confirmationId, poLineId], map: "rocket_purchase_confirmation_lines_confirmation_line_key")
   @@index([organizationId, poNumber])
   @@index([channelListingOptionId])
-  @@index([productVariantId])
   @@map("rocket_purchase_confirmation_lines")
 }
 
@@ -266,7 +263,7 @@ model RocketPurchaseConfirmationAllocation {
   organizationId        String   @map("organization_id") @db.Uuid
   confirmationLineId    String   @map("confirmation_line_id") @db.Uuid
   sellpiaInventorySkuId String   @map("sellpia_inventory_sku_id") @db.Uuid
-  unitsPerVariant       Int      @map("units_per_variant")
+  unitsPerSale          Int      @map("units_per_variant")
   quantity              Int
   createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
 

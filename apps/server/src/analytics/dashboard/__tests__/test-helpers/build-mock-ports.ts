@@ -100,13 +100,15 @@ export type MockDashboardInventoryRepo = {
 export function buildMockDashboardInventoryRepo(): MockDashboardInventoryRepo {
   return {
     countActiveProductsByGrade: vi.fn(),
+    countActiveProductsByAbcStatus: vi.fn(),
+    findActiveAbcContributions: vi.fn(),
+    countUnclassifiedActiveProducts: vi.fn(),
+    findAbcFormula: vi.fn(),
     findUnreadAlerts: vi.fn(),
     countActiveProducts: vi.fn(),
-    countChannelLinkedProducts: vi.fn(),
     fetchPerListingMetrics: vi.fn(),
     countOutOfStockMasterProducts: vi.fn(),
-    countMappingAttentionChannelSkus: vi.fn(),
-    countChannelSkusByMappingStatus: vi.fn(),
+    getSellingChannelMappingSummary: vi.fn(),
     findGradeHistory: vi.fn(),
     countLowCtrThumbnails: vi.fn(),
     findAGradeReviewCounts: vi.fn(),

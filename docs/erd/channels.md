@@ -135,12 +135,16 @@ erDiagram
     Int adTotalRevenue14d
     Int adDirectRevenue14d
     Int adIndirectRevenue14d
+    String adCoverageStatus
+    DateTime adObservedAt
     Int trafficVisitors
     Int trafficViews
     Int trafficCartAdds
     Int trafficOrders
     Int trafficSalesQty
     Int trafficRevenue
+    String trafficCoverageStatus
+    DateTime trafficObservedAt
     Int sampleCount
     DateTime firstObservedAt
     DateTime lastObservedAt
@@ -479,6 +483,10 @@ erDiagram
     Int orderAmount
     Int inQty
     Int inAmount
+    String costBasis
+    Boolean vatIncluded
+    DateTime coverageStartDate
+    DateTime coverageEndDate
     String productName
     String optionName
     String providerName

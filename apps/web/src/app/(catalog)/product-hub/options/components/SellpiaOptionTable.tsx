@@ -100,7 +100,7 @@ export default function SellpiaOptionTable({
                     {item.linkStatus === 'linked' ? (
                       <div className="min-w-[220px] space-y-2">
                         <p className="text-[11px] font-bold text-purple-700">
-                          상품 {item.linkedProductCount} · 옵션 {item.linkedVariantCount}
+                          상품 {item.linkedProductCount} · 채널 옵션 {item.linkedChannelOptionCount}
                         </p>
                         <div className="space-y-1">
                           {item.linkedProducts.map((product) => (
@@ -114,13 +114,13 @@ export default function SellpiaOptionTable({
                           ))}
                         </div>
                         <div className="space-y-1 border-t border-slate-100 pt-1">
-                          {item.linkedVariants.map((variant) => (
+                          {item.linkedChannelOptions.map((option) => (
                             <Link
-                              key={variant.id}
-                              href={`/product-hub/${variant.masterProductId}#variant-${variant.id}`}
+                              key={option.id}
+                              href={`/product-hub/${option.masterProductId}`}
                               className="block truncate text-[11px] text-slate-600 hover:text-purple-700 hover:underline"
                             >
-                              {operatorProductReference(variant.code, variant.name)}
+                              {option.channel} · {option.itemName ?? option.externalOptionId}
                             </Link>
                           ))}
                         </div>

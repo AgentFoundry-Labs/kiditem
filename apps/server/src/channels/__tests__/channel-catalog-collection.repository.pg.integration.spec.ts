@@ -74,6 +74,24 @@ describe('ChannelCatalogCollectionRepositoryAdapter (PG integration)', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
+  it('starts scraper collection when vendorId differs from a legacy external alias', async () => {
+    await prisma.channelAccount.update({
+      where: { id: WING_ACCOUNT_ID },
+      data: {
+        externalAccountId: 'legacy-wing-alias',
+        vendorId: 'vendor-primary',
+      },
+    });
+
+    await expect(repository.startOrResume({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      channelAccountId: WING_ACCOUNT_ID,
+      clientRunKey: randomUUID(),
+      collectorVersion: '1.0.0',
+    })).resolves.toMatchObject({ status: 'running' });
+  });
+
   it('stores raw chunks in JSONB and makes same-checksum retries idempotent', async () => {
     const run = await startRun(repository);
     const input = {

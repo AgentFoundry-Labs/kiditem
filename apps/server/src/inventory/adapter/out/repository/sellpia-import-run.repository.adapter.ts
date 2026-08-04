@@ -80,6 +80,10 @@ implements SellpiaImportRunRepositoryPort {
       if (updated.count !== 1) return;
 
       const generation = parseGeneration(input.execution.activeGeneration);
+      const state = await tx.sellpiaInventoryState.findUnique({
+        where: { organizationId: input.organizationId },
+        select: { activeSyncScope: true },
+      });
       await tx.sellpiaInventoryState.updateMany({
         where: {
           organizationId: input.organizationId,
@@ -94,10 +98,12 @@ implements SellpiaImportRunRepositoryPort {
           activeSyncOwnerUserId: null,
           activeSyncStartedAt: null,
           activeSyncLeaseExpiresAt: null,
+          activeSyncScope: null,
           activeGeneration: null,
           failedGeneration: generation,
           lastAttemptAt: now,
           lastAttemptStatus: 'failed',
+          lastAttemptSyncScope: state?.activeSyncScope ?? 'inventory',
           lastErrorCode: input.errorCode,
           lastErrorMessage: sanitizeErrorMessage(input.errorMessage),
           freshnessFence: randomUUID(),
@@ -139,11 +145,13 @@ async function claimManualExecution(
       requestedGeneration: activeGeneration,
       refreshRequestedAt: hasPendingGeneration ? state.refreshRequestedAt : now,
       refreshReason: trigger,
+      requestedSyncScope: 'inventory',
       syncNotBefore: hasPendingGeneration ? state.syncNotBefore : now,
       activeSyncToken: claimToken,
       activeSyncOwnerUserId: input.userId,
       activeSyncStartedAt: now,
       activeSyncLeaseExpiresAt: new Date(now.getTime() + CLAIM_LEASE_MS),
+      activeSyncScope: 'inventory',
       activeGeneration,
       freshnessFence: randomUUID(),
     },

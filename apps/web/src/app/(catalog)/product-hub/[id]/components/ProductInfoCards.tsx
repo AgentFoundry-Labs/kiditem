@@ -1,5 +1,6 @@
 import { Boxes, ChartNoAxesCombined, History, Tags } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 const INVENTORY_LABELS = {
@@ -10,7 +11,13 @@ const INVENTORY_LABELS = {
   review_required: '검토 필요',
 } as const;
 
-export default function ProductInfoCards({ product }: { product: MasterProductOperationsDetail }) {
+export default function ProductInfoCards({
+  product,
+  onOpenAbcDetail,
+}: {
+  product: MasterProductOperationsDetail;
+  onOpenAbcDetail: () => void;
+}) {
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <InfoCard title="상품 운영 정보" icon={<Tags size={16} />}>
@@ -20,14 +27,23 @@ export default function ProductInfoCards({ product }: { product: MasterProductOp
         />
         <InfoRow label="카테고리" value={product.category ?? '미등록'} />
         <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
-        <InfoRow label="ABC 등급" value={product.abcGrade ?? '미분류'} />
+        <InfoRow label="ABC 등급" value={
+          <button
+            type="button"
+            onClick={onOpenAbcDetail}
+            aria-label={`${product.name} ABC 근거 보기`}
+            className="rounded-md p-1 transition-colors hover:bg-[var(--surface-sunken)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--primary)]"
+          >
+            <ProductAbcBadge grade={product.abcGrade} evaluation={product.abcEvaluation} showConfidence />
+          </button>
+        } />
         <InfoRow label="태그" value={product.tags.length > 0 ? product.tags.join(', ') : '미등록'} />
       </InfoCard>
 
       <InfoCard title="재고 요약" icon={<Boxes size={16} />}>
         <InfoRow label="물리 재고 합계" value={`${formatNumber(product.inventoryUnits)}개`} />
         <InfoRow label="재고 상태" value={INVENTORY_LABELS[product.inventoryStatus]} />
-        <InfoRow label="판매 옵션" value={`${formatNumber(product.variants.length)}개`} />
+        <InfoRow label="채널 판매 옵션" value={`${formatNumber(product.channelListings.reduce((sum, listing) => sum + listing.options.length, 0))}개`} />
         <p className="pt-2 text-xs leading-5 text-[var(--text-tertiary)]">
           재고 수량은 확인된 옵션 레시피의 Sellpia SKU를 중복 없이 합산합니다.
         </p>

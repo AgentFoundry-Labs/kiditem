@@ -76,9 +76,8 @@ function previewResult() {
       maxQuantity: 4,
       editedQuantity: 2,
       reason: 'insufficient_capacity' as const,
-      channelSkuId: '77777777-7777-4777-8777-777777777777',
+      channelListingOptionId: '77777777-7777-4777-8777-777777777777',
       masterProductId: '88888888-8888-4888-8888-888888888888',
-      productVariantId: '99999999-9999-4999-8999-999999999999',
       components: [{
         sellpiaInventorySkuId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
         quantity: 1,
@@ -269,9 +268,8 @@ describe('RocketWorkbookExportService', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         reason: 'collection_incomplete',
-        channelSkuId: null,
+        channelListingOptionId: null,
         masterProductId: null,
-        productVariantId: null,
         components: [],
       }],
     });
@@ -306,9 +304,10 @@ describe('RocketWorkbookExportService', () => {
         recommendedQuantity: 0,
         maxQuantity: 0,
         reason,
-        channelSkuId: reason === 'mapping_required' ? null : previewResult().rows[0]!.channelSkuId,
+        channelListingOptionId: reason === 'mapping_required'
+          ? null
+          : previewResult().rows[0]!.channelListingOptionId,
         masterProductId: reason === 'mapping_required' ? null : previewResult().rows[0]!.masterProductId,
-        productVariantId: reason === 'mapping_required' ? null : previewResult().rows[0]!.productVariantId,
         components: [],
       }],
     });

@@ -231,15 +231,13 @@ describe('guarded authoritative database rebuild workflows', () => {
     assert.doesNotMatch(environmentVariables, /STAGING_REBUILD_SELLPIA_FILE_SHA256/);
   });
 
-  it('describes retired Sellpia preflight helpers as manual diagnostics, not workflow steps', () => {
+  it('keeps the remaining Sellpia cutover preflight as a manual diagnostic', () => {
     const readme = source('scripts/README.md');
     const preflightLine = readme.split('\n').find((line) =>
       line.includes('scripts/check-sellpia-cutover-preflight.ts')) ?? '';
-    const warningLine = readme.split('\n').find((line) =>
-      line.includes('scripts/check-sellpia-db-push-warning.mjs')) ?? '';
 
     assert.match(preflightLine, /manual|operator|diagnostic/i);
-    assert.match(warningLine, /manual|operator|diagnostic/i);
-    assert.doesNotMatch(`${preflightLine}\n${warningLine}`, /deploy workflows/i);
+    assert.doesNotMatch(preflightLine, /deploy workflows/i);
+    assert.doesNotMatch(readme, /check-sellpia-db-push-warning\.mjs/);
   });
 });

@@ -268,7 +268,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         confirmationLineId: line.id,
         sellpiaInventorySkuId: SKU_ID,
-        unitsPerVariant: 1,
+        unitsPerSale: 1,
         quantity,
       },
     });

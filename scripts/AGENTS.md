@@ -22,10 +22,7 @@ Consult this document first instead of relying on memorized knowledge.
   package/runbook/CI references, and non-trivial script tests.
 - Do not store secrets, real tokens, organization/account UUIDs, names, prices,
   stock values, or raw copied marketplace payloads in scripts, fixtures,
-  comments, or expected output. Explicitly reviewed channel-recipe datasets may
-  live under `scripts/channel-recipe-mappings/`; they contain only channel
-  listing/option external IDs, Sellpia SKU codes, and positive quantities and
-  remain operator data rather than matching logic.
+  comments, or expected output.
 - Prefer deterministic helpers that run without the database.
 - Database or external-account mutation scripts need a runbook with
   prerequisites, confirmation flags, verification, and rollback/blocker notes.

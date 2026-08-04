@@ -51,7 +51,6 @@ describe('upsertChannelCatalogIdentities', () => {
             options: [{
               id: 'option-1',
               externalOptionId: 'P-1',
-              productVariantId: 'variant-1',
             }],
           }]),
       },
@@ -76,7 +75,6 @@ describe('upsertChannelCatalogIdentities', () => {
       options: [{
         id: 'option-1',
         externalOptionId: 'P-1',
-        productVariantId: 'variant-1',
       }],
     }]);
     expect(executeRaw).toHaveBeenCalledTimes(2);

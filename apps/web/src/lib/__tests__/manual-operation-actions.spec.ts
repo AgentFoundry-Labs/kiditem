@@ -41,21 +41,23 @@ describe('manual operation actions', () => {
     await startSellpiaInventoryRefreshAction({
       sourceSurface: 'dashboard',
       reason: 'manual_request',
+      scope: 'inventory',
     });
     await startSellpiaInventoryRefreshAction({
       sourceSurface: 'domain_screen',
       reason: 'manual_request',
+      scope: 'full',
     });
 
     expect(operationsApi.start).toHaveBeenNthCalledWith(
       1,
       'inventory.refresh_sellpia_snapshot',
-      { sourceSurface: 'dashboard', input: { reason: 'manual_request' } },
+      { sourceSurface: 'dashboard', input: { reason: 'manual_request', scope: 'inventory' } },
     );
     expect(operationsApi.start).toHaveBeenNthCalledWith(
       2,
       'inventory.refresh_sellpia_snapshot',
-      { sourceSurface: 'domain_screen', input: { reason: 'manual_request' } },
+      { sourceSurface: 'domain_screen', input: { reason: 'manual_request', scope: 'full' } },
     );
   });
 });

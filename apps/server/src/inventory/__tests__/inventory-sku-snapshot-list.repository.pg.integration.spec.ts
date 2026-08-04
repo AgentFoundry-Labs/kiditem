@@ -133,39 +133,43 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         },
       }),
     ]);
-    const variants = await Promise.all([
-      prisma.productVariant.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          masterProductId: productA.id,
-          code: 'VARIANT-A1',
-          name: '옵션 A1',
-        },
-      }),
-      prisma.productVariant.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          masterProductId: productA.id,
-          code: 'VARIANT-A2',
-          name: '옵션 A2',
-        },
-      }),
-      prisma.productVariant.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          masterProductId: productB.id,
-          code: 'VARIANT-B1',
-          name: '옵션 B1',
-        },
-      }),
-    ]);
-    await prisma.productVariantComponent.createMany({
-      data: variants.map((variant) => ({
+    const account = await prisma.channelAccount.create({
+      data: {
         organizationId: TEST_ORGANIZATION_ID,
-        productVariantId: variant.id,
+        channel: 'coupang',
+        name: '재고 연결 테스트',
+        externalAccountId: 'inventory-link-test',
+      },
+    });
+    const listings = await Promise.all([
+      { product: productA, suffix: 'A1', itemName: '옵션 A1' },
+      { product: productA, suffix: 'A2', itemName: '옵션 A2' },
+      { product: productB, suffix: 'B1', itemName: '옵션 B1' },
+    ].map(async ({ product, suffix, itemName }) => {
+      const listing = await prisma.channelListing.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelAccountId: account.id,
+          masterProductId: product.id,
+          externalId: `LISTING-${suffix}`,
+        },
+      });
+      const option = await prisma.channelListingOption.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          listingId: listing.id,
+          externalOptionId: `OPTION-${suffix}`,
+          itemName,
+        },
+      });
+      return { listing, option };
+    }));
+    await prisma.channelListingOptionInventoryComponent.createMany({
+      data: listings.map(({ option }) => ({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelListingOptionId: option.id,
         sellpiaInventorySkuId: linkedSku.id,
         quantity: 1,
-        source: 'manual',
       })),
     });
 
@@ -193,16 +197,16 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       stockValue: 8_000,
       lastImportRunId: run.id,
       lastImportedAt: '2026-07-12T02:00:00.000Z',
-      linkedVariantCount: 3,
+      linkedChannelOptionCount: 3,
       linkedProductCount: 2,
       linkedProducts: [
         { id: productA.id, code: 'PRODUCT-A', name: '운영 상품 A' },
         { id: productB.id, code: 'PRODUCT-B', name: '운영 상품 B' },
       ],
-      linkedVariants: [
-        { id: variants[0].id, masterProductId: productA.id, code: 'VARIANT-A1', name: '옵션 A1', optionLabel: null },
-        { id: variants[1].id, masterProductId: productA.id, code: 'VARIANT-A2', name: '옵션 A2', optionLabel: null },
-        { id: variants[2].id, masterProductId: productB.id, code: 'VARIANT-B1', name: '옵션 B1', optionLabel: null },
+      linkedChannelOptions: [
+        { id: listings[0].option.id, masterProductId: productA.id, channelListingId: listings[0].listing.id, channel: 'coupang', externalOptionId: 'OPTION-A1', itemName: '옵션 A1' },
+        { id: listings[1].option.id, masterProductId: productA.id, channelListingId: listings[1].listing.id, channel: 'coupang', externalOptionId: 'OPTION-A2', itemName: '옵션 A2' },
+        { id: listings[2].option.id, masterProductId: productB.id, channelListingId: listings[2].listing.id, channel: 'coupang', externalOptionId: 'OPTION-B1', itemName: '옵션 B1' },
       ],
       linkStatus: 'linked',
     });
@@ -225,15 +229,15 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
       code: 'SP-001',
       lastImportRunId: null,
       lastImportedAt: null,
-      linkedVariantCount: 0,
+      linkedChannelOptionCount: 0,
       linkedProductCount: 0,
       linkedProducts: [],
-      linkedVariants: [],
+      linkedChannelOptions: [],
       linkStatus: 'unlinked',
     });
   });
 
-  it('does not treat another organization recipe with the same code as a link', async () => {
+  it('does not treat another organization component with the same code as a link', async () => {
     await prisma.sellpiaInventorySku.createMany({
       data: [
         {
@@ -260,21 +264,35 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
         name: '타 조직 상품',
       },
     });
-    const foreignVariant = await prisma.productVariant.create({
+    const foreignAccount = await prisma.channelAccount.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        masterProductId: foreignProduct.id,
-        code: 'FOREIGN-VARIANT',
-        name: '타 조직 옵션',
+        channel: 'coupang',
+        name: '타 조직 계정',
+        externalAccountId: 'foreign-inventory-link-test',
       },
     });
-    await prisma.productVariantComponent.create({
+    const foreignListing = await prisma.channelListing.create({
       data: {
         organizationId: OTHER_ORGANIZATION_ID,
-        productVariantId: foreignVariant.id,
+        channelAccountId: foreignAccount.id,
+        masterProductId: foreignProduct.id,
+        externalId: 'FOREIGN-LISTING',
+      },
+    });
+    const foreignOption = await prisma.channelListingOption.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        listingId: foreignListing.id,
+        externalOptionId: 'FOREIGN-OPTION',
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        channelListingOptionId: foreignOption.id,
         sellpiaInventorySkuId: foreignSku.id,
         quantity: 1,
-        source: 'manual',
       },
     });
 
@@ -286,10 +304,10 @@ describe('InventorySkuSnapshotListRepositoryAdapter (PG integration)', () => {
     expect(result.items).toEqual([
       expect.objectContaining({
         code: 'SP-SAME',
-        linkedVariantCount: 0,
+        linkedChannelOptionCount: 0,
         linkedProductCount: 0,
         linkedProducts: [],
-        linkedVariants: [],
+        linkedChannelOptions: [],
         linkStatus: 'unlinked',
       }),
     ]);

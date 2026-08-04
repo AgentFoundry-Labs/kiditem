@@ -76,28 +76,6 @@ describe('AdAction flow (PG integration)', () => {
           },
         })
       : null;
-    const variant = matched
-      ? await prisma.productVariant.create({
-          data: {
-            organizationId: params.organizationId,
-            masterProductId: master.id,
-            code: `VAR-${unique}`,
-            name: `Variant ${unique}`,
-            isDefault: true,
-          },
-        })
-      : null;
-    if (variant && inventorySku) {
-      await prisma.productVariantComponent.create({
-        data: {
-          organizationId: params.organizationId,
-          productVariantId: variant.id,
-          sellpiaInventorySkuId: inventorySku.id,
-          quantity: 1,
-          source: 'manual',
-        },
-      });
-    }
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
@@ -111,7 +89,6 @@ describe('AdAction flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        productVariantId: variant?.id ?? null,
         externalOptionId: `VID-${unique}`,
         salePrice: params.sellPrice ?? null,
         costPriceOverride: params.costPrice ?? null,
@@ -120,6 +97,16 @@ describe('AdAction flow (PG integration)', () => {
         isActive: true,
       },
     });
+    if (inventorySku) {
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: params.organizationId,
+          channelListingOptionId: listingOption.id,
+          sellpiaInventorySkuId: inventorySku.id,
+          quantity: 1,
+        },
+      });
+    }
     const option = listingOption;
     return { master, option, listing, listingOption };
   }

@@ -3,7 +3,8 @@ const UUID_PATTERN =
 
 export type KidItemFirstOptionLink = Readonly<{
   externalOptionId: string;
-  productVariantId: string;
+  sellpiaInventorySkuId: string;
+  quantity: number;
   providerOptionKey: string;
 }>;
 
@@ -66,9 +67,13 @@ export function normalizeKidItemFirstRegistrationLinks(
     );
     return {
       externalOptionId,
-      productVariantId: uuid(
-        link.productVariantId,
-        `KidItem-first optionLinks[${index}].productVariantId`,
+      sellpiaInventorySkuId: uuid(
+        link.sellpiaInventorySkuId,
+        `KidItem-first optionLinks[${index}].sellpiaInventorySkuId`,
+      ),
+      quantity: positiveInteger(
+        link.quantity,
+        `KidItem-first optionLinks[${index}].quantity`,
       ),
       providerOptionKey: providerOptionKey(submissionKey, index),
     };
@@ -85,6 +90,13 @@ function uuid(value: unknown, field: string): string {
   const normalized = requiredString(value, field);
   if (!UUID_PATTERN.test(normalized)) throw new Error(`${field} must be a UUID.`);
   return normalized;
+}
+
+function positiveInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+  return Number(value);
 }
 
 function normalizedOptionId(value: unknown, field: string): string {

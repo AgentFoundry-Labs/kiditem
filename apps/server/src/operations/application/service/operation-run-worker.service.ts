@@ -13,6 +13,10 @@ import {
   resolveOperationRuntimeWorkerIntervalMs,
 } from './operation-runtime.config';
 import { OperationDispatcherService } from './operation-dispatcher.service';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
 
 @Injectable()
 export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -28,6 +32,8 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     private readonly dispatcher: OperationDispatcherService,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
+    private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
   ) {}
 
   onModuleInit(): void {
@@ -49,6 +55,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     this.busy = true;
     try {
       const now = new Date();
+      await this.compositeCoordinator.resumeTerminalChildren(now);
       const run = await this.repository.claimNextRun({
         workerId: this.workerId,
         now,

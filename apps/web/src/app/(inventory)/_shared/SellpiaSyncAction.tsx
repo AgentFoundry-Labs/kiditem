@@ -26,8 +26,8 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
   const runSync = async () => {
     setRequesting(true);
     try {
-      await requestRefresh();
-      toast.success('셀피아 동기화를 시작했습니다.');
+      await requestRefresh('inventory');
+      toast.success('셀피아 재고 동기화를 시작했습니다.');
     } catch {
       toast.error('셀피아 동기화를 시작하지 못했습니다.');
     } finally {
@@ -47,8 +47,8 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
         type="button"
         onClick={() => void runSync()}
         disabled={busy}
-        aria-label="셀피아 동기화"
-        title="셀피아 현재고와 상품별 소진을 함께 동기화"
+        aria-label="셀피아 재고 동기화"
+        title="셀피아 현재고만 동기화합니다. 수익성 데이터는 상품 운영 센터에서 별도로 갱신할 수 있습니다."
         className={cn(
           'inline-flex items-center gap-1.5 rounded-lg font-semibold transition disabled:opacity-50',
           compact
@@ -59,7 +59,7 @@ export function SellpiaSyncAction({ compact = false, showStatus = false }: {
         {busy
           ? <Loader2 className={cn(compact ? 'h-3.5 w-3.5' : 'h-4 w-4', 'animate-spin')} aria-hidden="true" />
           : <RefreshCw className={compact ? 'h-3.5 w-3.5' : 'h-4 w-4'} aria-hidden="true" />}
-        {busy ? '동기화 중…' : '셀피아 동기화'}
+        {busy ? '동기화 중…' : '재고 동기화'}
       </button>
     </div>
   );

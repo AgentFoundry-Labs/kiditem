@@ -125,6 +125,24 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ONLY', name: 'Inventory Only Master', abcGrade: 'B',
     });
+    const inactiveMaster = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-INACTIVE', name: 'Inactive Master', abcGrade: 'C',
+    });
+    const inactiveOption = await setupProductOption(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, masterId: inactiveMaster.id, sku: 'SKU-T-INACTIVE',
+    });
+    await setupChannelListing(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      masterId: inactiveMaster.id,
+      channel: 'coupang',
+      externalId: 'EXT-T-INACTIVE',
+      optionId: inactiveOption.id,
+      externalOptionId: 'VI-T-INACTIVE',
+    });
+    await prisma.masterProduct.update({
+      where: { id: inactiveMaster.id },
+      data: { isActive: false },
+    });
     const otherMaster = await setupMaster(prisma, {
       organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-LINKED', name: 'Other Linked Master', abcGrade: 'A',
     });
@@ -201,6 +219,64 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     expect(result.unclassifiedProductCount).toBe(1);
   });
 
+  it('reads stored automatic calculation states without turning them into C', async () => {
+    const official = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OFFICIAL', name: 'Official', abcGrade: 'A',
+    });
+    const observing = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-OBSERVING', name: 'Observing', abcGrade: null,
+    });
+    const stale = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-STALE', name: 'Stale', abcGrade: 'B',
+    });
+    const failed = await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-ERROR', name: 'Error', abcGrade: null,
+    });
+    await setupMaster(prisma, {
+      organizationId: TEST_ORGANIZATION_ID, code: 'M-T-ABC-UNPUBLISHED', name: 'Unpublished', abcGrade: null,
+    });
+    const foreign = await setupMaster(prisma, {
+      organizationId: OTHER_ORGANIZATION_ID, code: 'M-O-ABC-OBSERVING', name: 'Foreign', abcGrade: null,
+    });
+    const calculatedAt = new Date('2026-07-31T00:00:00.000Z');
+    await prisma.masterProductAbcEvaluation.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: official.id,
+          calculationStatus: 'READY', calculatedAt,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: observing.id,
+          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: stale.id,
+          calculationStatus: 'SELLPIA_SOURCE_STALE', calculatedAt,
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID, masterProductId: failed.id,
+          calculationStatus: 'CALCULATION_ERROR', calculatedAt,
+        },
+        {
+          organizationId: OTHER_ORGANIZATION_ID, masterProductId: foreign.id,
+          calculationStatus: 'INSUFFICIENT_EVIDENCE', calculatedAt,
+        },
+      ],
+    });
+
+    const result = await service.getSummary(buildDashboardContext(), TEST_ORGANIZATION_ID);
+
+    expect(result.gradeCount).toEqual({ A: 1, B: 1, C: 0 });
+    expect(result.abcStatusCount).toMatchObject({
+      READY: 1,
+      INSUFFICIENT_EVIDENCE: 1,
+      SELLPIA_SOURCE_STALE: 1,
+      CALCULATION_ERROR: 1,
+    });
+    expect(result.unclassifiedProductCount).toBe(3);
+    expect(result.abcFormula).toBeNull();
+  });
+
   it('counts only organization-scoped automatic MasterProduct grade history', async () => {
     const ownMaster = await setupMaster(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -214,25 +290,37 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       name: 'Foreign History Master',
       abcGrade: 'C',
     });
+    const [ownFormula, foreignFormula] = await Promise.all([
+      createFormula(TEST_ORGANIZATION_ID),
+      createFormula(OTHER_ORGANIZATION_ID),
+    ]);
     await prisma.masterProductAbcGradeHistory.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
           masterProductId: ownMaster.id,
+          formulaVersionId: ownFormula.id,
           oldGrade: null,
           newGrade: 'A',
-          metric: 'SALES_QUANTITY',
-          periodDays: 30,
-          metricValue: 10,
+          calculationStatus: 'READY',
+          adjustedScore: 80,
+          weightedContributionProfit: 10,
+          weightedContributionMargin: 0.5,
+          sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
+          reason: 'automatic_profitability_evaluation',
         },
         {
           organizationId: OTHER_ORGANIZATION_ID,
           masterProductId: foreignMaster.id,
+          formulaVersionId: foreignFormula.id,
           oldGrade: 'A',
           newGrade: 'C',
-          metric: 'SALES_QUANTITY',
-          periodDays: 30,
-          metricValue: 1,
+          calculationStatus: 'READY',
+          adjustedScore: 20,
+          weightedContributionProfit: -1,
+          weightedContributionMargin: -0.1,
+          sourceCutoffDate: new Date('2026-07-31T00:00:00.000Z'),
+          reason: 'automatic_profitability_evaluation',
         },
       ],
     });
@@ -244,6 +332,22 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
 
     expect(result.gradeChanges).toEqual({ upgraded: 1, downgraded: 0, total: 1 });
   });
+
+  async function createFormula(organizationId: string) {
+    return prisma.masterProductAbcFormulaVersion.create({
+      data: {
+        organizationId,
+        formulaKey: 'ABC_V1',
+        version: 1,
+        calculationCodeChecksum: 'a'.repeat(64),
+        formulaChecksum: `${organizationId.slice(0, 1)}${'b'.repeat(63)}`,
+        formulaJson: {},
+        trainingStartDate: new Date('2025-07-01T00:00:00.000Z'),
+        trainingEndDate: new Date('2026-07-31T00:00:00.000Z'),
+        calibrationMetricsJson: {},
+      },
+    });
+  }
 
   it('T4: minusProduct — seeded loss order surfaces in warnings.minusProducts', async () => {
     // Loss order: revenue 50_000, costPrice 80_000, commission 10%, shipping 5_000

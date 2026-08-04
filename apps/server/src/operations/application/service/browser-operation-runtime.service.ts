@@ -102,11 +102,15 @@ export class BrowserOperationRuntimeService {
     if (current.engineType !== 'browser' || current.status !== 'attention_required') {
       throw new BadRequestException('browser_operation_not_retryable');
     }
+    const attemptDelta = current.attempts >= current.maxAttempts
+      ? current.maxAttempts - 1 - current.attempts
+      : undefined;
     const resumed = await this.repository.transition({
       organizationId: input.organizationId,
       runId: input.runId,
       expectedStatuses: ['attention_required'],
       status: 'waiting_runtime',
+      ...(attemptDelta === undefined ? {} : { attemptDelta }),
       errorCode: null,
       errorMessage: null,
       claimedBy: null,

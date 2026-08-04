@@ -20,7 +20,7 @@ function makePrisma(
 }
 
 // Final-owner lineItem shape — listing metadata comes from MasterProduct and
-// component cost comes from the ProductVariant recipe's physical Sellpia SKUs.
+// Component cost comes from the channel option's physical Sellpia SKUs.
 const mkLineItem = (listing: {
   id: string; externalId: string; channelName: string | null;
   master: { id: string; code: string; legacyCode: string | null; name: string; category: string | null; abcGrade: string | null; thumbnailUrl: string | null };
@@ -32,7 +32,7 @@ const mkLineItem = (listing: {
     commissionRate: pricing.commissionRate,
     shippingCost: null,
     otherCost: pricing.otherCost,
-    productVariant: { components: [] },
+    inventoryComponents: [],
     listing: {
       id: listing.id,
       externalId: listing.externalId,

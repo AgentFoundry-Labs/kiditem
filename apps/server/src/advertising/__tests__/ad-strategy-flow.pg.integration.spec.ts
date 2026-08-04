@@ -132,24 +132,6 @@ describe('AdStrategy flow (PG integration)', () => {
         purchasePrice: params.costPrice ?? 5000,
       },
     });
-    const variant = await prisma.productVariant.create({
-      data: {
-        organizationId: params.organizationId,
-        masterProductId: master.id,
-        code: `VAR-${params.suffix}`,
-        name: `Variant ${params.suffix}`,
-        isDefault: true,
-      },
-    });
-    await prisma.productVariantComponent.create({
-      data: {
-        organizationId: params.organizationId,
-        productVariantId: variant.id,
-        sellpiaInventorySkuId: inventorySku.id,
-        quantity: 1,
-        source: 'manual',
-      },
-    });
     const listing = await prisma.channelListing.create({
       data: {
         organizationId: params.organizationId,
@@ -164,7 +146,6 @@ describe('AdStrategy flow (PG integration)', () => {
       data: {
         organizationId: params.organizationId,
         listingId: listing.id,
-        productVariantId: variant.id,
         externalOptionId: `VI-${params.suffix}`,
         salePrice: params.sellPrice ?? 20000,
         costPriceOverride: params.costPrice ?? 5000,
@@ -172,6 +153,14 @@ describe('AdStrategy flow (PG integration)', () => {
         shippingCost: params.shippingCost ?? 2500,
         lastImportRunId: importRun.id,
         isActive: true,
+      },
+    });
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: {
+        organizationId: params.organizationId,
+        channelListingOptionId: listingOption.id,
+        sellpiaInventorySkuId: inventorySku.id,
+        quantity: 1,
       },
     });
     const option = listingOption;
@@ -926,28 +915,10 @@ describe('AdStrategy flow (PG integration)', () => {
           purchasePrice: 5000,
         },
       });
-      const earlierVariant = await prisma.productVariant.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          masterProductId: a.master.id,
-          code: 'VAR-C4-MULTI-EARLY',
-          name: 'Variant C4 MULTI EARLY',
-        },
-      });
-      await prisma.productVariantComponent.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: earlierVariant.id,
-          sellpiaInventorySkuId: earlierSku.id,
-          quantity: 1,
-          source: 'manual',
-        },
-      });
       const earlierListingOption = await prisma.channelListingOption.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           listingId: a.listing.id,
-          productVariantId: earlierVariant.id,
           externalOptionId: 'VI-C4-MULTI-EARLY',
           salePrice: 20000,
           costPriceOverride: 5000,
@@ -956,6 +927,14 @@ describe('AdStrategy flow (PG integration)', () => {
           lastImportRunId: a.listing.lastImportRunId,
           isActive: true,
           createdAt: new Date('2026-04-01T00:00:00.000Z'),
+        },
+      });
+      await prisma.channelListingOptionInventoryComponent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          channelListingOptionId: earlierListingOption.id,
+          sellpiaInventorySkuId: earlierSku.id,
+          quantity: 1,
         },
       });
       // H3 — bake ad metrics into the 2026-04-14 listing-daily so it remains

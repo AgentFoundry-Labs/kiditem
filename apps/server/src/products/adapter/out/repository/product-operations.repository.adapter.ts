@@ -8,62 +8,39 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   MasterProductOperationsListQuery,
-  ReplaceProductVariantRecipeInput,
 } from '@kiditem/shared/product-operations';
+import {
+  ProductAbcEvaluationSchema,
+  ProductAbcFormulaSummarySchema,
+  type ProductAbcEvaluation,
+} from '@kiditem/shared/product-abc';
+import {
+  isChannelListingOnSale,
+  resolveChannelListingSaleStatus,
+} from '@kiditem/shared/channel-listing';
 import type {
-  NormalizedCreateMasterProduct,
-  NormalizedCreateProductVariant,
   ProductOperationsRepositoryDetail,
   ProductOperationsDisplayMediaTarget,
   ProductOperationsRepositoryListItem,
   ProductOperationsRepositoryPort,
-  ProductOperationsRepositoryVariant,
 } from '../../../application/port/out/repository/product-operations.repository.port';
+import { listSellingMasterProductIds } from './selling-master-product.query';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 function productInclude(organizationId: string, periodStart?: Date) {
   return {
+    abcEvaluation: { include: { formulaVersion: true } },
+    inventorySkus: {
+      where: { organizationId },
+      orderBy: { id: 'asc' as const },
+      select: { id: true },
+    },
     originChannelListing: {
       select: {
         externalId: true,
         channelAccount: {
           select: { name: true },
-        },
-      },
-    },
-    variants: {
-      where: { organizationId },
-      orderBy: [{ isDefault: 'desc' as const }, { createdAt: 'asc' as const }],
-      include: {
-        channelListingOptions: {
-          where: { organizationId },
-          select: {
-            listingId: true,
-            externalOptionId: true,
-            listing: {
-              select: {
-                channelAccount: {
-                  select: { name: true },
-                },
-              },
-            },
-          },
-        },
-        components: {
-          where: { organizationId },
-          orderBy: { createdAt: 'asc' as const },
-          include: {
-            sellpiaInventorySku: {
-              select: {
-                id: true,
-                code: true,
-                name: true,
-                optionName: true,
-                barcode: true,
-              },
-            },
-          },
         },
       },
     },
@@ -80,15 +57,45 @@ function productInclude(organizationId: string, periodStart?: Date) {
             ...(periodStart ? { businessDate: { gte: periodStart } } : {}),
           },
           select: {
+            businessDate: true,
+            trafficVisitors: true,
             trafficViews: true,
+            trafficCartAdds: true,
             trafficOrders: true,
+            trafficSalesQty: true,
             trafficRevenue: true,
             adSpend: true,
+            adCoverageStatus: true,
+            adObservedAt: true,
+            trafficCoverageStatus: true,
+            trafficObservedAt: true,
+            lastObservedAt: true,
           },
         },
         profitLoss: {
           where: { organizationId },
           select: { year: true, month: true, netProfit: true },
+        },
+        options: {
+          where: { organizationId },
+          orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
+          include: {
+            inventoryComponents: {
+              where: { organizationId },
+              orderBy: { createdAt: 'asc' as const },
+              include: {
+                sellpiaInventorySku: {
+                  select: {
+                    id: true,
+                    code: true,
+                    name: true,
+                    optionName: true,
+                    barcode: true,
+                  },
+                },
+              },
+            },
+          },
         },
       },
     },
@@ -143,16 +150,75 @@ implements ProductOperationsRepositoryPort {
     const periodStart = startOfUtcDay(
       new Date(Date.now() - (query.periodDays - 1) * 86_400_000),
     );
+    const [sellingMasterProductIds, sellingChannelProducts] = await Promise.all([
+      listSellingMasterProductIds(this.prisma, organizationId),
+      this.listSellingChannelProducts(organizationId),
+    ]);
+    const sellingMasterProductIdSet = new Set(sellingMasterProductIds);
     const rows = await this.prisma.masterProduct.findMany({
-      where: productListWhere(organizationId, query),
+      where: productListWhere(organizationId, query, sellingMasterProductIds),
       include: productInclude(organizationId, periodStart),
       orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
     return {
-      items: rows.map((row) => toListItem(row, periodStart)),
+      items: rows.map((row) => toListItem(
+        row,
+        periodStart,
+        sellingMasterProductIdSet.has(row.id),
+      )),
       page: query.page,
       limit: query.limit,
+      sellingChannelProducts,
     };
+  }
+
+  private async listSellingChannelProducts(organizationId: string) {
+    const rows = await this.prisma.channelListing.findMany({
+      where: {
+        organizationId,
+        channelAccount: {
+          is: {
+            organizationId,
+            status: 'active',
+            channel: { in: ['coupang', 'rocket'] },
+          },
+        },
+      },
+      select: {
+        isActive: true,
+        status: true,
+        rawJson: true,
+        channelAccount: {
+          select: { id: true, channel: true, name: true },
+        },
+        channelListingDailySnapshots: {
+          where: { organizationId },
+          orderBy: [
+            { businessDate: 'desc' },
+            { lastObservedAt: 'desc' },
+          ],
+          take: 1,
+          select: { saleStatus: true },
+        },
+        options: {
+          where: { organizationId },
+          select: { status: true },
+        },
+      },
+    });
+    return rows.flatMap((row) => isChannelListingOnSale(
+      resolveChannelListingSaleStatus({
+        latestSnapshotStatus: row.channelListingDailySnapshots[0]?.saleStatus,
+        rawStatus: rawSaleStatus(row.rawJson),
+        optionStatuses: row.options.map((option) => option.status),
+        listingStatus: row.status,
+        isActive: row.isActive,
+      }),
+    ) ? [{
+      channelAccountId: row.channelAccount.id,
+      channel: row.channelAccount.channel,
+      channelAccountName: row.channelAccount.name,
+    }] : []);
   }
 
   async getProduct(
@@ -169,35 +235,27 @@ implements ProductOperationsRepositoryPort {
 
   async createProduct(input: {
     organizationId: string;
-    userId: string;
-    product: NormalizedCreateMasterProduct;
+    product: Parameters<ProductOperationsRepositoryPort['createProduct']>[0]['product'];
   }): Promise<ProductOperationsRepositoryDetail> {
     try {
-      const masterProductId = await this.prisma.$transaction(async (tx) => {
-        for (const variant of input.product.variants) {
-          await validateRecipeSkus(tx, input.organizationId, variant.components);
-        }
-        const { variants, ...metadata } = input.product;
-        const product = await tx.masterProduct.create({
-          data: {
-            organizationId: input.organizationId,
-            ...metadata,
-          },
-          select: { id: true },
-        });
-        const confirmedAt = new Date();
-        for (const variant of variants) {
-          await createVariantRow(tx, {
-            organizationId: input.organizationId,
-            userId: input.userId,
-            masterProductId: product.id,
-            variant,
-            confirmedAt,
-          });
-        }
-        return product.id;
-      }, TRANSACTION_OPTIONS);
-      return this.getProduct(input.organizationId, masterProductId);
+      const product = await this.prisma.masterProduct.create({
+        data: {
+          organizationId: input.organizationId,
+          description: null,
+          category: null,
+          brand: null,
+          tags: [],
+          imageUrls: [],
+          profitTag: null,
+          adTier: null,
+          adBudgetLimit: null,
+          healthScore: null,
+          isActive: true,
+          ...input.product,
+        },
+        select: { id: true },
+      });
+      return this.getProduct(input.organizationId, product.id);
     } catch (error) {
       throw translateMutationError(error);
     }
@@ -223,259 +281,51 @@ implements ProductOperationsRepositoryPort {
     }
   }
 
-  async createVariant(input: {
-    organizationId: string;
-    userId: string;
-    masterProductId: string;
-    variant: NormalizedCreateProductVariant;
-  }): Promise<ProductOperationsRepositoryVariant> {
-    try {
-      const variantId = await this.prisma.$transaction(async (tx) => {
-        const product = await tx.masterProduct.findFirst({
-          where: { id: input.masterProductId, organizationId: input.organizationId },
-          select: { id: true },
-        });
-        if (!product) throw new NotFoundException('MasterProduct was not found');
-        await validateRecipeSkus(tx, input.organizationId, input.variant.components);
-        return createVariantRow(tx, {
-          ...input,
-          confirmedAt: new Date(),
-        });
-      }, TRANSACTION_OPTIONS);
-      return this.getVariant(input.organizationId, variantId);
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
-
-  async updateVariant(
-    organizationId: string,
-    productVariantId: string,
-    input: Parameters<ProductOperationsRepositoryPort['updateVariant']>[2],
-  ): Promise<ProductOperationsRepositoryVariant> {
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        const variant = await tx.productVariant.findFirst({
-          where: { id: productVariantId, organizationId },
-          select: { id: true, masterProductId: true },
-        });
-        if (!variant) throw new NotFoundException('ProductVariant was not found');
-        if (input.isDefault === true) {
-          await tx.productVariant.updateMany({
-            where: {
-              organizationId,
-              masterProductId: variant.masterProductId,
-              id: { not: productVariantId },
-            },
-            data: { isDefault: false },
-          });
-        }
-        await tx.productVariant.updateMany({
-          where: { id: productVariantId, organizationId },
-          data: input,
-        });
-      }, TRANSACTION_OPTIONS);
-      return this.getVariant(organizationId, productVariantId);
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
-
-  async planManualRecipesIfEmpty(
-    input: Parameters<ProductOperationsRepositoryPort['planManualRecipesIfEmpty']>[0],
-  ) {
-    try {
-      const evaluation = await this.prisma.$transaction(
-        (tx) => evaluateManualRecipesIfEmpty(tx, input),
-        TRANSACTION_OPTIONS,
-      );
-      return {
-        pendingProductVariantIds: evaluation.pending.map(
-          (recipe) => recipe.productVariantId,
-        ),
-        unchangedProductVariantIds: evaluation.unchanged.map(
-          (recipe) => recipe.productVariantId,
-        ),
-      };
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
-
-  async createManualRecipesIfEmpty(
-    input: Parameters<ProductOperationsRepositoryPort['createManualRecipesIfEmpty']>[0],
+  async replaceChannelOptionInventory(
+    input: Parameters<ProductOperationsRepositoryPort['replaceChannelOptionInventory']>[0],
   ) {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const evaluation = await evaluateManualRecipesIfEmpty(tx, input);
-        if (evaluation.pending.length > 0) {
-          const confirmedAt = new Date();
-          await tx.productVariantComponent.createMany({
-            data: evaluation.pending.flatMap((recipe) =>
-              recipe.components.map((component) => ({
-                organizationId: input.organizationId,
-                productVariantId: recipe.productVariantId,
-                sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-                quantity: component.quantity,
-                source: 'manual' as const,
-                confirmedBy: input.userId,
-                confirmedAt,
-              }))),
-          });
-        }
-        return {
-          appliedProductVariantIds: evaluation.pending.map(
-            (recipe) => recipe.productVariantId,
-          ),
-          unchangedProductVariantIds: evaluation.unchanged.map(
-            (recipe) => recipe.productVariantId,
-          ),
-        };
-      }, TRANSACTION_OPTIONS);
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
-
-  async applyDeterministicRecipesIfEmpty(
-    input: Parameters<ProductOperationsRepositoryPort['applyDeterministicRecipesIfEmpty']>[0],
-  ) {
-    try {
-      return await this.prisma.$transaction(async (tx) => {
-        const recipes = [...input.recipes]
-          .sort((left, right) => left.productVariantId.localeCompare(right.productVariantId));
-        const variantIds = recipes.map((recipe) => recipe.productVariantId);
-        const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-          SELECT id
-          FROM product_variants
-          WHERE organization_id = ${input.organizationId}::uuid
-            AND id IN (${Prisma.join(variantIds)})
-          ORDER BY id ASC
-          FOR UPDATE
-        `);
-        if (locked.length !== variantIds.length) {
-          throw new NotFoundException('One or more ProductVariants were not found');
-        }
-
-        const existing = await tx.productVariantComponent.findMany({
-          where: {
-            organizationId: input.organizationId,
-            productVariantId: { in: variantIds },
-          },
-          select: { productVariantId: true },
-        });
-        const existingVariantIds = new Set(existing.map((row) => row.productVariantId));
-        const pending = recipes.filter((recipe) =>
-          !existingVariantIds.has(recipe.productVariantId));
-        await validateActiveRecipeSkuIds(
-          tx,
-          input.organizationId,
-          [...new Set(pending.map((recipe) => recipe.sellpiaInventorySkuId))],
-        );
-
-        if (pending.length > 0) {
-          const confirmedAt = new Date();
-          await tx.productVariantComponent.createMany({
-            data: pending.map((recipe) => ({
-              organizationId: input.organizationId,
-              productVariantId: recipe.productVariantId,
-              sellpiaInventorySkuId: recipe.sellpiaInventorySkuId,
-              quantity: recipe.quantity,
-              source: 'deterministic',
-              confirmedBy: null,
-              confirmedAt,
-            })),
-          });
-        }
-        return {
-          appliedProductVariantIds: pending.map((recipe) => recipe.productVariantId),
-          skippedExistingProductVariantIds: variantIds.filter((id) =>
-            existingVariantIds.has(id)),
-        };
-      }, TRANSACTION_OPTIONS);
-    } catch (error) {
-      throw translateMutationError(error);
-    }
-  }
-
-  async replaceRecipe(input: {
-    organizationId: string;
-    userId: string;
-    productVariantId: string;
-    components: Array<{ sellpiaInventorySkuId: string; quantity: number }>;
-    expectedRecipe: ReplaceProductVariantRecipeInput['expectedRecipe'];
-  }): Promise<ProductOperationsRepositoryVariant> {
-    try {
-      await this.prisma.$transaction(async (tx) => {
-        const variant = await lockProductVariant(
-          tx,
-          input.organizationId,
-          input.productVariantId,
-        );
-        if (!variant) throw new NotFoundException('ProductVariant was not found');
-        const currentRecipe = await tx.productVariantComponent.findMany({
-          where: {
-            organizationId: input.organizationId,
-            productVariantId: input.productVariantId,
-          },
+        const option = await tx.channelListingOption.findFirst({
+          where: { id: input.channelListingOptionId, organizationId: input.organizationId },
           select: {
             id: true,
-            sellpiaInventorySkuId: true,
-            quantity: true,
-            source: true,
-            confirmedBy: true,
-            confirmedAt: true,
+            listingId: true,
           },
         });
-        if (!sameRecipeExpectation(currentRecipe, input.expectedRecipe)) {
-          throw new ConflictException({
-            message: 'ProductVariant recipe was changed by another operator',
-            currentRecipe: canonicalRecipe(currentRecipe),
-          });
-        }
+        if (!option) throw new NotFoundException('Channel listing option was not found');
         await validateRecipeSkus(tx, input.organizationId, input.components);
-        await tx.productVariantComponent.deleteMany({
+        await tx.channelListingOptionInventoryComponent.deleteMany({
           where: {
             organizationId: input.organizationId,
-            productVariantId: input.productVariantId,
+            channelListingOptionId: input.channelListingOptionId,
           },
         });
         if (input.components.length > 0) {
-          const confirmedAt = new Date();
-          await tx.productVariantComponent.createMany({
+          await tx.channelListingOptionInventoryComponent.createMany({
             data: input.components.map((component) => ({
               organizationId: input.organizationId,
-              productVariantId: input.productVariantId,
+              channelListingOptionId: input.channelListingOptionId,
               sellpiaInventorySkuId: component.sellpiaInventorySkuId,
               quantity: component.quantity,
-              source: 'manual',
-              confirmedBy: input.userId,
-              confirmedAt,
             })),
           });
         }
+        const masterProductId = await resolveListingMasterProductId(
+          tx,
+          input.organizationId,
+          option.listingId,
+        );
+        const updated = await tx.channelListing.updateMany({
+          where: { id: option.listingId, organizationId: input.organizationId },
+          data: { masterProductId },
+        });
+        if (updated.count !== 1) throw new NotFoundException('Channel listing was not found');
+        return { masterProductId };
       }, TRANSACTION_OPTIONS);
-      return this.getVariant(input.organizationId, input.productVariantId);
     } catch (error) {
       throw translateMutationError(error);
     }
-  }
-
-  private async getVariant(
-    organizationId: string,
-    productVariantId: string,
-  ): Promise<ProductOperationsRepositoryVariant> {
-    const row = await this.prisma.productVariant.findFirst({
-      where: { id: productVariantId, organizationId },
-      include: {
-        ...productInclude(organizationId).variants.include,
-        masterProduct: {
-          select: { originChannelListingId: true },
-        },
-      },
-    });
-    if (!row) throw new NotFoundException('ProductVariant was not found');
-    return toVariantDetail(row, row.masterProduct.originChannelListingId);
   }
 }
 
@@ -490,136 +340,20 @@ function compareDisplayMediaTargets(
     || left.channelListingId.localeCompare(right.channelListingId);
 }
 
-async function evaluateManualRecipesIfEmpty(
-  tx: Prisma.TransactionClient,
-  input: Parameters<ProductOperationsRepositoryPort['planManualRecipesIfEmpty']>[0],
-) {
-  const recipes = [...input.recipes]
-    .sort((left, right) => left.productVariantId.localeCompare(right.productVariantId));
-  const variantIds = recipes.map((recipe) => recipe.productVariantId);
-  if (new Set(variantIds).size !== variantIds.length) {
-    throw new BadRequestException('Manual recipe batches must target distinct ProductVariants');
+function rawSaleStatus(value: Prisma.JsonValue | null): string | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ['saleStatus', 'salesStatus', 'sale_status', '판매상태']) {
+    const candidate = record[key];
+    if (typeof candidate === 'string' && candidate.trim()) return candidate.trim();
   }
-  for (const recipe of recipes) {
-    if (recipe.components.length === 0) {
-      throw new BadRequestException('Manual recipe batches cannot create empty recipes');
-    }
-    assertRecipeComponentShape(recipe.components);
-  }
-  const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
-    SELECT id
-    FROM product_variants
-    WHERE organization_id = ${input.organizationId}::uuid
-      AND id IN (${Prisma.join(variantIds)})
-    ORDER BY id ASC
-    FOR UPDATE
-  `);
-  if (locked.length !== variantIds.length) {
-    throw new NotFoundException('One or more ProductVariants were not found');
-  }
-  await validateActiveRecipeSkuIds(
-    tx,
-    input.organizationId,
-    [...new Set(recipes.flatMap((recipe) =>
-      recipe.components.map((component) => component.sellpiaInventorySkuId)))],
-  );
-
-  const existing = await tx.productVariantComponent.findMany({
-    where: {
-      organizationId: input.organizationId,
-      productVariantId: { in: variantIds },
-    },
-    select: {
-      productVariantId: true,
-      sellpiaInventorySkuId: true,
-      quantity: true,
-    },
-  });
-  const existingByVariant = new Map<string, typeof existing>();
-  for (const component of existing) {
-    const components = existingByVariant.get(component.productVariantId) ?? [];
-    components.push(component);
-    existingByVariant.set(component.productVariantId, components);
-  }
-  const pending = [] as typeof recipes;
-  const unchanged = [] as typeof recipes;
-  const conflictingProductVariantIds: string[] = [];
-  for (const recipe of recipes) {
-    const current = existingByVariant.get(recipe.productVariantId) ?? [];
-    if (current.length === 0) {
-      pending.push(recipe);
-    } else if (sameRecipeComponents(current, recipe.components)) {
-      unchanged.push(recipe);
-    } else {
-      conflictingProductVariantIds.push(recipe.productVariantId);
-    }
-  }
-  if (conflictingProductVariantIds.length > 0) {
-    throw new ConflictException({
-      message: 'One or more ProductVariants already have a different confirmed recipe',
-      conflictingProductVariantIds,
-    });
-  }
-  return { pending, unchanged };
-}
-
-function assertRecipeComponentShape(
-  components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
-) {
-  if (components.some((component) => !Number.isInteger(component.quantity) || component.quantity <= 0)) {
-    throw new BadRequestException('ProductVariant component quantities must be positive integers');
-  }
-  const ids = components.map((component) => component.sellpiaInventorySkuId);
-  if (new Set(ids).size !== ids.length) {
-    throw new BadRequestException('ProductVariant component SKUs must be unique');
-  }
-}
-
-function sameRecipeComponents(
-  left: readonly { sellpiaInventorySkuId: string; quantity: number }[],
-  right: readonly { sellpiaInventorySkuId: string; quantity: number }[],
-) {
-  const canonical = (
-    components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
-  ) => [...components]
-    .map(({ sellpiaInventorySkuId, quantity }) => ({ sellpiaInventorySkuId, quantity }))
-    .sort((first, second) =>
-      first.sellpiaInventorySkuId.localeCompare(second.sellpiaInventorySkuId));
-  return JSON.stringify(canonical(left)) === JSON.stringify(canonical(right));
-}
-
-type RecipeSnapshot = {
-  id: string;
-  sellpiaInventorySkuId: string;
-  quantity: number;
-  source: string;
-  confirmedBy: string | null;
-  confirmedAt: Date | string;
-};
-
-function canonicalRecipe(recipe: readonly RecipeSnapshot[]) {
-  return [...recipe]
-    .map((component) => ({
-      id: component.id,
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      quantity: component.quantity,
-      source: component.source,
-      confirmedBy: component.confirmedBy,
-      confirmedAt: new Date(component.confirmedAt).toISOString(),
-    }))
-    .sort((left, right) => left.id.localeCompare(right.id));
-}
-
-function sameRecipeExpectation(
-  current: readonly RecipeSnapshot[],
-  expected: readonly RecipeSnapshot[],
-) {
-  return JSON.stringify(canonicalRecipe(current)) === JSON.stringify(canonicalRecipe(expected));
+  return null;
 }
 
 function productListWhere(
   organizationId: string,
   query: MasterProductOperationsListQuery,
+  sellingMasterProductIds: readonly string[],
 ): Prisma.MasterProductWhereInput {
   const search = query.query?.trim();
   return {
@@ -632,13 +366,16 @@ function productListWhere(
       ],
     } : {}),
     ...(query.category ? { category: query.category } : {}),
-    ...(query.activeStatus === 'active' ? { isActive: true } : {}),
-    ...(query.activeStatus === 'inactive' ? { isActive: false } : {}),
+    ...(query.activeStatus === 'active' ? { id: { in: [...sellingMasterProductIds] } } : {}),
+    ...(query.activeStatus === 'inactive' ? { id: { notIn: [...sellingMasterProductIds] } } : {}),
     ...(query.abcGrade === 'unclassified'
       ? { abcGrade: null }
       : query.abcGrade
         ? { abcGrade: query.abcGrade }
         : {}),
+    ...(query.abcCalculationStatus ? {
+      abcEvaluation: { is: { calculationStatus: query.abcCalculationStatus } },
+    } : {}),
     ...(query.adStatus === 'active' ? { adTier: { not: null } } : {}),
     ...(query.adStatus === 'inactive' ? { adTier: 'inactive' } : {}),
     ...(query.adStatus === 'unconfigured' ? { adTier: null } : {}),
@@ -651,11 +388,11 @@ async function validateRecipeSkus(
   components: readonly { sellpiaInventorySkuId: string; quantity: number }[],
 ): Promise<void> {
   if (components.some((component) => component.quantity <= 0)) {
-    throw new BadRequestException('ProductVariant component quantities must be positive');
+    throw new BadRequestException('Channel option inventory quantities must be positive');
   }
   const ids = [...new Set(components.map((component) => component.sellpiaInventorySkuId))];
   if (ids.length !== components.length) {
-    throw new BadRequestException('ProductVariant component SKUs must be unique');
+    throw new BadRequestException('Channel option inventory SKUs must be unique');
   }
   await validateActiveRecipeSkuIds(tx, organizationId, ids);
 }
@@ -668,7 +405,7 @@ async function validateActiveRecipeSkuIds(
   if (ids.length === 0) return;
   const rows = await tx.sellpiaInventorySku.findMany({
     where: { organizationId, id: { in: ids } },
-    select: { id: true, isActive: true },
+    select: { id: true, isActive: true, masterProductId: true },
   });
   const byId = new Map(rows.map((row) => [row.id, row]));
   if (ids.some((id) => !byId.has(id))) {
@@ -679,61 +416,51 @@ async function validateActiveRecipeSkuIds(
   if (ids.some((id) => byId.get(id)?.isActive !== true)) {
     throw new BadRequestException('Inactive SellpiaInventorySku components require review');
   }
+  if (ids.some((id) => !byId.get(id)?.masterProductId)) {
+    throw new BadRequestException(
+      'SellpiaInventorySku canonical MasterProduct must be synchronized before matching',
+    );
+  }
 }
 
-async function lockProductVariant(
+async function resolveListingMasterProductId(
   tx: Prisma.TransactionClient,
   organizationId: string,
-  productVariantId: string,
-): Promise<{ id: string } | null> {
-  const [variant] = await tx.$queryRaw<Array<{ id: string }>>`
-    SELECT id
-    FROM product_variants
-    WHERE id = ${productVariantId}::uuid
-      AND organization_id = ${organizationId}::uuid
-    FOR UPDATE
-  `;
-  return variant ?? null;
-}
-
-async function createVariantRow(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    userId: string;
-    masterProductId: string;
-    variant: NormalizedCreateProductVariant;
-    confirmedAt: Date;
-  },
-): Promise<string> {
-  const { components, ...variantData } = input.variant;
-  const variant = await tx.productVariant.create({
-    data: {
-      organizationId: input.organizationId,
-      masterProductId: input.masterProductId,
-      ...variantData,
+  channelListingId: string,
+): Promise<string | null> {
+  const listing = await tx.channelListing.findFirst({
+    where: { id: channelListingId, organizationId },
+    select: {
+      options: {
+        where: { organizationId },
+        select: {
+          inventoryComponents: {
+            where: { organizationId },
+            select: {
+              sellpiaInventorySku: { select: { masterProductId: true } },
+            },
+          },
+        },
+      },
     },
-    select: { id: true },
   });
-  if (components.length > 0) {
-    await tx.productVariantComponent.createMany({
-      data: components.map((component) => ({
-        organizationId: input.organizationId,
-        productVariantId: variant.id,
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-        quantity: component.quantity,
-        source: 'manual',
-        confirmedBy: input.userId,
-        confirmedAt: input.confirmedAt,
-      })),
-    });
+  if (!listing || listing.options.length === 0) return null;
+  const ownerIds = new Set<string>();
+  for (const option of listing.options) {
+    if (option.inventoryComponents.length === 0) return null;
+    for (const component of option.inventoryComponents) {
+      const ownerId = component.sellpiaInventorySku.masterProductId;
+      if (!ownerId) return null;
+      ownerIds.add(ownerId);
+    }
   }
-  return variant.id;
+  return ownerIds.size === 1 ? [...ownerIds][0]! : null;
 }
 
 function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
   return {
     ...metadata(row),
+    inventorySkuIds: row.inventorySkus.map(({ id }) => id),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     channelListings: row.channelListings.map((listing) => ({
@@ -745,41 +472,135 @@ function toDetail(row: ProductRow): ProductOperationsRepositoryDetail {
       displayName: listing.displayName,
       status: listing.status,
       isActive: listing.isActive,
+      options: listing.options.map(toRepositoryOption),
     })),
-    variants: row.variants.map((variant) =>
-      toVariantDetail(variant, row.originChannelListingId)),
   };
 }
 
 function toListItem(
   row: ProductRow,
   periodStart: Date,
+  isSelling: boolean,
 ): ProductOperationsRepositoryListItem {
-  const variants = row.variants.map((variant) =>
-    toVariantDetail(variant, row.originChannelListingId));
   const activeListings = row.channelListings.filter((listing) => listing.isActive);
   const dailyFacts = row.channelListings.flatMap(
     (listing) => listing.channelListingDailySnapshots,
   );
+  const trafficFacts = dailyFacts.filter(hasTrafficEvidence);
+  const advertisingFacts = dailyFacts.filter(hasAdvertisingEvidence);
+  const visitorCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficVisitors);
+  const viewCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficViews);
+  const cartAddCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficCartAdds);
+  const orderCount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficOrders);
+  const salesQuantity = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficSalesQty);
+  const salesAmount = nullableTrafficMetricSum(trafficFacts, (fact) => fact.trafficRevenue);
+  const adSpend = nullableSum(advertisingFacts, (fact) => fact.adSpend);
   const profits = row.channelListings.flatMap((listing) =>
     listing.profitLoss.filter((fact) => monthEndUtc(fact.year, fact.month) >= periodStart),
   );
   return {
     ...metadata(row),
+    isSelling,
     updatedAt: row.updatedAt,
-    variants,
+    inventorySkuIds: row.inventorySkus.map(({ id }) => id),
+    activeChannelProducts: activeListings.map((listing) => ({
+      channelAccountId: listing.channelAccountId,
+      channel: listing.channelAccount.channel,
+      channelAccountName: listing.channelAccount.name,
+    })),
+    inventoryOptions: activeListings.flatMap((listing) =>
+      listing.options.map(toRepositoryOption)),
     channelCount: activeListings.length,
     channelStatus: activeListings.length === 0
       ? 'unlisted'
       : activeListings.length < row.channelListings.length
         ? 'partial'
         : 'listed',
-    traffic: nullableSum(dailyFacts, (fact) => fact.trafficViews),
-    orderCount: nullableSum(dailyFacts, (fact) => fact.trafficOrders),
-    salesAmount: nullableSum(dailyFacts, (fact) => fact.trafficRevenue),
-    adSpend: nullableSum(dailyFacts, (fact) => fact.adSpend),
+    traffic: visitorCount,
+    visitorCount,
+    viewCount,
+    cartAddCount,
+    orderCount,
+    salesQuantity,
+    salesAmount,
+    adSpend,
+    adSpendRate: adSpend !== null && salesAmount !== null && salesAmount > 0
+      ? (adSpend / salesAmount) * 100
+      : null,
+    metricsFreshness: {
+      traffic: dailyMetricFreshness(trafficFacts, 'traffic'),
+      advertising: dailyMetricFreshness(advertisingFacts, 'advertising'),
+    },
     profit: nullableSum(profits, (fact) => fact.netProfit),
+    contributionProfitVelocity30: decimalToFinite(row.abcEvaluation?.profitVelocity30 ?? null),
+    contributionMargin: decimalToFinite(row.abcEvaluation?.weightedContributionMargin ?? null),
   };
+}
+
+function dailyMetricFreshness(
+  facts: readonly {
+    businessDate: Date;
+    lastObservedAt: Date;
+    adObservedAt: Date | null;
+    trafficObservedAt: Date | null;
+  }[],
+  source: 'traffic' | 'advertising',
+) {
+  if (facts.length === 0) {
+    return {
+      status: 'MISSING' as const,
+      coverageStartDate: null,
+      coverageEndDate: null,
+      capturedAt: null,
+    };
+  }
+  const first = facts[0]!;
+  const coverageStart = facts.reduce(
+    (earliest, fact) => fact.businessDate < earliest ? fact.businessDate : earliest,
+    first.businessDate,
+  );
+  const coverageEnd = facts.reduce(
+    (latest, fact) => fact.businessDate > latest ? fact.businessDate : latest,
+    first.businessDate,
+  );
+  const capturedAt = facts.reduce(
+    (latest, fact) => {
+      const observedAt = source === 'traffic'
+        ? fact.trafficObservedAt ?? fact.lastObservedAt
+        : fact.adObservedAt ?? fact.lastObservedAt;
+      return observedAt > latest ? observedAt : latest;
+    },
+    source === 'traffic'
+      ? first.trafficObservedAt ?? first.lastObservedAt
+      : first.adObservedAt ?? first.lastObservedAt,
+  );
+  const yesterdayKst = new Date(Date.now() + (9 * 60 * 60 * 1000) - 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  return {
+    status: calendarDate(coverageEnd) >= yesterdayKst ? 'READY' as const : 'STALE' as const,
+    coverageStartDate: calendarDate(coverageStart),
+    coverageEndDate: calendarDate(coverageEnd),
+    capturedAt,
+  };
+}
+
+function hasTrafficEvidence(
+  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
+): boolean {
+  return fact.trafficCoverageStatus !== null
+    || fact.trafficVisitors !== 0
+    || fact.trafficViews !== 0
+    || fact.trafficCartAdds !== 0
+    || fact.trafficOrders !== 0
+    || fact.trafficSalesQty !== 0
+    || fact.trafficRevenue !== 0;
+}
+
+function hasAdvertisingEvidence(
+  fact: ProductRow['channelListings'][number]['channelListingDailySnapshots'][number],
+): boolean {
+  return fact.adCoverageStatus !== null || fact.adSpend !== 0;
 }
 
 function metadata(row: ProductRow) {
@@ -804,6 +625,7 @@ function metadata(row: ProductRow) {
     tags: row.tags,
     imageUrls: row.imageUrls,
     abcGrade: productAbcGrade(row.abcGrade),
+    abcEvaluation: productAbcEvaluation(row.abcEvaluation, row.abcGrade),
     profitTag: row.profitTag,
     adTier: row.adTier,
     adBudgetLimit: row.adBudgetLimit,
@@ -817,32 +639,100 @@ function productAbcGrade(value: string | null): 'A' | 'B' | 'C' | null {
   return value === 'A' || value === 'B' || value === 'C' ? value : null;
 }
 
-function toVariantDetail(
-  variant: ProductRow['variants'][number],
-  originChannelListingId: string | null,
-): ProductOperationsRepositoryVariant {
-  const originOption = originChannelListingId
-    ? variant.channelListingOptions.find((option) => option.listingId === originChannelListingId)
-    : undefined;
+function productAbcEvaluation(
+  row: ProductRow['abcEvaluation'],
+  abcGrade: string | null,
+) : ProductAbcEvaluation | null {
+  if (!row) return null;
+  const cutoff = row.evaluationCutoffDate ?? row.sourceCoverageEndDate ?? row.calculatedAt;
+  if (!cutoff || !row.costComponentsJson) return null;
+  const formula = row.formulaVersion
+    ? ProductAbcFormulaSummarySchema.safeParse(row.formulaVersion.formulaJson)
+    : null;
+  const parsed = ProductAbcEvaluationSchema.safeParse({
+    abcGrade: productAbcGrade(abcGrade),
+    calculationStatus: row.calculationStatus,
+    rawScore: decimalToFinite(row.rawScore),
+    adjustedScore: decimalToFinite(row.adjustedScore),
+    reliability: decimalToFinite(row.reliability),
+    weightedRevenue: decimalToFinite(row.weightedRevenue),
+    weightedOrderTimeCogs: decimalToFinite(row.weightedOrderTimeCogs),
+    weightedAdSpend: decimalToFinite(row.weightedAdSpend),
+    weightedContributionProfit: decimalToFinite(row.weightedContributionProfit),
+    profitVelocity30: decimalToFinite(row.profitVelocity30),
+    weightedContributionMargin: decimalToFinite(row.weightedContributionMargin),
+    lossRecurrence: decimalToFinite(row.lossRecurrence),
+    paidOrderCount: row.paidOrderCount,
+    observationDays: row.observationDays,
+    firstValidPaidSaleAt: row.firstValidPaidSaleAt,
+    formula: formula?.success ? formula.data : null,
+    sourceFreshness: {
+      evaluationCutoffDate: calendarDate(cutoff),
+      sellpia: {
+        status: row.sellpiaSourceStatus,
+        coverageStartDate: row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate
+          ? calendarDate((row.sellpiaCoverageStartDate ?? row.sourceCoverageStartDate)!)
+          : null,
+        coverageEndDate: row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate
+          ? calendarDate((row.sellpiaCoverageEndDate ?? row.sourceCoverageEndDate)!)
+          : null,
+        capturedAt: row.sellpiaSourceCapturedAt,
+      },
+      advertising: {
+        status: row.advertisingSourceStatus,
+        coverageStartDate: row.advertisingCoverageStartDate
+          ? calendarDate(row.advertisingCoverageStartDate)
+          : null,
+        coverageEndDate: row.advertisingCoverageEndDate
+          ? calendarDate(row.advertisingCoverageEndDate)
+          : null,
+        capturedAt: row.advertisingSourceCapturedAt,
+      },
+      orders: {
+        status: row.ordersSourceStatus,
+        coverageStartDate: row.ordersCoverageStartDate
+          ? calendarDate(row.ordersCoverageStartDate)
+          : null,
+        coverageEndDate: row.ordersCoverageEndDate
+          ? calendarDate(row.ordersCoverageEndDate)
+          : null,
+        capturedAt: row.ordersSourceCapturedAt,
+      },
+      mapping: {
+        status: row.mappingSourceStatus,
+        inventoryGeneration: row.mappingInventoryGeneration?.toString() ?? null,
+        verifiedAt: row.mappingVerifiedAt,
+      },
+    },
+    costBreakdown: row.costComponentsJson,
+    statusDetail: row.statusDetail,
+    calculatedAt: row.calculatedAt,
+  });
+  return parsed.success ? parsed.data : null;
+}
+
+function decimalToFinite(value: Prisma.Decimal | null): number | null {
+  if (value === null) return null;
+  const number = value.toNumber();
+  return Number.isFinite(number) ? number : null;
+}
+
+function calendarDate(value: Date): string {
+  return value.toISOString().slice(0, 10);
+}
+
+function toRepositoryOption(
+  option: ProductRow['channelListings'][number]['options'][number],
+) {
   return {
-    id: variant.id,
-    code: variant.code,
-    displayReference: originOption
-      ? {
-          type: 'channel_option',
-          label: `${originOption.listing.channelAccount.name} 옵션번호`,
-          value: originOption.externalOptionId,
-        }
-      : {
-          type: 'product_variant_code',
-          label: '옵션 코드',
-          value: variant.code,
-        },
-    name: variant.name,
-    optionLabel: variant.optionLabel,
-    isDefault: variant.isDefault,
-    isActive: variant.isActive,
-    components: variant.components.map((component) => ({
+    id: option.id,
+    externalOptionId: option.externalOptionId,
+    itemName: option.itemName,
+    sellerSku: option.sellerSku,
+    barcode: option.barcode,
+    status: option.status,
+    isActive: option.isActive,
+    inventoryComponents: option.inventoryComponents.map((component) => ({
       id: component.id,
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       code: component.sellpiaInventorySku.code,
@@ -850,15 +740,21 @@ function toVariantDetail(
       optionName: component.sellpiaInventorySku.optionName,
       barcode: component.sellpiaInventorySku.barcode,
       quantity: component.quantity,
-      source: component.source as 'manual' | 'deterministic',
-      confirmedBy: component.confirmedBy,
-      confirmedAt: component.confirmedAt,
     })),
   };
 }
 
 function nullableSum<T>(rows: readonly T[], value: (row: T) => number): number | null {
   return rows.length === 0 ? null : rows.reduce((sum, row) => sum + value(row), 0);
+}
+
+function nullableTrafficMetricSum<T extends { trafficCoverageStatus: string | null }>(
+  rows: readonly T[],
+  value: (row: T) => number,
+): number | null {
+  const evidencedRows = rows.filter((row) =>
+    row.trafficCoverageStatus !== null || value(row) !== 0);
+  return nullableSum(evidencedRows, value);
 }
 
 function startOfUtcDay(date: Date): Date {
@@ -878,7 +774,7 @@ function translateMutationError(error: unknown): unknown {
     return error;
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-    return new ConflictException('Product or variant code already exists in this organization');
+    return new ConflictException('Product code already exists in this organization');
   }
   return error;
 }

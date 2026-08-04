@@ -87,6 +87,9 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
     ? accountSummary.periodDayCount
     : period === 'month' ? new Date().getDate() : period === '14d' ? 14 : 7;
   const periodLabel = period === "month" ? "이번달" : period === "14d" ? "14일" : "7일";
+  const coverageLabel = hasAccountSummary
+    ? `${periodLabel} 범위 · 수집 ${periodDays}일`
+    : `${periodLabel} 누적`;
   const sourceLabel = hasAccountSummary
     ? `쿠팡 광고 계정 기준 · 최근 ${accountSummary.latestBusinessDate ?? "-"}`
     : hasListingTrendSignal
@@ -153,7 +156,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
             <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "var(--primary)" }}>{formatKRW(adRevenue)}</span>
             <span className="text-base font-semibold" style={{ color: "var(--primary)", opacity: 0.6 }}>원</span>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적 · {sourceLabel}</div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{coverageLabel} · {sourceLabel}</div>
           <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(147,51,234,0.15)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px]" style={{ color: "rgba(147,51,234,0.6)" }}>목표 {formatKRW(revenueGoal)}원</span>
@@ -195,7 +198,7 @@ export default function KpiDashboard({ totalKpi, wingAdData, period, roas, trend
             <span className="text-3xl font-extrabold tabular-nums tracking-tight" style={{ color: "#059669" }}>{formatKRW(adSpend)}</span>
             <span className="text-base font-semibold" style={{ color: "#059669", opacity: 0.6 }}>원</span>
           </div>
-          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{periodLabel} 누적 · {sourceLabel}</div>
+          <div className="text-xs" style={{ color: "var(--text-tertiary)" }}>{coverageLabel} · {sourceLabel}</div>
           <div className="mt-3 pt-3" style={{ borderTop: "1px solid rgba(5,150,105,0.15)" }}>
             <div className="flex items-center justify-between mb-1.5">
               <span className="text-[11px]" style={{ color: "rgba(5,150,105,0.6)" }}>예산 {formatKRW(spendGoal)}원 이하</span>

@@ -103,6 +103,22 @@ beforeEach(() => {
         classifiedProductCount: 4,
         unclassifiedProductCount: 6,
         gradeCount: { A: 2, B: 1, C: 1 },
+        abcStatusCount: {
+          READY: 4,
+          INSUFFICIENT_EVIDENCE: 2,
+          SOURCE_UNMAPPED: 1,
+          CALIBRATION_PENDING: 1,
+          RECALCULATING: 0,
+          SELLPIA_SOURCE_STALE: 2,
+          AD_SOURCE_STALE: 1,
+          ORDERS_SOURCE_STALE: 0,
+          CALCULATION_ERROR: 1,
+        },
+        abcContributionProfit: {
+          amountByGrade: { A: 12_000, B: 4_000, C: -500 },
+          shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
+        },
+        abcFormula: null,
         mappingStatusCounts: { matched: 0, unmatched: 0, needsReview: 0 },
         alerts: [],
         warnings: {
@@ -135,7 +151,7 @@ describe('Dashboard automatic ABC grade cards', () => {
 
     await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
 
-    expect(screen.getByText('평가대상 중 50%')).toBeInTheDocument();
+    expect(screen.getByText('계산 완료 4개')).toBeInTheDocument();
     expect(screen.getByText('미분류 6개')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /A등급/ })).toHaveAttribute(
       'href',
@@ -149,5 +165,34 @@ describe('Dashboard automatic ABC grade cards', () => {
       'href',
       '/product-hub?abcGrade=C',
     );
+    expect(screen.getByRole('link', { name: /자동 계산 중/ })).toHaveAttribute(
+      'href',
+      '/product-hub?abcGrade=unclassified',
+    );
+    expect(screen.getByRole('link', { name: /원천 확인 필요/ })).toHaveAttribute(
+      'href',
+      '/product-hub?dataStatus=abc',
+    );
+    expect(screen.getByText('셀피아·광고비 수집 또는 매핑을 확인')).toBeInTheDocument();
+    expect(screen.getByText(/수익성 이력 표본을 수집하면 자동 평가를 시작합니다/)).toBeInTheDocument();
+  });
+
+  it('does not render missing Wing traffic as a zero-valued product signal', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, refetchOnWindowFocus: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <Dashboard />
+      </QueryClientProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByText('Kiditem Foundry')).toBeInTheDocument());
+
+    expect(screen.getByText('Wing 트래픽 기준 · 미수집')).toBeInTheDocument();
+    expect(screen.getByText('판매량').parentElement).toHaveTextContent('판매량—');
+    expect(screen.getByText('방문자').parentElement).toHaveTextContent('방문자—');
+    expect(screen.getByText('조회').parentElement).toHaveTextContent('조회—');
+    expect(screen.getByText('Wing 트래픽 미수집')).toBeInTheDocument();
   });
 });

@@ -18,8 +18,20 @@ const INVENTORY_STATUSES = [
   'configuration_required',
   'review_required',
 ] as const;
+const INVENTORY_FOCUSES = [
+  'attention',
+  'out_of_stock',
+  'imminent',
+  'reorder',
+] as const;
 const AD_STATUSES = ['all', 'active', 'inactive', 'unconfigured'] as const;
 const PERIOD_DAYS = [7, 14, 30] as const;
+
+export class ProductOperationsDataStatusQueryDto {
+  @Type(() => Number)
+  @IsIn(PERIOD_DAYS)
+  periodDays: (typeof PERIOD_DAYS)[number] = 30;
+}
 
 export class ProductOperationsListQueryDto {
   @Type(() => Number)
@@ -48,15 +60,40 @@ export class ProductOperationsListQueryDto {
   category?: string;
 
   @IsIn(ACTIVE_STATUSES)
-  activeStatus: (typeof ACTIVE_STATUSES)[number] = 'all';
+  activeStatus: (typeof ACTIVE_STATUSES)[number] = 'active';
 
   @IsOptional()
   @IsIn(INVENTORY_STATUSES)
   inventoryStatus?: (typeof INVENTORY_STATUSES)[number];
 
   @IsOptional()
+  @IsIn(INVENTORY_FOCUSES)
+  inventoryFocus?: (typeof INVENTORY_FOCUSES)[number];
+
+  @IsOptional()
   @IsIn(['A', 'B', 'C', 'unclassified'])
   abcGrade?: 'A' | 'B' | 'C' | 'unclassified';
+
+  @IsOptional()
+  @IsIn([
+    'READY',
+    'INSUFFICIENT_EVIDENCE',
+    'SOURCE_UNMAPPED',
+    'CALIBRATION_PENDING',
+    'RECALCULATING',
+    'SELLPIA_SOURCE_STALE',
+    'AD_SOURCE_STALE',
+    'CALCULATION_ERROR',
+  ])
+  abcCalculationStatus?:
+    | 'READY'
+    | 'INSUFFICIENT_EVIDENCE'
+    | 'SOURCE_UNMAPPED'
+    | 'CALIBRATION_PENDING'
+    | 'RECALCULATING'
+    | 'SELLPIA_SOURCE_STALE'
+    | 'AD_SOURCE_STALE'
+    | 'CALCULATION_ERROR';
 
   @IsIn(AD_STATUSES)
   adStatus: (typeof AD_STATUSES)[number] = 'all';

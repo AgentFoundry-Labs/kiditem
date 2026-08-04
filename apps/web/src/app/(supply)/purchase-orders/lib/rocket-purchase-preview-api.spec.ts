@@ -61,9 +61,8 @@ describe('previewRocketPurchases', () => {
         maxQuantity: 0,
         editedQuantity: null,
         reason: 'mapping_required',
-        channelSkuId: null,
+        channelListingOptionId: null,
         masterProductId: null,
-        productVariantId: null,
         components: [],
       }],
     });
@@ -216,17 +215,6 @@ function publication() {
       updatedProductCount: 0,
       createdSkuCount: 0,
       updatedSkuCount: 0,
-    },
-    recipeAutomation: {
-      evaluatedProducts: 0,
-      appliedProducts: 0,
-      appliedVariants: 0,
-      affectedOptions: 0,
-      quantityReviewProducts: 0,
-      operatorReviewProducts: 0,
-      blockedProducts: 0,
-      alreadyConfiguredProducts: 0,
-      skippedExistingVariants: 0,
     },
   };
 }

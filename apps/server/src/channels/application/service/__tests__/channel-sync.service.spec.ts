@@ -370,6 +370,10 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
     prisma = {
       $transaction: vi.fn(),
       channelAccount: { findFirst: vi.fn().mockResolvedValue({ id: 'account-1' }) },
+      sourceImportRun: {
+        create: vi.fn().mockResolvedValue({ id: 'order-import-1' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
     };
     coupangPortStub = makeCoupangPortStub();
     const m = await Test.createTestingModule({
@@ -401,5 +405,43 @@ describe('ChannelSyncService.syncOrders (KST adapter boundary)', () => {
         createdAtTo: '2026-04-25T09:30:00+09:00',
       }),
     );
+    expect(prisma.sourceImportRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'order-import-1',
+        sourceType: 'coupang_wing_orders',
+        status: 'running',
+      }),
+      data: expect.objectContaining({
+        status: 'completed',
+        coverageStartDate: new Date('2026-04-19T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-04-24T00:00:00.000Z'),
+      }),
+    }));
+  });
+
+  it('follows every provider page before publishing canonical coverage', async () => {
+    (coupangPortStub.getOrderSheets as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({ code: 'SUCCESS', data: [], nextToken: 'page-2' })
+      .mockResolvedValueOnce({ code: 'SUCCESS', data: [] });
+
+    await service.syncOrders(
+      'c1',
+      new Date('2026-04-17T15:00:00.000Z'),
+      new Date('2026-04-25T14:59:59.999Z'),
+    );
+
+    expect(coupangPortStub.getOrderSheets).toHaveBeenCalledTimes(2);
+    expect(coupangPortStub.getOrderSheets).toHaveBeenLastCalledWith(
+      'c1',
+      'account-1',
+      expect.objectContaining({ nextToken: 'page-2' }),
+    );
+    expect(prisma.sourceImportRun.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        status: 'completed',
+        coverageStartDate: new Date('2026-04-18T00:00:00.000Z'),
+        coverageEndDate: new Date('2026-04-25T00:00:00.000Z'),
+      }),
+    }));
   });
 });

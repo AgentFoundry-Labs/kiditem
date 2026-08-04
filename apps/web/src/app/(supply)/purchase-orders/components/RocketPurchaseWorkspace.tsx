@@ -225,7 +225,6 @@ export function RocketPurchaseWorkspace({
       {preview?.catalog ? (
         <RocketDeterministicMatchingPanel
           channelAccountId={channelAccountId}
-          latestAutomation={preview.catalog.recipeAutomation}
         />
       ) : null}
 

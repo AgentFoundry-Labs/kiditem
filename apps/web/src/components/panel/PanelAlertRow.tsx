@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { cancelOperation } from '@/lib/operation-cancellation';
+import { operationsApi } from '@/lib/operations-api';
 import { isOperationAlertCancellable } from '@/lib/operation-alert-actions';
 import {
   browserCollectionRunIdFromOperationKey,
@@ -151,6 +152,14 @@ export function PanelAlertRow({ item }: { item: PanelAlertItem }) {
         await syncBrowserCollectionAlert(session).catch((error) => {
           console.warn('[panel] browser collection alert sync failed', error);
         });
+        try {
+          await operationsApi.cancel(browserCollectionRunId);
+        } catch (error) {
+          // Legacy browser sessions use collection UUIDs that predate the
+          // OperationRun ledger. Their extension-side cancellation is still
+          // complete; every server-issued browser run must cancel both.
+          if (!isApiError(error) || error.status !== 404) throw error;
+        }
         return;
       }
 

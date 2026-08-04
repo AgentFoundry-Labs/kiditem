@@ -28,6 +28,9 @@ fallback/recovery
 - Preserve `last-event-id` behavior when changing reconnect/backfill logic.
 - Dismiss/promote/recovery mutations use `apiClient` and invalidate or update
   panel state through the panel store.
+- Active workflow rows may be hidden locally, one-by-one or in bulk, without
+  claiming backend cancellation. Hidden IDs persist only in this browser and
+  can be restored by reloading the canonical panel snapshot.
 
 ## Boundary Rules
 

@@ -14,7 +14,7 @@ describe('SellpiaInventoryOperationHandler', () => {
       organizationId: 'org-1',
       operationKey: 'inventory.refresh_sellpia_snapshot',
       triggerSource: 'dashboard',
-      input: {},
+      input: { scope: 'full' },
       requestedByUserId: 'user-1',
       scheduleId: null,
       parentRunId: null,
@@ -31,6 +31,32 @@ describe('SellpiaInventoryOperationHandler', () => {
       organizationId: 'org-1',
       userId: 'user-1',
       reason: 'manual_request',
+      scope: 'full',
+    });
+  });
+
+  it('defaults scheduled and legacy operation input to inventory-only scope', async () => {
+    const registry = { register: vi.fn() };
+    const freshness = { requestRefresh: vi.fn().mockResolvedValue({}) };
+    const handler = new SellpiaInventoryOperationHandler(registry as never, freshness as never);
+
+    await handler.execute({
+      runId: 'run-2',
+      organizationId: 'org-1',
+      operationKey: 'inventory.refresh_sellpia_snapshot',
+      triggerSource: 'domain_screen',
+      input: {},
+      requestedByUserId: 'user-1',
+      scheduleId: null,
+      parentRunId: null,
+      attemptToken: 'attempt-2',
+    });
+
+    expect(freshness.requestRefresh).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      userId: 'user-1',
+      reason: 'manual_request',
+      scope: 'inventory',
     });
   });
 });

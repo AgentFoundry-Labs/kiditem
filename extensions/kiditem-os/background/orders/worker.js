@@ -156,6 +156,7 @@ function sellpiaInventoryOperationAlertMetadata(operation, alertContext, patch =
 
 async function startSellpiaInventoryOperationAlert(operation) {
   const alertContext = sellpiaInventoryOperationAlertContext(operation);
+  const fullScope = operation?.input?.scope === "full";
   await browserOperationRuntimeEnvironmentContext.authedFetch(
     operation.environmentId,
     "/api/operation-alerts/start",
@@ -165,8 +166,10 @@ async function startSellpiaInventoryOperationAlert(operation) {
       body: JSON.stringify({
         operationKey: alertContext.operationKey,
         type: "browser_collection",
-        title: "Sellpia 재고 갱신",
-        message: "Sellpia 현재고 동기화를 실행하고 있습니다.",
+        title: fullScope ? "Sellpia 수익성 데이터 갱신" : "Sellpia 재고 갱신",
+        message: fullScope
+          ? "Sellpia 현재고와 상품별 이익현황을 수집하고 있습니다."
+          : "Sellpia 현재고 동기화를 실행하고 있습니다.",
         sourceType: "browser_collection_session",
         sourceId: "inventory.sellpia",
         href: "/inventory-hub?tab=sellpia-sync",
@@ -209,9 +212,41 @@ async function updateSellpiaInventoryOperationAlert(
   ).catch(() => undefined);
 }
 
-async function runSellpiaInventoryOperation(operation) {
-  const alertContext = await startSellpiaInventoryOperationAlert(operation);
-  const claimResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
+function startSellpiaFreshnessHeartbeat(operation, claimToken) {
+  let stopped = false;
+  const heartbeat = async () => {
+    if (stopped) return;
+    await browserOperationRuntimeEnvironmentContext.authedFetch(
+      operation.environmentId,
+      `/api/inventory/sellpia-freshness/claims/${encodeURIComponent(claimToken)}/heartbeat`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    ).catch(() => undefined);
+  };
+  const intervalId = setInterval(() => { void heartbeat(); }, 20_000);
+  return () => {
+    stopped = true;
+    clearInterval(intervalId);
+  };
+}
+
+async function failSellpiaFreshnessClaim(operation, claimToken, errorCode, errorMessage) {
+  await browserOperationRuntimeEnvironmentContext.authedFetch(
+    operation.environmentId,
+    `/api/inventory/sellpia-freshness/claims/${encodeURIComponent(claimToken)}/fail`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ errorCode, errorMessage }),
+    },
+  ).catch(() => undefined);
+}
+
+async function claimSellpiaFreshnessLease(operation) {
+  const requestClaim = () => browserOperationRuntimeEnvironmentContext.authedFetch(
     operation.environmentId,
     "/api/inventory/sellpia-freshness/claims",
     {
@@ -220,6 +255,29 @@ async function runSellpiaInventoryOperation(operation) {
       body: "{}",
     },
   );
+  let response = await requestClaim();
+  let claim = response.ok ? await response.json().catch(() => null) : null;
+
+  // The first claim may only reconcile an expired prior generation. When a
+  // newer generation is already pending, claim that exact work once instead
+  // of surfacing a false operator-attention state.
+  if (
+    response.ok
+    && claim?.claimed === false
+    && claim?.state?.status === "refresh_required"
+    && claim?.state?.activeSync == null
+  ) {
+    response = await requestClaim();
+    claim = response.ok ? await response.json().catch(() => null) : null;
+  }
+
+  return { response, claim };
+}
+
+async function runSellpiaInventoryOperation(operation) {
+  const alertContext = await startSellpiaInventoryOperationAlert(operation);
+  const { response: claimResponse, claim: freshnessClaim } =
+    await claimSellpiaFreshnessLease(operation);
   if (!claimResponse.ok) {
     await updateSellpiaInventoryOperationAlert(operation, alertContext, {
       status: "failed",
@@ -233,7 +291,6 @@ async function runSellpiaInventoryOperation(operation) {
       errorMessage: "Sellpia freshness lease could not be claimed.",
     };
   }
-  const freshnessClaim = await claimResponse.json().catch(() => null);
   if (!freshnessClaim?.claimed) {
     await updateSellpiaInventoryOperationAlert(operation, alertContext, {
       status: "pending",
@@ -247,108 +304,219 @@ async function runSellpiaInventoryOperation(operation) {
       attentionReason: "sellpia_refresh_not_claimable",
     };
   }
-
-  const collected = await sellpiaInventoryLifecycle.run(
-    {
-      runId: operation.runId,
-      environmentId: operation.environmentId,
-      deferTerminal: true,
-    },
-    {
-      sourceOrigin: "https://kiditem.sellpia.com",
-      sourceAccountKey: "kiditem",
-    },
-    (collection) => sellpiaInventory.collect(collection),
+  const stopFreshnessHeartbeat = startSellpiaFreshnessHeartbeat(
+    operation,
+    freshnessClaim.claimToken,
   );
-  if (collected?.success !== true || !collected.snapshot) {
-    if (collected?.pendingLogin || collected?.collectionSession?.status === "attention_required") {
+  try {
+    const collected = await sellpiaInventoryLifecycle.run(
+      {
+        runId: operation.runId,
+        environmentId: operation.environmentId,
+        deferTerminal: true,
+      },
+      {
+        sourceOrigin: "https://kiditem.sellpia.com",
+        sourceAccountKey: "kiditem",
+      },
+      (collection) => sellpiaInventory.collect(collection),
+    );
+    if (collected?.success !== true || !collected.snapshot) {
+      const loginRequired = collected?.pendingLogin
+        || collected?.collectionSession?.status === "attention_required";
+      await failSellpiaFreshnessClaim(
+        operation,
+        freshnessClaim.claimToken,
+        loginRequired ? "sellpia_login_required" : "sellpia_network_failed",
+        loginRequired
+          ? "Sellpia login is required."
+          : "Sellpia inventory collection failed.",
+      );
+      if (loginRequired) {
+        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+          status: "pending",
+          message: "Sellpia 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+          progress: 0,
+          severity: "warning",
+          attentionReason: "sellpia_login_required",
+        });
+        return {
+          status: "attention_required",
+          attentionReason: "sellpia_login_required",
+        };
+      }
       await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-        status: "pending",
-        message: "Sellpia 로그인이 필요합니다. 알림에서 확인 탭을 열어 로그인해주세요.",
+        status: "failed",
+        message: "Sellpia 현재고 동기화에 실패했습니다.",
         progress: 0,
-        severity: "warning",
-        attentionReason: "sellpia_login_required",
+        severity: "error",
       });
       return {
-        status: "attention_required",
-        attentionReason: "sellpia_login_required",
+        status: "failed",
+        errorCode: typeof collected?.errorCode === "string"
+          ? collected.errorCode.slice(0, 120)
+          : "sellpia_collection_failed",
+        errorMessage: "Sellpia inventory collection failed.",
       };
     }
-    await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-      status: "failed",
-      message: "Sellpia 현재고 동기화에 실패했습니다.",
-      progress: 0,
-      severity: "error",
-    });
-    return {
-      status: "failed",
-      errorCode: typeof collected?.errorCode === "string"
-        ? collected.errorCode.slice(0, 120)
-        : "sellpia_collection_failed",
-      errorMessage: "Sellpia inventory collection failed.",
-    };
-  }
 
-  const trigger = typeof freshnessClaim?.state?.refreshReason === "string"
-    ? freshnessClaim.state.refreshReason
-    : "manual_request";
-  const formData = new FormData();
-  formData.append(
-    "file",
-    new Blob([JSON.stringify(collected.snapshot)], { type: "application/json" }),
-    "sellpia-inventory-snapshot-v1.json",
-  );
-  formData.append("kind", "browser");
-  formData.append("claimToken", freshnessClaim.claimToken);
-  formData.append("activeGeneration", freshnessClaim.activeGeneration);
-  formData.append("trigger", trigger);
-  formData.append("sourceOrigin", "https://kiditem.sellpia.com");
-  formData.append("sourceAccountKey", "kiditem");
+    const scope = freshnessClaim?.state?.activeSync?.scope === "full"
+      || operation?.input?.scope === "full"
+      ? "full"
+      : "inventory";
+    let productProfitCount = 0;
+    if (scope === "full") {
+      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+        status: "running",
+        message: "Sellpia 상품별 이익현황을 수집하고 있습니다.",
+        progress: 0.45,
+        severity: "info",
+      });
+      const productProfit = await collectSellpiaProductProfit();
+      if (productProfit?.success !== true || !productProfit.payload) {
+        const loginRequired = productProfit?.pendingLogin === true;
+        await failSellpiaFreshnessClaim(
+          operation,
+          freshnessClaim.claimToken,
+          loginRequired ? "sellpia_login_required" : "sellpia_download_contract_drift",
+          loginRequired
+            ? "Sellpia login is required."
+            : "Sellpia product-profit evidence collection failed.",
+        );
+        await sellpiaInventoryLifecycle.finalize(
+          operation.runId,
+          "failed",
+          "Sellpia product-profit evidence collection failed.",
+        ).catch(() => undefined);
+        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+          status: loginRequired ? "pending" : "failed",
+          message: loginRequired
+            ? "Sellpia 로그인이 필요합니다. 로그인 후 다시 시도해주세요."
+            : "Sellpia 상품별 이익현황 수집에 실패했습니다.",
+          progress: 0.45,
+          severity: loginRequired ? "warning" : "error",
+          attentionReason: loginRequired ? "sellpia_login_required" : null,
+        });
+        return loginRequired
+          ? { status: "attention_required", attentionReason: "sellpia_login_required" }
+          : {
+              status: "failed",
+              errorCode: "sellpia_product_profit_collection_failed",
+              errorMessage: "Sellpia product-profit evidence collection failed.",
+            };
+      }
 
-  const importResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
-    operation.environmentId,
-    "/api/inventory/sellpia-sync/import",
-    { method: "POST", body: formData },
-  );
-  if (!importResponse.ok) {
+      const productProfitIngest = await browserOperationRuntimeEnvironmentContext.authedFetch(
+        operation.environmentId,
+        "/api/sellpia-product-sales/ingest",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(productProfit.payload),
+        },
+      );
+      if (!productProfitIngest.ok) {
+        await failSellpiaFreshnessClaim(
+          operation,
+          freshnessClaim.claimToken,
+          "sellpia_download_contract_drift",
+          "Sellpia product-profit evidence ingest failed.",
+        );
+        await sellpiaInventoryLifecycle.finalize(
+          operation.runId,
+          "failed",
+          "Sellpia product-profit evidence ingest failed.",
+        ).catch(() => undefined);
+        await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+          status: "failed",
+          message: "Sellpia 상품별 이익현황을 저장하지 못했습니다.",
+          progress: 0.6,
+          severity: "error",
+        });
+        return {
+          status: "failed",
+          errorCode: "sellpia_product_profit_ingest_failed",
+          errorMessage: "Sellpia product-profit evidence ingest failed.",
+        };
+      }
+      productProfitCount = Number.isInteger(productProfit.productCount)
+        ? productProfit.productCount
+        : 0;
+    }
+
+    const trigger = typeof freshnessClaim?.state?.refreshReason === "string"
+      ? freshnessClaim.state.refreshReason
+      : "manual_request";
+    const formData = new FormData();
+    formData.append(
+      "file",
+      new Blob([JSON.stringify(collected.snapshot)], { type: "application/json" }),
+      "sellpia-inventory-snapshot-v1.json",
+    );
+    formData.append("kind", "browser");
+    formData.append("claimToken", freshnessClaim.claimToken);
+    formData.append("activeGeneration", freshnessClaim.activeGeneration);
+    formData.append("trigger", trigger);
+    formData.append("sourceOrigin", "https://kiditem.sellpia.com");
+    formData.append("sourceAccountKey", "kiditem");
+
+    const importResponse = await browserOperationRuntimeEnvironmentContext.authedFetch(
+      operation.environmentId,
+      "/api/inventory/sellpia-sync/import",
+      { method: "POST", body: formData },
+    );
+    if (!importResponse.ok) {
+      await failSellpiaFreshnessClaim(
+        operation,
+        freshnessClaim.claimToken,
+        "sellpia_invalid_workbook",
+        "Sellpia snapshot import failed.",
+      );
+      await sellpiaInventoryLifecycle.finalize(
+        operation.runId,
+        "failed",
+        "Sellpia snapshot import failed.",
+      ).catch(() => undefined);
+      await updateSellpiaInventoryOperationAlert(operation, alertContext, {
+        status: "failed",
+        message: "Sellpia 현재고 동기화 결과를 저장하지 못했습니다.",
+        progress: scope === "full" ? 0.75 : 0.5,
+        severity: "error",
+      });
+      return {
+        status: "failed",
+        errorCode: "sellpia_import_failed",
+        errorMessage: "Sellpia snapshot import failed.",
+      };
+    }
+    const imported = await importResponse.json().catch(() => ({}));
     await sellpiaInventoryLifecycle.finalize(
       operation.runId,
-      "failed",
-      "Sellpia snapshot import failed.",
+      "succeeded",
+      "Sellpia inventory import completed.",
     ).catch(() => undefined);
     await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-      status: "failed",
-      message: "Sellpia 현재고 동기화 결과를 저장하지 못했습니다.",
-      progress: 0.5,
-      severity: "error",
+      status: "succeeded",
+      message: scope === "full"
+        ? "Sellpia 수익성 데이터 갱신이 완료되었습니다. ABC 등급을 자동 계산합니다."
+        : "Sellpia 현재고 동기화가 완료되었습니다.",
+      progress: 1,
+      severity: "info",
     });
     return {
-      status: "failed",
-      errorCode: "sellpia_import_failed",
-      errorMessage: "Sellpia snapshot import failed.",
+      status: "succeeded",
+      result: {
+        scope,
+        rowCount: Number.isInteger(collected.snapshot.rowCount)
+          ? collected.snapshot.rowCount
+          : 0,
+        productProfitCount,
+        importRunId: typeof imported?.run?.id === "string" ? imported.run.id : null,
+      },
     };
+  } finally {
+    stopFreshnessHeartbeat();
   }
-  const imported = await importResponse.json().catch(() => ({}));
-  await sellpiaInventoryLifecycle.finalize(
-    operation.runId,
-    "succeeded",
-    "Sellpia inventory import completed.",
-  ).catch(() => undefined);
-  await updateSellpiaInventoryOperationAlert(operation, alertContext, {
-    status: "succeeded",
-    message: "Sellpia 현재고 동기화가 완료되었습니다.",
-    progress: 1,
-    severity: "info",
-  });
-  return {
-    status: "succeeded",
-    result: {
-      rowCount: Number.isInteger(collected.snapshot.rowCount)
-        ? collected.snapshot.rowCount
-        : 0,
-      importRunId: typeof imported?.run?.id === "string" ? imported.run.id : null,
-    },
-  };
 }
 
 async function ordersOperationRequestJson(operation, path, options = {}) {
@@ -1040,10 +1208,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
 
   // 상품별 이익현황(월별 소진) 수집 — 읽기 전용. 재고 분석 '상품별 소진' 적재용.
   if (msg?.action === "collectSellpiaProductProfit") {
-    collectSellpiaProductProfit({
-      startDate: typeof msg.startDate === "string" ? msg.startDate : null,
-      endDate: typeof msg.endDate === "string" ? msg.endDate : null,
-    })
+    // 이 capability는 임의 기간 조회가 아니라, 수익성 평가에 필요한 연속 증거
+    // 창을 한 번 읽는 전용 계약이다. 기간은 페이지 컨텍스트가 KST 기준으로 정한다.
+    collectSellpiaProductProfit()
       .then((result) => sendResponse(result))
       .catch((error) => {
         sendResponse({ success: false, error: error?.message || "셀피아 상품별 소진 수집 실패" });
@@ -6974,7 +7141,7 @@ async function findOrCreateSellpiaProductProfitTab() {
 }
 
 // 셀피아 상품별 이익현황(stat_prd_profit) 월별 소진 수집. 읽기 전용(비파괴).
-async function collectSellpiaProductProfit(options = {}) {
+async function collectSellpiaProductProfit() {
   const { tab, created } = await findOrCreateSellpiaProductProfitTab();
   if (!tab?.id) return { success: false, error: "셀피아(kiditem.sellpia.com) 탭을 열 수 없습니다." };
   let keepOpen = false;
@@ -6985,14 +7152,14 @@ async function collectSellpiaProductProfit(options = {}) {
         target: { tabId: tab.id },
         world: "MAIN", // 페이지 컨텍스트 fetch(로그인 세션 쿠키).
         func: scrapeSellpiaProductProfit,
-        args: [options.startDate || null, options.endDate || null],
+        args: [null, null],
       }),
       90000,
       "셀피아 상품별 이익현황 조회 시간이 초과되었습니다.",
     );
     return injected[0]?.result ?? { success: false, error: "셀피아 화면에 접근하지 못했습니다." };
   } catch (e) {
-    if (isMallAccessError(e)) { keepOpen = created && options.keepTabOnLoginError === true; return mallAccessErrorResult("셀피아"); }
+    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("셀피아"); }
     return mallGenericErrorResult("셀피아", e);
   } finally {
     if (created && tab.id && !keepOpen) {
@@ -7006,19 +7173,47 @@ async function collectSellpiaProductProfit(options = {}) {
 async function scrapeSellpiaProductProfit(startDate, endDate) {
   try {
     const p = (n) => String(n).padStart(2, "0");
-    const d = new Date();
-    // 어제까지의 마감기준(페이지 안내). 기본 최근 약 400일(≈13개월) — 완결 12개월 확보로
-    // 1/2개월 평균·추세·ABC·시즌 분류 근거 마련(재고관리).
-    const y = new Date(d.getTime() - 24 * 60 * 60 * 1000);
-    const end = endDate || `${y.getFullYear()}-${p(y.getMonth() + 1)}-${p(y.getDate())}`;
-    const s0 = new Date(d.getTime() - 400 * 24 * 60 * 60 * 1000);
-    const start = startDate || `${s0.getFullYear()}-${p(s0.getMonth() + 1)}-${p(s0.getDate())}`;
+    const toYmd = (date) => `${date.getUTCFullYear()}-${p(date.getUTCMonth() + 1)}-${p(date.getUTCDate())}`;
+    // 브라우저/운영체제 시간대와 무관하게 KST 달력을 기준으로 어제까지의 연속
+    // 400일 증거창을 만든다. 끝점에서 400일을 빼므로 양 끝 포함 401일이다.
+    const nowKst = new Date(Date.now() + 9 * 60 * 60 * 1000);
+    const defaultEnd = new Date(Date.UTC(
+      nowKst.getUTCFullYear(), nowKst.getUTCMonth(), nowKst.getUTCDate() - 1,
+    ));
+    const defaultStart = new Date(Date.UTC(
+      defaultEnd.getUTCFullYear(), defaultEnd.getUTCMonth(), defaultEnd.getUTCDate() - 400,
+    ));
+    const end = endDate || toYmd(defaultEnd);
+    const start = startDate || toYmd(defaultStart);
+    const dateKey = /^\d{4}-\d{2}-\d{2}$/;
+    const toValidDate = (value) => {
+      if (typeof value !== "string" || !dateKey.test(value)) return null;
+      const timestamp = Date.parse(`${value}T00:00:00.000Z`);
+      if (!Number.isFinite(timestamp)) return null;
+      const parsed = new Date(timestamp);
+      return parsed.toISOString().slice(0, 10) === value ? parsed : null;
+    };
+    const startValue = toValidDate(start);
+    const endValue = toValidDate(end);
+    if (!startValue || !endValue || startValue > endValue) {
+      return { success: false, error: "셀피아 상품별 이익현황 조회 기간이 올바르지 않습니다." };
+    }
+    const rangeMonths = new Set();
+    for (
+      let monthIndex = startValue.getUTCFullYear() * 12 + startValue.getUTCMonth();
+      monthIndex <= endValue.getUTCFullYear() * 12 + endValue.getUTCMonth();
+      monthIndex += 1
+    ) {
+      const year = Math.floor(monthIndex / 12);
+      rangeMonths.add(`${year}-${String(monthIndex % 12 + 1).padStart(2, "0")}`);
+    }
     const body = new URLSearchParams({
       mode: "stat_prd_profit",
       s_date: start,
       e_date: end,
-      in_s_date: end,
+      in_s_date: start,
       in_e_date: end,
+      buy_point: "R",
       provider: "",
       vat_tp: "1",
       p_str: "",
@@ -7045,44 +7240,149 @@ async function scrapeSellpiaProductProfit(startDate, endDate) {
     if (!Array.isArray(data)) {
       return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
     }
+    if (data.length > 20000) {
+      return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+    }
     const normYm = (k) => {
       const m = String(k).match(/^(\d{4})-(\d{1,2})$/);
       if (!m) return null;
-      return m[1] + "-" + String(m[2]).padStart(2, "0");
+      const month = Number(m[2]);
+      if (month < 1 || month > 12) return null;
+      return m[1] + "-" + String(month).padStart(2, "0");
+    };
+    const int = (value) => {
+      if (typeof value === "string" && !/^\d+$/.test(value)) return null;
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed) && parsed >= 0 && parsed <= 2147483647
+        ? parsed
+        : null;
+    };
+    const signedInt = (value) => {
+      if (typeof value === "string" && !/^-?\d+$/.test(value)) return null;
+      const parsed = Number(value);
+      return Number.isSafeInteger(parsed)
+        && parsed >= -2147483648
+        && parsed <= 2147483647
+        ? parsed
+        : null;
+    };
+    const boundedString = (value, max, allowEmpty = false) => {
+      if (typeof value !== "string" && typeof value !== "number") return null;
+      const normalized = String(value).trim();
+      if ((!allowEmpty && !normalized) || normalized.length > max) return null;
+      return normalized;
     };
     const products = [];
+    const identities = new Set();
+    let skippedAdjustmentCount = 0;
     for (const p2 of data) {
-      const graph = p2.graph || {};
-      const months = [];
+      if (!p2 || typeof p2 !== "object" || Array.isArray(p2)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const productCode = boundedString(p2.product_code, 64);
+      const optionCode = boundedString(p2.option_code ?? "", 64, true);
+      const productName = boundedString(p2.product_name, 400);
+      const salePrice = p2.sale_price == null || p2.sale_price === "" ? 0 : int(p2.sale_price);
+      const buyPrice = p2.buy_price == null || p2.buy_price === "" ? 0 : int(p2.buy_price);
+      const barcode = p2.dp_code == null || p2.dp_code === "" ? undefined : boundedString(p2.dp_code, 64);
+      if (!productCode || optionCode === null || !productName || salePrice === null || buyPrice === null || barcode === null) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const identity = `${productCode}\u0000${optionCode}`;
+      if (identities.has(identity)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      identities.add(identity);
+      const graph = p2.graph;
+      if (!graph || typeof graph !== "object" || Array.isArray(graph)) {
+        return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+      }
+      const rawMonthValues = [];
       for (const key of Object.keys(graph)) {
         const ym = normYm(key);
-        if (!ym) continue;
-        const parts = String(graph[key]).split(",");
-        months.push({
-          yearMonth: ym,
-          inAmount: Number(parts[0]) || 0,
-          orderAmount: Number(parts[1]) || 0,
-          orderQty: Number(parts[2]) || 0,
-          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
-        });
+        if (!ym || !rangeMonths.has(ym) || typeof graph[key] !== "string") {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        const parts = graph[key].split(",");
+        if (parts.length !== 3) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        const inAmount = signedInt(parts[0]);
+        const orderAmount = signedInt(parts[1]);
+        const orderQty = signedInt(parts[2]);
+        if (inAmount === null || orderAmount === null || orderQty === null) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        rawMonthValues.push({ yearMonth: ym, inAmount, orderAmount, orderQty });
       }
-      if (!months.length) continue;
+      // Sellpia includes financial-only rows such as `할인` in the product
+      // report. They have no unit price, barcode, or inbound value and carry
+      // negative revenue only. They are not inventory products and cannot be
+      // mapped to a MasterProduct, so exclude only this narrow adjustment
+      // shape. Negative revenue on an inventory-bearing product remains a
+      // contract failure instead of being silently erased.
+      const pureFinancialAdjustment = salePrice === 0
+        && buyPrice === 0
+        && barcode === undefined
+        && rawMonthValues.some((month) => month.orderAmount < 0)
+        && rawMonthValues.every((month) =>
+          month.inAmount === 0
+          && month.orderAmount <= 0
+          && month.orderQty >= 0,
+        );
+      if (pureFinancialAdjustment) {
+        skippedAdjustmentCount += 1;
+        continue;
+      }
+      const monthValues = new Map();
+      for (const month of rawMonthValues) {
+        const inAmount = int(month.inAmount);
+        const orderAmount = int(month.orderAmount);
+        const orderQty = int(month.orderQty);
+        if (
+          inAmount === null
+          || orderAmount === null
+          || orderQty === null
+          || monthValues.has(month.yearMonth)
+        ) {
+          return { success: false, error: "셀피아 상품별 이익현황 응답 형식이 예상과 다릅니다." };
+        }
+        monthValues.set(month.yearMonth, { inAmount, orderAmount, orderQty });
+      }
+      // 응답에 없는 월을 0으로 꾸며 내지 않는다. 서버는 이 실제 월 버킷과
+      // payload-level request range의 교집합을 저장해, 누락을 정상 0으로 오인하지 않는다.
+      const months = [...monthValues.entries()]
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([yearMonth, values]) => ({
+          yearMonth,
+          ...values,
+          inQty: 0, // graph 에는 매입수량이 없어 0 (총계는 total_in_qty)
+        }));
       products.push({
-        productCode: String(p2.product_code || ""),
-        optionCode: String(p2.option_code || ""),
-        productName: String(p2.product_name || ""),
+        productCode,
+        optionCode,
+        productName,
         optionName: p2.option_name ? String(p2.option_name) : undefined,
         providerName: p2.provider_name ? String(p2.provider_name) : undefined,
-        salePrice: Number(p2.sale_price) || 0,
-        buyPrice: Number(p2.buy_price) || 0,
-        barcode: p2.dp_code ? String(p2.dp_code) : undefined,
+        salePrice,
+        buyPrice,
+        barcode,
         months,
       });
     }
     return {
       success: true,
-      payload: { range: { from: start, to: end }, products },
+      payload: {
+        range: { from: start, to: end },
+        provenance: {
+          source: "sellpia_stat_prd_profit",
+          costBasis: "ORDER_TIME_SUPPLY_COST",
+          vatIncluded: true,
+        },
+        products,
+      },
       productCount: products.length,
+      skippedAdjustmentCount,
       range: { start, end },
     };
   } catch (e) {
@@ -7589,6 +7889,7 @@ KidItemDomains.register({
     collectSellpiaSaleSummary: true,
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
+    collectSellpiaProductProfitEvidenceV1: true,
     collectSellpiaInventoryJsonV1: true,
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,

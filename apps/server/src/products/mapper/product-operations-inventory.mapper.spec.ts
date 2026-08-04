@@ -29,7 +29,12 @@ describe('product operations inventory mapper', () => {
       inventoryUnits: 20,
       inventoryStatus: 'sellable',
       depletion: { needsReorder: true },
-      variantSummary: { total: 1, active: 1, configured: 1, warning: 0 },
+      activeChannels: [{
+        channelAccountId: '55555555-5555-4555-8555-555555555555',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }],
+      channelOptionSummary: { total: 1, active: 1, configured: 1, warning: 0 },
     });
     expect(result).not.toHaveProperty('variants');
   });
@@ -66,6 +71,7 @@ function rawListItem() {
     tags: [],
     imageUrls: [],
     abcGrade: null,
+    abcEvaluation: null,
     profitTag: null,
     adTier: null,
     adBudgetLimit: null,
@@ -75,20 +81,28 @@ function rawListItem() {
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     channelCount: 0,
     channelStatus: 'unlisted' as const,
+    activeChannelProducts: [{
+      channelAccountId: '55555555-5555-4555-8555-555555555555',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }],
     traffic: null,
     orderCount: null,
     salesAmount: null,
     adSpend: null,
     profit: null,
-    variants: [{
+    contributionMargin: null,
+    contributionProfitVelocity30: null,
+    inventorySkuIds: [SKU_ID],
+    inventoryOptions: [{
       id: '33333333-3333-4333-8333-333333333333',
-      code: 'PV-1',
-      displayReference: { type: 'product_variant_code' as const, label: '옵션 코드', value: 'PV-1' },
-      name: 'Variant',
-      optionLabel: null,
-      isDefault: true,
+      externalOptionId: 'OPTION-1',
+      itemName: '기본 옵션',
+      sellerSku: 'SKU-1',
+      barcode: null,
+      status: 'active',
       isActive: true,
-      components: [{
+      inventoryComponents: [{
         id: '44444444-4444-4444-8444-444444444444',
         sellpiaInventorySkuId: SKU_ID,
         code: 'SKU-1',
@@ -96,9 +110,6 @@ function rawListItem() {
         optionName: null,
         barcode: null,
         quantity: 1,
-        source: 'manual' as const,
-        confirmedBy: null,
-        confirmedAt: new Date('2026-07-17T00:00:00.000Z'),
       }],
     }],
   };

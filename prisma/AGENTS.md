@@ -78,7 +78,6 @@ constraints on the same logical keys.
 
 Current active-row uniqueness includes:
 
-- one active default `product_variants(master_product_id)` row
 - `channel_listings(organization_id, channel_account_id, external_id)`
 - active source-backed `channel_listings(organization_id, source_candidate_id,
   channel_account_id)`
@@ -86,15 +85,27 @@ Current active-row uniqueness includes:
   channel_account_id)`
 - one primary `supplier_products(sellpia_inventory_sku_id)` row
 
-`MasterProduct` is the KidItem product-operations unit. `ProductVariant` is its
-reusable sellable unit, `ProductVariantComponent` is the only component recipe,
-and `SellpiaInventorySku` is the sole physical Sellpia stock owner. Never put
+`MasterProduct` is the canonical KidItem inventory product and sole ABC owner.
+Each provider source row may own at most one MasterProduct; Sellpia uses
+`SellpiaInventorySku.masterProductId`. Multiple channel listing options may
+consume the same MasterProduct through its source SKU.
+`ChannelListing.masterProductId` is only a derived single-product summary and
+must be null when the option recipes are incomplete or span multiple products.
+`ChannelListingOptionInventoryComponent` stores the positive quantity of one
+`SellpiaInventorySku` consumed by one channel-option sale, and
+`SellpiaInventorySku` is the sole physical Sellpia quantity/source-fact owner.
+Never put
 `currentStock`, source prices, barcode, raw import payload, or import provenance
-back on `MasterProduct`, and never restore channel-owned component recipes.
+back on `MasterProduct`, and never restore ProductVariant or a second recipe
+layer.
+`MasterProductAbcEvaluation` is the Products-owned one-to-one explanation
+snapshot; the only writable official ABC grade remains `MasterProduct.abcGrade`.
 
 All relations among these models are organization-fenced with composite
-`[id, organizationId]` references. Nullable channel product/variant links mean
-unmatched; candidate evidence is not persisted as confirmed truth.
+`[id, organizationId]` references. A nullable channel product summary means the
+option recipes are incomplete or span multiple inventory products; an empty
+option component list means inventory configuration is required. Candidate
+evidence is not persisted as confirmed truth.
 
 Service code should use `findFirst({ where: { ..., isDeleted: false } })`
 instead of `findUnique(...)` assumptions over partial keys.

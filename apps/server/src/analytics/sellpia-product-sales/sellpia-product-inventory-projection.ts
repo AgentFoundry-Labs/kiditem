@@ -23,6 +23,15 @@ export type SellpiaProductDestinationRow = SellpiaProductDestination & {
   sellpiaInventorySkuId: string;
 };
 
+export type SellpiaInventoryProductRow = Readonly<{
+  sellpiaInventorySkuId: string;
+  masterProductId: string;
+  masterProductCode: string;
+  masterProductName: string;
+  abcGrade: 'A' | 'B' | 'C' | null;
+  abcEvaluation: SellpiaProductDestination['abcEvaluation'];
+}>;
+
 export type SellpiaProductInventoryMetrics = Readonly<{
   inventoryResolution: SellpiaProductInventoryResolution;
   monthsOfAvailableStockLeft: number | null;
@@ -55,6 +64,7 @@ export function projectSellpiaProductInventory(input: {
   products: readonly SellpiaProductInventoryProjectionInput[];
   resolutions: ReadonlyMap<string, SellpiaProductInventoryCandidateResolution>;
   availability: InventoryAvailabilityBatch;
+  inventoryProducts: readonly SellpiaInventoryProductRow[];
   destinations: readonly SellpiaProductDestinationRow[];
 }): {
   byProductKey: ReadonlyMap<string, SellpiaProductInventoryMetrics>;
@@ -65,6 +75,21 @@ export function projectSellpiaProductInventory(input: {
     mappingRequiredSalesRows: number;
     matchedSkus: number;
     unlinkedSkus: number;
+    abcCounts: { A: number; B: number; C: number };
+    abcStatusCounts: {
+      READY: number;
+      INSUFFICIENT_EVIDENCE: number;
+      SOURCE_UNMAPPED: number;
+      CALIBRATION_PENDING: number;
+      RECALCULATING: number;
+      SELLPIA_SOURCE_STALE: number;
+      AD_SOURCE_STALE: number;
+      ORDERS_SOURCE_STALE: number;
+      CALCULATION_ERROR: number;
+    };
+    abcContributionProfitByGrade: { A: number; B: number; C: number };
+    classifiedProductCount: number;
+    unclassifiedProductCount: number;
   };
 } {
   const byProductKey = new Map<string, SellpiaProductInventoryMetrics>();
@@ -81,6 +106,7 @@ export function projectSellpiaProductInventory(input: {
         mappingRequiredSalesRows: 0,
         matchedSkus: 0,
         unlinkedSkus: 0,
+        ...summarizeInventoryProductAbc(input.inventoryProducts),
       },
     };
   }
@@ -90,6 +116,10 @@ export function projectSellpiaProductInventory(input: {
     item,
   ]));
   const destinationsBySkuId = groupDestinations(input.destinations);
+  const inventoryProductBySkuId = new Map(input.inventoryProducts.map((product) => [
+    product.sellpiaInventorySkuId,
+    product,
+  ]));
   const groups = new Map<string, SellpiaProductInventoryProjectionInput[]>();
   let mappingRequiredSalesRows = 0;
 
@@ -135,6 +165,7 @@ export function projectSellpiaProductInventory(input: {
       availability.availableStock,
     );
     const destinations = destinationsBySkuId.get(sellpiaInventorySkuId) ?? [];
+    const inventoryProduct = inventoryProductBySkuId.get(sellpiaInventorySkuId);
     if (destinations.length === 0) unlinkedSkus += 1;
     if (reorder.needsReorder) reorderCount += 1;
     if (deadStock.deadStock) deadStockCount += 1;
@@ -146,6 +177,15 @@ export function projectSellpiaProductInventory(input: {
         activeCommitmentQuantity: availability.activeCommitmentQuantity,
         availableStock: availability.availableStock,
         salesRowCount: products.length,
+        inventoryProduct: inventoryProduct
+          ? {
+              masterProductId: inventoryProduct.masterProductId,
+              masterProductCode: inventoryProduct.masterProductCode,
+              masterProductName: inventoryProduct.masterProductName,
+              abcGrade: inventoryProduct.abcGrade,
+              abcEvaluation: inventoryProduct.abcEvaluation,
+            }
+          : null,
         destinations,
       },
       monthsOfAvailableStockLeft: reorder.monthsOfAvailableStockLeft,
@@ -169,6 +209,8 @@ export function projectSellpiaProductInventory(input: {
       mappingRequiredSalesRows,
       matchedSkus: groups.size,
       unlinkedSkus,
+      ...summarizeInventoryProductAbc(input.inventoryProducts.filter((product) =>
+        groups.has(product.sellpiaInventorySkuId))),
     },
   };
 }
@@ -208,25 +250,93 @@ function groupDestinations(
 ): Map<string, SellpiaProductDestination[]> {
   const grouped = new Map<string, Map<string, SellpiaProductDestination>>();
   for (const row of rows) {
-    const byVariant = grouped.get(row.sellpiaInventorySkuId) ?? new Map();
-    byVariant.set(row.productVariantId, {
+    const byOption = grouped.get(row.sellpiaInventorySkuId) ?? new Map();
+    byOption.set(row.channelListingOptionId, {
       masterProductId: row.masterProductId,
       masterProductCode: row.masterProductCode,
       masterProductName: row.masterProductName,
-      productVariantId: row.productVariantId,
-      productVariantCode: row.productVariantCode,
-      productVariantName: row.productVariantName,
-      unitsPerVariant: row.unitsPerVariant,
+      channelListingOptionId: row.channelListingOptionId,
+      channelListingId: row.channelListingId,
+      channel: row.channel,
+      externalOptionId: row.externalOptionId,
+      optionName: row.optionName,
+      unitsPerSale: row.unitsPerSale,
       abcGrade: row.abcGrade,
+      abcEvaluation: row.abcEvaluation,
       displayImage: row.displayImage,
     });
-    grouped.set(row.sellpiaInventorySkuId, byVariant);
+    grouped.set(row.sellpiaInventorySkuId, byOption);
   }
-  return new Map([...grouped.entries()].map(([skuId, byVariant]) => [
+  return new Map([...grouped.entries()].map(([skuId, byOption]) => [
     skuId,
-    [...byVariant.values()].sort((left, right) =>
+    [...byOption.values()].sort((left, right) =>
       left.masterProductCode.localeCompare(right.masterProductCode)
-      || left.productVariantCode.localeCompare(right.productVariantCode)
-      || left.productVariantId.localeCompare(right.productVariantId)),
+      || left.channel.localeCompare(right.channel)
+      || left.externalOptionId.localeCompare(right.externalOptionId)
+      || left.channelListingOptionId.localeCompare(right.channelListingOptionId)),
   ]));
+}
+
+function summarizeInventoryProductAbc(
+  inventoryProducts: readonly SellpiaInventoryProductRow[],
+): {
+  abcCounts: { A: number; B: number; C: number };
+  abcStatusCounts: {
+    READY: number;
+    INSUFFICIENT_EVIDENCE: number;
+    SOURCE_UNMAPPED: number;
+    CALIBRATION_PENDING: number;
+    RECALCULATING: number;
+    SELLPIA_SOURCE_STALE: number;
+    AD_SOURCE_STALE: number;
+    ORDERS_SOURCE_STALE: number;
+    CALCULATION_ERROR: number;
+  };
+  abcContributionProfitByGrade: { A: number; B: number; C: number };
+  classifiedProductCount: number;
+  unclassifiedProductCount: number;
+} {
+  const byMasterProduct = new Map<string, SellpiaInventoryProductRow>();
+  for (const product of inventoryProducts) {
+    if (!byMasterProduct.has(product.masterProductId)) {
+      byMasterProduct.set(product.masterProductId, product);
+    }
+  }
+  const summary = {
+    abcCounts: { A: 0, B: 0, C: 0 },
+    abcStatusCounts: {
+      READY: 0,
+      INSUFFICIENT_EVIDENCE: 0,
+      SOURCE_UNMAPPED: 0,
+      CALIBRATION_PENDING: 0,
+      RECALCULATING: 0,
+      SELLPIA_SOURCE_STALE: 0,
+      AD_SOURCE_STALE: 0,
+      ORDERS_SOURCE_STALE: 0,
+      CALCULATION_ERROR: 0,
+    },
+    abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
+    classifiedProductCount: 0,
+    unclassifiedProductCount: 0,
+  };
+  for (const product of byMasterProduct.values()) {
+    if (product.abcGrade) {
+      summary.abcCounts[product.abcGrade] += 1;
+      summary.classifiedProductCount += 1;
+    } else if (product.abcEvaluation === null) {
+      summary.unclassifiedProductCount += 1;
+    }
+    const evaluation = product.abcEvaluation;
+    if (!evaluation) continue;
+    const calculationStatus = evaluation.calculationStatus === 'CALIBRATION_PENDING'
+      ? 'INSUFFICIENT_EVIDENCE'
+      : evaluation.calculationStatus;
+    summary.abcStatusCounts[calculationStatus] += 1;
+    if (product.abcGrade && evaluation.weightedContributionProfit !== null) {
+      summary.abcContributionProfitByGrade[product.abcGrade] += Math.round(
+        evaluation.weightedContributionProfit,
+      );
+    }
+  }
+  return summary;
 }

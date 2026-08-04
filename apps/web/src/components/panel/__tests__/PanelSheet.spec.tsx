@@ -206,4 +206,44 @@ describe('PanelSheet active count', () => {
     expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/op-done/dismiss');
     expect(mockApiPost).not.toHaveBeenCalledWith('/api/alerts/op-running/dismiss');
   });
+
+  it('hides active workflow runs from this browser without touching alerts', () => {
+    const runningOperation = {
+      ...makeAlertItem('op-running'),
+      alertKind: 'operation' as const,
+      status: 'running' as const,
+    };
+    seedStore([
+      makeRunItem('wf-running', MY_USER_ID, 'running'),
+      runningOperation,
+    ]);
+
+    render(<PanelSheet />);
+    screen.getByRole('button', { name: '진행 중 워크플로우 화면에서 정리' }).click();
+
+    expect(usePanelStore.getState().byId['wf-running']).toBeUndefined();
+    expect(usePanelStore.getState().byId['op-running']).toBeDefined();
+    expect(mockApiPost).not.toHaveBeenCalled();
+  });
+
+  it('clears every currently visible row from the panel', async () => {
+    const runningOperation = {
+      ...makeAlertItem('op-running'),
+      alertKind: 'operation' as const,
+      status: 'running' as const,
+    };
+    seedStore([
+      makeRunItem('wf-running', MY_USER_ID, 'running'),
+      makeRunItem('wf-done', MY_USER_ID, 'succeeded'),
+      makeAlertItem('signal-1'),
+      runningOperation,
+    ]);
+
+    render(<PanelSheet />);
+    screen.getByRole('button', { name: '현재 알림 모두 정리' }).click();
+
+    await waitFor(() => expect(usePanelStore.getState().byId).toEqual({}));
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/signal-1/dismiss');
+    expect(mockApiPost).toHaveBeenCalledWith('/api/alerts/op-running/dismiss');
+  });
 });

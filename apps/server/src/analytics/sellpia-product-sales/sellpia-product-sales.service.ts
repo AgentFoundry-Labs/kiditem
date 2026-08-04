@@ -60,13 +60,20 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
     const byKey = new Map<string, {
       organizationId: string; productCode: string; optionCode: string; yearMonth: string;
       orderQty: number; orderAmount: number; inQty: number; inAmount: number;
+      costBasis: 'ORDER_TIME_SUPPLY_COST'; vatIncluded: true;
+      coverageStartDate: Date; coverageEndDate: Date;
       productName: string; optionName: string | null; providerName: string | null;
       salePrice: number; buyPrice: number; barcode: string | null; capturedAt: Date;
     }>();
     for (const p of body.products) {
       for (const m of p.months) {
-        if (!/^\d{4}-\d{2}$/.test(m.yearMonth)) continue;
-        if (!authoritativeMonthSet.has(m.yearMonth)) continue;
+        if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(m.yearMonth)) {
+          throw new BadRequestException('Invalid Sellpia product-sales month');
+        }
+        if (!authoritativeMonthSet.has(m.yearMonth)) {
+          throw new BadRequestException('Sellpia product-sales month is outside request range');
+        }
+        const coverage = monthCoverageIntersection(body.range, m.yearMonth);
         byKey.set(`${p.productCode} ${p.optionCode} ${m.yearMonth}`, {
           organizationId,
           productCode: p.productCode,
@@ -76,6 +83,10 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
           orderAmount: clampInt(m.orderAmount),
           inQty: clampInt(m.inQty),
           inAmount: clampInt(m.inAmount),
+          costBasis: body.provenance.costBasis,
+          vatIncluded: body.provenance.vatIncluded,
+          coverageStartDate: coverage.start,
+          coverageEndDate: coverage.end,
           productName: p.productName,
           optionName: p.optionName ?? null,
           providerName: p.providerName ?? null,
@@ -303,25 +314,6 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       } satisfies SellpiaProductSalesRow;
     });
     products.sort((x, y) => y.avg2m - x.avg2m || y.totalQty - x.totalQty);
-    const matchesDestinationGrade = (
-      product: SellpiaProductSalesRow,
-      grade: 'A' | 'B' | 'C' | null,
-    ) => product.inventoryResolution.status === 'matched'
-      && product.inventoryResolution.destinations.some(
-        (destination) => destination.abcGrade === grade,
-      );
-    const abcCounts = {
-      A: products.filter((product) => matchesDestinationGrade(product, 'A')).length,
-      B: products.filter((product) => matchesDestinationGrade(product, 'B')).length,
-      C: products.filter((product) => matchesDestinationGrade(product, 'C')).length,
-    };
-    const classifiedProductCount = products.filter((product) =>
-      matchesDestinationGrade(product, 'A')
-      || matchesDestinationGrade(product, 'B')
-      || matchesDestinationGrade(product, 'C')).length;
-    const unclassifiedProductCount = products.filter((product) =>
-      matchesDestinationGrade(product, null)).length;
-
     return {
       range: { from: months[0] ?? cutoffYm, to: months[months.length - 1] ?? currentYm },
       months,
@@ -344,9 +336,11 @@ export class SellpiaProductSalesService implements SellpiaProductDepletionReadPo
       reorderCount: inventoryProjection.summary.reorderCount,
       deadStockCount: inventoryProjection.summary.deadStockCount,
       anomalyCount,
-      abcCounts,
-      classifiedProductCount,
-      unclassifiedProductCount,
+      abcCounts: inventoryProjection.summary.abcCounts,
+      abcStatusCounts: inventoryProjection.summary.abcStatusCounts,
+      abcContributionProfitByGrade: inventoryProjection.summary.abcContributionProfitByGrade,
+      classifiedProductCount: inventoryProjection.summary.classifiedProductCount,
+      unclassifiedProductCount: inventoryProjection.summary.unclassifiedProductCount,
       leadTimeMonths: LEAD_TIME_MONTHS,
     } satisfies SellpiaProductSalesSummary;
   }
@@ -411,6 +405,26 @@ function clampInt(n: number): number {
   const v = Math.round(n);
   if (v <= 0) return 0;
   return v > INT4_MAX ? INT4_MAX : v;
+}
+
+function monthCoverageIntersection(
+  range: { from: string; to: string },
+  yearMonth: string,
+): { start: Date; end: Date } {
+  const start = parseCalendarDate(range.from);
+  const end = parseCalendarDate(range.to);
+  if (!start || !end) {
+    throw new BadRequestException('Invalid Sellpia product-sales range');
+  }
+  const [year, month] = yearMonth.split('-').map(Number);
+  const monthStart = Date.UTC(year, month - 1, 1);
+  const monthEnd = Date.UTC(year, month, 0);
+  const coverageStart = Math.max(start.timestamp, monthStart);
+  const coverageEnd = Math.min(end.timestamp, monthEnd);
+  if (coverageStart > coverageEnd) {
+    throw new BadRequestException('Sellpia product-sales month does not intersect request range');
+  }
+  return { start: new Date(coverageStart), end: new Date(coverageEnd) };
 }
 
 function currentKstYearMonth(): string {

@@ -54,11 +54,11 @@ describe('retired shared Sellpia drawer', () => {
       "import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';",
     );
     expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
-    expect(syncAction).toContain('await requestRefresh()');
+    expect(syncAction).toContain("await requestRefresh('inventory')");
     expect(freshnessHook).toContain(
       "latestState.status === 'failed' ? 'retry' : 'manual_request'",
     );
-    expect(syncAction).toContain('aria-label="셀피아 동기화"');
+    expect(syncAction).toContain('aria-label="셀피아 재고 동기화"');
     expect(coordinator).toContain('useSellpiaInventoryFreshness');
     expect(coordinator).not.toContain('collectSellpiaInventory');
     expect(coordinator).not.toContain('collectSellpiaProductProfitFromExtension');

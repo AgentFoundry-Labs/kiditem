@@ -43,7 +43,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
-    const result = await adapter.loadStrategyContext('org-1', 2026, 5, config);
+    const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);
 
     expect(Object.keys(result).sort()).toEqual(
       [
@@ -64,11 +64,27 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
-    const result = await adapter.loadStrategyContext('org-1', 2026, 5, config);
+    const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);
 
     // Referential equality — if anyone re-introduces an AdConfigService back-
     // reference inside the adapter that rebuilds/clones the config, this fails.
     expect(result.config).toBe(config);
+  });
+
+  it('bounds every ad and traffic aggregate to the selected period', async () => {
+    const prismaMock = buildPrismaMock();
+    const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
+    const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
+
+    await adapter.loadStrategyContext('org-1', 2026, 5, '7d', config);
+
+    expect(prismaMock.channelListingDailySnapshot.groupBy).toHaveBeenCalledTimes(2);
+    for (const [args] of prismaMock.channelListingDailySnapshot.groupBy.mock.calls) {
+      expect(args.where.businessDate).toEqual({
+        gte: expect.any(Date),
+        lte: expect.any(Date),
+      });
+    }
   });
 
   it('produces empty Maps / arrays when the underlying tables are empty', async () => {
@@ -76,7 +92,7 @@ describe('AdStrategyContextRepositoryAdapter — loadStrategyContext equivalence
     const adapter = new AdStrategyContextRepositoryAdapter(prismaMock as any);
     const config = Object.freeze({ marker: 'TEST_CONFIG' }) as unknown as AdsConfig;
 
-    const result = await adapter.loadStrategyContext('org-1', 2026, 5, config);
+    const result = await adapter.loadStrategyContext('org-1', 2026, 5, '14d', config);
 
     expect(result.adGroups).toEqual([]);
     expect(result.adIssuesAdGroups).toEqual([]);

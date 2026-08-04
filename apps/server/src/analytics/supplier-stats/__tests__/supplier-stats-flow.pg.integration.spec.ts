@@ -92,24 +92,6 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
         name: `Operating ${suffix}`,
       },
     });
-    const variant = await prisma.productVariant.create({
-      data: {
-        organizationId,
-        masterProductId: master.id,
-        code: `VARIANT-${suffix}`,
-        name: `Variant ${suffix}`,
-        isDefault: true,
-      },
-    });
-    await prisma.productVariantComponent.createMany({
-      data: components.map((component) => ({
-        organizationId,
-        productVariantId: variant.id,
-        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-        quantity: component.quantity,
-        source: 'manual',
-      })),
-    });
     const channelAccount = await prisma.channelAccount.upsert({
       where: {
         organizationId_channel_externalAccountId: {
@@ -139,9 +121,16 @@ describe('SupplierStatsService physical Sellpia SKU projection (PG)', () => {
       data: {
         organizationId,
         listingId: listing.id,
-        productVariantId: variant.id,
         externalOptionId: `SKU-${suffix}`,
       },
+    });
+    await prisma.channelListingOptionInventoryComponent.createMany({
+      data: components.map((component) => ({
+        organizationId,
+        channelListingOptionId: listingOption.id,
+        sellpiaInventorySkuId: component.sellpiaInventorySkuId,
+        quantity: component.quantity,
+      })),
     });
     return listingOption;
   }

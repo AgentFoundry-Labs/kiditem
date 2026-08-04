@@ -37,10 +37,12 @@ export class SellpiaInventoryOperationHandler
       | 'manual_request'
       | 'retry'
       | undefined;
+    const scope = context.input.scope === 'full' ? 'full' : 'inventory';
     await this.freshness.requestRefresh({
       organizationId: context.organizationId,
       userId: context.requestedByUserId,
       reason: reason ?? 'manual_request',
+      scope,
     });
     return { kind: 'waiting_runtime' };
   }

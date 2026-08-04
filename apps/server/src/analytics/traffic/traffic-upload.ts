@@ -202,6 +202,8 @@ export async function uploadTrafficStats({
                 trafficOrders: d.orders,
                 trafficSalesQty: d.salesQty,
                 trafficRevenue: d.revenue,
+                trafficCoverageStatus: 'OBSERVED',
+                trafficObservedAt: observedAt,
                 metaJson: {
                   'traffic.csv_upload': {
                     source: 'traffic_csv_upload',
@@ -222,6 +224,8 @@ export async function uploadTrafficStats({
                 trafficOrders: d.orders,
                 trafficSalesQty: d.salesQty,
                 trafficRevenue: d.revenue,
+                trafficCoverageStatus: 'OBSERVED',
+                trafficObservedAt: observedAt,
               },
             });
           }

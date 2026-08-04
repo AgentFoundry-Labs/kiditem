@@ -77,15 +77,11 @@ export class SalesAnalysisService {
                   commissionRate: true,
                   shippingCost: true,
                   otherCost: true,
-                  productVariant: {
+                  inventoryComponents: {
                     select: {
-                      components: {
-                        select: {
-                          quantity: true,
-                          sellpiaInventorySku: {
-                            select: { purchasePrice: true },
-                          },
-                        },
+                      quantity: true,
+                      sellpiaInventorySku: {
+                        select: { purchasePrice: true },
                       },
                     },
                   },
@@ -230,7 +226,7 @@ export class SalesAnalysisService {
 
         g.orderIds.add(o.id);
         const componentCost =
-          li.listingOption?.productVariant?.components.reduce(
+          li.listingOption?.inventoryComponents.reduce(
             (sum, component) =>
               sum +
               (component.sellpiaInventorySku.purchasePrice ?? 0)

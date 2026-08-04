@@ -14,6 +14,7 @@ import {
   SellpiaInventoryQualityReportSchema,
   SellpiaInventoryRefreshRequestSchema,
   SellpiaInventorySourceBindingRequestSchema,
+  SellpiaSyncScopeSchema,
 } from './sellpia-inventory-freshness';
 
 const VERIFIED_AT = new Date('2026-07-15T00:00:00.000Z');
@@ -32,6 +33,7 @@ const createFreshnessView = () => ({
   verifiedGeneration: '4',
   refreshRequestedAt: null,
   refreshReason: null,
+  requestedSyncScope: 'inventory' as const,
   syncNotBefore: null,
   activeSync: null,
   lastAttempt: null,
@@ -205,6 +207,7 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
       activeSync: {
         runId: RUN_ID,
         generation: '5',
+        scope: 'inventory',
         startedAt: '2026-07-15T00:02:00.000Z',
         leaseExpiresAt: '2026-07-15T00:03:30.000Z',
         canControl: true,
@@ -213,6 +216,7 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
         attemptedAt: '2026-07-15T00:01:00.000Z',
         status: 'failed',
         trigger: 'manual_request',
+        scope: 'inventory',
         errorCode: 'sellpia_network_failed',
         errorMessage: 'Network request failed',
       },
@@ -249,21 +253,55 @@ describe('SellpiaInventoryFreshnessViewSchema', () => {
 });
 
 describe('Sellpia freshness mutation contracts', () => {
+  it('requires a persisted full or inventory-only scope on requests and visible attempts', () => {
+    expect(SellpiaSyncScopeSchema.options).toEqual(['full', 'inventory']);
+    expect(SellpiaInventoryRefreshRequestSchema.parse({
+      reason: 'manual_request',
+      scope: 'full',
+    })).toEqual({ reason: 'manual_request', scope: 'full' });
+    expect(SellpiaInventoryFreshnessViewSchema.parse({
+      ...createFreshnessView(),
+      requestedSyncScope: 'full',
+      activeSync: {
+        runId: RUN_ID,
+        generation: '5',
+        scope: 'full',
+        startedAt: '2026-07-15T00:02:00.000Z',
+        leaseExpiresAt: '2026-07-15T00:03:30.000Z',
+        canControl: true,
+      },
+      lastAttempt: {
+        attemptedAt: '2026-07-15T00:01:00.000Z',
+        status: 'failed',
+        trigger: 'manual_request',
+        scope: 'inventory',
+        errorCode: 'sellpia_network_failed',
+        errorMessage: 'Network request failed',
+      },
+    }).activeSync?.scope).toBe('full');
+  });
+
   it('accepts only public refresh reasons and no organization or actor identity', () => {
     for (const reason of [
       'manual_request',
       'retry',
     ] as const) {
-      expect(SellpiaInventoryRefreshRequestSchema.parse({ reason })).toEqual({ reason });
+      expect(SellpiaInventoryRefreshRequestSchema.parse({
+        reason,
+        scope: 'inventory',
+      })).toEqual({ reason, scope: 'inventory' });
     }
     expect(() => SellpiaInventoryRefreshRequestSchema.parse({
       reason: 'ttl_expired',
+      scope: 'inventory',
     })).toThrow();
     expect(() => SellpiaInventoryRefreshRequestSchema.parse({
       reason: 'order_transmission_requested',
+      scope: 'inventory',
     })).toThrow();
     expect(() => SellpiaInventoryRefreshRequestSchema.parse({
       reason: 'manual_request',
+      scope: 'inventory',
       organizationId: RUN_ID,
     })).toThrow();
   });

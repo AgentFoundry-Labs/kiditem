@@ -1,19 +1,29 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import Link from 'next/link';
-import { AlertTriangle, Bell, ClipboardList, PackageX } from 'lucide-react';
 import { formatNumber } from '@/lib/utils';
-import type { MasterProductOperationsListResponse } from '@kiditem/shared/product-operations';
+import type {
+  MasterProductOperationsListResponse,
+  ProductOperationsInventoryFocus,
+} from '@kiditem/shared/product-operations';
+import type { ProductAbcGrade } from '@kiditem/shared/product-abc';
 
 type Props = {
   data: MasterProductOperationsListResponse;
-  onShowOutOfStock: () => void;
+  onShowAbcGrade: (grade: ProductAbcGrade | 'unclassified') => void;
+  onShowInventoryFocus: (focus: ProductOperationsInventoryFocus) => void;
 };
 
-export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props) {
-  const { connected: connectedCount, unconnected: unconnectedCount } =
-    data.summary.channelConnectionCounts;
+export function ProductOperationsCommandCenter({
+  data,
+  onShowAbcGrade,
+  onShowInventoryFocus,
+}: Props) {
+  const channelProductCounts = data.summary.channelProductCounts;
+  const channelProductTotal = channelProductCounts.reduce(
+    (total, channelProduct) => total + channelProduct.count,
+    0,
+  );
   const {
     out_of_stock: outOfStockCount,
     configuration_required: configurationCount,
@@ -22,103 +32,62 @@ export function ProductOperationsCommandCenter({ data, onShowOutOfStock }: Props
   const warningCount = configurationCount + reviewCount;
   const lowProfitCount = data.summary.negativeProfitCount;
   const reorderProductCount = data.summary.reorderProductCount;
+  const imminentProductCount = data.summary.imminentProductCount;
   const {
     A: aGradeCount,
     B: bGradeCount,
     C: cGradeCount,
     unclassified: unclassifiedGradeCount,
   } = data.summary.abcGradeCounts;
+  const contribution = data.summary.abcContributionProfitByGrade;
 
   return (
     <div>
-      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-5">
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-4">
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
         <div>
-          <p className="text-xs font-bold text-[var(--text-tertiary)]">카탈로그 상품 전체</p>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 재고상품</p>
           <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
             {formatNumber(data.total)}
           </p>
-          <div className="mt-3 grid grid-cols-2 gap-2 rounded-lg bg-[var(--surface-sunken)] p-2">
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 연결</p>
-              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(connectedCount)}</p>
-            </div>
-            <div className="min-w-0">
-              <p className="text-[11px] font-bold text-[var(--text-tertiary)]">채널 미연결</p>
-              <p className="mt-0.5 text-sm font-extrabold text-[var(--text-primary)]">{formatNumber(unconnectedCount)}</p>
-            </div>
-          </div>
         </div>
         <div className="mt-auto">
-          <Breakdown label="신상품" value="미수집" tone="text-emerald-600" />
-          <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" />
-          <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" />
-          <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" />
-          <Breakdown label="미분류" value={unclassifiedGradeCount} />
-        </div>
-      </article>
-
-      <article className="min-h-[270px] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] shadow-sm">
-        <div className="flex h-full flex-col divide-y divide-[var(--border-subtle)]">
-          <QuickButton
-            icon={PackageX}
-            label="품절 상품"
-            count={outOfStockCount}
-            tone="blue"
-            onClick={onShowOutOfStock}
-          />
-          <Link
-            href="/stock-ops?tab=product-outflow"
-            className="flex flex-1 items-center gap-3 bg-violet-50 px-4 py-3 text-left text-violet-700 transition-colors hover:bg-violet-100"
-          >
-            <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100"><ClipboardList size={17} /></span>
-            <span className="min-w-0 flex-1 truncate text-sm font-extrabold">발주하기</span>
-            <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-sm font-extrabold text-[var(--text-tertiary)]">{formatNumber(reorderProductCount)}</span>
-          </Link>
-          <QuickButton
-            icon={AlertTriangle}
-            label="재고위험"
-            count={warningCount}
-            tone="orange"
-          />
+          <Breakdown label="A등급" value={aGradeCount} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
+          <Breakdown label="B등급" value={bGradeCount} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
+          <Breakdown label="C등급" value={cGradeCount} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
+          <Breakdown label="미분류" value={unclassifiedGradeCount} onClick={() => onShowAbcGrade('unclassified')} />
         </div>
       </article>
 
       <OperationsCard title="재고관리" value={data.summary.depletionCoveredProductCount} valueTone="text-teal-700">
-        <Breakdown label="재고위험" value={warningCount} tone="text-teal-700" />
-        <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" />
-        <Breakdown label="임박 재고" value="기준 미정" tone="text-amber-600" />
-        <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" />
+        <Breakdown label="재고 설정 확인" value={warningCount} tone="text-teal-700" onClick={() => onShowInventoryFocus('attention')} />
+        <Breakdown label="품절" value={outOfStockCount} tone="text-rose-600" onClick={() => onShowInventoryFocus('out_of_stock')} />
+        <Breakdown label="임박 재고" value={imminentProductCount} tone="text-amber-600" onClick={() => onShowInventoryFocus('imminent')} />
+        <Breakdown label="발주 필요" value={reorderProductCount} tone="text-[var(--primary)]" onClick={() => onShowInventoryFocus('reorder')} />
       </OperationsCard>
 
       <OperationsCard title="손익점검" value={lowProfitCount} valueTone="text-amber-600">
         <Breakdown label="점검 대상" value={lowProfitCount} tone="text-amber-600" />
-        <Breakdown label="적자상품" value={lowProfitCount} tone="text-rose-600" />
-        <Breakdown label="이익률 3%↓" value="미수집" tone="text-amber-600" />
-        <Breakdown label="핵심상품" value="미수집" tone="text-emerald-700" />
+        <Breakdown label="A등급 이익" value={`${formatNumber(contribution.A)}원`} tone="text-emerald-700" onClick={() => onShowAbcGrade('A')} />
+        <Breakdown label="B등급 이익" value={`${formatNumber(contribution.B)}원`} tone="text-amber-600" onClick={() => onShowAbcGrade('B')} />
+        <Breakdown label="C등급 이익" value={`${formatNumber(contribution.C)}원`} tone="text-rose-600" onClick={() => onShowAbcGrade('C')} />
       </OperationsCard>
 
       <article className="flex min-h-[270px] flex-col rounded-xl border border-[var(--border-subtle)] bg-[var(--card-bg)] px-5 pb-2.5 pt-5 shadow-sm">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-bold text-[var(--text-tertiary)]">알림</p>
-            <p className={`mt-2 text-3xl font-extrabold tabular-nums tracking-tight ${warningCount > 0 ? 'text-amber-600' : 'text-[var(--text-primary)]'}`}>
-              {formatNumber(warningCount)}
-            </p>
-          </div>
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--surface-sunken)] text-[var(--text-tertiary)]"><Bell size={17} /></span>
+        <div>
+          <p className="text-xs font-bold text-[var(--text-tertiary)]">판매중 채널 등록상품</p>
+          <p className="mt-2 text-3xl font-extrabold tabular-nums tracking-tight text-[var(--text-primary)]">
+            {formatNumber(channelProductTotal)}
+          </p>
         </div>
         <div className="mt-auto">
-          <Breakdown label="오류" value={reviewCount} tone={reviewCount > 0 ? 'text-rose-600' : undefined} />
-          <Breakdown label="경고" value={configurationCount} tone={configurationCount > 0 ? 'text-amber-600' : undefined} />
-          <Breakdown label="최신 가져오기" value="미수집" />
-          <Link
-            href="/inventory-hub?tab=sellpia-sync"
-            className="flex w-full items-center justify-between gap-2 py-1.5 text-left text-[var(--text-secondary)] transition-colors hover:text-[var(--primary)]"
-          >
-            <span className="truncate text-[11px] font-bold">Sellpia 가져오기 내역</span>
-            <span className="text-[11px] font-bold text-[var(--text-muted)]">열기</span>
-          </Link>
+          {channelProductCounts.length > 0 ? channelProductCounts.map((channelProduct) => (
+            <Breakdown
+              key={channelProduct.channelAccountId}
+              label={channelProduct.channelAccountName}
+              value={channelProduct.count}
+            />
+          )) : <Breakdown label="등록상품" value={0} />}
         </div>
       </article>
       </section>
@@ -150,43 +119,38 @@ function OperationsCard({
   );
 }
 
-function Breakdown({ label, value, tone }: { label: string; value: number | string; tone?: string }) {
-  return (
-    <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-1.5 last:border-b-0">
-      <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
-      <p className={`text-[14px] font-extrabold tabular-nums ${tone ?? 'text-[var(--text-primary)]'}`}>
-        {typeof value === 'number' ? formatNumber(value) : value}
-      </p>
-    </div>
-  );
-}
-
-function QuickButton({
-  icon: Icon,
+function Breakdown({
   label,
-  count,
+  value,
   tone,
   onClick,
 }: {
-  icon: typeof PackageX;
   label: string;
-  count: number;
-  tone: 'blue' | 'orange';
+  value: number | string;
+  tone?: string;
   onClick?: () => void;
 }) {
-  const styles = tone === 'blue'
-    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100'
-    : 'bg-amber-50 text-amber-700 hover:bg-amber-100';
-  const iconStyles = tone === 'blue' ? 'bg-blue-100' : 'bg-amber-100';
-  const content = (
-    <>
-      <span className={`flex h-9 w-9 items-center justify-center rounded-lg ${iconStyles}`}><Icon size={17} /></span>
-      <span className="min-w-0 flex-1 truncate text-sm font-extrabold">{label}</span>
-      <span className="rounded-lg bg-[var(--surface-sunken)] px-2.5 py-1 text-base font-extrabold tabular-nums text-[var(--text-primary)]">{formatNumber(count)}</span>
-    </>
+  const content = <>
+    <p className="text-xs font-bold text-[var(--text-secondary)]">{label}</p>
+    <p className={`text-[14px] font-extrabold tabular-nums ${tone ?? 'text-[var(--text-primary)]'}`}>
+      {typeof value === 'number' ? formatNumber(value) : value}
+    </p>
+  </>;
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`${label} 상품 보기`}
+        className="flex w-full items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-1.5 text-left transition-colors hover:text-[var(--primary)] last:border-b-0"
+      >
+        {content}
+      </button>
+    );
+  }
+  return (
+    <div className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] py-1.5 last:border-b-0">
+      {content}
+    </div>
   );
-  const className = `flex flex-1 items-center gap-3 px-4 py-3 text-left transition-colors ${styles}`;
-  return onClick
-    ? <button type="button" onClick={onClick} className={className}>{content}</button>
-    : <div className={className}>{content}</div>;
 }

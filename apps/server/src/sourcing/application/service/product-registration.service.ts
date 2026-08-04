@@ -617,13 +617,21 @@ function frozenExistingChannelListing(value: unknown): {
 
 function kidItemFirstLinks(value: unknown): {
   masterProductId?: string;
-  optionLinks?: Array<{ externalOptionId: string; productVariantId: string }>;
+  optionLinks?: Array<{
+    externalOptionId: string;
+    sellpiaInventorySkuId: string;
+    quantity: number;
+  }>;
 } {
   const payload = asRecord(value);
   const registrationInput = asRecord(payload.registrationInput);
   const result: {
     masterProductId?: string;
-    optionLinks?: Array<{ externalOptionId: string; productVariantId: string }>;
+    optionLinks?: Array<{
+      externalOptionId: string;
+      sellpiaInventorySkuId: string;
+      quantity: number;
+    }>;
   } = {};
   if (registrationInput.masterProductId !== undefined) {
     result.masterProductId = requiredString(
@@ -642,9 +650,13 @@ function kidItemFirstLinks(value: unknown): {
           link.externalOptionId,
           `KidItem-first optionLinks[${index}].externalOptionId`,
         ),
-        productVariantId: requiredString(
-          link.productVariantId,
-          `KidItem-first optionLinks[${index}].productVariantId`,
+        sellpiaInventorySkuId: requiredString(
+          link.sellpiaInventorySkuId,
+          `KidItem-first optionLinks[${index}].sellpiaInventorySkuId`,
+        ),
+        quantity: requiredPositiveInteger(
+          link.quantity,
+          `KidItem-first optionLinks[${index}].quantity`,
         ),
       };
     });
@@ -663,4 +675,11 @@ function requiredString(value: unknown, field: string): string {
     throw new Error(`${field} is required.`);
   }
   return value.trim();
+}
+
+function requiredPositiveInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) <= 0) {
+    throw new Error(`${field} must be a positive integer.`);
+  }
+  return Number(value);
 }

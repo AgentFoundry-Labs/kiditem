@@ -51,6 +51,7 @@ const setReviewedQuantity = vi.fn();
 const setPreviewDirty = vi.fn();
 const setShortageReasons = vi.fn();
 const basePreview: RocketPurchasePreviewResponse = {
+  status: "ready",
   collectionRunId: "22222222-2222-4222-8222-222222222222",
   catalog: null,
   inventoryGeneration: "1",
@@ -66,9 +67,8 @@ const basePreview: RocketPurchasePreviewResponse = {
       maxQuantity: 3,
       editedQuantity: null,
       reason: null,
-      channelSkuId: "33333333-3333-4333-8333-333333333333",
+      channelListingOptionId: "55555555-5555-4555-8555-555555555555",
       masterProductId: "44444444-4444-4444-8444-444444444444",
-      productVariantId: "55555555-5555-4555-8555-555555555555",
       components: [
         {
           sellpiaInventorySkuId: "66666666-6666-4666-8666-666666666666",
@@ -256,7 +256,7 @@ describe("<RocketConfirmPanel />", () => {
         screen.getByRole("link", { name: `${label} 해결` }),
       ).toHaveAttribute(
         "href",
-        "/product-hub/matching?channelAccountId=11111111-1111-4111-8111-111111111111&search=PRODUCT-1&focusOptionId=33333333-3333-4333-8333-333333333333",
+        "/product-hub/matching?channelAccountId=11111111-1111-4111-8111-111111111111&search=PRODUCT-1&focusOptionId=55555555-5555-4555-8555-555555555555",
       );
     },
   );
@@ -783,8 +783,7 @@ function previewWithReason(
       maxQuantity: reason === "insufficient_capacity" ? 2 : 0,
       masterProductId:
         reason === "mapping_required" ? null : row.masterProductId,
-      productVariantId:
-        reason === "mapping_required" ? null : row.productVariantId,
+      channelListingOptionId: row.channelListingOptionId,
       components: reason === "insufficient_capacity" ? row.components : [],
     })),
   };

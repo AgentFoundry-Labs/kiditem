@@ -263,6 +263,15 @@ export function selectDataMigrationsForPhase(
   return migrations.filter((migration) => (migration.phase ?? 'post-schema') === phase);
 }
 
+export function selectDataMigrationsForRelease(
+  migrations: readonly DataMigration[],
+  rawReleaseVersion: string | undefined,
+): readonly DataMigration[] {
+  if (rawReleaseVersion === undefined || rawReleaseVersion.trim() === '') return migrations;
+  const releaseVersion = normalizeReleaseVersion(rawReleaseVersion);
+  return migrations.filter((migration) => migration.releaseVersion === releaseVersion);
+}
+
 export function isDefinitelyProductionDatabaseUrl(databaseUrl: string): boolean {
   try {
     const url = new URL(databaseUrl);
@@ -491,7 +500,12 @@ async function commandUp(args: CliArgs): Promise<void> {
     value(args, 'confirm') ?? process.env.DATA_MIGRATION_CONFIRM,
   );
   const phase = normalizeDataMigrationPhase(value(args, 'phase') ?? process.env.DATA_MIGRATION_PHASE);
-  const selectedMigrations = selectDataMigrationsForPhase(dataMigrations, phase);
+  const releaseVersionFilter = value(args, 'release-version') ??
+    process.env.DATA_MIGRATION_RELEASE_VERSION;
+  const selectedMigrations = selectDataMigrationsForRelease(
+    selectDataMigrationsForPhase(dataMigrations, phase),
+    releaseVersionFilter,
+  );
 
   const prisma = createPrisma(dbUrl);
   const releaseVersion = await appReleaseVersion();
@@ -674,7 +688,7 @@ async function commandBaselineRestore(args: CliArgs): Promise<void> {
 function printHelp(): void {
   console.log(`Usage:
   npm run data:migrate -- status [--database-url <url>]
-  npm run data:migrate -- up [--phase all|pre-schema|post-schema] --target local|staging|production --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
+  npm run data:migrate -- up [--phase all|pre-schema|post-schema] [--release-version <version>] --target local|staging|production --confirm ${APPLY_DATA_MIGRATIONS_CONFIRMATION}
   npm run data:migrate -- baseline-export --target staging|production --expected-git-sha <sha> --origin-run-id <id> --manifest <private-path>
   npm run data:migrate -- baseline-restore --target staging|production --expected-git-sha <sha> --origin-run-id <id> --manifest <private-path>
 
@@ -685,6 +699,8 @@ Env:
   DATA_MIGRATION_PRODUCTION_CONFIRM
                                Must be DEPLOY_PRODUCTION for target production.
   DATA_MIGRATION_PHASE         all, pre-schema, or post-schema. Defaults to all.
+  DATA_MIGRATION_RELEASE_VERSION
+                               Optional exact releaseVersion filter for phased Office promotions.
   DATA_MIGRATION_TRANSACTION_TIMEOUT_MS
                                Interactive transaction timeout in ms. Defaults to ${DEFAULT_DATA_MIGRATION_TRANSACTION_TIMEOUT_MS}.
 `);

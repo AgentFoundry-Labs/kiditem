@@ -36,26 +36,28 @@ describe('useProductHubPageState', () => {
 
   it('hydrates list filters and pagination from URL state', () => {
     navigation.params = new URLSearchParams(
-      'view=list&search=%EC%9A%B0%EC%82%B0&inventoryStatus=out_of_stock&activeStatus=inactive&periodDays=7&category=%EC%99%84%EA%B5%AC&abcGrade=A&adStatus=active&page=4',
+      'view=list&search=%EC%9A%B0%EC%82%B0&inventoryFocus=imminent&activeStatus=inactive&periodDays=7&category=%EC%99%84%EA%B5%AC&abcGrade=A&dataStatus=abc&adStatus=active&page=4',
     );
 
     const { result } = renderHook(() => useProductHubPageState());
 
     expect(result.current.search).toBe('우산');
-    expect(result.current.inventoryStatus).toBe('out_of_stock');
+    expect(result.current.inventoryFocus).toBe('imminent');
     expect(result.current.activeStatus).toBe('inactive');
     expect(result.current.periodDays).toBe(7);
     expect(result.current.category).toBe('완구');
     expect(result.current.abcGrade).toBe('A');
+    expect(result.current.dataStatusOpen).toBe(true);
     expect(result.current.adStatus).toBe('active');
     expect(result.current.page).toBe(4);
   });
 
-  it('defaults to the staged all-products view', () => {
+  it('defaults to the selling-products view', () => {
     const { result } = renderHook(() => useProductHubPageState());
 
-    expect(result.current.activeStatus).toBe('all');
+    expect(result.current.activeStatus).toBe('active');
     expect(result.current.inventoryStatus).toBe('all');
+    expect(result.current.inventoryFocus).toBe('all');
     expect(result.current.periodDays).toBe(30);
   });
 
@@ -70,9 +72,20 @@ describe('useProductHubPageState', () => {
     );
   });
 
+  it('applies a command-center inventory focus and clears the low-level inventory status', () => {
+    navigation.params = new URLSearchParams('view=list&inventoryStatus=sellable&page=3');
+    const { result } = renderHook(() => useProductHubPageState());
+
+    act(() => result.current.setInventoryFocus('reorder'));
+
+    expect(pushMock).toHaveBeenCalledWith(
+      '/product-hub?view=list&page=1&inventoryFocus=reorder',
+    );
+  });
+
   it('requests the product operations owner with canonical URL filters', () => {
     navigation.params = new URLSearchParams(
-      'search=%EC%9A%B0%EC%82%B0&inventoryStatus=review_required&activeStatus=active&periodDays=14&category=%EC%99%84%EA%B5%AC&abcGrade=B&adStatus=unconfigured&page=2',
+      'search=%EC%9A%B0%EC%82%B0&inventoryFocus=attention&activeStatus=active&periodDays=14&category=%EC%99%84%EA%B5%AC&abcGrade=B&adStatus=unconfigured&page=2',
     );
 
     renderHook(() => useProductHubPageState());
@@ -90,7 +103,7 @@ describe('useProductHubPageState', () => {
         limit: '50',
         periodDays: '14',
         activeStatus: 'active',
-        inventoryStatus: 'review_required',
+        inventoryFocus: 'attention',
         adStatus: 'unconfigured',
         query: '우산',
         category: '완구',
@@ -123,10 +136,22 @@ describe('useProductHubPageState', () => {
         page: '1',
         limit: '1',
         periodDays: '7',
-        activeStatus: 'all',
+        activeStatus: 'active',
         adStatus: 'all',
       },
     ]);
     expect(overviewOptions.queryFn.toString()).toContain('/api/products/masters');
+  });
+
+  it('opens the data-status modal through URL state and keeps the grade filter independent', () => {
+    navigation.params = new URLSearchParams('view=list&abcGrade=A&page=4');
+    const { result } = renderHook(() => useProductHubPageState());
+
+    act(() => result.current.setDataStatusOpen(true));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&abcGrade=A&page=4&dataStatus=abc');
+
+    navigation.params = new URLSearchParams('view=list&dataStatus=abc&page=4');
+    act(() => result.current.setAbcGrade('unclassified'));
+    expect(pushMock).toHaveBeenLastCalledWith('/product-hub?view=list&abcGrade=unclassified&page=1');
   });
 });

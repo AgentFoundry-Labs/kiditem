@@ -301,6 +301,16 @@ export default function Dashboard() {
   const adRateAvailable = (kpiAdRate ?? 0) > 0 || profitMetricsAvailable;
   const channelLinkedProducts = inventoryData.channelLinkedProducts ?? 0;
   const channelUnlinkedProducts = inventoryData.channelUnlinkedProducts ?? Math.max(inventoryData.totalProducts - channelLinkedProducts, 0);
+  const trafficKpi = effectiveSales?.trafficKpi;
+  const trafficAvailable = trafficKpi?.trafficAvailable
+    ?? Boolean(
+      trafficKpi?.visitors
+      || trafficKpi?.views
+      || trafficKpi?.orders
+      || trafficKpi?.salesQty
+      || trafficKpi?.revenue,
+    );
+  const trafficObservedAt = trafficKpi?.trafficObservedAt ?? null;
 
   // 셀피아 판매현황(몰별 매출) 파생값 — 월 매출/순이익 카드가 이 소스로 표시된다.
   const sp = channelSales.summary;
@@ -338,13 +348,13 @@ export default function Dashboard() {
           <div>
             <h1 className="text-lg font-bold tracking-tight text-slate-900">Kiditem Foundry</h1>
             <div className="flex items-center gap-2 mt-0.5">
-              <span className="text-xs font-mono text-slate-400">카탈로그 전체 {formatNumber(inventoryData.totalProducts)}</span>
+              <span className="text-xs font-mono text-slate-400">운영 상품 {formatNumber(inventoryData.totalProducts)}</span>
               <span className="text-xs font-mono text-slate-400">·</span>
-              <span className="text-xs font-mono text-slate-400">채널 연결 {formatNumber(channelLinkedProducts)}</span>
+              <span className="text-xs font-mono text-slate-400">판매중 채널 연결 재고상품 {formatNumber(channelLinkedProducts)}</span>
               {channelUnlinkedProducts > 0 && (
                 <>
                   <span className="text-xs font-mono text-slate-400">·</span>
-                  <span className="text-xs font-mono text-amber-500">미연결 {formatNumber(channelUnlinkedProducts)}</span>
+                  <span className="text-xs font-mono text-amber-500">판매중 채널 미연결 재고상품 {formatNumber(channelUnlinkedProducts)}</span>
                 </>
               )}
               <span className="text-xs font-mono text-slate-400">|</span>
@@ -511,20 +521,20 @@ export default function Dashboard() {
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">판매량</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.salesQty ?? 0)}개</span>
+              <span className="font-bold tabular-nums text-slate-900">{trafficAvailable ? `${formatNumber(trafficKpi?.salesQty ?? 0)}개` : '—'}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">방문자</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.visitors ?? 0)}명</span>
+              <span className="font-bold tabular-nums text-slate-900">{trafficAvailable ? `${formatNumber(trafficKpi?.visitors ?? 0)}명` : '—'}</span>
             </div>
             <div className="flex justify-between text-sm">
               <span className="text-slate-500">조회</span>
-              <span className="font-bold tabular-nums text-slate-900">{formatNumber(effectiveSales?.trafficKpi?.views ?? 0)}회</span>
+              <span className="font-bold tabular-nums text-slate-900">{trafficAvailable ? `${formatNumber(trafficKpi?.views ?? 0)}회` : '—'}</span>
             </div>
             <div className="text-[11px] text-slate-400 mt-1">
-              Wing 마지막 동기화 · {salesBaseline.lastSyncAt ? formatDateTime(salesBaseline.lastSyncAt) : '이력 없음'}
-              {salesBaseline.lastSyncAt
-                && (Date.now() - new Date(salesBaseline.lastSyncAt).getTime()) > 86400000 && (
+              Wing 트래픽 기준 · {trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집'}
+              {trafficObservedAt
+                && (Date.now() - new Date(trafficObservedAt).getTime()) > 86400000 && (
                 <span className="text-amber-500 ml-1">⚠ 24시간 이상 미동기화</span>
               )}
             </div>
@@ -700,19 +710,28 @@ export default function Dashboard() {
         />
 
         {/* 구매전환율 */}
-        <MetricCard
-          label="구매전환율"
-          value={(effectiveSales?.trafficKpi?.conversionRate ?? 0).toFixed(1)}
-          unit="%"
-          change={0}
-          prevLabel=""
-          accentColor="#0284c7"
-          icon={ShoppingCart}
-          goal={5}
-          current={effectiveSales?.trafficKpi?.conversionRate ?? 0}
-          goalUnit="%"
-          goalLabel="목표 5%"
-        />
+        {trafficAvailable ? (
+          <MetricCard
+            label="구매전환율"
+            value={(trafficKpi?.conversionRate ?? 0).toFixed(1)}
+            unit="%"
+            change={0}
+            prevLabel=""
+            accentColor="#0284c7"
+            icon={ShoppingCart}
+            goal={5}
+            current={trafficKpi?.conversionRate ?? 0}
+            goalUnit="%"
+            goalLabel="목표 5%"
+          />
+        ) : (
+          <UnavailableMetricCard
+            label="구매전환율"
+            icon={ShoppingCart}
+            accentColor="#0284c7"
+            note="Wing 트래픽 미수집"
+          />
+        )}
 
         {/* 광고수익률(ROAS) */}
         <MetricCard
@@ -756,6 +775,10 @@ export default function Dashboard() {
         gradeCount={inventoryData.gradeCount}
         classifiedProductCount={inventoryData.classifiedProductCount}
         unclassifiedProductCount={inventoryData.unclassifiedProductCount}
+        abcStatusCount={inventoryData.abcStatusCount}
+        abcContributionProfit={inventoryData.abcContributionProfit}
+        abcFormula={inventoryData.abcFormula}
+        gradeChanges={inventoryData.gradeChanges}
       />
 
       {/* 경고 카드 */}
@@ -786,13 +809,13 @@ export default function Dashboard() {
             </div>
             <div className="text-xs mt-1 text-slate-400">최신 셀피아 스냅샷</div>
           </Link>
-          <Link href="/product-hub/matching?status=unmatched" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
+          <Link href="/product-hub/matching?status=attention" className="rounded-2xl p-4 hover:shadow-md transition-all bg-white border border-slate-100 shadow-sm">
             <div className="text-sm font-bold mb-1 text-slate-900">매칭 확인 필요</div>
             <div className="text-2xl font-extrabold tabular-nums text-slate-900">
               <span data-warning-count="mapping-attention">{inventoryData.warnings.mappingAttentionSkus}</span>
               <span className="text-sm ml-0.5">건</span>
             </div>
-            <div className="text-xs mt-1 text-slate-400">미매칭·검토 필요 채널 SKU</div>
+            <div className="text-xs mt-1 text-slate-400">판매중 옵션의 미매칭·검토 필요</div>
           </Link>
         </div>
       )}

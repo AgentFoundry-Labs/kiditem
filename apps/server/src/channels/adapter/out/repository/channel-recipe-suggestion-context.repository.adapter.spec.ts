@@ -19,7 +19,7 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 
-  it('loads every active option sharing the selected variant and preserves existing components', async () => {
+  it('loads the selected active option and preserves its direct inventory components', async () => {
     const findMany = vi.fn().mockResolvedValue([{
       id: optionId, itemName: '기본', sellerSku: 'SP-001', modelNumber: 'MODEL-001',
       barcode: '001234567890',
@@ -28,33 +28,32 @@ describe('ChannelRecipeSuggestionContextRepositoryAdapter', () => {
     const repository = new ChannelRecipeSuggestionContextRepositoryAdapter({
       channelListingOption: {
         findFirst: vi.fn().mockResolvedValue({
-          id: optionId, productVariantId: 'variant-1', listing: { displayName: '키즈 식판', channelName: null },
-          productVariant: { masterProductId: 'product-1', components: [{
+          id: optionId,
+          listing: { masterProductId: 'product-1', displayName: '키즈 식판', channelName: null },
+          inventoryComponents: [{
             quantity: 2,
-            source: 'deterministic',
-            confirmedBy: null,
-            confirmedAt: new Date('2026-07-18T00:00:00.000Z'),
+            createdAt: new Date('2026-07-18T00:00:00.000Z'),
             sellpiaInventorySku: { id: 'sku-1', code: 'SP-001' },
-          }] },
+          }],
         }),
         findMany,
       },
     } as never);
 
     await expect(repository.getContext(organizationId, optionId)).resolves.toMatchObject({
-      productVariantId: 'variant-1', masterProductId: 'product-1',
+      channelListingOptionId: optionId, masterProductId: 'product-1',
       options: [expect.objectContaining({ barcode: '001234567890' })],
       existingComponents: [{
         sellpiaInventorySkuId: 'sku-1',
         code: 'SP-001',
         quantity: 2,
-        source: 'deterministic',
+        source: 'manual',
         confirmedBy: null,
         confirmedAt: new Date('2026-07-18T00:00:00.000Z'),
       }],
     });
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: { organizationId, productVariantId: 'variant-1', isActive: true },
+      where: { id: optionId, organizationId },
     }));
   });
 });

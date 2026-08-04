@@ -46,6 +46,7 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
       views: 0,
       cartAdds: 0,
       conversionRate: 0,
+      isCollected: false,
       hasData: false,
       lastObservedAt: null,
     });
@@ -93,6 +94,10 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     expect(result.profitDetail).toEqual(expect.objectContaining({
       adCost: 30_000,
       netProfit: 20_000,
+    }));
+    expect(result.trafficKpi).toEqual(expect.objectContaining({
+      trafficAvailable: false,
+      trafficObservedAt: null,
     }));
   });
 });

@@ -13,7 +13,7 @@ export type ChannelRecipeSuggestionStatus =
   | 'name_review_only'
   | 'no_match';
 
-export type ChannelRecipeAutomationDecision =
+export type ChannelRecipeSuggestionDecision =
   | 'auto_apply'
   | 'quantity_review'
   | 'operator_review'
@@ -84,7 +84,6 @@ type ManualMatchEvidence = {
 
 export type ChannelRecipeSuggestionInput = {
   channelListingOptionId: string;
-  productVariantId: string | null;
   masterProductId: string | null;
   options: Array<{
     channelListingOptionId: string;
@@ -127,10 +126,9 @@ type StrongEvidence = {
 
 export type ChannelRecipeSuggestionResponse = {
   channelListingOptionId: string;
-  productVariantId: string | null;
   masterProductId: string | null;
   status: ChannelRecipeSuggestionStatus;
-  automationDecision: ChannelRecipeAutomationDecision;
+  automationDecision: ChannelRecipeSuggestionDecision;
   recommendedQuantity: number | null;
   reason: string;
   existingComponents: ChannelRecipeSuggestionInput['existingComponents'];
@@ -170,7 +168,6 @@ export function classifyChannelRecipeSuggestion(
 ): ChannelRecipeSuggestionResponse {
   const base = {
     channelListingOptionId: input.channelListingOptionId,
-    productVariantId: input.productVariantId,
     masterProductId: input.masterProductId,
     existingComponents: input.existingComponents,
   };
@@ -228,9 +225,8 @@ export function classifyChannelRecipeSuggestion(
         'The exact identifier points to a Sellpia SKU with an incompatible product name');
     }
     const quantity = manualMatchQuantity ?? inferRecipeQuantity(
-        input.options.flatMap((option) => [option.listingName, option.itemName]),
-        sku,
-      );
+      input.options.flatMap((option) => [option.listingName, option.itemName]),
+    );
     if (quantity === null) {
       return decision(base, strongEvidence, 'quantity_review', 'quantity_review', null,
         'The channel pack cannot be converted to a verified Sellpia unit quantity');
@@ -245,7 +241,6 @@ export function classifyChannelRecipeSuggestion(
     if (exactSkuIds.size === 1) {
       const quantity = inferRecipeQuantity(
         input.options.flatMap((option) => [option.listingName, option.itemName]),
-        input.nameEvidence[0]!.sku,
       );
       if (quantity !== null) {
         return looseNameDecision(base, input.nameEvidence, 'exact_name', 'auto_apply', quantity,
@@ -330,29 +325,77 @@ function hasAmbiguousIdentifier(evidence: StrongEvidence[]): boolean {
 
 export function inferRecipeQuantity(
   channelValues: Array<string | null>,
-  _sku: ChannelRecipeSuggestionSku,
 ): number | null {
-  const channel = packCounts(channelValues);
-  const channelMulti = channel.filter((count) => count > 1);
-  if (channelMulti.length === 0) return 1;
-  return null;
+  const quantities = packCounts(channelValues);
+  if (quantities.length === 0) return 1;
+  return quantities.length === 1 ? quantities[0]! : null;
 }
 
 function packCounts(values: Array<string | null>): number[] {
   const counts = new Set<number>();
-  const token = /(\d+)\s*(?:개입|개|입|팩|pcs?|p|ea|세트|묶음|권|매|장|봉)(?![\p{L}\p{N}])/giu;
   for (const value of values) {
     if (!value) continue;
-    for (const match of value.normalize('NFKC').matchAll(token)) {
-      const count = Number(match[1]);
-      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
-    }
-    for (const match of value.matchAll(/(\d+)\s*\+\s*(\d+)/gu)) {
-      const count = Number(match[1]) + Number(match[2]);
-      if (Number.isSafeInteger(count) && count > 0) counts.add(count);
-    }
+    for (const count of titleQuantityCounts(value)) counts.add(count);
   }
   return [...counts].sort((left, right) => left - right);
+}
+
+const QUANTITY_UNIT = String.raw`(?:개입|pcs?|피스|세트|묶음|구성|팩|ea|개|입|권|매|장|봉|종|p)`;
+const QUANTITY_UNIT_TOKEN = new RegExp(
+  String.raw`(\d+)\s*${QUANTITY_UNIT}(?![\p{L}\p{N}])`,
+  'giu',
+);
+const QUANTITY_UNIT_MULTIPLIER = new RegExp(
+  String.raw`(\d+)\s*${QUANTITY_UNIT}\s*(?:[x×*]\s*)?(\d+)\s*(?:${QUANTITY_UNIT})?`,
+  'giu',
+);
+const QUANTITY_MULTIPLIER_WITH_UNIT = new RegExp(
+  String.raw`(\d+)\s*[x×*]\s*(\d+)\s*${QUANTITY_UNIT}`,
+  'giu',
+);
+const CHOICE_OF_ONE = /\d+\s*종\s*(?:중\s*)?(?:택\s*1|랜덤\s*1)/giu;
+const ADDITIVE_QUANTITY = /\d+(?:\s*\+\s*\d+)+/gu;
+
+function titleQuantityCounts(value: string): number[] {
+  const normalized = value.normalize('NFKC').toLocaleLowerCase();
+  const counts = new Set<number>();
+  const coveredRanges: Array<{ start: number; end: number }> = [];
+  const cover = (match: RegExpMatchArray) => {
+    const start = match.index ?? 0;
+    coveredRanges.push({ start, end: start + match[0].length });
+  };
+  const add = (value: number) => {
+    if (Number.isSafeInteger(value) && value > 0) counts.add(value);
+  };
+
+  for (const match of normalized.matchAll(CHOICE_OF_ONE)) {
+    add(1);
+    cover(match);
+  }
+  for (const match of normalized.matchAll(ADDITIVE_QUANTITY)) {
+    const count = (match[0].match(/\d+/gu) ?? [])
+      .map(Number)
+      .reduce((sum, unit) => sum + unit, 0);
+    add(count);
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_UNIT_MULTIPLIER)) {
+    add(Number(match[1]) * Number(match[2]));
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_MULTIPLIER_WITH_UNIT)) {
+    add(Number(match[1]) * Number(match[2]));
+    cover(match);
+  }
+  for (const match of normalized.matchAll(QUANTITY_UNIT_TOKEN)) {
+    const start = match.index ?? 0;
+    const end = start + match[0].length;
+    if (coveredRanges.some((range) => start < range.end && end > range.start)) {
+      continue;
+    }
+    add(Number(match[1]));
+  }
+  return [...counts];
 }
 
 function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
@@ -366,10 +409,10 @@ function identifierNameMismatch(input: ChannelRecipeSuggestionInput): boolean {
 
 function looseNameDecision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: NameEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {
@@ -385,7 +428,7 @@ function looseNameDecision(
 
 function decideSimilarity(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   input: ChannelRecipeSuggestionInput,
 ): ChannelRecipeSuggestionResponse | null {
   const evidence = bestSimilarityPerSku(input.similarityEvidence);
@@ -405,7 +448,6 @@ function decideSimilarity(
   }
   const quantity = inferRecipeQuantity(
     input.options.flatMap((option) => [option.listingName, option.itemName]),
-    best.sku,
   );
   if (quantity === null) {
     return similarityDecision(base, evidence, 'quantity_review', 'quantity_review', null,
@@ -441,10 +483,10 @@ function similarityPriority(kind: SimilarityEvidence['kind']): number {
 
 function similarityDecision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: SimilarityEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {
@@ -477,10 +519,10 @@ function automaticStatus(
 
 function decision(
   base: Pick<ChannelRecipeSuggestionResponse,
-    'channelListingOptionId' | 'productVariantId' | 'masterProductId' | 'existingComponents'>,
+    'channelListingOptionId' | 'masterProductId' | 'existingComponents'>,
   evidence: StrongEvidence[],
   status: ChannelRecipeSuggestionStatus,
-  automationDecision: ChannelRecipeAutomationDecision,
+  automationDecision: ChannelRecipeSuggestionDecision,
   recommendedQuantity: number | null,
   reason: string,
 ): ChannelRecipeSuggestionResponse {

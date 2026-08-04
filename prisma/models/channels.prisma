@@ -215,35 +215,39 @@ model ChannelListingDailySnapshot {
   categoryRank Int? @map("category_rank")
 
   // Ad additive metrics (Hard rewrite H1) — sums only, ratios recompute in reads.
-  adSpend              Int @default(0) @map("ad_spend")
-  adRevenue            Int @default(0) @map("ad_revenue")
-  adImpressions        Int @default(0) @map("ad_impressions")
-  adClicks             Int @default(0) @map("ad_clicks")
-  adConversions        Int @default(0) @map("ad_conversions")
-  adOrders             Int @default(0) @map("ad_orders")
-  adDirectOrders1d     Int @default(0) @map("ad_direct_orders_1d")
-  adIndirectOrders1d   Int @default(0) @map("ad_indirect_orders_1d")
-  adDirectQty1d        Int @default(0) @map("ad_direct_qty_1d")
-  adIndirectQty1d      Int @default(0) @map("ad_indirect_qty_1d")
-  adDirectRevenue1d    Int @default(0) @map("ad_direct_revenue_1d")
-  adIndirectRevenue1d  Int @default(0) @map("ad_indirect_revenue_1d")
-  adTotalOrders14d     Int @default(0) @map("ad_total_orders_14d")
-  adDirectOrders14d    Int @default(0) @map("ad_direct_orders_14d")
-  adIndirectOrders14d  Int @default(0) @map("ad_indirect_orders_14d")
-  adTotalQty14d        Int @default(0) @map("ad_total_qty_14d")
-  adDirectQty14d       Int @default(0) @map("ad_direct_qty_14d")
-  adIndirectQty14d     Int @default(0) @map("ad_indirect_qty_14d")
-  adTotalRevenue14d    Int @default(0) @map("ad_total_revenue_14d")
-  adDirectRevenue14d   Int @default(0) @map("ad_direct_revenue_14d")
-  adIndirectRevenue14d Int @default(0) @map("ad_indirect_revenue_14d")
+  adSpend              Int       @default(0) @map("ad_spend")
+  adRevenue            Int       @default(0) @map("ad_revenue")
+  adImpressions        Int       @default(0) @map("ad_impressions")
+  adClicks             Int       @default(0) @map("ad_clicks")
+  adConversions        Int       @default(0) @map("ad_conversions")
+  adOrders             Int       @default(0) @map("ad_orders")
+  adDirectOrders1d     Int       @default(0) @map("ad_direct_orders_1d")
+  adIndirectOrders1d   Int       @default(0) @map("ad_indirect_orders_1d")
+  adDirectQty1d        Int       @default(0) @map("ad_direct_qty_1d")
+  adIndirectQty1d      Int       @default(0) @map("ad_indirect_qty_1d")
+  adDirectRevenue1d    Int       @default(0) @map("ad_direct_revenue_1d")
+  adIndirectRevenue1d  Int       @default(0) @map("ad_indirect_revenue_1d")
+  adTotalOrders14d     Int       @default(0) @map("ad_total_orders_14d")
+  adDirectOrders14d    Int       @default(0) @map("ad_direct_orders_14d")
+  adIndirectOrders14d  Int       @default(0) @map("ad_indirect_orders_14d")
+  adTotalQty14d        Int       @default(0) @map("ad_total_qty_14d")
+  adDirectQty14d       Int       @default(0) @map("ad_direct_qty_14d")
+  adIndirectQty14d     Int       @default(0) @map("ad_indirect_qty_14d")
+  adTotalRevenue14d    Int       @default(0) @map("ad_total_revenue_14d")
+  adDirectRevenue14d   Int       @default(0) @map("ad_direct_revenue_14d")
+  adIndirectRevenue14d Int       @default(0) @map("ad_indirect_revenue_14d")
+  adCoverageStatus     String?   @map("ad_coverage_status")
+  adObservedAt         DateTime? @map("ad_observed_at") @db.Timestamptz
 
   // Traffic additive metrics (Hard rewrite H1)
-  trafficVisitors Int @default(0) @map("traffic_visitors")
-  trafficViews    Int @default(0) @map("traffic_views")
-  trafficCartAdds Int @default(0) @map("traffic_cart_adds")
-  trafficOrders   Int @default(0) @map("traffic_orders")
-  trafficSalesQty Int @default(0) @map("traffic_sales_qty")
-  trafficRevenue  Int @default(0) @map("traffic_revenue")
+  trafficVisitors       Int       @default(0) @map("traffic_visitors")
+  trafficViews          Int       @default(0) @map("traffic_views")
+  trafficCartAdds       Int       @default(0) @map("traffic_cart_adds")
+  trafficOrders         Int       @default(0) @map("traffic_orders")
+  trafficSalesQty       Int       @default(0) @map("traffic_sales_qty")
+  trafficRevenue        Int       @default(0) @map("traffic_revenue")
+  trafficCoverageStatus String?   @map("traffic_coverage_status")
+  trafficObservedAt     DateTime? @map("traffic_observed_at") @db.Timestamptz
 
   sampleCount     Int      @default(1) @map("sample_count")
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
@@ -784,10 +788,14 @@ model SellpiaProductMonthlySales {
   optionCode  String @map("option_code") // 옵션코드
   yearMonth   String @map("year_month") // "YYYY-MM" (KST 캘린더 월)
 
-  orderQty    Int @default(0) @map("order_qty") // 월 판매수량 = 재고 소진량
-  orderAmount Int @default(0) @map("order_amount") // 월 판매금액
-  inQty       Int @default(0) @map("in_qty") // 월 매입수량
-  inAmount    Int @default(0) @map("in_amount") // 월 매입금액
+  orderQty          Int       @default(0) @map("order_qty") // 월 판매수량 = 재고 소진량
+  orderAmount       Int       @default(0) @map("order_amount") // 월 판매금액
+  inQty             Int       @default(0) @map("in_qty") // 월 매입수량
+  inAmount          Int       @default(0) @map("in_amount") // 월 매입금액
+  costBasis         String    @default("UNKNOWN") @map("cost_basis") // 원가 기준: ORDER_TIME_SUPPLY_COST만 매출총이익 ABC에 사용
+  vatIncluded       Boolean?  @map("vat_included") // 공급가 VAT 포함 여부; 원가 출처가 명시된 수집만 true
+  coverageStartDate DateTime? @map("coverage_start_date") @db.Date // 요청 범위와 해당 월의 실제 교집합 시작일
+  coverageEndDate   DateTime? @map("coverage_end_date") @db.Date // 요청 범위와 해당 월의 실제 교집합 종료일
 
   // 상품 메타 (최신 스냅샷)
   productName  String  @map("product_name")

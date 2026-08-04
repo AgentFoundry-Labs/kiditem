@@ -46,6 +46,8 @@ export const queryKeys = {
         [...queryKeys.products.operations.all, 'detail', id] as const,
       mutations: () =>
         [...queryKeys.products.operations.all, 'mutation'] as const,
+      dataStatus: (periodDays: number) =>
+        [...queryKeys.products.operations.all, 'data-status', periodDays] as const,
       recipeCandidates: (params: Record<string, string>) =>
         [
           ...queryKeys.products.operations.all,
@@ -53,7 +55,6 @@ export const queryKeys = {
           params,
         ] as const,
     },
-    abcPolicy: () => [...queryKeys.products.all, 'abc-policy'] as const,
     images: (masterId: string) => [...queryKeys.products.all, 'images', masterId] as const,
     pipelineStats: (status?: string, period?: number) =>
       [...queryKeys.products.all, 'pipelineStats', status, period] as const,
@@ -228,12 +229,6 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'list', params] as const,
     productCandidates: (channelListingId: string, params: Record<string, string>) =>
       [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
-    variantCandidates: (channelListingOptionId: string, params: Record<string, string>) =>
-      [...queryKeys.channelProductMappings.all, 'variant-candidates', channelListingOptionId, params] as const,
-    recipeSuggestion: (channelListingOptionId: string) =>
-      [...queryKeys.channelProductMappings.all, 'recipe-suggestion', channelListingOptionId] as const,
-    recipeAutomationPreview: (channelAccountId: string) =>
-      [...queryKeys.channelProductMappings.all, 'recipe-automation-preview', channelAccountId] as const,
     sellpiaManualMatchTargets: () =>
       [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },

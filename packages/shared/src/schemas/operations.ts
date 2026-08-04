@@ -57,6 +57,7 @@ function validateSafeOperationResult(
 export const OperationStatusSchema = z.enum([
   'queued',
   'waiting_runtime',
+  'waiting_dependency',
   'running',
   'attention_required',
   'succeeded',

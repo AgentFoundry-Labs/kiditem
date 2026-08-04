@@ -1,132 +1,157 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import type { ProductAbcRecalculationResult } from '@kiditem/shared/product-abc';
 import {
-  MasterProductAbcPolicySchema,
-  type MasterProductAbcPolicyResponse,
-  type MasterProductAbcRecalculationResult,
-} from '@kiditem/shared/product-abc';
+  MASTER_PRODUCT_PROFITABILITY_READ_PORT,
+  type MasterProductProfitabilityEvidence,
+  type MasterProductProfitabilityReadPort,
+} from '../../../finance/application/port/in/master-product-profitability-read.port';
 import {
-  MASTER_PRODUCT_ABC_METRIC_READ_PORT,
-  type MasterProductAbcMetricReadPort,
-} from '../../../analytics/application/port/in/master-product-abc-metric-read.port';
-import { calculateMasterProductAbcGrades } from '../../domain/master-product-abc';
+  createFixedProductAbcFormula,
+  type ProductAbcFormulaObservation,
+} from '../../domain/master-product-abc-calibration';
+import {
+  applyMasterProductAbcQuantiles,
+  evaluateMasterProductAbc,
+} from '../../domain/master-product-abc';
 import {
   MASTER_PRODUCT_ABC_REPOSITORY_PORT,
-  type MasterProductAbcPolicyRecord,
+  type MasterProductAbcFormulaStateRecord,
   type MasterProductAbcRepositoryPort,
 } from '../port/out/repository/master-product-abc.repository.port';
 
-const DEFAULT_POLICY: MasterProductAbcPolicyRecord = {
-  metric: 'SALES_QUANTITY',
-  periodDays: 30,
-  aCumulativeThreshold: 70,
-  bCumulativeThreshold: 90,
-  revision: 0,
-  lastCalculatedAt: null,
-  sourceCapturedAt: null,
-};
+const MAX_PUBLICATION_ATTEMPTS = 2;
 
 @Injectable()
 export class MasterProductAbcService {
   constructor(
     @Inject(MASTER_PRODUCT_ABC_REPOSITORY_PORT)
     private readonly repository: MasterProductAbcRepositoryPort,
-    @Inject(MASTER_PRODUCT_ABC_METRIC_READ_PORT)
-    private readonly metrics: MasterProductAbcMetricReadPort,
+    @Inject(MASTER_PRODUCT_PROFITABILITY_READ_PORT)
+    private readonly profitability: MasterProductProfitabilityReadPort,
   ) {}
 
-  async getPolicy(organizationId: string): Promise<MasterProductAbcPolicyResponse> {
-    return publicPolicy(await this.getPolicyRecord(organizationId));
-  }
-
-  async updatePolicy(organizationId: string, rawInput: unknown) {
-    const parsed = MasterProductAbcPolicySchema.safeParse(rawInput);
-    if (!parsed.success) throw new BadRequestException('Invalid MasterProduct ABC policy');
-    const current = await this.getPolicyRecord(organizationId);
-    const first = await this.recalculateWithPolicy(
-      organizationId,
-      { ...current, ...parsed.data },
-      true,
-    );
-    if (!first.stale) return publicPublication(first);
-    const latest = await this.getPolicyRecord(organizationId);
-    const retry = await this.recalculateWithPolicy(
-      organizationId,
-      { ...latest, ...parsed.data },
-      true,
-    );
-    if (retry.stale) {
-      throw new ConflictException('MasterProduct ABC publication changed during policy update');
-    }
-    return publicPublication(retry);
-  }
-
-  async recalculate(organizationId: string): Promise<MasterProductAbcRecalculationResult> {
-    const policy = await this.getPolicyRecord(organizationId);
-    const first = await this.recalculateWithPolicy(organizationId, policy);
-    if (!first.stale) return first.result;
-    const latestPolicy = await this.getPolicyRecord(organizationId);
-    const retry = await this.recalculateWithPolicy(organizationId, latestPolicy);
-    if (retry.stale) {
-      throw new ConflictException('MasterProduct ABC policy changed during recalculation');
-    }
-    return retry.result;
-  }
-
-  private async recalculateWithPolicy(
+  async reconcileInventoryActivity(
     organizationId: string,
-    policy: MasterProductAbcPolicyRecord,
-    allowPolicyReplacement = false,
-  ): Promise<{ policy: MasterProductAbcPolicyRecord; result: MasterProductAbcRecalculationResult; stale: boolean }> {
-    const snapshot = await this.metrics.readMetricSnapshot({
-      organizationId,
-      metric: policy.metric,
-      periodDays: policy.periodDays,
+  ): Promise<{
+    deactivatedMasterProductIds: readonly string[];
+    reactivatedMasterProductIds: readonly string[];
+  }> {
+    return this.repository.reconcileInventoryActivity(organizationId);
+  }
+
+  /** Rebuilds active products from persisted source facts and the frozen formula. */
+  async recalculate(organizationId: string): Promise<ProductAbcRecalculationResult> {
+    for (let attempt = 0; attempt < MAX_PUBLICATION_ATTEMPTS; attempt += 1) {
+      const calculatedAt = new Date();
+      const asOfDate = completedKstCalendarDate(calculatedAt);
+      let state = await this.repository.getFormulaState(organizationId);
+      state = await this.ensureInitialFormula({ organizationId, state, asOfDate, calculatedAt });
+      const activeIds = await this.repository.listSellingMasterProductIds(organizationId);
+      const [evidence, previous] = await Promise.all([
+        activeIds.length === 0
+          ? Promise.resolve([] as readonly MasterProductProfitabilityEvidence[])
+          : this.profitability.readMany({
+            organizationId,
+            masterProductIds: activeIds,
+            asOfDate,
+            scope: 'ACTIVE_EVALUATION',
+          }),
+        this.repository.findCurrentEvaluations({ organizationId, masterProductIds: activeIds }),
+      ]);
+      const evaluated = new Map(evidence.map((row) => [row.masterProductId, evaluateMasterProductAbc({
+        evidence: row,
+        formula: state.formula,
+        calculatedAt,
+        previousNormalEvaluation: previous.get(row.masterProductId),
+      })] as const));
+      const evaluations = applyMasterProductAbcQuantiles(evaluated);
+      const published = await this.repository.publishEvaluations({
+        organizationId,
+        expectedFormulaStateRevision: state.revision,
+        formulaVersionId: state.formulaVersionId,
+        evaluations,
+        reason: 'AUTOMATIC_PROFITABILITY_RECALCULATION',
+      });
+      if (!published.stale) return resultFor(evaluations, published.changedProductCount);
+    }
+    throw new ConflictException('MasterProduct ABC formula changed during recalculation');
+  }
+
+  private async ensureInitialFormula(input: {
+    organizationId: string;
+    state: MasterProductAbcFormulaStateRecord;
+    asOfDate: Date;
+    calculatedAt: Date;
+  }): Promise<MasterProductAbcFormulaStateRecord> {
+    if (input.state.formula) return input.state;
+    const historical = await this.profitability.readMany({
+      organizationId: input.organizationId,
+      asOfDate: input.asOfDate,
+      scope: 'HISTORICAL_CALIBRATION',
     });
-    const grades = calculateMasterProductAbcGrades(policy, snapshot.evidence);
-    const metricValues = new Map(snapshot.evidence.map((row) => [
-      row.masterProductId,
-      row.metricValue,
-    ]));
-    const published = await this.repository.publishGrades({
-      organizationId,
-      policy,
-      sourceCapturedAt: snapshot.sourceCapturedAt,
-      grades,
-      metricValues,
-      allowPolicyReplacement,
+    const formula = createFixedProductAbcFormula({
+      observations: formulaObservations(historical),
+      version: 1,
+      activatedAt: input.calculatedAt,
     });
-    const gradeItems = [...grades.entries()].map(([masterProductId, abcGrade]) => ({
+    if (!formula) return input.state;
+    const stored = await this.repository.ensureInitialFormula({
+      organizationId: input.organizationId,
+      expectedRevision: input.state.revision,
+      formula: formula.formula,
+    });
+    return stored.state;
+  }
+}
+
+function formulaObservations(
+  evidence: readonly MasterProductProfitabilityEvidence[],
+): ProductAbcFormulaObservation[] {
+  return evidence.flatMap((product) => {
+    if (product.sellpiaStatus !== 'READY' || product.mappingStatus !== 'READY') return [];
+    const facts = [...product.monthlyFacts]
+      .filter((fact) => fact.contributionProfit !== null && fact.adSpend !== null && fact.negativeCoveredDays !== null)
+      .sort((left, right) => left.coverageEndDate.getTime() - right.coverageEndDate.getTime())
+      .map((fact) => ({
+        coverageStartDate: fact.coverageStartDate,
+        coverageEndDate: fact.coverageEndDate,
+        coveredDays: fact.coveredDays,
+        revenue: fact.revenue,
+        orderTimeCogs: fact.sellpiaInAmount,
+        adSpend: fact.adSpend!,
+        contributionProfit: fact.contributionProfit!,
+        negativeCoveredDays: fact.negativeCoveredDays!,
+      }));
+    if (facts.length === 0) return [];
+    return [{
+      masterProductId: product.masterProductId,
+      facts,
+      asOfDate: product.asOfDate,
+      observationDays: product.observationDays,
+    }];
+  });
+}
+
+function resultFor(
+  evaluations: ReadonlyMap<string, ReturnType<typeof evaluateMasterProductAbc>>,
+  changedProductCount: number,
+): ProductAbcRecalculationResult {
+  const grades = [...evaluations.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([masterProductId, evaluation]) => ({
       masterProductId,
-      abcGrade,
+      abcGrade: evaluation.abcGrade,
+      evaluation,
     }));
-    return {
-      policy: published.policy,
-      stale: published.stale,
-      result: {
-        changedProductCount: published.changedProductCount,
-        classifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade !== null).length,
-        unclassifiedProductCount: gradeItems.filter(({ abcGrade }) => abcGrade === null).length,
-        grades: gradeItems,
-      },
-    };
-  }
-
-  private async getPolicyRecord(
-    organizationId: string,
-  ): Promise<MasterProductAbcPolicyRecord> {
-    return (await this.repository.findPolicy(organizationId)) ?? DEFAULT_POLICY;
-  }
+  return {
+    changedProductCount,
+    classifiedProductCount: grades.filter((grade) => grade.abcGrade !== null).length,
+    unclassifiedProductCount: grades.filter((grade) => grade.abcGrade === null).length,
+    grades,
+  };
 }
 
-function publicPolicy(policy: MasterProductAbcPolicyRecord): MasterProductAbcPolicyResponse {
-  const { revision: _revision, ...response } = policy;
-  return response;
-}
-
-function publicPublication(input: {
-  policy: MasterProductAbcPolicyRecord;
-  result: MasterProductAbcRecalculationResult;
-  stale: boolean;
-}) {
-  return { ...input, policy: publicPolicy(input.policy) };
+function completedKstCalendarDate(now: Date): Date {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  return new Date(Date.UTC(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate() - 1));
 }

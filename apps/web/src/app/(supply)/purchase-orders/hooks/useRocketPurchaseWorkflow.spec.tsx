@@ -54,7 +54,6 @@ const COLLECTION_A = '55555555-5555-4555-8555-555555555555';
 const COLLECTION_B = '66666666-6666-4666-8666-666666666666';
 const OPTION_ID = '77777777-7777-4777-8777-777777777777';
 const PRODUCT_ID = '88888888-8888-4888-8888-888888888888';
-const VARIANT_ID = '99999999-9999-4999-8999-999999999999';
 const SKU_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
 const SHORTAGE_REASON = '협력사 재고부족 - 수요예측 오류' as const;
 
@@ -789,11 +788,13 @@ function previewRow(
     maxQuantity: recommendedQuantity,
     editedQuantity: null,
     reason,
-    channelSkuId: blocked ? null : OPTION_ID,
+    channelListingOptionId: blocked ? null : OPTION_ID,
     masterProductId: blocked ? null : PRODUCT_ID,
-    productVariantId: blocked ? null : VARIANT_ID,
     components: blocked ? [] : [{
       sellpiaInventorySkuId: SKU_ID,
+      code: 'SKU-1',
+      name: '셀피아 상품',
+      optionName: null,
       quantity: 1,
       currentStock: 4,
       isActive: true,

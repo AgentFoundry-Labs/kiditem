@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import { ScopedChannelRecipeAutomationResultSchema } from './channel-recipe-automation.js';
 import { CompletedSourceArtifactRunSchema } from './source-import.js';
 
 export const ROCKET_PO_ROW_LIMIT = 4_000;
@@ -335,7 +334,6 @@ export const RocketPoCatalogPublicationSchema = z.object({
     createdSkuCount: z.number().int().nonnegative(),
     updatedSkuCount: z.number().int().nonnegative(),
   }).strict(),
-  recipeAutomation: ScopedChannelRecipeAutomationResultSchema,
 }).strict();
 export type RocketPoCatalogPublication = z.infer<
   typeof RocketPoCatalogPublicationSchema
@@ -365,18 +363,15 @@ export const RocketPurchasePreviewRowSchema = z.object({
   maxQuantity: z.number().int().nonnegative(),
   editedQuantity: z.number().int().nonnegative().nullable(),
   reason: RocketPurchasePreviewReasonSchema.nullable(),
-  channelSkuId: z.string().uuid().nullable(),
+  channelListingOptionId: z.string().uuid().nullable(),
   masterProductId: z.string().uuid().nullable(),
-  productVariantId: z.string().uuid().nullable(),
   components: z.array(RocketPurchasePreviewComponentSchema).max(50),
 }).strict().superRefine((row, ctx) => {
-  const linkedIds = [row.masterProductId, row.productVariantId];
-  const linkedCount = linkedIds.filter((value) => value !== null).length;
-  if (linkedCount !== 0 && linkedCount !== linkedIds.length) {
+  if (row.masterProductId !== null && row.channelListingOptionId === null) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
-      path: ['productVariantId'],
-      message: 'Product and variant identities must be present or null together',
+      path: ['channelListingOptionId'],
+      message: 'A confirmed product requires a channel listing option identity',
     });
   }
 });

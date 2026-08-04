@@ -32,4 +32,28 @@ describe('BrowserOperationRuntimeService', () => {
       }),
     ).rejects.toThrow('browser_runtime_fence_lost');
   });
+
+  it('grants one new browser claim when an operator retries after exhausting attempts', async () => {
+    const current = {
+      id: RUN_ID,
+      organizationId: ORG_ID,
+      engineType: 'browser',
+      status: 'attention_required',
+      attempts: 3,
+      maxAttempts: 3,
+    };
+    const repository = {
+      findRunById: vi.fn().mockResolvedValue(current),
+      transition: vi.fn().mockResolvedValue({ ...current, status: 'waiting_runtime' }),
+    } as unknown as OperationRunRepositoryPort;
+    const service = new BrowserOperationRuntimeService(registry, repository);
+
+    await service.retry({ organizationId: ORG_ID, runId: RUN_ID });
+
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      runId: RUN_ID,
+      status: 'waiting_runtime',
+      attemptDelta: -1,
+    }));
+  });
 });

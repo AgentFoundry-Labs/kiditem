@@ -57,24 +57,7 @@ async function setupListing(
       currentStock: 100,
     },
   });
-  const option = await prisma.productVariant.create({
-    data: {
-      organizationId,
-      masterProductId: master.id,
-      code: `VAR-${suffix}`,
-      name: `Variant ${suffix}`,
-      isDefault: true,
-    },
-  });
-  await prisma.productVariantComponent.create({
-    data: {
-      organizationId,
-      productVariantId: option.id,
-      sellpiaInventorySkuId: inventorySku.id,
-      quantity: 1,
-      source: 'manual',
-    },
-  });
+  const option = inventorySku;
   const channelAccount = await prisma.channelAccount.upsert({
     where: {
       organizationId_channel_externalAccountId: {
@@ -107,13 +90,20 @@ async function setupListing(
     data: {
       organizationId,
       listingId: listing.id,
-      productVariantId: option.id,
       externalOptionId: `VI-${suffix}`,
       itemName: `OPT-${suffix}`,
       sellerSku: `SKU-${suffix}`,
       costPriceOverride: 1000,
       commissionRate: 0.1,
       otherCost: 50,
+    },
+  });
+  await prisma.channelListingOptionInventoryComponent.create({
+    data: {
+      organizationId,
+      channelListingOptionId: listingOption.id,
+      sellpiaInventorySkuId: inventorySku.id,
+      quantity: 1,
     },
   });
   return { master, listing, option, listingOption };

@@ -80,6 +80,7 @@ export class WingTrafficAggregationRepositoryAdapter
         views,
         cartAdds,
         conversionRate,
+        isCollected: true,
         hasData: true,
         lastObservedAt: agg._max.lastObservedAt ?? null,
       } satisfies WingTrafficMetrics;
@@ -88,7 +89,20 @@ export class WingTrafficAggregationRepositoryAdapter
     // Fallback — Wing 일별 요약은 account-level KPI 스냅샷(wing_dashboard.summary)에 적재된다.
     // 상품-리스팅 매칭이 없어 channel_listing_daily_snapshots 가 비는 워크스페이스(매칭 전/미동기화)
     // 에서도 수집한 Wing 매출을 대시보드에 노출하기 위해 계정 요약을 합산해 동일 지표로 반환.
-    return this.aggregateWingAccountSummary(organizationId, from, to);
+    const accountSummary = await this.aggregateWingAccountSummary(organizationId, from, to);
+    if (accountSummary.isCollected) return accountSummary;
+    return {
+      revenue,
+      orders,
+      salesQty,
+      visitors,
+      views,
+      cartAdds,
+      conversionRate,
+      isCollected: (agg._count._all ?? 0) > 0,
+      hasData: false,
+      lastObservedAt: agg._max.lastObservedAt ?? null,
+    } satisfies WingTrafficMetrics;
   }
 
   /** wing_dashboard 계정 KPI 스냅샷의 일별 summary 를 합산 (상품별 facts 폴백). */
@@ -148,6 +162,7 @@ export class WingTrafficAggregationRepositoryAdapter
       views,
       cartAdds,
       conversionRate,
+      isCollected: rows.length > 0,
       hasData,
       lastObservedAt,
     } satisfies WingTrafficMetrics;

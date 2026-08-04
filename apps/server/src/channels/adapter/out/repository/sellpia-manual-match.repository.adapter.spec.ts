@@ -58,7 +58,12 @@ describe('SellpiaManualMatchRepositoryAdapter snapshot replacement', () => {
     } as never);
 
     await expect(repository.listCurrentChannelAliasCandidates('organization-1'))
-      .resolves.toEqual(['12개입', '현재 상품', '현재 상품:12개입']);
+      .resolves.toEqual([
+        '채널 원문',
+        '채널 원문:12개입',
+        '현재 상품',
+        '현재 상품:12개입',
+      ]);
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ organizationId: 'organization-1', isActive: true }),
     }));

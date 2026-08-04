@@ -105,7 +105,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(new Set(products.map((row) => row.id))).toHaveLength(1_225);
     expect(new Set(skus.map((row) => row.id))).toHaveLength(2_241);
     expect(products.every((row) => row.channelAccount.channel === 'coupang')).toBe(true);
-    expect(skus.every((row) => row.productVariantId === null)).toBe(true);
     expect(products.every((row) => row.masterProductId === null)).toBe(true);
     expect(skus.every((row) => row.sellerSku === null && row.salePrice === null)).toBe(true);
     expect(result.changes).toEqual({
@@ -158,11 +157,11 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   });
 
   it.each([null, '   '])(
-    'rejects a Coupang account whose canonical external identity is %j before claiming',
+    'rejects a Coupang account whose vendor and external identities are both missing (%j)',
     async (externalAccountId) => {
       await prisma.channelAccount.update({
         where: { id: WING_ACCOUNT_ID },
-        data: { externalAccountId },
+        data: { externalAccountId, vendorId: null },
       });
 
       await expect(
@@ -177,21 +176,24 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     },
   );
 
-  it('rejects a Coupang account whose vendorId conflicts with its canonical external identity', async () => {
+  it('uses vendorId when a legacy external account alias differs', async () => {
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
-      data: { vendorId: 'different-vendor' },
+      data: {
+        externalAccountId: 'legacy-wing-alias',
+        vendorId: 'vendor-primary',
+      },
     });
 
     await expect(
       service.importCoupangWing(
-        importInput({ fileHash: fileHash('conflicting-account-identities') }),
+        importInput({ fileHash: fileHash('vendor-with-legacy-external-alias') }),
       ),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).resolves.toMatchObject({ duplicate: false });
 
-    expect(await prisma.sourceImportRun.count()).toBe(0);
-    expect(await prisma.channelListing.count()).toBe(0);
-    expect(await prisma.channelListingOption.count()).toBe(0);
+    expect(await prisma.sourceImportRun.count()).toBe(1);
+    expect(await prisma.channelListing.count()).toBe(1);
+    expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
   it('revalidates the canonical account identity when publishing a claimed import', async () => {
@@ -207,7 +209,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
-      data: { externalAccountId: null },
+      data: { externalAccountId: null, vendorId: null },
     });
 
     await expect(
@@ -570,15 +572,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         healthScore: 91,
       },
     });
-    const linkedVariants = await prisma.productVariant.createManyAndReturn({
-      data: initialRows.map((row, index) => ({
-        organizationId: TEST_ORGANIZATION_ID,
-        masterProductId: linkedProduct.id,
-        code: `KI-PRESERVED-${index}`,
-        name: row.externalSkuId!,
-        isDefault: index === 0,
-      })),
-    });
     await prisma.channelListing.update({
       where: { id: productBefore.id },
       data: {
@@ -597,72 +590,60 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
     const skuByExternalId = new Map(skusBefore.map((sku) => [sku.externalOptionId, sku]));
     const preservation = [
-      ['S-SINGLE', linkedVariants[0]!.id, 'SELLER-SINGLE', 10_000],
-      ['S-FOUR', linkedVariants[1]!.id, 'SELLER-FOUR', 20_000],
-      ['S-MIXED', linkedVariants[2]!.id, 'SELLER-MIXED', 30_000],
-      ['S-ABSENT', linkedVariants[3]!.id, 'SELLER-ABSENT', 40_000],
+      ['S-SINGLE', 'SELLER-SINGLE', 10_000],
+      ['S-FOUR', 'SELLER-FOUR', 20_000],
+      ['S-MIXED', 'SELLER-MIXED', 30_000],
+      ['S-ABSENT', 'SELLER-ABSENT', 40_000],
     ] as const;
     for (const [
       externalOptionId,
-      productVariantId,
       sellerSku,
       salePrice,
     ] of preservation) {
       await prisma.channelListingOption.update({
         where: { id: skuByExternalId.get(externalOptionId)!.id },
         data: {
-          productVariantId,
           sellerSku,
           salePrice,
           status: externalOptionId === 'S-ABSENT' ? 'absent-status' : 'old-status',
         },
       });
     }
-    await prisma.productVariantComponent.createMany({
+    await prisma.channelListingOptionInventoryComponent.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: linkedVariants[0]!.id,
+          channelListingOptionId: skuByExternalId.get('S-SINGLE')!.id,
           sellpiaInventorySkuId: inventorySkus[0]!.id,
           quantity: 1,
-          source: 'manual',
-          confirmedBy: TEST_USER_ID,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: linkedVariants[1]!.id,
+          channelListingOptionId: skuByExternalId.get('S-FOUR')!.id,
           sellpiaInventorySkuId: inventorySkus[0]!.id,
           quantity: 4,
-          source: 'manual',
-          confirmedBy: TEST_USER_ID,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: linkedVariants[2]!.id,
+          channelListingOptionId: skuByExternalId.get('S-MIXED')!.id,
           sellpiaInventorySkuId: inventorySkus[0]!.id,
           quantity: 2,
-          source: 'manual',
-          confirmedBy: TEST_USER_ID,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: linkedVariants[2]!.id,
+          channelListingOptionId: skuByExternalId.get('S-MIXED')!.id,
           sellpiaInventorySkuId: inventorySkus[1]!.id,
           quantity: 3,
-          source: 'manual',
-          confirmedBy: TEST_USER_ID,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          productVariantId: linkedVariants[3]!.id,
+          channelListingOptionId: skuByExternalId.get('S-ABSENT')!.id,
           sellpiaInventorySkuId: inventorySkus[1]!.id,
           quantity: 1,
-          source: 'manual',
-          confirmedBy: TEST_USER_ID,
         },
       ],
     });
-    const componentsBefore = await prisma.productVariantComponent.findMany({
+    const componentsBefore = await prisma.channelListingOptionInventoryComponent.findMany({
       orderBy: { id: 'asc' },
     });
 
@@ -705,7 +686,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         },
         orderBy: { externalOptionId: 'asc' },
       }),
-      prisma.productVariantComponent.findMany({ orderBy: { id: 'asc' } }),
+      prisma.channelListingOptionInventoryComponent.findMany({ orderBy: { id: 'asc' } }),
       prisma.channelListingOption.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -740,9 +721,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     for (const sku of skusAfter) {
       const preserved = preservation.find(([externalId]) => externalId === sku.externalOptionId)!;
       expect(sku).toMatchObject({
-        productVariantId: preserved[1],
-        sellerSku: preserved[2],
-        salePrice: preserved[3],
+        sellerSku: preserved[1],
+        salePrice: preserved[2],
         lastImportRunId: second.run.id,
         isActive: true,
         rawJson: expect.objectContaining({ revision: 2 }),
@@ -751,7 +731,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(componentsAfter).toEqual(componentsBefore);
     expect(absentAfter).toMatchObject({
       id: skuByExternalId.get('S-ABSENT')!.id,
-      productVariantId: linkedVariants[3]!.id,
       sellerSku: 'SELLER-ABSENT',
       salePrice: 40_000,
       status: 'absent-status',

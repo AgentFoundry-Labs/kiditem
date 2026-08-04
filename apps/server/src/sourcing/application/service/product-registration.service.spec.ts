@@ -18,7 +18,7 @@ const WORKSPACE_ID = 'workspace-1';
 const ACCOUNT_ID = 'account-1';
 const LISTING_ID = 'listing-1';
 const MASTER_PRODUCT_ID = '00000000-0000-4000-8000-000000000010';
-const PRODUCT_VARIANT_ID = '00000000-0000-4000-8000-000000000011';
+const SELLPIA_INVENTORY_SKU_ID = '00000000-0000-4000-8000-000000000011';
 const TX = { opaque: true } as never;
 
 const DRAFT_INPUT = {
@@ -570,7 +570,8 @@ describe('ProductRegistrationService', () => {
           masterProductId: MASTER_PRODUCT_ID,
           optionLinks: [{
             externalOptionId: ' RAIN-BOOT-PINK ',
-            productVariantId: PRODUCT_VARIANT_ID,
+            sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+            quantity: 2,
           }],
         },
       },
@@ -587,7 +588,8 @@ describe('ProductRegistrationService', () => {
       masterProductId: MASTER_PRODUCT_ID,
       optionLinks: [{
         externalOptionId: 'RAIN-BOOT-PINK',
-        productVariantId: PRODUCT_VARIANT_ID,
+        sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
+        quantity: 2,
       }],
     }));
   });

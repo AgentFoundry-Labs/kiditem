@@ -1,24 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import {
   CreateMasterProductInputSchema,
-  CreateProductVariantRecipesIfEmptyInputSchema,
-  CreateProductVariantInputSchema,
   MasterProductOperationsMetadataSchema,
   MasterProductOperationsDetailSchema,
   MasterProductOperationsListItemSchema,
   MasterProductOperationsListQuerySchema,
   MasterProductOperationsListResponseSchema,
+  ProductOperationsAbcCalculationStatusFilterSchema,
+  ProductOperationsDataStatusSchema,
+  ProductOperationsInventoryFocusSchema,
+  ProductOperationsListSummarySchema,
   ProductDepletionProjectionSchema,
   ProductInventoryStatusSchema,
   ProductRecipeComponentCandidateListResponseSchema,
   ProductRecipeComponentCandidateQuerySchema,
-  ReplaceProductVariantRecipeInputSchema,
+  ReplaceChannelOptionInventoryInputSchema,
   UpdateMasterProductInputSchema,
-  UpdateProductVariantInputSchema,
 } from './product-operations';
 
 const productId = '00000000-0000-4000-8000-000000000001';
-const variantId = '00000000-0000-4000-8000-000000000002';
+const optionId = '00000000-0000-4000-8000-000000000002';
 const skuId = '00000000-0000-4000-8000-000000000003';
 
 const metadataFixture = {
@@ -35,6 +36,7 @@ const metadataFixture = {
   brand: null,
   tags: ['식판'],
   abcGrade: null,
+  abcEvaluation: null,
   profitTag: null,
   adTier: null,
   adBudgetLimit: null,
@@ -44,6 +46,73 @@ const metadataFixture = {
 };
 
 describe('product operations contracts', () => {
+  it('uses calculation status instead of lifecycle/risk filters and exposes profitability summary', () => {
+    expect(ProductOperationsAbcCalculationStatusFilterSchema.parse('AD_SOURCE_STALE')).toBe('AD_SOURCE_STALE');
+    expect(MasterProductOperationsListQuerySchema.parse({}).activeStatus).toBe('active');
+    expect(MasterProductOperationsListQuerySchema.parse({
+      abcCalculationStatus: 'READY',
+    }).abcCalculationStatus).toBe('READY');
+    expect(MasterProductOperationsListQuerySchema.safeParse({ abcStage: 'NEW' }).success).toBe(false);
+    expect(MasterProductOperationsListQuerySchema.safeParse({ abcRisk: 'LOSS' }).success).toBe(false);
+    expect(ProductOperationsListSummarySchema.parse({
+      abcGradeCounts: { A: 2, B: 3, C: 1, unclassified: 4 },
+      abcStatusCounts: {
+        READY: 6,
+        INSUFFICIENT_EVIDENCE: 2,
+        SOURCE_UNMAPPED: 1,
+        CALIBRATION_PENDING: 1,
+        RECALCULATING: 0,
+        SELLPIA_SOURCE_STALE: 0,
+        AD_SOURCE_STALE: 0,
+        ORDERS_SOURCE_STALE: 0,
+        CALCULATION_ERROR: 0,
+      },
+      abcContributionProfitByGrade: { A: 400_000, B: 150_000, C: -30_000 },
+      abcContributionProfitShareByGrade: { A: 0.77, B: 0.29, C: -0.06 },
+      abcFormula: null,
+      displayDataAsOf: '2026-07-31',
+      channelProductCounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+        count: 4,
+      }],
+      inventoryStatusCounts: {
+        sellable: 6,
+        partial_out_of_stock: 1,
+        out_of_stock: 1,
+        configuration_required: 1,
+        review_required: 1,
+      },
+      negativeProfitCount: 1,
+      imminentProductCount: 3,
+      reorderProductCount: 2,
+      depletionCoveredProductCount: 6,
+      sharedDepletionProductCount: 1,
+    }).displayDataAsOf).toBe('2026-07-31');
+
+    expect(ProductOperationsDataStatusSchema.parse({
+      displayDataAsOf: '2026-07-31',
+      lastCompletedRefreshAt: '2026-08-01T00:00:00.000Z',
+      activeRun: null,
+      sources: {
+        traffic: { status: 'OUTDATED', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+        advertising: { status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null },
+        sellpiaProfit: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+        abc: { status: 'CURRENT', coverageEndDate: '2026-07-31', capturedAt: '2026-08-01T00:00:00.000Z', lastErrorAt: null },
+      },
+      abcSummary: {
+        classifiedProductCount: 6,
+        unclassifiedProductCount: 4,
+        mappingRequiredProductCount: 1,
+        orderEvidenceRequiredProductCount: 2,
+        otherPendingProductCount: 1,
+      },
+    }).sources.advertising).toEqual({
+      status: 'NOT_COLLECTED', coverageEndDate: null, capturedAt: null, lastErrorAt: null,
+    });
+  });
+
   it('requires raw and calculated display image URLs separately', () => {
     const directImageMetadata = {
       ...metadataFixture,
@@ -81,19 +150,25 @@ describe('product operations contracts', () => {
       category: '  주방  ',
       activeStatus: 'active',
       inventoryStatus: 'partial_out_of_stock',
+      inventoryFocus: 'imminent',
       abcGrade: 'unclassified',
+      abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
       adStatus: 'active',
     })).toMatchObject({
       query: '식판',
       category: '주방',
       periodDays: 14,
       abcGrade: 'unclassified',
+      abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
+      inventoryFocus: 'imminent',
     });
     expect(() => MasterProductOperationsListQuerySchema.parse({
       organizationId: productId,
     })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ periodDays: 15 })).toThrow();
     expect(() => MasterProductOperationsListQuerySchema.parse({ abcGrade: 'manual' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcCalculationStatus: 'RETIRED' })).toThrow();
+    expect(() => MasterProductOperationsListQuerySchema.parse({ abcCalculationStatus: 'LIMITED_HISTORY' })).toThrow();
   });
 
   it('exposes stored ABC as read-only product metadata', () => {
@@ -115,11 +190,20 @@ describe('product operations contracts', () => {
     ]);
   });
 
+  it('freezes the product inventory command focus vocabulary', () => {
+    expect(ProductOperationsInventoryFocusSchema.options).toEqual([
+      'attention',
+      'out_of_stock',
+      'imminent',
+      'reorder',
+    ]);
+  });
+
   it('strictly parses focused physical recipe component candidates', () => {
     expect(ProductRecipeComponentCandidateQuerySchema.parse({
       search: '  SP-001  ',
       limit: 20,
-    })).toEqual({ search: 'SP-001', limit: 20 });
+    })).toMatchObject({ search: 'SP-001', limit: 20 });
     expect(() => ProductRecipeComponentCandidateQuerySchema.parse({
       search: 'x',
       organizationId: productId,
@@ -157,12 +241,14 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: 'A',
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
       healthScore: null,
       healthUpdatedAt: null,
       isActive: true,
+      isSelling: true,
       updatedAt: '2026-07-16T00:00:00.000Z',
       depletion: {
         coverage: 'shared',
@@ -170,16 +256,32 @@ describe('product operations contracts', () => {
         reorderSkuCount: 2,
         minMonthsOfAvailableStockLeft: 0.5,
       },
-      variantSummary: { total: 2, active: 2, configured: 1, warning: 1 },
+      channelOptionSummary: { total: 2, active: 2, configured: 1, warning: 1 },
       inventoryUnits: 80,
       inventoryStatus: 'configuration_required',
       channelCount: 2,
       channelStatus: 'partial',
+      activeChannels: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000004',
+        channel: 'coupang',
+        channelAccountName: 'Coupang Wing',
+      }],
       traffic: null,
+      visitorCount: null,
+      viewCount: null,
+      cartAddCount: null,
       orderCount: null,
+      salesQuantity: null,
       salesAmount: null,
       adSpend: null,
+      adSpendRate: null,
+      metricsFreshness: {
+        traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+      },
       profit: null,
+      contributionProfitVelocity30: null,
+      contributionMargin: null,
     });
     expect(parsed.inventoryUnits).toBe(80);
     expect(parsed.traffic).toBeNull();
@@ -190,7 +292,27 @@ describe('product operations contracts', () => {
       limit: 1,
       summary: {
         abcGradeCounts: { A: 23, B: 17, C: 40, unclassified: 0 },
-        channelConnectionCounts: { connected: 71, unconnected: 9 },
+        abcStatusCounts: {
+          READY: 70,
+          INSUFFICIENT_EVIDENCE: 4,
+          SOURCE_UNMAPPED: 2,
+          CALIBRATION_PENDING: 1,
+          RECALCULATING: 1,
+          SELLPIA_SOURCE_STALE: 1,
+          AD_SOURCE_STALE: 1,
+          ORDERS_SOURCE_STALE: 0,
+          CALCULATION_ERROR: 0,
+        },
+        abcContributionProfitByGrade: { A: 4_000_000, B: 1_000_000, C: -200_000 },
+        abcContributionProfitShareByGrade: { A: 0.83, B: 0.21, C: -0.04 },
+        abcFormula: null,
+        displayDataAsOf: '2026-07-31',
+        channelProductCounts: [{
+          channelAccountId: '00000000-0000-4000-8000-000000000004',
+          channel: 'coupang',
+          channelAccountName: 'Coupang Wing',
+          count: 71,
+        }],
         inventoryStatusCounts: {
           sellable: 41,
           partial_out_of_stock: 8,
@@ -199,6 +321,7 @@ describe('product operations contracts', () => {
           review_required: 5,
         },
         negativeProfitCount: 6,
+        imminentProductCount: 9,
         reorderProductCount: 12,
         depletionCoveredProductCount: 54,
         sharedDepletionProductCount: 7,
@@ -206,10 +329,17 @@ describe('product operations contracts', () => {
     });
     expect(response.summary.abcGradeCounts.A).toBe(23);
     expect(response.summary.abcGradeCounts.unclassified).toBe(0);
-    expect(response.summary.channelConnectionCounts.connected).toBe(71);
+    expect(response.summary.channelProductCounts[0]?.count).toBe(71);
     expect(response.summary.inventoryStatusCounts.out_of_stock).toBe(7);
     expect(response.summary.negativeProfitCount).toBe(6);
+    expect(response.summary.displayDataAsOf).toBe('2026-07-31');
     expect(response.items[0]?.abcGrade).toBe('A');
+    expect(response.items[0]?.viewCount).toBeNull();
+    expect(response.items[0]?.activeChannels).toEqual([{
+      channelAccountId: '00000000-0000-4000-8000-000000000004',
+      channel: 'coupang',
+      channelAccountName: 'Coupang Wing',
+    }]);
     expect(response.items[0]?.depletion.coverage).toBe('shared');
   });
 
@@ -227,7 +357,7 @@ describe('product operations contracts', () => {
     });
   });
 
-  it('parses detail variants with central components, capacity, and warnings', () => {
+  it('parses direct channel option components and capacity in product detail', () => {
     const detail = MasterProductOperationsDetailSchema.parse({
       id: productId,
       code: 'KI-001',
@@ -244,6 +374,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -263,45 +394,36 @@ describe('product operations contracts', () => {
         displayName: '키즈 식판',
         status: 'approved',
         isActive: true,
-      }],
-      variants: [{
-        id: variantId,
-        code: 'KI-001-DEFAULT',
-        displayReference: {
-          type: 'product_variant_code',
-          label: '옵션 코드',
-          value: 'KI-001-DEFAULT',
-        },
-        name: '기본',
-        optionLabel: null,
-        isDefault: true,
-        isActive: true,
-        capacity: 10,
-        warningState: 'none',
-        components: [{
-          id: '00000000-0000-4000-8000-000000000006',
-          sellpiaInventorySkuId: skuId,
-          code: 'SP-001',
-          name: '식판',
-          optionName: null,
+        options: [{
+          id: optionId,
+          externalOptionId: 'P-001-DEFAULT',
+          itemName: '기본',
+          sellerSku: 'SP-001',
           barcode: null,
-          currentStock: 80,
-          activeCommitmentQuantity: 16,
-          availableStock: 64,
+          status: 'approved',
           isActive: true,
-          quantity: 8,
-          source: 'manual',
-          confirmedBy: null,
-          confirmedAt: '2026-07-16T00:00:00.000Z',
+          capacity: 8,
+          inventoryComponents: [{
+            id: '00000000-0000-4000-8000-000000000006',
+            sellpiaInventorySkuId: skuId,
+            code: 'SP-001',
+            name: '식판',
+            optionName: null,
+            barcode: null,
+            currentStock: 80,
+            availableStock: 64,
+            isActive: true,
+            quantity: 8,
+          }],
         }],
       }],
     });
-    expect(detail.variants[0]?.capacity).toBe(10);
-    expect(detail.variants[0]?.components[0]?.sellpiaInventorySkuId).toBe(skuId);
+    expect(detail.channelListings[0]?.options[0]?.capacity).toBe(8);
+    expect(detail.channelListings[0]?.options[0]?.inventoryComponents[0]?.sellpiaInventorySkuId).toBe(skuId);
     expect(detail.displayReference.value).toBe('13712531060');
   });
 
-  it('rejects inconsistent component availability in product detail', () => {
+  it('rejects negative component availability in product detail', () => {
     expect(() => MasterProductOperationsDetailSchema.parse({
       id: productId,
       code: 'KI-001',
@@ -314,6 +436,7 @@ describe('product operations contracts', () => {
       imageUrls: [],
       displayImageUrls: [],
       abcGrade: null,
+      abcEvaluation: null,
       profitTag: null,
       adTier: null,
       adBudgetLimit: null,
@@ -324,48 +447,48 @@ describe('product operations contracts', () => {
       updatedAt: '2026-07-16T00:00:00.000Z',
       inventoryStatus: 'sellable',
       inventoryUnits: 80,
-      channelListings: [],
-      variants: [{
-        id: variantId,
-        code: 'KI-001-DEFAULT',
-        displayReference: {
-          type: 'product_variant_code',
-          label: '옵션 코드',
-          value: 'KI-001-DEFAULT',
-        },
-        name: '기본',
-        optionLabel: null,
-        isDefault: true,
+      channelListings: [{
+        id: '00000000-0000-4000-8000-000000000004',
+        channelAccountId: '00000000-0000-4000-8000-000000000005',
+        channel: 'coupang',
+        channelAccountName: 'Wing',
+        externalId: 'P-001',
+        displayName: '키즈 식판',
+        status: 'approved',
         isActive: true,
-        capacity: 10,
-        warningState: 'none',
-        components: [{
-          id: '00000000-0000-4000-8000-000000000006',
-          sellpiaInventorySkuId: skuId,
-          code: 'SP-001',
-          name: '식판',
-          optionName: null,
+        options: [{
+          id: optionId,
+          externalOptionId: 'P-001-DEFAULT',
+          itemName: '기본',
+          sellerSku: 'SP-001',
           barcode: null,
-          currentStock: 80,
-          activeCommitmentQuantity: 16,
-          availableStock: 80,
+          status: 'approved',
           isActive: true,
-          quantity: 8,
-          source: 'manual',
-          confirmedBy: null,
-          confirmedAt: '2026-07-16T00:00:00.000Z',
+          capacity: null,
+          inventoryComponents: [{
+            id: '00000000-0000-4000-8000-000000000006',
+            sellpiaInventorySkuId: skuId,
+            code: 'SP-001',
+            name: '식판',
+            optionName: null,
+            barcode: null,
+            currentStock: 80,
+            availableStock: -1,
+            isActive: true,
+            quantity: 8,
+          }],
         }],
       }],
     })).toThrow(/availableStock/i);
   });
 
-  it('enforces product and variant code normalization and mutation strictness', () => {
+  it('enforces product code normalization and mutation strictness', () => {
     expect(CreateMasterProductInputSchema.parse({
       code: '  KI-001  ',
       name: '  키즈 식판  ',
     })).toMatchObject({ code: 'KI-001', name: '키즈 식판' });
-    expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }).variants)
-      .toBeUndefined();
+    expect(CreateMasterProductInputSchema.parse({ code: 'KI-001', name: '식판' }))
+      .not.toHaveProperty('variants');
     expect(() => CreateMasterProductInputSchema.parse({
       code: 'KI-001',
       name: '식판',
@@ -375,87 +498,28 @@ describe('product operations contracts', () => {
       code: 'x'.repeat(101),
       name: '식판',
     })).toThrow();
-    expect(() => CreateProductVariantInputSchema.parse({
-      code: ' ',
-      name: '기본',
-    })).toThrow();
     expect(() => UpdateMasterProductInputSchema.parse({})).toThrow();
-    expect(() => UpdateProductVariantInputSchema.parse({ unknown: true })).toThrow();
   });
 
-  it('accepts only complete bounded recipes with positive integer quantities', () => {
-    expect(ReplaceProductVariantRecipeInputSchema.parse({
+  it('accepts bounded direct channel option recipes with positive integer quantities', () => {
+    expect(ReplaceChannelOptionInventoryInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-      expectedRecipe: [],
     }).components).toHaveLength(1);
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
-      components: [],
-    })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(ReplaceChannelOptionInventoryInputSchema.parse({ components: [] }).components).toEqual([]);
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: [{ sellpiaInventorySkuId: skuId, quantity: 0 }],
-      expectedRecipe: [],
     })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: Array.from({ length: 51 }, (_, index) => ({
         sellpiaInventorySkuId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
         quantity: 1,
       })),
-      expectedRecipe: [],
     })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
+    expect(() => ReplaceChannelOptionInventoryInputSchema.parse({
       components: [
         { sellpiaInventorySkuId: skuId, quantity: 1 },
         { sellpiaInventorySkuId: skuId, quantity: 2 },
       ],
-      expectedRecipe: [],
-    })).toThrow();
-    expect(() => ReplaceProductVariantRecipeInputSchema.parse({
-      components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-      expectedRecipe: [{
-        id: '00000000-0000-4000-8000-000000000006',
-        sellpiaInventorySkuId: skuId,
-        quantity: 1,
-        source: 'manual',
-        confirmedBy: null,
-        confirmedAt: 'not-a-date',
-      }],
-    })).toThrow();
-  });
-
-  it('bounds create-if-empty recipe imports and rejects duplicate variants', () => {
-    const secondVariantId = '00000000-0000-4000-8000-000000000004';
-    expect(CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-        {
-          productVariantId: secondVariantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 2 }],
-        },
-      ],
-    }).recipes).toHaveLength(2);
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [{ productVariantId: variantId, components: [] }],
-    })).toThrow();
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: [
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-        {
-          productVariantId: variantId,
-          components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-        },
-      ],
-    })).toThrow(/distinct ProductVariant/);
-    expect(() => CreateProductVariantRecipesIfEmptyInputSchema.parse({
-      recipes: Array.from({ length: 101 }, (_, index) => ({
-        productVariantId: `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
-        components: [{ sellpiaInventorySkuId: skuId, quantity: 1 }],
-      })),
     })).toThrow();
   });
 });

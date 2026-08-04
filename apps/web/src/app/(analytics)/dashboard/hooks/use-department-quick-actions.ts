@@ -106,8 +106,8 @@ export function useDepartmentQuickActions() {
       toast.success('트렌드 수집을 시작했습니다.');
       return;
     }
-    await requestSellpiaInventoryRefresh();
-    toast.success('셀피아 동기화를 시작했습니다.');
+    await requestSellpiaInventoryRefresh('inventory');
+    toast.success('셀피아 재고 동기화를 시작했습니다.');
   }, [
     collectAllOrders,
     collectRocketPurchaseOrders,

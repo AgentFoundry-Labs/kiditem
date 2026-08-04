@@ -4,6 +4,7 @@ import {
   type SellpiaInventoryFreshnessStatus,
   type SellpiaInventoryFreshnessView,
   type SellpiaInventoryRefreshReason,
+  type SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
@@ -12,10 +13,9 @@ export const SELLPIA_FRESHNESS_TTL_MS = 10 * 60_000;
 export const SELLPIA_CLAIM_LEASE_MS = 90_000;
 export const SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE =
   '브라우저 수집 세션 응답이 없어 재고 갱신을 완료하지 못했습니다. 다시 시도해 주세요.';
-type SellpiaInventoryRequestReason = Extract<
-  SellpiaInventoryRefreshReason,
-  'manual_request' | 'retry' | 'purchase_preflight'
->;
+// HTTP accepts only manual/retry. This policy also preserves established
+// internal inventory triggers when replaying an existing generation.
+type SellpiaInventoryRequestReason = SellpiaInventoryRefreshReason;
 export type SellpiaInventoryFreshnessState = {
   organizationId: string;
   sourceOrigin: string;
@@ -24,17 +24,20 @@ export type SellpiaInventoryFreshnessState = {
   lastCompletedImportRunId: string | null;
   refreshRequestedAt: Date | null;
   refreshReason: SellpiaInventoryRefreshReason | null;
+  requestedSyncScope: SellpiaSyncScope;
   syncNotBefore: Date | null;
   activeSyncToken: string | null;
   activeSyncOwnerUserId: string | null;
   activeSyncStartedAt: Date | null;
   activeSyncLeaseExpiresAt: Date | null;
+  activeSyncScope: SellpiaSyncScope | null;
   requestedGeneration: bigint;
   activeGeneration: bigint | null;
   verifiedGeneration: bigint;
   failedGeneration: bigint | null;
   lastAttemptAt: Date | null;
   lastAttemptStatus: 'completed' | 'failed' | null;
+  lastAttemptSyncScope: SellpiaSyncScope | null;
   lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
   lastErrorMessage: string | null;
   freshnessFence: string;
@@ -73,17 +76,20 @@ export function createInitialFreshnessState(input: {
     lastCompletedImportRunId: null,
     refreshRequestedAt: input.now,
     refreshReason: 'initial_snapshot',
+    requestedSyncScope: 'inventory',
     syncNotBefore: null,
     activeSyncToken: null,
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
     activeSyncLeaseExpiresAt: null,
+    activeSyncScope: null,
     requestedGeneration: 1n,
     activeGeneration: null,
     verifiedGeneration: 0n,
     failedGeneration: null,
     lastAttemptAt: null,
     lastAttemptStatus: null,
+    lastAttemptSyncScope: null,
     lastErrorCode: null,
     lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
@@ -117,6 +123,7 @@ export function toFreshnessView(
     ? {
       runId: state.activeSyncToken,
       generation: state.activeGeneration.toString(),
+      scope: state.activeSyncScope ?? 'inventory',
       startedAt: state.activeSyncStartedAt.toISOString(),
       leaseExpiresAt: state.activeSyncLeaseExpiresAt.toISOString(),
       canControl: userId !== null && state.activeSyncOwnerUserId === userId,
@@ -127,6 +134,7 @@ export function toFreshnessView(
       attemptedAt: state.lastAttemptAt.toISOString(),
       status: state.lastAttemptStatus,
       trigger: state.refreshReason,
+      scope: state.lastAttemptSyncScope ?? 'inventory',
       errorCode: state.lastErrorCode,
       errorMessage: state.lastErrorMessage,
     }
@@ -153,6 +161,7 @@ export function toFreshnessView(
     verifiedGeneration: state.verifiedGeneration.toString(),
     refreshRequestedAt: state.refreshRequestedAt?.toISOString() ?? null,
     refreshReason: state.refreshReason,
+    requestedSyncScope: state.requestedSyncScope,
     syncNotBefore: state.syncNotBefore?.toISOString() ?? null,
     activeSync,
     lastAttempt,
@@ -173,6 +182,7 @@ export function planSourceBindingConfirmation(
 export function planRefreshRequest(
   state: SellpiaInventoryFreshnessState,
   reason: SellpiaInventoryRequestReason,
+  scope: SellpiaSyncScope,
   now: Date,
   freshnessFence: string,
 ): SellpiaInventoryFreshnessStatePatch {
@@ -196,6 +206,7 @@ export function planRefreshRequest(
   if (!advancesGeneration) {
     return {
       requestedGeneration,
+      requestedSyncScope: strongestScope(state.requestedSyncScope, scope),
       failedGeneration: state.failedGeneration,
       freshnessFence,
     };
@@ -206,6 +217,7 @@ export function planRefreshRequest(
     failedGeneration: state.failedGeneration,
     refreshRequestedAt: now,
     refreshReason: reason,
+    requestedSyncScope: scope,
     syncNotBefore: now,
     freshnessFence,
   };
@@ -240,10 +252,12 @@ export function planClaim(
         activeSyncOwnerUserId: null,
         activeSyncStartedAt: null,
         activeSyncLeaseExpiresAt: null,
+        activeSyncScope: null,
         activeGeneration: null,
         failedGeneration: state.activeGeneration,
         lastAttemptAt: input.now,
         lastAttemptStatus: 'failed',
+        lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
         lastErrorCode: 'sellpia_background_timeout',
         lastErrorMessage: SELLPIA_EXPIRED_LEASE_ERROR_MESSAGE,
         freshnessFence: input.freshnessFence,
@@ -277,11 +291,13 @@ export function planClaim(
       requestedGeneration: generation,
       refreshRequestedAt: ttlExpired ? input.now : state.refreshRequestedAt,
       refreshReason: ttlExpired ? 'ttl_expired' : state.refreshReason,
+      requestedSyncScope: ttlExpired ? 'inventory' : state.requestedSyncScope,
       syncNotBefore: ttlExpired ? input.now : state.syncNotBefore,
       activeSyncToken: input.claimToken,
       activeSyncOwnerUserId: input.userId,
       activeSyncStartedAt: input.now,
       activeSyncLeaseExpiresAt: leaseExpiresAt,
+      activeSyncScope: ttlExpired ? 'inventory' : state.requestedSyncScope,
       activeGeneration: generation,
       freshnessFence: input.freshnessFence,
     },
@@ -321,10 +337,12 @@ export function planFailure(
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
     activeSyncLeaseExpiresAt: null,
+    activeSyncScope: null,
     activeGeneration: null,
     failedGeneration: state.activeGeneration,
     lastAttemptAt: input.now,
     lastAttemptStatus: 'failed',
+    lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
     lastErrorCode: input.errorCode,
     lastErrorMessage: input.errorMessage,
     freshnessFence: input.freshnessFence,
@@ -346,6 +364,7 @@ export function planCancel(
     activeSyncOwnerUserId: null,
     activeSyncStartedAt: null,
     activeSyncLeaseExpiresAt: null,
+    activeSyncScope: null,
     activeGeneration: null,
     freshnessFence: input.freshnessFence,
   };
@@ -373,4 +392,11 @@ function ownsLiveLease(
   return hasLiveLease(state, input.now)
     && state.activeSyncToken === input.claimToken
     && state.activeSyncOwnerUserId === input.userId;
+}
+
+function strongestScope(
+  current: SellpiaSyncScope,
+  requested: SellpiaSyncScope,
+): SellpiaSyncScope {
+  return current === 'full' || requested === 'full' ? 'full' : 'inventory';
 }
