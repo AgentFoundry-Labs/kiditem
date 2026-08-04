@@ -12,6 +12,7 @@ param(
   [int]$MinimumFreeGb = 10,
   [switch]$PruneBuildCache,
   [switch]$ApplySchema,
+  [switch]$AcceptDataLoss,
   [ValidateRange(30, 900)]
   [int]$HealthTimeoutSeconds = 300
 )
@@ -329,7 +330,8 @@ function Install-Deployment {
     [Parameter(Mandatory = $true)][string]$TargetManifestPath,
     [Parameter(Mandatory = $true)][string]$ExpectedHead,
     [switch]$AllowAncestor,
-    [switch]$ApplySchema
+    [switch]$ApplySchema,
+    [switch]$AcceptDataLoss
   )
 
   $bundle = Read-DeploymentManifest $TargetManifestPath
@@ -392,7 +394,11 @@ function Install-Deployment {
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
       Wait-ForContainerHealthy 'kiditem-postgres'
-      Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc 'cd /app && npx prisma db push'
+      $schemaCommand = 'cd /app && npx prisma db push'
+      if ($AcceptDataLoss) {
+        $schemaCommand = "$schemaCommand --accept-data-loss"
+      }
+      Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc $schemaCommand
     }
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
@@ -458,6 +464,9 @@ if ($MyInvocation.InvocationName -eq '.') {
 if ($ApplySchema -and $Operation -ne 'Deploy') {
   throw '-ApplySchema is valid only with -Operation Deploy.'
 }
+if ($AcceptDataLoss -and (-not $ApplySchema -or $Operation -ne 'Deploy')) {
+  throw '-AcceptDataLoss is valid only with -Operation Deploy -ApplySchema.'
+}
 
 $head = Assert-LiveCheckout
 
@@ -469,7 +478,7 @@ switch ($Operation) {
     if (-not $ManifestPath) {
       throw '-ManifestPath is required for Deploy.'
     }
-    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema
+    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss
   }
   'Rollback' {
     if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {

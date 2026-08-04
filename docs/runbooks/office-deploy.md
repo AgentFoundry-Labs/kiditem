@@ -126,6 +126,35 @@ for PostgreSQL, then runs `npx prisma db push` from the candidate API image
 before starting the full candidate runtime. A deploy without a schema change
 omits this switch. `Status` and `Rollback` reject it.
 
+When a reviewed Prisma change is intentionally guarded by Prisma's generic data
+loss warning, add `-AcceptDataLoss` to the same deploy command and record the
+reason in the PR body and final report. This only appends
+`--accept-data-loss` to `npx prisma db push`; it never performs
+`--force-reset`.
+
+If the release includes durable data migrations, run the approved phase order
+against the Office database with a fresh backup in place:
+
+```powershell
+npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --target local `
+  --confirm APPLY_DATA_MIGRATIONS
+
+& "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
+  -Operation Deploy `
+  -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
+  -ApplySchema `
+  -AcceptDataLoss
+
+npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target local `
+  --confirm APPLY_DATA_MIGRATIONS
+```
+
+Run data migrations from a clean checkout of the deployed SHA with
+`DATABASE_URL` set in the process environment. Do not print the database URL or
+env-file contents. The `--release-version` filter is for Office databases whose
+existing ledger predates this runner; do not use it to skip a migration added
+by the selected release.
+
 The deploy command blocks unless all of these conditions hold:
 
 - branch/upstream are `release/office` / `origin/release/office`;
