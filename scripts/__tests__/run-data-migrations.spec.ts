@@ -20,6 +20,7 @@ import {
   isDefinitelyProductionDatabaseUrl,
   normalizeReleaseVersion,
   selectDataMigrationsForPhase,
+  selectDataMigrationsForRelease,
 } from "../run-data-migrations";
 
 const repoRoot = join(__dirname, "..", "..");
@@ -126,6 +127,26 @@ describe("data migration registry", () => {
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
     );
+  });
+
+  it("filters phased office migrations by exact release version", () => {
+    const preSchema = selectDataMigrationsForRelease(
+      selectDataMigrationsForPhase(dataMigrations, "pre-schema"),
+      "0.1.30",
+    ).map(({ id }) => id);
+    expect(preSchema).toEqual([
+      "v0.1.30:001_reset_legacy_product_abc_grades",
+      "v0.1.30:003_move_variant_recipes_to_channel_options",
+    ]);
+
+    const postSchema = selectDataMigrationsForRelease(
+      selectDataMigrationsForPhase(dataMigrations, "post-schema"),
+      "0.1.30",
+    ).map(({ id }) => id);
+    expect(postSchema).toEqual([
+      "v0.1.30:002_backfill_profitability_source_freshness",
+      "v0.1.30:004_canonical_master_inventory_identity",
+    ]);
   });
 
   it("rejects malformed root versions", () => {

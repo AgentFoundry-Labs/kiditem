@@ -27,7 +27,8 @@ describe('automatic profitability ABC migration', () => {
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0)
       .mockResolvedValueOnce(0);
-    const tx = { $executeRaw: executeRaw, masterProduct: { updateMany } };
+    const queryRaw = vi.fn().mockResolvedValue([{ exists: true }]);
+    const tx = { $executeRaw: executeRaw, $queryRaw: queryRaw, masterProduct: { updateMany } };
 
     await expect(resetLegacyProductAbcGrades.run(tx as never)).resolves.toEqual({
       affectedRows: 11,
@@ -52,6 +53,27 @@ describe('automatic profitability ABC migration', () => {
         deletedLegacyPolicyCount: 0,
       },
     });
+  });
+
+  it('skips the legacy evaluation table when an office database never had it', async () => {
+    const { resetLegacyProductAbcGrades } = await import(modulePath);
+    const updateMany = vi.fn().mockResolvedValue({ count: 2 });
+    const executeRaw = vi.fn()
+      .mockResolvedValueOnce(4)
+      .mockResolvedValueOnce(2);
+    const queryRaw = vi.fn().mockResolvedValue([{ exists: false }]);
+    const tx = { $executeRaw: executeRaw, $queryRaw: queryRaw, masterProduct: { updateMany } };
+
+    await expect(resetLegacyProductAbcGrades.run(tx as never)).resolves.toEqual({
+      affectedRows: 8,
+      details: {
+        clearedLegacyGradeCount: 2,
+        deletedLegacyEvaluationCount: 0,
+        deletedLegacyHistoryCount: 4,
+        deletedLegacyPolicyCount: 2,
+      },
+    });
+    expect(executeRaw).toHaveBeenCalledTimes(2);
   });
 
   it('copies legacy shared coverage into Sellpia provenance only', async () => {

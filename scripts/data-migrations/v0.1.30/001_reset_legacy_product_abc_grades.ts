@@ -13,9 +13,14 @@ export const resetLegacyProductAbcGrades: DataMigration = {
   name: 'Reset legacy product ABC grades for automatic profitability evaluation',
   phase: 'pre-schema',
   async run(tx) {
+    const [{ exists: hasLegacyEvaluationTable }] = await tx.$queryRaw<Array<{ exists: boolean }>>`
+      SELECT to_regclass('public.master_product_abc_evaluations') IS NOT NULL AS exists
+    `;
     const [deletedHistories, deletedEvaluations, deletedPolicies] = await Promise.all([
       tx.$executeRaw`DELETE FROM master_product_abc_grade_histories`,
-      tx.$executeRaw`DELETE FROM master_product_abc_evaluations`,
+      hasLegacyEvaluationTable
+        ? tx.$executeRaw`DELETE FROM master_product_abc_evaluations`
+        : Promise.resolve(0),
       tx.$executeRaw`DELETE FROM master_product_abc_policies`,
     ]);
     const cleared = await tx.masterProduct.updateMany({
