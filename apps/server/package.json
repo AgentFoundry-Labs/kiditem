@@ -46,8 +46,8 @@
     "puppeteer": "^24.40.0",
     "reflect-metadata": "^0.2.0",
     "rxjs": "^7.8.0",
-    "sharp": "^0.34.5",
-    "undici": "^7.28.0",
+    "sharp": "^0.35.3",
+    "undici": "^8.10.0",
     "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.25.0"
   },

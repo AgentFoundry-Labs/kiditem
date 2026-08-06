@@ -69,11 +69,11 @@
     "@prisma/client": "^7.5.0",
     "@supabase/supabase-js": "^2.103.2",
     "@testcontainers/postgresql": "^12.0.4",
-    "concurrently": "^9.2.1",
+    "concurrently": "^9.2.4",
     "dotenv": "^16.6.1",
     "knip": "^6.7.0",
     "playwriter": "^0.1.0",
-    "prisma": "^7.5.0",
+    "prisma": "^7.9.1",
     "tsx": "^4.21.0",
     "vitest": "^4.1.2",
     "xlsx": "npm:@e965/xlsx@^0.20.3"
