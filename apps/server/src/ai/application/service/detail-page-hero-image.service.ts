@@ -26,7 +26,7 @@ import {
 import { IMAGE_FETCH_PORT, type ImageFetchPort } from '../port/out/provider/image-fetch.port';
 import { IMAGE_STORAGE_PORT, type ImageStoragePort } from '../port/out/storage/image-storage.port';
 
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 interface GenerateHeroBannerInput {
   organizationId: string;

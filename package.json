@@ -65,15 +65,19 @@
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
-    "@prisma/adapter-pg": "^7.5.0",
-    "@prisma/client": "^7.5.0",
+    "@copilotkit/react-core": "1.66.2",
+    "@copilotkit/react-ui": "1.66.2",
+    "@copilotkit/runtime": "1.66.2",
+    "@prisma/adapter-pg": "^7.9.1",
+    "@prisma/client": "^7.9.1",
     "@supabase/supabase-js": "^2.103.2",
     "@testcontainers/postgresql": "^12.0.4",
     "concurrently": "^9.2.1",
     "dotenv": "^16.6.1",
+    "exceljs": "4.4.0",
     "knip": "^6.7.0",
     "playwriter": "^0.1.0",
-    "prisma": "^7.5.0",
+    "prisma": "^7.9.1",
     "tsx": "^4.21.0",
     "vitest": "^4.1.2",
     "xlsx": "npm:@e965/xlsx@^0.20.3"
@@ -81,13 +85,16 @@
   "overrides": {
     "@types/react": "^19.2.0",
     "@types/react-dom": "^19.2.0",
+    "@xmorse/playwright-core": {
+      "diff": "8.0.4"
+    },
     "@google/genai": {
-      "protobufjs": "7.5.6"
+      "protobufjs": "7.6.5"
     },
     "@google/genai@1.52.0": {
-      "protobufjs": "7.5.6"
+      "protobufjs": "7.6.5"
     },
-    "@hono/node-server": "1.19.14",
+    "@hono/node-server": "2.1.0",
     "@langchain/core": {
       "langsmith": "0.6.3"
     },
@@ -101,18 +108,25 @@
       "uuid": "13.0.2"
     },
     "basic-ftp": "6.0.1",
+    "esbuild": "0.28.1",
     "express": "^5.2.0",
     "express-rate-limit": "8.5.1",
     "fast-xml-parser": "5.7.3",
-    "hono": "4.12.18",
-    "ip-address": "10.2.0",
+    "hono": "4.13.0",
+    "ip-address": "10.4.0",
     "langchain": {
       "langsmith": "0.6.3"
     },
     "langsmith": "0.6.3",
-    "postcss": "8.5.14",
-    "protobufjs": "7.5.6",
-    "uuid": "11.1.1"
+    "postcss": "8.5.26",
+    "protobufjs": "7.6.5",
+    "qs": "6.15.2",
+    "sharp": "0.35.3",
+    "shell-quote": "1.10.0",
+    "uuid": "11.1.1",
+    "vite": "8.2.0",
+    "ws": "8.21.2",
+    "yauzl": "3.2.1"
   },
   "dependencies": {
     "@ag-ui/client": "^0.0.53"

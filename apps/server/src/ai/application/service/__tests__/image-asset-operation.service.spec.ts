@@ -5,7 +5,7 @@ import type { ImageFetchPort } from '../../port/out/provider/image-fetch.port';
 import type { ImageStoragePort } from '../../port/out/storage/image-storage.port';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 function makeFetcher(overrides: Partial<ImageFetchPort> = {}): ImageFetchPort {
   return {

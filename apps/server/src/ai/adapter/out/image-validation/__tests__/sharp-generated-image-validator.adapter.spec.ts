@@ -5,7 +5,7 @@ import {
 import { SharpGeneratedImageValidatorAdapter } from '../sharp-generated-image-validator.adapter';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 describe('SharpGeneratedImageValidatorAdapter', () => {
   const validator = new SharpGeneratedImageValidatorAdapter();
