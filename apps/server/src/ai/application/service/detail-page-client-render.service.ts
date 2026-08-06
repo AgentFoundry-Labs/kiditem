@@ -48,7 +48,7 @@ import {
 } from './detail-page-render-document';
 import { DetailPageRasterizationService } from './detail-page-rasterization.service';
 
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 const INTENT_TTL_MS = 15 * 60_000;
 const UPLOAD_URL_TTL_SECONDS = 5 * 60;
