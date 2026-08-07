@@ -164,7 +164,7 @@ describe('KidItem Agent OS MCP server', () => {
     expect(parseTextResult(invokeResult)).toEqual({ status: 'ok' });
   });
 
-  it('registers first-class domain tools with concrete input schemas for Hermes correction loops', async () => {
+  it('registers first-class domain tools with concrete input schemas for agent correction loops', async () => {
     const executor = {
       execute: vi.fn().mockResolvedValue({ status: 'succeeded' }),
       listAvailableTools: vi.fn().mockReturnValue([

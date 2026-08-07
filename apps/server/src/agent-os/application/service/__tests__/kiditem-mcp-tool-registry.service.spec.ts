@@ -69,7 +69,7 @@ describe('KidItemMcpToolRegistry', () => {
     ]);
   });
 
-  it('exposes only curated KidItem domain capabilities to Hermes provider sessions', () => {
+  it('exposes only curated KidItem domain capabilities to model-provider sessions', () => {
     const registry = {
       list: () => [
         handler('supplier1688.match_products'),

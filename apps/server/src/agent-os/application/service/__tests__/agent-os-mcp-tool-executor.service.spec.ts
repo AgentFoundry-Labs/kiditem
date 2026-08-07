@@ -159,6 +159,8 @@ describe('AgentOsMcpToolExecutor', () => {
       }),
     ).rejects.toMatchObject<Partial<AgentOsRuntimeError>>({
       code: 'mcp_create_task_input_invalid',
+      message:
+        'agent_os_create_task requires playbookKey so the Operator owns the orchestration decision.',
     });
 
     await expect(
@@ -222,7 +224,7 @@ describe('AgentOsMcpToolExecutor', () => {
     expect(delegation.delegate).not.toHaveBeenCalled();
   });
 
-  it('queues child tasks unless Hermes explicitly asks for inline execution', async () => {
+  it('queues child tasks unless the Operator explicitly asks for inline execution', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const delegation = {
       delegate: vi.fn().mockResolvedValue({
