@@ -12,9 +12,6 @@ import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repo
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
-import { HermesOperatorRuntimeAdapter } from './adapter/out/runtime/hermes-operator-runtime.adapter';
-import { HermesLeafRuntimeHandler } from './adapter/out/runtime/hermes-leaf-runtime.handler';
-import { HermesRuntimeProfileService } from './adapter/out/runtime/hermes-runtime-profile.service';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './adapter/out/runtime/openai-responses-operator-runtime.adapter';
 import { OperatorRuntimeHandler } from './adapter/out/runtime/operator-runtime.handler';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
@@ -70,9 +67,6 @@ import { OperatorDecisionParser } from './application/service/operator-decision-
     AgentRuntimeHandlerRegistry,
     AgentTaskDelegationService,
     AgentToolRouter,
-    HermesOperatorRuntimeAdapter,
-    HermesLeafRuntimeHandler,
-    HermesRuntimeProfileService,
     AgentOsMcpToolExecutor,
     KidItemMcpToolRegistry,
     OpenAiResponsesOperatorRuntimeAdapter,

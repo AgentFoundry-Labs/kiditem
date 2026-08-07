@@ -13,8 +13,6 @@ import { AgentRunRequestsController } from '../adapter/in/http/agent-run-request
 import { AgentRunsQueryController } from '../adapter/in/http/agent-runs-query.controller';
 import { AgentRunOperationAlertBridge } from '../adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from '../adapter/out/cross-domain/agent-os-live-readiness.adapter';
-import { HermesOperatorRuntimeAdapter } from '../adapter/out/runtime/hermes-operator-runtime.adapter';
-import { HermesRuntimeProfileService } from '../adapter/out/runtime/hermes-runtime-profile.service';
 import { OpenAiResponsesOperatorRuntimeAdapter } from '../adapter/out/runtime/openai-responses-operator-runtime.adapter';
 import { OperatorRuntimeHandler } from '../adapter/out/runtime/operator-runtime.handler';
 import { AgentPlanValidator } from '../application/service/agent-plan-validator.service';
@@ -59,7 +57,7 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(AgentRunOperationAlertBridge);
   });
 
-  it('registers Operator playbook orchestration providers', () => {
+  it('registers provider-neutral Operator orchestration providers', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
     expect(providers).toContain(AgentApprovalService);
     expect(providers).toContain(AgentPlanValidator);
@@ -68,8 +66,6 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(OperatorDecisionExecutor);
     expect(providers).toContain(OperatorDecisionParser);
     expect(providers).toContain(OpenAiResponsesOperatorRuntimeAdapter);
-    expect(providers).toContain(HermesOperatorRuntimeAdapter);
-    expect(providers).toContain(HermesRuntimeProfileService);
     expect(providers).toContain(AgentOsMcpToolExecutor);
     expect(providers).toContain(KidItemMcpToolRegistry);
     expect(providers).toContain(OperatorRuntimeHandler);
