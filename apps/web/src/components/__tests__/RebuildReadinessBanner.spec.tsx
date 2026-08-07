@@ -13,7 +13,7 @@ describe('RebuildReadinessBanner', () => {
   it('shows non-dismissible Sellpia then Wing import guidance while snapshot is required', async () => {
     mockApiGet.mockResolvedValue({
       state: 'snapshot_required',
-      target: 'staging',
+      target: 'office',
       requiredImports: ['sellpia', 'wing'],
     });
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });

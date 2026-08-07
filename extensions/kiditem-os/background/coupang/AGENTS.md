@@ -20,8 +20,7 @@ supports explicit Wing page automation.
 
 - KidItem environment profiles are fixed: local web/API use
   `http://localhost:3000` / `http://localhost:4000`, office web/API use
-  `http://kiditem-office`, and staging web/API use
-  `https://staging.merchon.org`.
+  `http://kiditem-office`.
 - Resolve the active profile from the verified external sender origin. Never
   trust a message-provided environment id or keep one global API/token pair.
 - Data sync posts to `/api/ads/extension/sync`.
@@ -75,11 +74,11 @@ supports explicit Wing page automation.
 
 ## Environment Boundary
 
-- One installed extension supports local, office, and staging simultaneously.
+- One installed extension supports local and Office simultaneously.
 - The popup requires an explicit environment selection when both profiles are
   authenticated and auto-selects only when exactly one profile is available.
-- Follow `docs/runbooks/coupang-wing-catalog-collection.md` for local, office,
-  and staging browser acceptance.
+- Follow `docs/runbooks/coupang-wing-catalog-collection.md` for local and Office
+  browser acceptance.
 
 ## Verification
 

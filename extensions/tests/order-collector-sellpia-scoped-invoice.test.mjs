@@ -128,9 +128,9 @@ test('Sellpia invoice targets stay isolated by KidItem environment and are consu
   });
 
   await store.remember('local', ['ORDER-1', 'ORDER-2']);
-  await store.remember('staging', ['STAGING-1']);
+  await store.remember('office', ['OFFICE-1']);
   await store.consume('local', ['ORDER-1']);
 
   assert.deepEqual(Array.from(await store.read('local')), ['ORDER-2']);
-  assert.deepEqual(Array.from(await store.read('staging')), ['STAGING-1']);
+  assert.deepEqual(Array.from(await store.read('office')), ['OFFICE-1']);
 });

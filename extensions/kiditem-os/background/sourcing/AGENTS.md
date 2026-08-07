@@ -21,9 +21,9 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 ## API Contract
 
 - Default API base is `http://localhost:4000/api/sourcing/extension`.
-- Committed web/API origins are local dev, office, and staging:
+- Committed web/API origins are local dev and Office:
   `http://localhost:3000`, `http://localhost:4000`,
-  `http://kiditem-office`, and `https://staging.merchon.org`.
+  and `http://kiditem-office`.
 - Product data sync posts to `/product-data`.
 - Live-commerce snapshots post to `/trend/live-commerce-results`.
 - TikTok Creative Center reads targets from `/trend/tiktok-cc-targets` and posts

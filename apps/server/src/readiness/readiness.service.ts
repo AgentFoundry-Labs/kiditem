@@ -48,7 +48,7 @@ export class ReadinessService {
     if (value.state !== 'snapshot_required') {
       return { state: 'ready', target: null, requiredImports: [] };
     }
-    const target = value.target === 'local' || value.target === 'staging' || value.target === 'production'
+    const target = value.target === 'local' || value.target === 'office'
       ? value.target
       : null;
     return {

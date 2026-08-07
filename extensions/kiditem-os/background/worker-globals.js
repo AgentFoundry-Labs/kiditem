@@ -15,7 +15,6 @@
 const KIDITEM_WEB_URL_PATTERNS = [
   "http://localhost:3000/*",
   "http://kiditem-office/*",
-  "https://staging.merchon.org/*",
 ];
 
 // 수집 세션 조회/발행에만 쓰이므로 토큰을 요구하지 않는다. 세션 모듈은 이

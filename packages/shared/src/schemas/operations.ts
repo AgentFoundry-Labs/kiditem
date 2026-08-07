@@ -194,7 +194,7 @@ export const BrowserOperationClaimSchema = z
 export const BrowserOperationClaimRequestSchema = z
   .object({
     runtimeId: BrowserRuntimeIdSchema,
-    environmentId: z.enum(['local', 'office', 'staging']),
+    environmentId: z.enum(['local', 'office']),
   })
   .strict();
 

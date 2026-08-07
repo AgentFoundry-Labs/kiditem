@@ -5,7 +5,7 @@ export type MigrationResult = {
   details: Record<string, unknown>;
 };
 
-export type DataMigrationTarget = 'local' | 'staging' | 'production';
+export type DataMigrationTarget = 'local' | 'office';
 
 export type DataMigrationContext = {
   target: DataMigrationTarget;

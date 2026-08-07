@@ -599,5 +599,5 @@ organization freshness row를 backfill하지만 raw workbook이나 credential을
 [Sellpia Inventory Freshness Operations](runbooks/sellpia-inventory-freshness.md)
 에 따라 인증된 Chrome 자동 수집 또는 최신-export 수동 attestation으로 full
 snapshot을 publish한다. 그 다음 Wing/Rocket channel identity와 confirmed
-recipe를 재구성한다. Staging/production 변경은 보호된 GitHub Actions 경로만
-사용한다.
+recipe를 재구성한다. Office 공유 데이터 변경은 보호된 `release/office`
+승격과 [Office deploy runbook](runbooks/office-deploy.md)만 사용한다.

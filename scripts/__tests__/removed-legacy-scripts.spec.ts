@@ -115,7 +115,6 @@ describe('removed legacy staging deploy entrypoints', () => {
     expect(existsSync(join(repoRoot, 'bin/setup-staging-ec2.sh'))).toBe(false);
 
     for (const relativePath of [
-      'docs/runbooks/staging-deploy.md',
       'docs/runbooks/deployment-architecture.md',
       'docs/runbooks/README.md',
       'scripts/README.md',

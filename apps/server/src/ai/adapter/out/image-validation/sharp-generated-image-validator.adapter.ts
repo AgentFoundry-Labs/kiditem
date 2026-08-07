@@ -6,7 +6,7 @@ import {
 } from '../../../application/port/out/provider/generated-image-validator.port';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 const MAX_GENERATED_IMAGE_BYTES = 20 * 1024 * 1024;
 const MAX_GENERATED_IMAGE_PIXELS = 40_000_000;

@@ -18,7 +18,7 @@ import { createHash } from 'node:crypto';
 // Nest dev/runtime compiles this service as CommonJS; sharp exports the callable
 // module itself, not a callable `.default` value in that execution path.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp') = require('sharp');
+const sharp: typeof import('sharp')['default'] = require('sharp');
 
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 

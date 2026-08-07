@@ -55,7 +55,7 @@ test('attaches normalized evidence to returned collector failures', async () => 
   });
 
   const result = await lifecycle.run(
-    { runId: RUN_ID, environmentId: 'staging' },
+    { runId: RUN_ID, environmentId: 'office' },
     lifecycleModule.createIdentity('kakao', '2026-07-27'),
     async () => ({ success: false, pendingLogin: true, error: '로그인이 필요합니다.' }),
   );

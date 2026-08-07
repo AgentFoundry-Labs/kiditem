@@ -217,7 +217,7 @@ test('clears only the sender environment profile on sign-out', async () => {
   const env = loadBackground({
     kiditem_environment_profiles_v1: {
       local: { accessToken: 'local-token', updatedAt: 1 },
-      staging: { accessToken: 'staging-token', updatedAt: 2 },
+      office: { accessToken: 'office-token', updatedAt: 2 },
     },
     kiditem_sourcing_ingest_token: 'legacy-token',
   });
@@ -229,8 +229,8 @@ test('clears only the sender environment profile on sign-out', async () => {
   assert.equal(response?.success, true);
   assert.equal(env.storage.kiditem_environment_profiles_v1.local, undefined);
   assert.equal(
-    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
-    'staging-token',
+    env.storage.kiditem_environment_profiles_v1.office.accessToken,
+    'office-token',
   );
 });
 
@@ -346,27 +346,6 @@ test('rejects invalid 1688 trend collection inputs before opening a tab', async 
   assert.equal(oversized?.success, false);
 });
 
-test('stores staging auth without accepting a client API base', async () => {
-  const env = loadBackground();
-
-  const response = await sendExternal(
-    env.externalListeners,
-    {
-      action: 'setAuthToken',
-      apiBase: 'https://staging.merchon.org/api/sourcing/extension',
-      token: 'token-from-web',
-    },
-    { url: 'https://staging.merchon.org/product-pipeline/collected-products' },
-  );
-
-  assert.equal(response?.success, true);
-  assert.equal(env.storage.apiBase, undefined);
-  assert.equal(
-    env.storage.kiditem_environment_profiles_v1.staging.accessToken,
-    'token-from-web',
-  );
-});
-
 test('stores office auth and routes requests to the office API origin', async () => {
   const env = loadBackground();
 
@@ -419,27 +398,6 @@ test('sends the stored token as Bearer auth to the sourcing ingest API', async (
   assert.equal(env.fetchCalls.length, 1);
   const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('content-type'), 'application/json');
-  assert.equal(headers.get('authorization'), 'Bearer stored-token');
-});
-
-test('sends stored tokens to the approved staging API base', async () => {
-  const env = loadBackground({
-    kiditem_environment_profiles_v1: {
-      staging: { accessToken: 'stored-token', updatedAt: 1 },
-    },
-  });
-
-  await env.context.sendToBackend(
-    { source_url: 'https://detail.1688.com/offer/607635921546.html' },
-    'staging',
-  );
-
-  assert.equal(env.fetchCalls.length, 1);
-  assert.equal(
-    env.fetchCalls[0].url,
-    'https://staging.merchon.org/api/sourcing/extension/product-data',
-  );
-  const headers = new Headers(env.fetchCalls[0].init.headers);
   assert.equal(headers.get('authorization'), 'Bearer stored-token');
 });
 

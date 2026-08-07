@@ -214,16 +214,12 @@ test('server-owned Sellpia sync publishes the ordinary browser collection alert 
   assert.match(body, /Sellpia 수익성 데이터 갱신이 완료되었습니다/);
 });
 
-test('web bridge reaches local, office, and staging KidItem origins', () => {
+test('web bridge reaches local and Office KidItem origins', () => {
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'));
 
   const externalMatches = manifest.externally_connectable?.matches ?? [];
   assert.ok(externalMatches.includes('http://localhost:3000/*'));
   assert.ok(externalMatches.includes('http://kiditem-office/*'));
-  assert.ok(
-    externalMatches.includes('https://staging.merchon.org/*'),
-    'staging web origin must be externally connectable for chrome.runtime.sendMessage',
-  );
 
   const hostBridge = (manifest.content_scripts ?? []).find((entry) =>
     (entry.js ?? []).includes('content/host-bridge.js'),
@@ -231,10 +227,6 @@ test('web bridge reaches local, office, and staging KidItem origins', () => {
   assert.ok(hostBridge, 'host-bridge content script must be declared');
   assert.ok(hostBridge.matches.includes('http://localhost:3000/*'));
   assert.ok(hostBridge.matches.includes('http://kiditem-office/*'));
-  assert.ok(
-    hostBridge.matches.includes('https://staging.merchon.org/*'),
-    'host-bridge must inject on staging so the web app can discover the extension id',
-  );
 });
 
 test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {

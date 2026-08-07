@@ -33,7 +33,7 @@ export class BrowserOperationRuntimeService {
   async claim(input: {
     organizationId: string;
     runtimeId: string;
-    environmentId: 'local' | 'office' | 'staging';
+    environmentId: 'local' | 'office';
   }): Promise<BrowserOperationClaim | null> {
     const now = new Date();
     const run = await this.repository.claimNextBrowserRun({

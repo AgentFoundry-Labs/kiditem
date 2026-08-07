@@ -3,8 +3,8 @@
 ## Purpose
 
 Package the KidItem Chrome extension as a universal artifact that supports
-local, office, and staging simultaneously, then publish it in the GitHub Release
-for the staging deployment tag. Publishing is manual; there is no GitHub
+local and Office simultaneously, then publish it in the GitHub Release for the
+Office deployment tag. Publishing is manual; there is no GitHub
 Actions extension-publishing workflow.
 GitHub Packages/GHCR remains for server images and is not an extension
 distribution channel.
@@ -18,28 +18,26 @@ one extension with one Chrome manifest version:
 | KIDITEM OS (order collection + Coupang + sourcing) | `extensions/kiditem-os/manifest.json` |
 
 Root `VERSION` remains the deployable application release train. The public
-distribution unit is one `staging-v<VERSION>-<date>-<sha>` Release containing
+distribution unit is one `office-v<VERSION>-<date>-<sha>` Release containing
 one ZIP with the extension directory.
 
 ## Universal Environment Contract
 
 - One installed copy supports local web/API at `http://localhost:3000` /
-  `http://localhost:4000`, office web/API at `http://kiditem-office`, and
-  staging web/API at
-  `https://staging.merchon.org`.
+  `http://localhost:4000` and Office web/API at `http://kiditem-office`.
 - The verified external sender origin selects the environment profile. A caller
   cannot choose another environment by sending an environment id.
 - Auth profiles, runs, status, tabs, alarms, caches, and callbacks remain bound
-  to their owning environment, so local, office, and staging operations may run
-  at the same time.
+  to their owning environment, so local and Office operations may run at the
+  same time.
 - The packager never rewrites origins or runtime code. It copies every loadable
   source file byte-for-byte, omitting only agent documentation and hidden files.
 - Do not create or maintain environment-specific source/package variants.
 
 ## Prerequisites
 
-- Work from a clean local `main` that exactly matches `origin/main` and the
-  staging deployment tag before publishing.
+- Work from a clean local `release/office` that exactly matches
+  `origin/release/office` and the Office deployment tag before publishing.
 - Install and authenticate GitHub CLI with repository release permission.
 - Keep the `zip` CLI available on `PATH`.
 - Never place tokens, cookies, marketplace credentials, or browser session data
@@ -56,13 +54,12 @@ one ZIP with the extension directory.
 3. Update tests that deliberately lock the exact manifest version.
 4. Merge the versioned source to `main` before publishing.
 5. A published deployment tag and its ZIP asset are immutable. A correction is
-   included in a later staging deployment bundle; never replace prior assets.
+   included in a later Office deployment bundle; never replace prior assets.
 
-Bundle Release tags are the staging deployment tags created by the deployment
-workflow:
+Bundle Release tags identify the Office release train and exact source SHA:
 
 ```text
-staging-v<VERSION>-<YYYYMMDD>-<short-sha>
+office-v<VERSION>-<YYYYMMDD>-<short-sha>
 ```
 
 ## Pack Without Publishing
@@ -71,7 +68,7 @@ Create a universal local package:
 
 ```bash
 npm run extension:release -- pack \
-  --deployment-tag staging-v0.1.26-20260725-58dacdef
+  --deployment-tag office-v0.1.26-20260725-58dacdef
 ```
 
 This always packages `kiditem-os`. Use `--output-dir <path>` only when the
@@ -92,7 +89,7 @@ contained extension's manifest version for operator inspection. Only the
 combined ZIP is uploaded as a GitHub Release asset. Verify it before publishing:
 
 ```bash
-DEPLOYMENT_TAG="staging-v<VERSION>-<YYYYMMDD>-<short-sha>"
+DEPLOYMENT_TAG="office-v<VERSION>-<YYYYMMDD>-<short-sha>"
 RELEASE_DIR="output/extensions/bundles/$DEPLOYMENT_TAG"
 
 unzip -t "$RELEASE_DIR/kiditem-scrapers-$DEPLOYMENT_TAG.zip"
@@ -104,15 +101,15 @@ Publishing defaults to a draft so the operator can inspect the tag, SHA, and
 combined archive before making it visible:
 
 ```bash
-git switch main
-git pull --ff-only origin main
+git switch release/office
+git pull --ff-only origin release/office
 
 npm run extension:release -- publish \
   --deployment-tag "$DEPLOYMENT_TAG"
 ```
 
 The publisher refuses to run unless the worktree is clean and `HEAD` exactly
-matches `origin/main`, and the deployment tag points to that exact SHA. It
+matches `origin/release/office`, and the deployment tag points to that exact SHA. It
 refuses to replace an existing Release and marks bundle Releases as prerelease
 and non-latest so they do not replace the
 repository's application-level Latest release.
@@ -141,7 +138,7 @@ command without mutating GitHub.
 The GitHub Release ZIP is a manual unpacked-extension package; Chrome does not
 install the ZIP directly.
 
-1. Open the intended staging deployment Release and download its ZIP.
+1. Open the intended Office deployment Release and download its ZIP.
 2. Test and extract it once into a stable directory. The result contains
    `kiditem-os/`.
 3. Open `chrome://extensions`, enable Developer mode, and choose **Load
@@ -152,7 +149,7 @@ install the ZIP directly.
    extensions; leaving them loaded means two extensions answer the same KidItem
    handshake and the web app may bind to the stale one. Stored auth is not
    carried over, so re-authenticate each KidItem environment once.
-5. Reload each open KidItem page. Confirm local, office, and staging handshakes
+5. Reload each open KidItem page. Confirm local and Office handshakes
    report the expected extension version and environment-profile capability.
 6. Visit and authenticate each KidItem origin whose profile is needed.
    Marketplace login and OTP stay in the operator's normal Chrome profile.
@@ -172,7 +169,7 @@ git diff --check
 Manual acceptance for the released extension:
 
 1. Extract the bundle once and load its extension directory.
-2. Open the local, office, and staging KidItem pages in the same Chrome profile.
+2. Open the local and Office KidItem pages in the same Chrome profile.
 3. Confirm all pages discover the same installed extension/version.
 4. Authenticate the profiles and confirm each page reports its own connected
    environment.

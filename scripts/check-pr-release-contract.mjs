@@ -163,7 +163,7 @@ function classifyFiles(files) {
     file === 'deployments/current-db.json' ||
     /^deployments\/db-history\//.test(file)
   ))) {
-    reasons.push('staging/fresh database baseline change');
+    reasons.push('local/Office fresh database baseline change');
   }
   if (files.includes('VERSION')) {
     reasons.push('release VERSION change');
