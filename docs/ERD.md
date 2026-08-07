@@ -2,7 +2,6 @@
 
 > Generated from `prisma/models/*.prisma`. Do not edit the diagram by hand.
 > Regenerate this file with `npm run db:erd` after Prisma schema changes.
-> When committing schema navigation artifacts, run `npm run graphify:schema` as well.
 
 This ERD is a development-time navigation aid. The source of truth is the Prisma schema under `prisma/`.
 
