@@ -20,6 +20,10 @@ export { Search1688ImageDto } from './search-1688-image.dto';
 export { Search1688KeywordDto } from './search-1688-keyword.dto';
 export { QuerySourcingAgentRagDto, RebuildSourcingAgentRagDto } from './sourcing-agent-rag.dto';
 export { RunSourcing1688NewProductModelDto } from './sourcing-1688-new-product-model.dto';
+export {
+  AskSourcingAssistantDto,
+  ListEntryRecommendationsQueryDto,
+} from './sourcing-entry-recommendation.dto';
 export { RunSourcingMarketModelDto } from './sourcing-market-model.dto';
 export {
   CompareNaverDatalabSearchTrendsDto,

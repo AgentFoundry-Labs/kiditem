@@ -7,6 +7,7 @@ import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
 import { InventoryModule } from "../inventory/inventory.module";
 import { OperationsModule } from "../operations/operations.module";
+import { SupplyModule } from "../supply/supply.module";
 import { Sourcing1688NewProductModelController } from "./adapter/in/http/sourcing-1688-new-product-model.controller";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
@@ -24,6 +25,8 @@ import { SourcingLiveCommerceExtensionController } from "./adapter/in/http/sourc
 import { SourcingKeywordResearchController } from "./adapter/in/http/sourcing-keyword-research.controller";
 import { SourcingMarketModelController } from "./adapter/in/http/sourcing-market-model.controller";
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
+import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intelligence.controller";
+import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcing-entry-recommendation.controller";
 import { SourcingWorkspaceSnapshotController } from "./adapter/in/http/sourcing-workspace-snapshot.controller";
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
@@ -37,13 +40,20 @@ import { SourcingMarketModelService } from "./application/service/sourcing-marke
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
+import { SourcingAssistantService } from "./application/service/sourcing-assistant.service";
+import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingWorkspaceSnapshotService } from "./application/service/sourcing-workspace-snapshot.service";
 import { SourcingShadowSignalService } from "./application/service/sourcing-shadow-signal.service";
 import { ProductRegistrationService } from "./application/service/product-registration.service";
 import { SourcingScrapeFinalizedBridge } from "./application/service/sourcing-scrape-finalized.bridge";
 import { SourcingMarketDiscoveryService } from "./application/service/sourcing-market-discovery.service";
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
+import { SourcingSourceRegistryService } from "./application/service/sourcing-source-registry.service";
+import { SourcingEvidenceLedgerService } from "./application/service/sourcing-evidence-ledger.service";
+import { SourcingLaunchCandidateService } from "./application/service/sourcing-launch-candidate.service";
+import { SourcingDecisionBatchService } from "./application/service/sourcing-decision-batch.service";
 import { TrendCollectService } from "./application/service/trend-collect.service";
+import { TrendEvidenceIngestionService } from "./application/service/trend-evidence-ingestion.service";
 import { TrendQueryService } from "./application/service/trend-query.service";
 import { LiveCommerceService } from "./application/service/live-commerce.service";
 import { NaverDatalabPopularKeywordAdapter } from "./adapter/out/naver/naver-datalab-popular-keyword.adapter";
@@ -54,6 +64,10 @@ import { SourcingAgentGatewayAdapter } from "./adapter/out/agent/sourcing-agent.
 import { SourcingAiWorkspaceArchiveAdapter } from "./adapter/out/ai/workspace-archive.adapter";
 import { SourcingOperationAlertAdapter } from "./adapter/out/automation/operation-alert.adapter";
 import { SourcingCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-candidate.repository.adapter";
+import { SourcingSourceRegistryRepositoryAdapter } from "./adapter/out/repository/sourcing-source-registry.repository.adapter";
+import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
+import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
+import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "./adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "./adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { TrendCollectionRepositoryAdapter } from "./adapter/out/repository/trend-collection.repository.adapter";
@@ -64,6 +78,7 @@ import { CoupangMomentumAdapter } from "./adapter/out/advertising/coupang-moment
 import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registration-content-workspace.adapter";
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
 import { SellpiaSalePriceAdapter } from "./adapter/out/inventory/sellpia-sale-price.adapter";
+import { ClaudeCliAssistantAdapter } from "./adapter/out/runtime/claude-cli-assistant.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "./adapter/out/runtime/sourcing-playwright-runtime.handler";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
@@ -72,6 +87,7 @@ import { TaobaoLiveAdapter } from "./adapter/out/taobao/taobao-live.adapter";
 import { GoogleTrendsRssAdapter } from "./adapter/out/google-trends/google-trends-rss.adapter";
 import { LinkfoxEchotikShadowAdapter } from "./adapter/out/linkfox/linkfox-echotik-shadow.adapter";
 import { SourcingRuntimeHandler } from "./adapter/out/runtime/sourcing-runtime.handler";
+import { SourcingSupplyIntelligenceAdapter } from "./adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "./application/port/in/capability/market-shadow-capability.port";
 import {
   SOURCING_DISCOVERY_CAPABILITY_PORT,
@@ -89,8 +105,10 @@ import {
   SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
 } from "./application/port/out/provider/naver-keyword-research.port";
 import { SOURCING_AGENT_GATEWAY_PORT } from "./application/port/out/runtime/sourcing-agent.gateway.port";
+import { SOURCING_ASSISTANT_CLI_PORT } from "./application/port/out/runtime/sourcing-assistant-cli.port";
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "./application/port/out/cross-domain/ai-workspace-archive.port";
 import { SOURCING_OPERATION_ALERT_PORT } from "./application/port/out/cross-domain/operation-alert.port";
+import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "./application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-candidate.repository.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "./application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-workspace-snapshot.repository.port";
@@ -98,6 +116,10 @@ import { TREND_COLLECTION_REPOSITORY_PORT } from "./application/port/out/reposit
 import { TREND_COLLECTION_PORT } from "./application/port/in/trend-collection.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "./application/port/out/repository/live-commerce.repository.port";
 import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repository/product-preparation.repository.port";
+import { SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-source-registry.repository.port";
+import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
+import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
+import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
@@ -138,6 +160,7 @@ import {
     ChannelsModule,
     InventoryModule,
     OperationsModule,
+    SupplyModule,
   ],
   controllers: [
     SourcingExtensionIngestController,
@@ -151,9 +174,11 @@ import {
     SourcingMarketModelController,
     Sourcing1688NewProductModelController,
     SourcingRisingProductController,
+    SourcingIntelligenceController,
     SourcingCandidateWorkspaceController,
     MarketShadowSignalController,
     SourcingWorkspaceSnapshotController,
+    SourcingEntryRecommendationController,
     TrendCollectionController,
     LiveCommerceController,
   ],
@@ -168,10 +193,18 @@ import {
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
     SourcingWorkspaceSnapshotService,
+    SourcingEntryRecommendationService,
+    SourcingAssistantService,
+    ClaudeCliAssistantAdapter,
     SourcingShadowSignalService,
     SourcingMarketDiscoveryService,
     SourcingRisingProductService,
+    SourcingSourceRegistryService,
+    SourcingEvidenceLedgerService,
+    SourcingLaunchCandidateService,
+    SourcingDecisionBatchService,
     TrendCollectService,
+    TrendEvidenceIngestionService,
     SourcingTrendOperationHandler,
     TrendQueryService,
     LiveCommerceService,
@@ -189,6 +222,10 @@ import {
     SourcingAiWorkspaceArchiveAdapter,
     SourcingOperationAlertAdapter,
     SourcingCandidateRepositoryAdapter,
+    SourcingSourceRegistryRepositoryAdapter,
+    SourcingEvidenceLedgerRepositoryAdapter,
+    SourcingLaunchCandidateRepositoryAdapter,
+    SourcingDecisionBatchRepositoryAdapter,
     SourcingWorkspaceSnapshotRepositoryAdapter,
     MarketShadowSnapshotRepositoryAdapter,
     TrendCollectionRepositoryAdapter,
@@ -207,6 +244,7 @@ import {
     GoogleTrendsRssAdapter,
     LinkfoxEchotikShadowAdapter,
     SourcingRuntimeHandler,
+    SourcingSupplyIntelligenceAdapter,
     {
       provide: MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
       useExisting: MarketShadowSignalCapabilityAdapter,
@@ -260,6 +298,10 @@ import {
       useExisting: SourcingAgentGatewayAdapter,
     },
     {
+      provide: SOURCING_ASSISTANT_CLI_PORT,
+      useExisting: ClaudeCliAssistantAdapter,
+    },
+    {
       provide: SOURCING_OPERATION_ALERT_PORT,
       useExisting: SourcingOperationAlertAdapter,
     },
@@ -270,6 +312,26 @@ import {
     {
       provide: SOURCING_CANDIDATE_REPOSITORY_PORT,
       useExisting: SourcingCandidateRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT,
+      useExisting: SourcingSourceRegistryRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT,
+      useExisting: SourcingEvidenceLedgerRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT,
+      useExisting: SourcingLaunchCandidateRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_DECISION_BATCH_REPOSITORY_PORT,
+      useExisting: SourcingDecisionBatchRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_SUPPLY_INTELLIGENCE_PORT,
+      useExisting: SourcingSupplyIntelligenceAdapter,
     },
     {
       provide: MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,

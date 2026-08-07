@@ -504,7 +504,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   const environmentId = senderEnvironment.environmentId;
   msg = { ...msg, environmentId };
   const respond = (operation) => {
-    Promise.resolve(operation)
+    // 응답이 갈 때까지 서비스워커를 살려 둔다(MV3 유휴 종료 방지).
+    KidItemWorkerKeepAlive.during(operation)
       .then((result) => sendResponse(result))
       .catch((error) =>
         sendResponse({

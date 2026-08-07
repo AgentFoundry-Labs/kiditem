@@ -35,6 +35,8 @@ function loadWorker(overrides = {}) {
     console,
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
     structuredClone,
     crypto: { randomUUID: () => RUN_ID },
     fetch: async () => {

@@ -2,12 +2,11 @@ Consult this document first instead of relying on memorized knowledge.
 
 # orders — Marketplace Order Collection Domain
 
-`extensions/kiditem-os/background/orders/` automates supported marketplace order collection
-from admin pages that are already open in the user's Chrome profile. It may
-read visible order tables, trigger marketplace export UI, or call supported
-marketplace export APIs from the user's active page session, then sends
-structured rows or export files back to the KidItem web app for NestJS
-conversion.
+`extensions/kiditem-os/background/orders/` automates marketplace order collection
+from admin pages already open in the user's Chrome profile. It may read visible
+order tables, trigger export UI, or call marketplace export APIs from the user's
+active page session, then sends structured rows or export files back to the
+KidItem web app for NestJS conversion.
 
 ## Owned Surfaces
 
@@ -54,13 +53,11 @@ conversion.
   explicit confirmation in the KidItem web page before the allowlisted action
   is sent to the extension.
 - The `cookies` permission backs only `clearCoupangCookies`, the
-  supplier.coupang.com 400-recovery action. It is destructive — clearing the
-  shared `.coupang.com` cookies signs the operator out of every Coupang portal
-  (supplier/WING/Rocket), so it requires an explicit KidItem web-page
-  confirmation that states that blast radius. Use `chrome.cookies` only to
-  remove cookies by name/path; never read, return, forward, or store cookie
-  values. The permission spans all `host_permissions` origins, but only
-  supplier.coupang.com cookies may be touched.
+  supplier.coupang.com 400-recovery action, and may touch no other origin. It is
+  destructive — clearing the shared `.coupang.com` cookies signs the operator out
+  of every Coupang portal (supplier/WING/Rocket), so it requires an explicit
+  KidItem web-page confirmation stating that blast radius. Remove cookies by
+  name/path only; never read, return, forward, or store cookie values.
 - Do not send `organizationId`; backend auth/session scope owns organization
   context.
 
@@ -75,7 +72,9 @@ conversion.
 - Keep the stable codes `login_required`, `operator_action_required`,
   `provider_contract_changed`, `network_failed`, and `unknown_failure`.
   Marketplace text remains display detail, not program control flow in the web
-  app. GS Shop SMS verification uses `complete_sms_auth`; ordinary login uses
+  app. A verification screen (SMS/2-step/OTP) is `operator_action_required` for
+  every marketplace, matched before the login branch since such prompts also say
+  "로그인": `complete_sms_auth` (GS Shop SMS), `complete_auth` (other), or
   `complete_login`.
 - The web app must distinguish a pinging but incompatible extension from a
   missing extension and show the loaded version plus missing capabilities.

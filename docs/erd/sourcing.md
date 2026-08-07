@@ -18,6 +18,13 @@
 | ShortsTrendDailySnapshot | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688HotProductDailySnapshot | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingDecisionBatch | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
+| SourcingDecisionBatchItem | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
+| SourcingDecisionEvidence | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
+| SourcingEvidenceIngestionRun | `sourcing_evidence_ingestion_runs` | Durable collector attempt tied to the exact entitlement version, request hash, collection window, coverage, and terminal result. |
+| SourcingEvidenceObservation | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
+| SourcingLaunchCandidate | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
+| SourcingSourceEntitlementVersion | `sourcing_source_entitlement_versions` | Versioned source-access contract. A collector may run or influence decisions only through the one current reviewed version for its source scope. |
 | SourcingWorkspaceSnapshot | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
@@ -204,6 +211,215 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingDecisionBatch {
+    String id PK
+    String organizationId FK
+    String requestedByUserId FK
+    String idempotencyKey
+    String requestHash
+    String decisionMode
+    DateTime businessDate
+    DateTime decisionAt
+    DateTime evidenceCutoffAt
+    String policyKey
+    String policyVersion
+    String modelVersionKey
+    String status
+    String keyword
+    String category
+    String modelPipeline
+    String modelGeneratorVersion
+    DateTime expiresAt
+    String heuristicArtifactHash
+    Int capitalBudgetKrw
+    Int testSlotLimit
+    String constraintSetHash
+    DateTime createdAt
+  }
+  SourcingDecisionBatchItem {
+    String id PK
+    String organizationId FK
+    String decisionBatchId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String itemKey
+    String modelCandidateId
+    String displayName
+    Int rank
+    String baselineDecision
+    String decision
+    Boolean executionEligible
+    String confidenceKind
+    Decimal policyProbability
+    Int evidenceFamilyCount
+    Int evidencePlatformCount
+    Boolean hasCoupangEvidence
+    Boolean has1688Evidence
+    String nextEvidenceAction
+    Decimal heuristicScore
+    Decimal decisionConfidence
+    Int expectedContributionProfit90dKrw
+    Int capitalAtRiskKrw
+    StringArray reasonCodes
+    StringArray riskCodes
+    Json modelOutput
+    String featureManifestHash
+    DateTime createdAt
+  }
+  SourcingDecisionEvidence {
+    String id PK
+    String organizationId FK
+    String decisionBatchItemId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingEvidenceIngestionRun {
+    String id PK
+    String organizationId FK
+    String sourceEntitlementVersionId FK
+    String targetKey
+    String idempotencyKey
+    String requestHash
+    String collectorKey
+    String collectorVersion
+    String triggerKind
+    String triggeredByUserId FK
+    String status
+    DateTime sourceWindowStartAt
+    DateTime sourceWindowEndAt
+    String watermarkBefore
+    String watermarkAfter
+    Int discoveredCount
+    Int acceptedCount
+    Int rejectedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    Json qualityReport
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingEvidenceObservation {
+    String id PK
+    String organizationId FK
+    String ingestionRunId FK
+    String supersedesObservationId FK
+    String sourceKey
+    String platform
+    String evidenceFamily
+    String signalRole
+    String conceptKey
+    Boolean supportsCandidate
+    String observationKey
+    Int revision
+    String sourceEntityType
+    String sourceEntityKey
+    String observationType
+    String schemaVersion
+    String evidenceClass
+    String decisionImpact
+    DateTime eventAt
+    DateTime observedAt
+    DateTime availableAt
+    DateTime revisionAt
+    DateTime businessDate
+    String sourceRevisionKey
+    String sourceUrl
+    String payloadHash
+    Json payload
+    String rawArtifactRef
+    DateTime ingestedAt
+    DateTime createdAt
+  }
+  SourcingLaunchCandidate {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String targetChannelAccountId FK
+    String supersedesLaunchCandidateId FK
+    String candidateSeriesKey
+    Int revision
+    String identityHash
+    String name
+    String productConceptVersionKey
+    String koreanSellableBundleVersionKey
+    String launchPlanVersionKey
+    String complianceAssessmentVersionKey
+    String ipClearanceVersionKey
+    String qualitySpecVersionKey
+    Int intendedAgeMinMonths
+    Int intendedAgeMaxMonths
+    String intendedUse
+    String materialProfileKey
+    String labelingProfileKey
+    Int unitsPerSellableBundle
+    Int initialOrderQuantity
+    Int targetSalePriceKrw
+    String fulfillmentMode
+    String economicsStatus
+    String complianceStatus
+    String qualityStatus
+    String ipStatus
+    Int landedCostKrw
+    Int profitP10Krw
+    StringArray blockingRiskCodes
+    StringArray unknownRiskCodes
+    Json bundleSnapshot
+    Json launchPlanSnapshot
+    Json economicsSnapshot
+    Json complianceSnapshot
+    Json qualitySnapshot
+    Json ipSnapshot
+    DateTime validUntil
+    String createdByUserId FK
+    DateTime createdAt
+  }
+  SourcingSourceEntitlementVersion {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    Int version
+    String versionHash
+    String sourceLifecycle
+    String decisionImpact
+    String ownerLabel
+    String legalBasis
+    String allowedMethod
+    String credentialRef
+    StringArray permittedFields
+    StringArray prohibitedUses
+    Int rateLimitValue
+    Int rateLimitWindowSeconds
+    StringArray geographyCoverage
+    String coverageDefinition
+    String accountCoverage
+    String searchCoverage
+    String categoryCoverage
+    String denominatorDefinition
+    String historyBackfillPolicy
+    Int expectedDelaySeconds
+    Int maxStalenessSeconds
+    Int minimumCoverageBps
+    String revisionPolicy
+    Int retentionDays
+    DateTime permissionStartsAt
+    DateTime permissionExpiresAt
+    Boolean killSwitch
+    String killReason
+    Boolean isCurrent
+    String reviewedByUserId FK
+    DateTime reviewedAt
+    DateTime retiredAt
+    DateTime createdAt
+  }
   SourcingWorkspaceSnapshot {
     String id PK
     String organizationId FK
@@ -245,6 +461,15 @@ erDiagram
     DateTime updatedAt
   }
   SourcingCandidate ||--o{ CandidateImage : "candidate"
+  SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
+  SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
+  SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
+  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
+  SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
+  SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"
+  SourcingLaunchCandidate o|--o| SourcingLaunchCandidate : "supersedesLaunchCandidate"
+  SourcingSourceEntitlementVersion ||--o{ SourcingEvidenceIngestionRun : "sourceEntitlementVersion"
 ```
 
 ## External References
@@ -275,6 +500,23 @@ erDiagram
 | SourcingCandidate | sourceCandidate | referenced by external | AI | ThumbnailGeneration |
 | SourcingCandidate | sourceCandidate | referenced by external | Core | ChannelListing |
 | SourcingCandidate | triggeredByUser | references external | Core | User |
+| SourcingDecisionBatch | organization | references external | Core | Organization |
+| SourcingDecisionBatch | requestedByUser | references external | Core | User |
+| SourcingDecisionBatchItem | decisionBatchItem | referenced by external | Supply | ProcurementTestIntent |
+| SourcingDecisionBatchItem | organization | references external | Core | Organization |
+| SourcingDecisionBatchItem | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
+| SourcingDecisionEvidence | organization | references external | Core | Organization |
+| SourcingEvidenceIngestionRun | organization | references external | Core | Organization |
+| SourcingEvidenceIngestionRun | triggeredByUser | references external | Core | User |
+| SourcingEvidenceObservation | evidenceObservation | referenced by external | Supply | SupplierOfferSkuSnapshot |
+| SourcingEvidenceObservation | organization | references external | Core | Organization |
+| SourcingLaunchCandidate | createdByUser | references external | Core | User |
+| SourcingLaunchCandidate | launchCandidate | referenced by external | Supply | ProcurementTestIntent |
+| SourcingLaunchCandidate | organization | references external | Core | Organization |
+| SourcingLaunchCandidate | supplierOfferSkuSnapshot | references external | Supply | SupplierOfferSkuSnapshot |
+| SourcingLaunchCandidate | targetChannelAccount | references external | Core | ChannelAccount |
+| SourcingSourceEntitlementVersion | organization | references external | Core | Organization |
+| SourcingSourceEntitlementVersion | reviewedByUser | references external | Core | User |
 | SourcingWorkspaceSnapshot | organization | references external | Core | Organization |
 | TiktokCreativeTrendDailySnapshot | organization | references external | Core | Organization |
 | TrendSeedKeyword | organization | references external | Core | Organization |

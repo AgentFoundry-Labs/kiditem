@@ -3,8 +3,11 @@ import { describe, it, expect } from 'vitest';
 import { SupplyModule } from '../supply.module';
 import { SuppliersController } from '../adapter/in/http/suppliers.controller';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
+import { ProcurementTestIntentsController } from '../adapter/in/http/procurement-test-intents.controller';
+import { SupplierOfferSnapshotsController } from '../adapter/in/http/supplier-offer-snapshots.controller';
 import { SuppliersService } from '../application/service/suppliers.service';
 import { ProcurementService } from '../application/service/procurement.service';
+import { SupplySourcingProcurementService } from '../application/service/supply-sourcing-procurement.service';
 import { PurchaseOrderDraftService } from '../application/service/purchase-order-draft.service';
 import { PurchaseOrderSubmissionService } from '../application/service/purchase-order-submission.service';
 import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
@@ -12,10 +15,13 @@ import { Alibaba1688CheckoutRuntimeAdapter } from '../adapter/out/runtime/alibab
 import { OrderAgentRuntimeHandler } from '../adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
+import { SupplySourcingProcurementRepositoryAdapter } from '../adapter/out/repository/supply-sourcing-procurement.repository.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from '../application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from '../application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from '../application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/procurement.repository.port';
+import { SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT } from '../application/port/out/repository/supply-sourcing-procurement.repository.port';
+import { SUPPLY_SOURCING_PROCUREMENT_PORT } from '../application/port/in/procurement/supply-sourcing-procurement.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from '../application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { InventoryModule } from '../../inventory/inventory.module';
 import { PurchaseOrderSubmissionTransactionAdapter } from '../adapter/out/transaction/purchase-order-submission.transaction.adapter';
@@ -53,9 +59,14 @@ function expectBinding(providers: unknown[], token: symbol, adapter: unknown) {
 // controller, a missing provider, or a route rename fails at vitest time
 // before reaching dev:server boot.
 describe('SupplyModule owner wiring', () => {
-  it('mounts suppliers + procurement controllers', () => {
+  it('mounts supplier, procurement, offer-snapshot, and read-only intent controllers', () => {
     const controllers: unknown[] = Reflect.getMetadata(CONTROLLERS_KEY, SupplyModule) ?? [];
-    expect(new Set(controllers)).toEqual(new Set([SuppliersController, ProcurementController]));
+    expect(new Set(controllers)).toEqual(new Set([
+      SuppliersController,
+      ProcurementController,
+      SupplierOfferSnapshotsController,
+      ProcurementTestIntentsController,
+    ]));
   });
 
   it('declares supply services as providers', () => {
@@ -63,6 +74,7 @@ describe('SupplyModule owner wiring', () => {
     for (const cls of [
       SuppliersService,
       ProcurementService,
+      SupplySourcingProcurementService,
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
       RocketPurchasePreviewService,
@@ -84,6 +96,7 @@ describe('SupplyModule owner wiring', () => {
 
     expect(providers).toContain(SupplierRepositoryAdapter);
     expect(providers).toContain(ProcurementRepositoryAdapter);
+    expect(providers).toContain(SupplySourcingProcurementRepositoryAdapter);
     expect(providers).toContain(SupplyAgentCapabilityAdapter);
     expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
     expect(providers).toContain(OrderAgentRuntimeHandler);
@@ -94,6 +107,16 @@ describe('SupplyModule owner wiring', () => {
     expectBinding(providers, PURCHASE_ORDER_SUBMISSION_PORT, PurchaseOrderSubmissionService);
     expectBinding(providers, SUPPLIER_REPOSITORY_PORT, SupplierRepositoryAdapter);
     expectBinding(providers, PROCUREMENT_REPOSITORY_PORT, ProcurementRepositoryAdapter);
+    expectBinding(
+      providers,
+      SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT,
+      SupplySourcingProcurementRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SUPPLY_SOURCING_PROCUREMENT_PORT,
+      SupplySourcingProcurementService,
+    );
     expectBinding(
       providers,
       PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
@@ -131,10 +154,17 @@ describe('SupplyModule owner wiring', () => {
     );
     const exports: unknown[] = Reflect.getMetadata('exports', SupplyModule) ?? [];
     expect(exports).toContain(ROCKET_FINAL_ORDER_RECONCILIATION_PORT);
+    expect(exports).toContain(SUPPLY_SOURCING_PROCUREMENT_PORT);
   });
 
   it('keeps public /api route prefixes', () => {
     expect(Reflect.getMetadata(PATH_KEY, SuppliersController)).toBe('suppliers');
     expect(Reflect.getMetadata(PATH_KEY, ProcurementController)).toBe('purchase-orders');
+    expect(Reflect.getMetadata(PATH_KEY, SupplierOfferSnapshotsController)).toBe(
+      'supplier-offer-snapshots',
+    );
+    expect(Reflect.getMetadata(PATH_KEY, ProcurementTestIntentsController)).toBe(
+      'procurement-test-intents',
+    );
   });
 });

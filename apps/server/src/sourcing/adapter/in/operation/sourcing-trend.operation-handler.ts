@@ -38,6 +38,7 @@ export class SourcingTrendOperationHandler
     const collected = await this.trendCollection.collect(
       context.organizationId,
       sources,
+      context.requestedByUserId,
     );
     const warningCount = collected.results.filter((result) => !result.ok).length;
     if (warningCount === collected.results.length) {

@@ -16,6 +16,10 @@ import { SourcingWorkspaceArchiveService } from "../application/service/sourcing
 import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
 import { SourcingShadowSignalService } from "../application/service/sourcing-shadow-signal.service";
 import { SourcingMarketDiscoveryService } from "../application/service/sourcing-market-discovery.service";
+import { SourcingSourceRegistryService } from "../application/service/sourcing-source-registry.service";
+import { SourcingEvidenceLedgerService } from "../application/service/sourcing-evidence-ledger.service";
+import { SourcingLaunchCandidateService } from "../application/service/sourcing-launch-candidate.service";
+import { SourcingDecisionBatchService } from "../application/service/sourcing-decision-batch.service";
 import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
 import { SourcingDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-discovery-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
@@ -23,6 +27,7 @@ import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing
 import { Sourcing1688TrendExtensionController } from "../adapter/in/http/sourcing-1688-trend-extension.controller";
 import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sourcing-live-commerce-extension.controller";
 import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
+import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "../adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -31,6 +36,11 @@ import { SourcingAgentGatewayAdapter } from "../adapter/out/agent/sourcing-agent
 import { SourcingAiWorkspaceArchiveAdapter } from "../adapter/out/ai/workspace-archive.adapter";
 import { SourcingOperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
 import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-candidate.repository.adapter";
+import { SourcingSourceRegistryRepositoryAdapter } from "../adapter/out/repository/sourcing-source-registry.repository.adapter";
+import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
+import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
+import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repository/sourcing-decision-batch.repository.adapter";
+import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
@@ -63,12 +73,18 @@ import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sou
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
 import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
+import { SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-source-registry.repository.port";
+import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-evidence-ledger.repository.port";
+import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
+import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-decision-batch.repository.port";
+import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "../application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
 import { TREND_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/trend-collection.repository.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "../application/port/out/repository/live-commerce.repository.port";
 import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
+import { SupplyModule } from "../../supply/supply.module";
 import { ProductRegistrationService } from "../application/service/product-registration.service";
 import { ProductPreparationRepositoryAdapter } from "../adapter/out/repository/product-preparation.repository.adapter";
 import { ChannelProductRegistrationAdapter } from "../adapter/out/channels/channel-product-registration.adapter";
@@ -111,15 +127,18 @@ describe("SourcingModule canonical owner wiring", () => {
       "SourcingMarketModelController",
       "Sourcing1688NewProductModelController",
       "SourcingRisingProductController",
+      "SourcingIntelligenceController",
       "SourcingCandidateWorkspaceController",
       "MarketShadowSignalController",
       "SourcingWorkspaceSnapshotController",
+      "SourcingEntryRecommendationController",
       "TrendCollectionController",
       "LiveCommerceController",
     ]);
     expect(controllers).toContain(Sourcing1688TrendExtensionController);
     expect(controllers).toContain(SourcingLiveCommerceExtensionController);
     expect(controllers).toContain(MarketShadowSignalController);
+    expect(controllers).toContain(SourcingIntelligenceController);
   });
 
   it("declares every application service as a provider", () => {
@@ -137,6 +156,10 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingShadowSignalService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
+    expect(providers).toContain(SourcingSourceRegistryService);
+    expect(providers).toContain(SourcingEvidenceLedgerService);
+    expect(providers).toContain(SourcingLaunchCandidateService);
+    expect(providers).toContain(SourcingDecisionBatchService);
     expect(providers).toContain(TrendCollectService);
     expect(providers).toContain(TrendQueryService);
     expect(providers).toContain(LiveCommerceService);
@@ -163,6 +186,11 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
     expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
+    expect(providers).toContain(SourcingSourceRegistryRepositoryAdapter);
+    expect(providers).toContain(SourcingEvidenceLedgerRepositoryAdapter);
+    expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
+    expect(providers).toContain(SourcingDecisionBatchRepositoryAdapter);
+    expect(providers).toContain(SourcingSupplyIntelligenceAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
     expect(providers).toContain(GoogleTrendsRssAdapter);
@@ -263,6 +291,31 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(candidateRepositoryBinding).toBeDefined();
     expect(candidateRepositoryBinding!.useExisting).toBe(
       SourcingCandidateRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT,
+      SourcingSourceRegistryRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT,
+      SourcingEvidenceLedgerRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT,
+      SourcingLaunchCandidateRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_DECISION_BATCH_REPOSITORY_PORT,
+      SourcingDecisionBatchRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_SUPPLY_INTELLIGENCE_PORT,
+      SourcingSupplyIntelligenceAdapter,
     );
     const workspaceSnapshotRepositoryBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
@@ -429,6 +482,7 @@ describe("SourcingModule canonical owner wiring", () => {
       Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ChannelsModule);
+    expect(imports).toContain(SupplyModule);
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {
@@ -450,11 +504,31 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/market-model",
       "sourcing/1688-new-product-model",
       "sourcing/rising-products",
+      "sourcing/intelligence",
       "sourcing",
       "sourcing/trend/shadow",
       "sourcing/workspace-snapshots",
+      // 두 세그먼트여야 한다. `sourcing` (SourcingController) 이 `GET /:id` 로
+      // 한 세그먼트를 잡으므로, `sourcing/entry-recommendations` 였다면 후보 ID 로
+      // 해석돼 UUID 파싱 오류가 난다.
+      "sourcing/entry",
       "sourcing/trend",
       "sourcing/live-commerce",
     ]);
   });
 });
+
+function expectBinding(
+  providers: unknown[],
+  token: symbol,
+  adapter: unknown,
+): void {
+  expect(
+    providers.find(
+      (provider): provider is { provide: symbol; useExisting: unknown } =>
+        typeof provider === "object" &&
+        provider !== null &&
+        (provider as { provide?: unknown }).provide === token,
+    )?.useExisting,
+  ).toBe(adapter);
+}

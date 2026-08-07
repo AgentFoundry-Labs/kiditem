@@ -203,11 +203,88 @@ describe('apiClient HTTP method envelopes', () => {
   it('wraps network/CORS fetch failures with an actionable ApiError', async () => {
     const fetchMock = fetch as ReturnType<typeof vi.fn>;
     fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
 
     await expect(apiClient.get('/api/products')).rejects.toMatchObject({
       status: 0,
       code: 'network_error',
       detail: 'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    });
+    expect(error).toHaveBeenCalledWith(
+      '[apiClient] Network request failed',
+      expect.objectContaining({ path: '/api/products' }),
+    );
+    error.mockRestore();
+  });
+
+  it('can suppress only the console log for a best-effort POST while preserving network_error', async () => {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(
+      apiClient.post('/api/best-effort', undefined, {
+        suppressNetworkErrorLog: true,
+      }),
+    ).rejects.toMatchObject({
+      status: 0,
+      code: 'network_error',
+    });
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+});
+
+describe('apiClient — 본문 없는 200 처리', () => {
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  // Nest 핸들러가 `null` 을 반환하면 본문 없는 200 이 나간다.
+  function emptyResponse(): Response {
+    return {
+      ok: true,
+      status: 200,
+      headers: new Headers(),
+      clone() {
+        return emptyResponse();
+      },
+      async json() {
+        throw new SyntaxError('Unexpected end of JSON input');
+      },
+      async text() {
+        return '';
+      },
+    } as unknown as Response;
+  }
+
+  it('get 은 빈 본문을 계속 `{}` 로 돌려준다', async () => {
+    // 기본값을 바꾸면 `{}` 를 조용한 falsy 로 처리하던 기존 호출부가 크래시한다.
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(emptyResponse());
+
+    await expect(apiClient.get('/api/anything')).resolves.toEqual({});
+  });
+
+  it('getNullable 은 빈 본문을 null 로 정규화한다', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(emptyResponse());
+
+    await expect(apiClient.getNullable('/api/anything')).resolves.toBeNull();
+  });
+
+  it('getNullable 은 본문이 있으면 그대로 파싱해 돌려준다', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(200, { id: 'batch-1' }),
+    );
+
+    await expect(apiClient.getNullable('/api/anything')).resolves.toEqual({
+      id: 'batch-1',
     });
   });
 });

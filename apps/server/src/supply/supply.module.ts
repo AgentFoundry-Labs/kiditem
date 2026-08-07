@@ -6,8 +6,11 @@ import { ChannelsModule } from '../channels/channels.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
 import { ProcurementController } from './adapter/in/http/procurement.controller';
+import { ProcurementTestIntentsController } from './adapter/in/http/procurement-test-intents.controller';
+import { SupplierOfferSnapshotsController } from './adapter/in/http/supplier-offer-snapshots.controller';
 import { SuppliersService } from './application/service/suppliers.service';
 import { ProcurementService } from './application/service/procurement.service';
+import { SupplySourcingProcurementService } from './application/service/supply-sourcing-procurement.service';
 import { PurchaseOrderDraftService } from './application/service/purchase-order-draft.service';
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
 import { RocketPurchasePreviewService } from './application/service/rocket-purchase-preview.service';
@@ -17,6 +20,7 @@ import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba
 import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from './adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
+import { SupplySourcingProcurementRepositoryAdapter } from './adapter/out/repository/supply-sourcing-procurement.repository.adapter';
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { RocketPurchaseConfirmationTransactionAdapter } from './adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketFinalOrderReconciliationTransactionAdapter } from './adapter/out/transaction/rocket-final-order-reconciliation.transaction.adapter';
@@ -24,6 +28,8 @@ import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/pur
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
 import { SUPPLIER_REPOSITORY_PORT } from './application/port/out/repository/supplier.repository.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
+import { SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/supply-sourcing-procurement.repository.port';
+import { SUPPLY_SOURCING_PROCUREMENT_PORT } from './application/port/in/procurement/supply-sourcing-procurement.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
 import { ROCKET_PURCHASE_PREVIEW_PORT } from './application/port/in/procurement/rocket-purchase-preview.port';
@@ -40,10 +46,16 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
  */
 @Module({
   imports: [PrismaModule, AgentOsModule, InventoryModule, ChannelsModule],
-  controllers: [SuppliersController, ProcurementController],
+  controllers: [
+    SuppliersController,
+    ProcurementController,
+    SupplierOfferSnapshotsController,
+    ProcurementTestIntentsController,
+  ],
   providers: [
     SuppliersService,
     ProcurementService,
+    SupplySourcingProcurementService,
     PurchaseOrderDraftService,
     PurchaseOrderSubmissionService,
     RocketPurchasePreviewService,
@@ -54,6 +66,7 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
     OrderAgentRuntimeHandler,
     SupplierRepositoryAdapter,
     ProcurementRepositoryAdapter,
+    SupplySourcingProcurementRepositoryAdapter,
     PurchaseOrderSubmissionTransactionAdapter,
     RocketPurchaseConfirmationTransactionAdapter,
     RocketFinalOrderReconciliationTransactionAdapter,
@@ -64,6 +77,14 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
     },
     { provide: SUPPLIER_REPOSITORY_PORT, useExisting: SupplierRepositoryAdapter },
     { provide: PROCUREMENT_REPOSITORY_PORT, useExisting: ProcurementRepositoryAdapter },
+    {
+      provide: SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT,
+      useExisting: SupplySourcingProcurementRepositoryAdapter,
+    },
+    {
+      provide: SUPPLY_SOURCING_PROCUREMENT_PORT,
+      useExisting: SupplySourcingProcurementService,
+    },
     {
       provide: PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
       useExisting: Alibaba1688CheckoutRuntimeAdapter,
@@ -93,6 +114,9 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
       useExisting: RocketFinalOrderReconciliationService,
     },
   ],
-  exports: [ROCKET_FINAL_ORDER_RECONCILIATION_PORT],
+  exports: [
+    ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
+    SUPPLY_SOURCING_PROCUREMENT_PORT,
+  ],
 })
 export class SupplyModule {}

@@ -138,6 +138,8 @@ function loadBackground(initialStorage = {}, plannedResponses = []) {
     },
     Headers,
     setTimeout,
+    setInterval,
+    clearInterval,
     URL,
   };
 

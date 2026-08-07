@@ -249,6 +249,17 @@ export const queryKeys = {
   },
   sourcing: {
     all: ['sourcing'] as const,
+    intelligence: () => [...queryKeys.sourcing.all, 'intelligence'] as const,
+    intelligenceSources: () =>
+      [...queryKeys.sourcing.intelligence(), 'sources'] as const,
+    intelligenceLaunchCandidates: () =>
+      [...queryKeys.sourcing.intelligence(), 'launch-candidates'] as const,
+    intelligenceLatestDecision: () =>
+      [...queryKeys.sourcing.intelligence(), 'decision-batches', 'latest'] as const,
+    intelligenceSupplierOffers: () =>
+      [...queryKeys.sourcing.intelligence(), 'supplier-offers'] as const,
+    intelligenceProcurementIntents: () =>
+      [...queryKeys.sourcing.intelligence(), 'procurement-intents'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
@@ -257,6 +268,8 @@ export const queryKeys = {
     trend: () => [...queryKeys.sourcing.all, 'trend'] as const,
     trendSeeds: () => [...queryKeys.sourcing.all, 'trend', 'seeds'] as const,
     trendNaverKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'naver-keywords', days] as const,
+    entryRecommendations: (limit: number) =>
+      [...queryKeys.sourcing.all, 'entry-recommendations', limit] as const,
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,

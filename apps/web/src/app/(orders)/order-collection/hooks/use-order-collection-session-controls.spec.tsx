@@ -118,6 +118,25 @@ describe('useOrderCollectionSessionControls', () => {
     expect(mocks.useSession).toHaveBeenLastCalledWith(RUN_ID);
   });
 
+  it('미리 해결한 확장 상태를 받으면 다시 감지하지 않는다', async () => {
+    // 전체 수집은 배치 시작 때 한 번만 감지한다. 몰마다 재감지하면 수집 중 바빠진
+    // 서비스워커의 ping 이 감지 타임아웃을 넘겨 살아 있는 확장을 놓친다.
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    let run;
+    await act(async () => {
+      run = await result.current.prepareRun(account, RUN_ID, {
+        status: 'ready', extensionId: 'shared-extension', version: '1.0.6',
+      });
+    });
+
+    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
+    expect(run).toMatchObject({ runId: RUN_ID, extensionId: 'shared-extension' });
+  });
+
   it('returns a session-capable extension bound to the requested run', async () => {
     mocks.detectExtensionStatus.mockResolvedValue({
       status: 'ready', extensionId: 'order-extension', version: '0.1.86',

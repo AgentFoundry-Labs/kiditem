@@ -202,7 +202,8 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   const respond = (promise) => {
-    Promise.resolve(promise)
+    // 응답이 갈 때까지 서비스워커를 살려 둔다(MV3 유휴 종료 방지).
+    KidItemWorkerKeepAlive.during(promise)
       .then(sendResponse)
       .catch((error) =>
         sendResponse({

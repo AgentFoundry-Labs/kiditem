@@ -9,6 +9,7 @@
 
 | Model | Table | Description |
 |---|---|---|
+| ProcurementTestIntent | `procurement_test_intents` | Reviewable pre-inventory RFQ, sample, or test-order intent. Approval never submits to a provider; provider IO remains PurchaseOrderSubmissionAttempt-owned. |
 | PurchaseOrder | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
@@ -17,6 +18,8 @@
 | RocketPurchaseConfirmationLine | `rocket_purchase_confirmation_lines` | Immutable Rocket workbook line decision and matching final-order evidence. |
 | RocketPurchaseConfirmationTransmission | `rocket_purchase_confirmation_transmissions` | One transport-specific Coupang collection probe and optional stable Sellpia transmission key for a Rocket workbook export. |
 | Supplier | `suppliers` | - |
+| SupplierOfferPriceTier | `supplier_offer_price_tiers` | Immutable quantity price tier nested under one supplier-offer snapshot. |
+| SupplierOfferSkuSnapshot | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | `supplier_payments` | - |
 | SupplierProduct | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
 
@@ -24,6 +27,33 @@
 
 ```mermaid
 erDiagram
+  ProcurementTestIntent {
+    String id PK
+    String organizationId FK
+    String decisionBatchItemId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String selectedPriceTierId FK
+    String sourceRecommendationArtifactId
+    String requestedByUserId FK
+    String reviewedByUserId FK
+    String kind
+    String status
+    String idempotencyKey
+    String requestHash
+    Int requestedPurchaseUnits
+    Int unitsPerPurchaseUnit
+    Int unitsPerSellableBundle
+    Int requestedSellableUnits
+    Decimal selectedUnitPriceCny
+    Decimal expectedGoodsTotalCny
+    String currency
+    DateTime expiresAt
+    DateTime reviewedAt
+    String reviewReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
   PurchaseOrder {
     String id PK
     String organizationId FK
@@ -154,6 +184,52 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SupplierOfferPriceTier {
+    String id PK
+    String organizationId FK
+    String supplierOfferSkuSnapshotId FK
+    Int minQuantity
+    Int maxQuantity
+    Decimal unitPriceCny
+    DateTime createdAt
+  }
+  SupplierOfferSkuSnapshot {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String supplierId FK
+    String identityStatus
+    String sourcePlatform
+    String sourceUrl
+    String externalSupplierKey
+    String externalOfferId
+    String externalSkuId
+    String variantKey
+    String productName
+    String supplierName
+    String variantName
+    String currency
+    String orderUnit
+    Int unitsPerOrderUnit
+    Int minOrderQuantity
+    Boolean sampleAvailable
+    Decimal samplePriceCny
+    Decimal domesticFreightCny
+    Int productionLeadTimeDaysMin
+    Int productionLeadTimeDaysMax
+    Int dispatchLeadTimeDaysMin
+    Int dispatchLeadTimeDaysMax
+    Int grossWeightGrams
+    Int lengthMm
+    Int widthMm
+    Int heightMm
+    String material
+    Int packCount
+    DateTime capturedAt
+    DateTime validUntil
+    String snapshotHash
+    DateTime createdAt
+  }
   SupplierPayment {
     String id PK
     String organizationId FK
@@ -188,14 +264,23 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   Supplier o|--o{ PurchaseOrder : "supplier"
+  Supplier o|--o{ SupplierOfferSkuSnapshot : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
+  SupplierOfferPriceTier o|--o{ ProcurementTestIntent : "selectedPriceTier"
+  SupplierOfferSkuSnapshot ||--o{ ProcurementTestIntent : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot ||--o{ SupplierOfferPriceTier : "supplierOfferSkuSnapshot"
 ```
 
 ## External References
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
+| ProcurementTestIntent | decisionBatchItem | references external | Sourcing | SourcingDecisionBatchItem |
+| ProcurementTestIntent | launchCandidate | references external | Sourcing | SourcingLaunchCandidate |
+| ProcurementTestIntent | organization | references external | Core | Organization |
+| ProcurementTestIntent | requestedByUser | references external | Core | User |
+| ProcurementTestIntent | reviewedByUser | references external | Core | User |
 | PurchaseOrder | organization | references external | Core | Organization |
 | PurchaseOrderItem | organization | references external | Core | Organization |
 | PurchaseOrderItem | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
@@ -213,6 +298,11 @@ erDiagram
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | sourceImportRun | references external | Core | SourceImportRun |
 | Supplier | organization | references external | Core | Organization |
+| SupplierOfferPriceTier | organization | references external | Core | Organization |
+| SupplierOfferSkuSnapshot | evidenceObservation | references external | Sourcing | SourcingEvidenceObservation |
+| SupplierOfferSkuSnapshot | organization | references external | Core | Organization |
+| SupplierOfferSkuSnapshot | supplierOfferSkuSnapshot | referenced by external | Sourcing | SourcingDecisionBatchItem |
+| SupplierOfferSkuSnapshot | supplierOfferSkuSnapshot | referenced by external | Sourcing | SourcingLaunchCandidate |
 | SupplierPayment | organization | references external | Core | Organization |
 | SupplierProduct | organization | references external | Core | Organization |
 | SupplierProduct | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |

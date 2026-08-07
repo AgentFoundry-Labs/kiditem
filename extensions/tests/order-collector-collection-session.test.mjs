@@ -127,6 +127,8 @@ function loadWorker(globals = {}) {
     },
     setTimeout,
     clearTimeout,
+    setInterval,
+    clearInterval,
     structuredClone,
     chrome: fake.chrome,
     ...globals,

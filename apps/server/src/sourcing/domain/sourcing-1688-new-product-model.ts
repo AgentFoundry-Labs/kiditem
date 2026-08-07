@@ -115,12 +115,18 @@ export function buildSourcing1688NewProductModel(input: {
 }): Sourcing1688NewProductModelResult {
   const limit = normalizeLimit(input.limit);
   const coupangRows = buildCoupangEvidence(input.snapshots);
+  const snapshotUpdatedAtById = new Map(
+    input.snapshots.map((snapshot) => [snapshot.id, snapshot.updatedAt]),
+  );
   const scoredCandidates = input.snapshots
     .filter((snapshot) => snapshot.scope === '1688_new_products')
-    .flatMap((snapshot) => buildCandidatesFrom1688Snapshot(snapshot, coupangRows))
-    .sort((a, b) => b.score - a.score);
-  const candidates = selectRepresentativeMatches(scoredCandidates)
-    .sort((a, b) => b.score - a.score)
+    .flatMap((snapshot) => buildCandidatesFrom1688Snapshot(snapshot, coupangRows));
+  const latestOfferCandidates = selectLatestOfferObservations(
+    scoredCandidates,
+    snapshotUpdatedAtById,
+  );
+  const candidates = selectRepresentativeMatches(latestOfferCandidates)
+    .sort(compareRankedCandidate)
     .slice(0, limit)
     .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
 
@@ -166,17 +172,52 @@ function buildCandidatesFrom1688Snapshot(
     ...recordsValue(result?.offers),
     ...recordsValue(result?.rows),
   ];
-  const seen = new Set<string>();
 
   return rows
-    .map((row, index) => {
-      const candidate = score1688Row(row, snapshot, coupangRows, keyword, index);
-      if (!candidate) return null;
-      if (seen.has(candidate.id)) return null;
-      seen.add(candidate.id);
+    .map((row) => {
+      const candidate = score1688Row(row, snapshot, coupangRows, keyword);
       return candidate;
     })
     .filter((candidate): candidate is Sourcing1688NewProductCandidate => candidate != null);
+}
+
+function selectLatestOfferObservations(
+  candidates: Sourcing1688NewProductCandidate[],
+  snapshotUpdatedAtById: Map<string, string>,
+): Sourcing1688NewProductCandidate[] {
+  const selected = new Map<string, Sourcing1688NewProductCandidate>();
+  for (const candidate of candidates) {
+    const key = offerIdentityKey(candidate.offerId, candidate.sourceUrl);
+    const current = selected.get(key);
+    if (
+      !current ||
+      compareOfferObservation(
+        candidate,
+        current,
+        snapshotUpdatedAtById,
+      ) > 0
+    ) {
+      selected.set(key, candidate);
+    }
+  }
+  return [...selected.values()];
+}
+
+function compareOfferObservation(
+  left: Sourcing1688NewProductCandidate,
+  right: Sourcing1688NewProductCandidate,
+  snapshotUpdatedAtById: Map<string, string>,
+): number {
+  return (
+    left.sourceDate.localeCompare(right.sourceDate) ||
+    (snapshotUpdatedAtById.get(left.sourceSnapshotId) ?? '').localeCompare(
+      snapshotUpdatedAtById.get(right.sourceSnapshotId) ?? '',
+    ) ||
+    compareRepresentativeCandidate(left, right) ||
+    left.sourceSnapshotId.localeCompare(right.sourceSnapshotId) ||
+    left.sourceUrl.localeCompare(right.sourceUrl) ||
+    left.title.localeCompare(right.title)
+  );
 }
 
 function selectRepresentativeMatches(
@@ -215,7 +256,23 @@ function compareRepresentativeCandidate(
     left.score - right.score ||
     left.components.coupangMatch - right.components.coupangMatch ||
     left.components.supplyQuality - right.components.supplyQuality ||
-    left.components.marginPotential - right.components.marginPotential
+    left.components.marginPotential - right.components.marginPotential ||
+    left.sourceDate.localeCompare(right.sourceDate) ||
+    right.id.localeCompare(left.id)
+  );
+}
+
+function compareRankedCandidate(
+  left: Sourcing1688NewProductCandidate,
+  right: Sourcing1688NewProductCandidate,
+): number {
+  return (
+    right.score - left.score ||
+    right.components.coupangMatch - left.components.coupangMatch ||
+    right.components.supplyQuality - left.components.supplyQuality ||
+    right.components.marginPotential - left.components.marginPotential ||
+    right.sourceDate.localeCompare(left.sourceDate) ||
+    left.id.localeCompare(right.id)
   );
 }
 
@@ -224,7 +281,6 @@ function score1688Row(
   snapshot: Sourcing1688NewProductModelSourceSnapshot,
   coupangRows: CoupangEvidence[],
   keyword: string | null,
-  index: number,
 ): Sourcing1688NewProductCandidate | null {
   const title = firstString(row, ['title', 'productName', 'name']);
   const sourceUrl = stringValue(row.sourceUrl) ?? stringValue(row.url);
@@ -277,7 +333,7 @@ function score1688Row(
   } : null;
 
   return {
-    id: offerId ?? stableId(`${snapshot.id}:${sourceUrl}:${index}`),
+    id: offerId ?? `url-${stableId(offerIdentityKey(null, sourceUrl))}`,
     rank: 0,
     offerId,
     title,
@@ -669,6 +725,25 @@ function charNgrams(value: string, size: number): string[] {
 
 function offerIdFromUrl(value: string): string | null {
   return /offer(?:detail)?\/(\d+)\.html/.exec(value)?.[1] ?? /offerId=(\d+)/.exec(value)?.[1] ?? null;
+}
+
+function offerIdentityKey(offerId: string | null, sourceUrl: string): string {
+  if (offerId) return `offer:${offerId.trim()}`;
+  try {
+    const url = new URL(sourceUrl);
+    url.hash = '';
+    for (const key of [...url.searchParams.keys()]) {
+      if (/^(?:spm|traceId|_t|from|source)$/i.test(key)) {
+        url.searchParams.delete(key);
+      }
+    }
+    url.searchParams.sort();
+    url.hostname = url.hostname.toLowerCase();
+    url.pathname = url.pathname.replace(/\/+$/, '') || '/';
+    return `url:${url.toString()}`;
+  } catch {
+    return `url:${sourceUrl.trim()}`;
+  }
 }
 
 function positiveOrNull(value: number | null): number | null {

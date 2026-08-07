@@ -33,12 +33,38 @@ function isAbortError(err: unknown): boolean {
   return err instanceof Error && err.name === 'AbortError';
 }
 
-async function fetchApi(path: string, init?: RequestInit): Promise<Response> {
+interface RequestDiagnostics {
+  suppressNetworkErrorLog?: boolean;
+}
+
+interface RequestOptions extends RequestDiagnostics {
+  /**
+   * 본문 없는 200 을 무엇으로 볼지 정한다.
+   *
+   * Nest 컨트롤러가 `null` 을 반환하면 본문 없는 200 이 나간다. 기본값
+   * `'empty-object'` 는 그것을 `{}` 로 만드는데, `{}` 는 truthy 라서 호출부의
+   * `if (!x)` null 가드를 그냥 통과하고 필수 필드가 `undefined` 로 읽힌다.
+   * nullable 을 선언한 읽기는 `'null'` 을 써서 계약을 실제와 맞춘다
+   * (`apiClient.getNullable`).
+   *
+   * 기본값을 `'null'` 로 바꾸지 말 것. `{}` 를 받아 조용히 falsy 로 처리하는
+   * 기존 호출부가 400개 규모라, 일괄 변경은 그 자리들을 런타임 크래시로 만든다.
+   */
+  emptyBodyAs?: 'empty-object' | 'null';
+}
+
+async function fetchApi(
+  path: string,
+  init?: RequestInit,
+  diagnostics?: RequestDiagnostics,
+): Promise<Response> {
   try {
     return await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
   } catch (err) {
     if (isAbortError(err)) throw err;
-    console.error('[apiClient] Network request failed', { path, error: err });
+    if (!diagnostics?.suppressNetworkErrorLog) {
+      console.error('[apiClient] Network request failed', { path, error: err });
+    }
     throw new ApiError(
       0,
       'network_error',
@@ -60,8 +86,9 @@ async function read401Message(res: Response): Promise<string | null> {
 async function request<T>(
   path: string,
   init?: RequestInit,
+  options?: RequestOptions,
 ): Promise<T> {
-  const res = await fetchApi(path, init);
+  const res = await fetchApi(path, init, options);
 
   if (res.status === 401) {
     const message = await read401Message(res);
@@ -100,7 +127,8 @@ async function request<T>(
   }
 
   const text = await res.text();
-  return (text ? JSON.parse(text) : {}) as T;
+  if (text) return JSON.parse(text) as T;
+  return (options?.emptyBodyAs === 'null' ? null : {}) as T;
 }
 
 async function fetchRaw(
@@ -120,6 +148,14 @@ async function fetchRaw(
 export const apiClient = {
   get: <T>(path: string) => request<T>(path),
   /**
+   * "없을 수도 있는 단일 리소스" 읽기. 본문 없는 200 을 `{}` 가 아니라 `null` 로
+   * 돌려주므로 호출부의 `if (!x)` 가드가 실제로 동작한다.
+   *
+   * 백엔드 핸들러가 `null` 을 반환할 수 있는 GET 은 `get` 대신 이걸 쓴다.
+   */
+  getNullable: <T>(path: string): Promise<T | null> =>
+    request<T | null>(path, undefined, { emptyBodyAs: 'null' }),
+  /**
    * GET + Zod parse at the client boundary (Plan D spec § I1).
    * Surfaces API schema drift as a runtime ZodError rather than a silent type cast.
    */
@@ -137,16 +173,24 @@ export const apiClient = {
   post: <T>(
     path: string,
     body?: unknown,
-    options?: { signal?: AbortSignal; headers?: HeadersInit },
+    options?: {
+      signal?: AbortSignal;
+      headers?: HeadersInit;
+      suppressNetworkErrorLog?: boolean;
+    },
   ) => {
     const headers = new Headers(options?.headers);
     headers.set('Content-Type', 'application/json');
-    return request<T>(path, {
-      method: 'POST',
-      headers,
-      body: body !== undefined ? JSON.stringify(body) : undefined,
-      signal: options?.signal,
-    });
+    return request<T>(
+      path,
+      {
+        method: 'POST',
+        headers,
+        body: body !== undefined ? JSON.stringify(body) : undefined,
+        signal: options?.signal,
+      },
+      { suppressNetworkErrorLog: options?.suppressNetworkErrorLog },
+    );
   },
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, {

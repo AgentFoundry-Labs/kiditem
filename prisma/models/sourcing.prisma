@@ -46,6 +46,7 @@ model SourcingCandidate {
   thumbnailGenerations         ThumbnailGeneration[]         @relation("ThumbnailGenerationSourcingCandidate")
   channelListings              ChannelListing[]
   detailPageImageRenderIntents DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentCandidate")
+  launchCandidates             SourcingLaunchCandidate[]
 
   @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))
   @@unique([provenanceMasterProductId, organizationId], map: "sourcing_candidates_org_provenance_master_key")
@@ -342,6 +343,349 @@ model TiktokCreativeTrendDailySnapshot {
   @@unique([organizationId, businessDate, region, trendType, entityKey])
   @@index([organizationId, businessDate])
   @@map("tiktok_creative_trend_daily_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe Versioned source-access contract. A collector may run or influence decisions only through the one current reviewed version for its source scope.
+model SourcingSourceEntitlementVersion {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  sourceKey String @map("source_key") @db.VarChar(80)
+  scopeKey  String @default("default") @map("scope_key") @db.VarChar(160)
+  version   Int
+
+  versionHash     String @map("version_hash") @db.VarChar(64)
+  sourceLifecycle String @map("source_lifecycle") @db.VarChar(40)
+  decisionImpact  String @map("decision_impact") @db.VarChar(20)
+
+  ownerLabel             String    @map("owner_label") @db.VarChar(160)
+  legalBasis             String    @map("legal_basis") @db.Text
+  allowedMethod          String    @map("allowed_method") @db.Text
+  credentialRef          String?   @map("credential_ref") @db.VarChar(300)
+  permittedFields        String[]  @default([]) @map("permitted_fields")
+  prohibitedUses         String[]  @default([]) @map("prohibited_uses")
+  rateLimitValue         Int?      @map("rate_limit_value")
+  rateLimitWindowSeconds Int?      @map("rate_limit_window_seconds")
+  geographyCoverage      String[]  @default([]) @map("geography_coverage")
+  coverageDefinition     String?   @map("coverage_definition") @db.Text
+  accountCoverage        String?   @map("account_coverage") @db.Text
+  searchCoverage         String?   @map("search_coverage") @db.Text
+  categoryCoverage       String?   @map("category_coverage") @db.Text
+  denominatorDefinition  String?   @map("denominator_definition") @db.Text
+  historyBackfillPolicy  String?   @map("history_backfill_policy") @db.Text
+  expectedDelaySeconds   Int?      @map("expected_delay_seconds")
+  maxStalenessSeconds    Int?      @map("max_staleness_seconds")
+  minimumCoverageBps     Int?      @map("minimum_coverage_bps")
+  revisionPolicy         String?   @map("revision_policy") @db.Text
+  retentionDays          Int?      @map("retention_days")
+  permissionStartsAt     DateTime? @map("permission_starts_at") @db.Timestamptz
+  permissionExpiresAt    DateTime? @map("permission_expires_at") @db.Timestamptz
+
+  killSwitch       Boolean   @default(false) @map("kill_switch")
+  killReason       String?   @map("kill_reason") @db.Text
+  isCurrent        Boolean   @default(true) @map("is_current")
+  reviewedByUserId String    @map("reviewed_by_user_id") @db.Uuid
+  reviewedAt       DateTime  @map("reviewed_at") @db.Timestamptz
+  retiredAt        DateTime? @map("retired_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization   Organization                   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewedByUser User                           @relation("SourcingSourceEntitlementVersionReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  ingestionRuns  SourcingEvidenceIngestionRun[]
+
+  @@unique([id, organizationId], map: "sourcing_source_entitlement_versions_id_org_key")
+  @@unique([organizationId, sourceKey, scopeKey, version], map: "sourcing_source_entitlement_versions_scope_version_key")
+  @@unique([organizationId, sourceKey, scopeKey], map: "sourcing_source_entitlement_versions_current_key", where: raw("is_current = true"))
+  @@index([organizationId, sourceLifecycle, decisionImpact, permissionExpiresAt], map: "sourcing_source_entitlement_versions_runtime_idx")
+  @@index([organizationId, sourceKey, scopeKey, versionHash], map: "sourcing_source_entitlement_versions_hash_idx")
+  @@index([reviewedByUserId])
+  @@map("sourcing_source_entitlement_versions")
+}
+
+/// @namespace Sourcing
+/// @describe Durable collector attempt tied to the exact entitlement version, request hash, collection window, coverage, and terminal result.
+model SourcingEvidenceIngestionRun {
+  id                         String @id @default(uuid()) @db.Uuid
+  organizationId             String @map("organization_id") @db.Uuid
+  sourceEntitlementVersionId String @map("source_entitlement_version_id") @db.Uuid
+
+  targetKey         String  @map("target_key") @db.VarChar(300)
+  idempotencyKey    String  @map("idempotency_key") @db.VarChar(300)
+  requestHash       String  @map("request_hash") @db.VarChar(64)
+  collectorKey      String  @map("collector_key") @db.VarChar(120)
+  collectorVersion  String  @map("collector_version") @db.VarChar(120)
+  triggerKind       String  @map("trigger_kind") @db.VarChar(40)
+  triggeredByUserId String? @map("triggered_by_user_id") @db.Uuid
+  status            String  @default("running") @db.VarChar(40)
+
+  sourceWindowStartAt DateTime? @map("source_window_start_at") @db.Timestamptz
+  sourceWindowEndAt   DateTime? @map("source_window_end_at") @db.Timestamptz
+  watermarkBefore     String?   @map("watermark_before") @db.Text
+  watermarkAfter      String?   @map("watermark_after") @db.Text
+  discoveredCount     Int       @default(0) @map("discovered_count")
+  acceptedCount       Int       @default(0) @map("accepted_count")
+  rejectedCount       Int       @default(0) @map("rejected_count")
+  duplicateCount      Int       @default(0) @map("duplicate_count")
+  coverageNumerator   Int?      @map("coverage_numerator")
+  coverageDenominator Int?      @map("coverage_denominator")
+  qualityReport       Json?     @map("quality_report") @db.JsonB
+  errorCode           String?   @map("error_code") @db.VarChar(100)
+  errorMessage        String?   @map("error_message") @db.Text
+
+  startedAt   DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  completedAt DateTime? @map("completed_at") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization             Organization                     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceEntitlementVersion SourcingSourceEntitlementVersion @relation(fields: [sourceEntitlementVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  triggeredByUser          User?                            @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
+  observations             SourcingEvidenceObservation[]
+
+  @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_idempotency_key")
+  @@index([sourceEntitlementVersionId])
+  @@index([triggeredByUserId])
+  @@index([organizationId, status, startedAt], map: "sourcing_evidence_ingestion_runs_status_started_idx")
+  @@index([organizationId, targetKey, startedAt], map: "sourcing_evidence_ingestion_runs_target_started_idx")
+  @@map("sourcing_evidence_ingestion_runs")
+}
+
+/// @namespace Sourcing
+/// @describe Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs.
+model SourcingEvidenceObservation {
+  id                      String  @id @default(uuid()) @db.Uuid
+  organizationId          String  @map("organization_id") @db.Uuid
+  ingestionRunId          String  @map("ingestion_run_id") @db.Uuid
+  supersedesObservationId String? @map("supersedes_observation_id") @db.Uuid
+
+  sourceKey         String  @map("source_key") @db.VarChar(80)
+  platform          String  @db.VarChar(80)
+  evidenceFamily    String  @map("evidence_family") @db.VarChar(100)
+  signalRole        String  @map("signal_role") @db.VarChar(40)
+  conceptKey        String? @map("concept_key") @db.VarChar(200)
+  supportsCandidate Boolean @default(false) @map("supports_candidate")
+  observationKey    String  @map("observation_key") @db.VarChar(64)
+  revision          Int     @default(1)
+  sourceEntityType  String  @map("source_entity_type") @db.VarChar(80)
+  sourceEntityKey   String  @map("source_entity_key") @db.VarChar(300)
+  observationType   String  @map("observation_type") @db.VarChar(100)
+  schemaVersion     String  @map("schema_version") @db.VarChar(80)
+  evidenceClass     String  @map("evidence_class") @db.VarChar(40)
+  decisionImpact    String  @map("decision_impact") @db.VarChar(20)
+
+  eventAt           DateTime? @map("event_at") @db.Timestamptz
+  observedAt        DateTime  @map("observed_at") @db.Timestamptz
+  availableAt       DateTime  @map("available_at") @db.Timestamptz
+  revisionAt        DateTime? @map("revision_at") @db.Timestamptz
+  businessDate      DateTime? @map("business_date") @db.Date
+  sourceRevisionKey String?   @map("source_revision_key") @db.VarChar(200)
+  sourceUrl         String?   @map("source_url") @db.Text
+  payloadHash       String    @map("payload_hash") @db.VarChar(64)
+  payload           Json?     @db.JsonB
+  rawArtifactRef    String?   @map("raw_artifact_ref") @db.VarChar(500)
+  ingestedAt        DateTime  @default(now()) @map("ingested_at") @db.Timestamptz
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization              Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  ingestionRun              SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersedesObservation     SourcingEvidenceObservation? @relation("SourcingEvidenceObservationRevision", fields: [supersedesObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersededByObservation   SourcingEvidenceObservation? @relation("SourcingEvidenceObservationRevision")
+  supplierOfferSkuSnapshots SupplierOfferSkuSnapshot[]
+  decisionEvidence          SourcingDecisionEvidence[]
+
+  @@unique([id, organizationId], map: "sourcing_evidence_observations_id_org_key")
+  @@unique([organizationId, observationKey, revision], map: "sourcing_evidence_observations_org_key_revision_key")
+  @@unique([supersedesObservationId, organizationId], map: "sourcing_evidence_observations_supersedes_org_key")
+  @@index([ingestionRunId])
+  @@index([supersedesObservationId])
+  @@index([organizationId, sourceKey, sourceEntityType, sourceEntityKey, availableAt], map: "sourcing_evidence_observations_entity_available_idx")
+  @@index([organizationId, observationType, businessDate], map: "sourcing_evidence_observations_type_date_idx")
+  @@index([organizationId, ingestedAt])
+  @@map("sourcing_evidence_observations")
+}
+
+/// @namespace Sourcing
+/// @describe Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity.
+model SourcingLaunchCandidate {
+  id                          String  @id @default(uuid()) @db.Uuid
+  organizationId              String  @map("organization_id") @db.Uuid
+  sourceCandidateId           String? @map("source_candidate_id") @db.Uuid
+  supplierOfferSkuSnapshotId  String  @map("supplier_offer_sku_snapshot_id") @db.Uuid
+  targetChannelAccountId      String  @map("target_channel_account_id") @db.Uuid
+  supersedesLaunchCandidateId String? @map("supersedes_launch_candidate_id") @db.Uuid
+
+  candidateSeriesKey             String    @map("candidate_series_key") @db.VarChar(64)
+  revision                       Int       @default(1)
+  identityHash                   String    @map("identity_hash") @db.VarChar(64)
+  name                           String    @db.VarChar(300)
+  productConceptVersionKey       String    @map("product_concept_version_key") @db.VarChar(200)
+  koreanSellableBundleVersionKey String    @map("korean_sellable_bundle_version_key") @db.VarChar(200)
+  launchPlanVersionKey           String    @map("launch_plan_version_key") @db.VarChar(200)
+  complianceAssessmentVersionKey String    @map("compliance_assessment_version_key") @db.VarChar(200)
+  ipClearanceVersionKey          String    @map("ip_clearance_version_key") @db.VarChar(200)
+  qualitySpecVersionKey          String    @map("quality_spec_version_key") @db.VarChar(200)
+  intendedAgeMinMonths           Int?      @map("intended_age_min_months")
+  intendedAgeMaxMonths           Int?      @map("intended_age_max_months")
+  intendedUse                    String    @map("intended_use") @db.VarChar(160)
+  materialProfileKey             String    @map("material_profile_key") @db.VarChar(200)
+  labelingProfileKey             String    @map("labeling_profile_key") @db.VarChar(200)
+  unitsPerSellableBundle         Int       @map("units_per_sellable_bundle")
+  initialOrderQuantity           Int       @map("initial_order_quantity")
+  targetSalePriceKrw             Int       @map("target_sale_price_krw")
+  fulfillmentMode                String    @map("fulfillment_mode") @db.VarChar(60)
+  economicsStatus                String    @default("unknown") @map("economics_status") @db.VarChar(30)
+  complianceStatus               String    @default("unknown") @map("compliance_status") @db.VarChar(30)
+  qualityStatus                  String    @default("unknown") @map("quality_status") @db.VarChar(30)
+  ipStatus                       String    @default("unknown") @map("ip_status") @db.VarChar(30)
+  landedCostKrw                  Int?      @map("landed_cost_krw")
+  profitP10Krw                   Int?      @map("profit_p10_krw")
+  blockingRiskCodes              String[]  @default([]) @map("blocking_risk_codes")
+  unknownRiskCodes               String[]  @default([]) @map("unknown_risk_codes")
+  bundleSnapshot                 Json      @default("{}") @map("bundle_snapshot") @db.JsonB
+  launchPlanSnapshot             Json      @default("{}") @map("launch_plan_snapshot") @db.JsonB
+  economicsSnapshot              Json      @default("{}") @map("economics_snapshot") @db.JsonB
+  complianceSnapshot             Json      @default("{}") @map("compliance_snapshot") @db.JsonB
+  qualitySnapshot                Json      @default("{}") @map("quality_snapshot") @db.JsonB
+  ipSnapshot                     Json      @default("{}") @map("ip_snapshot") @db.JsonB
+  validUntil                     DateTime? @map("valid_until") @db.Timestamptz
+  createdByUserId                String    @map("created_by_user_id") @db.Uuid
+  createdAt                      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization                Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  sourceCandidate             SourcingCandidate?          @relation(fields: [sourceCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplierOfferSkuSnapshot    SupplierOfferSkuSnapshot    @relation(fields: [supplierOfferSkuSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  targetChannelAccount        ChannelAccount              @relation(fields: [targetChannelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  createdByUser               User                        @relation("SourcingLaunchCandidateCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  supersedesLaunchCandidate   SourcingLaunchCandidate?    @relation("SourcingLaunchCandidateRevision", fields: [supersedesLaunchCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supersededByLaunchCandidate SourcingLaunchCandidate?    @relation("SourcingLaunchCandidateRevision")
+  decisionBatchItems          SourcingDecisionBatchItem[]
+  procurementTestIntents      ProcurementTestIntent[]
+
+  @@unique([id, organizationId], map: "sourcing_launch_candidates_id_org_key")
+  @@unique([organizationId, identityHash], map: "sourcing_launch_candidates_org_identity_hash_key")
+  @@unique([organizationId, candidateSeriesKey, revision], map: "sourcing_launch_candidates_org_series_revision_key")
+  @@unique([supersedesLaunchCandidateId, organizationId], map: "sourcing_launch_candidates_supersedes_org_key")
+  @@index([sourceCandidateId])
+  @@index([supplierOfferSkuSnapshotId])
+  @@index([targetChannelAccountId])
+  @@index([supersedesLaunchCandidateId])
+  @@index([createdByUserId])
+  @@index([organizationId, createdAt])
+  @@map("sourcing_launch_candidates")
+}
+
+/// @namespace Sourcing
+/// @describe Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds.
+model SourcingDecisionBatch {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  requestedByUserId String @map("requested_by_user_id") @db.Uuid
+
+  idempotencyKey        String   @map("idempotency_key") @db.VarChar(300)
+  requestHash           String   @map("request_hash") @db.VarChar(64)
+  decisionMode          String   @map("decision_mode") @db.VarChar(30)
+  businessDate          DateTime @map("business_date") @db.Date
+  decisionAt            DateTime @map("decision_at") @db.Timestamptz
+  evidenceCutoffAt      DateTime @map("evidence_cutoff_at") @db.Timestamptz
+  policyKey             String   @map("policy_key") @db.VarChar(120)
+  policyVersion         String   @map("policy_version") @db.VarChar(120)
+  modelVersionKey       String?  @map("model_version_key") @db.VarChar(200)
+  status                String   @default("shadow") @db.VarChar(30)
+  keyword               String   @db.VarChar(160)
+  category              String?  @db.VarChar(160)
+  modelPipeline         String   @map("model_pipeline") @db.VarChar(160)
+  modelGeneratorVersion String   @map("model_generator_version") @db.VarChar(200)
+  expiresAt             DateTime @map("expires_at") @db.Timestamptz
+  heuristicArtifactHash String?  @map("heuristic_artifact_hash") @db.VarChar(64)
+  capitalBudgetKrw      Int?     @map("capital_budget_krw")
+  testSlotLimit         Int?     @map("test_slot_limit")
+  constraintSetHash     String?  @map("constraint_set_hash") @db.VarChar(64)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedByUser User                        @relation("SourcingDecisionBatchRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  items           SourcingDecisionBatchItem[]
+
+  @@unique([id, organizationId], map: "sourcing_decision_batches_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "sourcing_decision_batches_org_idempotency_key")
+  @@index([requestedByUserId])
+  @@index([organizationId, decisionAt])
+  @@index([organizationId, businessDate, policyKey, policyVersion], map: "sourcing_decision_batches_policy_date_idx")
+  @@map("sourcing_decision_batches")
+}
+
+/// @namespace Sourcing
+/// @describe One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists.
+model SourcingDecisionBatchItem {
+  id                         String  @id @default(uuid()) @db.Uuid
+  organizationId             String  @map("organization_id") @db.Uuid
+  decisionBatchId            String  @map("decision_batch_id") @db.Uuid
+  launchCandidateId          String? @map("launch_candidate_id") @db.Uuid
+  supplierOfferSkuSnapshotId String? @map("supplier_offer_sku_snapshot_id") @db.Uuid
+
+  itemKey                          String   @map("item_key") @db.VarChar(64)
+  modelCandidateId                 String   @map("model_candidate_id") @db.VarChar(300)
+  displayName                      String   @map("display_name") @db.VarChar(300)
+  rank                             Int
+  baselineDecision                 String   @map("baseline_decision") @db.VarChar(30)
+  decision                         String   @db.VarChar(30)
+  executionEligible                Boolean  @default(false) @map("execution_eligible")
+  confidenceKind                   String   @map("confidence_kind") @db.VarChar(40)
+  policyProbability                Decimal? @map("policy_probability") @db.Decimal(9, 8)
+  evidenceFamilyCount              Int      @default(0) @map("evidence_family_count")
+  evidencePlatformCount            Int      @default(0) @map("evidence_platform_count")
+  hasCoupangEvidence               Boolean  @default(false) @map("has_coupang_evidence")
+  has1688Evidence                  Boolean  @default(false) @map("has_1688_evidence")
+  nextEvidenceAction               String?  @map("next_evidence_action") @db.VarChar(60)
+  heuristicScore                   Decimal? @map("heuristic_score") @db.Decimal(20, 8)
+  decisionConfidence               Decimal? @map("decision_confidence") @db.Decimal(9, 8)
+  expectedContributionProfit90dKrw Int?     @map("expected_contribution_profit_90d_krw")
+  capitalAtRiskKrw                 Int?     @map("capital_at_risk_krw")
+  reasonCodes                      String[] @default([]) @map("reason_codes")
+  riskCodes                        String[] @default([]) @map("risk_codes")
+  modelOutput                      Json     @default("{}") @map("model_output") @db.JsonB
+  featureManifestHash              String?  @map("feature_manifest_hash") @db.VarChar(64)
+  createdAt                        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization             Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  decisionBatch            SourcingDecisionBatch      @relation(fields: [decisionBatchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  launchCandidate          SourcingLaunchCandidate?   @relation(fields: [launchCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplierOfferSkuSnapshot SupplierOfferSkuSnapshot?  @relation(fields: [supplierOfferSkuSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidence                 SourcingDecisionEvidence[]
+  procurementTestIntents   ProcurementTestIntent[]
+
+  @@unique([id, organizationId], map: "sourcing_decision_batch_items_id_org_key")
+  @@unique([decisionBatchId, itemKey], map: "sourcing_decision_batch_items_batch_item_key")
+  @@index([decisionBatchId])
+  @@index([launchCandidateId])
+  @@index([supplierOfferSkuSnapshotId])
+  @@index([organizationId, decision, rank])
+  @@map("sourcing_decision_batch_items")
+}
+
+/// @namespace Sourcing
+/// @describe Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff.
+model SourcingDecisionEvidence {
+  id                    String   @id @default(uuid()) @db.Uuid
+  organizationId        String   @map("organization_id") @db.Uuid
+  decisionBatchItemId   String   @map("decision_batch_item_id") @db.Uuid
+  evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
+  role                  String   @db.VarChar(80)
+  ordinal               Int      @default(0)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  decisionBatchItem   SourcingDecisionBatchItem   @relation(fields: [decisionBatchItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidenceObservation SourcingEvidenceObservation @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_decision_evidence_id_org_key")
+  @@unique([decisionBatchItemId, evidenceObservationId, role], map: "sourcing_decision_evidence_item_observation_role_key")
+  @@index([decisionBatchItemId])
+  @@index([evidenceObservationId])
+  @@index([organizationId, decisionBatchItemId, ordinal], map: "sourcing_decision_evidence_item_ordinal_idx")
+  @@map("sourcing_decision_evidence")
 }
 
 /// @namespace Sourcing

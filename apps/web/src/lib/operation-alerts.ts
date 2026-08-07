@@ -16,6 +16,8 @@
 // existing row (running) instead of creating a duplicate, so `useEffect`
 // cleanup races and rapid double-clicks are safe.
 
+import { apiClient } from './api-client';
+import { isApiError } from './api-error';
 import type {
   AlertItem,
   AlertOperationLifecycleStatus,
@@ -23,8 +25,6 @@ import type {
   StartOperationAlertRequest,
   UpdateOperationAlertRequest,
 } from '@kiditem/shared/alerts';
-import { apiClient } from './api-client';
-import { isApiError } from './api-error';
 
 export type OperationAlertHandle = {
   operationKey: string;
@@ -57,6 +57,8 @@ export async function dismissExtensionMissingBrowserCollectionAlerts(): Promise<
   try {
     return await apiClient.post<{ dismissed: number }>(
       '/api/operation-alerts/reconcile-extension-missing',
+      undefined,
+      { suppressNetworkErrorLog: true },
     );
   } catch (err) {
     console.warn('[operation-alerts] extension-missing reconciliation failed', err);
