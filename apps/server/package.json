@@ -12,7 +12,6 @@
     "auth:admin": "node dist/auth/adapter/in/cli/auth-admin.js",
     "lint": "eslint 'src/**/*.ts'",
     "agent-os:mcp:kiditem": "node dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js",
-    "agent-os:operator:hermes": "npm run build && node dist/agent-os/adapter/in/cli/run-hermes-operator.js",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "test:integration": "vitest run --config vitest.config.integration.ts"
   },

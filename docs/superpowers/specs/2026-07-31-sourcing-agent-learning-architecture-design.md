@@ -110,8 +110,8 @@ The repository already has most of the runtime and evidence foundations:
   thresholds.
 - Current sourcing RAG is a bounded lexical index over snapshot payloads, not a
   trained retriever.
-- The default Sourcing runtime is a deterministic tool-wrapper. Hermes can own
-  the leaf agent only when explicitly configured.
+- The product Sourcing runtime is a deterministic tool-wrapper; external
+  development orchestration is outside its runtime contract.
 
 The missing foundation is a durable learning contract: the system does not yet
 record the complete candidate slate, chosen action, action probability,

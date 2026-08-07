@@ -120,7 +120,6 @@ npm install --legacy-peer-deps
 npm run db:push -- --accept-data-loss   # only when drops are expected
 npx prisma generate
 npm run data:migrate                    # when release data migrations exist
-npm run graphify:schema
 ```
 
 Compatible schema changes share the open root release-train `VERSION`; they do
@@ -159,8 +158,6 @@ npm run db:push
 npx prisma generate
 npm run build --workspace=packages/shared
 npm run db:erd
-npm run graphify:schema
 ```
 
-`docs/ERD.md`, `docs/erd/**`, and `graphify-out/**` are navigation aids only;
-verify important claims against Prisma and source code.
+`docs/ERD.md` and `docs/erd/**` are navigation aids only; verify important claims against Prisma and source code.

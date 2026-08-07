@@ -253,7 +253,7 @@ npm run dev:server
 
 For a schema-bearing change also run `npm run db:push`,
 `cd packages/shared && npm run build`, `npm run db:erd`, and
-`npm run graphify:schema`.
+review the generated full and domain ERDs.
 
 ## Blockers And Stop Conditions
 

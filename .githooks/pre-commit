@@ -28,10 +28,9 @@ fi
 # Block files over 1MB
 for f in $STAGED; do
   [ ! -f "$f" ] && continue
-  # Skip lockfiles, DB seed data, and committed generated navigation artifacts.
+  # Skip lockfiles and DB seed data.
   case "$f" in
     package-lock.json|*/package-lock.json|pnpm-lock.yaml|prisma/init.sql.gz) continue ;;
-    graphify-out/schema/graph.json|graphify-out/schema/graph.html|graphify-out/schema-consumers/graph.json|graphify-out/schema-consumers/graph.html) continue ;;
   esac
   SIZE=$(wc -c < "$f" | tr -d ' ')
   if [ "$SIZE" -gt 1048576 ]; then

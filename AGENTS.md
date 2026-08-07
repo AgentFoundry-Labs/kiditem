@@ -197,4 +197,3 @@ they document behavior, regression risk, domain policy, or public contracts.
 | Environment variables | [`docs/runbooks/environment-variables.md`](docs/runbooks/environment-variables.md) |
 | Dev data bundles | [`docs/DEV_DATA_BUNDLES.md`](docs/DEV_DATA_BUNDLES.md) |
 | Prisma models | [`prisma/models/`](prisma/models/) |
-| Graphify | [`docs/GRAPHIFY.md`](docs/GRAPHIFY.md), [`docs/ERD.md`](docs/ERD.md), [`graphify-out/schema/`](graphify-out/schema/) |

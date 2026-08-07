@@ -212,7 +212,7 @@ function toolRegistrationConfig(name: string): McpToolRegistrationConfig {
       return {
         title: 'Finalize Agent OS Task',
         description:
-          'Finalize the current Hermes-driven task through KidItem Agent OS.',
+          'Finalize the current task through KidItem Agent OS.',
         inputSchema: finalizeTaskInputSchema,
       };
     case 'agent_os_list_agents':

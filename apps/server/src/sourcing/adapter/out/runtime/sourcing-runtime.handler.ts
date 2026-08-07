@@ -66,13 +66,6 @@ function assertToolInvocationDidNotFail(
   );
 }
 
-function hermesLeafOwns(agentType: string): boolean {
-  return (process.env.AGENT_OS_HERMES_LEAF_AGENT_TYPES ?? '')
-    .split(',')
-    .map((value) => value.trim())
-    .includes(agentType);
-}
-
 @Injectable()
 export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModuleInit {
   constructor(
@@ -82,12 +75,8 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
   ) {}
 
   onModuleInit(): void {
-    if (!hermesLeafOwns('sourcing')) {
-      this.registry.register('sourcing', this);
-    }
-    if (!hermesLeafOwns('listing')) {
-      this.registry.register('listing', this);
-    }
+    this.registry.register('sourcing', this);
+    this.registry.register('listing', this);
   }
 
   async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {

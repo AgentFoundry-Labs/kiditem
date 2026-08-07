@@ -3,11 +3,8 @@ import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 const SCHEMA_PATHS = ['prisma/schema.prisma', 'prisma/models/'];
-const GENERATED_ARTIFACT_PATHS = [
-  'docs/ERD.md',
-  'docs/erd/',
-  'graphify-out/',
-];
+const ERD_OVERVIEW_PATH = 'docs/ERD.md';
+const DOMAIN_ERD_PATH = 'docs/erd/';
 
 function git(args) {
   return execFileSync('git', args, { encoding: 'utf8' }).trim();
@@ -64,15 +61,21 @@ function matchesAnyPath(file, paths) {
 
 export function analyzeSchemaArtifactSync(files) {
   const schemaFiles = files.filter((file) => matchesAnyPath(file, SCHEMA_PATHS));
-  const generatedArtifacts = files.filter((file) =>
-    matchesAnyPath(file, GENERATED_ARTIFACT_PATHS),
+  const erdOverviewChanged = files.includes(ERD_OVERVIEW_PATH);
+  const domainErdFiles = files.filter((file) =>
+    matchesAnyPath(file, [DOMAIN_ERD_PATH]),
   );
+  const requiresGeneratedArtifacts = schemaFiles.length > 0;
 
   return {
     schemaFiles,
-    generatedArtifacts,
-    requiresGeneratedArtifacts: schemaFiles.length > 0,
-    hasGeneratedArtifacts: generatedArtifacts.length > 0,
+    erdOverviewChanged,
+    domainErdFiles,
+    requiresGeneratedArtifacts,
+    hasGeneratedArtifacts:
+      requiresGeneratedArtifacts &&
+      erdOverviewChanged &&
+      domainErdFiles.length > 0,
   };
 }
 
@@ -99,16 +102,18 @@ function main() {
   if (result.hasGeneratedArtifacts) {
     console.log('check:schema-artifact-sync PASS');
     console.log(`Schema files: ${result.schemaFiles.join(', ')}`);
-    console.log(`Generated artifacts: ${result.generatedArtifacts.join(', ')}`);
+    console.log(
+      `Generated ERDs: ${[ERD_OVERVIEW_PATH, ...result.domainErdFiles].join(', ')}`,
+    );
     return;
   }
 
   console.error('check:schema-artifact-sync FAIL');
   console.error(`Schema files changed: ${result.schemaFiles.join(', ')}`);
   console.error(
-    'Missing generated navigation artifact changes: docs/ERD.md, docs/erd/**, or graphify-out/**',
+    'Missing generated ERD changes: docs/ERD.md and at least one docs/erd/** file are both required.',
   );
-  console.error('Run npm run db:erd and npm run graphify:schema, then commit the generated output.');
+  console.error('Run npm run db:erd, then commit the generated ERD output.');
   process.exit(1);
 }
 

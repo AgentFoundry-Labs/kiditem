@@ -108,7 +108,6 @@ function findInstructionFiles(base, includeHidden) {
     'dist',
     'build',
     'coverage',
-    'graphify-out',
   ]);
   const found = [];
   const stack = [base];

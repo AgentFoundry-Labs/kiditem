@@ -486,7 +486,7 @@ export class AgentOsMcpToolExecutor {
     if (!playbookKey) {
       throw new AgentOsRuntimeError(
         'mcp_create_task_input_invalid',
-        'agent_os_create_task requires playbookKey so Hermes owns the orchestration decision.',
+        'agent_os_create_task requires playbookKey so the Operator owns the orchestration decision.',
       );
     }
     const executeMode = stringField(input.arguments.executeMode);

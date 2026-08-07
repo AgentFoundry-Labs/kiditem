@@ -21,33 +21,50 @@ test('requires generated navigation artifacts for Prisma model changes', () => {
   assert.deepEqual(result.schemaFiles, ['prisma/models/orders.prisma']);
 });
 
-test('accepts ERD or graphify artifacts with schema changes', () => {
-  const result = analyzeSchemaArtifactSync([
+test('requires both the full and a domain ERD for Prisma model changes', () => {
+  const onlyOverview = analyzeSchemaArtifactSync([
+    'prisma/models/orders.prisma',
+    'docs/ERD.md',
+  ]);
+  const onlyDomain = analyzeSchemaArtifactSync([
     'prisma/models/orders.prisma',
     'docs/erd/orders.md',
+  ]);
+  const complete = analyzeSchemaArtifactSync([
+    'prisma/models/orders.prisma',
+    'docs/ERD.md',
+    'docs/erd/orders.md',
+  ]);
+
+  assert.equal(onlyOverview.hasGeneratedArtifacts, false);
+  assert.equal(onlyDomain.hasGeneratedArtifacts, false);
+  assert.equal(complete.hasGeneratedArtifacts, true);
+  assert.equal(complete.erdOverviewChanged, true);
+  assert.deepEqual(complete.domainErdFiles, ['docs/erd/orders.md']);
+});
+
+test('does not accept retired Graphify output as ERD evidence', () => {
+  const result = analyzeSchemaArtifactSync([
+    'prisma/models/orders.prisma',
     'graphify-out/schema/graph.json',
   ]);
 
   assert.equal(result.requiresGeneratedArtifacts, true);
-  assert.equal(result.hasGeneratedArtifacts, true);
-  assert.deepEqual(result.generatedArtifacts, [
-    'docs/erd/orders.md',
-    'graphify-out/schema/graph.json',
-  ]);
+  assert.equal(result.hasGeneratedArtifacts, false);
+  assert.equal(result.erdOverviewChanged, false);
+  assert.deepEqual(result.domainErdFiles, []);
 });
 
 test('merges committed, staged, unstaged, and untracked changed files', () => {
   const files = mergeChangedFiles([
     ['prisma/models/orders.prisma'],
     ['docs/ERD.md', 'prisma/models/orders.prisma'],
-    ['graphify-out/schema/graph.json'],
     ['docs/erd/orders.md'],
   ]);
 
   assert.deepEqual(files, [
     'prisma/models/orders.prisma',
     'docs/ERD.md',
-    'graphify-out/schema/graph.json',
     'docs/erd/orders.md',
   ]);
 });

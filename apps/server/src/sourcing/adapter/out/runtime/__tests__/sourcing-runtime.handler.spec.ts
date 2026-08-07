@@ -52,7 +52,7 @@ describe('SourcingRuntimeHandler', () => {
     expect(registry.register).toHaveBeenCalledWith('listing', handler);
   });
 
-  it('does not register deterministic handlers for Hermes-owned Leaf agents', () => {
+  it('keeps deterministic handlers registered when retired leaf runtime env is present', () => {
     process.env.AGENT_OS_HERMES_LEAF_AGENT_TYPES = 'sourcing,listing';
     const registry = { register: vi.fn() };
     const toolRouter = { invoke: vi.fn() };
@@ -65,8 +65,8 @@ describe('SourcingRuntimeHandler', () => {
 
     handler.onModuleInit();
 
-    expect(registry.register).not.toHaveBeenCalledWith('sourcing', handler);
-    expect(registry.register).not.toHaveBeenCalledWith('listing', handler);
+    expect(registry.register).toHaveBeenCalledWith('sourcing', handler);
+    expect(registry.register).toHaveBeenCalledWith('listing', handler);
   });
 
   it('passes supplier URLs into the 1688 supplier matching capability', async () => {

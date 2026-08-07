@@ -84,7 +84,7 @@ test('generateErdMarkdown documents regeneration command and embeds the diagram'
 
   assert.match(markdown, /# Database ERD/);
   assert.match(markdown, /npm run db:erd/);
-  assert.match(markdown, /npm run graphify:schema/);
+  assert.doesNotMatch(markdown, /graphify/i);
   assert.match(markdown, /## Domain ERDs/);
   assert.match(markdown, /\[Core\]\(erd\/core\.md\)/);
   assert.match(markdown, /```mermaid\n/);
@@ -163,6 +163,7 @@ model Warehouse {
     assert.match(index, /## Domain ERDs/);
     assert.match(index, /\[Core\]\(erd\/core\.md\)/);
     assert.match(index, /\[Inventory\]\(erd\/inventory\.md\)/);
+    assert.doesNotMatch(index, /graphify/i);
 
     const domainFiles = await readdir(domainOutputDir);
     assert.deepEqual(domainFiles.sort(), ['core.md', 'inventory.md']);
@@ -176,6 +177,7 @@ model Warehouse {
     assert.match(inventory, /Inventory \| organization \| references external \| Core \| Organization/);
     assert.match(inventory, /Inventory \| option \| references external \| Core \| ProductOption/);
     assert.match(inventory, /Warehouse \| organization \| references external \| Core \| Organization/);
+    assert.doesNotMatch(inventory, /graphify/i);
   } finally {
     await rm(workspace, { recursive: true, force: true });
   }

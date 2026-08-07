@@ -1,7 +1,7 @@
 # Orders ERD
 
 > Generated from `prisma/models/*.prisma`. Do not edit by hand.
-> Regenerate with `npm run db:erd` or `npm run graphify:schema`.
+> Regenerate with `npm run db:erd` after Prisma schema changes.
 
 [Back to full ERD](../ERD.md)
 

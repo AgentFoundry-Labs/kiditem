@@ -222,7 +222,7 @@ Sellpia 최신성은 한 종류의 테스트로 증명하지 않는다. 각 위�
 | automatic web claim/join/heartbeat/cancel, one-retry purchase recovery, active-route UI, and intentionally retired URL absence | React/Vitest active-route behavior tests; `apps/web/src/app/__tests__/retired-sidebar-routes.spec.ts` plus the production web build for retired URLs |
 | `MasterProduct.currentStock` single writer | `sellpia-authoritative-inventory-contract.test.mjs` scanner |
 | Rocket confirmation is idempotent, generation/recipe-fenced, concurrency-safe, releasable, and has no provider/stock-write lane | Rocket confirmation PostgreSQL integration, server policy/service tests, workbook contract, and `rocket-purchase-decision-boundary.spec.ts` |
-| schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD/Graphify sync gate |
+| schema/data migration/generated docs | `db:push`, Prisma generate, data migration up twice/status, ERD sync gate |
 
 Release verification must distinguish three evidence classes in its report:
 
