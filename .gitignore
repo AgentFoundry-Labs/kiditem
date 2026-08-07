@@ -13,10 +13,8 @@ generated-thumbnails/
 # (`.next/types` during build, `.next/dev/types` during dev).
 apps/web/next-env.d.ts
 
-# Graphify — keep committed curated outputs, ignore temp build artifacts
-graphify-out/.erd-corpus/
-graphify-out/cache/
-graphify-out/.graphify_*
+# Retired local Graphify output must not return as a shared repository artifact.
+graphify-out/
 
 # Environment / Secrets
 .secrets/

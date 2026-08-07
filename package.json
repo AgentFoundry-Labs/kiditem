@@ -36,7 +36,6 @@
     "knip:report": "knip --no-exit-code --no-progress --reporter compact",
     "test:scripts": "vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs",
     "db:erd": "node scripts/generate-prisma-erd.mjs",
-    "graphify:schema": "npm run db:erd && uv run --with graphifyy --python 3.11 python scripts/generate-schema-graphify.py",
     "db:generate": "prisma generate",
     "db:push": "node scripts/safe-prisma-db-push.mjs",
     "db:migrate": "prisma migrate dev",
