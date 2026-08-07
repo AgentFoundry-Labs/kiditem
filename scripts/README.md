@@ -28,7 +28,7 @@ npm run test:scripts
 | `scripts/check-pr-release-contract.mjs` | persisted schema/data/release PR body and migration-version gate | `npm run check:pr-release-contract` |
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
 | `scripts/check-raw-snapshot-read-models.sh` | raw snapshot read-model boundary scanner | `npm run check:raw-snapshot-read-models` |
-| `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include ERD/Graphify generated navigation updates | `npm run check:schema-artifact-sync` |
+| `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include full and domain ERD updates | `npm run check:schema-artifact-sync` |
 | `scripts/check-script-inventory.mjs` | this inventory drift gate | `npm run check:scripts-inventory` |
 | `scripts/check-shared-interface-names.mjs` | shared public Zod contract naming ratchet | `npm run check:shared-interface-names` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |
@@ -36,7 +36,6 @@ npm run test:scripts
 | `scripts/dev-data-coupang.ts` | coupang domain adapter for dev data bundles | `npm run data:dev:* -- --domain coupang` |
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
-| `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
 | `scripts/manage-extension-release.mjs` | deterministic universal Chrome-extension bundle packager and manual GitHub Release publisher | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
 | `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/release-train-versioning.md` |
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |

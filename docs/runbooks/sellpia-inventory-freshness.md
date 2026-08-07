@@ -215,7 +215,6 @@ rtk npx prisma generate
 rtk npm exec --workspace=packages/shared vitest -- run
 rtk npm run build --workspace=packages/shared
 rtk npm run db:erd
-rtk npm run graphify:schema
 rtk npm run test:scripts
 rtk npm run data:migrate -- status
 rtk npm run data:migrate -- up --target local --confirm APPLY_DATA_MIGRATIONS

@@ -964,7 +964,6 @@ ready rather than exposing fabricated stock or channel data.
 - `npx prisma generate`;
 - `npm run build --workspace=packages/shared`;
 - `npm run db:erd`;
-- `npm run graphify:schema`;
 - `npm run dev:server` with a successful boot;
 - `npm run build --workspace=apps/web`;
 - focused server, shared, migration, import, mapping, and UI tests;
