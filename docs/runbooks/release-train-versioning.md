@@ -12,14 +12,14 @@ rewrites.
   train starts.
 - The operator can create a branch and PR targeting protected `develop`.
 - Schema/data PR authors can complete `.github/PULL_REQUEST_TEMPLATE.md`.
-- Production-impacting destructive changes have an approved expand, backfill,
+- Office-impacting destructive changes have an approved expand, backfill,
   contract, and rollback decision.
 
 ## Environment Variables
 
 No environment variables are needed to classify or start a release train.
-Deployment and production data-migration confirmations remain owned by the
-staging and production deploy runbooks.
+Office deployment and data-migration confirmations remain owned by the
+[Office deploy runbook](office-deploy.md).
 
 ## Inspect The Train Boundary
 
@@ -74,7 +74,8 @@ slots may overlap, and runtime rollback does not revert schema or data.
 3. Make `id` start with `v<VERSION>:` and set `releaseVersion` to the same value
    without `v`.
 4. Register the exact module in `scripts/data-migrations/index.ts`.
-5. Run the migration twice against the intended non-production test target and
+5. Run the migration twice against `local`, then verify it against the intended
+   Office test data or a restored Office backup, and
    confirm the second run is a safe no-op or ledger skip.
 6. Record affected-row and rollback/blocker evidence in the PR.
 
@@ -94,7 +95,7 @@ a later train.
 4. Run both PR contract guards against `origin/main` and `HEAD`.
 5. Verify all migrations accumulated after the prior `main` version are
    registered and deployable in order.
-6. Merge with a merge commit, then use the GitHub Actions deployment runbooks.
+6. Merge with a merge commit, then use the Office deployment runbook.
 7. Open the next train before merging new work into `develop`.
 
 ## Verification

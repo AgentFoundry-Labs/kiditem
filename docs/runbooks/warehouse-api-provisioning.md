@@ -279,7 +279,7 @@ Stop and report the exact blocker when:
 Do not include cookies, authorization headers, or full API payload dumps.
 
 ```text
-Environment: <local|staging|production API origin>
+Environment: <local|office API origin>
 Verified organization: approved <uuid>; observed <uuid>; exact match yes
 Operation: <read|create|update|delete>
 Before: Warehouse rows <count>; target <present|absent>

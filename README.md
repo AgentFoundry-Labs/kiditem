@@ -10,11 +10,10 @@
 
 ## Chrome 익스텐션
 
-각 익스텐션은 한 설치본으로 로컬과 staging을 동시에 지원한다. 개발 중에는
-`extensions/product-scraper`, `extensions/coupang-ads-scraper`, 또는
-`extensions/order-collector`를 `chrome://extensions`에서 바로 로드한다.
+KidItem OS 익스텐션 한 설치본이 로컬과 Office를 동시에 지원한다. 개발 중에는
+`extensions/kiditem-os`를 `chrome://extensions`에서 바로 로드한다.
 배포본은 [GitHub Releases](https://github.com/AgentFoundry-Labs/kiditem/releases)의
-해당 staging 배포 버전의 통합 ZIP을 한 번 풀어 세 익스텐션 폴더를 사용한다. 버전 게시·검증·업데이트 방법은
+해당 `office-v<VERSION>` 통합 ZIP을 사용한다. 버전 게시·검증·업데이트 방법은
 [Chrome Extension Releases runbook](docs/runbooks/extension-releases.md)을 따른다.
 
 ## 셋업
@@ -26,7 +25,7 @@ npm install --legacy-peer-deps
 
 # 환경 변수
 cp .env.example .env                           # Root tooling — Prisma/dev bootstrap/dev data
-cp apps/server/.env.example apps/server/.env   # NestJS — DB, Supabase, Gemini/Agent OS, storage
+cp apps/server/.env.example apps/server/.env   # NestJS — DB, MinIO, Gemini/Agent OS
 cp agents/.env.example agents/.env             # Python sourcing agents — DB, TMAPI, Langfuse
 
 # Python 가상환경 (sourcing agents 실행 시 필요)
@@ -114,8 +113,8 @@ extensions/          — Chrome 익스텐션 (1688/Alibaba 스크래퍼)
 | 파일 | 용도 |
 |---|---|
 | `.env` | 루트 도구용: Prisma CLI, dev bootstrap, dev data sync |
-| `apps/server/.env` | NestJS API 런타임: DB, Supabase, storage, Gemini/Agent OS, Playwriter |
-| `apps/web/.env.local` | Next.js public env: API URL, Supabase publishable key |
+| `apps/server/.env` | NestJS API 런타임: PostgreSQL, MinIO, Gemini/Agent OS, Playwriter |
+| `apps/web/.env.local` | Next.js public env: API URL, local devtools flag |
 | `agents/.env` | Python sourcing agents: DB, VectorEngine/OpenAI/Gemini, TMAPI, Langfuse |
 
 앱 런타임용 AI/provider/marketplace 시크릿은 루트 `.env`에 두지 않는다.

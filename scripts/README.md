@@ -20,10 +20,8 @@ npm run test:scripts
 
 | path | owner / purpose | entrypoint |
 |---|---|---|
-| `scripts/authoritative-inventory-rebuild.ts` | GitHub-Actions-only rebuild guard; staging account-only export/restore plus production selective Coupang replay and source/readiness verification | `npm run inventory:rebuild`, staging/production deploy workflows, `docs/runbooks/deployment-architecture.md` |
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
-| `scripts/check-sellpia-cutover-preflight.ts` | manual read-only diagnostic for the retired expand-release preservation/account/content/tenant assumptions; not part of current CI/CD | `npm run check:sellpia-cutover-preflight` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |
 | `scripts/check-frontend-db-boundary.sh` | frontend must not import DB/Prisma clients | `npm run check:web-db-boundary` |
 | `scripts/check-pr-reconstruction-contract.mjs` | high-risk reconstruction PR body gate | `npm run check:pr-reconstruction` |
@@ -39,13 +37,11 @@ npm run test:scripts
 | `scripts/dev-data.ts` | dev data bundle CLI | `npm run data:dev:*` |
 | `scripts/generate-prisma-erd.mjs` | Prisma ERD markdown generator | `npm run db:erd` |
 | `scripts/generate-schema-graphify.py` | Graphify schema export generator | `npm run graphify:schema` |
-| `scripts/manage-extension-release.mjs` | deterministic universal Chrome-extension bundle packager and manual GitHub Release publisher; puts all three versioned extension directories in one ZIP under an immutable staging deployment tag | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
-| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/staging-deploy.md` |
-| `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; guarded staging/production rebuild workflows keep their direct Prisma entrypoint | `npm run db:push` |
+| `scripts/manage-extension-release.mjs` | deterministic universal Chrome-extension bundle packager and manual GitHub Release publisher | `npm run extension:release`, `docs/runbooks/extension-releases.md` |
+| `scripts/run-data-migrations.ts` | durable data migration runner; migration units live under root `VERSION` release folders such as `scripts/data-migrations/v0.1.0/`, record `data_migration_runs` ledger rows, and export/restore the hash-bound ledger baseline for an authoritative reset | `npm run data:migrate`, `docs/runbooks/release-train-versioning.md` |
+| `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
-| `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/staging-deploy.md` |
-| `scripts/staging-db-baseline.ts` | staging DB baseline export/verify/restore CLI | `npm run staging:db` |
-| `scripts/storage-cache-control.ts` | Supabase/S3 Storage cache-control inspection and staging backfill helper for public immutable image assets | `npm run storage:cache-control`, `docs/runbooks/storage-cache-control.md` |
+| `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
 
 ## Support Files
 

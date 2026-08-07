@@ -81,7 +81,7 @@ scope and one `chrome.storage.local`. These rules keep them from colliding.
 
 - Use Manifest V3. Do not add MV2 APIs or persistent background assumptions.
 - `externally_connectable` is limited to the committed KidItem web origins. One
-  installed copy must serve local, office, and staging; keep auth and run state
+  installed copy must serve local and office; keep auth and run state
   isolated by the verified external sender origin instead of shipping variants.
 - `content/host-bridge.js` may expose the extension id and status only. Never
   expose `kiditem_auth_token` through the host bridge or page-world messages.

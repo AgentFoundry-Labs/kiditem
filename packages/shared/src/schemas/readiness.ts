@@ -32,7 +32,7 @@ export type ReadinessResponse = z.infer<typeof ReadinessResponseSchema>;
 
 export const RebuildReadinessResponseSchema = z.object({
   state: z.enum(['ready', 'snapshot_required']),
-  target: z.enum(['local', 'staging', 'production']).nullable(),
+  target: z.enum(['local', 'office']).nullable(),
   requiredImports: z.array(z.enum(['sellpia', 'wing'])),
 });
 export type RebuildReadinessResponse = z.infer<

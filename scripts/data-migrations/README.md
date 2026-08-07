@@ -33,7 +33,7 @@ not release boundaries. Each migration exports a `DataMigration` with:
 - `phase`: optional `pre-schema` or `post-schema`; omitted migrations default to
   `post-schema`.
 - `run(tx, context)`: idempotent Prisma transaction body. `context.target` is
-  the already validated CLI target (`local`, `staging`, or `production`), so a
+  the already validated CLI target (`local` or `office`), so a
   migration never has to infer its target from ambient environment variables.
 
 The runner records each execution in `data_migration_runs` with git SHA,
@@ -44,16 +44,14 @@ Run:
 ```bash
 npm run data:migrate -- status
 npm run data:migrate -- up --target local --confirm APPLY_DATA_MIGRATIONS
+npm run data:migrate -- up --target office --confirm APPLY_DATA_MIGRATIONS
 ```
 
-Mutating `local` and `staging` runs require the ordinary
-`APPLY_DATA_MIGRATIONS` confirmation and reject database URLs whose host or
-path looks like production. A `production` target is accepted only when all of
-these independent boundaries hold:
-
-- `GITHUB_ACTIONS=true`;
-- `DATA_MIGRATION_CONFIRM=APPLY_DATA_MIGRATIONS`;
-- `DATA_MIGRATION_PRODUCTION_CONFIRM=DEPLOY_PRODUCTION`.
+Mutating `local` and `office` runs require the
+`APPLY_DATA_MIGRATIONS` confirmation. Both targets reject database URLs whose
+host or path looks like an unrelated production database. Office migrations
+run from the protected Office release workflow against the Office-local
+PostgreSQL instance.
 
 Release `0.1.8` is a schema-only database rebuild. It deliberately has no data
 migration: legacy product, inventory, option, and identity-map rows are not

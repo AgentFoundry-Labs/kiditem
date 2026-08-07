@@ -113,7 +113,7 @@ describe('DetailPageClientRenderService', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
-    process.env.WEB_ORIGIN = 'https://staging.kiditem.example';
+    process.env.WEB_ORIGIN = 'https://office.kiditem.example';
     service = new DetailPageClientRenderService(
       detailPages as never,
       images as never,
@@ -226,7 +226,7 @@ describe('DetailPageClientRenderService', () => {
       outputWidth: 780,
     }));
     expect(rasterization.render).toHaveBeenCalledWith(expect.objectContaining({
-      html: expect.stringContaining('<base href="https://staging.kiditem.example/"'),
+      html: expect.stringContaining('<base href="https://office.kiditem.example/"'),
       viewportWidth: 720,
       outputWidth: 780,
       format: 'jpeg',
@@ -320,7 +320,7 @@ describe('DetailPageClientRenderService', () => {
       revisionId: REVISION_ID,
       outputWidth: 780,
       renderDocumentUrl:
-        `https://staging.kiditem.example/detail-page-client-render?intentId=${INTENT_ID}`,
+      `https://office.kiditem.example/detail-page-client-render?intentId=${INTENT_ID}`,
       upload: { url: 'https://upload.example.com/signed' },
     });
     expect(storage.createPresignedPut).toHaveBeenCalledWith(expect.objectContaining({
@@ -333,11 +333,10 @@ describe('DetailPageClientRenderService', () => {
   });
 
   it('claim 렌더 URL은 CORS 목록 순서가 아니라 명시적인 WEB_ORIGIN을 사용한다', async () => {
-    process.env.WEB_ORIGIN = 'https://staging.merchon.org';
+    process.env.WEB_ORIGIN = 'http://kiditem-office';
     process.env.CORS_ORIGINS = [
-      'http://3.106.120.252',
-      'https://staging.kiditem.ai',
-      'https://staging.merchon.org',
+      'http://localhost:3000',
+      'http://kiditem-office',
     ].join(',');
     images.findIntent.mockResolvedValue(intent());
     images.claimIntent.mockResolvedValue({
@@ -358,7 +357,7 @@ describe('DetailPageClientRenderService', () => {
     });
 
     expect(result.renderDocumentUrl).toBe(
-      `https://staging.merchon.org/detail-page-client-render?intentId=${INTENT_ID}`,
+      `http://kiditem-office/detail-page-client-render?intentId=${INTENT_ID}`,
     );
   });
 
@@ -424,7 +423,7 @@ describe('DetailPageClientRenderService', () => {
       outputWidth: 780,
       requiredAssetPolicy: 'all',
     });
-    expect(result.html).toContain('<base href="https://staging.kiditem.example/"');
+    expect(result.html).toContain('<base href="https://office.kiditem.example/"');
     expect(result.html).toContain('.detail { display: block; }');
 
     images.findIntent.mockResolvedValue(intent({

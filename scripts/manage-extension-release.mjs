@@ -17,7 +17,7 @@ const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 // 주문수집/쿠팡/소싱 세 확장을 kiditem-os 하나로 합쳤다. 번들은 여전히 배포
 // 단위 하나지만, 안에 든 로드 가능한 확장 디렉터리는 이제 하나뿐이다.
 const supportedExtensions = ["kiditem-os"];
-const environmentProfiles = ["local", "office", "staging"];
+const environmentProfiles = ["local", "office"];
 
 function parseArgs(argv) {
   const [command, ...tokens] = argv;
@@ -145,8 +145,8 @@ function stageExtension(extension, releaseDirectory) {
 }
 
 function validateDeploymentTag(deploymentTag) {
-  if (!/^staging-v\d+\.\d+\.\d+-\d{8}-[0-9a-f]{8}$/.test(deploymentTag)) {
-    throw new Error(`Invalid staging deployment tag: ${deploymentTag}`);
+  if (!/^office-v\d+\.\d+\.\d+-\d{8}-[0-9a-f]{8}$/.test(deploymentTag)) {
+    throw new Error(`Invalid Office deployment tag: ${deploymentTag}`);
   }
 }
 
@@ -179,16 +179,18 @@ export function packExtensionBundle({ deploymentTag, outputDirectory }) {
   };
 }
 
-function assertPublishableMain(metadata) {
+function assertPublishableOffice(metadata) {
   const branch = gitOutput(["branch", "--show-current"]);
-  if (branch !== "main")
-    throw new Error("Extension Releases must be published from main");
+  if (branch !== "release/office")
+    throw new Error("Extension Releases must be published from release/office");
   if (gitOutput(["status", "--porcelain"])) {
     throw new Error("Extension Releases require a clean worktree");
   }
-  const remoteMainSha = gitOutput(["rev-parse", "origin/main"]);
-  if (remoteMainSha !== metadata.gitSha) {
-    throw new Error("HEAD must exactly match origin/main before publishing");
+  const remoteOfficeSha = gitOutput(["rev-parse", "origin/release/office"]);
+  if (remoteOfficeSha !== metadata.gitSha) {
+    throw new Error(
+      "HEAD must exactly match origin/release/office before publishing",
+    );
   }
   const deploymentSha = gitOutput([
     "rev-list",
@@ -241,7 +243,7 @@ export function publishExtensionBundle(
   const command = githubReleaseCommand(result, { state });
   if (dryRun) return { ...command, dryRun: true };
 
-  assertPublishableMain(result.metadata);
+  assertPublishableOffice(result.metadata);
   const existing = spawnSync(
     "gh",
     ["release", "view", result.metadata.deploymentTag],

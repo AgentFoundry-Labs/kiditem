@@ -26,39 +26,24 @@ Current runbooks:
   — operate the preserved inventory views and local-only reset/bootstrap while
   keeping Rocket PO monitoring read-only and delivery decisions deferred.
 - [Environment Variables](environment-variables.md) — inventory of env vars,
-  injection paths, staging verification commands, and feature-specific
+  injection paths, verification commands, and feature-specific
   requirements for API, web, Agent OS, and Python agents.
 - [Release Train Versioning](release-train-versioning.md) — open one root
   `VERSION` per deployable train, classify schema/data work, assign durable
   migrations, and promote the assembled train without another bump.
-- [Staging Deploy](staging-deploy.md) — operate the EC2 staging runtime through
-  GitHub Actions, GHCR image tags/digests, Docker Compose, container nginx, host
-  TLS proxy, the hosted PostgreSQL database, and Supabase Storage through its
-  S3-compatible API. Application authentication is local.
-- [Production Deploy](production-deploy.md) — operate production deploy,
-  rollback, status, confirmation strings, and production-only GitHub
-  Environment variables.
 - [Office Deploy](office-deploy.md) — build immutable office images in GitHub
   Actions, apply digest-only releases to the Windows office runtime, verify
   health, manage disk pressure, and roll back without local image builds.
 - [KidItem Local Authentication](auth-office-local.md) — operate Office
   email/password hashes, 30-day sessions, revocation, and extension token sync.
 - [Deployment Architecture](deployment-architecture.md) — CI/CD architecture,
-  blue-green slot ownership, API/worker split, image immutability, rollback
-  boundaries, and IaC baseline.
-- [Staging DB Baseline](staging-db-baseline.md) — export, verify, and restore
-  pinned staging DB baseline artifacts from a private Supabase Storage
-  S3-compatible bucket.
-- [Storage Cache-Control](storage-cache-control.md) — inspect and backfill
-  Supabase Storage cache headers for staging public image assets.
-- [Staging Seed Data](staging-seed-data.md) — historical first-rollout notes and
-  non-destructive seed import guidance. Staging DB reset/restore now belongs to
-  the DB baseline runbook.
+  Office runtime ownership, image immutability, secret boundaries, and
+  rollback constraints.
 - [Coupang Wing Catalog Collection](coupang-wing-catalog-collection.md) — collect
   authenticated Wing products, options, and provider media through the Chrome
   extension into registered products.
-- [Chrome Extension Releases](extension-releases.md) — package all universal
-  extensions into one staging deployment Release, then publish, install,
+- [Chrome Extension Releases](extension-releases.md) — package the universal
+  extension into one immutable application Release, then publish, install,
   verify, and roll them back.
 - [Google Drive Dev Data](google-drive-dev-data.md) — set up `KidItem Dev Data`
   through Google Drive Desktop for profile sync and Coupang bundle replay.

@@ -4,9 +4,9 @@ import path from 'node:path';
 
 /**
  * Shared file-system helpers for repo scripts. Three callers (`dev-data.ts`,
- * `dev-data-coupang.ts`, `staging-db-baseline.ts`) used to inline identical
+ * durable scripts used to inline identical
  * `readJson` / `writeJson` / `sha256` / `fileSize` bodies. The
- * staging-db-baseline copy renamed `sha256` → `sha256File` but the body is
+ * one historical copy renamed `sha256` → `sha256File` but the body is
  * the same. This module is the single source of truth.
  */
 

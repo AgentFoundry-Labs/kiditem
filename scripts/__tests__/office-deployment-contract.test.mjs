@@ -67,7 +67,9 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.match(script, /\/api\/auth\/me/);
   assert.match(script, /\[switch\]\$ApplySchema/);
   assert.match(script, /\$Operation -ne 'Deploy'/);
-  assert.match(script, /run --rm --no-deps api sh -lc 'cd \/app && npx prisma db push'/);
+  assert.match(script, /\$schemaCommand = 'cd \/app && npx prisma db push'/);
+  assert.match(script, /\$schemaCommand = "\$schemaCommand --accept-data-loss"/);
+  assert.match(script, /run --rm --no-deps api sh -lc \$schemaCommand/);
   assert.match(script, /stop api worker web nginx/);
   assert.doesNotMatch(script, /docker system prune/);
   assert.doesNotMatch(script, /docker volume prune/);

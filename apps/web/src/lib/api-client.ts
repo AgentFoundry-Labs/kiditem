@@ -7,7 +7,7 @@ import { clearAuthSession, getAuthSession } from './auth/session';
  * KidItem opaque session token 을 `Authorization: Bearer <token>` 헤더로 첨부.
  *
  * `credentials: 'include'` 는 local cross-origin 개발(web:3000 → server:4000)과
- * staging/prod same-origin `/api/*` routing 양쪽에서 cookie 전달을 일관되게 둔다.
+ * local/Office same-origin `/api/*` routing 양쪽에서 cookie 전달을 일관되게 둔다.
  * Authorization 헤더가 없는 요청도 같은 HttpOnly cookie 를 사용할 수 있다.
  *
  * 30일 절대 만료 세션은 refresh token 이 없다. 401 `auth_required` 는 저장된
