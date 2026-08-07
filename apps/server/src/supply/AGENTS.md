@@ -25,6 +25,11 @@ supply/
 
 - Supplier CRUD: `/api/suppliers/*`
 - Purchase orders: `/api/purchase-orders/*`
+- Supplier-offer evidence: owner/admin POST + GET under
+  `/api/supplier-offer-snapshots/*`
+- Procurement test intents: read-only GET under
+  `/api/procurement-test-intents/*`; intent creation is an internal incoming-port
+  capability, not an HTTP mutation route.
 
 Route shape is frozen.
 
@@ -33,12 +38,26 @@ Route shape is frozen.
 - `Supplier` is organization-private supplier identity.
 - `SupplierProduct` links a `SellpiaInventorySku` to supplier price, MOQ, and
   primary-supplier policy.
+- `SupplierOfferSkuSnapshot` and nested `SupplierOfferPriceTier` freeze observed
+  pre-inventory supplier identity and commercial terms.
+- `ProcurementTestIntent` is a proposed RFQ, sample, or test-order handoff. It is
+  not a purchase order and never submits to a supplier/provider.
 - `PurchaseOrder` is procurement state.
 - `SupplierPayment` is finance-owned and must not be written from supply.
 
 ## Procurement Rules
 
 - Supplier writes use `organizationId` from `@CurrentOrganization()`.
+- Supplier-offer snapshot hashes are server-built and organization-idempotent.
+  Test-intent request hashes freeze the selected snapshot, tier, quantities,
+  conversions, and server-computed CNY total.
+- RFQs may use offer-only evidence without quantity or price. Samples require
+  exact-variant identity and positive quantity. Test orders additionally require
+  a matching launch candidate, selected tier, known MOQ, and quantity at or above
+  MOQ; requested quantity is rejected rather than silently raised.
+- Procurement test intents are create-only in `proposed` state. No review,
+  purchase-order conversion, provider runtime, or status-transition API is owned
+  by this pre-purchase intent surface.
 - Purchase-order transitions use
   `domain/policy/purchase-order-status.ts`.
 - Status order is `draft -> pending -> ordered -> shipped -> received`.
@@ -129,6 +148,8 @@ Route shape is frozen.
   back-references when needed.
 - Sourcing must not reintroduce supplier/procurement code or direct supply
   model mutations.
+- Sourcing creates procurement handoffs only through the exported
+  `SUPPLY_SOURCING_PROCUREMENT_PORT`.
 
 ## Boundary Rules
 

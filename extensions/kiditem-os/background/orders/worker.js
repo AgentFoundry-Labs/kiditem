@@ -1136,7 +1136,9 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   msg = { ...msg, environmentId };
   ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
   const respond = (operation) => {
-    Promise.resolve(operation)
+    // 응답이 갈 때까지 서비스워커를 살려 둔다. 수집기마다 keepAlive 를 복붙하지
+    // 않아도 이 경로를 지나는 모든 액션이 유휴 종료로부터 보호된다.
+    KidItemWorkerKeepAlive.during(operation)
       .then(sendResponse)
       .catch((error) => {
         sendResponse({
@@ -2471,9 +2473,6 @@ async function collectOnchannelOrders(dateFilter, collection) {
   if (!tab?.id) return { success: false, error: "온채널(onch3.co.kr) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
   // 모달 fetch 가 수십 번 → 작업이 길다. MV3 서비스워커 유휴 종료(=message port closed) 방지 keepalive.
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -2491,7 +2490,6 @@ async function collectOnchannelOrders(dateFilter, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("온채널"); }
     return mallGenericErrorResult("온채널", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
@@ -2638,9 +2636,6 @@ async function collectKidkidsOrders(dateFilter, planDate, collection) {
   if (!tab?.id) return { success: false, error: "키드키즈(partner.kidkids.net) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
   // 주문서 fetch 가 주문 수만큼 → 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -2663,7 +2658,6 @@ async function collectKidkidsOrders(dateFilter, planDate, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("키드키즈"); }
     return mallGenericErrorResult("키드키즈", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id);
@@ -2698,9 +2692,6 @@ async function collectHaebeopOrders(options, collection) {
   if (!tab?.id) return { success: false, error: "해법몰(mallseller.genimarket.co.kr) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
   // 주문마다 상세를 받으므로 길어질 수 있다. MV3 유휴 종료(=port closed) 방지 keepalive.
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -2725,7 +2716,6 @@ async function collectHaebeopOrders(options, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("해법몰"); }
     return mallGenericErrorResult("해법몰", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try { await chrome.tabs.remove(tab.id); } catch { /* 이미 닫힘 */ }
     }
@@ -3203,18 +3193,26 @@ async function scrapeTeachervilleOrders() {
     // 출고 전 상태 행(25 결제확인·35 상품준비·40 부분출고준비·45 출고준비)의 order_seq[] 수집.
     // 55 출고완료부터는 이미 출고된 주문이라 제외. (tr class 예: "list-row step25")
     const PRE_SHIP = ["25", "35", "40", "45"];
+    const orderCheckboxes = document.querySelectorAll(
+      'input[type="checkbox"][name="order_seq[]"]',
+    );
     const seqs = [];
-    document.querySelectorAll('input[type="checkbox"][name="order_seq[]"]').forEach((c) => {
+    orderCheckboxes.forEach((c) => {
       const tr = c.closest("tr");
       const step = ((tr && tr.className) || "").match(/step(\d+)/);
       if (step && PRE_SHIP.includes(step[1]) && c.value) seqs.push(c.value);
     });
     if (seqs.length === 0) {
       if (pageLooksLikeLogin()) return loginRequired();
+      // 주문 행이 렌더된 것 자체가 인증된 목록이 로딩됐다는 증거다. 그 목록에 출고 전
+      // (25/35/40/45) 행이 하나도 없으면 수집할 주문이 없는 것이지 로딩 실패가 아니다.
+      // 전부 출고완료(55+)인 날에 이걸 오류로 처리해 "로딩 완료 여부를 확인하지 못했다"가 떴다.
+      if (orderCheckboxes.length > 0) return { success: true, empty: true, rowCount: 0 };
       const bodyText = document.body ? document.body.innerText || "" : "";
       if (/조회[^\n]{0,30}(?:주문|결과|데이터)[^\n]{0,20}(?:없|0건)|(?:주문|결과|데이터)[^\n]{0,30}(?:없|0건)/i.test(bodyText)) {
         return { success: true, empty: true, rowCount: 0 };
       }
+      // 여기까지 오면 행도 없고 "없음" 문구도 못 읽은 것 — 진짜로 판정 불가다.
       return providerContractChanged(
         "티쳐몰 주문 목록의 로딩 완료 여부를 확인하지 못했습니다. 주문관리 화면을 새로고침한 뒤 다시 수집해주세요.",
       );
@@ -3289,9 +3287,6 @@ async function collectArt09Orders(date, collection) {
   const { tab, created } = await findOrCreateArt09Tab();
   if (!tab?.id) return { success: false, error: "아트공구(zzogzzog1.cafe24.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -3318,7 +3313,6 @@ async function collectArt09Orders(date, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("아트공구"); }
     return mallGenericErrorResult("아트공구", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id);
@@ -3885,9 +3879,6 @@ async function scrapeBoriboriOrders(downloadPassword) {
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
 async function collectCoupangDirectOrders(collection) {
   return coupangPoSession.run(collection, async (tab) => {
-    const keepAlive = setInterval(() => {
-      chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-    }, 20000);
     try {
       // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
       const listInjected = await withTimeout(
@@ -3934,8 +3925,6 @@ async function collectCoupangDirectOrders(collection) {
         };
       }
       return mallGenericErrorResult("쿠팡직배송", error);
-    } finally {
-      clearInterval(keepAlive);
     }
   });
 }
@@ -4116,9 +4105,6 @@ async function collectGsshopOrders(collection) {
   if (!tab?.id) return { success: false, error: "GS샵(partners.gsshop.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
   // 조회+상세 fetch 후 클라이언트 엑셀 조립까지 길다. MV3 서비스워커 유휴 종료(=port closed) 방지 keepalive.
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -4136,7 +4122,6 @@ async function collectGsshopOrders(collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("GS샵"); }
     return mallGenericErrorResult("GS샵", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id);
@@ -4345,9 +4330,6 @@ async function collectAlwayzOrders(collection) {
   const { tab, created } = await findOrCreateAlwayzTab();
   if (!tab?.id) return { success: false, error: "올웨이즈(alwayzseller.ilevit.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -4365,7 +4347,6 @@ async function collectAlwayzOrders(collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("올웨이즈"); }
     return mallGenericErrorResult("올웨이즈", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id);
@@ -4819,9 +4800,6 @@ async function collectDomeggookOrders(date, collection) {
   const { tab, created } = await findOrCreateDomeggookTab(navUrl);
   if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -4868,7 +4846,6 @@ async function collectDomeggookOrders(date, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
     return mallGenericErrorResult("도매꾹", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
@@ -7401,9 +7378,6 @@ async function collectKakaoOrders(dateFilter, collection) {
   const { tab, created } = await findOrCreateKakaoTab();
   if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };
   await attachOrderCollectionTab(collection, tab, created);
-  const keepAlive = setInterval(() => {
-    chrome.runtime.getPlatformInfo(() => void chrome.runtime.lastError);
-  }, 20000);
   let keepOpen = false;
   try {
     await waitForTabReady(tab.id);
@@ -7421,7 +7395,6 @@ async function collectKakaoOrders(dateFilter, collection) {
     if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("카카오"); }
     return mallGenericErrorResult("카카오", e);
   } finally {
-    clearInterval(keepAlive);
     if (created && tab.id && !keepOpen) {
       try {
         await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
@@ -7828,7 +7801,9 @@ chrome.alarms.onAlarm.addListener(async (alarm) => {
       binding?.[organizationKey],
     );
     if (!organizationId) return;
-    const result = await collectSellpiaSaleSummary({});
+    // 알람 경로는 `respond` 를 지나지 않으므로 여기서 직접 붙든다.
+    const releaseKeepAlive = KidItemWorkerKeepAlive.acquire();
+    const result = await collectSellpiaSaleSummary({}).finally(releaseKeepAlive);
     const sellers = result?.payload?.sellers;
     const explicitEmpty =
       Array.isArray(sellers) &&

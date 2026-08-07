@@ -1,11 +1,14 @@
 Consult this document first instead of relying on memorized knowledge.
 
-# sourcing — Product Discovery + Account Registration
+# sourcing — Decision Intelligence + Product Discovery + Account Registration
 
 `src/sourcing/` owns Chinese new-product discovery: scraper ingest from
 Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
-candidates, and the account-scoped product-registration state machine. Supplier registry and
-procurement live in `src/supply/`; supplier payments live in `src/finance/`.
+candidates, source/evidence governance, exact launch identity, immutable
+recommendation decisions, and the account-scoped product-registration state
+machine. Supplier registry, supplier-offer commercial terms, procurement test
+intents, and purchase orders live in `src/supply/`; supplier payments live in
+`src/finance/`.
 
 ## Folder Map
 
@@ -19,7 +22,8 @@ sourcing/
 │   ├── automation/         # operation-alert adapter
 │   ├── channels/           # account-scoped marketplace registration bridge
 │   ├── products/           # legacy products compatibility bridge
-│   └── repository/         # candidate + product-preparation repositories
+│   ├── supply/             # Supply incoming-port bridge; never direct model writes
+│   └── repository/         # candidate, evidence, launch, decision repositories
 ├── application/
 │   ├── port/out/           # local outbound ports + transaction handle
 │   └── service/            # use-case orchestration
@@ -39,12 +43,26 @@ sourcing/
 - Product preparation: `POST /api/sourcing/candidates/:id/preparations`,
   `PATCH /api/sourcing/preparations/:id`, and preparation submit/cancel routes
 - Candidate rejection and quick AI processing: `/api/sourcing/candidates/:id/*`
+- Decision intelligence: `/api/sourcing/intelligence/sources`,
+  `/evidence-runs`, `/launch-candidates`, `/decision-batches`, and
+  `/decision-items/:id/procurement-intents` beneath that prefix
+- Entry recommendation + assistant: `/api/sourcing/entry/*`
 
-Route shape is frozen.
+Route shape is frozen. New routes need 2+ segments: `GET /api/sourcing/:id`
+catches single-segment paths and fails as a bad candidate UUID.
 
 ## Main Data Models
 
 - `SourcingCandidate` is the raw opportunity workspace.
+- `SourcingSourceEntitlementVersion` is the reviewed, versioned access and
+  decision-impact contract. Shadow evidence cannot score or train.
+- `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` form the
+  append-only collection/evidence ledger.
+- `SourcingLaunchCandidate` freezes exact supplier variant, target account,
+  bundle/plan/compliance/IP/QC versions, economics, and launch quantity.
+- `SourcingDecisionBatch`, items, and evidence freeze server-derived baseline
+  shadow decisions. Coverage confidence is never a calibrated probability and
+  `policyProbability` remains null until a real assignment ledger exists.
 - `CandidateImage` stores source images attached to a candidate.
 - `ProductPreparation` owns the operator-reviewed input, selected content, and
   legacy lifecycle compatibility columns for one candidate/account attempt.
@@ -96,34 +114,35 @@ reconciling; it is never reborn as a fresh prepared/create execution.
   `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
 - Operation-alert lifecycle writes go through
   `SOURCING_OPERATION_ALERT_PORT`.
-- Supply attach flows must use a supply-owned port such as
-  `SUPPLY_ATTACH_PORT`; sourcing must not mutate supply models directly.
+- Supplier-offer reads and RFQ/sample/test-order intent creation use
+  `SOURCING_SUPPLY_INTELLIGENCE_PORT`, backed only by Supply's exported
+  `SUPPLY_SOURCING_PROCUREMENT_PORT`; sourcing must not mutate supply models
+  directly.
 
 ## Scrape Runtime
 
-`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. The active
-runtime handler is `SourcingPlaywrightRuntimeHandler`: it opens Playwright
-Chromium with a persistent profile and runs approved deterministic extractor
-code. It reuses `extensions/kiditem-os/content/sourcing/extractors/*` as
-reviewed reference page scripts; retired pre-merge extension paths are not
-runtime fallbacks. New scraper development should happen through the Codex-global
-`$magic-scraper` skill (`~/.codex/skills/magic-scraper/SKILL.md`) and then be
-promoted into reviewed sourcing extractor/runtime code with fixtures and tests.
+`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. Handler
+`SourcingPlaywrightRuntimeHandler` opens Playwright Chromium with a persistent
+profile and runs approved deterministic extractors, reusing
+`extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
+scripts; retired extension paths are not fallbacks. Develop new scrapers via the
+Codex-global `$magic-scraper` skill, then promote them into reviewed
+extractor/runtime code with fixtures and tests.
 
-For 1688/Alibaba sessions that need real user browser state, configure
-`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` or `runtimeConfig.playwrightCdpEndpoint` to
-attach to a dedicated managed CDP browser/profile where the user has completed
-login or verification. This is preferred over launching a fresh anonymous
-browser when CAPTCHA/verification risk is high.
+For 1688/Alibaba use a dedicated managed profile via
+`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` / `runtimeConfig.playwrightCdpEndpoint`, not a
+fresh anonymous browser. Even so, 1688 search answers programmatic navigation
+with a `punish` challenge, so keyword collection that must succeed belongs in the
+Chrome extension: it runs in the operator's session and hands any slider to them
+rather than bypassing it.
 
-The `magic-scraper` skill is a development workflow, not a production runtime:
-do not expose arbitrary browser JS, local file scripts, CDN scripts, or raw CDP
-execution as Agent OS/MCP tools. If extraction fails, the runtime returns
-`recommendedSkillKey: "sourcing.magic_scraper"` so the Sourcing Agent can repair
-or harden the extractor from authorized browser evidence instead of bypassing
-login or captcha controls. The runtime does not write sourcing rows directly;
-candidate creation still happens through `SourcingScrapeFinalizedBridge` after
-Agent OS finalization.
+`magic-scraper` is a development workflow, not a production runtime: never
+expose arbitrary browser JS, local/CDN scripts, or raw CDP as Agent OS/MCP
+tools. On extraction failure the runtime returns
+`recommendedSkillKey: "sourcing.magic_scraper"` so the extractor is repaired
+from authorized evidence rather than bypassing login/captcha controls. The
+runtime writes no sourcing rows; candidates are created by
+`SourcingScrapeFinalizedBridge` after Agent OS finalization.
 
 ## Capability Surface
 
@@ -146,6 +165,15 @@ by importing sourcing application services directly.
 - Application services must not import `PrismaService`, `@prisma/client`, HTTP
   DTOs, concrete `adapter/out/**` implementations, AI services, products
   services, or automation services.
+- Source collection requires an active reviewed entitlement. Scoring and future
+  training additionally require the current source to be `qualified + enabled`
+  with valid permission dates and no kill switch.
+- Canonical recommendation actions are exactly `test_order|hold|reject`.
+  Current heuristic `order|observe_3d|exclude` is baseline model output only.
+  Coverage confidence cannot create an execution-eligible test order.
+- Every supplier-offer snapshot, LaunchCandidate, decision, and procurement
+  intent is immutable/idempotent provenance. Do not add direct intent→PO or
+  provider-execution paths.
 - Extension ingest writes only `SourcingCandidate` and `CandidateImage`;
   registration state belongs to `ProductPreparation` and account-scoped
   `ChannelListing` rows, never candidate status.

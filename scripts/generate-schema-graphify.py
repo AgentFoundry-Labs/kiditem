@@ -390,7 +390,16 @@ def write_outputs(name: str, extraction: dict, source_paths: list[Path]) -> dict
     )
     (out / 'GRAPH_REPORT.md').write_text(report, encoding='utf-8')
     to_json(G, communities, str(out / 'graph.json'), force=True)
-    to_html(G, communities, str(out / 'graph.html'), community_labels=labels)
+    # Passing the limit explicitly asks Graphify to emit its community-level
+    # aggregate once the consumer graph is too large for a browser-safe view.
+    # Omitting it raises and leaves the required schema artifacts half-written.
+    to_html(
+        G,
+        communities,
+        str(out / 'graph.html'),
+        community_labels=labels,
+        node_limit=5_000,
+    )
     (out / 'README.md').write_text(
         f'# {name}\n\nGenerated KidItem Graphify-compatible graph. Open `graph.html`, read `GRAPH_REPORT.md`, or query `graph.json`.\n',
         encoding='utf-8',

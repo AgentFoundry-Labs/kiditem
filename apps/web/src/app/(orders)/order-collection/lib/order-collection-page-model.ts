@@ -177,7 +177,10 @@ export function getOrderCollectionFailureCode(value: unknown): OrderCollectionFa
  */
 export function isAuthRequiredMessage(message: string | null | undefined): boolean {
   if (!message) return false;
-  return /인증번호|인증이?\s*필요|SMS\s*인증|인증\s*방식/.test(message);
+  // 확장의 `AUTH_PATTERNS`(collection-failure.js)와 같은 뜻이어야 한다. 한쪽만 고치지 말 것.
+  return /인증번호|인증이?\s*필요|SMS\s*인증|인증\s*방식|2단계\s*인증|추가\s*인증|OTP/i.test(
+    message,
+  );
 }
 
 /**

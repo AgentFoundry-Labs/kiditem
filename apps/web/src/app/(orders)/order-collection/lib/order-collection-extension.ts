@@ -38,7 +38,8 @@ export interface OrderCollectionFailureEvidence {
   action: OrderCollectionFailureAction;
   code: OrderCollectionFailureCode;
   retryable: boolean;
-  operatorAction: 'complete_login' | 'complete_sms_auth' | null;
+  /** 인증은 몰마다 방식이 달라 GS샵 SMS 외에는 일반 `complete_auth` 로 온다. */
+  operatorAction: 'complete_login' | 'complete_sms_auth' | 'complete_auth' | null;
 }
 
 export interface OrderCollectionFailureResponse {

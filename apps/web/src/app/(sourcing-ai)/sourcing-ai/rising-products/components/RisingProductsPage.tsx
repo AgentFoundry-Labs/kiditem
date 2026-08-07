@@ -55,8 +55,7 @@ export function RisingProductsPage() {
     queryFn: fetchKeywordTrackers,
   });
 
-  // apiClient는 빈 응답을 `{}`로 반환하므로 model 없는 응답은 "데이터 없음"으로 처리.
-  const result = data?.model ? data : null;
+  const result = data ?? null;
   // 점수순 flat — 키워드 무관. 제외 등급은 숨겨 상위 후보만 노출.
   const candidates = useMemo(
     () => (result?.model.candidates ?? []).filter((c) => c.grade !== 'EXCLUDE'),

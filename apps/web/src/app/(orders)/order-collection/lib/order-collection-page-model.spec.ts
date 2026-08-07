@@ -139,6 +139,20 @@ describe('getOrderCollectionFailureCode', () => {
 });
 
 describe('classifyOrderCollectionFailure', () => {
+  it('인증 안내를 로그인으로 표시하지 않는다', () => {
+    // 확장이 몰에 상관없이 인증을 `operator_action_required` 로 보낸다.
+    // 이 코드가 오면 메시지에 "로그인"이 섞여 있어도 인증으로 떠야 한다.
+    expect(classifyOrderCollectionFailure(
+      { errorCode: 'operator_action_required' },
+      '로그인 후 인증번호를 입력해 주세요.',
+    )).toBe('auth');
+    // 구조화 코드가 없는 예전 응답은 메시지로 판정한다.
+    expect(classifyOrderCollectionFailure(
+      {},
+      '롯데ON 2단계 인증을 완료해 주세요.',
+    )).toBe('auth');
+  });
+
   it('uses one structured-code-first decision for manual and automatic collection', () => {
     expect(classifyOrderCollectionFailure(
       { errorCode: 'login_required' },

@@ -22,6 +22,7 @@ describe('Sidebar product pipeline navigation', () => {
         ['/sourcing-ai/rising-products', '급상승 탐지'],
         ['/sourcing-ai/recommendations', '오늘의 추천'],
         ['/sourcing-ai/wholesale-search', '도매 상품 검색'],
+        ['/sourcing-ai/decision-center', '의사결정 센터'],
         ['/sourcing-ai/validation', '상품 검증'],
         ['/sourcing-ai/final-selection', '최종 선택'],
         ['/sourcing-ai/settings', '소싱 설정'],

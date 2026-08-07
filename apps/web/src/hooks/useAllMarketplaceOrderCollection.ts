@@ -13,7 +13,11 @@ import {
   saveGeneratedOrderFile,
 } from '@/app/(orders)/order-collection/lib/order-generated-file-store';
 import { runWithConcurrency } from '@/app/(orders)/order-collection/lib/order-collection-concurrency';
-import type { OrderCollectionExtensionRun } from '@/app/(orders)/order-collection/lib/order-collection-extension';
+import {
+  detectOrderCollectionSessionExtensionStatus,
+  type OrderCollectionExtensionRun,
+} from '@/app/(orders)/order-collection/lib/order-collection-extension';
+import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
   classifyOrderCollectionFailure,
   isBrowserCollectableMall,
@@ -102,12 +106,13 @@ export function useAllMarketplaceOrderCollection({
       account: OrderCollectionMallAccount,
       run?: OrderCollectionExtensionRun,
       directship?: { eddDates: string[] },
+      knownExtensionStatus?: ExtensionRuntimeStatus,
     ) => {
       markCollecting(account.key, true);
       let activeRun = run;
       try {
         if (!activeRun) {
-          activeRun = await prepareRun(account) ?? undefined;
+          activeRun = await prepareRun(account, undefined, knownExtensionStatus) ?? undefined;
         }
         if (!activeRun) {
           throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
@@ -190,9 +195,12 @@ export function useAllMarketplaceOrderCollection({
 
     let successCount = 0;
     let failedCount = 0;
+    // 확장 감지는 배치 시작 때 한 번만 한다. 수집이 돌기 시작하면 서비스워커가 바빠져
+    // `ping` 이 감지 타임아웃을 넘기고, 살아 있는 확장을 "찾을 수 없음" 으로 오판한다.
+    const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
     await runWithConcurrency(accounts, COLLECT_ALL_CONCURRENCY, async (account) => {
       try {
-        await collectAccount(account);
+        await collectAccount(account, undefined, undefined, extensionStatus);
         successCount += 1;
       } catch {
         failedCount += 1;

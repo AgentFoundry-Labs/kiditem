@@ -186,8 +186,8 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery (scraper ingest and SourcingCandidate inbox), reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
-| `apps/server/src/supply` | Owner Domain | Supplier registry, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, versioned source entitlements, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
+| `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
 | `apps/server/src/uploads` | Platform Capability | Upload endpoint and storage bridge. |
@@ -223,8 +223,8 @@ folders are intentionally absent from this map.
 | `apps/server/src/products/categories` | Flat | `/api/categories` compatibility capability under products ownership. |
 | `apps/server/src/readiness` | Flat | readiness controller/service. |
 | `apps/server/src/rules` | Flat | HTTP orchestration delegates execution to Agent OS ports. |
-| `apps/server/src/sourcing` | Hexagonal | sourcing agent/products boundaries behind ports/adapters. |
-| `apps/server/src/supply` | Hexagonal | Supplier/procurement persistence, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
+| `apps/server/src/sourcing` | Hexagonal | Discovery, source/evidence ledger, launch identity, decision policy, and sourcing agent/products boundaries behind ports/adapters; Supply handoffs use only the exported incoming procurement port. |
+| `apps/server/src/supply` | Hexagonal | Supplier/offer/procurement persistence, create-only pre-purchase intents, idempotent external submission attempts, the narrow opaque Inventory-fence transaction adapter, and Rocket preview policy behind ports/adapters; architecture + module wiring specs freeze invariants. |
 | `apps/server/src/uploads` | Flat | upload controller/service/storage bridge. |
 
 ### Backend Structure Contracts
@@ -260,14 +260,14 @@ Initial domain capability targets:
 
 | Owner | Resources | Tools | Workflows | Sinks |
 |---|---|---|---|---|
-| `sourcing` | Duplicate URL/candidate/preparation lookup and read context. | Product URL scrape through browser/runtime, search result scrape. | Duplicate-check → scrape → candidate ingest → preparation → account registration. | Candidate ingest/rejection and preparation lifecycle/finalization. |
+| `sourcing` | Duplicate URL, source entitlement, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → entitled collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
 | `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
 | `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, derived nullable MasterProduct summaries, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and option-to-inventory correction flows. | Listing registration/update, option recipe matching, derived MasterProduct summary projection, and channel order/status ingestion; never physical stock publication. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
-| `supply` | Supplier, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, deterministic Rocket capacity preview, and procurement calculation helpers. | Freshness-fenced purchase submission and explicit provider reconciliation. | Supplier attach, purchase-order creation/update, and attempt terminal state; never freshness or stock. |
+| `supply` | Supplier, supplier-offer snapshot, procurement test intent, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, exact variant/tier/MOQ validation, deterministic Rocket capacity preview, and procurement calculation helpers. | Reviewed pre-purchase intent handoff, freshness-fenced purchase submission, and explicit provider reconciliation. | Immutable offer snapshot and proposed intent creation, supplier attach, purchase-order creation/update, and attempt terminal state; never recommendation scoring, freshness, or stock. |
 | `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, and snapshot normalization. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only transfer/picking flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer. |
 | `orders` | Order, return, CS, review, return-transfer, and Sellpia transmission-intent reads. | Return/CS classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return, CS, and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
 
@@ -391,7 +391,7 @@ Kinds:
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
 | `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
-| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
+| `apps/web/src/app/(sourcing-ai)` | Route Group | `sourcing-ai`, `sourcing-ai/category-sourcing`, `sourcing-ai/competitor-analysis`, `sourcing-ai/decision-center` (초기 진입 추천 표: 1688 신상품·키워드 트렌드·쿠팡 경쟁상품·쿠팡 급상승을 합쳐 상품을 직접 추천하고, 관심 키워드로 분류하며, 자사 데이터 RAG 어시스턴트를 곁들인다), `sourcing-ai/final-selection`, `sourcing-ai/keywords`, `sourcing-ai/market`, `sourcing-ai/recommendations`, `sourcing-ai/settings`, `sourcing-ai/validation`, `sourcing-ai/wholesale-search`, `sourcing-ai/wing-catalog` |
 | `apps/web/src/app/(product-pipeline)` | Route Group | `detail-page-client-render` (fullscreen extension capture surface), `product-pipeline/collected-products`, `product-pipeline/collected-products/[id]`, `product-pipeline/collected-products/[id]/editor`, `product-pipeline/collected-products/[id]/templates`, `product-pipeline/detail-pages/[generationId]/editor`, `product-pipeline/detail-template-generation`, `product-pipeline/productgenerate`, `product-pipeline/registered-products`, `product-pipeline/registered-products/[workspaceId]`, `product-pipeline/thumbnail-ai`, `product-pipeline/thumbnail-generation`, `product-pipeline/thumbnail-generation/edit` |
 | `apps/web/src/app/(supply)` | Route Group | `/purchase-orders` is the general purchasing surface only; Supply owns the Rocket preview and confirmation contracts consumed by `/rocket-orders`. |
 | `apps/web/src/app/agent-os` | App Internal | Fullscreen visualization surfaces `/agent-os` and `/agent-os/network`, separate from `/agents`. |
@@ -556,6 +556,98 @@ not artifact authority. Capture failure does not fall back to server
 Puppeteer, image splitting/stitching, a blob URL, or unrelated candidate
 images. `DetailPageRevision` remains the source of truth even though the Wing
 raster executor was removed.
+
+## Sourcing Intelligence Evidence And Test-Intent Boundary
+
+Sourcing intelligence is a truth-data and decision-audit capability, not an
+LLM-generated ordering shortcut. Sourcing owns source permission, evidence,
+candidate identity, and recommendation policy. Supply owns observed supplier
+commercial terms and every pre-purchase intent. The only cross-owner mutation
+is `SOURCING_SUPPLY_INTELLIGENCE_PORT` backed by Supply's exported
+`SUPPLY_SOURCING_PROCUREMENT_PORT`; Sourcing never writes Supply models.
+
+```text
+reviewed SourcingSourceEntitlementVersion
+  -> SourcingEvidenceIngestionRun
+  -> append-only SourcingEvidenceObservation
+  -> immutable SupplierOfferSkuSnapshot + SupplierOfferPriceTier (Supply)
+  -> exact SourcingLaunchCandidate
+  -> SourcingDecisionBatch + item/evidence ledger
+  -> proposed ProcurementTestIntent (Supply)
+  -X-> PurchaseOrder or provider submission
+```
+
+Source lifecycle is `proposed -> onboarding -> shadow -> qualified`, with
+`suspended` as an immediate stop. Onboarding and shadow evidence may be
+collected and retained, but only a current, unexpired, kill-switch-free
+`qualified + enabled` entitlement may affect scoring or later training.
+Credentials are references such as `env:` or `vault:` values; raw credentials
+are never persisted in entitlement rows.
+
+Each entitlement is exact to `(organizationId, sourceKey, scopeKey, version)`.
+An enabled source must also freeze its permitted fields, coverage numerator and
+denominator meaning, minimum run coverage, freshness, revision, and retention
+contracts. Collection, offer freezing, launch freezing, and procurement-intent
+creation recheck the current exact scope; switching version, suspension,
+permission expiry, or the kill switch closes the old lane instead of falling
+back to a default scope.
+
+`SourcingEvidenceObservation` is revision-aware and append-only. Every decision
+freezes the exact observation IDs that were available at its cutoff, while the
+repository preserves event, observation, availability, revision, ingestion,
+payload-hash, and source-contract provenance. A client cannot submit model
+versions, scores, canonical decisions, calibrated probabilities, or policy
+propensities. Those fields are server-derived.
+
+One observation series has sequential revisions and an immutable source,
+scope, platform, concept, entity, schema, granularity, and signal-role envelope.
+Only the absolute latest revision from a completed ingestion run that meets the
+current source's minimum coverage and freshness contract may support a positive
+decision. Partial, unknown-coverage, below-threshold, superseded, failed, or
+quarantined evidence remains context only. A positive recommendation requires
+the exact role pair `Coupang + demand` and `1688 + supply`, at least three
+evidence families, and at least two platforms; risk or compliance observations
+cannot be relabeled as positive demand or supply.
+
+Run coverage is server-derived from distinct first-revision observation series
+over the frozen expected denominator; correction revisions never increase it,
+and a conflicting collector-supplied percentage is rejected. Decision-batch
+commit acquires the same source-scope and observation-series advisory locks as
+source review and evidence append, then rechecks exact entitlement version,
+permission, quality contract, run coverage/freshness, and absolute latest
+revision before persisting any `support:*` evidence.
+
+`SourcingLaunchCandidate` requires an unexpired `exact_variant` supplier offer,
+known order-unit conversion, opaque product-concept and Korean sellable-bundle
+version keys, target channel account, launch quantity/price/fulfillment, and
+versioned compliance, IP, quality, and launch-plan snapshots. It is the stable
+identity for later outcome labels; a broad 1688 offer or a visually similar
+Coupang item is not a launch identity.
+
+For a test-order intent, the launch's initial order quantity is the requested
+purchase-unit quantity. Supply freezes the selected offer's physical units per
+purchase unit and the launch's physical units per Korean sellable bundle, then
+requires exact quantity conservation:
+
+```text
+requestedSellableUnits
+  = requestedPurchaseUnits * unitsPerPurchaseUnit / unitsPerSellableBundle
+```
+
+The division must be exact. These conversion inputs and outputs are part of the
+immutable request hash and are recomputed under the transaction lock before the
+intent is inserted. RFQ/sample records without a LaunchCandidate do not invent
+a sellable-unit quantity.
+
+The current discovery model is a deterministic Phase 0 baseline. Its
+`confidence` is source coverage, not purchase-success probability, so decision
+batches are persisted as `shadow` and the canonical policy keeps them on
+`hold` (or `reject` for hard gates/non-positive P10 economics). It never
+fabricates `policyProbability`, and cannot create a `test_order` intent. RFQ or
+sample intents may be proposed only when their Supply identity rules pass.
+Actual contextual-bandit or reinforcement learning starts only after immutable
+assignment/exposure and outcome ledgers produce calibrated labels; no such
+training or automatic provider action is enabled by this foundation.
 
 ## Account-Scoped Registration And Content Ownership (`0.1.8`–`0.1.25`)
 
@@ -774,6 +866,8 @@ Exact operation and recovery steps live in the
 [freshness runbook](runbooks/sellpia-inventory-freshness.md),
 [channel matching runbook](runbooks/channel-sellpia-matching.md), and
 [Rocket confirmation boundary](runbooks/sellpia-rocket-inventory-sync.md).
+Source/evidence onboarding through the non-ordering procurement handoff lives
+in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligence-phase0.md).
 
 ## Data And Tenant Rules
 

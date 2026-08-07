@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
 import {
   SOURCING_1688_KEYWORD_SEARCH_PORT,
@@ -34,6 +34,12 @@ import {
   DEFAULT_STATIONERY_TOY_TREND_SEEDS,
   DOUYIN_TREND_TOY_STATIONERY_SEEDS,
 } from '../../domain/stationery-toy-trend';
+import {
+  TREND_EVIDENCE_SOURCE_KEYS,
+  TrendEvidenceIngestionService,
+  type TrendEvidenceIngestionResult,
+  type TrendEvidenceSource,
+} from './trend-evidence-ingestion.service';
 import type { TrendCollectionPort } from '../port/in/trend-collection.port';
 
 const TREND_SOURCE_ORDER = ['naver', '1688', 'shorts'] as const;
@@ -66,6 +72,8 @@ export interface TrendSourceCollectResult {
 export interface TrendCollectResult {
   businessDate: string;
   results: TrendSourceCollectResult[];
+  /** 증거 원장 적재 결과. 실행 주체를 모르거나 적재할 소스가 없으면 null. */
+  evidence?: TrendEvidenceIngestionResult | null;
 }
 
 export interface Extension1688TrendBatchInput {
@@ -144,7 +152,10 @@ export class TrendCollectService implements TrendCollectionPort {
     private readonly shortstrend: ShortstrendTrendPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly repository: TrendCollectionRepositoryPort,
+    private readonly evidenceIngestion: TrendEvidenceIngestionService,
   ) {}
+
+  private readonly logger = new Logger(TrendCollectService.name);
 
   listSeeds(organizationId: string): Promise<TrendSeedRow[]> {
     return this.repository.listSeeds(organizationId);
@@ -277,7 +288,11 @@ export class TrendCollectService implements TrendCollectionPort {
     };
   }
 
-  async collect(organizationId: string, sources?: TrendCollectSource[]): Promise<TrendCollectResult> {
+  async collect(
+    organizationId: string,
+    sources?: TrendCollectSource[],
+    triggeredByUserId?: string | null,
+  ): Promise<TrendCollectResult> {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const requested = normalizeSources(sources);
@@ -308,7 +323,45 @@ export class TrendCollectService implements TrendCollectionPort {
       }
     }
 
-    return { businessDate: toDateString(businessDate), results };
+    const businessDateString = toDateString(businessDate);
+    const evidence = await this.ingestEvidence({
+      organizationId,
+      triggeredByUserId,
+      businessDate: businessDateString,
+      results,
+    });
+
+    return { businessDate: businessDateString, results, evidence };
+  }
+
+  /**
+   * 수집 성공한 소스만 증거 원장에 적재한다. 적재 실패는 수집 결과를 되돌리지 않는다 —
+   * 스냅샷은 이미 저장됐고, 원장 적재는 그 위에 얹는 별도 기록이다.
+   */
+  private async ingestEvidence(input: {
+    organizationId: string;
+    triggeredByUserId: string | null | undefined;
+    businessDate: string;
+    results: TrendSourceCollectResult[];
+  }): Promise<TrendEvidenceIngestionResult | null> {
+    if (!input.triggeredByUserId) return null;
+    const ingestable = input.results
+      .filter((result) => result.ok && result.collected > 0)
+      .map((result) => result.source)
+      .filter((source): source is TrendEvidenceSource => source in TREND_EVIDENCE_SOURCE_KEYS);
+    if (ingestable.length === 0) return null;
+
+    try {
+      return await this.evidenceIngestion.ingest({
+        organizationId: input.organizationId,
+        triggeredByUserId: input.triggeredByUserId,
+        businessDate: input.businessDate,
+        sources: ingestable,
+      });
+    } catch (error) {
+      this.logger.error(`[trend-collect] 증거 원장 적재 실패: ${errorMessage(error)}`);
+      return null;
+    }
   }
 
   private async safe(

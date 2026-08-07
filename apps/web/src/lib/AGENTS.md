@@ -14,6 +14,11 @@ multiple route groups.
   `fetchRaw()` and the caller checks `res.ok` or `res.status`.
 - `getParsed`, `patchParsed`, and `uploadParsed` surface Zod schema drift at
   the client boundary.
+- A Nest handler returning `null` sends a body-less 200. `get` turns that into
+  `{}`, which is truthy and slips past a caller's `if (!x)` guard until a
+  required field reads back `undefined`. A GET whose handler can return `null`
+  uses `getNullable`, which normalizes the empty body to `null`. Do not flip
+  the `get` default or re-implement the check at the call site.
 - `apiClient` attaches the current opaque bearer token and owns local-session
   clearing for `auth_required`; it never refreshes or retries a 401.
 

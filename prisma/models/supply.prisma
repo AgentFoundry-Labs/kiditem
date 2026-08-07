@@ -16,10 +16,11 @@ model Supplier {
   createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  supplierProducts SupplierProduct[]
-  purchaseOrders   PurchaseOrder[]
-  payments         SupplierPayment[]
+  organization      Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierProducts  SupplierProduct[]
+  offerSkuSnapshots SupplierOfferSkuSnapshot[]
+  purchaseOrders    PurchaseOrder[]
+  payments          SupplierPayment[]
 
   @@unique([id, organizationId], map: "suppliers_id_org_key")
   @@index([organizationId])
@@ -51,6 +52,140 @@ model SupplierProduct {
   @@index([supplierId])
   @@index([sellpiaInventorySkuId])
   @@map("supplier_products")
+}
+
+/// @namespace Supply
+/// @describe Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant.
+model SupplierOfferSkuSnapshot {
+  id                    String  @id @default(uuid()) @db.Uuid
+  organizationId        String  @map("organization_id") @db.Uuid
+  evidenceObservationId String  @map("evidence_observation_id") @db.Uuid
+  supplierId            String? @map("supplier_id") @db.Uuid
+
+  identityStatus      String  @map("identity_status") @db.VarChar(30)
+  sourcePlatform      String  @map("source_platform") @db.VarChar(60)
+  sourceUrl           String? @map("source_url") @db.Text
+  externalSupplierKey String? @map("external_supplier_key") @db.VarChar(200)
+  externalOfferId     String  @map("external_offer_id") @db.VarChar(200)
+  externalSkuId       String? @map("external_sku_id") @db.VarChar(200)
+  variantKey          String? @map("variant_key") @db.VarChar(300)
+  productName         String  @map("product_name") @db.VarChar(300)
+  supplierName        String? @map("supplier_name") @db.VarChar(300)
+  variantName         String? @map("variant_name") @db.VarChar(300)
+
+  currency                  String   @db.VarChar(3)
+  orderUnit                 String?  @map("order_unit") @db.VarChar(60)
+  unitsPerOrderUnit         Int?     @map("units_per_order_unit")
+  minOrderQuantity          Int?     @map("min_order_quantity")
+  sampleAvailable           Boolean? @map("sample_available")
+  samplePriceCny            Decimal? @map("sample_price_cny") @db.Decimal(12, 2)
+  domesticFreightCny        Decimal? @map("domestic_freight_cny") @db.Decimal(12, 2)
+  productionLeadTimeDaysMin Int?     @map("production_lead_time_days_min")
+  productionLeadTimeDaysMax Int?     @map("production_lead_time_days_max")
+  dispatchLeadTimeDaysMin   Int?     @map("dispatch_lead_time_days_min")
+  dispatchLeadTimeDaysMax   Int?     @map("dispatch_lead_time_days_max")
+  grossWeightGrams          Int?     @map("gross_weight_grams")
+  lengthMm                  Int?     @map("length_mm")
+  widthMm                   Int?     @map("width_mm")
+  heightMm                  Int?     @map("height_mm")
+  material                  String?  @db.VarChar(300)
+  packCount                 Int?     @map("pack_count")
+
+  capturedAt   DateTime  @map("captured_at") @db.Timestamptz
+  validUntil   DateTime? @map("valid_until") @db.Timestamptz
+  snapshotHash String    @map("snapshot_hash") @db.VarChar(64)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization           Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation    SourcingEvidenceObservation @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplier               Supplier?                   @relation(fields: [supplierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  priceTiers             SupplierOfferPriceTier[]
+  launchCandidates       SourcingLaunchCandidate[]
+  decisionBatchItems     SourcingDecisionBatchItem[]
+  procurementTestIntents ProcurementTestIntent[]
+
+  @@unique([id, organizationId], map: "supplier_offer_sku_snapshots_id_org_key")
+  @@unique([organizationId, snapshotHash], map: "supplier_offer_sku_snapshots_org_hash_key")
+  @@index([evidenceObservationId])
+  @@index([supplierId])
+  @@index([organizationId, sourcePlatform, externalOfferId, variantKey, capturedAt], map: "supplier_offer_sku_snapshots_offer_variant_captured_idx")
+  @@index([organizationId, identityStatus, capturedAt], map: "supplier_offer_sku_snapshots_identity_captured_idx")
+  @@map("supplier_offer_sku_snapshots")
+}
+
+/// @namespace Supply
+/// @describe Immutable quantity price tier nested under one supplier-offer snapshot.
+model SupplierOfferPriceTier {
+  id                         String   @id @default(uuid()) @db.Uuid
+  organizationId             String   @map("organization_id") @db.Uuid
+  supplierOfferSkuSnapshotId String   @map("supplier_offer_sku_snapshot_id") @db.Uuid
+  minQuantity                Int      @map("min_quantity")
+  maxQuantity                Int?     @map("max_quantity")
+  unitPriceCny               Decimal  @map("unit_price_cny") @db.Decimal(12, 2)
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization             Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  supplierOfferSkuSnapshot SupplierOfferSkuSnapshot @relation(fields: [supplierOfferSkuSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  procurementTestIntents   ProcurementTestIntent[]
+
+  @@unique([id, organizationId], map: "supplier_offer_price_tiers_id_org_key")
+  @@unique([supplierOfferSkuSnapshotId, minQuantity], map: "supplier_offer_price_tiers_snapshot_min_quantity_key")
+  @@index([organizationId, supplierOfferSkuSnapshotId])
+  @@map("supplier_offer_price_tiers")
+}
+
+/// @namespace Supply
+/// @describe Reviewable pre-inventory RFQ, sample, or test-order intent. Approval never submits to a provider; provider IO remains PurchaseOrderSubmissionAttempt-owned.
+model ProcurementTestIntent {
+  id                             String  @id @default(uuid()) @db.Uuid
+  organizationId                 String  @map("organization_id") @db.Uuid
+  decisionBatchItemId            String  @map("decision_batch_item_id") @db.Uuid
+  launchCandidateId              String? @map("launch_candidate_id") @db.Uuid
+  supplierOfferSkuSnapshotId     String  @map("supplier_offer_sku_snapshot_id") @db.Uuid
+  selectedPriceTierId            String? @map("selected_price_tier_id") @db.Uuid
+  sourceRecommendationArtifactId String  @map("source_recommendation_artifact_id") @db.Uuid
+  requestedByUserId              String  @map("requested_by_user_id") @db.Uuid
+  reviewedByUserId               String? @map("reviewed_by_user_id") @db.Uuid
+
+  kind           String @db.VarChar(40)
+  status         String @default("proposed") @db.VarChar(40)
+  idempotencyKey String @map("idempotency_key") @db.VarChar(300)
+  requestHash    String @map("request_hash") @db.VarChar(64)
+
+  requestedPurchaseUnits Int?     @map("requested_purchase_units")
+  unitsPerPurchaseUnit   Int?     @map("units_per_purchase_unit")
+  unitsPerSellableBundle Int?     @map("units_per_sellable_bundle")
+  requestedSellableUnits Int?     @map("requested_sellable_units")
+  selectedUnitPriceCny   Decimal? @map("selected_unit_price_cny") @db.Decimal(12, 2)
+  expectedGoodsTotalCny  Decimal? @map("expected_goods_total_cny") @db.Decimal(12, 2)
+  currency               String?  @db.VarChar(3)
+
+  expiresAt    DateTime? @map("expires_at") @db.Timestamptz
+  reviewedAt   DateTime? @map("reviewed_at") @db.Timestamptz
+  reviewReason String?   @map("review_reason") @db.Text
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization             Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  decisionBatchItem        SourcingDecisionBatchItem @relation(fields: [decisionBatchItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  launchCandidate          SourcingLaunchCandidate?  @relation(fields: [launchCandidateId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  supplierOfferSkuSnapshot SupplierOfferSkuSnapshot  @relation(fields: [supplierOfferSkuSnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  selectedPriceTier        SupplierOfferPriceTier?   @relation(fields: [selectedPriceTierId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  requestedByUser          User                      @relation("ProcurementTestIntentRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+  reviewedByUser           User?                     @relation("ProcurementTestIntentReviewedBy", fields: [reviewedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([id, organizationId], map: "procurement_test_intents_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "procurement_test_intents_org_idempotency_key")
+  @@index([decisionBatchItemId])
+  @@index([launchCandidateId])
+  @@index([supplierOfferSkuSnapshotId])
+  @@index([selectedPriceTierId])
+  @@index([organizationId, sourceRecommendationArtifactId])
+  @@index([requestedByUserId])
+  @@index([reviewedByUserId])
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, kind, createdAt])
+  @@map("procurement_test_intents")
 }
 
 /// @namespace Supply

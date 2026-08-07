@@ -32,8 +32,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 12 |
 | [Orders](erd/orders.md) | 13 |
-| [Sourcing](erd/sourcing.md) | 12 |
-| [Supply](erd/supply.md) | 10 |
+| [Sourcing](erd/sourcing.md) | 19 |
+| [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 11 |
 
 ## Model Index
@@ -114,7 +114,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Core | `channel_listing_options` | One sellable SKU under a channel listing. |
 | ChannelListingOptionInventoryComponent | Core | `channel_listing_option_inventory_components` | Confirmed Sellpia inventory consumption for one channel sellable option. |
 | LegalEntity | Core | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
-| MasterProduct | Core | `master_products` | KidItem-operated product identity and product-level operating metadata. |
+| MasterProduct | Core | `master_products` | Organization-owned canonical inventory product and sole official product ABC identity. |
 | MasterProductAbcEvaluation | Core | `master_product_abc_evaluations` | Current Products-owned automatic profitability ABC explanation snapshot for one MasterProduct. |
 | MasterProductAbcFormulaState | Core | `master_product_abc_formula_states` | One Prisma-owned current-formula pointer for each organization. |
 | MasterProductAbcFormulaVersion | Core | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for automatic product profitability ABC. |
@@ -134,7 +134,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | PickingItem | Inventory | `picking_items` | - |
 | PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
-| SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
+| SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
 | SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | Inventory | `stock_audits` | - |
@@ -162,9 +162,17 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingDecisionBatch | Sourcing | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
+| SourcingDecisionBatchItem | Sourcing | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
+| SourcingDecisionEvidence | Sourcing | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
+| SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable collector attempt tied to the exact entitlement version, request hash, collection window, coverage, and terminal result. |
+| SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
+| SourcingLaunchCandidate | Sourcing | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
+| SourcingSourceEntitlementVersion | Sourcing | `sourcing_source_entitlement_versions` | Versioned source-access contract. A collector may run or influence decisions only through the one current reviewed version for its source scope. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | Sourcing | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
+| ProcurementTestIntent | Supply | `procurement_test_intents` | Reviewable pre-inventory RFQ, sample, or test-order intent. Approval never submits to a provider; provider IO remains PurchaseOrderSubmissionAttempt-owned. |
 | PurchaseOrder | Supply | `purchase_orders` | 발주 state machine (draft→pending→ordered→shipped→received). 입고 검수 필드 포함 (receivedQty, defectQty). 단위는 CNY(Decimal 12,2). |
 | PurchaseOrderItem | Supply | `purchase_order_items` | - |
 | PurchaseOrderSubmissionAttempt | Supply | `purchase_order_submission_attempts` | Durable idempotency intent and reconciliation record for an external purchase-order submission. |
@@ -173,6 +181,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | RocketPurchaseConfirmationLine | Supply | `rocket_purchase_confirmation_lines` | Immutable Rocket workbook line decision and matching final-order evidence. |
 | RocketPurchaseConfirmationTransmission | Supply | `rocket_purchase_confirmation_transmissions` | One transport-specific Coupang collection probe and optional stable Sellpia transmission key for a Rocket workbook export. |
 | Supplier | Supply | `suppliers` | - |
+| SupplierOfferPriceTier | Supply | `supplier_offer_price_tiers` | Immutable quantity price tier nested under one supplier-offer snapshot. |
+| SupplierOfferSkuSnapshot | Supply | `supplier_offer_sku_snapshots` | Immutable observed supplier-offer identity and commercial terms before a Sellpia inventory SKU exists. identityStatus is offer_only or exact_variant. |
 | SupplierPayment | Supply | `supplier_payments` | - |
 | SupplierProduct | Supply | `supplier_products` | 공급사별 Sellpia 물리 상품 단위 공급가/주공급처 정책. |
 | ActionTask | System | `action_tasks` | 액션 보드 (수동 할일 관리). |
@@ -1805,6 +1815,33 @@ erDiagram
     String notes
     DateTime createdAt
   }
+  ProcurementTestIntent {
+    String id PK
+    String organizationId FK
+    String decisionBatchItemId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String selectedPriceTierId FK
+    String sourceRecommendationArtifactId
+    String requestedByUserId FK
+    String reviewedByUserId FK
+    String kind
+    String status
+    String idempotencyKey
+    String requestHash
+    Int requestedPurchaseUnits
+    Int unitsPerPurchaseUnit
+    Int unitsPerSellableBundle
+    Int requestedSellableUnits
+    Decimal selectedUnitPriceCny
+    Decimal expectedGoodsTotalCny
+    String currency
+    DateTime expiresAt
+    DateTime reviewedAt
+    String reviewReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
   ProductPreparation {
     String id PK
     String organizationId FK
@@ -2138,6 +2175,7 @@ erDiagram
   SellpiaInventorySku {
     String id PK
     String organizationId FK
+    String masterProductId FK
     String code
     String name
     String optionName
@@ -2411,6 +2449,215 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingDecisionBatch {
+    String id PK
+    String organizationId FK
+    String requestedByUserId FK
+    String idempotencyKey
+    String requestHash
+    String decisionMode
+    DateTime businessDate
+    DateTime decisionAt
+    DateTime evidenceCutoffAt
+    String policyKey
+    String policyVersion
+    String modelVersionKey
+    String status
+    String keyword
+    String category
+    String modelPipeline
+    String modelGeneratorVersion
+    DateTime expiresAt
+    String heuristicArtifactHash
+    Int capitalBudgetKrw
+    Int testSlotLimit
+    String constraintSetHash
+    DateTime createdAt
+  }
+  SourcingDecisionBatchItem {
+    String id PK
+    String organizationId FK
+    String decisionBatchId FK
+    String launchCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String itemKey
+    String modelCandidateId
+    String displayName
+    Int rank
+    String baselineDecision
+    String decision
+    Boolean executionEligible
+    String confidenceKind
+    Decimal policyProbability
+    Int evidenceFamilyCount
+    Int evidencePlatformCount
+    Boolean hasCoupangEvidence
+    Boolean has1688Evidence
+    String nextEvidenceAction
+    Decimal heuristicScore
+    Decimal decisionConfidence
+    Int expectedContributionProfit90dKrw
+    Int capitalAtRiskKrw
+    StringArray reasonCodes
+    StringArray riskCodes
+    Json modelOutput
+    String featureManifestHash
+    DateTime createdAt
+  }
+  SourcingDecisionEvidence {
+    String id PK
+    String organizationId FK
+    String decisionBatchItemId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingEvidenceIngestionRun {
+    String id PK
+    String organizationId FK
+    String sourceEntitlementVersionId FK
+    String targetKey
+    String idempotencyKey
+    String requestHash
+    String collectorKey
+    String collectorVersion
+    String triggerKind
+    String triggeredByUserId FK
+    String status
+    DateTime sourceWindowStartAt
+    DateTime sourceWindowEndAt
+    String watermarkBefore
+    String watermarkAfter
+    Int discoveredCount
+    Int acceptedCount
+    Int rejectedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    Json qualityReport
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingEvidenceObservation {
+    String id PK
+    String organizationId FK
+    String ingestionRunId FK
+    String supersedesObservationId FK
+    String sourceKey
+    String platform
+    String evidenceFamily
+    String signalRole
+    String conceptKey
+    Boolean supportsCandidate
+    String observationKey
+    Int revision
+    String sourceEntityType
+    String sourceEntityKey
+    String observationType
+    String schemaVersion
+    String evidenceClass
+    String decisionImpact
+    DateTime eventAt
+    DateTime observedAt
+    DateTime availableAt
+    DateTime revisionAt
+    DateTime businessDate
+    String sourceRevisionKey
+    String sourceUrl
+    String payloadHash
+    Json payload
+    String rawArtifactRef
+    DateTime ingestedAt
+    DateTime createdAt
+  }
+  SourcingLaunchCandidate {
+    String id PK
+    String organizationId FK
+    String sourceCandidateId FK
+    String supplierOfferSkuSnapshotId FK
+    String targetChannelAccountId FK
+    String supersedesLaunchCandidateId FK
+    String candidateSeriesKey
+    Int revision
+    String identityHash
+    String name
+    String productConceptVersionKey
+    String koreanSellableBundleVersionKey
+    String launchPlanVersionKey
+    String complianceAssessmentVersionKey
+    String ipClearanceVersionKey
+    String qualitySpecVersionKey
+    Int intendedAgeMinMonths
+    Int intendedAgeMaxMonths
+    String intendedUse
+    String materialProfileKey
+    String labelingProfileKey
+    Int unitsPerSellableBundle
+    Int initialOrderQuantity
+    Int targetSalePriceKrw
+    String fulfillmentMode
+    String economicsStatus
+    String complianceStatus
+    String qualityStatus
+    String ipStatus
+    Int landedCostKrw
+    Int profitP10Krw
+    StringArray blockingRiskCodes
+    StringArray unknownRiskCodes
+    Json bundleSnapshot
+    Json launchPlanSnapshot
+    Json economicsSnapshot
+    Json complianceSnapshot
+    Json qualitySnapshot
+    Json ipSnapshot
+    DateTime validUntil
+    String createdByUserId FK
+    DateTime createdAt
+  }
+  SourcingSourceEntitlementVersion {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    Int version
+    String versionHash
+    String sourceLifecycle
+    String decisionImpact
+    String ownerLabel
+    String legalBasis
+    String allowedMethod
+    String credentialRef
+    StringArray permittedFields
+    StringArray prohibitedUses
+    Int rateLimitValue
+    Int rateLimitWindowSeconds
+    StringArray geographyCoverage
+    String coverageDefinition
+    String accountCoverage
+    String searchCoverage
+    String categoryCoverage
+    String denominatorDefinition
+    String historyBackfillPolicy
+    Int expectedDelaySeconds
+    Int maxStalenessSeconds
+    Int minimumCoverageBps
+    String revisionPolicy
+    Int retentionDays
+    DateTime permissionStartsAt
+    DateTime permissionExpiresAt
+    Boolean killSwitch
+    String killReason
+    Boolean isCurrent
+    String reviewedByUserId FK
+    DateTime reviewedAt
+    DateTime retiredAt
+    DateTime createdAt
+  }
   SourcingWorkspaceSnapshot {
     String id PK
     String organizationId FK
@@ -2463,6 +2710,52 @@ erDiagram
     String status
     DateTime createdAt
     DateTime updatedAt
+  }
+  SupplierOfferPriceTier {
+    String id PK
+    String organizationId FK
+    String supplierOfferSkuSnapshotId FK
+    Int minQuantity
+    Int maxQuantity
+    Decimal unitPriceCny
+    DateTime createdAt
+  }
+  SupplierOfferSkuSnapshot {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String supplierId FK
+    String identityStatus
+    String sourcePlatform
+    String sourceUrl
+    String externalSupplierKey
+    String externalOfferId
+    String externalSkuId
+    String variantKey
+    String productName
+    String supplierName
+    String variantName
+    String currency
+    String orderUnit
+    Int unitsPerOrderUnit
+    Int minOrderQuantity
+    Boolean sampleAvailable
+    Decimal samplePriceCny
+    Decimal domesticFreightCny
+    Int productionLeadTimeDaysMin
+    Int productionLeadTimeDaysMax
+    Int dispatchLeadTimeDaysMin
+    Int dispatchLeadTimeDaysMax
+    Int grossWeightGrams
+    Int lengthMm
+    Int widthMm
+    Int heightMm
+    String material
+    Int packCount
+    DateTime capturedAt
+    DateTime validUntil
+    String snapshotHash
+    DateTime createdAt
   }
   SupplierPayment {
     String id PK
@@ -2822,6 +3115,7 @@ erDiagram
   ChannelAccount ||--o{ RocketPoCatalogSnapshot : "channelAccount"
   ChannelAccount ||--o{ RocketPurchaseConfirmation : "channelAccount"
   ChannelAccount o|--o{ SourceImportRun : "channelAccount"
+  ChannelAccount ||--o{ SourcingLaunchCandidate : "targetChannelAccount"
   ChannelAdTargetDailySnapshot o|--o{ AdAction : "adTargetDaily"
   ChannelListing o|--o{ AdAction : "listing"
   ChannelListing o|--o{ ChannelAdTargetDailySnapshot : "listing"
@@ -2896,6 +3190,7 @@ erDiagram
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
   MasterProduct ||--o{ ProcessingCost : "master"
+  MasterProduct o|--o{ SellpiaInventorySku : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
@@ -2991,6 +3286,7 @@ erDiagram
   Organization ||--o{ PickingItem : "organization"
   Organization ||--o{ PickingList : "organization"
   Organization ||--o{ ProcessingCost : "organization"
+  Organization ||--o{ ProcurementTestIntent : "organization"
   Organization ||--o{ ProductPreparation : "organization"
   Organization ||--o{ ProductRegistrationExecution : "organization"
   Organization ||--o{ ProfitLoss : "organization"
@@ -3025,10 +3321,19 @@ erDiagram
   Organization ||--o{ SourceImportRun : "organization"
   Organization ||--o{ Sourcing1688HotProductDailySnapshot : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
+  Organization ||--o{ SourcingDecisionBatch : "organization"
+  Organization ||--o{ SourcingDecisionBatchItem : "organization"
+  Organization ||--o{ SourcingDecisionEvidence : "organization"
+  Organization ||--o{ SourcingEvidenceIngestionRun : "organization"
+  Organization ||--o{ SourcingEvidenceObservation : "organization"
+  Organization ||--o{ SourcingLaunchCandidate : "organization"
+  Organization ||--o{ SourcingSourceEntitlementVersion : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransfer : "organization"
   Organization ||--o{ Supplier : "organization"
+  Organization ||--o{ SupplierOfferPriceTier : "organization"
+  Organization ||--o{ SupplierOfferSkuSnapshot : "organization"
   Organization ||--o{ SupplierPayment : "organization"
   Organization ||--o{ SupplierProduct : "organization"
   Organization ||--o{ SystemSetting : "organization"
@@ -3083,10 +3388,28 @@ erDiagram
   SourcingCandidate o|--o{ ContentWorkspace : "sourceCandidate"
   SourcingCandidate ||--o{ DetailPageImageRenderIntent : "sourceCandidate"
   SourcingCandidate ||--o{ ProductPreparation : "sourceCandidate"
+  SourcingCandidate o|--o{ SourcingLaunchCandidate : "sourceCandidate"
   SourcingCandidate o|--o{ ThumbnailGeneration : "sourceCandidate"
+  SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
+  SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
+  SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
+  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
+  SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
+  SourcingEvidenceObservation ||--o{ SupplierOfferSkuSnapshot : "evidenceObservation"
+  SourcingLaunchCandidate o|--o{ ProcurementTestIntent : "launchCandidate"
+  SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"
+  SourcingLaunchCandidate o|--o| SourcingLaunchCandidate : "supersedesLaunchCandidate"
+  SourcingSourceEntitlementVersion ||--o{ SourcingEvidenceIngestionRun : "sourceEntitlementVersion"
   Supplier o|--o{ PurchaseOrder : "supplier"
+  Supplier o|--o{ SupplierOfferSkuSnapshot : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
   Supplier ||--o{ SupplierProduct : "supplier"
+  SupplierOfferPriceTier o|--o{ ProcurementTestIntent : "selectedPriceTier"
+  SupplierOfferSkuSnapshot ||--o{ ProcurementTestIntent : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot o|--o{ SourcingDecisionBatchItem : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot ||--o{ SourcingLaunchCandidate : "supplierOfferSkuSnapshot"
+  SupplierOfferSkuSnapshot ||--o{ SupplierOfferPriceTier : "supplierOfferSkuSnapshot"
   ThumbnailGeneration o|--o{ ContentWorkspaceThumbnailSelection : "sourceGeneration"
   ThumbnailGeneration o|--o{ ProductPreparation : "selectedThumbnailGeneration"
   ThumbnailGeneration ||--o{ ThumbnailGenerationCandidate : "generation"
@@ -3125,6 +3448,8 @@ erDiagram
   User o|--o{ OperationSchedule : "createdBy"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
+  User ||--o{ ProcurementTestIntent : "requestedByUser"
+  User o|--o{ ProcurementTestIntent : "reviewedByUser"
   User o|--o{ ProductPreparation : "approvedByUser"
   User o|--o{ ProductPreparation : "createdByUser"
   User o|--o{ ProductRegistrationExecution : "requestedByUser"
@@ -3137,6 +3462,10 @@ erDiagram
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"
   User o|--o{ SourcingCandidate : "rejectedByUser"
   User o|--o{ SourcingCandidate : "triggeredByUser"
+  User ||--o{ SourcingDecisionBatch : "requestedByUser"
+  User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
+  User ||--o{ SourcingLaunchCandidate : "createdByUser"
+  User ||--o{ SourcingSourceEntitlementVersion : "reviewedByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"

@@ -15,6 +15,7 @@ import {
   syncBrowserCollectionAlert,
   updateBrowserCollectionSessionCache,
 } from '@/lib/browser-collection-session';
+import type { ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
   detectOrderCollectionSessionExtensionStatus,
   finalizeOrderCollectionSession,
@@ -53,10 +54,19 @@ export function useOrderCollectionSessionControls(
   const prepareRun = useCallback(async (
     account: OrderCollectionMallAccount,
     existingRunId?: string,
+    /**
+     * 미리 해결한 확장 상태. 전체 수집처럼 여러 몰을 연달아 돌릴 때 쓴다.
+     *
+     * MV3 서비스워커는 단일 스레드라 수집이 도는 동안 `ping` 응답이 밀린다(실측 5.6초).
+     * 몰마다 다시 감지하면 1.2초 감지 타임아웃을 넘겨 살아 있는 확장을 "찾을 수 없음"
+     * 으로 오판한다. 배치 시작 때 한 번 감지해 그 결과를 모든 몰에 넘긴다.
+     */
+    knownExtensionStatus?: ExtensionRuntimeStatus,
   ): Promise<OrderCollectionExtensionRun | null> => {
     const nextRunId = await issueBrowserCollectionRunId(existingRunId);
     setRunId(nextRunId);
-    const extensionStatus = await detectOrderCollectionSessionExtensionStatus();
+    const extensionStatus = knownExtensionStatus
+      ?? await detectOrderCollectionSessionExtensionStatus();
     if (extensionStatus.status === 'ready') {
       const abortController = new AbortController();
       const sessionDate = session && existingRunId === session.runId &&

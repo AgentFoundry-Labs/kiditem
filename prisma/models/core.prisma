@@ -81,6 +81,9 @@ model Organization {
   suppliers                               Supplier[]
   supplierPayments                        SupplierPayment[]
   supplierProducts                        SupplierProduct[]
+  supplierOfferSkuSnapshots               SupplierOfferSkuSnapshot[]
+  supplierOfferPriceTiers                 SupplierOfferPriceTier[]
+  procurementTestIntents                  ProcurementTestIntent[]
   purchaseOrderItems                      PurchaseOrderItem[]
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationLines         RocketPurchaseConfirmationLine[]
@@ -189,6 +192,13 @@ model Organization {
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
   tiktokCreativeTrendDailySnapshots    TiktokCreativeTrendDailySnapshot[]
+  sourcingSourceEntitlementVersions    SourcingSourceEntitlementVersion[]
+  sourcingEvidenceIngestionRuns        SourcingEvidenceIngestionRun[]
+  sourcingEvidenceObservations         SourcingEvidenceObservation[]
+  sourcingLaunchCandidates             SourcingLaunchCandidate[]
+  sourcingDecisionBatches              SourcingDecisionBatch[]
+  sourcingDecisionBatchItems           SourcingDecisionBatchItem[]
+  sourcingDecisionEvidence             SourcingDecisionEvidence[]
 
   @@map("organizations")
 }
@@ -225,6 +235,12 @@ model User {
   approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
   requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
   requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
+  reviewedSourcingSourceEntitlements         SourcingSourceEntitlementVersion[]             @relation("SourcingSourceEntitlementVersionReviewedBy")
+  triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
+  requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
+  createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")
+  requestedProcurementTestIntents            ProcurementTestIntent[]                        @relation("ProcurementTestIntentRequestedBy")
+  reviewedProcurementTestIntents             ProcurementTestIntent[]                        @relation("ProcurementTestIntentReviewedBy")
   createdDetailPageArtifacts                 DetailPageArtifact[]                           @relation("DetailPageArtifactCreatedBy")
   createdDetailPageRevisions                 DetailPageRevision[]                           @relation("DetailPageRevisionCreatedBy")
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
@@ -355,6 +371,7 @@ model ChannelAccount {
   channelAccountDailyKpiSnapshots  ChannelAccountDailyKpiSnapshot[]
   rocketPurchaseConfirmations      RocketPurchaseConfirmation[]
   rocketPoCatalogSnapshots         RocketPoCatalogSnapshot[]
+  sourcingLaunchCandidates         SourcingLaunchCandidate[]
 
   @@unique([organizationId, channel, externalAccountId])
   @@unique([id, organizationId], map: "channel_accounts_id_org_key")

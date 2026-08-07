@@ -1,5 +1,6 @@
 import {
   Bot,
+  BrainCircuit,
   Boxes,
   Building2,
   ClipboardList,
@@ -65,6 +66,7 @@ export const menuSections: MenuSection[] = [
       { href: '/sourcing-ai/rising-products', label: '급상승 탐지', icon: Flame },
       { href: '/sourcing-ai/recommendations', label: '오늘의 추천', icon: Sparkles },
       { href: '/sourcing-ai/wholesale-search', label: '도매 상품 검색', icon: ShoppingCart, groupLabel: '소싱' },
+      { href: '/sourcing-ai/decision-center', label: '의사결정 센터', icon: BrainCircuit },
       { href: '/sourcing-ai/validation', label: '상품 검증', icon: ClipboardList },
       { href: '/sourcing-ai/final-selection', label: '최종 선택', icon: PackageCheck },
       { href: '/sourcing-ai/settings', label: '소싱 설정', icon: Settings, groupLabel: '설정' },

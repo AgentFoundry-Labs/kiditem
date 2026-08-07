@@ -15,7 +15,7 @@
 | PickingItem | `picking_items` | - |
 | PickingList | `picking_lists` | - |
 | ReturnTransfer | `return_transfers` | - |
-| SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia product-code row and its latest imported current stock. |
+| SellpiaInventorySku | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
 | SellpiaReceiptUploadBatch | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
 | StockAudit | `stock_audits` | - |
@@ -115,6 +115,7 @@ erDiagram
   SellpiaInventorySku {
     String id PK
     String organizationId FK
+    String masterProductId FK
     String code
     String name
     String optionName
@@ -238,6 +239,7 @@ erDiagram
 | PickingList | organization | references external | Core | Organization |
 | ReturnTransfer | organization | references external | Core | Organization |
 | SellpiaInventorySku | lastImportRun | references external | Core | SourceImportRun |
+| SellpiaInventorySku | masterProduct | references external | Core | MasterProduct |
 | SellpiaInventorySku | organization | references external | Core | Organization |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Channels | SellpiaManualMatchAlias |
 | SellpiaInventorySku | sellpiaInventorySku | referenced by external | Core | ChannelListingOptionInventoryComponent |

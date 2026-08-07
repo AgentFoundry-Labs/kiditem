@@ -132,6 +132,90 @@ describe('Sourcing1688NewProductModelService', () => {
     }));
   });
 
+  it('keeps one deterministic latest observation when the same 1688 offer appears on multiple dates', async () => {
+    repository.listRecent = vi.fn(async (input) => {
+      if (input.scope !== '1688_new_products') return [];
+      const older = row(input.scope, {
+        version: 1,
+        result: {
+          keyword: '필통',
+          items: [{
+            offerId: 'offer-shared',
+            title: '旧款高分磁吸笔盒',
+            sourceUrl: 'https://detail.1688.com/offer/991122.html',
+            priceCny: 9,
+            monthlySales: 8_000,
+            newProductSignal: 98,
+            tradeScore: 95,
+          }],
+        },
+        meta: meta(),
+      });
+      const latest = row(input.scope, {
+        version: 1,
+        result: {
+          keyword: '필통',
+          items: [
+            {
+              offerId: 'offer-shared',
+              title: '最新磁吸笔盒不完整记录',
+              sourceUrl: 'https://detail.1688.com/offer/991122.html',
+              priceCny: 500,
+              monthlySales: 0,
+              newProductSignal: 10,
+              tradeScore: 0,
+            },
+            {
+              offerId: 'offer-shared',
+              title: '最新磁吸笔盒',
+              sourceUrl: 'https://detail.1688.com/offer/991122.html',
+              priceCny: 18,
+              monthlySales: 12,
+              newProductSignal: 62,
+              tradeScore: 40,
+            },
+          ],
+        },
+        meta: meta(),
+      });
+      return [
+        {
+          ...older,
+          id: '1688-older',
+          businessDate: new Date('2026-05-27T00:00:00.000Z'),
+          updatedAt: new Date('2026-05-27T03:00:00.000Z'),
+        },
+        {
+          ...latest,
+          id: '1688-latest',
+          businessDate: new Date('2026-05-28T00:00:00.000Z'),
+          updatedAt: new Date('2026-05-28T03:00:00.000Z'),
+        },
+      ];
+    });
+
+    const result = await service.run({
+      organizationId: ORGANIZATION_ID,
+      days: 7,
+      limit: 20,
+    });
+
+    expect(result.result.candidates).toHaveLength(1);
+    expect(result.result.candidates[0]).toEqual(expect.objectContaining({
+      id: 'offer-shared',
+      offerId: 'offer-shared',
+      title: '最新磁吸笔盒',
+      sourceSnapshotId: '1688-latest',
+      sourceDate: '2026-05-28',
+      wholesale: expect.objectContaining({
+        priceCny: 18,
+        monthlySales: 12,
+      }),
+    }));
+    expect(new Set(result.result.candidates.map((candidate) => candidate.id)).size)
+      .toBe(result.result.candidates.length);
+  });
+
   it('reuses a same-day 1688-first model snapshot when available', async () => {
     repository.find = vi.fn(async () => row('sourcing_1688_new_product_model', {
       version: 1,
