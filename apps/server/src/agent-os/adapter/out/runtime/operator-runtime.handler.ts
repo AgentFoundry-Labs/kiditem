@@ -16,12 +16,6 @@ import { OperatorDecisionExecutor } from '../../../application/service/operator-
 import { OperatorDecisionParser } from '../../../application/service/operator-decision-parser.service';
 import { AgentTaskDelegationService } from '../../../application/service/agent-task-delegation.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
-import { HermesOperatorRuntimeAdapter } from './hermes-operator-runtime.adapter';
-import {
-  isRecoverableHermesRuntimeError,
-  readLatestHermesTaskFinalization,
-  runtimeErrorCode,
-} from './hermes-task-finalization';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './openai-responses-operator-runtime.adapter';
 
 function stringField(value: unknown): string | null {
@@ -31,10 +25,6 @@ function stringField(value: unknown): string | null {
 function selectedOperatorRuntime(): string | null {
   const value = process.env.AGENT_OS_OPERATOR_RUNTIME?.trim();
   return value && value.length > 0 ? value : null;
-}
-
-function hermesLeafAgentTypesConfigured(): boolean {
-  return Boolean(process.env.AGENT_OS_HERMES_LEAF_AGENT_TYPES?.trim());
 }
 
 function optionalPositiveInt(value: string | undefined): number | undefined {
@@ -80,49 +70,6 @@ function renderOperatorPrompt(context: unknown): string {
   ].join('\n');
 }
 
-function renderHermesToolLoopPrompt(context: unknown): string {
-  return [
-    'You are the KidItem Agent OS Operator running in Hermes tool-loop mode.',
-    'Use only the KidItem Agent OS MCP tools exposed to this session.',
-    'In Hermes, the KidItem MCP tools are exposed with these exact callable names:',
-    '- agent_os_read_context -> mcp_kiditem_agent_os_agent_os_read_context',
-    '- agent_os_read_task_graph -> mcp_kiditem_agent_os_agent_os_read_task_graph',
-    '- agent_os_read_artifacts -> mcp_kiditem_agent_os_agent_os_read_artifacts',
-    '- agent_os_finalize_task -> mcp_kiditem_agent_os_agent_os_finalize_task',
-    '- agent_os_list_agents -> mcp_kiditem_agent_os_agent_os_list_agents',
-    '- agent_os_create_task -> mcp_kiditem_agent_os_agent_os_create_task',
-    '- agent_os_request_user_input -> mcp_kiditem_agent_os_agent_os_request_user_input',
-    'Your next assistant action must be a tool call, not plain text.',
-    'Do not output an OperatorDecision JSON object.',
-    'Start by calling mcp_kiditem_agent_os_agent_os_read_context or mcp_kiditem_agent_os_agent_os_read_task_graph.',
-    'Create child agent tasks only through mcp_kiditem_agent_os_agent_os_create_task.',
-    'Leaf agents cannot create child tasks; if a leaf handoff is needed, the Operator must create it.',
-    'Hermes decides which Agent is needed from the user request, task graph, artifacts, and live-readiness context.',
-    'Hermes decides whether another Agent is needed after reading child task results.',
-    'When child results are needed in the same loop, request inline execution through executeMode: "inline".',
-    'Do not submit Coupang listings, register marketplace listings, or submit supplier purchase orders unless the user has approved the external side effect.',
-    'Finish by calling mcp_kiditem_agent_os_agent_os_finalize_task exactly once with status, summary, and artifactIds.',
-    'Free-form final text is non-authoritative and will be ignored unless mcp_kiditem_agent_os_agent_os_finalize_task succeeds.',
-    '',
-    JSON.stringify(contextForHermesToolLoop(context), null, 2),
-  ].join('\n');
-}
-
-function contextForHermesToolLoop(context: unknown): unknown {
-  if (!isRecord(context)) return context;
-  const projected: Record<string, unknown> = { ...context };
-  delete projected.instructionText;
-  projected.runtimeContract =
-    'Hermes tool-loop: choose Agent OS MCP tool calls, create child tasks through agent_os_create_task, and finish through agent_os_finalize_task.';
-  if (isRecord(projected.policy)) {
-    projected.policy = {
-      ...projected.policy,
-      outputFormat: 'kiditem_mcp_tool_loop',
-    };
-  }
-  return projected;
-}
-
 function findOperatorDecisionSchemaPath(): string | undefined {
   const configured = process.env.AGENT_OS_OPERATOR_OUTPUT_SCHEMA_PATH?.trim();
   if (configured) return configured;
@@ -145,10 +92,6 @@ function findOperatorDecisionSchemaPath(): string | undefined {
   return undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
 function extractFirstUrl(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const match = value.match(/https?:\/\/[^\s"'<>]+/i);
@@ -167,7 +110,6 @@ export class OperatorRuntimeHandler
     private readonly decisionParser: OperatorDecisionParser,
     private readonly decisionExecutor: OperatorDecisionExecutor,
     private readonly openAiRuntime: OpenAiResponsesOperatorRuntimeAdapter,
-    private readonly hermesRuntime: HermesOperatorRuntimeAdapter,
     @Inject(AGENT_OS_REPOSITORY_PORT)
     private readonly repository: AgentOsRepositoryPort,
   ) {}
@@ -181,22 +123,11 @@ export class OperatorRuntimeHandler
     if (runtime === 'openai_responses') {
       return this.executeOpenAiResponses(context);
     }
-    if (runtime === 'hermes') {
-      return this.executeHermes(context);
-    }
-    if (runtime === 'hermes_tool_loop') {
-      return this.executeHermesToolLoop(context);
-    }
     if (runtime) {
       throw new AgentOsRuntimeError(
         'operator_runtime_unsupported',
-        `Unsupported Agent OS Operator runtime: ${runtime}. Use hermes_tool_loop, hermes, or openai_responses.`,
-      );
-    }
-    if (hermesLeafAgentTypesConfigured()) {
-      throw new AgentOsRuntimeError(
-        'operator_runtime_required',
-        'AGENT_OS_OPERATOR_RUNTIME must be set when Hermes Leaf Agent runtime is configured.',
+        `Unsupported Agent OS Operator runtime: ${runtime}. ` +
+          'Use openai_responses or omit AGENT_OS_OPERATOR_RUNTIME for the deterministic path.',
       );
     }
 
@@ -318,181 +249,6 @@ export class OperatorRuntimeHandler
       provider: runtimeResult.provider,
       rawOutput: runtimeResult.rawOutput,
     });
-  }
-
-  private async executeHermes(
-    context: AgentRuntimeExecutionContext,
-  ): Promise<AgentRuntimeResult> {
-    const conversationId = stringField(context.input.conversationId);
-    if (!conversationId) {
-      return conversationIdRequired('hermes');
-    }
-
-    const operatorContext = await this.buildOperatorContext(
-      context,
-      conversationId,
-    );
-
-    await this.appendOperatorEvent(context, 'operator.runtime_started', { provider: 'hermes' });
-
-    let runtimeResult:
-      | Awaited<ReturnType<HermesOperatorRuntimeAdapter['decide']>>
-      | null = null;
-    let recoverableRuntimeError: unknown = null;
-    try {
-      runtimeResult = await this.hermesRuntime.decide({
-        organizationId: context.organizationId,
-        conversationId,
-        requestId: context.requestId,
-        runId: context.runId,
-        agentInstanceId: context.agentInstanceId,
-        agentType: context.agentType,
-        taskSessionId: context.taskSessionId,
-        requestedByUserId: stringField(context.input.requestedByUserId),
-        prompt: renderOperatorPrompt(operatorContext),
-        hermesPath: process.env.AGENT_OS_HERMES_PATH,
-        hermesHome: process.env.AGENT_OS_HERMES_HOME,
-        timeoutMs: optionalPositiveInt(process.env.AGENT_OS_HERMES_TIMEOUT_MS),
-        model: process.env.AGENT_OS_HERMES_MODEL ?? context.model,
-        provider: process.env.AGENT_OS_HERMES_PROVIDER,
-      });
-    } catch (error) {
-      await this.appendOperatorEvent(context, 'operator.runtime_failed', runtimeFailedData('hermes', error));
-      throw error;
-    }
-
-    await this.appendOperatorEvent(context, 'operator.runtime_completed', {
-      provider: runtimeResult.provider,
-      durationMs: runtimeResult.durationMs,
-      stdoutBytes: Buffer.byteLength(runtimeResult.rawOutput),
-      stderrBytes: Buffer.byteLength(runtimeResult.stderr),
-    });
-
-    return this.executeParsedDecision({
-      context,
-      conversationId,
-      provider: runtimeResult.provider,
-      rawOutput: runtimeResult.rawOutput,
-    });
-  }
-
-  private async executeHermesToolLoop(
-    context: AgentRuntimeExecutionContext,
-  ): Promise<AgentRuntimeResult> {
-    const conversationId = stringField(context.input.conversationId);
-    if (!conversationId) {
-      return conversationIdRequired('hermes_tool_loop');
-    }
-
-    const operatorContext = await this.buildOperatorContext(
-      context,
-      conversationId,
-    );
-
-    await this.appendOperatorEvent(context, 'operator.runtime_started', {
-      provider: 'hermes_tool_loop',
-    });
-
-    let runtimeResult:
-      | Awaited<ReturnType<HermesOperatorRuntimeAdapter['decide']>>
-      | null = null;
-    let recoverableRuntimeError: unknown = null;
-    try {
-      runtimeResult = await this.hermesRuntime.decide({
-        organizationId: context.organizationId,
-        conversationId,
-        requestId: context.requestId,
-        runId: context.runId,
-        agentInstanceId: context.agentInstanceId,
-        agentType: context.agentType,
-        taskSessionId: context.taskSessionId,
-        requestedByUserId: stringField(context.input.requestedByUserId),
-        prompt: renderHermesToolLoopPrompt(operatorContext),
-        hermesPath: process.env.AGENT_OS_HERMES_PATH,
-        hermesHome: process.env.AGENT_OS_HERMES_HOME,
-        timeoutMs: optionalPositiveInt(process.env.AGENT_OS_HERMES_TIMEOUT_MS),
-        model: process.env.AGENT_OS_HERMES_MODEL ?? context.model,
-        provider: process.env.AGENT_OS_HERMES_PROVIDER,
-        enableKidItemMcp: true,
-      });
-    } catch (error) {
-      if (!isRecoverableHermesRuntimeError(error)) {
-        await this.appendOperatorEvent(
-          context,
-          'operator.runtime_failed',
-          runtimeFailedData('hermes_tool_loop', error),
-        );
-        throw error;
-      }
-      recoverableRuntimeError = error;
-    }
-
-    try {
-      const finalization = await readLatestHermesTaskFinalization({
-        repository: this.repository,
-        organizationId: context.organizationId,
-        runId: context.runId,
-        acceptedFinalizationTools: [
-          'agent_os_finalize_task',
-          'agent_os_request_user_input',
-        ],
-      });
-      if (!finalization) {
-        throw new AgentOsRuntimeError(
-          recoverableRuntimeError
-            ? 'operator_runtime_finalization_missing_after_timeout'
-            : 'operator_runtime_finalization_missing',
-          recoverableRuntimeError
-            ? 'Hermes tool-loop runtime timed out before agent_os_finalize_task was recorded.'
-            : 'Hermes tool-loop runtime exited without agent_os_finalize_task.',
-        );
-      }
-      if (
-        finalization.status !== 'succeeded' &&
-        finalization.status !== 'waiting_approval'
-      ) {
-        throw new AgentOsRuntimeError(
-          'operator_runtime_task_failed',
-          stringField(finalization.error?.message) ??
-            'Hermes tool-loop task finalized as failed.',
-        );
-      }
-
-      await this.appendOperatorEvent(context, 'operator.runtime_completed', {
-        provider: 'hermes_tool_loop',
-        hermesProvider: runtimeResult?.provider ?? null,
-        durationMs: runtimeResult?.durationMs ?? null,
-        stdoutBytes:
-          runtimeResult === null
-            ? null
-            : Buffer.byteLength(runtimeResult.rawOutput),
-        stderrBytes:
-          runtimeResult === null
-            ? null
-            : Buffer.byteLength(runtimeResult.stderr),
-        finalizationEventId: finalization.id,
-        finalizationStatus: finalization.status,
-        reconciledAfterRuntimeError: recoverableRuntimeError !== null,
-        runtimeErrorCode: runtimeErrorCode(recoverableRuntimeError),
-      });
-
-      return {
-        provider: 'hermes_tool_loop',
-        output: {
-          status: finalization.status,
-          artifactIds: finalization.artifactIds,
-          summary: finalization.summary,
-          finalizationEventId: finalization.id,
-        },
-      };
-    } catch (error) {
-      await this.appendOperatorEvent(
-        context,
-        'operator.runtime_failed',
-        runtimeFailedData('hermes_tool_loop', error),
-      );
-      throw error;
-    }
   }
 
   private async buildOperatorContext(
