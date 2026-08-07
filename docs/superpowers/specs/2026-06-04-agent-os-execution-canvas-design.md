@@ -6,7 +6,7 @@ Date: 2026-06-04
 
 Agent OS should expose an execution-first canvas for agent work. The screen is
 not a workflow builder. It is a read-only execution workspace that visualizes
-what Hermes, the Operator, and leaf agents actually did while the user continues
+what the Operator and leaf agents actually did while the user continues
 to interact through chat.
 
 The selected V1 direction is **Agent Lanes**:
@@ -275,7 +275,7 @@ Implementation should include:
 - edge creation tests for parent task and invocation relationships
 - status mapping tests
 - React render tests for the execution canvas
-- visual validation of `/agent-os` with a seeded or live Hermes execution run
+- visual validation of `/agent-os` with a seeded or live Agent OS execution run
 
 The visual check should confirm:
 
@@ -292,5 +292,4 @@ The visual check should confirm:
 - Whether users can pin or rearrange artifact cards after execution completes.
 - Whether a future workflow-template builder should reuse this canvas component
   or live in a separate product surface.
-- Whether traces from Hermes should be shown as nested detail rows under tool
-  nodes or kept only in developer/debug views.
+- Whether model-provider traces should be shown as nested detail rows under tool nodes or kept only in developer/debug views.
