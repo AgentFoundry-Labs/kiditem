@@ -24281,7 +24281,7 @@
       "field": "organizationId",
       "field_type": "String",
       "id": "field_stocktransfer_organizationid",
-      "community": 91,
+      "community": 112,
       "norm_label": "stocktransfer.organizationid"
     },
     {
@@ -24317,7 +24317,7 @@
       "field": "fromWarehouseId",
       "field_type": "String",
       "id": "field_stocktransfer_fromwarehouseid",
-      "community": 112,
+      "community": 91,
       "norm_label": "stocktransfer.fromwarehouseid"
     },
     {
@@ -90848,5 +90848,5 @@
     }
   ],
   "hyperedges": [],
-  "built_at_commit": "74b368fe8ae0dadef2117875135c56f4dc268c44"
+  "built_at_commit": "371fc59e2d891460539575d6415b2f84136ea5ec"
 }

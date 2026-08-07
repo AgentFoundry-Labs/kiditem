@@ -1,4 +1,4 @@
-# Graph Report - schema  (2026-08-04)
+# Graph Report - schema  (2026-08-07)
 
 ## Corpus Check
 - 13 files · ~32,564 words
@@ -565,7 +565,7 @@ Nodes (19): RocketPurchaseOrder.businessDate, RocketPurchaseOrder.centerName, Ro
 
 ### Community 91 - "Inventory schema"
 Cohesion: 0.13
-Nodes (19): Shipment.warehouseId, StockTransfer.organizationId, StockTransfer.toWarehouseId, Warehouse.address, Warehouse.code, Warehouse.createdAt, Warehouse.id, Warehouse.isDefault (+11 more)
+Nodes (19): Shipment.warehouseId, StockTransfer.fromWarehouseId, StockTransfer.toWarehouseId, Warehouse.address, Warehouse.code, Warehouse.createdAt, Warehouse.id, Warehouse.isDefault (+11 more)
 
 ### Community 92 - "AI schema"
 Cohesion: 0.11
@@ -649,7 +649,7 @@ Nodes (17): SellpiaOrderTransmissionIntent.abortedAt, SellpiaOrderTransmissionIn
 
 ### Community 112 - "Inventory schema"
 Cohesion: 0.12
-Nodes (17): StockTransfer.completedAt, StockTransfer.createdAt, StockTransfer.fromWarehouse, StockTransfer.fromWarehouseId, StockTransfer.id, StockTransfer.notes, StockTransfer.optionName, StockTransfer.organization (+9 more)
+Nodes (17): StockTransfer.completedAt, StockTransfer.createdAt, StockTransfer.fromWarehouse, StockTransfer.id, StockTransfer.notes, StockTransfer.optionName, StockTransfer.organization, StockTransfer.organizationId (+9 more)
 
 ### Community 113 - "Supply schema"
 Cohesion: 0.12
