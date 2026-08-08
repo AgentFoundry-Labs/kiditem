@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Headers, HttpCode, HttpStatus, Inject, Param, Patch, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -33,6 +33,7 @@ export class TrendCollectionController {
     @Body() body: CollectTrendDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
     return this.operationRunner.start({
       organizationId,
@@ -40,7 +41,7 @@ export class TrendCollectionController {
       triggerSource: 'domain_screen',
       input: body.sources ? { sources: body.sources } : {},
       requestedByUserId: user.id,
-      idempotencyKey: null,
+      idempotencyKey: idempotencyKey?.trim() || null,
     });
   }
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { LiveCommerceService } from '../../../application/service/live-commerce.service';
 import { CollectTaobaoLiveDto, LiveCommerceQueryDto } from './dto/live-commerce.dto';
@@ -16,8 +16,9 @@ export class LiveCommerceController {
   collectTaobao(
     @Body() body: CollectTaobaoLiveDto,
     @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.liveCommerce.collectTaobao(organizationId, body);
+    return this.liveCommerce.collectTaobao(organizationId, body, idempotencyKey);
   }
 
   @Get('snapshots')

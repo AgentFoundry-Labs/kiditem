@@ -11,6 +11,7 @@ import type {
   NaverPopularKeywordSnapshotRow,
   TrendCollectionRepositoryPort,
 } from '../../port/out/repository/trend-collection.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 function board(ranks: Array<{ rank: number; keyword: string }>): NaverDatalabPopularKeywordBoard {
   return {
@@ -56,6 +57,31 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
     findPopularKeywordHistory: vi.fn(async () => history),
     replaceNaverPopularKeywordSnapshots: vi.fn(async () => boards[0].ranks.length),
   } as unknown as TrendCollectionRepositoryPort;
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000001',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000002',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000003',
+          entitlementVersionHash: 'a'.repeat(64),
+          decisionImpactAtIngest: 'enabled',
+          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      const rows = output.typedRecords
+        .filter((record: any) => record.kind === 'naver_popular_keyword')
+        .map((record: any) => record.row);
+      if (rows.length > 0) await trendRepo.replaceNaverPopularKeywordSnapshots(rows);
+      return { kind: 'committed', runId: input.idempotencyKey, acceptedCount: output.discoveredCount, duplicateCount: 0, staleDiscardedCount: 0 };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
   const noop = {} as unknown;
   const service = new NaverKeywordResearchService(
     noop as NaverKeywordResearchPort,
@@ -63,6 +89,7 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
     popular,
     noop as NaverAutocompleteKeywordPort,
     trendRepo,
+    collectionCoordinator,
   );
   return { service, trendRepo };
 }

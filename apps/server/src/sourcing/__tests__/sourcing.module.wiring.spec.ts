@@ -20,6 +20,7 @@ import { SourcingSourceRegistryService } from "../application/service/sourcing-s
 import { SourcingEvidenceLedgerService } from "../application/service/sourcing-evidence-ledger.service";
 import { SourcingLaunchCandidateService } from "../application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "../application/service/sourcing-decision-batch.service";
+import { SourcingCollectionCoordinator } from "../application/service/sourcing-collection-coordinator.service";
 import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
 import { SourcingDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-discovery-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
@@ -40,6 +41,7 @@ import { SourcingSourceRegistryRepositoryAdapter } from "../adapter/out/reposito
 import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repository/sourcing-decision-batch.repository.adapter";
+import { SourcingCollectionRepositoryAdapter } from "../adapter/out/repository/sourcing-collection.repository.adapter";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
@@ -77,6 +79,7 @@ import { SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT } from "../application/port/ou
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-decision-batch.repository.port";
+import { SOURCING_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection.repository.port";
 import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "../application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
@@ -160,6 +163,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingEvidenceLedgerService);
     expect(providers).toContain(SourcingLaunchCandidateService);
     expect(providers).toContain(SourcingDecisionBatchService);
+    expect(providers).toContain(SourcingCollectionCoordinator);
     expect(providers).toContain(TrendCollectService);
     expect(providers).toContain(TrendQueryService);
     expect(providers).toContain(LiveCommerceService);
@@ -190,6 +194,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingEvidenceLedgerRepositoryAdapter);
     expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingDecisionBatchRepositoryAdapter);
+    expect(providers).toContain(SourcingCollectionRepositoryAdapter);
     expect(providers).toContain(SourcingSupplyIntelligenceAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
@@ -311,6 +316,11 @@ describe("SourcingModule canonical owner wiring", () => {
       providers,
       SOURCING_DECISION_BATCH_REPOSITORY_PORT,
       SourcingDecisionBatchRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_COLLECTION_REPOSITORY_PORT,
+      SourcingCollectionRepositoryAdapter,
     );
     expectBinding(
       providers,

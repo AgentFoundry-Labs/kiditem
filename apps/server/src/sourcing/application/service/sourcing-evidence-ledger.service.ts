@@ -59,11 +59,13 @@ export class SourcingEvidenceLedgerService {
   }) {
     assertDateOrder(input.windowStartAt, input.windowEndAt, 'collection window');
     const requestedScopeKey = requiredText(input.scopeKey, 'scopeKey');
+    const startedAt = new Date();
     const authorization = await this.sources.authorize({
       organizationId: input.organizationId,
       sourceKey: input.sourceKey,
       scopeKey: requestedScopeKey,
       operation: 'collect',
+      at: startedAt,
     });
     if (!authorization.allowed || !authorization.entitlement) {
       throw new BadRequestException({
@@ -72,7 +74,6 @@ export class SourcingEvidenceLedgerService {
       });
     }
 
-    const startedAt = new Date();
     const normalized = {
       organizationId: input.organizationId,
       sourceEntitlementVersionId: authorization.entitlement.id,
@@ -127,6 +128,7 @@ export class SourcingEvidenceLedgerService {
       sourceKey: run.sourceKey,
       scopeKey: run.scopeKey,
       operation: 'collect',
+      at: new Date(),
     });
     if (!authorization.allowed || !authorization.entitlement) {
       throw new BadRequestException({
@@ -182,7 +184,7 @@ export class SourcingEvidenceLedgerService {
   async finalizeRun(input: {
     organizationId: string;
     runId: string;
-    status: Exclude<SourcingEvidenceRunStatus, 'collecting'>;
+    status: Exclude<SourcingEvidenceRunStatus, 'collecting' | 'cancel_requested'>;
     coverageBps?: number | null;
     watermarkEventAt?: Date | null;
     errorCode?: string | null;

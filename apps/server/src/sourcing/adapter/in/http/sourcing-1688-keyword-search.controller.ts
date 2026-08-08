@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { Sourcing1688KeywordSearchService } from '../../../application/service/sourcing-1688-keyword-search.service';
 import { Search1688KeywordDto } from './dto';
@@ -15,8 +15,9 @@ export class Sourcing1688KeywordSearchController {
   @Post()
   searchByKeyword(
     @Body() body: Search1688KeywordDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.keywordSearch.searchByKeyword(body);
+    return this.keywordSearch.searchByKeyword(organizationId, body, idempotencyKey);
   }
 }

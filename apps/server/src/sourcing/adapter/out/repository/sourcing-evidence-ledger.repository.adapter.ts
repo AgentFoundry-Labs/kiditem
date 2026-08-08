@@ -1013,11 +1013,14 @@ function assertAppendCommandsMatchRun(
 
 function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
   if (status === 'running') return 'collecting';
+  if (status === 'cancel_requested') return 'cancel_requested';
   if (
     status === 'complete' ||
     status === 'partial' ||
     status === 'failed' ||
-    status === 'quarantined'
+    status === 'quarantined' ||
+    status === 'cancelled' ||
+    status === 'superseded'
   ) {
     return status;
   }
@@ -1025,7 +1028,7 @@ function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
 }
 
 function toDatabaseRunStatus(
-  status: Exclude<SourcingEvidenceRunStatus, 'collecting'>,
+  status: Exclude<SourcingEvidenceRunStatus, 'collecting' | 'cancel_requested'>,
 ): string {
   return status;
 }

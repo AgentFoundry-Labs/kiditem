@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { NaverKeywordResearchService } from '../../../application/service/naver-keyword-research.service';
 import {
@@ -20,17 +20,19 @@ export class SourcingKeywordResearchController {
   @Post('related-keywords')
   searchRelatedKeywords(
     @Body() body: SearchNaverRelatedKeywordsDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.naverKeywordResearch.searchRelatedKeywords(body);
+    return this.naverKeywordResearch.searchRelatedKeywords(organizationId, body, idempotencyKey);
   }
 
   @Post('autocomplete-keywords')
   searchAutocompleteKeywords(
     @Body() body: SearchNaverAutocompleteKeywordsDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.naverKeywordResearch.searchAutocompleteKeywords(body);
+    return this.naverKeywordResearch.searchAutocompleteKeywords(organizationId, body, idempotencyKey);
   }
 
   @Get('datalab/status')
@@ -41,16 +43,18 @@ export class SourcingKeywordResearchController {
   @Post('datalab/search-trends')
   compareSearchTrends(
     @Body() body: CompareNaverDatalabSearchTrendsDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.naverKeywordResearch.compareSearchTrends(body);
+    return this.naverKeywordResearch.compareSearchTrends(organizationId, body, idempotencyKey);
   }
 
   @Post('datalab/popular-keywords')
   searchPopularKeywords(
     @Body() body: SearchNaverDatalabPopularKeywordsDto,
     @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.naverKeywordResearch.searchPopularKeywords(body, organizationId);
+    return this.naverKeywordResearch.searchPopularKeywords(body, organizationId, idempotencyKey);
   }
 }

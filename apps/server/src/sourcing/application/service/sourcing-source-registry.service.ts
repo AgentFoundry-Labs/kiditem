@@ -150,7 +150,7 @@ export class SourcingSourceRegistryService {
     sourceKey: string;
     scopeKey?: string;
     operation: SourceEntitlementOperation;
-    at?: Date;
+    at: Date;
   }): Promise<{
     allowed: boolean;
     reasonCode: string | null;

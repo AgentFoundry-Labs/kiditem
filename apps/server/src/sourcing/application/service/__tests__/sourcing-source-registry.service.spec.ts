@@ -41,11 +41,13 @@ describe('SourcingSourceRegistryService scope authorization', () => {
       sourceKey: '1688',
       scopeKey: 'stationery',
       operation: 'collect',
+      at: new Date('2026-08-08T00:00:00.000Z'),
     });
     const legacyDefault = await service.authorize({
       organizationId: 'org-1',
       sourceKey: '1688',
       operation: 'collect',
+      at: new Date('2026-08-08T00:00:00.000Z'),
     });
 
     expect(custom).toEqual({
@@ -113,6 +115,7 @@ describe('SourcingSourceRegistryService scope authorization', () => {
       organizationId: 'org-1',
       sourceKey: '1688',
       operation: 'score',
+      at: new Date('2026-08-08T00:00:00.000Z'),
     })).resolves.toMatchObject({
       allowed: false,
       reasonCode: 'source_quality_contract_incomplete',

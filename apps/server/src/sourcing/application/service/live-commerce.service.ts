@@ -1,4 +1,5 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { kstBusinessDate } from '../../../common/kst';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import {
@@ -13,6 +14,12 @@ import {
   type LiveCommerceRepositoryPort,
   type LiveCommerceSource,
 } from '../port/out/repository/live-commerce.repository.port';
+import {
+  hashCollectionRequest,
+  mapTrendTypedRecordsToAuthorizedOutput,
+  normalizeCollectionTarget,
+} from './sourcing-collection-mappers';
+import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 
 const MAX_LIVE_KEYWORD_SAMPLE_TITLES = 3;
 
@@ -65,6 +72,7 @@ export class LiveCommerceService {
     private readonly taobao: TaobaoLivePort,
     @Inject(LIVE_COMMERCE_REPOSITORY_PORT)
     private readonly repository: LiveCommerceRepositoryPort,
+    private readonly collectionCoordinator: SourcingCollectionCoordinator,
   ) {}
 
   async status(organizationId: string) {
@@ -111,44 +119,69 @@ export class LiveCommerceService {
   async collectTaobao(
     organizationId: string,
     input: { queryDate?: string; liveIds?: string[]; pageSize?: number },
+    idempotencyKey?: string,
   ) {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const queryDate = input.queryDate ?? formatChinaCalendarDate(capturedAt);
-    const result = await this.taobao.collect({
-      queryDate,
-      liveIds: input.liveIds ?? [],
-      pageSize: input.pageSize ?? 100,
-    });
-    const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
-      organizationId,
-      businessDate,
-      source: 'taobao',
-      ...room,
-      capturedAt,
-    }));
-    const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
-      organizationId,
-      businessDate,
-      source: 'taobao',
-      ...product,
-      capturedAt,
-    }));
-    const [broadcastCount, productCount] = await Promise.all([
-      this.repository.upsertBroadcastSnapshots(broadcasts),
-      this.repository.upsertProductSnapshots(products),
-    ]);
+    let collected: { broadcastCount: number; productCount: number; warnings: string[] } | null = null;
+    await this.collectionCoordinator.execute(
+      liveCollectionRequest({
+        organizationId,
+        sourceKey: 'taobao.live',
+        targetKey: queryDate,
+        idempotencyKey,
+        request: input,
+        collectorKey: 'taobao-live-collection',
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        const result = await this.taobao.collect({
+          queryDate,
+          liveIds: input.liveIds ?? [],
+          pageSize: input.pageSize ?? 100,
+        });
+        const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
+          organizationId,
+          businessDate,
+          source: 'taobao',
+          ...room,
+          capturedAt,
+        }));
+        const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
+          organizationId,
+          businessDate,
+          source: 'taobao',
+          ...product,
+          capturedAt,
+        }));
+        collected = {
+          broadcastCount: broadcasts.length,
+          productCount: products.length,
+          warnings: result.warnings,
+        };
+        await checkpoint();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: [
+            ...broadcasts.map((row) => ({ kind: 'live_commerce_broadcast' as const, row })),
+            ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
+          ],
+          qualityReport: { source: 'taobao', warningCount: result.warnings.length },
+        });
+      },
+    );
+    if (!collected) throw new BadRequestException('An idempotent Taobao collection is already in progress.');
     return {
       businessDate: toDateString(businessDate),
-      broadcastCount,
-      productCount,
-      warnings: result.warnings,
+      ...collected,
     };
   }
 
   async ingestExtension(
     organizationId: string,
     input: ExtensionLiveCommerceIngestInput,
+    idempotencyKey?: string,
   ) {
     assertSourcePageUrl(input.source, input.pageUrl);
     const capturedAt = new Date();
@@ -192,15 +225,32 @@ export class LiveCommerceService {
         capturedAt,
       });
     }
-    const [broadcastCount, productCount] = await Promise.all([
-      this.repository.upsertBroadcastSnapshots([broadcast]),
-      this.repository.upsertProductSnapshots(products),
-    ]);
+    await this.collectionCoordinator.execute(
+      liveCollectionRequest({
+        organizationId,
+        sourceKey: `${input.source}.live_commerce`,
+        targetKey: broadcastId,
+        idempotencyKey,
+        request: input,
+        collectorKey: `extension-${input.source}-live-commerce`,
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: [
+            { kind: 'live_commerce_broadcast', row: broadcast },
+            ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
+          ],
+          qualityReport: { source: input.source, mode: 'extension' },
+        });
+      },
+    );
     return {
       businessDate: toDateString(businessDate),
       source: input.source,
-      broadcastCount,
-      productCount,
+      broadcastCount: 1,
+      productCount: products.length,
     };
   }
 
@@ -409,4 +459,28 @@ function latestRows<T extends { capturedAt: Date }>(rows: T[], keyOf: (row: T) =
 
 function toDateString(date: Date): string {
   return date.toISOString().slice(0, 10);
+}
+
+function liveCollectionRequest(input: {
+  organizationId: string;
+  sourceKey: string;
+  targetKey: string;
+  idempotencyKey?: string;
+  request: unknown;
+  collectorKey: string;
+}) {
+  const requestHash = hashCollectionRequest(input.request);
+  return {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKey,
+    scopeKey: 'default',
+    targetKey: normalizeCollectionTarget(input.targetKey),
+    idempotencyKey: input.idempotencyKey?.trim() || `${input.collectorKey}:${randomUUID()}`,
+    requestHash,
+    collectorKey: input.collectorKey,
+    collectorVersion: '2026-08-08',
+    triggerKind: 'manual' as const,
+    triggeredByUserId: null,
+    leaseDurationMs: 120_000,
+  };
 }

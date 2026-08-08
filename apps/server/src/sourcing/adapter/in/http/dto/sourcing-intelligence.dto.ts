@@ -290,10 +290,14 @@ export class AppendEvidenceObservationsDto {
 }
 
 export class FinalizeEvidenceRunDto {
-  @IsIn(SOURCING_EVIDENCE_RUN_STATUSES.filter((status) => status !== 'collecting'))
+  @IsIn(
+    SOURCING_EVIDENCE_RUN_STATUSES.filter(
+      (status) => status !== 'collecting' && status !== 'cancel_requested',
+    ),
+  )
   status!: Exclude<
     (typeof SOURCING_EVIDENCE_RUN_STATUSES)[number],
-    'collecting'
+    'collecting' | 'cancel_requested'
   >;
 
   @IsOptional()

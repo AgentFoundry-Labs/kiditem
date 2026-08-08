@@ -52,8 +52,8 @@ import { SourcingSourceRegistryService } from "./application/service/sourcing-so
 import { SourcingEvidenceLedgerService } from "./application/service/sourcing-evidence-ledger.service";
 import { SourcingLaunchCandidateService } from "./application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "./application/service/sourcing-decision-batch.service";
+import { SourcingCollectionCoordinator } from "./application/service/sourcing-collection-coordinator.service";
 import { TrendCollectService } from "./application/service/trend-collect.service";
-import { TrendEvidenceIngestionService } from "./application/service/trend-evidence-ingestion.service";
 import { TrendQueryService } from "./application/service/trend-query.service";
 import { LiveCommerceService } from "./application/service/live-commerce.service";
 import { NaverDatalabPopularKeywordAdapter } from "./adapter/out/naver/naver-datalab-popular-keyword.adapter";
@@ -68,6 +68,7 @@ import { SourcingSourceRegistryRepositoryAdapter } from "./adapter/out/repositor
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
+import { SourcingCollectionRepositoryAdapter } from "./adapter/out/repository/sourcing-collection.repository.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "./adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "./adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { TrendCollectionRepositoryAdapter } from "./adapter/out/repository/trend-collection.repository.adapter";
@@ -120,6 +121,7 @@ import { SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT } from "./application/port/out
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
+import { SOURCING_COLLECTION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection.repository.port";
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
@@ -203,8 +205,8 @@ import {
     SourcingEvidenceLedgerService,
     SourcingLaunchCandidateService,
     SourcingDecisionBatchService,
+    SourcingCollectionCoordinator,
     TrendCollectService,
-    TrendEvidenceIngestionService,
     SourcingTrendOperationHandler,
     TrendQueryService,
     LiveCommerceService,
@@ -226,6 +228,7 @@ import {
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
     SourcingDecisionBatchRepositoryAdapter,
+    SourcingCollectionRepositoryAdapter,
     SourcingWorkspaceSnapshotRepositoryAdapter,
     MarketShadowSnapshotRepositoryAdapter,
     TrendCollectionRepositoryAdapter,
@@ -328,6 +331,10 @@ import {
     {
       provide: SOURCING_DECISION_BATCH_REPOSITORY_PORT,
       useExisting: SourcingDecisionBatchRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_COLLECTION_REPOSITORY_PORT,
+      useExisting: SourcingCollectionRepositoryAdapter,
     },
     {
       provide: SOURCING_SUPPLY_INTELLIGENCE_PORT,

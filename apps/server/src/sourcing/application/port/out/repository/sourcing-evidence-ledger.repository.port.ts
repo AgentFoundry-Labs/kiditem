@@ -30,10 +30,13 @@ export type SourcingEvidenceSignalRole =
 
 export const SOURCING_EVIDENCE_RUN_STATUSES = [
   'collecting',
+  'cancel_requested',
   'complete',
   'partial',
   'failed',
   'quarantined',
+  'cancelled',
+  'superseded',
 ] as const;
 
 export type SourcingEvidenceRunStatus =
@@ -167,7 +170,7 @@ export type AppendSourcingEvidenceObservationsResult =
 export interface FinalizeSourcingEvidenceRunCommand {
   organizationId: string;
   runId: string;
-  status: Exclude<SourcingEvidenceRunStatus, 'collecting'>;
+  status: Exclude<SourcingEvidenceRunStatus, 'collecting' | 'cancel_requested'>;
   coverageBps: number | null;
   watermarkEventAt: Date | null;
   errorCode: string | null;

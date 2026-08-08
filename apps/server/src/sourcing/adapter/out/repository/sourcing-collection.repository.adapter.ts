@@ -1,0 +1,809 @@
+import { Injectable } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { PrismaService } from '../../../../prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
+import { evaluateSourceEntitlement } from '../../../domain/source-entitlement-policy';
+import {
+  isActiveCollectionStatus,
+  terminalStatusForCollectionError,
+} from '../../../domain/sourcing-collection-run';
+import type {
+  AuthorizedCollectionOutput,
+  ClaimAuthorizedRunInput,
+  ClaimAuthorizedRunResult,
+  CommitAuthorizedCollectionInput,
+  CommitAuthorizedCollectionResult,
+  FailAuthorizedCollectionInput,
+  SourcingCollectionPermit,
+  SourcingCollectionRepositoryPort,
+  SourcingTypedCollectionRecord,
+} from '../../../application/port/out/repository/sourcing-collection.repository.port';
+
+const MAX_LEASE_DURATION_MS = 15 * 60_000;
+
+@Injectable()
+export class SourcingCollectionRepositoryAdapter
+  implements SourcingCollectionRepositoryPort
+{
+  constructor(private readonly prisma: PrismaService) {}
+
+  async claimAuthorizedRun(
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult> {
+    validateClaim(input);
+    return this.prisma.$transaction(async (tx) => {
+      await lockCollectionTarget(tx, input);
+      const now = await databaseClock(tx);
+
+      const idempotent = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          idempotencyKey: input.idempotencyKey,
+        },
+        include: { sourceEntitlementVersion: true },
+      });
+      if (idempotent) {
+        if (idempotent.requestHash !== input.requestHash) {
+          return { kind: 'idempotency_conflict' };
+        }
+        return { kind: 'existing', permit: toPermit(idempotent) };
+      }
+
+      const active = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          status: { in: ['collecting', 'cancel_requested'] },
+        },
+        include: { sourceEntitlementVersion: true },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (active && active.leaseExpiresAt > now && !active.cancelRequestedAt) {
+        return { kind: 'existing', permit: toPermit(active) };
+      }
+      const nextGeneration = (active?.generation ?? 0) + 1;
+      if (active) {
+        await tx.sourcingEvidenceIngestionRun.update({
+          where: { id: active.id },
+          data: {
+            status: active.cancelRequestedAt ? 'cancelled' : 'superseded',
+            completedAt: now,
+            errorCode: active.cancelRequestedAt
+              ? 'COLLECTION_CANCELLED'
+              : 'COLLECTION_LEASE_EXPIRED',
+          },
+        });
+      }
+
+      const entitlement = await findAuthorizedEntitlement(tx, {
+        organizationId: input.organizationId,
+        sourceKey: input.sourceKey,
+        scopeKey: input.scopeKey,
+        at: now,
+      });
+      if (!entitlement.allowed) {
+        return { kind: 'denied', reasonCode: entitlement.reasonCode };
+      }
+
+      const leaseExpiresAt = new Date(
+        now.getTime() + Math.min(input.leaseDurationMs, MAX_LEASE_DURATION_MS),
+      );
+      const run = await tx.sourcingEvidenceIngestionRun.create({
+        data: {
+          organizationId: input.organizationId,
+          sourceEntitlementVersionId: entitlement.row.id,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          collectorKey: input.collectorKey,
+          collectorVersion: input.collectorVersion,
+          triggerKind: input.triggerKind,
+          triggeredByUserId: input.triggeredByUserId,
+          status: 'collecting',
+          leaseExpiresAt,
+          authorizationCheckedAt: now,
+          entitlementVersionHash: entitlement.row.versionHash,
+          generation: nextGeneration,
+          startedAt: now,
+          coverageNumerator: 0,
+          qualityReport: {} as Prisma.InputJsonValue,
+        },
+        include: { sourceEntitlementVersion: true },
+      });
+      return { kind: 'claimed', permit: toPermit(run) };
+    });
+  }
+
+  async checkpoint(
+    permit: SourcingCollectionPermit,
+  ): Promise<'continue' | 'cancel' | 'superseded'> {
+    return this.prisma.$transaction(async (tx) => {
+      const now = await databaseClock(tx);
+      const run = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: { id: permit.runId, organizationId: permit.organizationId },
+      });
+      if (!run || run.leaseToken !== permit.leaseToken || run.generation !== permit.generation) {
+        return 'superseded';
+      }
+      if (run.cancelRequestedAt || run.status === 'cancel_requested') return 'cancel';
+      if (run.status !== 'collecting' || run.leaseExpiresAt <= now) return 'superseded';
+      return 'continue';
+    });
+  }
+
+  async commit(
+    input: CommitAuthorizedCollectionInput,
+  ): Promise<CommitAuthorizedCollectionResult> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockCollectionPermit(tx, input.permit);
+      const now = await databaseClock(tx);
+      const run = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: { id: input.permit.runId, organizationId: input.permit.organizationId },
+        include: { sourceEntitlementVersion: true },
+      });
+      if (!run || run.leaseToken !== input.permit.leaseToken || run.generation !== input.permit.generation) {
+        return { kind: 'lease_lost' };
+      }
+      if (run.cancelRequestedAt || run.status === 'cancel_requested') {
+        await completeRun(tx, run.id, now, 'cancelled', {
+          errorCode: 'COLLECTION_CANCELLED',
+        });
+        return { kind: 'cancelled' };
+      }
+      if (run.status !== 'collecting' || run.leaseExpiresAt <= now) {
+        await completeRun(tx, run.id, now, 'superseded', {
+          errorCode: 'COLLECTION_LEASE_EXPIRED',
+        });
+        return { kind: 'superseded' };
+      }
+
+      const entitlement = await findAuthorizedEntitlement(tx, {
+        organizationId: input.permit.organizationId,
+        sourceKey: input.permit.sourceKey,
+        scopeKey: input.permit.scopeKey,
+        at: now,
+      });
+      if (
+        !entitlement.allowed ||
+        entitlement.row.id !== input.permit.entitlementVersionId ||
+        entitlement.row.versionHash !== input.permit.entitlementVersionHash
+      ) {
+        await completeRun(tx, run.id, now, 'quarantined', {
+          errorCode: 'SOURCE_AUTHORIZATION_CHANGED',
+        });
+        return { kind: 'authorization_changed' };
+      }
+
+      const observationResult = await appendObservations(tx, input.permit, input.output, now);
+      const typedResult = await persistTypedRecords(tx, input.output.typedRecords);
+      const acceptedCount = Math.max(
+        0,
+        input.output.discoveredCount - input.output.rejectedCount - typedResult.staleDiscardedCount,
+      );
+      const duplicateCount = observationResult.duplicateCount + typedResult.duplicateCount;
+      await completeRun(tx, run.id, now, input.output.rejectedCount > 0 ? 'partial' : 'complete', {
+        discoveredCount: input.output.discoveredCount,
+        acceptedCount,
+        rejectedCount: input.output.rejectedCount,
+        duplicateCount,
+        staleDiscardedCount: typedResult.staleDiscardedCount,
+        qualityReport: input.output.qualityReport as Prisma.InputJsonValue,
+      });
+      return {
+        kind: 'committed',
+        runId: run.id,
+        acceptedCount,
+        duplicateCount,
+        staleDiscardedCount: typedResult.staleDiscardedCount,
+      };
+    });
+  }
+
+  async fail(input: FailAuthorizedCollectionInput): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await lockCollectionPermit(tx, input.permit);
+      const now = await databaseClock(tx);
+      const run = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: { id: input.permit.runId, organizationId: input.permit.organizationId },
+      });
+      if (!run || run.leaseToken !== input.permit.leaseToken || run.generation !== input.permit.generation) {
+        return;
+      }
+      if (!isActiveCollectionStatus(run.status)) return;
+      await completeRun(
+        tx,
+        run.id,
+        now,
+        terminalStatusForCollectionError(input.error),
+        {
+          errorCode: input.error.code,
+          errorMessage: input.error.message,
+        },
+      );
+    });
+  }
+
+  async requestCancel(input: {
+    organizationId: string;
+    runId: string;
+    requestedByUserId: string;
+  }): Promise<void> {
+    await this.prisma.sourcingEvidenceIngestionRun.updateMany({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        status: 'collecting',
+      },
+      data: { status: 'cancel_requested', cancelRequestedAt: new Date() },
+    });
+  }
+}
+
+type Transaction = Prisma.TransactionClient;
+
+async function findAuthorizedEntitlement(
+  tx: Transaction,
+  input: { organizationId: string; sourceKey: string; scopeKey: string; at: Date },
+): Promise<
+  | { allowed: true; row: { id: string; versionHash: string } & EntitlementPolicyRow }
+  | { allowed: false; reasonCode: string; row: { id: string; versionHash: string } & EntitlementPolicyRow }
+> {
+  const row = await tx.sourcingSourceEntitlementVersion.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      sourceKey: input.sourceKey,
+      scopeKey: input.scopeKey,
+      isCurrent: true,
+    },
+    select: {
+      id: true,
+      versionHash: true,
+      sourceLifecycle: true,
+      decisionImpact: true,
+      killSwitch: true,
+      permissionStartsAt: true,
+      permissionExpiresAt: true,
+    },
+  });
+  if (!row) {
+    return {
+      allowed: false,
+      reasonCode: 'source_entitlement_missing',
+      row: missingEntitlementRow(),
+    };
+  }
+  const policy = evaluateSourceEntitlement({
+    lifecycle: row.sourceLifecycle as EntitlementPolicyRow['sourceLifecycle'],
+    decisionImpact: row.decisionImpact as EntitlementPolicyRow['decisionImpact'],
+    operation: 'collect',
+    killSwitch: row.killSwitch,
+    permissionStartsAt: row.permissionStartsAt,
+    permissionExpiresAt: row.permissionExpiresAt,
+    at: input.at,
+  });
+  if (!policy.allowed) {
+    return {
+      allowed: false,
+      reasonCode: `source_entitlement_${policy.reason}`,
+      row: row as { id: string; versionHash: string } & EntitlementPolicyRow,
+    };
+  }
+  return {
+    allowed: true,
+    row: row as { id: string; versionHash: string } & EntitlementPolicyRow,
+  };
+}
+
+type EntitlementPolicyRow = {
+  sourceLifecycle: 'proposed' | 'onboarding' | 'shadow' | 'qualified' | 'suspended';
+  decisionImpact: 'disabled' | 'enabled';
+  killSwitch: boolean;
+  permissionStartsAt: Date | null;
+  permissionExpiresAt: Date | null;
+};
+
+function missingEntitlementRow(): { id: string; versionHash: string } & EntitlementPolicyRow {
+  return {
+    id: '',
+    versionHash: '',
+    sourceLifecycle: 'proposed',
+    decisionImpact: 'disabled',
+    killSwitch: false,
+    permissionStartsAt: null,
+    permissionExpiresAt: null,
+  };
+}
+
+async function appendObservations(
+  tx: Transaction,
+  permit: SourcingCollectionPermit,
+  output: AuthorizedCollectionOutput,
+  now: Date,
+): Promise<{ duplicateCount: number }> {
+  let duplicateCount = 0;
+  for (const observation of output.observations) {
+    if (
+      observation.organizationId !== permit.organizationId ||
+      observation.ingestionRunId !== permit.runId ||
+      observation.sourceEntitlementVersionId !== permit.entitlementVersionId ||
+      observation.sourceKey !== permit.sourceKey
+    ) {
+      throw new Error('Collection observation does not match its authorized permit.');
+    }
+    await lockObservation(tx, observation.organizationId, observation.observationKey);
+    const existing = await tx.sourcingEvidenceObservation.findFirst({
+      where: {
+        organizationId: observation.organizationId,
+        observationKey: observation.observationKey,
+        revision: observation.revision,
+      },
+      select: { id: true, envelopeHash: true },
+    });
+    const envelopeHash = hashCanonicalJson({
+      sourceKey: observation.sourceKey,
+      sourceEntityType: observation.sourceEntityType,
+      sourceEntityId: observation.sourceEntityId,
+      platform: observation.platform,
+      evidenceFamily: observation.evidenceFamily,
+      signalRole: observation.signalRole,
+      granularity: observation.granularity,
+      conceptKey: observation.conceptKey,
+      supportsCandidate: observation.supportsCandidate,
+      sourceUrl: observation.sourceUrl,
+      eventAt: observation.eventAt,
+      observedAt: observation.observedAt,
+      availableAt: observation.availableAt,
+      revisionAt: observation.revisionAt,
+      payloadHash: observation.payloadHash,
+    });
+    if (existing) {
+      if (existing.envelopeHash !== envelopeHash) {
+        throw new Error(`Collection observation ${observation.observationKey} conflicts with immutable provenance.`);
+      }
+      duplicateCount += 1;
+      continue;
+    }
+    await tx.sourcingEvidenceObservation.create({
+      data: {
+        organizationId: observation.organizationId,
+        ingestionRunId: observation.ingestionRunId,
+        sourceKey: observation.sourceKey,
+        platform: observation.platform,
+        evidenceFamily: observation.evidenceFamily,
+        signalRole: observation.signalRole,
+        conceptKey: observation.conceptKey,
+        supportsCandidate: observation.supportsCandidate,
+        observationKey: observation.observationKey,
+        revision: observation.revision,
+        sourceEntityType: observation.sourceEntityType,
+        sourceEntityKey: observation.sourceEntityId,
+        observationType: observation.evidenceFamily,
+        schemaVersion: observation.schemaVersion,
+        evidenceClass: observation.granularity,
+        decisionImpact: observation.decisionImpactAtIngest,
+        eventAt: observation.eventAt,
+        observedAt: observation.observedAt,
+        availableAt: observation.availableAt,
+        revisionAt: observation.revisionAt,
+        businessDate: observation.eventAt,
+        sourceUrl: observation.sourceUrl,
+        payloadHash: observation.payloadHash,
+        envelopeHash,
+        payload: observation.rawPayload,
+        ingestedAt: now,
+      },
+    });
+  }
+  return { duplicateCount };
+}
+
+async function persistTypedRecords(
+  tx: Transaction,
+  records: SourcingTypedCollectionRecord[],
+): Promise<{ duplicateCount: number; staleDiscardedCount: number }> {
+  let duplicateCount = 0;
+  let staleDiscardedCount = 0;
+  for (const record of records) {
+    const outcome = await persistTypedRecord(tx, record);
+    if (outcome === 'duplicate') duplicateCount += 1;
+    if (outcome === 'stale') staleDiscardedCount += 1;
+  }
+  return { duplicateCount, staleDiscardedCount };
+}
+
+async function persistTypedRecord(
+  tx: Transaction,
+  record: SourcingTypedCollectionRecord,
+): Promise<'accepted' | 'duplicate' | 'stale'> {
+  if (record.kind === 'naver_keyword') {
+    const row = record.row;
+    await lockTypedIdentity(tx, `naver-keyword:${row.organizationId}:${row.keyword}:${row.businessDate.toISOString()}`);
+    const existing = await tx.naverKeywordDailySnapshot.findUnique({
+      where: {
+        organizationId_keyword_businessDate: {
+          organizationId: row.organizationId,
+          keyword: row.keyword,
+          businessDate: row.businessDate,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
+    await tx.naverKeywordDailySnapshot.upsert({
+      where: {
+        organizationId_keyword_businessDate: {
+          organizationId: row.organizationId,
+          keyword: row.keyword,
+          businessDate: row.businessDate,
+        },
+      },
+      create: row,
+      update: {
+        monthlyTotalSearchCount: row.monthlyTotalSearchCount,
+        monthlyPcSearchCount: row.monthlyPcSearchCount,
+        monthlyMobileSearchCount: row.monthlyMobileSearchCount,
+        competitionIndex: row.competitionIndex,
+        averageAdRank: row.averageAdRank,
+        trendRatio: row.trendRatio,
+        trendDelta: row.trendDelta,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  if (record.kind === 'naver_popular_keyword') {
+    const row = record.row;
+    await lockTypedIdentity(tx, `naver-popular:${row.organizationId}:${row.boardKey}:${row.businessDate.toISOString()}:${row.keyword}`);
+    const existing = await tx.naverPopularKeywordDailySnapshot.findUnique({
+      where: {
+        organizationId_boardKey_businessDate_keyword: {
+          organizationId: row.organizationId,
+          boardKey: row.boardKey,
+          businessDate: row.businessDate,
+          keyword: row.keyword,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
+    await tx.naverPopularKeywordDailySnapshot.upsert({
+      where: {
+        organizationId_boardKey_businessDate_keyword: {
+          organizationId: row.organizationId,
+          boardKey: row.boardKey,
+          businessDate: row.businessDate,
+          keyword: row.keyword,
+        },
+      },
+      create: row,
+      update: {
+        boardLabel: row.boardLabel,
+        cid: row.cid,
+        rank: row.rank,
+        linkId: row.linkId,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  if (record.kind === 'offer_1688_hot') {
+    const row = record.row;
+    await lockTypedIdentity(tx, `1688-hot:${row.organizationId}:${row.businessDate.toISOString()}:${row.offerId}`);
+    const existing = await tx.sourcing1688HotProductDailySnapshot.findUnique({
+      where: {
+        organizationId_businessDate_offerId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          offerId: row.offerId,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
+    await tx.sourcing1688HotProductDailySnapshot.upsert({
+      where: {
+        organizationId_businessDate_offerId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          offerId: row.offerId,
+        },
+      },
+      create: row,
+      update: {
+        sourceKeyword: row.sourceKeyword,
+        rank: row.rank,
+        title: row.title,
+        priceCny: row.priceCny,
+        monthlySales: row.monthlySales,
+        repurchaseRate: row.repurchaseRate,
+        tradeScore: row.tradeScore,
+        supplierName: row.supplierName,
+        imageUrl: row.imageUrl,
+        sourceUrl: row.sourceUrl,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  if (record.kind === 'shorts') {
+    const row = record.row;
+    await lockTypedIdentity(tx, `shorts:${row.organizationId}:${row.businessDate.toISOString()}:${row.videoKey}`);
+    const existing = await tx.shortsTrendDailySnapshot.findUnique({
+      where: {
+        organizationId_businessDate_videoKey: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          videoKey: row.videoKey,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
+    await tx.shortsTrendDailySnapshot.upsert({
+      where: {
+        organizationId_businessDate_videoKey: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          videoKey: row.videoKey,
+        },
+      },
+      create: row,
+      update: {
+        rank: row.rank,
+        title: row.title,
+        channelName: row.channelName,
+        viewCount: row.viewCount,
+        likeCount: row.likeCount,
+        commentCount: row.commentCount,
+        keyword: row.keyword,
+        publishedAt: row.publishedAt,
+        thumbnailUrl: row.thumbnailUrl,
+        videoUrl: row.videoUrl,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  if (record.kind === 'live_commerce_broadcast') {
+    const row = record.row;
+    await lockTypedIdentity(
+      tx,
+      `live-broadcast:${row.organizationId}:${row.businessDate.toISOString()}:${row.source}:${row.broadcastId}`,
+    );
+    const existing = await tx.liveCommerceBroadcastDailySnapshot.findUnique({
+      where: {
+        organizationId_businessDate_source_broadcastId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          source: row.source,
+          broadcastId: row.broadcastId,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) {
+      return existing.capturedAt.getTime() === row.capturedAt.getTime()
+        ? 'duplicate'
+        : 'stale';
+    }
+    await tx.liveCommerceBroadcastDailySnapshot.upsert({
+      where: {
+        organizationId_businessDate_source_broadcastId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          source: row.source,
+          broadcastId: row.broadcastId,
+        },
+      },
+      create: row,
+      update: {
+        title: row.title,
+        broadcasterId: row.broadcasterId,
+        broadcasterName: row.broadcasterName,
+        status: row.status,
+        viewerCount: row.viewerCount,
+        likeCount: row.likeCount,
+        startedAt: row.startedAt,
+        endedAt: row.endedAt,
+        coverImageUrl: row.coverImageUrl,
+        sourceUrl: row.sourceUrl,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  if (record.kind === 'live_commerce_product') {
+    const row = record.row;
+    await lockTypedIdentity(
+      tx,
+      `live-product:${row.organizationId}:${row.businessDate.toISOString()}:${row.source}:${row.broadcastId}:${row.productId}`,
+    );
+    const existing = await tx.liveCommerceProductDailySnapshot.findUnique({
+      where: {
+        organizationId_businessDate_source_broadcastId_productId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          source: row.source,
+          broadcastId: row.broadcastId,
+          productId: row.productId,
+        },
+      },
+      select: { capturedAt: true },
+    });
+    if (existing && existing.capturedAt >= row.capturedAt) {
+      return existing.capturedAt.getTime() === row.capturedAt.getTime()
+        ? 'duplicate'
+        : 'stale';
+    }
+    await tx.liveCommerceProductDailySnapshot.upsert({
+      where: {
+        organizationId_businessDate_source_broadcastId_productId: {
+          organizationId: row.organizationId,
+          businessDate: row.businessDate,
+          source: row.source,
+          broadcastId: row.broadcastId,
+          productId: row.productId,
+        },
+      },
+      create: row,
+      update: {
+        rank: row.rank,
+        title: row.title,
+        priceCny: row.priceCny,
+        salesCount: row.salesCount,
+        imageUrl: row.imageUrl,
+        sourceUrl: row.sourceUrl,
+        capturedAt: row.capturedAt,
+      },
+    });
+    return 'accepted';
+  }
+  const row = record.row;
+  await lockTypedIdentity(tx, `tiktok:${row.organizationId}:${row.businessDate.toISOString()}:${row.region}:${row.trendType}:${row.entityKey}`);
+  const existing = await tx.tiktokCreativeTrendDailySnapshot.findUnique({
+    where: {
+      organizationId_businessDate_region_trendType_entityKey: {
+        organizationId: row.organizationId,
+        businessDate: row.businessDate,
+        region: row.region,
+        trendType: row.trendType,
+        entityKey: row.entityKey,
+      },
+    },
+    select: { capturedAt: true },
+  });
+  if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
+  await tx.tiktokCreativeTrendDailySnapshot.upsert({
+    where: {
+      organizationId_businessDate_region_trendType_entityKey: {
+        organizationId: row.organizationId,
+        businessDate: row.businessDate,
+        region: row.region,
+        trendType: row.trendType,
+        entityKey: row.entityKey,
+      },
+    },
+    create: {
+      ...row,
+      viewCount: row.viewCount == null ? null : BigInt(Math.trunc(row.viewCount)),
+    },
+    update: {
+      rank: row.rank,
+      label: row.label,
+      industry: row.industry,
+      sourceKeyword: row.sourceKeyword,
+      postCount: row.postCount,
+      viewCount: row.viewCount == null ? null : BigInt(Math.trunc(row.viewCount)),
+      growthPct: row.growthPct,
+      thumbnailUrl: row.thumbnailUrl,
+      sourceUrl: row.sourceUrl,
+      capturedAt: row.capturedAt,
+    },
+  });
+  return 'accepted';
+}
+
+async function completeRun(
+  tx: Transaction,
+  runId: string,
+  completedAt: Date,
+  status: string,
+  fields: Record<string, unknown>,
+): Promise<void> {
+  await tx.sourcingEvidenceIngestionRun.update({
+    where: { id: runId },
+    data: { status, completedAt, ...fields },
+  });
+}
+
+function toPermit(row: {
+  id: string;
+  organizationId: string;
+  sourceKey: string;
+  scopeKey: string;
+  targetKey: string;
+  leaseToken: string;
+  generation: number;
+  sourceEntitlementVersionId: string;
+  entitlementVersionHash: string;
+  sourceEntitlementVersion: { decisionImpact: string };
+  leaseExpiresAt: Date;
+}): SourcingCollectionPermit {
+  return {
+    runId: row.id,
+    organizationId: row.organizationId,
+    sourceKey: row.sourceKey,
+    scopeKey: row.scopeKey,
+    targetKey: row.targetKey,
+    leaseToken: row.leaseToken,
+    generation: row.generation,
+    entitlementVersionId: row.sourceEntitlementVersionId,
+    entitlementVersionHash: row.entitlementVersionHash,
+    decisionImpactAtIngest: row.sourceEntitlementVersion.decisionImpact as 'disabled' | 'enabled',
+    leaseExpiresAt: row.leaseExpiresAt,
+  };
+}
+
+function validateClaim(input: ClaimAuthorizedRunInput): void {
+  if (!input.idempotencyKey || !input.requestHash || !input.collectorKey) {
+    throw new TypeError('A collection claim needs idempotency, request, and collector identity.');
+  }
+  if (!Number.isInteger(input.leaseDurationMs) || input.leaseDurationMs <= 0) {
+    throw new TypeError('A collection lease duration must be a positive integer.');
+  }
+}
+
+async function databaseClock(tx: Transaction): Promise<Date> {
+  const rows = await tx.$queryRaw<Array<{ now: Date }>>`
+    SELECT CURRENT_TIMESTAMP AS "now"
+  `;
+  return rows[0].now;
+}
+
+async function lockCollectionTarget(
+  tx: Transaction,
+  input: Pick<ClaimAuthorizedRunInput, 'organizationId' | 'sourceKey' | 'scopeKey' | 'targetKey'>,
+): Promise<void> {
+  await advisoryLock(tx, `sourcing-collection:${input.organizationId}:${input.sourceKey}:${input.scopeKey}:${input.targetKey}`);
+}
+
+async function lockCollectionPermit(tx: Transaction, permit: SourcingCollectionPermit): Promise<void> {
+  await advisoryLock(tx, `sourcing-collection-run:${permit.organizationId}:${permit.runId}`);
+}
+
+async function lockObservation(tx: Transaction, organizationId: string, observationKey: string): Promise<void> {
+  await advisoryLock(tx, `sourcing-observation:${organizationId}:${observationKey}`);
+}
+
+async function lockTypedIdentity(tx: Transaction, identity: string): Promise<void> {
+  await advisoryLock(tx, `sourcing-typed:${identity}`);
+}
+
+async function advisoryLock(tx: Transaction, key: string): Promise<void> {
+  await tx.$queryRaw`
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
+    SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"
+  `;
+}
+
+function hashCanonicalJson(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
+}

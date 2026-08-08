@@ -1,4 +1,5 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import { kstBusinessDate } from '../../../common/kst';
 import {
   TREND_COLLECTION_REPOSITORY_PORT,
@@ -27,13 +28,16 @@ import {
   type SearchNaverRelatedKeywordsInput,
   type SearchNaverRelatedKeywordsResult,
 } from '../port/out/provider/naver-keyword-research.port';
+import {
+  hashCollectionRequest,
+  mapTrendTypedRecordsToAuthorizedOutput,
+} from './sourcing-collection-mappers';
+import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 
 const POPULAR_HISTORY_LOOKBACK_DAYS = 30;
 
 @Injectable()
 export class NaverKeywordResearchService {
-  private readonly logger = new Logger(NaverKeywordResearchService.name);
-
   constructor(
     @Inject(SOURCING_NAVER_KEYWORD_RESEARCH_PORT)
     private readonly keywordResearch: NaverKeywordResearchPort,
@@ -45,6 +49,7 @@ export class NaverKeywordResearchService {
     private readonly autocompleteKeywords: NaverAutocompleteKeywordPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly trendRepo: TrendCollectionRepositoryPort,
+    private readonly collectionCoordinator: SourcingCollectionCoordinator,
   ) {}
 
   getStatus(): NaverKeywordResearchStatus {
@@ -55,14 +60,34 @@ export class NaverKeywordResearchService {
     return this.datalabTrend.getStatus();
   }
 
-  searchRelatedKeywords(input: SearchNaverRelatedKeywordsInput): Promise<SearchNaverRelatedKeywordsResult> {
-    return this.keywordResearch.searchRelatedKeywords(input);
+  searchRelatedKeywords(
+    organizationId: string,
+    input: SearchNaverRelatedKeywordsInput,
+    idempotencyKey?: string,
+  ): Promise<SearchNaverRelatedKeywordsResult> {
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.searchad_keyword',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-related-keywords',
+      provider: () => this.keywordResearch.searchRelatedKeywords(input),
+    });
   }
 
   compareSearchTrends(
+    organizationId: string,
     input: CompareNaverDatalabSearchTrendsInput,
+    idempotencyKey?: string,
   ): Promise<CompareNaverDatalabSearchTrendsResult> {
-    return this.datalabTrend.compareSearchTrends(input);
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.datalab_trend',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-search-trends',
+      provider: () => this.datalabTrend.compareSearchTrends(input),
+    });
   }
 
   /**
@@ -74,36 +99,123 @@ export class NaverKeywordResearchService {
   async searchPopularKeywords(
     input: SearchNaverDatalabPopularKeywordsInput,
     organizationId: string,
+    idempotencyKey?: string,
   ): Promise<SearchNaverDatalabPopularKeywordsResult> {
-    const result = await this.popularKeywords.searchPopularKeywords(input);
-
-    try {
-      const capturedAt = new Date();
-      const businessDate = kstBusinessDate(capturedAt);
-      const history = await this.trendRepo.findPopularKeywordHistory({
+    let result: SearchNaverDatalabPopularKeywordsResult | null = null;
+    await this.collectionCoordinator.execute(
+      collectionRequest({
         organizationId,
-        days: POPULAR_HISTORY_LOOKBACK_DAYS,
-      });
-      annotatePopularKeywordChange(result.boards, history, businessDate);
-
-      const rows = buildPopularSnapshotRows(result.boards, organizationId, businessDate, capturedAt);
-      if (rows.length > 0) {
-        await this.trendRepo.replaceNaverPopularKeywordSnapshots(rows);
-      }
-    } catch (error) {
-      this.logger.warn(
-        `인기키워드 NEW 표시/일별 저장 실패: ${error instanceof Error ? error.message : String(error)}`,
-      );
-    }
-
+        sourceKey: 'naver.datalab_popular',
+        request: input,
+        idempotencyKey,
+        collectorKey: 'direct-naver-popular-keywords',
+      }),
+      async ({ permit, checkpoint }) => {
+        await checkpoint();
+        const providerResult = await this.popularKeywords.searchPopularKeywords(input);
+        result = providerResult;
+        const capturedAt = new Date();
+        const businessDate = kstBusinessDate(capturedAt);
+        let typedRecords: ReturnType<typeof buildPopularSnapshotRows> = [];
+        let projectionError: string | null = null;
+        try {
+          const history = await this.trendRepo.findPopularKeywordHistory({
+            organizationId,
+            days: POPULAR_HISTORY_LOOKBACK_DAYS,
+          });
+          annotatePopularKeywordChange(providerResult.boards, history, businessDate);
+          typedRecords = buildPopularSnapshotRows(
+            providerResult.boards,
+            organizationId,
+            businessDate,
+            capturedAt,
+          );
+        } catch (error) {
+          projectionError = error instanceof Error ? error.message : String(error);
+        }
+        await checkpoint();
+        return mapTrendTypedRecordsToAuthorizedOutput({
+          permit,
+          typedRecords: typedRecords.map((row) => ({ kind: 'naver_popular_keyword' as const, row })),
+          qualityReport: {
+            source: 'naver-popular',
+            boardCount: providerResult.boards.length,
+            projectionError,
+          },
+        });
+      },
+    );
+    if (!result) throw new BadRequestException('An idempotent popular-keyword query is already in progress.');
     return result;
   }
 
   searchAutocompleteKeywords(
+    organizationId: string,
     input: SearchNaverAutocompleteKeywordsInput,
+    idempotencyKey?: string,
   ): Promise<SearchNaverAutocompleteKeywordsResult> {
-    return this.autocompleteKeywords.searchAutocompleteKeywords(input);
+    return this.readThroughAuthorizedRun({
+      organizationId,
+      sourceKey: 'naver.autocomplete',
+      request: input,
+      idempotencyKey,
+      collectorKey: 'direct-naver-autocomplete',
+      provider: () => this.autocompleteKeywords.searchAutocompleteKeywords(input),
+    });
   }
+
+  private async readThroughAuthorizedRun<T>(input: {
+    organizationId: string;
+    sourceKey: string;
+    request: unknown;
+    idempotencyKey?: string;
+    collectorKey: string;
+    provider: () => Promise<T>;
+  }): Promise<T> {
+    let result: T | null = null;
+    await this.collectionCoordinator.execute(
+      collectionRequest(input),
+      async ({ checkpoint }) => {
+        await checkpoint();
+        result = await input.provider();
+        await checkpoint();
+        return {
+          observations: [],
+          typedRecords: [],
+          discoveredCount: 0,
+          rejectedCount: 0,
+          qualityReport: { source: input.sourceKey, mode: 'read' },
+        };
+      },
+    );
+    if (result === null) {
+      throw new BadRequestException('An idempotent research query is already in progress.');
+    }
+    return result;
+  }
+}
+
+function collectionRequest(input: {
+  organizationId: string;
+  sourceKey: string;
+  request: unknown;
+  idempotencyKey?: string;
+  collectorKey: string;
+}) {
+  const requestHash = hashCollectionRequest(input.request);
+  return {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKey,
+    scopeKey: 'default',
+    targetKey: `request:${requestHash}`,
+    idempotencyKey: input.idempotencyKey?.trim() || `${input.collectorKey}:${randomUUID()}`,
+    requestHash,
+    collectorKey: input.collectorKey,
+    collectorVersion: '2026-08-08',
+    triggerKind: 'manual' as const,
+    triggeredByUserId: null,
+    leaseDurationMs: 120_000,
+  };
 }
 
 function normalizePopularKeyword(value: string): string {

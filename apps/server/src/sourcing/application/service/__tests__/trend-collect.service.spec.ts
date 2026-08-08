@@ -11,6 +11,7 @@ import type {
   TrendCollectionRepositoryPort,
   TrendSeedRow,
 } from '../../port/out/repository/trend-collection.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -89,6 +90,55 @@ function buildPorts() {
     findShortsHistory: vi.fn(async () => []),
     findTiktokCcHistory: vi.fn(async () => []),
   };
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000010',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000011',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
+          entitlementVersionHash: 'a'.repeat(64),
+          decisionImpactAtIngest: 'enabled',
+          leaseExpiresAt: new Date('2026-07-13T01:00:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      const naverKeywords = output.typedRecords
+        .filter((record: any) => record.kind === 'naver_keyword')
+        .map((record: any) => record.row);
+      const popularKeywords = output.typedRecords
+        .filter((record: any) => record.kind === 'naver_popular_keyword')
+        .map((record: any) => record.row);
+      const hot1688 = output.typedRecords
+        .filter((record: any) => record.kind === 'offer_1688_hot')
+        .map((record: any) => record.row);
+      const shorts = output.typedRecords
+        .filter((record: any) => record.kind === 'shorts')
+        .map((record: any) => record.row);
+      const tiktok = output.typedRecords
+        .filter((record: any) => record.kind === 'tiktok_creative')
+        .map((record: any) => record.row);
+      if (naverKeywords.length > 0) await repository.upsertNaverKeywordSnapshots(naverKeywords);
+      if (popularKeywords.length > 0) {
+        await repository.replaceNaverPopularKeywordSnapshots(popularKeywords);
+      }
+      if (hot1688.length > 0) await repository.upsert1688HotProductSnapshots(hot1688);
+      if (shorts.length > 0) await repository.upsertShortsSnapshots(shorts);
+      if (tiktok.length > 0) await repository.upsertTiktokCcSnapshots(tiktok);
+      return {
+        kind: 'committed' as const,
+        runId: input.idempotencyKey,
+        acceptedCount: Math.max(0, output.discoveredCount - output.rejectedCount),
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
 
   const service = new TrendCollectService(
     keywordResearch,
@@ -97,9 +147,19 @@ function buildPorts() {
     keywordSearch1688,
     shortstrend,
     repository,
+    collectionCoordinator,
   );
 
-  return { service, keywordResearch, datalabTrend, popularKeywords, keywordSearch1688, shortstrend, repository };
+  return {
+    service,
+    keywordResearch,
+    datalabTrend,
+    popularKeywords,
+    keywordSearch1688,
+    shortstrend,
+    repository,
+    collectionCoordinator,
+  };
 }
 
 describe('TrendCollectService', () => {

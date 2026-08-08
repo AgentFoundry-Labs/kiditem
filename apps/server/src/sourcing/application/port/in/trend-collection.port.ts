@@ -14,5 +14,7 @@ export interface TrendCollectionPort {
      * 누가 돌렸는지를 기록해야 하므로, 주체를 모르면 적재는 건너뛰고 수집만 한다.
      */
     triggeredByUserId?: string | null,
+    /** An Operations run key fences duplicate dispatch after navigation/retry. */
+    collectionRunKey?: string,
   ): Promise<TrendCollectResult>;
 }

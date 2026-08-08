@@ -45,7 +45,7 @@ export interface SourceEntitlementPolicyInput {
   killSwitch: boolean;
   permissionStartsAt?: Date | string | null;
   permissionExpiresAt?: Date | string | null;
-  at?: Date;
+  at: Date;
 }
 
 export type SourceEntitlementPolicyResult =
@@ -90,7 +90,7 @@ export function evaluateSourceEntitlement(
   if (expiry === 'invalid') {
     return denied('invalid_permission_expiry');
   }
-  const at = input.at ?? new Date();
+  const at = input.at;
   if (!Number.isFinite(at.getTime())) {
     throw new TypeError('Source entitlement evaluation time must be valid.');
   }

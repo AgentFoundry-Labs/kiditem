@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { Sourcing1688ImageSearchService } from '../../../application/service/sourcing-1688-image-search.service';
 import { Search1688ImageDto } from './dto';
@@ -15,8 +15,9 @@ export class Sourcing1688ImageSearchController {
   @Post()
   searchByImage(
     @Body() body: Search1688ImageDto,
-    @CurrentOrganization() _organizationId: string,
+    @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.imageSearch.searchByImage(body);
+    return this.imageSearch.searchByImage(organizationId, body, idempotencyKey);
   }
 }

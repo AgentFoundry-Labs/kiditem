@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveCommerceService } from '../live-commerce.service';
 import type { TaobaoLivePort } from '../../port/out/provider/taobao-live.port';
 import type { LiveCommerceRepositoryPort } from '../../port/out/repository/live-commerce.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -17,7 +18,47 @@ function buildService() {
     findBroadcastSnapshots: vi.fn(async () => []),
     findProductSnapshots: vi.fn(async () => []),
   };
-  return { service: new LiveCommerceService(taobao, repository), taobao, repository };
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000010',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000011',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
+          entitlementVersionHash: 'a'.repeat(64),
+          decisionImpactAtIngest: 'enabled',
+          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      const broadcasts = output.typedRecords
+        .filter((record: any) => record.kind === 'live_commerce_broadcast')
+        .map((record: any) => record.row);
+      const products = output.typedRecords
+        .filter((record: any) => record.kind === 'live_commerce_product')
+        .map((record: any) => record.row);
+      if (broadcasts.length > 0) await repository.upsertBroadcastSnapshots(broadcasts);
+      if (products.length > 0) await repository.upsertProductSnapshots(products);
+      return {
+        kind: 'committed' as const,
+        runId: input.idempotencyKey,
+        acceptedCount: output.discoveredCount,
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
+  return {
+    service: new LiveCommerceService(taobao, repository, collectionCoordinator),
+    taobao,
+    repository,
+    collectionCoordinator,
+  };
 }
 
 describe('LiveCommerceService', () => {
