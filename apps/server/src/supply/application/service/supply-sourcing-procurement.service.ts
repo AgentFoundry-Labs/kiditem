@@ -37,8 +37,7 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
 @Injectable()
-export class SupplySourcingProcurementService
-implements SupplySourcingProcurementPort {
+export class SupplySourcingProcurementService implements SupplySourcingProcurementPort {
   constructor(
     @Inject(SUPPLY_SOURCING_PROCUREMENT_REPOSITORY_PORT)
     private readonly repository: SupplySourcingProcurementRepositoryPort,
@@ -334,6 +333,12 @@ function resolveIntentCreationResult(
       'Test-order intent requires an execution-eligible canonical test_order decision.',
     );
   }
+  if (result.kind === 'offer_snapshot_expired') {
+    throw new BadRequestException({
+      message: 'Supplier offer snapshot expired before the intent commit.',
+      code: 'offer_snapshot_expired',
+    });
+  }
   if (result.kind === 'quantity_conservation_mismatch') {
     throw new ConflictException({
       message:
@@ -497,8 +502,7 @@ function offerSnapshotRecord(
       minOrderQuantity: input.minOrderQuantity ?? null,
       sampleAvailable: input.sampleAvailable ?? null,
       samplePriceCny:
-        input.samplePriceCny === null ||
-        input.samplePriceCny === undefined
+        input.samplePriceCny === null || input.samplePriceCny === undefined
           ? null
           : normalizeMoney(input.samplePriceCny),
       domesticFreightCny:
@@ -527,7 +531,10 @@ function offerSnapshotRecord(
     };
   } catch (error) {
     if (error instanceof SourcingProcurementPolicyError) {
-      throw new BadRequestException({ message: error.message, code: error.code });
+      throw new BadRequestException({
+        message: error.message,
+        code: error.code,
+      });
     }
     throw error;
   }

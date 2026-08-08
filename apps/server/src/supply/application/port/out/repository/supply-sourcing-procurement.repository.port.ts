@@ -78,6 +78,7 @@ export type CreateProcurementTestIntentRepositoryResult =
   | { kind: 'decision_batch_not_active' }
   | { kind: 'decision_rejected' }
   | { kind: 'decision_not_execution_eligible' }
+  | { kind: 'offer_snapshot_expired' }
   | { kind: 'launch_candidate_not_found' }
   | { kind: 'quantity_conservation_mismatch' };
 

@@ -76,7 +76,6 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
     const tx = evidenceTx();
     tx.sourcingEvidenceIngestionRun.findFirst.mockResolvedValueOnce(runRow());
     tx.sourcingEvidenceObservation.findFirst.mockResolvedValueOnce(null);
-    tx.sourcingEvidenceObservation.create.mockResolvedValueOnce(observationRow());
     const repository = new SourcingEvidenceLedgerRepositoryAdapter(
       transactionPrisma(tx) as never,
     );
@@ -88,18 +87,8 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
       duplicateCount: 0,
       records: [{ observationKey: 'c'.repeat(64), sourceEntityId: 'offer-1' }],
     });
-    expect(tx.sourcingEvidenceObservation.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        organizationId: 'org-1',
-        ingestionRunId: 'run-1',
-        evidenceClass: 'supply_catalog',
-        schemaVersion: '1688-offer/v1',
-        sourceEntityKey: 'offer-1',
-        observationType: 'china_supply',
-        decisionImpact: 'enabled',
-      }),
-      include: expect.any(Object),
-    });
+    expect(tx.sourcingEvidenceObservation.create).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(5);
     expect(tx.sourcingEvidenceIngestionRun.updateMany).toHaveBeenCalledWith({
       where: { id: 'run-1', organizationId: 'org-1', status: 'running' },
       data: {
@@ -114,7 +103,9 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
   it('does not mutate append-only evidence when the same revision is retried', async () => {
     const tx = evidenceTx();
     tx.sourcingEvidenceIngestionRun.findFirst.mockResolvedValueOnce(runRow());
-    tx.sourcingEvidenceObservation.findFirst.mockResolvedValueOnce(observationRow());
+    tx.sourcingEvidenceObservation.findFirst.mockResolvedValueOnce(
+      observationRow(),
+    );
     const repository = new SourcingEvidenceLedgerRepositoryAdapter(
       transactionPrisma(tx) as never,
     );
@@ -128,6 +119,31 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
         data: expect.objectContaining({ acceptedCount: { increment: 0 } }),
       }),
     );
+  });
+
+  it('rejects a retry when immutable source provenance changed despite matching payload', async () => {
+    const tx = evidenceTx();
+    tx.sourcingEvidenceIngestionRun.findFirst.mockResolvedValueOnce(runRow());
+    tx.sourcingEvidenceObservation.findFirst.mockResolvedValueOnce(
+      observationRow(),
+    );
+    const repository = new SourcingEvidenceLedgerRepositoryAdapter(
+      transactionPrisma(tx) as never,
+    );
+
+    const result = await repository.appendObservations([
+      {
+        ...observationCommand(),
+        sourceUrl: 'https://detail.1688.com/offer/changed.html',
+      },
+    ]);
+
+    expect(result).toEqual({
+      kind: 'observation_conflict',
+      observationKey: 'c'.repeat(64),
+      revision: 1,
+    });
+    expect(tx.sourcingEvidenceObservation.create).not.toHaveBeenCalled();
   });
 
   it('closes the append race when the run entitlement is no longer current', async () => {
@@ -251,10 +267,12 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
       transactionPrisma(tx) as never,
     );
 
-    const result = await repository.appendObservations([{
-      ...observationCommand(),
-      revision: 2,
-    }]);
+    const result = await repository.appendObservations([
+      {
+        ...observationCommand(),
+        revision: 2,
+      },
+    ]);
 
     expect(result).toEqual({
       kind: 'observation_revision_gap',
@@ -272,17 +290,16 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
       .mockResolvedValueOnce(
         observationRow({ id: 'observation-previous', revision: 1 }),
       );
-    tx.sourcingEvidenceObservation.create.mockResolvedValueOnce(
-      observationRow({ revision: 2, supersedesObservationId: 'observation-previous' }),
-    );
     const repository = new SourcingEvidenceLedgerRepositoryAdapter(
       transactionPrisma(tx) as never,
     );
 
-    const result = await repository.appendObservations([{
-      ...observationCommand(),
-      revision: 2,
-    }]);
+    const result = await repository.appendObservations([
+      {
+        ...observationCommand(),
+        revision: 2,
+      },
+    ]);
 
     expect(result).toMatchObject({ kind: 'appended', duplicateCount: 0 });
     expect(tx.sourcingEvidenceIngestionRun.updateMany).toHaveBeenCalledWith({
@@ -310,10 +327,12 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
       transactionPrisma(tx) as never,
     );
 
-    const result = await repository.appendObservations([{
-      ...observationCommand(),
-      revision: 2,
-    }]);
+    const result = await repository.appendObservations([
+      {
+        ...observationCommand(),
+        revision: 2,
+      },
+    ]);
 
     expect(result).toEqual({
       kind: 'observation_series_mismatch',
@@ -326,7 +345,10 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
   it('rejects appends after the run is terminal and maps finalization back to the app status', async () => {
     const terminalTx = evidenceTx();
     terminalTx.sourcingEvidenceIngestionRun.findFirst.mockResolvedValueOnce(
-      runRow({ status: 'complete', completedAt: new Date('2026-08-01T02:00:00.000Z') }),
+      runRow({
+        status: 'complete',
+        completedAt: new Date('2026-08-01T02:00:00.000Z'),
+      }),
     );
     const terminalRepository = new SourcingEvidenceLedgerRepositoryAdapter(
       transactionPrisma(terminalTx) as never,
@@ -363,20 +385,25 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
       completedAt: new Date('2026-08-01T02:00:00.000Z'),
     });
 
-    expect(appendResult).toEqual({ kind: 'run_not_collecting', status: 'complete' });
+    expect(appendResult).toEqual({
+      kind: 'run_not_collecting',
+      status: 'complete',
+    });
     expect(finalizeResult).toMatchObject({
       kind: 'finalized',
       record: { status: 'partial', coverageBps: 7_500 },
     });
-    expect(finalizeTx.sourcingEvidenceIngestionRun.update).toHaveBeenCalledWith({
-      where: { id: 'run-1' },
-      data: expect.objectContaining({
-        status: 'partial',
-        watermarkAfter: '2026-08-01T01:30:00.000Z',
-        qualityReport: expect.objectContaining({ coverageBps: 7_500 }),
-      }),
-      include: expect.any(Object),
-    });
+    expect(finalizeTx.sourcingEvidenceIngestionRun.update).toHaveBeenCalledWith(
+      {
+        where: { id: 'run-1' },
+        data: expect.objectContaining({
+          status: 'partial',
+          watermarkAfter: '2026-08-01T01:30:00.000Z',
+          qualityReport: expect.objectContaining({ coverageBps: 7_500 }),
+        }),
+        include: expect.any(Object),
+      },
+    );
   });
 
   it('rejects collector-supplied coverage that differs from durable run counts', async () => {
@@ -434,13 +461,17 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
   it('scopes observation lookups by organization and preserves caller order', async () => {
     const prisma = {
       sourcingEvidenceObservation: {
-        findMany: vi.fn().mockResolvedValue([
-          observationRow({ id: 'observation-2' }),
-          observationRow({ id: 'observation-1' }),
-        ]),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            observationRow({ id: 'observation-2' }),
+            observationRow({ id: 'observation-1' }),
+          ]),
       },
     };
-    const repository = new SourcingEvidenceLedgerRepositoryAdapter(prisma as never);
+    const repository = new SourcingEvidenceLedgerRepositoryAdapter(
+      prisma as never,
+    );
 
     const records = await repository.findObservationsByIds({
       organizationId: 'org-1',
@@ -448,10 +479,16 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
     });
 
     expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledWith({
-      where: { id: { in: ['observation-1', 'observation-2'] }, organizationId: 'org-1' },
+      where: {
+        id: { in: ['observation-1', 'observation-2'] },
+        organizationId: 'org-1',
+      },
       include: expect.any(Object),
     });
-    expect(records.map((record) => record.id)).toEqual(['observation-1', 'observation-2']);
+    expect(records.map((record) => record.id)).toEqual([
+      'observation-1',
+      'observation-2',
+    ]);
     expect(records[0]).toMatchObject({ sourceScopeKey: 'stationery' });
   });
 
@@ -465,7 +502,9 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
         ]),
       },
     };
-    const repository = new SourcingEvidenceLedgerRepositoryAdapter(prisma as never);
+    const repository = new SourcingEvidenceLedgerRepositoryAdapter(
+      prisma as never,
+    );
     const cutoffAt = new Date('2026-08-01T02:00:00.000Z');
 
     const records = await repository.findLatestObservationRevisions({
@@ -499,8 +538,9 @@ describe('SourcingEvidenceLedgerRepositoryAdapter', () => {
 
 function transactionPrisma(tx: ReturnType<typeof evidenceTx>) {
   return {
-    $transaction: vi.fn(async (operation: (client: typeof tx) => Promise<unknown>) =>
-      operation(tx),
+    $transaction: vi.fn(
+      async (operation: (client: typeof tx) => Promise<unknown>) =>
+        operation(tx),
     ),
   };
 }
@@ -508,7 +548,16 @@ function transactionPrisma(tx: ReturnType<typeof evidenceTx>) {
 function evidenceTx() {
   const databaseAt = new Date('2026-08-01T01:10:00.000Z');
   return {
-    $queryRaw: vi.fn().mockResolvedValue([{ lock: '', at: databaseAt }]),
+    $queryRaw: vi.fn((strings: TemplateStringsArray) => {
+      const sql = strings.join(' ');
+      if (sql.includes('INSERT INTO sourcing_evidence_observations')) {
+        return Promise.resolve([{ id: 'observation-1' }]);
+      }
+      if (sql.includes('clock_timestamp()')) {
+        return Promise.resolve([{ at: databaseAt }]);
+      }
+      return Promise.resolve([{ lock: '' }]);
+    }),
     sourcingEvidenceIngestionRun: {
       findFirst: vi.fn(),
       create: vi.fn(),

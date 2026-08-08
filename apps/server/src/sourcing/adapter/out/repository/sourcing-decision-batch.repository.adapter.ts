@@ -22,10 +22,7 @@ const DECISION_POLICY_KEY = 'sourcing-recommendation';
 
 const decisionItemInclude = {
   evidence: {
-    orderBy: [
-      { ordinal: 'asc' as const },
-      { createdAt: 'asc' as const },
-    ],
+    orderBy: [{ ordinal: 'asc' as const }, { createdAt: 'asc' as const }],
   },
 } satisfies Prisma.SourcingDecisionBatchItemInclude;
 
@@ -38,10 +35,7 @@ const decisionItemWithBatchInclude = {
 
 const decisionBatchInclude = {
   items: {
-    orderBy: [
-      { rank: 'asc' as const },
-      { createdAt: 'asc' as const },
-    ],
+    orderBy: [{ rank: 'asc' as const }, { createdAt: 'asc' as const }],
     include: decisionItemInclude,
   },
 } satisfies Prisma.SourcingDecisionBatchInclude;
@@ -61,164 +55,185 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
   async create(
     command: CreateSourcingDecisionBatchCommand,
   ): Promise<CreateSourcingDecisionBatchResult> {
-    return this.prisma.$transaction(async (tx) => {
-      await lockDecisionBatchKey(
-        tx,
-        command.organizationId,
-        command.batchKey,
+    try {
+      return await this.prisma.$transaction((tx) =>
+        this.createAttempt(tx, command),
       );
-      const existing = await tx.sourcingDecisionBatch.findFirst({
+    } catch (error) {
+      if (prismaErrorCode(error) !== 'P2002') throw error;
+
+      const winner = await this.prisma.sourcingDecisionBatch.findUnique({
         where: {
-          organizationId: command.organizationId,
-          idempotencyKey: command.batchKey,
+          organizationId_idempotencyKey: {
+            organizationId: command.organizationId,
+            idempotencyKey: command.batchKey,
+          },
         },
         include: decisionBatchInclude,
       });
-      if (existing) return duplicateResult(existing, command.requestHash);
+      if (winner) return duplicateResult(winner, command.requestHash);
+      throw error;
+    }
+  }
 
-      const evidenceAuthorizations = collectEvidenceAuthorizations(command);
-      if (evidenceAuthorizations === null) {
-        return { kind: 'source_entitlement_changed' };
-      }
-      const sourceAuthorizations = uniqueSourceAuthorizations(
-        evidenceAuthorizations,
+  private async createAttempt(
+    tx: Prisma.TransactionClient,
+    command: CreateSourcingDecisionBatchCommand,
+  ): Promise<CreateSourcingDecisionBatchResult> {
+    await lockDecisionBatchKey(tx, command.organizationId, command.batchKey);
+    const existing = await tx.sourcingDecisionBatch.findFirst({
+      where: {
+        organizationId: command.organizationId,
+        idempotencyKey: command.batchKey,
+      },
+      include: decisionBatchInclude,
+    });
+    if (existing) return duplicateResult(existing, command.requestHash);
+
+    const evidenceAuthorizations = collectEvidenceAuthorizations(command);
+    if (evidenceAuthorizations === null) {
+      return { kind: 'source_entitlement_changed' };
+    }
+    const sourceAuthorizations = uniqueSourceAuthorizations(
+      evidenceAuthorizations,
+    );
+    for (const source of sourceAuthorizations) {
+      await lockSourceScope(
+        tx,
+        command.organizationId,
+        source.sourceKey,
+        source.scopeKey,
       );
-      for (const source of sourceAuthorizations) {
-        await lockSourceScope(
-          tx,
-          command.organizationId,
-          source.sourceKey,
-          source.scopeKey,
-        );
+    }
+    for (const evidence of evidenceAuthorizations) {
+      await lockObservationSeries(
+        tx,
+        command.organizationId,
+        evidence.observationKey,
+      );
+    }
+    const transactionAt = await databaseClock(tx);
+    const currentEntitlements = new Map<
+      string,
+      {
+        maxStalenessSeconds: number | null;
+        minimumCoverageBps: number | null;
+        retentionDays: number | null;
       }
-      for (const evidence of evidenceAuthorizations) {
-        await lockObservationSeries(
-          tx,
-          command.organizationId,
-          evidence.observationKey,
-        );
-      }
-      const transactionAt = await databaseClock(tx);
-      const currentEntitlements = new Map<
-        string,
-        {
-          maxStalenessSeconds: number | null;
-          minimumCoverageBps: number | null;
-          retentionDays: number | null;
-        }
-      >();
-      for (const source of sourceAuthorizations) {
-        const entitlement =
-          await tx.sourcingSourceEntitlementVersion.findFirst({
-            where: {
-              id: source.entitlementVersionId,
-              organizationId: command.organizationId,
-              sourceKey: source.sourceKey,
-              scopeKey: source.scopeKey,
-              isCurrent: true,
-              retiredAt: null,
-              killSwitch: false,
-              sourceLifecycle: 'qualified',
-              decisionImpact: 'enabled',
-              AND: [
-                {
-                  OR: [
-                    { permissionStartsAt: null },
-                    { permissionStartsAt: { lte: transactionAt } },
-                  ],
-                },
-                {
-                  OR: [
-                    { permissionExpiresAt: null },
-                    { permissionExpiresAt: { gt: transactionAt } },
-                  ],
-                },
+    >();
+    for (const source of sourceAuthorizations) {
+      const entitlement = await tx.sourcingSourceEntitlementVersion.findFirst({
+        where: {
+          id: source.entitlementVersionId,
+          organizationId: command.organizationId,
+          sourceKey: source.sourceKey,
+          scopeKey: source.scopeKey,
+          isCurrent: true,
+          retiredAt: null,
+          killSwitch: false,
+          sourceLifecycle: 'qualified',
+          decisionImpact: 'enabled',
+          AND: [
+            {
+              OR: [
+                { permissionStartsAt: null },
+                { permissionStartsAt: { lte: transactionAt } },
               ],
             },
-            select: {
-              id: true,
-              permittedFields: true,
-              coverageDefinition: true,
-              denominatorDefinition: true,
-              maxStalenessSeconds: true,
-              minimumCoverageBps: true,
-              revisionPolicy: true,
-              retentionDays: true,
+            {
+              OR: [
+                { permissionExpiresAt: null },
+                { permissionExpiresAt: { gt: transactionAt } },
+              ],
             },
-          });
-        if (!entitlement || !sourceQualityContractIsComplete(entitlement)) {
-          return { kind: 'source_entitlement_changed' };
-        }
-        currentEntitlements.set(sourceScopeKey(source), entitlement);
+          ],
+        },
+        select: {
+          id: true,
+          permittedFields: true,
+          coverageDefinition: true,
+          denominatorDefinition: true,
+          maxStalenessSeconds: true,
+          minimumCoverageBps: true,
+          revisionPolicy: true,
+          retentionDays: true,
+        },
+      });
+      if (!entitlement || !sourceQualityContractIsComplete(entitlement)) {
+        return { kind: 'source_entitlement_changed' };
       }
+      currentEntitlements.set(sourceScopeKey(source), entitlement);
+    }
 
-      for (const evidence of evidenceAuthorizations) {
-        const observation = await tx.sourcingEvidenceObservation.findFirst({
-          where: {
-            id: evidence.observationId,
-            organizationId: command.organizationId,
-            observationKey: evidence.observationKey,
-            sourceKey: evidence.sourceKey,
-            decisionImpact: 'enabled',
-            supportsCandidate: true,
-            signalRole: { in: ['demand', 'supply'] },
-            eventAt: { lte: transactionAt },
-            availableAt: { lte: transactionAt },
-            ingestedAt: { lte: transactionAt },
-            ingestionRun: {
-              sourceEntitlementVersionId: evidence.entitlementVersionId,
-              targetKey: evidence.scopeKey,
-              status: 'complete',
-              completedAt: { lte: transactionAt },
+    for (const evidence of evidenceAuthorizations) {
+      const observation = await tx.sourcingEvidenceObservation.findFirst({
+        where: {
+          id: evidence.observationId,
+          organizationId: command.organizationId,
+          observationKey: evidence.observationKey,
+          sourceKey: evidence.sourceKey,
+          decisionImpact: 'enabled',
+          supportsCandidate: true,
+          signalRole: { in: ['demand', 'supply'] },
+          eventAt: { lte: transactionAt },
+          availableAt: { lte: transactionAt },
+          ingestedAt: { lte: transactionAt },
+          ingestionRun: {
+            sourceEntitlementVersionId: evidence.entitlementVersionId,
+            targetKey: evidence.scopeKey,
+            status: 'complete',
+            completedAt: { lte: transactionAt },
+          },
+        },
+        select: {
+          id: true,
+          eventAt: true,
+          ingestionRun: {
+            select: {
+              coverageNumerator: true,
+              coverageDenominator: true,
             },
           },
-          select: {
-            id: true,
-            eventAt: true,
-            ingestionRun: {
-              select: {
-                coverageNumerator: true,
-                coverageDenominator: true,
-              },
-            },
-          },
-        });
-        const entitlement = currentEntitlements.get(sourceScopeKey(evidence));
-        if (!observation || !observation.eventAt || !entitlement) {
-          return { kind: 'source_entitlement_changed' };
-        }
-        if (!evidenceCoverageAndFreshnessPasses(
+        },
+      });
+      const entitlement = currentEntitlements.get(sourceScopeKey(evidence));
+      if (!observation || !observation.eventAt || !entitlement) {
+        return { kind: 'source_entitlement_changed' };
+      }
+      if (
+        !evidenceCoverageAndFreshnessPasses(
           {
             eventAt: observation.eventAt,
             ingestionRun: observation.ingestionRun,
           },
           entitlement,
           transactionAt,
-        )) {
-          return { kind: 'source_entitlement_changed' };
-        }
-        const latest = await tx.sourcingEvidenceObservation.findFirst({
-          where: {
-            organizationId: command.organizationId,
-            observationKey: evidence.observationKey,
-            availableAt: { lte: transactionAt },
-            ingestedAt: { lte: transactionAt },
-          },
-          orderBy: [
-            { revision: 'desc' },
-            { availableAt: 'desc' },
-            { ingestedAt: 'desc' },
-            { id: 'desc' },
-          ],
-          select: { id: true },
-        });
-        if (latest?.id !== evidence.observationId) {
-          return { kind: 'source_entitlement_changed' };
-        }
+        )
+      ) {
+        return { kind: 'source_entitlement_changed' };
       }
+      const latest = await tx.sourcingEvidenceObservation.findFirst({
+        where: {
+          organizationId: command.organizationId,
+          observationKey: evidence.observationKey,
+          availableAt: { lte: transactionAt },
+          ingestedAt: { lte: transactionAt },
+        },
+        orderBy: [
+          { revision: 'desc' },
+          { availableAt: 'desc' },
+          { ingestedAt: 'desc' },
+          { id: 'desc' },
+        ],
+        select: { id: true },
+      });
+      if (latest?.id !== evidence.observationId) {
+        return { kind: 'source_entitlement_changed' };
+      }
+    }
 
-      try {
-        const created = await tx.sourcingDecisionBatch.create({
+    try {
+      const created = await tx.sourcingDecisionBatch.create({
         data: {
           organizationId: command.organizationId,
           requestedByUserId: command.createdByUserId,
@@ -273,27 +288,16 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
         include: decisionBatchInclude,
       });
 
-        return {
-          kind: 'created',
-          duplicate: false,
-          record: toBatchRecord(created),
-        };
-      } catch (error) {
-        const code = prismaErrorCode(error);
-        if (code === 'P2002') {
-          const winner = await tx.sourcingDecisionBatch.findFirst({
-            where: {
-              organizationId: command.organizationId,
-              idempotencyKey: command.batchKey,
-            },
-            include: decisionBatchInclude,
-          });
-          if (winner) return duplicateResult(winner, command.requestHash);
-        }
-        if (code === 'P2003') return { kind: 'reference_not_found' };
-        throw error;
-      }
-    });
+      return {
+        kind: 'created',
+        duplicate: false,
+        record: toBatchRecord(created),
+      };
+    } catch (error) {
+      const code = prismaErrorCode(error);
+      if (code === 'P2003') return { kind: 'reference_not_found' };
+      throw error;
+    }
   }
 
   async findById(input: {
@@ -315,10 +319,7 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
   }): Promise<SourcingDecisionBatchRecord | null> {
     const row = await this.prisma.sourcingDecisionBatch.findFirst({
       where: { organizationId: input.organizationId },
-      orderBy: [
-        { decisionAt: 'desc' },
-        { createdAt: 'desc' },
-      ],
+      orderBy: [{ decisionAt: 'desc' }, { createdAt: 'desc' }],
       include: decisionBatchInclude,
     });
     return row ? toBatchRecord(row) : null;
@@ -343,7 +344,6 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
         }
       : null;
   }
-
 }
 
 interface EvidenceAuthorizationBinding {
@@ -373,11 +373,12 @@ function collectEvidenceAuthorizations(
       bindings.push({ observationId: evidence.observationId, ...source });
     }
   }
-  return bindings.sort((left, right) =>
-    left.sourceKey.localeCompare(right.sourceKey) ||
-    left.scopeKey.localeCompare(right.scopeKey) ||
-    left.observationKey.localeCompare(right.observationKey) ||
-    left.observationId.localeCompare(right.observationId),
+  return bindings.sort(
+    (left, right) =>
+      left.sourceKey.localeCompare(right.sourceKey) ||
+      left.scopeKey.localeCompare(right.scopeKey) ||
+      left.observationKey.localeCompare(right.observationKey) ||
+      left.observationId.localeCompare(right.observationId),
   );
 }
 
@@ -388,13 +389,17 @@ function uniqueSourceAuthorizations(
   for (const binding of evidence) {
     byScope.set(sourceScopeKey(binding), binding);
   }
-  return [...byScope.values()].sort((left, right) =>
-    left.sourceKey.localeCompare(right.sourceKey) ||
-    left.scopeKey.localeCompare(right.scopeKey),
+  return [...byScope.values()].sort(
+    (left, right) =>
+      left.sourceKey.localeCompare(right.sourceKey) ||
+      left.scopeKey.localeCompare(right.scopeKey),
   );
 }
 
-function sourceScopeKey(input: { sourceKey: string; scopeKey: string }): string {
+function sourceScopeKey(input: {
+  sourceKey: string;
+  scopeKey: string;
+}): string {
   return `${input.sourceKey}\u0000${input.scopeKey}`;
 }
 
@@ -463,7 +468,8 @@ function sourceQualityContractIsComplete(input: {
   revisionPolicy: string | null;
   retentionDays: number | null;
 }): boolean {
-  return input.permittedFields.length > 0 &&
+  return (
+    input.permittedFields.length > 0 &&
     Boolean(input.coverageDefinition) &&
     Boolean(input.denominatorDefinition) &&
     input.maxStalenessSeconds !== null &&
@@ -473,7 +479,8 @@ function sourceQualityContractIsComplete(input: {
     input.minimumCoverageBps <= 10_000 &&
     Boolean(input.revisionPolicy) &&
     input.retentionDays !== null &&
-    input.retentionDays > 0;
+    input.retentionDays > 0
+  );
 }
 
 function evidenceCoverageAndFreshnessPasses(
@@ -500,17 +507,20 @@ function evidenceCoverageAndFreshnessPasses(
     return false;
   }
   const maxStalenessSeconds = entitlement.maxStalenessSeconds;
-  const retentionSeconds = entitlement.retentionDays === null
-    ? null
-    : entitlement.retentionDays * 86_400;
-  const maximumAgeSeconds = maxStalenessSeconds === null
-    ? retentionSeconds
-    : retentionSeconds === null
-      ? maxStalenessSeconds
-      : Math.min(maxStalenessSeconds, retentionSeconds);
-  return maximumAgeSeconds !== null &&
-    at.getTime() - observation.eventAt.getTime() <=
-      maximumAgeSeconds * 1_000;
+  const retentionSeconds =
+    entitlement.retentionDays === null
+      ? null
+      : entitlement.retentionDays * 86_400;
+  const maximumAgeSeconds =
+    maxStalenessSeconds === null
+      ? retentionSeconds
+      : retentionSeconds === null
+        ? maxStalenessSeconds
+        : Math.min(maxStalenessSeconds, retentionSeconds);
+  return (
+    maximumAgeSeconds !== null &&
+    at.getTime() - observation.eventAt.getTime() <= maximumAgeSeconds * 1_000
+  );
 }
 
 function calculateCoverageBps(input: {
@@ -601,9 +611,7 @@ function toItemRecord(row: DecisionItemRow): SourcingDecisionBatchItemRecord {
     hasCoupangEvidence: row.hasCoupangEvidence,
     has1688Evidence: row.has1688Evidence,
     nextEvidenceAction: row.nextEvidenceAction as
-      | RecommendationNextEvidenceAction
-      | 'resolve_supplier_variant'
-      | null,
+      RecommendationNextEvidenceAction | 'resolve_supplier_variant' | null,
     reasonCodes: row.reasonCodes,
     riskCodes: row.riskCodes,
     modelOutput: jsonRecord(row.modelOutput, row.id),
@@ -632,18 +640,17 @@ function nullableDecimalNumber(value: Prisma.Decimal | null): number | null {
   return value?.toNumber() ?? null;
 }
 
-function jsonRecord(value: Prisma.JsonValue, id: string): Record<string, unknown> {
+function jsonRecord(
+  value: Prisma.JsonValue,
+  id: string,
+): Record<string, unknown> {
   if (value && typeof value === 'object' && !Array.isArray(value)) {
     return value as Record<string, unknown>;
   }
   throw new Error(`Decision batch item ${id} has non-object modelOutput.`);
 }
 
-function requiredValue<T>(
-  value: T | null,
-  field: string,
-  id: string,
-): T {
+function requiredValue<T>(value: T | null, field: string, id: string): T {
   if (value == null) {
     throw new Error(`Decision record ${id} is missing required ${field}.`);
   }

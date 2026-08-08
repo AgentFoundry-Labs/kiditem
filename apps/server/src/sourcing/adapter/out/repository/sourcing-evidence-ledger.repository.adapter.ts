@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import type {
@@ -43,9 +44,7 @@ type ObservationRow = Prisma.SourcingEvidenceObservationGetPayload<{
 }>;
 
 @Injectable()
-export class SourcingEvidenceLedgerRepositoryAdapter
-  implements SourcingEvidenceLedgerRepositoryPort
-{
+export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidenceLedgerRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   startRun(
@@ -64,7 +63,11 @@ export class SourcingEvidenceLedgerRepositoryAdapter
         if (existing.requestHash !== command.requestHash) {
           return { kind: 'idempotency_conflict' };
         }
-        return { kind: 'existing', duplicate: true, record: toRunRecord(existing) };
+        return {
+          kind: 'existing',
+          duplicate: true,
+          record: toRunRecord(existing),
+        };
       }
 
       const row = await tx.sourcingEvidenceIngestionRun.create({
@@ -111,7 +114,11 @@ export class SourcingEvidenceLedgerRepositoryAdapter
     commands: AppendSourcingEvidenceObservationCommand[],
   ): Promise<AppendSourcingEvidenceObservationsResult> {
     if (commands.length === 0) {
-      return Promise.resolve({ kind: 'appended', records: [], duplicateCount: 0 });
+      return Promise.resolve({
+        kind: 'appended',
+        records: [],
+        duplicateCount: 0,
+      });
     }
     assertSingleRunScope(commands);
 
@@ -119,7 +126,10 @@ export class SourcingEvidenceLedgerRepositoryAdapter
     return this.prisma.$transaction(async (tx) => {
       await lockRunRow(tx, first.organizationId, first.ingestionRunId);
       const run = await tx.sourcingEvidenceIngestionRun.findFirst({
-        where: { id: first.ingestionRunId, organizationId: first.organizationId },
+        where: {
+          id: first.ingestionRunId,
+          organizationId: first.organizationId,
+        },
         include: runInclude,
       });
       if (!run) return { kind: 'run_not_found' };
@@ -131,16 +141,13 @@ export class SourcingEvidenceLedgerRepositoryAdapter
         run.targetKey,
       );
       const transactionAt = await databaseClock(tx);
-      const currentEntitlement = await findCurrentCollectableEntitlement(
-        tx,
-        {
-          id: run.sourceEntitlementVersionId,
-          organizationId: first.organizationId,
-          sourceKey: run.sourceEntitlementVersion.sourceKey,
-          scopeKey: run.targetKey,
-          at: transactionAt,
-        },
-      );
+      const currentEntitlement = await findCurrentCollectableEntitlement(tx, {
+        id: run.sourceEntitlementVersionId,
+        organizationId: first.organizationId,
+        sourceKey: run.sourceEntitlementVersion.sourceKey,
+        scopeKey: run.targetKey,
+        at: transactionAt,
+      });
       if (currentEntitlement?.id !== run.sourceEntitlementVersionId) {
         return { kind: 'source_entitlement_changed' };
       }
@@ -151,10 +158,16 @@ export class SourcingEvidenceLedgerRepositoryAdapter
       }
       assertAppendCommandsMatchRun(commands, run);
 
-      const uniqueCommands = new Map<string, AppendSourcingEvidenceObservationCommand>();
+      const uniqueCommands = new Map<
+        string,
+        AppendSourcingEvidenceObservationCommand
+      >();
       let duplicateCount = 0;
       for (const command of commands) {
-        const key = observationRevisionKey(command.observationKey, command.revision);
+        const key = observationRevisionKey(
+          command.observationKey,
+          command.revision,
+        );
         const prior = uniqueCommands.get(key);
         if (!prior) {
           uniqueCommands.set(key, command);
@@ -170,6 +183,15 @@ export class SourcingEvidenceLedgerRepositoryAdapter
         if (!observationCommandEnvelopeMatches(prior, command)) {
           return {
             kind: 'observation_series_mismatch',
+            observationKey: command.observationKey,
+            revision: command.revision,
+          };
+        }
+        if (
+          observationEnvelopeHash(prior) !== observationEnvelopeHash(command)
+        ) {
+          return {
+            kind: 'observation_conflict',
             observationKey: command.observationKey,
             revision: command.revision,
           };
@@ -211,6 +233,16 @@ export class SourcingEvidenceLedgerRepositoryAdapter
             revision: command.revision,
           };
         }
+        if (
+          observationEnvelopeHashFromRow(existing) !==
+          observationEnvelopeHash(command)
+        ) {
+          return {
+            kind: 'observation_conflict',
+            observationKey: command.observationKey,
+            revision: command.revision,
+          };
+        }
         existingByKey.set(
           observationRevisionKey(command.observationKey, command.revision),
           existing,
@@ -222,7 +254,10 @@ export class SourcingEvidenceLedgerRepositoryAdapter
       let appendedCount = 0;
       let appendedCoverageUnitCount = 0;
       for (const command of ordered) {
-        const key = observationRevisionKey(command.observationKey, command.revision);
+        const key = observationRevisionKey(
+          command.observationKey,
+          command.revision,
+        );
         const existing = existingByKey.get(key);
         if (existing) {
           records.push(toObservationRecord(existing));
@@ -270,38 +305,54 @@ export class SourcingEvidenceLedgerRepositoryAdapter
             revision: command.revision,
           };
         }
-        const created = await tx.sourcingEvidenceObservation.create({
-          data: {
-            organizationId: command.organizationId,
-            ingestionRunId: command.ingestionRunId,
-            supersedesObservationId: predecessor?.id ?? null,
-            sourceKey: command.sourceKey,
-            platform: command.platform,
-            evidenceFamily: command.evidenceFamily,
-            signalRole: command.signalRole,
-            conceptKey: command.conceptKey,
-            supportsCandidate: command.supportsCandidate,
-            observationKey: command.observationKey,
-            revision: command.revision,
-            sourceEntityType: command.sourceEntityType,
-            sourceEntityKey: command.sourceEntityId,
-            observationType: command.evidenceFamily,
-            schemaVersion: command.schemaVersion,
-            evidenceClass: command.granularity,
-            decisionImpact: command.decisionImpactAtIngest,
-            eventAt: command.eventAt,
-            observedAt: command.observedAt,
-            availableAt: command.availableAt,
-            revisionAt: command.revisionAt,
-            sourceRevisionKey: `${command.observationKey}:${command.revision}`,
-            sourceUrl: command.sourceUrl,
-            payloadHash: command.payloadHash,
-            payload: command.rawPayload as Prisma.InputJsonValue,
-            ingestedAt: transactionAt,
-          },
-          include: observationInclude,
+        const createdId = await insertObservationIgnoringDuplicate(tx, {
+          command,
+          supersedesObservationId: predecessor?.id ?? null,
+          ingestedAt: transactionAt,
         });
-        records.push(toObservationRecord(created));
+        if (!createdId) {
+          const winner = await tx.sourcingEvidenceObservation.findFirst({
+            where: {
+              organizationId: command.organizationId,
+              observationKey: command.observationKey,
+              revision: command.revision,
+            },
+            include: observationInclude,
+          });
+          if (!winner) {
+            throw new Error(
+              'Evidence insert conflicted without a visible winner.',
+            );
+          }
+          if (!observationSeriesMatches(command, winner, run.targetKey)) {
+            return {
+              kind: 'observation_series_mismatch',
+              observationKey: command.observationKey,
+              revision: command.revision,
+            };
+          }
+          if (
+            observationEnvelopeHashFromRow(winner) !==
+            observationEnvelopeHash(command)
+          ) {
+            return {
+              kind: 'observation_conflict',
+              observationKey: command.observationKey,
+              revision: command.revision,
+            };
+          }
+          records.push(toObservationRecord(winner));
+          duplicateCount += 1;
+          continue;
+        }
+        records.push(
+          toObservationRecordFromCommand({
+            id: createdId,
+            command,
+            run,
+            ingestedAt: transactionAt,
+          }),
+        );
         appendedCount += 1;
         if (command.revision === 1) appendedCoverageUnitCount += 1;
       }
@@ -347,16 +398,13 @@ export class SourcingEvidenceLedgerRepositoryAdapter
           current.targetKey,
         );
         transactionAt = await databaseClock(tx);
-        const currentEntitlement = await findCurrentCollectableEntitlement(
-          tx,
-          {
-            id: current.sourceEntitlementVersionId,
-            organizationId: command.organizationId,
-            sourceKey: current.sourceEntitlementVersion.sourceKey,
-            scopeKey: current.targetKey,
-            at: transactionAt,
-          },
-        );
+        const currentEntitlement = await findCurrentCollectableEntitlement(tx, {
+          id: current.sourceEntitlementVersionId,
+          organizationId: command.organizationId,
+          sourceKey: current.sourceEntitlementVersion.sourceKey,
+          scopeKey: current.targetKey,
+          at: transactionAt,
+        });
         if (!currentEntitlement) {
           return { kind: 'source_entitlement_changed' };
         }
@@ -466,18 +514,20 @@ export class SourcingEvidenceLedgerRepositoryAdapter
         { id: 'desc' },
       ],
     });
-    const latest = new Map<string, typeof rows[number]>();
+    const latest = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
       if (!latest.has(row.observationKey)) latest.set(row.observationKey, row);
     }
     return keys.flatMap((observationKey) => {
       const row = latest.get(observationKey);
       return row
-        ? [{
-            observationKey,
-            observationId: row.id,
-            revision: row.revision,
-          }]
+        ? [
+            {
+              observationKey,
+              observationId: row.id,
+              revision: row.revision,
+            },
+          ]
         : [];
     });
   }
@@ -591,6 +641,122 @@ async function lockObservationSeries(
   `;
 }
 
+async function insertObservationIgnoringDuplicate(
+  tx: Prisma.TransactionClient,
+  input: {
+    command: AppendSourcingEvidenceObservationCommand;
+    supersedesObservationId: string | null;
+    ingestedAt: Date;
+  },
+): Promise<string | null> {
+  const { command } = input;
+  const id = randomUUID();
+  const rows = await tx.$queryRaw<Array<{ id: string }>>`
+    INSERT INTO sourcing_evidence_observations (
+      id,
+      organization_id,
+      ingestion_run_id,
+      supersedes_observation_id,
+      source_key,
+      platform,
+      evidence_family,
+      signal_role,
+      concept_key,
+      supports_candidate,
+      observation_key,
+      revision,
+      source_entity_type,
+      source_entity_key,
+      observation_type,
+      schema_version,
+      evidence_class,
+      decision_impact,
+      event_at,
+      observed_at,
+      available_at,
+      revision_at,
+      source_revision_key,
+      source_url,
+      payload_hash,
+      envelope_hash,
+      payload,
+      ingested_at
+    ) VALUES (
+      ${id}::uuid,
+      ${command.organizationId}::uuid,
+      ${command.ingestionRunId}::uuid,
+      ${input.supersedesObservationId}::uuid,
+      ${command.sourceKey},
+      ${command.platform},
+      ${command.evidenceFamily},
+      ${command.signalRole},
+      ${command.conceptKey},
+      ${command.supportsCandidate},
+      ${command.observationKey},
+      ${command.revision},
+      ${command.sourceEntityType},
+      ${command.sourceEntityId},
+      ${command.evidenceFamily},
+      ${command.schemaVersion},
+      ${command.granularity},
+      ${command.decisionImpactAtIngest},
+      ${command.eventAt},
+      ${command.observedAt},
+      ${command.availableAt},
+      ${command.revisionAt},
+      ${`${command.observationKey}:${command.revision}`},
+      ${command.sourceUrl},
+      ${command.payloadHash},
+      ${observationEnvelopeHash(command)},
+      ${JSON.stringify(command.rawPayload)}::jsonb,
+      ${input.ingestedAt}
+    )
+    ON CONFLICT (organization_id, observation_key, revision) DO NOTHING
+    RETURNING id
+  `;
+  return rows[0]?.id ?? null;
+}
+
+function toObservationRecordFromCommand(input: {
+  id: string;
+  command: AppendSourcingEvidenceObservationCommand;
+  run: RunRow;
+  ingestedAt: Date;
+}): SourcingEvidenceObservationRecord {
+  const { command, run } = input;
+  return {
+    id: input.id,
+    organizationId: command.organizationId,
+    ingestionRunId: command.ingestionRunId,
+    ingestionRunStatus: fromDatabaseRunStatus(run.status),
+    ingestionRunCoverageBps: calculateRunCoverageBps(run),
+    ingestionRunCompletedAt: run.completedAt,
+    sourceEntitlementVersionId: run.sourceEntitlementVersionId,
+    sourceKey: command.sourceKey,
+    sourceScopeKey: run.targetKey,
+    platform: command.platform,
+    evidenceFamily: command.evidenceFamily,
+    signalRole: command.signalRole,
+    granularity: command.granularity,
+    conceptKey: command.conceptKey,
+    sourceEntityType: command.sourceEntityType,
+    sourceEntityId: command.sourceEntityId,
+    schemaVersion: command.schemaVersion,
+    observationKey: command.observationKey,
+    revision: command.revision,
+    supportsCandidate: command.supportsCandidate,
+    decisionImpactAtIngest: command.decisionImpactAtIngest,
+    sourceUrl: command.sourceUrl,
+    eventAt: command.eventAt,
+    observedAt: command.observedAt,
+    availableAt: command.availableAt,
+    revisionAt: command.revisionAt,
+    payloadHash: command.payloadHash,
+    rawPayload: command.rawPayload,
+    ingestedAt: input.ingestedAt,
+  };
+}
+
 function observationSeriesMatches(
   command: AppendSourcingEvidenceObservationCommand,
   predecessor: {
@@ -608,7 +774,8 @@ function observationSeriesMatches(
   },
   expectedScopeKey: string,
 ): boolean {
-  return predecessor.sourceKey === command.sourceKey &&
+  return (
+    predecessor.sourceKey === command.sourceKey &&
     predecessor.platform === command.platform &&
     predecessor.evidenceFamily === command.evidenceFamily &&
     predecessor.signalRole === command.signalRole &&
@@ -618,14 +785,16 @@ function observationSeriesMatches(
     predecessor.observationType === command.evidenceFamily &&
     predecessor.schemaVersion === command.schemaVersion &&
     predecessor.evidenceClass === command.granularity &&
-    predecessor.ingestionRun.targetKey === expectedScopeKey;
+    predecessor.ingestionRun.targetKey === expectedScopeKey
+  );
 }
 
 function observationCommandEnvelopeMatches(
   left: AppendSourcingEvidenceObservationCommand,
   right: AppendSourcingEvidenceObservationCommand,
 ): boolean {
-  return left.organizationId === right.organizationId &&
+  return (
+    left.organizationId === right.organizationId &&
     left.ingestionRunId === right.ingestionRunId &&
     left.sourceEntitlementVersionId === right.sourceEntitlementVersionId &&
     left.sourceKey === right.sourceKey &&
@@ -638,7 +807,83 @@ function observationCommandEnvelopeMatches(
     left.sourceEntityId === right.sourceEntityId &&
     left.schemaVersion === right.schemaVersion &&
     left.observationKey === right.observationKey &&
-    left.revision === right.revision;
+    left.revision === right.revision
+  );
+}
+
+function observationEnvelopeHash(
+  command: AppendSourcingEvidenceObservationCommand,
+): string {
+  return hashCanonicalJson({
+    organizationId: command.organizationId,
+    ingestionRunId: command.ingestionRunId,
+    sourceEntitlementVersionId: command.sourceEntitlementVersionId,
+    sourceKey: command.sourceKey,
+    platform: command.platform,
+    evidenceFamily: command.evidenceFamily,
+    signalRole: command.signalRole,
+    granularity: command.granularity,
+    conceptKey: command.conceptKey,
+    sourceEntityType: command.sourceEntityType,
+    sourceEntityId: command.sourceEntityId,
+    schemaVersion: command.schemaVersion,
+    observationKey: command.observationKey,
+    revision: command.revision,
+    supportsCandidate: command.supportsCandidate,
+    decisionImpactAtIngest: command.decisionImpactAtIngest,
+    sourceUrl: command.sourceUrl,
+    eventAt: command.eventAt,
+    observedAt: command.observedAt,
+    availableAt: command.availableAt,
+    revisionAt: command.revisionAt,
+    payloadHash: command.payloadHash,
+  });
+}
+
+function observationEnvelopeHashFromRow(row: ObservationRow): string {
+  if (row.envelopeHash) return row.envelopeHash;
+  return hashCanonicalJson({
+    organizationId: row.organizationId,
+    ingestionRunId: row.ingestionRunId,
+    sourceEntitlementVersionId: row.ingestionRun.sourceEntitlementVersionId,
+    sourceKey: row.sourceKey,
+    platform: row.platform,
+    evidenceFamily: row.evidenceFamily,
+    signalRole: row.signalRole,
+    granularity: row.evidenceClass,
+    conceptKey: row.conceptKey,
+    sourceEntityType: row.sourceEntityType,
+    sourceEntityId: row.sourceEntityKey,
+    schemaVersion: row.schemaVersion,
+    observationKey: row.observationKey,
+    revision: row.revision,
+    supportsCandidate: row.supportsCandidate,
+    decisionImpactAtIngest: row.decisionImpact,
+    sourceUrl: row.sourceUrl,
+    eventAt: row.eventAt,
+    observedAt: row.observedAt,
+    availableAt: row.availableAt,
+    revisionAt: row.revisionAt,
+    payloadHash: row.payloadHash,
+  });
+}
+
+function hashCanonicalJson(value: unknown): string {
+  return createHash('sha256').update(canonicalJson(value)).digest('hex');
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null) return 'null';
+  if (value instanceof Date) return JSON.stringify(value.toISOString());
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(',')}}`;
+  }
+  return JSON.stringify(value);
 }
 
 function toRunRecord(row: RunRow): SourcingEvidenceIngestionRunRecord {
@@ -670,7 +915,9 @@ function toRunRecord(row: RunRow): SourcingEvidenceIngestionRunRecord {
   };
 }
 
-function toObservationRecord(row: ObservationRow): SourcingEvidenceObservationRecord {
+function toObservationRecord(
+  row: ObservationRow,
+): SourcingEvidenceObservationRecord {
   if (!row.eventAt) {
     throw new Error(`Evidence observation ${row.id} has no eventAt.`);
   }
@@ -686,8 +933,10 @@ function toObservationRecord(row: ObservationRow): SourcingEvidenceObservationRe
     sourceScopeKey: row.ingestionRun.targetKey,
     platform: row.platform,
     evidenceFamily: row.evidenceFamily,
-    signalRole: row.signalRole as SourcingEvidenceObservationRecord['signalRole'],
-    granularity: row.evidenceClass as SourcingEvidenceObservationRecord['granularity'],
+    signalRole:
+      row.signalRole as SourcingEvidenceObservationRecord['signalRole'],
+    granularity:
+      row.evidenceClass as SourcingEvidenceObservationRecord['granularity'],
     conceptKey: row.conceptKey,
     sourceEntityType: row.sourceEntityType,
     sourceEntityId: row.sourceEntityKey,
@@ -716,13 +965,18 @@ function assertRunEntitlementMatches(
     row.sourceEntitlementVersion.sourceKey !== command.sourceKey ||
     row.sourceEntitlementVersion.scopeKey !== command.scopeKey ||
     row.targetKey !== command.scopeKey ||
-    row.sourceEntitlementVersion.decisionImpact !== command.decisionImpactAtIngest
+    row.sourceEntitlementVersion.decisionImpact !==
+      command.decisionImpactAtIngest
   ) {
-    throw new Error('Evidence run entitlement does not match the requested source contract.');
+    throw new Error(
+      'Evidence run entitlement does not match the requested source contract.',
+    );
   }
 }
 
-function assertSingleRunScope(commands: AppendSourcingEvidenceObservationCommand[]): void {
+function assertSingleRunScope(
+  commands: AppendSourcingEvidenceObservationCommand[],
+): void {
   const first = commands[0];
   if (
     commands.some(
@@ -731,7 +985,9 @@ function assertSingleRunScope(commands: AppendSourcingEvidenceObservationCommand
         command.ingestionRunId !== first.ingestionRunId,
     )
   ) {
-    throw new Error('Evidence append commands must belong to one organization and run.');
+    throw new Error(
+      'Evidence append commands must belong to one organization and run.',
+    );
   }
 }
 
@@ -745,10 +1001,13 @@ function assertAppendCommandsMatchRun(
       (command) =>
         command.sourceEntitlementVersionId !== run.sourceEntitlementVersionId ||
         command.sourceKey !== run.sourceEntitlementVersion.sourceKey ||
-        command.decisionImpactAtIngest !== run.sourceEntitlementVersion.decisionImpact,
+        command.decisionImpactAtIngest !==
+          run.sourceEntitlementVersion.decisionImpact,
     )
   ) {
-    throw new Error('Evidence observation does not match its ingestion run contract.');
+    throw new Error(
+      'Evidence observation does not match its ingestion run contract.',
+    );
   }
 }
 
@@ -771,7 +1030,10 @@ function toDatabaseRunStatus(
   return status;
 }
 
-function observationRevisionKey(observationKey: string, revision: number): string {
+function observationRevisionKey(
+  observationKey: string,
+  revision: number,
+): string {
   return `${observationKey}:${revision}`;
 }
 
@@ -810,9 +1072,7 @@ function calculateRunCoverageBps(row: {
   ) {
     return null;
   }
-  return Math.round(
-    (row.coverageNumerator / row.coverageDenominator) * 10_000,
-  );
+  return Math.round((row.coverageNumerator / row.coverageDenominator) * 10_000);
 }
 
 function parseOptionalDate(value: string | null): Date | null {

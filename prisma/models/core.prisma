@@ -182,6 +182,17 @@ model Organization {
   sourcingCandidates         SourcingCandidate[]
   candidateImages            CandidateImage[]
   sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
+  sourcingInterestTargets                    SourcingInterestTarget[]
+  sourcing1688OfferKeywordObservations       Sourcing1688OfferKeywordObservation[]
+  sourcingRecommendationRuns                 SourcingRecommendationRun[]
+  sourcingRecommendationItems                SourcingRecommendationItem[]
+  sourcingRecommendationItemEvidence         SourcingRecommendationItemEvidence[]
+  sourcingValidationEpisodes                 SourcingValidationEpisode[]
+  sourcingValidationChecks                   SourcingValidationCheck[]
+  sourcingValidationCheckEvidence            SourcingValidationCheckEvidence[]
+  sourcingReviewSelections                   SourcingReviewSelection[]
+  sourcingReviewBatches                      SourcingReviewBatch[]
+  sourcingReviewBatchItems                   SourcingReviewBatchItem[]
 
   // Sourcing — market trend and live-commerce snapshots
   trendSeedKeywords                    TrendSeedKeyword[]

@@ -9,7 +9,10 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
   it('append-only creates an organization-scoped batch with nested items and evidence', async () => {
     const findFirst = vi.fn().mockResolvedValue(null);
     const create = vi.fn().mockResolvedValue(batchRow());
-    const adapter = createAdapter({ batchFindFirst: findFirst, batchCreate: create });
+    const adapter = createAdapter({
+      batchFindFirst: findFirst,
+      batchCreate: create,
+    });
 
     const result = await adapter.create(createCommand());
 
@@ -21,26 +24,32 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
         organizationId: 'organization-1',
         batchKey: 'decision:stationery:2026-08-01',
         sourceCutoffAt: new Date('2026-07-31T18:00:00.000Z'),
-        items: [{
-          id: 'item-1',
-          productName: '컬러 점토 세트',
-          baselineScore: 82.25,
-          confidence: 0.72,
-          policyProbability: null,
-          evidence: [{
-            id: 'evidence-1',
-            observationId: 'observation-1',
-            evidenceRole: 'support:supply',
-          }],
-        }],
+        items: [
+          {
+            id: 'item-1',
+            productName: '컬러 점토 세트',
+            baselineScore: 82.25,
+            confidence: 0.72,
+            policyProbability: null,
+            evidence: [
+              {
+                id: 'evidence-1',
+                observationId: 'observation-1',
+                evidenceRole: 'support:supply',
+              },
+            ],
+          },
+        ],
       },
     });
-    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: {
-        organizationId: 'organization-1',
-        idempotencyKey: 'decision:stationery:2026-08-01',
-      },
-    }));
+    expect(findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId: 'organization-1',
+          idempotencyKey: 'decision:stationery:2026-08-01',
+        },
+      }),
+    );
 
     const createInput = create.mock.calls[0][0];
     expect(createInput.data).toMatchObject({
@@ -62,36 +71,40 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
       modelGeneratorVersion: 'generator-v1',
       expiresAt: new Date('2026-08-04T16:30:00.000Z'),
     });
-    expect(createInput.data.items.create).toEqual([{
-      itemKey: createHash('sha256').update('model-candidate-1').digest('hex'),
-      modelCandidateId: 'model-candidate-1',
-      displayName: '컬러 점토 세트',
-      rank: 1,
-      launchCandidateId: 'launch-candidate-1',
-      supplierOfferSkuSnapshotId: 'offer-snapshot-1',
-      baselineDecision: 'order',
-      decision: 'test_order',
-      executionEligible: true,
-      heuristicScore: 82.25,
-      decisionConfidence: 0.72,
-      confidenceKind: 'calibrated_probability',
-      policyProbability: null,
-      evidenceFamilyCount: 3,
-      evidencePlatformCount: 2,
-      hasCoupangEvidence: true,
-      has1688Evidence: true,
-      nextEvidenceAction: null,
-      reasonCodes: ['all_test_order_gates_passed'],
-      riskCodes: [],
-      modelOutput: { scoreVersion: 'v1' },
-      evidence: {
-        create: [{
-          evidenceObservationId: 'observation-1',
-          role: 'support:supply',
-          ordinal: 0,
-        }],
+    expect(createInput.data.items.create).toEqual([
+      {
+        itemKey: createHash('sha256').update('model-candidate-1').digest('hex'),
+        modelCandidateId: 'model-candidate-1',
+        displayName: '컬러 점토 세트',
+        rank: 1,
+        launchCandidateId: 'launch-candidate-1',
+        supplierOfferSkuSnapshotId: 'offer-snapshot-1',
+        baselineDecision: 'order',
+        decision: 'test_order',
+        executionEligible: true,
+        heuristicScore: 82.25,
+        decisionConfidence: 0.72,
+        confidenceKind: 'calibrated_probability',
+        policyProbability: null,
+        evidenceFamilyCount: 3,
+        evidencePlatformCount: 2,
+        hasCoupangEvidence: true,
+        has1688Evidence: true,
+        nextEvidenceAction: null,
+        reasonCodes: ['all_test_order_gates_passed'],
+        riskCodes: [],
+        modelOutput: { scoreVersion: 'v1' },
+        evidence: {
+          create: [
+            {
+              evidenceObservationId: 'observation-1',
+              role: 'support:supply',
+              ordinal: 0,
+            },
+          ],
+        },
       },
-    }]);
+    ]);
     expect(createInput).toHaveProperty('include.items.include.evidence');
   });
 
@@ -103,7 +116,10 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
     async (requestHash, expectedKind, expectedDuplicate) => {
       const findFirst = vi.fn().mockResolvedValue(batchRow());
       const create = vi.fn();
-      const adapter = createAdapter({ batchFindFirst: findFirst, batchCreate: create });
+      const adapter = createAdapter({
+        batchFindFirst: findFirst,
+        batchCreate: create,
+      });
 
       const result = await adapter.create(createCommand({ requestHash }));
 
@@ -116,18 +132,33 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
   );
 
   it('re-reads the winning row after a P2002 race and enforces requestHash conflict', async () => {
-    const findFirst = vi.fn()
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(batchRow());
+    const findFirst = vi.fn().mockResolvedValueOnce(null);
+    const findUnique = vi.fn().mockResolvedValue(batchRow());
     const create = vi.fn().mockRejectedValue({ code: 'P2002' });
-    const adapter = createAdapter({ batchFindFirst: findFirst, batchCreate: create });
+    const adapter = createAdapter({
+      batchFindFirst: findFirst,
+      batchFindUnique: findUnique,
+      batchCreate: create,
+    });
 
-    const result = await adapter.create(createCommand({
-      requestHash: 'different-request-hash',
-    }));
+    const result = await adapter.create(
+      createCommand({
+        requestHash: 'different-request-hash',
+      }),
+    );
 
     expect(result).toEqual({ kind: 'idempotency_conflict' });
-    expect(findFirst).toHaveBeenCalledTimes(2);
+    expect(findFirst).toHaveBeenCalledTimes(1);
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          organizationId_idempotencyKey: {
+            organizationId: 'organization-1',
+            idempotencyKey: 'decision:stationery:2026-08-01',
+          },
+        },
+      }),
+    );
   });
 
   it('returns reference_not_found for composite organization reference failures', async () => {
@@ -157,7 +188,8 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
 
   it('rejects the batch when supporting evidence is superseded before commit', async () => {
     const create = vi.fn();
-    const evidenceFindFirst = vi.fn()
+    const evidenceFindFirst = vi
+      .fn()
       .mockResolvedValueOnce({
         id: 'observation-1',
         eventAt: new Date('2026-07-31T16:00:00.000Z'),
@@ -179,13 +211,14 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
   it('does not misclassify an unrelated P2002 when no idempotency winner exists', async () => {
     const duplicateEvidence = { code: 'P2002', detail: 'nested evidence' };
     const adapter = createAdapter({
-      batchFindFirst: vi.fn()
-        .mockResolvedValueOnce(null)
-        .mockResolvedValueOnce(null),
+      batchFindFirst: vi.fn().mockResolvedValueOnce(null),
+      batchFindUnique: vi.fn().mockResolvedValue(null),
       batchCreate: vi.fn().mockRejectedValue(duplicateEvidence),
     });
 
-    await expect(adapter.create(createCommand())).rejects.toBe(duplicateEvidence);
+    await expect(adapter.create(createCommand())).rejects.toBe(
+      duplicateEvidence,
+    );
   });
 
   it('organization-scopes batch and item reads and maps Prisma records', async () => {
@@ -201,22 +234,32 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
       organizationId: 'organization-1',
       id: 'batch-1',
     });
-    const latest = await adapter.findLatest({ organizationId: 'organization-1' });
+    const latest = await adapter.findLatest({
+      organizationId: 'organization-1',
+    });
     const item = await adapter.findItemById({
       organizationId: 'organization-1',
       id: 'item-1',
     });
 
-    expect(batchFindFirst).toHaveBeenNthCalledWith(1, expect.objectContaining({
-      where: { id: 'batch-1', organizationId: 'organization-1' },
-    }));
-    expect(batchFindFirst).toHaveBeenNthCalledWith(2, expect.objectContaining({
-      where: { organizationId: 'organization-1' },
-      orderBy: [{ decisionAt: 'desc' }, { createdAt: 'desc' }],
-    }));
-    expect(itemFindFirst).toHaveBeenCalledWith(expect.objectContaining({
-      where: { id: 'item-1', organizationId: 'organization-1' },
-    }));
+    expect(batchFindFirst).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        where: { id: 'batch-1', organizationId: 'organization-1' },
+      }),
+    );
+    expect(batchFindFirst).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        where: { organizationId: 'organization-1' },
+        orderBy: [{ decisionAt: 'desc' }, { createdAt: 'desc' }],
+      }),
+    );
+    expect(itemFindFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'item-1', organizationId: 'organization-1' },
+      }),
+    );
     expect(byId).toMatchObject({
       batchKey: 'decision:stationery:2026-08-01',
       modelVersion: 'model-v1',
@@ -237,18 +280,22 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
 
 function createAdapter(input: {
   batchFindFirst?: ReturnType<typeof vi.fn>;
+  batchFindUnique?: ReturnType<typeof vi.fn>;
   batchCreate?: ReturnType<typeof vi.fn>;
   itemFindFirst?: ReturnType<typeof vi.fn>;
   sourceFindFirst?: ReturnType<typeof vi.fn>;
   evidenceFindFirst?: ReturnType<typeof vi.fn>;
 }): SourcingDecisionBatchRepositoryAdapter {
   const prisma = {
-    $queryRaw: vi.fn().mockResolvedValue([{
-      lock: '',
-      at: new Date('2026-07-31T18:00:01.000Z'),
-    }]),
+    $queryRaw: vi.fn().mockResolvedValue([
+      {
+        lock: '',
+        at: new Date('2026-07-31T18:00:01.000Z'),
+      },
+    ]),
     sourcingDecisionBatch: {
       findFirst: input.batchFindFirst ?? vi.fn().mockResolvedValue(null),
+      findUnique: input.batchFindUnique ?? vi.fn().mockResolvedValue(null),
       create: input.batchCreate ?? vi.fn(),
     },
     sourcingDecisionBatchItem: {
@@ -256,7 +303,8 @@ function createAdapter(input: {
     },
     sourcingSourceEntitlementVersion: {
       findFirst:
-        input.sourceFindFirst ?? vi.fn().mockResolvedValue({
+        input.sourceFindFirst ??
+        vi.fn().mockResolvedValue({
           id: 'entitlement-1',
           permittedFields: ['offerId'],
           coverageDefinition: 'configured search coverage',
@@ -269,7 +317,8 @@ function createAdapter(input: {
     },
     sourcingEvidenceObservation: {
       findFirst:
-        input.evidenceFindFirst ?? vi.fn().mockResolvedValue({
+        input.evidenceFindFirst ??
+        vi.fn().mockResolvedValue({
           id: 'observation-1',
           eventAt: new Date('2026-07-31T16:00:00.000Z'),
           ingestionRun: {
@@ -303,38 +352,42 @@ function createCommand(
     sourceCutoffAt: new Date('2026-07-31T18:00:00.000Z'),
     expiresAt: new Date('2026-08-04T16:30:00.000Z'),
     createdByUserId: 'user-1',
-    items: [{
-      modelCandidateId: 'model-candidate-1',
-      rank: 1,
-      productName: '컬러 점토 세트',
-      supplierOfferSkuSnapshotId: 'offer-snapshot-1',
-      launchCandidateId: 'launch-candidate-1',
-      baselineDecision: 'order',
-      canonicalDecision: 'test_order',
-      executionEligible: true,
-      baselineScore: 82.25,
-      confidence: 0.72,
-      confidenceKind: 'calibrated_probability',
-      policyProbability: null,
-      evidenceFamilyCount: 3,
-      evidencePlatformCount: 2,
-      hasCoupangEvidence: true,
-      has1688Evidence: true,
-      nextEvidenceAction: null,
-      reasonCodes: ['all_test_order_gates_passed'],
-      riskCodes: [],
-      modelOutput: { scoreVersion: 'v1' },
-      evidence: [{
-        observationId: 'observation-1',
-        evidenceRole: 'support:supply',
-        sourceAuthorization: {
-          sourceKey: '1688-api',
-          scopeKey: 'stationery',
-          entitlementVersionId: 'entitlement-1',
-          observationKey: 'offer-1:evidence',
-        },
-      }],
-    }],
+    items: [
+      {
+        modelCandidateId: 'model-candidate-1',
+        rank: 1,
+        productName: '컬러 점토 세트',
+        supplierOfferSkuSnapshotId: 'offer-snapshot-1',
+        launchCandidateId: 'launch-candidate-1',
+        baselineDecision: 'order',
+        canonicalDecision: 'test_order',
+        executionEligible: true,
+        baselineScore: 82.25,
+        confidence: 0.72,
+        confidenceKind: 'calibrated_probability',
+        policyProbability: null,
+        evidenceFamilyCount: 3,
+        evidencePlatformCount: 2,
+        hasCoupangEvidence: true,
+        has1688Evidence: true,
+        nextEvidenceAction: null,
+        reasonCodes: ['all_test_order_gates_passed'],
+        riskCodes: [],
+        modelOutput: { scoreVersion: 'v1' },
+        evidence: [
+          {
+            observationId: 'observation-1',
+            evidenceRole: 'support:supply',
+            sourceAuthorization: {
+              sourceKey: '1688-api',
+              scopeKey: 'stationery',
+              entitlementVersionId: 'entitlement-1',
+              observationKey: 'offer-1:evidence',
+            },
+          },
+        ],
+      },
+    ],
     ...overrides,
   };
 }
@@ -365,44 +418,48 @@ function batchRow() {
     testSlotLimit: null,
     constraintSetHash: null,
     createdAt,
-    items: [{
-      id: 'item-1',
-      organizationId: 'organization-1',
-      decisionBatchId: 'batch-1',
-      launchCandidateId: 'launch-candidate-1',
-      supplierOfferSkuSnapshotId: 'offer-snapshot-1',
-      itemKey: 'item-key-1',
-      modelCandidateId: 'model-candidate-1',
-      displayName: '컬러 점토 세트',
-      rank: 1,
-      baselineDecision: 'order',
-      decision: 'test_order',
-      executionEligible: true,
-      confidenceKind: 'calibrated_probability',
-      policyProbability: null,
-      evidenceFamilyCount: 3,
-      evidencePlatformCount: 2,
-      hasCoupangEvidence: true,
-      has1688Evidence: true,
-      nextEvidenceAction: null,
-      heuristicScore: new Prisma.Decimal('82.25'),
-      decisionConfidence: new Prisma.Decimal('0.72'),
-      expectedContributionProfit90dKrw: null,
-      capitalAtRiskKrw: null,
-      reasonCodes: ['all_test_order_gates_passed'],
-      riskCodes: [],
-      modelOutput: { scoreVersion: 'v1' },
-      featureManifestHash: null,
-      createdAt,
-      evidence: [{
-        id: 'evidence-1',
+    items: [
+      {
+        id: 'item-1',
         organizationId: 'organization-1',
-        decisionBatchItemId: 'item-1',
-        evidenceObservationId: 'observation-1',
-        role: 'support:supply',
-        ordinal: 0,
+        decisionBatchId: 'batch-1',
+        launchCandidateId: 'launch-candidate-1',
+        supplierOfferSkuSnapshotId: 'offer-snapshot-1',
+        itemKey: 'item-key-1',
+        modelCandidateId: 'model-candidate-1',
+        displayName: '컬러 점토 세트',
+        rank: 1,
+        baselineDecision: 'order',
+        decision: 'test_order',
+        executionEligible: true,
+        confidenceKind: 'calibrated_probability',
+        policyProbability: null,
+        evidenceFamilyCount: 3,
+        evidencePlatformCount: 2,
+        hasCoupangEvidence: true,
+        has1688Evidence: true,
+        nextEvidenceAction: null,
+        heuristicScore: new Prisma.Decimal('82.25'),
+        decisionConfidence: new Prisma.Decimal('0.72'),
+        expectedContributionProfit90dKrw: null,
+        capitalAtRiskKrw: null,
+        reasonCodes: ['all_test_order_gates_passed'],
+        riskCodes: [],
+        modelOutput: { scoreVersion: 'v1' },
+        featureManifestHash: null,
         createdAt,
-      }],
-    }],
+        evidence: [
+          {
+            id: 'evidence-1',
+            organizationId: 'organization-1',
+            decisionBatchItemId: 'item-1',
+            evidenceObservationId: 'observation-1',
+            role: 'support:supply',
+            ordinal: 0,
+            createdAt,
+          },
+        ],
+      },
+    ],
   };
 }

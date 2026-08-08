@@ -8,6 +8,9 @@ model SourcingCandidate {
 
   sourceUrl      String @map("source_url")
   sourcePlatform String @map("source_platform")
+  externalOfferId      String? @map("external_offer_id") @db.VarChar(200)
+  variantKeyNormalized String  @default("") @map("variant_key_normalized") @db.VarChar(300)
+  sourceIdentityHash   String? @map("source_identity_hash") @db.VarChar(64)
   rawData        Json   @default("{}") @map("raw_data")
 
   name         String
@@ -48,7 +51,7 @@ model SourcingCandidate {
   detailPageImageRenderIntents DetailPageImageRenderIntent[] @relation("DetailPageImageRenderIntentCandidate")
   launchCandidates             SourcingLaunchCandidate[]
 
-  @@unique([organizationId, sourceUrl], map: "sourcing_candidates_organization_id_source_url_key", where: raw("is_deleted = false AND status = 'sourced'"))
+  @@unique([organizationId, sourcePlatform, sourceIdentityHash], map: "sourcing_candidates_org_platform_identity_key", where: raw("source_identity_hash IS NOT NULL AND is_deleted = false AND status = 'sourced'"))
   @@unique([provenanceMasterProductId, organizationId], map: "sourcing_candidates_org_provenance_master_key")
   @@unique([id, organizationId], map: "sourcing_candidates_id_org_key")
   @@index([organizationId])
@@ -102,15 +105,82 @@ model SourcingWorkspaceSnapshot {
   organizationId String   @map("organization_id") @db.Uuid
   scope          String
   businessDate   DateTime @map("business_date") @db.Date
+  projectionVersion String @default("legacy") @map("projection_version") @db.VarChar(120)
+  inputHash         String @default("") @map("input_hash") @db.VarChar(64)
   payload        Json     @default("{}") @map("payload") @db.JsonB
+  generatedAt    DateTime @default(now()) @map("generated_at") @db.Timestamptz
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, scope, businessDate])
+  @@unique([organizationId, scope, businessDate, projectionVersion, inputHash], map: "sourcing_workspace_snapshots_projection_input_key")
+  @@index([organizationId, scope, businessDate, generatedAt(sort: Desc)], map: "sourcing_workspace_snapshots_latest_projection_idx")
   @@map("sourcing_workspace_snapshots")
+}
+
+/// @namespace Sourcing
+/// @describe 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다.
+model SourcingInterestTarget {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  normalizedKeyword String   @map("normalized_keyword") @db.VarChar(200)
+  displayKeyword    String   @map("display_keyword") @db.VarChar(200)
+  sourceKeys        String[] @default([]) @map("source_keys")
+  enabled           Boolean  @default(true)
+  version           Int      @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([id, organizationId], map: "sourcing_interest_targets_id_org_key")
+  @@unique([organizationId, normalizedKeyword], map: "sourcing_interest_targets_org_keyword_key")
+  @@index([organizationId, enabled, updatedAt], map: "sourcing_interest_targets_enabled_updated_idx")
+  @@map("sourcing_interest_targets")
+}
+
+/// @namespace Sourcing
+/// @describe 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다.
+model Sourcing1688OfferKeywordObservation {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  evidenceObservationId String @map("evidence_observation_id") @db.Uuid
+  ingestionRunId        String @map("ingestion_run_id") @db.Uuid
+
+  businessDate            DateTime @map("business_date") @db.Date
+  sourceKeywordNormalized String   @map("source_keyword_normalized") @db.VarChar(200)
+  externalOfferId         String   @map("external_offer_id") @db.VarChar(200)
+  variantKeyNormalized    String   @default("") @map("variant_key_normalized") @db.VarChar(300)
+  sourceUrl               String?  @map("source_url") @db.Text
+  title                   String?  @db.VarChar(500)
+  supplierName            String?  @map("supplier_name") @db.VarChar(300)
+  imageUrl                String?  @map("image_url") @db.Text
+  rank                    Int?
+  priceCny                Decimal? @map("price_cny") @db.Decimal(12, 2)
+  monthlySales            Int?     @map("monthly_sales")
+  rawOffer                Json     @default("{}") @map("raw_offer") @db.JsonB
+  capturedAt              DateTime @map("captured_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  evidenceObservation SourcingEvidenceObservation @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  reviewBatchItems    SourcingReviewBatchItem[]
+
+  @@unique([id, organizationId], map: "sourcing_1688_offer_keyword_observations_id_org_key")
+  @@unique([evidenceObservationId, organizationId], map: "sourcing_1688_offer_keyword_observations_evidence_org_key")
+  @@unique([organizationId, businessDate, sourceKeywordNormalized, externalOfferId, variantKeyNormalized, capturedAt], map: "sourcing_1688_offer_keyword_observations_identity_key")
+  @@index([ingestionRunId])
+  @@index([organizationId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_keyword_captured_idx")
+  @@index([organizationId, externalOfferId, variantKeyNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_offer_captured_idx")
+  @@map("sourcing_1688_offer_keyword_observations")
 }
 
 /// @namespace Sourcing
@@ -410,6 +480,16 @@ model SourcingEvidenceIngestionRun {
   organizationId             String @map("organization_id") @db.Uuid
   sourceEntitlementVersionId String @map("source_entitlement_version_id") @db.Uuid
 
+  sourceKey              String    @default("") @map("source_key") @db.VarChar(80)
+  scopeKey               String    @default("default") @map("scope_key") @db.VarChar(160)
+  leaseToken             String    @default(uuid()) @map("lease_token") @db.Uuid
+  leaseExpiresAt         DateTime  @default(now()) @map("lease_expires_at") @db.Timestamptz
+  authorizationCheckedAt DateTime  @default(now()) @map("authorization_checked_at") @db.Timestamptz
+  entitlementVersionHash String    @default("") @map("entitlement_version_hash") @db.VarChar(64)
+  generation             Int       @default(1)
+  cancelRequestedAt      DateTime? @map("cancel_requested_at") @db.Timestamptz
+  staleDiscardedCount    Int       @default(0) @map("stale_discarded_count")
+
   targetKey         String  @map("target_key") @db.VarChar(300)
   idempotencyKey    String  @map("idempotency_key") @db.VarChar(300)
   requestHash       String  @map("request_hash") @db.VarChar(64)
@@ -442,9 +522,11 @@ model SourcingEvidenceIngestionRun {
   sourceEntitlementVersion SourcingSourceEntitlementVersion @relation(fields: [sourceEntitlementVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   triggeredByUser          User?                            @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
   observations             SourcingEvidenceObservation[]
+  offerKeywordObservations Sourcing1688OfferKeywordObservation[]
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_idempotency_key")
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("status IN ('collecting', 'cancel_requested')"))
   @@index([sourceEntitlementVersionId])
   @@index([triggeredByUserId])
   @@index([organizationId, status, startedAt], map: "sourcing_evidence_ingestion_runs_status_started_idx")
@@ -483,6 +565,7 @@ model SourcingEvidenceObservation {
   sourceRevisionKey String?   @map("source_revision_key") @db.VarChar(200)
   sourceUrl         String?   @map("source_url") @db.Text
   payloadHash       String    @map("payload_hash") @db.VarChar(64)
+  envelopeHash      String    @default("") @map("envelope_hash") @db.VarChar(64)
   payload           Json?     @db.JsonB
   rawArtifactRef    String?   @map("raw_artifact_ref") @db.VarChar(500)
   ingestedAt        DateTime  @default(now()) @map("ingested_at") @db.Timestamptz
@@ -494,6 +577,9 @@ model SourcingEvidenceObservation {
   supersededByObservation   SourcingEvidenceObservation? @relation("SourcingEvidenceObservationRevision")
   supplierOfferSkuSnapshots SupplierOfferSkuSnapshot[]
   decisionEvidence          SourcingDecisionEvidence[]
+  offerKeywordObservation   Sourcing1688OfferKeywordObservation?
+  recommendationItemEvidence SourcingRecommendationItemEvidence[]
+  validationCheckEvidence    SourcingValidationCheckEvidence[]
 
   @@unique([id, organizationId], map: "sourcing_evidence_observations_id_org_key")
   @@unique([organizationId, observationKey, revision], map: "sourcing_evidence_observations_org_key_revision_key")
@@ -686,6 +772,258 @@ model SourcingDecisionEvidence {
   @@index([evidenceObservationId])
   @@index([organizationId, decisionBatchItemId, ordinal], map: "sourcing_decision_evidence_item_ordinal_idx")
   @@map("sourcing_decision_evidence")
+}
+
+/// @namespace Sourcing
+/// @describe 재현 가능한 추천 계산의 immutable header. 입력 manifest와 모델 버전을 함께 고정한다.
+model SourcingRecommendationRun {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  policyKey         String @map("policy_key") @db.VarChar(120)
+  policyVersion     String @map("policy_version") @db.VarChar(120)
+  modelVersion      String @map("model_version") @db.VarChar(200)
+  calculationVersion String @map("calculation_version") @db.VarChar(120)
+  inputManifestHash String @map("input_manifest_hash") @db.VarChar(64)
+  inputManifest     Json   @default("{}") @map("input_manifest") @db.JsonB
+  status            String @default("complete") @db.VarChar(40)
+  businessDate      DateTime @map("business_date") @db.Date
+  generatedAt       DateTime @default(now()) @map("generated_at") @db.Timestamptz
+  completedAt       DateTime? @map("completed_at") @db.Timestamptz
+  expiresAt         DateTime? @map("expires_at") @db.Timestamptz
+  warningCodes      String[] @default([]) @map("warning_codes")
+  errorCode         String? @map("error_code") @db.VarChar(100)
+  errorMessage      String? @map("error_message") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization                       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  items             SourcingRecommendationItem[]
+  validationEpisodes SourcingValidationEpisode[]
+  reviewSelections   SourcingReviewSelection[]
+  reviewBatches      SourcingReviewBatch[]
+
+  @@unique([id, organizationId], map: "sourcing_recommendation_runs_id_org_key")
+  @@unique([organizationId, policyKey, policyVersion, modelVersion, calculationVersion, inputManifestHash], map: "sourcing_recommendation_runs_manifest_key")
+  @@index([organizationId, status, completedAt(sort: Desc), id], map: "sourcing_recommendation_runs_latest_idx")
+  @@map("sourcing_recommendation_runs")
+}
+
+/// @namespace Sourcing
+/// @describe 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다.
+model SourcingRecommendationItem {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  recommendationRunId String @map("recommendation_run_id") @db.Uuid
+
+  itemKey               String   @map("item_key") @db.VarChar(64)
+  sourcePlatform        String   @map("source_platform") @db.VarChar(80)
+  externalOfferId       String   @map("external_offer_id") @db.VarChar(200)
+  variantKeyNormalized  String   @default("") @map("variant_key_normalized") @db.VarChar(300)
+  matchedCoupangProductId String? @map("matched_coupang_product_id") @db.VarChar(200)
+  displayName           String   @map("display_name") @db.VarChar(500)
+  rank                  Int
+  score                 Int
+  grade                 String   @db.VarChar(20)
+  baselineAction        String   @map("baseline_action") @db.VarChar(30)
+  reasonCodes           String[] @default([]) @map("reason_codes")
+  riskCodes             String[] @default([]) @map("risk_codes")
+  scoreComponents       Json     @default("{}") @map("score_components") @db.JsonB
+  sourceSnapshot        Json     @default("{}") @map("source_snapshot") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization       Organization                        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recommendationRun  SourcingRecommendationRun           @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidence           SourcingRecommendationItemEvidence[]
+  validationEpisodes SourcingValidationEpisode[]
+  reviewBatchItems   SourcingReviewBatchItem[]
+
+  @@unique([id, organizationId], map: "sourcing_recommendation_items_id_org_key")
+  @@unique([recommendationRunId, itemKey], map: "sourcing_recommendation_items_run_item_key")
+  @@index([recommendationRunId, rank])
+  @@index([organizationId, externalOfferId, variantKeyNormalized], map: "sourcing_recommendation_items_offer_variant_idx")
+  @@map("sourcing_recommendation_items")
+}
+
+/// @namespace Sourcing
+/// @describe 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다.
+model SourcingRecommendationItemEvidence {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  recommendationItemId  String @map("recommendation_item_id") @db.Uuid
+  evidenceObservationId String @map("evidence_observation_id") @db.Uuid
+  role                  String @db.VarChar(80)
+  ordinal               Int    @default(0)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recommendationItem  SourcingRecommendationItem @relation(fields: [recommendationItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidenceObservation SourcingEvidenceObservation @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_recommendation_item_evidence_id_org_key")
+  @@unique([recommendationItemId, evidenceObservationId, role], map: "sourcing_recommendation_item_evidence_item_observation_role_key")
+  @@index([recommendationItemId, ordinal])
+  @@index([evidenceObservationId])
+  @@map("sourcing_recommendation_item_evidence")
+}
+
+/// @namespace Sourcing
+/// @describe 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다.
+model SourcingValidationEpisode {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  recommendationRunId   String @map("recommendation_run_id") @db.Uuid
+  recommendationItemId  String @map("recommendation_item_id") @db.Uuid
+
+  status             String   @default("pending") @db.VarChar(40)
+  policyKey          String   @map("policy_key") @db.VarChar(120)
+  policyVersion      String   @map("policy_version") @db.VarChar(120)
+  evidenceCutoffAt   DateTime @map("evidence_cutoff_at") @db.Timestamptz
+  startedAt          DateTime @default(now()) @map("started_at") @db.Timestamptz
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
+  validUntil         DateTime? @map("valid_until") @db.Timestamptz
+  summary            Json     @default("{}") @db.JsonB
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization       Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recommendationRun  SourcingRecommendationRun    @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  recommendationItem SourcingRecommendationItem   @relation(fields: [recommendationItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  checks             SourcingValidationCheck[]
+  reviewBatchItems   SourcingReviewBatchItem[]
+
+  @@unique([id, organizationId], map: "sourcing_validation_episodes_id_org_key")
+  @@unique([recommendationRunId, recommendationItemId], map: "sourcing_validation_episodes_run_item_key")
+  @@index([organizationId, status, completedAt])
+  @@map("sourcing_validation_episodes")
+}
+
+/// @namespace Sourcing
+/// @describe 하나의 검증 episode를 구성하는 데이터 기반 check 결과.
+model SourcingValidationCheck {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  validationEpisodeId String @map("validation_episode_id") @db.Uuid
+
+  checkKey      String   @map("check_key") @db.VarChar(120)
+  status        String   @db.VarChar(40)
+  severity      String?  @db.VarChar(40)
+  score         Int?
+  summary       String?  @db.Text
+  details       Json     @default("{}") @db.JsonB
+  evaluatedAt   DateTime @default(now()) @map("evaluated_at") @db.Timestamptz
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization      Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  validationEpisode SourcingValidationEpisode @relation(fields: [validationEpisodeId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidence          SourcingValidationCheckEvidence[]
+
+  @@unique([id, organizationId], map: "sourcing_validation_checks_id_org_key")
+  @@unique([validationEpisodeId, checkKey], map: "sourcing_validation_checks_episode_check_key")
+  @@index([validationEpisodeId, evaluatedAt])
+  @@map("sourcing_validation_checks")
+}
+
+/// @namespace Sourcing
+/// @describe 검증 check가 참조한 immutable evidence link.
+model SourcingValidationCheckEvidence {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  validationCheckId     String @map("validation_check_id") @db.Uuid
+  evidenceObservationId String @map("evidence_observation_id") @db.Uuid
+  role                  String @db.VarChar(80)
+  ordinal               Int    @default(0)
+  createdAt             DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization        Organization                @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  validationCheck     SourcingValidationCheck     @relation(fields: [validationCheckId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  evidenceObservation SourcingEvidenceObservation @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_validation_check_evidence_id_org_key")
+  @@unique([validationCheckId, evidenceObservationId, role], map: "sourcing_validation_check_evidence_check_observation_role_key")
+  @@index([validationCheckId, ordinal])
+  @@index([evidenceObservationId])
+  @@map("sourcing_validation_check_evidence")
+}
+
+/// @namespace Sourcing
+/// @describe Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record.
+model SourcingReviewSelection {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  recommendationRunId String @map("recommendation_run_id") @db.Uuid
+  workspaceKey        String @map("workspace_key") @db.VarChar(40)
+  itemKey             String @map("item_key") @db.VarChar(64)
+  state               String @default("neutral") @db.VarChar(20)
+  version             Int    @default(1)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recommendationRun SourcingRecommendationRun @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_review_selections_id_org_key")
+  @@unique([organizationId, workspaceKey, itemKey], map: "sourcing_review_selections_workspace_item_key")
+  @@index([organizationId, recommendationRunId, state], map: "sourcing_review_selections_run_state_idx")
+  @@map("sourcing_review_selections")
+}
+
+/// @namespace Sourcing
+/// @describe Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다.
+model SourcingReviewBatch {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  recommendationRunId String @map("recommendation_run_id") @db.Uuid
+  idempotencyKey      String @map("idempotency_key") @db.VarChar(300)
+  requestHash         String @map("request_hash") @db.VarChar(64)
+  status              String @default("awaiting_procurement_enablement") @db.VarChar(60)
+  requestedAt         DateTime @default(now()) @map("requested_at") @db.Timestamptz
+  cancelledAt         DateTime? @map("cancelled_at") @db.Timestamptz
+  cancelReason        String? @map("cancel_reason") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  recommendationRun SourcingRecommendationRun @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  items             SourcingReviewBatchItem[]
+
+  @@unique([id, organizationId], map: "sourcing_review_batches_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "sourcing_review_batches_org_idempotency_key")
+  @@index([organizationId, requestedAt])
+  @@map("sourcing_review_batches")
+}
+
+/// @namespace Sourcing
+/// @describe review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다.
+model SourcingReviewBatchItem {
+  id                          String @id @default(uuid()) @db.Uuid
+  organizationId              String @map("organization_id") @db.Uuid
+  reviewBatchId               String @map("review_batch_id") @db.Uuid
+  recommendationItemId        String @map("recommendation_item_id") @db.Uuid
+  validationEpisodeId         String? @map("validation_episode_id") @db.Uuid
+  offerKeywordObservationId   String @map("offer_keyword_observation_id") @db.Uuid
+  ordinal                     Int @default(0)
+  createdAt                   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization            Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  reviewBatch             SourcingReviewBatch                  @relation(fields: [reviewBatchId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  recommendationItem      SourcingRecommendationItem           @relation(fields: [recommendationItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  validationEpisode       SourcingValidationEpisode?           @relation(fields: [validationEpisodeId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  offerKeywordObservation Sourcing1688OfferKeywordObservation @relation(fields: [offerKeywordObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "sourcing_review_batch_items_id_org_key")
+  @@unique([reviewBatchId, recommendationItemId], map: "sourcing_review_batch_items_batch_item_key")
+  @@index([reviewBatchId, ordinal])
+  @@index([recommendationItemId])
+  @@index([validationEpisodeId])
+  @@index([offerKeywordObservationId])
+  @@map("sourcing_review_batch_items")
 }
 
 /// @namespace Sourcing
