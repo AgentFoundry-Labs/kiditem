@@ -281,7 +281,12 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       const existing = await tx.sourcingCandidate.findFirst({
         where: {
           organizationId: input.organizationId,
-          sourceUrl: input.sourceUrl,
+          ...(input.sourceIdentityHash
+            ? {
+                sourcePlatform: input.sourcePlatform,
+                sourceIdentityHash: input.sourceIdentityHash,
+              }
+            : { sourceUrl: input.sourceUrl }),
           isDeleted: false,
           status: 'sourced',
         },
@@ -289,6 +294,9 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       });
       const data = {
         sourcePlatform: input.sourcePlatform,
+        externalOfferId: input.externalOfferId ?? null,
+        variantKeyNormalized: input.variantKeyNormalized ?? '',
+        sourceIdentityHash: input.sourceIdentityHash ?? null,
         rawData: mergeJson(existing?.rawData, input.rawData) as Prisma.InputJsonValue,
         name: input.name,
         description: input.description,
@@ -356,6 +364,9 @@ function toRow(row: any): CandidateRow {
     organizationId: row.organizationId,
     sourceUrl: row.sourceUrl,
     sourcePlatform: row.sourcePlatform,
+    externalOfferId: row.externalOfferId,
+    variantKeyNormalized: row.variantKeyNormalized,
+    sourceIdentityHash: row.sourceIdentityHash,
     rawData: row.rawData,
     name: row.name,
     description: row.description,

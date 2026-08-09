@@ -15,16 +15,11 @@ import type {
   StartSourcingEvidenceRunResult,
 } from '../../../application/port/out/repository/sourcing-evidence-ledger.repository.port';
 
-const runInclude = {
-  sourceEntitlementVersion: {
-    select: { sourceKey: true, scopeKey: true, decisionImpact: true },
-  },
-} satisfies Prisma.SourcingEvidenceIngestionRunInclude;
+const runInclude = {} satisfies Prisma.SourcingEvidenceIngestionRunInclude;
 
 const observationInclude = {
   ingestionRun: {
     select: {
-      sourceEntitlementVersionId: true,
       status: true,
       targetKey: true,
       coverageNumerator: true,
@@ -73,7 +68,8 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
       const row = await tx.sourcingEvidenceIngestionRun.create({
         data: {
           organizationId: command.organizationId,
-          sourceEntitlementVersionId: command.sourceEntitlementVersionId,
+          sourceKey: command.sourceKey,
+          scopeKey: command.scopeKey,
           targetKey: command.scopeKey,
           idempotencyKey: command.runKey,
           requestHash: command.requestHash,
@@ -81,20 +77,16 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
           collectorVersion: command.collectorVersion,
           triggerKind: 'collector',
           triggeredByUserId: command.triggeredByUserId,
-          status: 'running',
+          status: 'collecting',
           sourceWindowStartAt: command.windowStartAt,
           sourceWindowEndAt: command.windowEndAt,
           coverageNumerator: 0,
           coverageDenominator: command.expectedCount,
-          qualityReport: {
-            coverageBps: null,
-            decisionImpactAtIngest: command.decisionImpactAtIngest,
-          },
+          qualityReport: { coverageBps: null },
           startedAt: command.startedAt,
         },
         include: runInclude,
       });
-      assertRunEntitlementMatches(row, command);
       return { kind: 'created', duplicate: false, record: toRunRecord(row) };
     });
   }
@@ -134,23 +126,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
       });
       if (!run) return { kind: 'run_not_found' };
 
-      await lockSourceScope(
-        tx,
-        first.organizationId,
-        run.sourceEntitlementVersion.sourceKey,
-        run.targetKey,
-      );
       const transactionAt = await databaseClock(tx);
-      const currentEntitlement = await findCurrentCollectableEntitlement(tx, {
-        id: run.sourceEntitlementVersionId,
-        organizationId: first.organizationId,
-        sourceKey: run.sourceEntitlementVersion.sourceKey,
-        scopeKey: run.targetKey,
-        at: transactionAt,
-      });
-      if (currentEntitlement?.id !== run.sourceEntitlementVersionId) {
-        return { kind: 'source_entitlement_changed' };
-      }
 
       const runStatus = fromDatabaseRunStatus(run.status);
       if (runStatus !== 'collecting') {
@@ -361,7 +337,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
         where: {
           id: first.ingestionRunId,
           organizationId: first.organizationId,
-          status: 'running',
+          status: 'collecting',
         },
         data: {
           discoveredCount: { increment: commands.length },
@@ -389,28 +365,7 @@ export class SourcingEvidenceLedgerRepositoryAdapter implements SourcingEvidence
         return { kind: 'already_terminal', record: toRunRecord(current) };
       }
 
-      let transactionAt: Date;
-      if (command.status === 'complete' || command.status === 'partial') {
-        await lockSourceScope(
-          tx,
-          command.organizationId,
-          current.sourceEntitlementVersion.sourceKey,
-          current.targetKey,
-        );
-        transactionAt = await databaseClock(tx);
-        const currentEntitlement = await findCurrentCollectableEntitlement(tx, {
-          id: current.sourceEntitlementVersionId,
-          organizationId: command.organizationId,
-          sourceKey: current.sourceEntitlementVersion.sourceKey,
-          scopeKey: current.targetKey,
-          at: transactionAt,
-        });
-        if (!currentEntitlement) {
-          return { kind: 'source_entitlement_changed' };
-        }
-      } else {
-        transactionAt = await databaseClock(tx);
-      }
+      const transactionAt = await databaseClock(tx);
 
       const derivedCoverageBps = calculateRunCoverageBps(current);
       if (
@@ -560,20 +515,6 @@ async function lockRunRow(
   `;
 }
 
-async function lockSourceScope(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceKey: string,
-  scopeKey: string,
-): Promise<void> {
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`sourcing-source:${organizationId}:${sourceKey}:${scopeKey}`}, 0)
-    )::text AS "lock"
-  `;
-}
-
 async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
   const rows = await tx.$queryRaw<Array<{ at: Date | string }>>`
     -- queryraw-tenancy-exempt: database clock only; reads no table or tenant data.
@@ -585,44 +526,6 @@ async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
     throw new Error('Database clock did not return a valid timestamp.');
   }
   return at;
-}
-
-async function findCurrentCollectableEntitlement(
-  tx: Prisma.TransactionClient,
-  input: {
-    id: string;
-    organizationId: string;
-    sourceKey: string;
-    scopeKey: string;
-    at: Date;
-  },
-) {
-  return tx.sourcingSourceEntitlementVersion.findFirst({
-    where: {
-      id: input.id,
-      organizationId: input.organizationId,
-      sourceKey: input.sourceKey,
-      scopeKey: input.scopeKey,
-      isCurrent: true,
-      killSwitch: false,
-      sourceLifecycle: { in: ['onboarding', 'shadow', 'qualified'] },
-      AND: [
-        {
-          OR: [
-            { permissionStartsAt: null },
-            { permissionStartsAt: { lte: input.at } },
-          ],
-        },
-        {
-          OR: [
-            { permissionExpiresAt: null },
-            { permissionExpiresAt: { gt: input.at } },
-          ],
-        },
-      ],
-    },
-    select: { id: true },
-  });
 }
 
 async function lockObservationSeries(
@@ -670,7 +573,6 @@ async function insertObservationIgnoringDuplicate(
       observation_type,
       schema_version,
       evidence_class,
-      decision_impact,
       event_at,
       observed_at,
       available_at,
@@ -699,7 +601,6 @@ async function insertObservationIgnoringDuplicate(
       ${command.evidenceFamily},
       ${command.schemaVersion},
       ${command.granularity},
-      ${command.decisionImpactAtIngest},
       ${command.eventAt},
       ${command.observedAt},
       ${command.availableAt},
@@ -731,7 +632,6 @@ function toObservationRecordFromCommand(input: {
     ingestionRunStatus: fromDatabaseRunStatus(run.status),
     ingestionRunCoverageBps: calculateRunCoverageBps(run),
     ingestionRunCompletedAt: run.completedAt,
-    sourceEntitlementVersionId: run.sourceEntitlementVersionId,
     sourceKey: command.sourceKey,
     sourceScopeKey: run.targetKey,
     platform: command.platform,
@@ -745,7 +645,6 @@ function toObservationRecordFromCommand(input: {
     observationKey: command.observationKey,
     revision: command.revision,
     supportsCandidate: command.supportsCandidate,
-    decisionImpactAtIngest: command.decisionImpactAtIngest,
     sourceUrl: command.sourceUrl,
     eventAt: command.eventAt,
     observedAt: command.observedAt,
@@ -796,7 +695,6 @@ function observationCommandEnvelopeMatches(
   return (
     left.organizationId === right.organizationId &&
     left.ingestionRunId === right.ingestionRunId &&
-    left.sourceEntitlementVersionId === right.sourceEntitlementVersionId &&
     left.sourceKey === right.sourceKey &&
     left.platform === right.platform &&
     left.evidenceFamily === right.evidenceFamily &&
@@ -817,7 +715,6 @@ function observationEnvelopeHash(
   return hashCanonicalJson({
     organizationId: command.organizationId,
     ingestionRunId: command.ingestionRunId,
-    sourceEntitlementVersionId: command.sourceEntitlementVersionId,
     sourceKey: command.sourceKey,
     platform: command.platform,
     evidenceFamily: command.evidenceFamily,
@@ -830,7 +727,6 @@ function observationEnvelopeHash(
     observationKey: command.observationKey,
     revision: command.revision,
     supportsCandidate: command.supportsCandidate,
-    decisionImpactAtIngest: command.decisionImpactAtIngest,
     sourceUrl: command.sourceUrl,
     eventAt: command.eventAt,
     observedAt: command.observedAt,
@@ -845,7 +741,6 @@ function observationEnvelopeHashFromRow(row: ObservationRow): string {
   return hashCanonicalJson({
     organizationId: row.organizationId,
     ingestionRunId: row.ingestionRunId,
-    sourceEntitlementVersionId: row.ingestionRun.sourceEntitlementVersionId,
     sourceKey: row.sourceKey,
     platform: row.platform,
     evidenceFamily: row.evidenceFamily,
@@ -858,7 +753,6 @@ function observationEnvelopeHashFromRow(row: ObservationRow): string {
     observationKey: row.observationKey,
     revision: row.revision,
     supportsCandidate: row.supportsCandidate,
-    decisionImpactAtIngest: row.decisionImpact,
     sourceUrl: row.sourceUrl,
     eventAt: row.eventAt,
     observedAt: row.observedAt,
@@ -890,15 +784,12 @@ function toRunRecord(row: RunRow): SourcingEvidenceIngestionRunRecord {
   return {
     id: row.id,
     organizationId: row.organizationId,
-    sourceEntitlementVersionId: row.sourceEntitlementVersionId,
-    sourceKey: row.sourceEntitlementVersion.sourceKey,
+    sourceKey: row.sourceKey,
     runKey: row.idempotencyKey,
     requestHash: row.requestHash,
     scopeKey: row.targetKey,
     collectorVersion: row.collectorVersion,
     triggeredByUserId: row.triggeredByUserId,
-    decisionImpactAtIngest: row.sourceEntitlementVersion
-      .decisionImpact as SourcingEvidenceIngestionRunRecord['decisionImpactAtIngest'],
     status: fromDatabaseRunStatus(row.status),
     windowStartAt: row.sourceWindowStartAt,
     windowEndAt: row.sourceWindowEndAt,
@@ -928,7 +819,6 @@ function toObservationRecord(
     ingestionRunStatus: fromDatabaseRunStatus(row.ingestionRun.status),
     ingestionRunCoverageBps: runCoverageBps(row.ingestionRun),
     ingestionRunCompletedAt: row.ingestionRun.completedAt,
-    sourceEntitlementVersionId: row.ingestionRun.sourceEntitlementVersionId,
     sourceKey: row.sourceKey,
     sourceScopeKey: row.ingestionRun.targetKey,
     platform: row.platform,
@@ -944,8 +834,6 @@ function toObservationRecord(
     observationKey: row.observationKey,
     revision: row.revision,
     supportsCandidate: row.supportsCandidate,
-    decisionImpactAtIngest:
-      row.decisionImpact as SourcingEvidenceObservationRecord['decisionImpactAtIngest'],
     sourceUrl: row.sourceUrl,
     eventAt: row.eventAt,
     observedAt: row.observedAt,
@@ -955,23 +843,6 @@ function toObservationRecord(
     rawPayload: requiredJsonObject(row.payload, row.id),
     ingestedAt: row.ingestedAt,
   };
-}
-
-function assertRunEntitlementMatches(
-  row: RunRow,
-  command: StartSourcingEvidenceRunCommand,
-): void {
-  if (
-    row.sourceEntitlementVersion.sourceKey !== command.sourceKey ||
-    row.sourceEntitlementVersion.scopeKey !== command.scopeKey ||
-    row.targetKey !== command.scopeKey ||
-    row.sourceEntitlementVersion.decisionImpact !==
-      command.decisionImpactAtIngest
-  ) {
-    throw new Error(
-      'Evidence run entitlement does not match the requested source contract.',
-    );
-  }
 }
 
 function assertSingleRunScope(
@@ -996,23 +867,16 @@ function assertAppendCommandsMatchRun(
   run: RunRow,
 ): void {
   if (
-    run.targetKey !== run.sourceEntitlementVersion.scopeKey ||
-    commands.some(
-      (command) =>
-        command.sourceEntitlementVersionId !== run.sourceEntitlementVersionId ||
-        command.sourceKey !== run.sourceEntitlementVersion.sourceKey ||
-        command.decisionImpactAtIngest !==
-          run.sourceEntitlementVersion.decisionImpact,
-    )
+    commands.some((command) => command.sourceKey !== run.sourceKey)
   ) {
     throw new Error(
-      'Evidence observation does not match its ingestion run contract.',
+      'Evidence observation source does not match its ingestion run.',
     );
   }
 }
 
 function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
-  if (status === 'running') return 'collecting';
+  if (status === 'collecting') return 'collecting';
   if (status === 'cancel_requested') return 'cancel_requested';
   if (
     status === 'complete' ||

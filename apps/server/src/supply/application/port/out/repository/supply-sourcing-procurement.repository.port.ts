@@ -50,9 +50,6 @@ export type ProcurementDecisionContextView =
 export type CreateSupplierOfferSnapshotRepositoryResult =
   | { kind: 'created'; snapshot: SupplierOfferSnapshotView }
   | { kind: 'duplicate'; snapshot: SupplierOfferSnapshotView }
-  | { kind: 'source_entitlement_not_found' }
-  | { kind: 'source_entitlement_version_mismatch' }
-  | { kind: 'source_entitlement_retain_denied' }
   | { kind: 'supplier_not_found' }
   | { kind: 'evidence_observation_not_found' }
   | { kind: 'evidence_observation_mismatch' }
@@ -63,14 +60,11 @@ export type CreateSupplierOfferSnapshotRepositoryResult =
 export type CreateProcurementTestIntentRepositoryResult =
   | { kind: 'created'; intent: ProcurementTestIntentView }
   | { kind: 'duplicate'; intent: ProcurementTestIntentView }
-  | { kind: 'source_entitlement_not_found' }
-  | { kind: 'source_entitlement_version_mismatch' }
-  | { kind: 'source_entitlement_retain_denied' }
-  | { kind: 'source_entitlement_execution_denied' }
-  | { kind: 'source_quality_not_execution_eligible' }
   | { kind: 'idempotency_conflict' }
   | { kind: 'idempotency_actor_mismatch' }
   | { kind: 'actor_not_active' }
+  | { kind: 'evidence_observation_not_found' }
+  | { kind: 'evidence_observation_not_terminal' }
   | { kind: 'decision_batch_item_not_found' }
   | { kind: 'decision_artifact_mismatch' }
   | { kind: 'decision_reference_mismatch' }

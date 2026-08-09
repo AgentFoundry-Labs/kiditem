@@ -11,7 +11,7 @@ export type SourcingWorkspaceSnapshotScope =
 
 export type WritableSourcingWorkspaceSnapshotScope = Extract<
   SourcingWorkspaceSnapshotScope,
-  'keyword_analysis' | 'today_recommendations' | 'interest_tracking' | '1688_new_products'
+  'keyword_analysis' | 'today_recommendations'
 >;
 
 export type SourcingWorkspaceSnapshotGenerationSource = 'manual' | 'scheduled' | 'imported';
@@ -74,5 +74,18 @@ export function saveTodaySourcingWorkspaceSnapshot<TPayload>(
   return apiClient.put<SourcingWorkspaceSnapshotEnvelope<TPayload>>(
     `/api/sourcing/workspace-snapshots/${scope}/today`,
     { payload },
+  );
+}
+
+export function append1688NewProductItems<TPayload>(input: {
+  source: string;
+  keyword?: string;
+  category?: string;
+  items: Record<string, unknown>[];
+  limit?: number;
+}): Promise<SourcingWorkspaceSnapshotEnvelope<TPayload>> {
+  return apiClient.post<SourcingWorkspaceSnapshotEnvelope<TPayload>>(
+    '/api/sourcing/workspace-snapshots/1688-new-products/items',
+    input,
   );
 }

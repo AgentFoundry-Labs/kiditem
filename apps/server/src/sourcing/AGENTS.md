@@ -1,6 +1,4 @@
-Consult this document first instead of relying on memorized knowledge.
-
-# sourcing — Decision Intelligence + Product Discovery + Account Registration
+# sourcing
 
 `src/sourcing/` owns Chinese new-product discovery: scraper ingest from
 Alibaba/1688, `SourcingCandidate` workspaces, manual product registration
@@ -54,8 +52,9 @@ catches single-segment paths and fails as a bad candidate UUID.
 ## Main Data Models
 
 - `SourcingCandidate` is the raw opportunity workspace.
-- `SourcingSourceEntitlementVersion` is the reviewed, versioned access and
-  decision-impact contract. Shadow evidence cannot score or train.
+- `SourcingCollectionSourceControl` is an optional organization-level pause
+  for a server-allowlisted collector. Absence means enabled; it has no review,
+  lifecycle, expiry, or decision-impact state.
 - `SourcingEvidenceIngestionRun` and `SourcingEvidenceObservation` form the
   append-only collection/evidence ledger.
 - `SourcingLaunchCandidate` freezes exact supplier variant, target account,
@@ -77,29 +76,6 @@ catches single-segment paths and fails as a bad candidate UUID.
   a `MasterProduct`.
 - AI-generated detail pages, thumbnails, and content assets remain owned by the
   AI domain.
-
-## Registration Flow
-
-```text
-candidate command
-  -> ProductRegistrationService.createDraft/updateDraft
-  -> ProductPreparation repository + candidate/preparation row locks
-  -> claim creates/loads ProductRegistrationExecution with frozen
-     canonical payload/hash/idempotency key and actor
-  -> persist executing/uncertain before provider IO, or start external WING
-  -> reconcile the same execution; uncertain outcomes never regain create eligibility
-  -> final sourcing transaction resolves the account listing and succeeds the execution
-  -> REGISTRATION_CONTENT_WORKSPACE_PORT branches selected AI content
-  -> ProductPreparation compatibility status becomes registered
-```
-
-Provider calls occur outside database transactions and only after the execution
-ledger records the intent. Retries reuse the frozen submission key and
-reconcile recorded provider identity before create. Listing resolution,
-content branching, execution success, and the compatibility registered
-transition commit in one sourcing-owned finalization transaction. A legacy
-submitting/failed row without an execution is imported as failed or
-reconciling; it is never reborn as a fresh prepared/create execution.
 
 ## Cross-Domain Ports
 
@@ -136,13 +112,37 @@ with a `punish` challenge, so keyword collection that must succeed belongs in th
 Chrome extension: it runs in the operator's session and hands any slider to them
 rather than bypassing it.
 
-`magic-scraper` is a development workflow, not a production runtime: never
-expose arbitrary browser JS, local/CDN scripts, or raw CDP as Agent OS/MCP
-tools. On extraction failure the runtime returns
-`recommendedSkillKey: "sourcing.magic_scraper"` so the extractor is repaired
-from authorized evidence rather than bypassing login/captcha controls. The
-runtime writes no sourcing rows; candidates are created by
-`SourcingScrapeFinalizedBridge` after Agent OS finalization.
+`magic-scraper` is development-only: never expose arbitrary browser JS, CDN
+scripts, or raw CDP as Agent OS/MCP tools. The runtime writes no sourcing rows;
+`SourcingScrapeFinalizedBridge` creates candidates after Agent OS finalization.
+
+Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
+single parser for extension ingest, scrape DTO validation, and Playwright
+navigation: only HTTPS 1688/Alibaba hosts without credentials or non-default
+ports are accepted. Playwright must keep that allowlist on navigation and
+redirect hops; do not add a second permissive URL parser.
+
+## Extension Ingest Contract
+
+`POST /api/sourcing/extension/product-data` is the deployed KidItem OS v1
+snake_case wire and must remain compatible. `SourcingExtensionIngestService`
+parses it through `@kiditem/shared/sourcing`, records only the normalized
+commercial summary, and claims a controlled collection run before it projects a
+candidate. Do not restore controller-side `{ ...body, ...extra }` merging:
+global `ValidationPipe` must retain known commercial fields explicitly rather
+than accepting arbitrary page-world data.
+
+New extension writers first obtain a permit from
+`POST /api/sourcing/extension/v2/sessions`, then post to
+`/api/sourcing/extension/v2/product-data` with the strict v2 contract, an
+external offer identity, collection session UUID, captured timestamp, extractor
+version, and payload hash. V1 and v2 both use the collection coordinator;
+an unknown or disabled source must leave zero candidate and evidence rows.
+Candidate identity is platform + external offer + normalized variant, never
+title, tracking URL, or search-result array index.
+
+The entry assistant is retrieval-only. It returns organization-scoped internal
+evidence and never spawns a CLI/process or interprets scraped text as tools.
 
 ## Capability Surface
 
@@ -165,16 +165,18 @@ by importing sourcing application services directly.
 - Application services must not import `PrismaService`, `@prisma/client`, HTTP
   DTOs, concrete `adapter/out/**` implementations, AI services, products
   services, or automation services.
-- Source collection requires an active reviewed entitlement. Scoring and future
-  training additionally require the current source to be `qualified + enabled`
-  with valid permission dates and no kill switch.
+- Source collection requires an allowlisted source key and a non-disabled
+  organization source control at claim and commit. Do not add review versions,
+  expiry dates, lifecycle states, or source-specific policy history to this
+  runtime.
 - Canonical recommendation actions are exactly `test_order|hold|reject`.
   Current heuristic `order|observe_3d|exclude` is baseline model output only.
   Coverage confidence cannot create an execution-eligible test order.
 - Every supplier-offer snapshot, LaunchCandidate, decision, and procurement
   intent is immutable/idempotent provenance. Do not add direct intent→PO or
   provider-execution paths.
-- Extension ingest writes only `SourcingCandidate` and `CandidateImage`;
+- Extension ingest records a controlled immutable evidence observation before
+  it projects `SourcingCandidate` and `CandidateImage`;
   registration state belongs to `ProductPreparation` and account-scoped
   `ChannelListing` rows, never candidate status.
 - Product-less detail generation uses direct AI content workspaces and must not

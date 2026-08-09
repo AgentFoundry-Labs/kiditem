@@ -90,22 +90,8 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
     });
     if (existing) return duplicateResult(existing, command.requestHash);
 
-    const evidenceAuthorizations = collectEvidenceAuthorizations(command);
-    if (evidenceAuthorizations === null) {
-      return { kind: 'source_entitlement_changed' };
-    }
-    const sourceAuthorizations = uniqueSourceAuthorizations(
-      evidenceAuthorizations,
-    );
-    for (const source of sourceAuthorizations) {
-      await lockSourceScope(
-        tx,
-        command.organizationId,
-        source.sourceKey,
-        source.scopeKey,
-      );
-    }
-    for (const evidence of evidenceAuthorizations) {
+    const supportingEvidence = collectSupportingEvidence(command);
+    for (const evidence of supportingEvidence) {
       await lockObservationSeries(
         tx,
         command.organizationId,
@@ -113,73 +99,19 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
       );
     }
     const transactionAt = await databaseClock(tx);
-    const currentEntitlements = new Map<
-      string,
-      {
-        maxStalenessSeconds: number | null;
-        minimumCoverageBps: number | null;
-        retentionDays: number | null;
-      }
-    >();
-    for (const source of sourceAuthorizations) {
-      const entitlement = await tx.sourcingSourceEntitlementVersion.findFirst({
-        where: {
-          id: source.entitlementVersionId,
-          organizationId: command.organizationId,
-          sourceKey: source.sourceKey,
-          scopeKey: source.scopeKey,
-          isCurrent: true,
-          retiredAt: null,
-          killSwitch: false,
-          sourceLifecycle: 'qualified',
-          decisionImpact: 'enabled',
-          AND: [
-            {
-              OR: [
-                { permissionStartsAt: null },
-                { permissionStartsAt: { lte: transactionAt } },
-              ],
-            },
-            {
-              OR: [
-                { permissionExpiresAt: null },
-                { permissionExpiresAt: { gt: transactionAt } },
-              ],
-            },
-          ],
-        },
-        select: {
-          id: true,
-          permittedFields: true,
-          coverageDefinition: true,
-          denominatorDefinition: true,
-          maxStalenessSeconds: true,
-          minimumCoverageBps: true,
-          revisionPolicy: true,
-          retentionDays: true,
-        },
-      });
-      if (!entitlement || !sourceQualityContractIsComplete(entitlement)) {
-        return { kind: 'source_entitlement_changed' };
-      }
-      currentEntitlements.set(sourceScopeKey(source), entitlement);
-    }
-
-    for (const evidence of evidenceAuthorizations) {
+    for (const evidence of supportingEvidence) {
       const observation = await tx.sourcingEvidenceObservation.findFirst({
         where: {
           id: evidence.observationId,
           organizationId: command.organizationId,
           observationKey: evidence.observationKey,
           sourceKey: evidence.sourceKey,
-          decisionImpact: 'enabled',
           supportsCandidate: true,
           signalRole: { in: ['demand', 'supply'] },
           eventAt: { lte: transactionAt },
           availableAt: { lte: transactionAt },
           ingestedAt: { lte: transactionAt },
           ingestionRun: {
-            sourceEntitlementVersionId: evidence.entitlementVersionId,
             targetKey: evidence.scopeKey,
             status: 'complete',
             completedAt: { lte: transactionAt },
@@ -196,21 +128,8 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
           },
         },
       });
-      const entitlement = currentEntitlements.get(sourceScopeKey(evidence));
-      if (!observation || !observation.eventAt || !entitlement) {
-        return { kind: 'source_entitlement_changed' };
-      }
-      if (
-        !evidenceCoverageAndFreshnessPasses(
-          {
-            eventAt: observation.eventAt,
-            ingestionRun: observation.ingestionRun,
-          },
-          entitlement,
-          transactionAt,
-        )
-      ) {
-        return { kind: 'source_entitlement_changed' };
+      if (!observation || !observation.eventAt || !evidenceIsFresh(observation.eventAt, transactionAt)) {
+        return { kind: 'source_evidence_changed' };
       }
       const latest = await tx.sourcingEvidenceObservation.findFirst({
         where: {
@@ -228,7 +147,7 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
         select: { id: true },
       });
       if (latest?.id !== evidence.observationId) {
-        return { kind: 'source_entitlement_changed' };
+        return { kind: 'source_evidence_changed' };
       }
     }
 
@@ -346,30 +265,24 @@ export class SourcingDecisionBatchRepositoryAdapter implements SourcingDecisionB
   }
 }
 
-interface EvidenceAuthorizationBinding {
+interface SupportingEvidenceBinding {
   observationId: string;
   sourceKey: string;
   scopeKey: string;
-  entitlementVersionId: string;
   observationKey: string;
 }
 
-function collectEvidenceAuthorizations(
+function collectSupportingEvidence(
   command: CreateSourcingDecisionBatchCommand,
-): EvidenceAuthorizationBinding[] | null {
-  const bindings: EvidenceAuthorizationBinding[] = [];
-  const versionsByScope = new Map<string, string>();
+): SupportingEvidenceBinding[] {
+  const bindings: SupportingEvidenceBinding[] = [];
   for (const item of command.items) {
     for (const evidence of item.evidence) {
       if (!evidence.evidenceRole.startsWith('support:')) continue;
-      const source = evidence.sourceAuthorization;
-      if (!source) return null;
-      const key = `${source.sourceKey}\u0000${source.scopeKey}`;
-      const existingVersion = versionsByScope.get(key);
-      if (existingVersion && existingVersion !== source.entitlementVersionId) {
-        return null;
+      const source = evidence.sourceObservation;
+      if (!source) {
+        throw new TypeError('Supporting evidence must include its source identity.');
       }
-      versionsByScope.set(key, source.entitlementVersionId);
       bindings.push({ observationId: evidence.observationId, ...source });
     }
   }
@@ -382,27 +295,6 @@ function collectEvidenceAuthorizations(
   );
 }
 
-function uniqueSourceAuthorizations(
-  evidence: EvidenceAuthorizationBinding[],
-): EvidenceAuthorizationBinding[] {
-  const byScope = new Map<string, EvidenceAuthorizationBinding>();
-  for (const binding of evidence) {
-    byScope.set(sourceScopeKey(binding), binding);
-  }
-  return [...byScope.values()].sort(
-    (left, right) =>
-      left.sourceKey.localeCompare(right.sourceKey) ||
-      left.scopeKey.localeCompare(right.scopeKey),
-  );
-}
-
-function sourceScopeKey(input: {
-  sourceKey: string;
-  scopeKey: string;
-}): string {
-  return `${input.sourceKey}\u0000${input.scopeKey}`;
-}
-
 async function lockDecisionBatchKey(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -412,20 +304,6 @@ async function lockDecisionBatchKey(
     -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
     SELECT pg_advisory_xact_lock(
       hashtextextended(${`sourcing-decision:${organizationId}:${batchKey}`}, 0)
-    )::text AS "lock"
-  `;
-}
-
-async function lockSourceScope(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceKey: string,
-  scopeKey: string,
-): Promise<void> {
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`sourcing-source:${organizationId}:${sourceKey}:${scopeKey}`}, 0)
     )::text AS "lock"
   `;
 }
@@ -459,88 +337,8 @@ async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
   return at;
 }
 
-function sourceQualityContractIsComplete(input: {
-  permittedFields: string[];
-  coverageDefinition: string | null;
-  denominatorDefinition: string | null;
-  maxStalenessSeconds: number | null;
-  minimumCoverageBps: number | null;
-  revisionPolicy: string | null;
-  retentionDays: number | null;
-}): boolean {
-  return (
-    input.permittedFields.length > 0 &&
-    Boolean(input.coverageDefinition) &&
-    Boolean(input.denominatorDefinition) &&
-    input.maxStalenessSeconds !== null &&
-    input.maxStalenessSeconds > 0 &&
-    input.minimumCoverageBps !== null &&
-    input.minimumCoverageBps > 0 &&
-    input.minimumCoverageBps <= 10_000 &&
-    Boolean(input.revisionPolicy) &&
-    input.retentionDays !== null &&
-    input.retentionDays > 0
-  );
-}
-
-function evidenceCoverageAndFreshnessPasses(
-  observation: {
-    eventAt: Date;
-    ingestionRun: {
-      coverageNumerator: number | null;
-      coverageDenominator: number | null;
-    };
-  },
-  entitlement: {
-    maxStalenessSeconds: number | null;
-    minimumCoverageBps: number | null;
-    retentionDays: number | null;
-  },
-  at: Date,
-): boolean {
-  const coverageBps = calculateCoverageBps(observation.ingestionRun);
-  if (
-    coverageBps === null ||
-    entitlement.minimumCoverageBps === null ||
-    coverageBps < entitlement.minimumCoverageBps
-  ) {
-    return false;
-  }
-  const maxStalenessSeconds = entitlement.maxStalenessSeconds;
-  const retentionSeconds =
-    entitlement.retentionDays === null
-      ? null
-      : entitlement.retentionDays * 86_400;
-  const maximumAgeSeconds =
-    maxStalenessSeconds === null
-      ? retentionSeconds
-      : retentionSeconds === null
-        ? maxStalenessSeconds
-        : Math.min(maxStalenessSeconds, retentionSeconds);
-  return (
-    maximumAgeSeconds !== null &&
-    at.getTime() - observation.eventAt.getTime() <= maximumAgeSeconds * 1_000
-  );
-}
-
-function calculateCoverageBps(input: {
-  coverageNumerator: number | null;
-  coverageDenominator: number | null;
-}): number | null {
-  if (
-    input.coverageNumerator === null ||
-    input.coverageDenominator === null ||
-    !Number.isSafeInteger(input.coverageNumerator) ||
-    !Number.isSafeInteger(input.coverageDenominator) ||
-    input.coverageNumerator < 0 ||
-    input.coverageDenominator <= 0 ||
-    input.coverageNumerator > input.coverageDenominator
-  ) {
-    return null;
-  }
-  return Math.round(
-    (input.coverageNumerator / input.coverageDenominator) * 10_000,
-  );
+function evidenceIsFresh(eventAt: Date, at: Date): boolean {
+  return at.getTime() - eventAt.getTime() <= 7 * 24 * 60 * 60 * 1_000;
 }
 
 function duplicateResult(

@@ -19,6 +19,8 @@ export interface SourcingWorkspaceSnapshotRow {
   organizationId: string;
   scope: SourcingWorkspaceSnapshotScope;
   businessDate: Date;
+  projectionVersion: string;
+  inputHash: string;
   payload: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -29,6 +31,8 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     organizationId: string;
     scope: SourcingWorkspaceSnapshotScope;
     businessDate: Date;
+    projectionVersion?: string;
+    inputHash?: string;
   }): Promise<SourcingWorkspaceSnapshotRow | null>;
 
   listRecent(input: {
@@ -37,12 +41,27 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     fromBusinessDate: Date;
     toBusinessDate: Date;
     limit: number;
+    projectionVersion?: string;
+    inputHash?: string;
   }): Promise<SourcingWorkspaceSnapshotRow[]>;
 
   upsert(input: {
     organizationId: string;
     scope: SourcingWorkspaceSnapshotScope;
     businessDate: Date;
+    projectionVersion?: string;
+    inputHash?: string;
     payload: Record<string, unknown>;
+  }): Promise<SourcingWorkspaceSnapshotRow>;
+
+  append1688Items(input: {
+    organizationId: string;
+    businessDate: Date;
+    source: string;
+    keyword?: string;
+    category?: string;
+    items: Record<string, unknown>[];
+    limit: number;
+    generatedAt: Date;
   }): Promise<SourcingWorkspaceSnapshotRow>;
 }

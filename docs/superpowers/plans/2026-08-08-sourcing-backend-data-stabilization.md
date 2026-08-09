@@ -2,9 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** `/sourcing-ai`의 14개 화면과 현재 사용자 기능을 유지하면서, 모든 소싱 수집·추천·검증·선택을 권한 선검사, 정규화된 PostgreSQL 상태, 서버 단일 scorer, 동시성 안전한 command로 전환한다.
+**Goal:** `/sourcing-ai`의 14개 화면과 현재 사용자 기능을 유지하면서, 모든 소싱 수집·추천·검증·선택을 정규화된 PostgreSQL 상태, 서버 단일 scorer, 동시성 안전한 command로 전환한다.
 
-**Architecture:** 기존 Web 화면과 배포된 Extension v1은 compatibility facade를 유지한다. 모든 신규 수집은 `SourcingCollectionCoordinator`가 DB clock 기반 entitlement/lease를 확보한 뒤 실행하고 commit 직전에 같은 entitlement를 재검증한다. evidence와 typed observation이 canonical source fact이며, immutable recommendation/validation run과 atomic review state가 화면별 read model을 공급한다. `SourcingWorkspaceSnapshot`과 browser storage는 재생성 가능한 projection/cache로만 사용한다. 기존 sourcing-owned 데이터는 승인 hash가 있는 pre-schema reset으로 제거하되 downstream이 참조하는 candidate/image provenance는 기존 status를 보존한 채 soft-delete한다.
+**Architecture:** 기존 Web 화면과 배포된 Extension v1은 compatibility facade를 유지한다. 모든 신규 수집은 `SourcingCollectionCoordinator`가 DB clock 기반 lease를 확보하고, 코드의 허용 소스 목록과 선택적 조직별 `enabled`를 claim·commit에서 확인한다. evidence와 typed observation이 canonical source fact이며, immutable recommendation/validation run과 atomic review state가 화면별 read model을 공급한다. `SourcingWorkspaceSnapshot`과 browser storage는 재생성 가능한 projection/cache로만 사용한다. 기존 sourcing-owned 데이터는 승인 hash가 있는 pre-schema reset으로 제거하되 downstream이 참조하는 candidate/image provenance는 기존 status를 보존한 채 soft-delete한다.
+
+> **2026-08-09 implementation amendment:** 아래의 초안 일부에 남은 `entitlement`, reviewer, expiry, manifest seed, kill-switch 관련 예시는 폐기한다. 구현 기준은 코드의 fixed source allowlist와 조직별 optional `enabled` record 한 개다. collection run에는 lease/idempotency/cancel/fencing에 필요한 기술 상태만 두며, source review·승인 버전·만료·lifecycle state는 추가하지 않는다.
 
 **Tech Stack:** NestJS 11, Prisma 7, PostgreSQL 17, Zod 3, class-validator, Next.js/React 19, TanStack Query, Chrome Manifest V3, Vitest, Supertest, Node test, Testcontainers
 
@@ -19,7 +21,7 @@
 - application/domain code는 Prisma나 concrete adapter를 import하지 않는다. DB clock, partial unique constraint, `FOR UPDATE`, raw SQL은 repository adapter가 소유한다.
 - `String`과 DTO/Zod/domain validation을 사용하며 native PostgreSQL enum은 추가하지 않는다. 새 ID는 UUID, timestamp는 `@db.Timestamptz`, 금액은 `Decimal(12, 2)`를 사용한다.
 - 500줄 이상 파일 변경은 reconstruction으로 명시하고 orchestration/storage를 새 service/hook으로 이동한다. 700줄 이상 파일에는 새 substantial behavior를 추가하지 않는다.
-- 배포된 Extension v1 snake_case payload는 계속 수용한다. v1은 commit-time entitlement를 필수로 하고, v2는 browser read 전에 server-issued session까지 요구한다.
+- 배포된 Extension v1 snake_case payload는 계속 수용한다. v1과 v2는 commit-time allowlist/`enabled` 재확인을 하고, v2는 browser read 전에 server-issued session까지 요구한다.
 - schema 적용 전 pre-schema reset plan hash를 확인한다. 운영 dual-read, dual-write, old snapshot fallback은 두지 않는다.
 - 구현 중 scope가 다른 디렉터리로 이동할 때 해당 `AGENTS.md` chain을 다시 읽는다.
 
@@ -457,7 +459,7 @@ rtk git add packages/shared/src/sourcing prisma/models apps/server/src/sourcing 
 rtk git commit -m "refactor: add normalized sourcing data contracts"
 ```
 
-### Task 2: Strict collection coordinator, freshness fencing, cancellation, and idempotency
+### Task 2: Simple source control, fenced collection, cancellation, and idempotency
 
 **Files:**
 
@@ -1810,7 +1812,7 @@ rtk git add apps/web/src/app/'(sourcing-ai)'/sourcing-ai apps/server/src/sourcin
 rtk git commit -m "feat: persist sourcing review and validation workflow"
 ```
 
-### Task 7: Guarded clean reset, reviewed entitlement bootstrap, retention, cleanup, and atomic cutover
+### Task 7: Guarded clean reset, source-control bootstrap, retention, cleanup, and atomic cutover
 
 **Files:**
 

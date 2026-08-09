@@ -35,6 +35,40 @@ describe('SourcingWorkspaceSnapshotController', () => {
     expect(snapshots.saveToday).not.toHaveBeenCalled();
   });
 
+  it('does not let clients replace interest or 1688 aggregate snapshots', async () => {
+    const snapshots = {
+      saveToday: vi.fn(),
+    };
+    const controller = new SourcingWorkspaceSnapshotController(snapshots as never);
+
+    await expect(
+      controller.saveToday({ scope: 'interest_tracking' }, { payload: {} }, 'org-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      controller.saveToday({ scope: '1688_new_products' }, { payload: {} }, 'org-1'),
+    ).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(snapshots.saveToday).not.toHaveBeenCalled();
+  });
+
+  it('uses the atomic server append for 1688 items', async () => {
+    const snapshots = {
+      append1688NewProductItems: vi.fn().mockResolvedValue(row('1688_new_products')),
+    };
+    const controller = new SourcingWorkspaceSnapshotController(snapshots as never);
+
+    const result = await controller.append1688NewProductItems({
+      source: '1688_keyword',
+      keyword: '슬라임',
+      items: [{ offerId: 'offer-1', title: '슬라임', sourceUrl: 'https://detail.1688.com/offer/1.html' }],
+    }, 'org-1');
+
+    expect(snapshots.append1688NewProductItems).toHaveBeenCalledWith('org-1', expect.objectContaining({
+      source: '1688_keyword',
+    }));
+    expect(result.snapshot.scope).toBe('1688_new_products');
+  });
+
   it('still allows reading server-generated scopes', async () => {
     const snapshots = {
       getToday: vi.fn().mockResolvedValue(row('sourcing_market_model')),

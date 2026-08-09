@@ -203,7 +203,7 @@ model Organization {
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
   tiktokCreativeTrendDailySnapshots    TiktokCreativeTrendDailySnapshot[]
-  sourcingSourceEntitlementVersions    SourcingSourceEntitlementVersion[]
+  sourcingCollectionSourceControls     SourcingCollectionSourceControl[]
   sourcingEvidenceIngestionRuns        SourcingEvidenceIngestionRun[]
   sourcingEvidenceObservations         SourcingEvidenceObservation[]
   sourcingLaunchCandidates             SourcingLaunchCandidate[]
@@ -246,7 +246,6 @@ model User {
   approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
   requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
   requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
-  reviewedSourcingSourceEntitlements         SourcingSourceEntitlementVersion[]             @relation("SourcingSourceEntitlementVersionReviewedBy")
   triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
   createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")

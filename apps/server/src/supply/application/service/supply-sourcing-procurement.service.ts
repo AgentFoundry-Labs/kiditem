@@ -49,27 +49,6 @@ export class SupplySourcingProcurementService implements SupplySourcingProcureme
       input.organizationId,
       record,
     );
-    if (result.kind === 'source_entitlement_not_found') {
-      throw new ConflictException({
-        message:
-          'The exact current source scope entitlement was not found for this evidence.',
-        code: result.kind,
-      });
-    }
-    if (result.kind === 'source_entitlement_version_mismatch') {
-      throw new ConflictException({
-        message:
-          'This evidence belongs to a retired source entitlement version and must be recollected.',
-        code: result.kind,
-      });
-    }
-    if (result.kind === 'source_entitlement_retain_denied') {
-      throw new ConflictException({
-        message:
-          'The current source scope no longer permits retaining supplier evidence.',
-        code: result.kind,
-      });
-    }
     if (result.kind === 'supplier_not_found') {
       throw new BadRequestException(
         'Supplier does not exist in the active organization.',
@@ -245,41 +224,6 @@ export class SupplySourcingProcurementService implements SupplySourcingProcureme
 function resolveIntentCreationResult(
   result: CreateProcurementTestIntentRepositoryResult,
 ) {
-  if (result.kind === 'source_entitlement_not_found') {
-    throw new ConflictException({
-      message:
-        'The exact current source scope entitlement was not found for this supplier snapshot.',
-      code: result.kind,
-    });
-  }
-  if (result.kind === 'source_entitlement_version_mismatch') {
-    throw new ConflictException({
-      message:
-        'The supplier snapshot evidence belongs to a retired source entitlement version.',
-      code: result.kind,
-    });
-  }
-  if (result.kind === 'source_entitlement_retain_denied') {
-    throw new ConflictException({
-      message:
-        'The current source scope no longer permits retaining procurement evidence.',
-      code: result.kind,
-    });
-  }
-  if (result.kind === 'source_entitlement_execution_denied') {
-    throw new ConflictException({
-      message:
-        'Test-order execution requires a qualified, decision-enabled current source scope.',
-      code: result.kind,
-    });
-  }
-  if (result.kind === 'source_quality_not_execution_eligible') {
-    throw new ConflictException({
-      message:
-        'Test-order execution requires a complete source run that meets current minimum coverage.',
-      code: result.kind,
-    });
-  }
   if (result.kind === 'idempotency_conflict') {
     throw new ConflictException(
       'Procurement intent idempotency key was already used for a different request.',
@@ -293,6 +237,16 @@ function resolveIntentCreationResult(
   if (result.kind === 'actor_not_active') {
     throw new UnauthorizedException(
       'Active organization membership is required to create a procurement intent.',
+    );
+  }
+  if (result.kind === 'evidence_observation_not_found') {
+    throw new BadRequestException(
+      'Supplier offer evidence does not exist in the active organization.',
+    );
+  }
+  if (result.kind === 'evidence_observation_not_terminal') {
+    throw new ConflictException(
+      'Supplier offer evidence is not committed by a completed collection run.',
     );
   }
   if (result.kind === 'launch_candidate_not_found') {

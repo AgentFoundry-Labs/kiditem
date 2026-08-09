@@ -25,15 +25,6 @@ const DECIMAL_12_2_MAX_MINOR_UNITS = 999_999_999_999n;
 
 export type SupplySourceUsage = 'retain' | 'test_order';
 
-export type SupplySourceEntitlementPolicyRecord = {
-  sourceLifecycle: string;
-  decisionImpact: string;
-  killSwitch: boolean;
-  permissionStartsAt: Date | null;
-  permissionExpiresAt: Date | null;
-  minimumCoverageBps: number | null;
-};
-
 export type SupplySourceIngestionRunPolicyRecord = {
   status: string;
   completedAt: Date | null;
@@ -42,18 +33,8 @@ export type SupplySourceIngestionRunPolicyRecord = {
 };
 
 export type SupplySourceEligibilityDenialReason =
-  | 'kill_switch_enabled'
-  | 'permission_invalid'
-  | 'permission_not_started'
-  | 'permission_expired'
-  | 'lifecycle_not_retainable'
-  | 'lifecycle_not_qualified'
-  | 'decision_impact_disabled'
   | 'ingestion_run_not_complete'
-  | 'ingestion_run_not_completed'
-  | 'minimum_coverage_missing'
-  | 'ingestion_coverage_invalid'
-  | 'ingestion_coverage_below_minimum';
+  | 'ingestion_run_not_completed';
 
 export type SupplySourceEligibilityResult =
   | { allowed: true; reason: null; coverageBps: number | null }
@@ -233,12 +214,12 @@ export function supplierOfferEvidencePayloadMatches(
 
 /**
  * Supply owns this narrow anti-corruption policy instead of importing a
- * Sourcing service. Retention and execution are checked against the exact
- * current source scope again immediately before a Supply write.
+ * Sourcing service. Supply accepts immutable source facts only after their
+ * collection run has completed; source enablement controls future collection,
+ * not the continued validity of an already persisted fact.
  */
 export function evaluateSupplySourceEligibility(input: {
   usage: SupplySourceUsage;
-  entitlement: SupplySourceEntitlementPolicyRecord;
   ingestionRun: SupplySourceIngestionRunPolicyRecord;
   at?: Date;
 }): SupplySourceEligibilityResult {
@@ -247,47 +228,6 @@ export function evaluateSupplySourceEligibility(input: {
     throw new TypeError('Supply source eligibility time must be valid.');
   }
 
-  const { entitlement } = input;
-  if (entitlement.killSwitch) {
-    return sourceDenied('kill_switch_enabled');
-  }
-  if (
-    (entitlement.permissionStartsAt &&
-      !Number.isFinite(entitlement.permissionStartsAt.getTime())) ||
-    (entitlement.permissionExpiresAt &&
-      !Number.isFinite(entitlement.permissionExpiresAt.getTime()))
-  ) {
-    return sourceDenied('permission_invalid');
-  }
-  if (
-    entitlement.permissionStartsAt &&
-    at.getTime() < entitlement.permissionStartsAt.getTime()
-  ) {
-    return sourceDenied('permission_not_started');
-  }
-  if (
-    entitlement.permissionExpiresAt &&
-    at.getTime() >= entitlement.permissionExpiresAt.getTime()
-  ) {
-    return sourceDenied('permission_expired');
-  }
-  if (
-    !['onboarding', 'shadow', 'qualified'].includes(
-      entitlement.sourceLifecycle,
-    )
-  ) {
-    return sourceDenied('lifecycle_not_retainable');
-  }
-
-  if (input.usage === 'retain') {
-    return { allowed: true, reason: null, coverageBps: null };
-  }
-  if (entitlement.sourceLifecycle !== 'qualified') {
-    return sourceDenied('lifecycle_not_qualified');
-  }
-  if (entitlement.decisionImpact !== 'enabled') {
-    return sourceDenied('decision_impact_disabled');
-  }
   if (input.ingestionRun.status !== 'complete') {
     return sourceDenied('ingestion_run_not_complete');
   }
@@ -298,22 +238,7 @@ export function evaluateSupplySourceEligibility(input: {
   ) {
     return sourceDenied('ingestion_run_not_completed');
   }
-  if (
-    entitlement.minimumCoverageBps === null ||
-    !Number.isInteger(entitlement.minimumCoverageBps) ||
-    entitlement.minimumCoverageBps <= 0 ||
-    entitlement.minimumCoverageBps > 10_000
-  ) {
-    return sourceDenied('minimum_coverage_missing');
-  }
-  const coverageBps = calculateCoverageBps(input.ingestionRun);
-  if (coverageBps === null) {
-    return sourceDenied('ingestion_coverage_invalid');
-  }
-  if (coverageBps < entitlement.minimumCoverageBps) {
-    return sourceDenied('ingestion_coverage_below_minimum', coverageBps);
-  }
-  return { allowed: true, reason: null, coverageBps };
+  return { allowed: true, reason: null, coverageBps: null };
 }
 
 export function resolveProcurementTestIntentSelection(input: {
@@ -970,25 +895,6 @@ function multiplyMoney(unitPrice: string, quantity: number): string {
     );
   }
   return `${total / 100n}.${(total % 100n).toString().padStart(2, '0')}`;
-}
-
-function calculateCoverageBps(
-  run: SupplySourceIngestionRunPolicyRecord,
-): number | null {
-  if (
-    run.coverageNumerator === null ||
-    run.coverageDenominator === null ||
-    !Number.isSafeInteger(run.coverageNumerator) ||
-    !Number.isSafeInteger(run.coverageDenominator) ||
-    run.coverageNumerator < 0 ||
-    run.coverageDenominator <= 0 ||
-    run.coverageNumerator > run.coverageDenominator
-  ) {
-    return null;
-  }
-  return Math.round(
-    (run.coverageNumerator / run.coverageDenominator) * 10_000,
-  );
 }
 
 function sourceDenied(

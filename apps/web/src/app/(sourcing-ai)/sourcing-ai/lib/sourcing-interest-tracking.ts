@@ -1,9 +1,4 @@
-import {
-  createManualSourcingWorkspaceSnapshotMeta,
-  getRecentSourcingWorkspaceSnapshots,
-  saveTodaySourcingWorkspaceSnapshot,
-  type SourcingWorkspaceSnapshotMeta,
-} from './sourcing-workspace-snapshot-api';
+import { apiClient } from '@/lib/api-client';
 
 export type SourcingInterestTargetType = 'keyword' | 'category' | 'product';
 export type SourcingInterestSource =
@@ -37,14 +32,31 @@ export interface SourcingInterestObservation {
 
 export interface SourcingInterestTrackingSnapshotPayload {
   version: 1;
-  input: {
-    trackingWindowDays: number;
-  };
+  input: { trackingWindowDays: number };
   result: {
     targets: SourcingInterestTarget[];
     observations: SourcingInterestObservation[];
   };
-  meta: SourcingWorkspaceSnapshotMeta;
+  meta: {
+    generatedAt: string;
+    generationSource: 'server';
+    generatorVersion: 'sourcing-interest-target.v1';
+  };
+}
+
+interface SourcingInterestTargetResponse {
+  id: string;
+  targetType: SourcingInterestTargetType;
+  label: string;
+  sourceKeys: string[];
+  keyword: string | null;
+  category: string | null;
+  productId: string | null;
+  itemId: string | null;
+  vendorItemId: string | null;
+  productName: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export async function addSourcingInterestTarget(input: {
@@ -52,74 +64,34 @@ export async function addSourcingInterestTarget(input: {
   observation?: Omit<SourcingInterestObservation, 'targetId' | 'observedAt'>;
   trackingWindowDays?: number;
 }): Promise<SourcingInterestTrackingSnapshotPayload> {
-  const trackingWindowDays = input.trackingWindowDays ?? 3;
-  const existing = await loadLatestInterestTrackingPayload(trackingWindowDays);
-  const now = new Date().toISOString();
-  const targets = mergeInterestTargets(existing.result.targets, {
-    ...input.target,
-    createdAt: now,
-    updatedAt: now,
+  const target = input.target;
+  await apiClient.post<SourcingInterestTargetResponse>('/api/sourcing/interests', {
+    targetType: target.type,
+    source: target.source,
+    label: target.label,
+    keyword: target.keyword,
+    category: target.category,
+    productId: target.productId,
+    itemId: target.itemId,
+    vendorItemId: target.vendorItemId,
+    productName: target.productName,
   });
-  const observations = input.observation
-    ? [
-      {
-        ...input.observation,
-        targetId: input.target.id,
-        observedAt: now,
-      },
-      ...existing.result.observations,
-    ].slice(0, 5_000)
-    : existing.result.observations;
-
-  const payload: SourcingInterestTrackingSnapshotPayload = {
-    version: 1,
-    input: {
-      trackingWindowDays,
-    },
-    result: {
-      targets,
-      observations,
-    },
-    meta: createManualSourcingWorkspaceSnapshotMeta(),
-  };
-
-  await saveTodaySourcingWorkspaceSnapshot('interest_tracking', payload);
-  return payload;
+  return loadLatestInterestTrackingPayload(input.trackingWindowDays);
 }
 
 export async function removeSourcingInterestTarget(input: {
   targetId: string;
   trackingWindowDays?: number;
 }): Promise<SourcingInterestTrackingSnapshotPayload> {
-  const trackingWindowDays = input.trackingWindowDays ?? 3;
-  const existing = await loadLatestInterestTrackingPayload(trackingWindowDays);
-  const payload: SourcingInterestTrackingSnapshotPayload = {
-    version: 1,
-    input: {
-      trackingWindowDays,
-    },
-    result: {
-      targets: existing.result.targets.filter((target) => target.id !== input.targetId),
-      observations: existing.result.observations.filter((observation) => observation.targetId !== input.targetId),
-    },
-    meta: createManualSourcingWorkspaceSnapshotMeta(),
-  };
-
-  await saveTodaySourcingWorkspaceSnapshot('interest_tracking', payload);
-  return payload;
+  await apiClient.delete(`/api/sourcing/interests/${encodeURIComponent(input.targetId)}`);
+  return loadLatestInterestTrackingPayload(input.trackingWindowDays);
 }
 
 export async function loadLatestInterestTrackingPayload(
   trackingWindowDays = 3,
 ): Promise<SourcingInterestTrackingSnapshotPayload> {
-  const response = await getRecentSourcingWorkspaceSnapshots<SourcingInterestTrackingSnapshotPayload>(
-    'interest_tracking',
-    trackingWindowDays,
-  );
-  const latest = response.snapshots
-    .map((snapshot) => snapshot.payload)
-    .find(isSourcingInterestTrackingSnapshotPayload);
-  return latest ?? createEmptyInterestTrackingPayload(trackingWindowDays);
+  const rows = await apiClient.get<SourcingInterestTargetResponse[]>('/api/sourcing/interests');
+  return toPayload(rows, trackingWindowDays);
 }
 
 export function createKeywordInterestTarget(input: {
@@ -176,47 +148,48 @@ export function createProductInterestTarget(input: {
   };
 }
 
-function mergeInterestTargets(
-  currentTargets: SourcingInterestTarget[],
-  nextTarget: SourcingInterestTarget,
-): SourcingInterestTarget[] {
-  const targets = new Map(currentTargets.map((target) => [target.id, target]));
-  const current = targets.get(nextTarget.id);
-  targets.set(nextTarget.id, {
-    ...current,
-    ...nextTarget,
-    createdAt: current?.createdAt ?? nextTarget.createdAt,
-    updatedAt: nextTarget.updatedAt,
-  });
-  return [...targets.values()].slice(0, 500);
-}
-
-function createEmptyInterestTrackingPayload(trackingWindowDays: number): SourcingInterestTrackingSnapshotPayload {
+function toPayload(
+  rows: SourcingInterestTargetResponse[],
+  trackingWindowDays: number,
+): SourcingInterestTrackingSnapshotPayload {
   return {
     version: 1,
-    input: {
-      trackingWindowDays,
-    },
+    input: { trackingWindowDays },
     result: {
-      targets: [],
+      targets: rows.map((row) => ({
+        id: row.id,
+        type: row.targetType,
+        label: row.label,
+        source: sourceFrom(row.sourceKeys),
+        keyword: row.keyword ?? undefined,
+        category: row.category ?? undefined,
+        productId: row.productId ?? undefined,
+        itemId: row.itemId,
+        vendorItemId: row.vendorItemId,
+        productName: row.productName ?? undefined,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+      })),
       observations: [],
     },
-    meta: createManualSourcingWorkspaceSnapshotMeta(),
+    meta: {
+      generatedAt: new Date().toISOString(),
+      generationSource: 'server',
+      generatorVersion: 'sourcing-interest-target.v1',
+    },
   };
 }
 
-function isSourcingInterestTrackingSnapshotPayload(
-  value: unknown,
-): value is SourcingInterestTrackingSnapshotPayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Partial<SourcingInterestTrackingSnapshotPayload>;
-  return payload.version === 1 &&
-    typeof payload.input?.trackingWindowDays === 'number' &&
-    Array.isArray(payload.result?.targets) &&
-    Array.isArray(payload.result?.observations) &&
-    typeof payload.meta?.generatedAt === 'string';
+function sourceFrom(sourceKeys: string[]): SourcingInterestSource {
+  const source = sourceKeys[0];
+  return source === 'keyword_analysis'
+    || source === 'today_recommendation'
+    || source === 'wing_catalog'
+    || source === 'manual'
+    ? source
+    : 'manual';
 }
 
 function compactInterestKey(value: string): string {
-  return value.replace(/\s+/g, '').toLowerCase();
+  return value.replace(/\s+/g, '').toLocaleLowerCase('en-US');
 }

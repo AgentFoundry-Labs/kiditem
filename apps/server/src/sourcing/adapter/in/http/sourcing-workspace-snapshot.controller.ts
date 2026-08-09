@@ -1,8 +1,9 @@
-import { BadRequestException, Body, Controller, Get, Param, Put, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SourcingWorkspaceSnapshotService } from '../../../application/service/sourcing-workspace-snapshot.service';
 import {
   SaveSourcingWorkspaceSnapshotDto,
+  Append1688NewProductItemsDto,
   SourcingWorkspaceSnapshotRecentQueryDto,
   SourcingWorkspaceSnapshotParamsDto,
 } from './dto';
@@ -10,13 +11,20 @@ import {
 const CLIENT_WRITABLE_SOURCING_WORKSPACE_SNAPSHOT_SCOPES = new Set([
   'keyword_analysis',
   'today_recommendations',
-  'interest_tracking',
-  '1688_new_products',
 ]);
 
 @Controller('sourcing/workspace-snapshots')
 export class SourcingWorkspaceSnapshotController {
   constructor(private readonly snapshots: SourcingWorkspaceSnapshotService) {}
+
+  @Post('1688-new-products/items')
+  async append1688NewProductItems(
+    @Body() body: Append1688NewProductItemsDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    const snapshot = await this.snapshots.append1688NewProductItems(organizationId, body);
+    return { snapshot: toResponse(snapshot) };
+  }
 
   @Get(':scope/today')
   async getToday(

@@ -13,9 +13,6 @@ const permit = {
   targetKey: 'children plate',
   leaseToken: '00000000-0000-4000-8000-000000000003',
   generation: 1,
-  entitlementVersionId: '00000000-0000-4000-8000-000000000004',
-  entitlementVersionHash: 'a'.repeat(64),
-  decisionImpactAtIngest: 'enabled' as const,
   leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
 };
 
@@ -61,13 +58,20 @@ describe('sourcing collection mappers', () => {
           sourceKey: '1688.hot_product',
           sourceEntityId: 'offer-1',
           sourceUrl: 'https://detail.1688.com/offer/1.html',
-          decisionImpactAtIngest: 'enabled',
         },
       ],
       typedRecords: [
         {
           kind: 'offer_1688_hot',
           row: { offerId: 'offer-1', sourceKeyword: '儿童 餐盘' },
+        },
+        {
+          kind: 'offer_1688_keyword_observation',
+          row: {
+            offerId: 'offer-1',
+            sourceKeyword: '儿童 餐盘',
+            ingestionRunId: permit.runId,
+          },
         },
       ],
     });

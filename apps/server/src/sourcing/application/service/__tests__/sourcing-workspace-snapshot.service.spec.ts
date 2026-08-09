@@ -18,6 +18,8 @@ describe('SourcingWorkspaceSnapshotService', () => {
         organizationId: input.organizationId,
         scope: input.scope,
         businessDate: input.toBusinessDate,
+        projectionVersion: 'legacy',
+        inputHash: '',
         payload: {},
         createdAt: new Date('2026-05-27T00:00:00.000Z'),
         updatedAt: new Date('2026-05-27T00:00:00.000Z'),
@@ -27,7 +29,20 @@ describe('SourcingWorkspaceSnapshotService', () => {
         organizationId: input.organizationId,
         scope: input.scope,
         businessDate: input.businessDate,
+        projectionVersion: input.projectionVersion ?? 'legacy',
+        inputHash: input.inputHash ?? '',
         payload: input.payload,
+        createdAt: new Date('2026-05-27T00:00:00.000Z'),
+        updatedAt: new Date('2026-05-27T00:00:00.000Z'),
+      } satisfies SourcingWorkspaceSnapshotRow)),
+      append1688Items: vi.fn(async (input) => ({
+        id: 'snapshot-1',
+        organizationId: input.organizationId,
+        scope: '1688_new_products',
+        businessDate: input.businessDate,
+        projectionVersion: 'legacy',
+        inputHash: '',
+        payload: {},
         createdAt: new Date('2026-05-27T00:00:00.000Z'),
         updatedAt: new Date('2026-05-27T00:00:00.000Z'),
       } satisfies SourcingWorkspaceSnapshotRow)),
@@ -337,6 +352,36 @@ describe('SourcingWorkspaceSnapshotService', () => {
     }));
   });
 
+  it('appends validated 1688 items in one server-side command', async () => {
+    await service.append1688NewProductItems('00000000-0000-4000-8000-000000000001', {
+      source: '1688_keyword',
+      keyword: '슬라임',
+      items: [{
+        offerId: 'offer-1',
+        title: '儿童史莱姆捏捏乐解压玩具',
+        sourceUrl: 'https://detail.1688.com/offer/123456.html',
+        priceCny: 12,
+      }],
+    });
+
+    expect(repository.append1688Items).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: '00000000-0000-4000-8000-000000000001',
+      source: '1688_keyword',
+      keyword: '슬라임',
+      limit: 240,
+    }));
+    expect(repository.upsert).not.toHaveBeenCalled();
+  });
+
+  it('rejects 1688 items without a stable offer identity', async () => {
+    await expect(service.append1688NewProductItems('00000000-0000-4000-8000-000000000001', {
+      source: '1688_keyword',
+      items: [{ title: '식별자 없는 상품' }],
+    })).rejects.toBeInstanceOf(BadRequestException);
+
+    expect(repository.append1688Items).not.toHaveBeenCalled();
+  });
+
   it('rejects the old flat today recommendation payload shape', async () => {
     await expect(service.saveToday(
       '00000000-0000-4000-8000-000000000001',
@@ -350,6 +395,28 @@ describe('SourcingWorkspaceSnapshotService', () => {
         keywordLimit: 10,
         maxPages: 1,
         updatedAt: '2026-05-27T01:00:00.000Z',
+      },
+    )).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('rejects malformed 1688 rows before they can poison a shared snapshot', async () => {
+    await expect(service.saveToday(
+      '00000000-0000-4000-8000-000000000001',
+      '1688_new_products',
+      {
+        version: 1,
+        input: { source: '1688_keyword' },
+        result: {
+          items: [{
+            sourceUrl: 'https://detail.1688.com/offer/123456.html',
+            title: 123,
+          }],
+        },
+        meta: {
+          generatedAt: '2026-05-27T01:00:00.000Z',
+          generationSource: 'manual',
+          generatorVersion: 'sourcing-workspace-snapshot.v1',
+        },
       },
     )).rejects.toBeInstanceOf(BadRequestException);
   });

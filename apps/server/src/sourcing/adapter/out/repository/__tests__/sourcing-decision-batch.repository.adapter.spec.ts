@@ -172,16 +172,16 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
     });
   });
 
-  it('rejects the batch when a supporting source version is no longer current', async () => {
+  it('rejects the batch when a supporting observation is no longer available', async () => {
     const create = vi.fn();
     const adapter = createAdapter({
       batchFindFirst: vi.fn().mockResolvedValue(null),
       batchCreate: create,
-      sourceFindFirst: vi.fn().mockResolvedValue(null),
+      evidenceFindFirst: vi.fn().mockResolvedValue(null),
     });
 
     await expect(adapter.create(createCommand())).resolves.toEqual({
-      kind: 'source_entitlement_changed',
+      kind: 'source_evidence_changed',
     });
     expect(create).not.toHaveBeenCalled();
   });
@@ -203,7 +203,7 @@ describe('SourcingDecisionBatchRepositoryAdapter', () => {
     });
 
     await expect(adapter.create(createCommand())).resolves.toEqual({
-      kind: 'source_entitlement_changed',
+      kind: 'source_evidence_changed',
     });
     expect(create).not.toHaveBeenCalled();
   });
@@ -283,7 +283,6 @@ function createAdapter(input: {
   batchFindUnique?: ReturnType<typeof vi.fn>;
   batchCreate?: ReturnType<typeof vi.fn>;
   itemFindFirst?: ReturnType<typeof vi.fn>;
-  sourceFindFirst?: ReturnType<typeof vi.fn>;
   evidenceFindFirst?: ReturnType<typeof vi.fn>;
 }): SourcingDecisionBatchRepositoryAdapter {
   const prisma = {
@@ -300,20 +299,6 @@ function createAdapter(input: {
     },
     sourcingDecisionBatchItem: {
       findFirst: input.itemFindFirst ?? vi.fn().mockResolvedValue(null),
-    },
-    sourcingSourceEntitlementVersion: {
-      findFirst:
-        input.sourceFindFirst ??
-        vi.fn().mockResolvedValue({
-          id: 'entitlement-1',
-          permittedFields: ['offerId'],
-          coverageDefinition: 'configured search coverage',
-          denominatorDefinition: 'expected distinct observations',
-          maxStalenessSeconds: 86_400,
-          minimumCoverageBps: 8_000,
-          revisionPolicy: 'append revisions',
-          retentionDays: 365,
-        }),
     },
     sourcingEvidenceObservation: {
       findFirst:
@@ -378,10 +363,9 @@ function createCommand(
           {
             observationId: 'observation-1',
             evidenceRole: 'support:supply',
-            sourceAuthorization: {
+            sourceObservation: {
               sourceKey: '1688-api',
               scopeKey: 'stationery',
-              entitlementVersionId: 'entitlement-1',
               observationKey: 'offer-1:evidence',
             },
           },

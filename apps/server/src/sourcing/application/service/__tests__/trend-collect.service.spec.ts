@@ -103,7 +103,6 @@ function buildPorts() {
           generation: 1,
           entitlementVersionId: '00000000-0000-4000-8000-000000000012',
           entitlementVersionHash: 'a'.repeat(64),
-          decisionImpactAtIngest: 'enabled',
           leaseExpiresAt: new Date('2026-07-13T01:00:00.000Z'),
         },
         checkpoint: async () => undefined,

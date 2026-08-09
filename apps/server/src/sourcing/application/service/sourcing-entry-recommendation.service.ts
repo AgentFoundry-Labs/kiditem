@@ -10,6 +10,10 @@ import {
   type TrendCollectionRepositoryPort,
 } from '../port/out/repository/trend-collection.repository.port';
 import {
+  SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
+  type SourcingInterestTargetRepositoryPort,
+} from '../port/out/repository/sourcing-interest-target.repository.port';
+import {
   buildEntryRecommendations,
   type EntryInterestKeyword,
   type EntryPopularKeyword,
@@ -48,6 +52,8 @@ export class SourcingEntryRecommendationService {
     private readonly snapshots: SourcingWorkspaceSnapshotRepositoryPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
     private readonly trends: TrendCollectionRepositoryPort,
+    @Inject(SOURCING_INTEREST_TARGET_REPOSITORY_PORT)
+    private readonly interests: SourcingInterestTargetRepositoryPort,
   ) {}
 
   async getRecommendations(
@@ -70,7 +76,7 @@ export class SourcingEntryRecommendationService {
           this.logger.warn(`인기 키워드 조회 실패: ${describeError(error)}`);
           return [];
         }),
-      this.loadInterestKeywords(organizationId, today),
+      this.loadInterestKeywords(organizationId),
     ]);
 
     const popularKeywords: EntryPopularKeyword[] = popularKeywordRows.map((row) => ({
@@ -96,19 +102,18 @@ export class SourcingEntryRecommendationService {
   /**
    * 운영자가 등록한 관심 키워드를 두 곳에서 모은다.
    *
-   * - `interest_tracking` 스냅샷: 키워드 분석 화면에서 "관심 키워드로 저장"한 것
+   * - `SourcingInterestTarget`: 키워드 분석 화면에서 "관심 키워드로 저장"한 것
    * - `trend_seed_keywords`: 트렌드 수집 시드로 등록한 것(비활성 시드는 제외)
    *
    * 한쪽이 실패해도 나머지로 분류는 할 수 있어야 하므로 각각 따로 감싼다.
    */
   private async loadInterestKeywords(
     organizationId: string,
-    today: Date,
   ): Promise<EntryInterestKeyword[]> {
     const [saved, seeds] = await Promise.all([
-      this.findLatestSnapshot(organizationId, 'interest_tracking', today).catch((error: unknown) => {
-        this.logger.warn(`관심 키워드 스냅샷 조회 실패: ${describeError(error)}`);
-        return null;
+      this.interests.list(organizationId).catch((error: unknown) => {
+        this.logger.warn(`관심 키워드 조회 실패: ${describeError(error)}`);
+        return [];
       }),
       this.trends.listSeeds(organizationId).catch((error: unknown) => {
         this.logger.warn(`트렌드 시드 조회 실패: ${describeError(error)}`);
@@ -118,10 +123,9 @@ export class SourcingEntryRecommendationService {
 
     const keywords: EntryInterestKeyword[] = [];
 
-    for (const target of readArray(saved, 'targets')) {
-      if (!isRecord(target)) continue;
+    for (const target of saved) {
       // 관심 대상은 키워드/카테고리/상품이 섞여 있다. 키워드만 분류에 쓴다.
-      if (target.type !== 'keyword') continue;
+      if (target.targetType !== 'keyword') continue;
       const keyword = asNonEmptyString(target.keyword) ?? asNonEmptyString(target.label);
       if (keyword) keywords.push({ keyword, origin: 'saved' });
     }
@@ -141,7 +145,7 @@ export class SourcingEntryRecommendationService {
    */
   private async findLatestSnapshot(
     organizationId: string,
-    scope: '1688_new_products' | 'coupang_rising_products' | 'interest_tracking',
+    scope: '1688_new_products' | 'coupang_rising_products',
     today: Date,
   ): Promise<SourcingWorkspaceSnapshotRow | null> {
     const from = new Date(today);

@@ -412,59 +412,6 @@ describe('SupplySourcingProcurementService', () => {
     expect(repo.createTestIntent).not.toHaveBeenCalled();
   });
 
-  it('surfaces current source entitlement and quality denials', async () => {
-    const offerRepo = repository({
-      createOfferSnapshot: vi.fn().mockResolvedValue({
-        kind: 'source_entitlement_retain_denied',
-      }),
-    });
-    const offerService = new SupplySourcingProcurementService(offerRepo);
-    await expect(
-      offerService.createOfferSnapshot({
-        organizationId: 'org-1',
-        evidenceObservationId: 'observation-1',
-        identityStatus: 'offer_only',
-        sourcePlatform: '1688',
-        externalOfferId: 'offer-1',
-        productName: 'Magnetic blocks',
-        currency: 'CNY',
-        capturedAt: NOW,
-        priceTiers: [],
-      }),
-    ).rejects.toMatchObject({
-      status: 409,
-      response: expect.objectContaining({
-        code: 'source_entitlement_retain_denied',
-      }),
-    });
-
-    const intentRepo = repository({
-      createTestIntent: vi.fn().mockResolvedValue({
-        kind: 'source_quality_not_execution_eligible',
-      }),
-    });
-    const intentService = new SupplySourcingProcurementService(intentRepo);
-    await expect(
-      intentService.createTestIntent({
-        organizationId: 'org-1',
-        requestedByUserId: 'user-1',
-        idempotencyKey: 'test-order-quality-gate',
-        intentType: 'test_order',
-        sourceRecommendationArtifactId: 'decision-1',
-        decisionBatchItemId: 'decision-1',
-        supplierOfferSkuSnapshotId: snapshot().id,
-        launchCandidateId: 'launch-1',
-        selectedPriceTierId: snapshot().priceTiers[0].id,
-        requestedPurchaseUnits: 10,
-      }),
-    ).rejects.toMatchObject({
-      status: 409,
-      response: expect.objectContaining({
-        code: 'source_quality_not_execution_eligible',
-      }),
-    });
-  });
-
   it('passes organization-scoped filters and bounded pagination', async () => {
     const repo = repository({
       listTestIntents: vi.fn().mockResolvedValue({

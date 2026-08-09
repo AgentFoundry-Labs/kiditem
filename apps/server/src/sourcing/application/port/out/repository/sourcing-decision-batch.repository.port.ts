@@ -93,10 +93,9 @@ export interface CreateSourcingDecisionBatchItemCommand {
   evidence: Array<{
     observationId: string;
     evidenceRole: string;
-    sourceAuthorization?: {
+    sourceObservation?: {
       sourceKey: string;
       scopeKey: string;
-      entitlementVersionId: string;
       observationKey: string;
     };
   }>;
@@ -124,7 +123,7 @@ export type CreateSourcingDecisionBatchResult =
   | { kind: 'created'; duplicate: false; record: SourcingDecisionBatchRecord }
   | { kind: 'existing'; duplicate: true; record: SourcingDecisionBatchRecord }
   | { kind: 'idempotency_conflict' }
-  | { kind: 'source_entitlement_changed' }
+  | { kind: 'source_evidence_changed' }
   | { kind: 'reference_not_found' };
 
 export interface SourcingDecisionBatchRepositoryPort {

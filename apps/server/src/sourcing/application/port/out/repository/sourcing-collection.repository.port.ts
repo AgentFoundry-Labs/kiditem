@@ -23,9 +23,6 @@ export interface SourcingCollectionPermit {
   targetKey: string;
   leaseToken: string;
   generation: number;
-  entitlementVersionId: string;
-  entitlementVersionHash: string;
-  decisionImpactAtIngest: 'disabled' | 'enabled';
   leaseExpiresAt: Date;
 }
 
@@ -53,10 +50,49 @@ export type SourcingTypedCollectionRecord =
   | { kind: 'naver_keyword'; row: NaverKeywordSnapshotUpsert }
   | { kind: 'naver_popular_keyword'; row: NaverPopularKeywordSnapshotUpsert }
   | { kind: 'offer_1688_hot'; row: Sourcing1688HotProductSnapshotUpsert }
+  | {
+      kind: 'offer_1688_keyword_observation';
+      row: Sourcing1688OfferKeywordObservationUpsert;
+    }
   | { kind: 'shorts'; row: ShortsSnapshotUpsert }
   | { kind: 'tiktok_creative'; row: TiktokCcSnapshotUpsert }
   | { kind: 'live_commerce_broadcast'; row: LiveCommerceBroadcastSnapshotUpsert }
-  | { kind: 'live_commerce_product'; row: LiveCommerceProductSnapshotUpsert };
+  | { kind: 'live_commerce_product'; row: LiveCommerceProductSnapshotUpsert }
+  | { kind: 'extension_candidate'; row: SourcingExtensionCandidateProjection };
+
+export interface Sourcing1688OfferKeywordObservationUpsert
+  extends Sourcing1688HotProductSnapshotUpsert {
+  ingestionRunId: string;
+  evidenceObservationKey: string;
+  evidenceRevision: number;
+}
+
+export interface SourcingExtensionCandidateProjection {
+  organizationId: string;
+  pageType: 'detail' | 'description';
+  sourceUrl: string;
+  sourcePlatform: string;
+  externalOfferId: string;
+  variantKeyNormalized: string;
+  sourceIdentityHash: string;
+  rawData: Record<string, unknown>;
+  name: string | null;
+  description: string | null;
+  category: string | null;
+  tags: string[];
+  thumbnailUrl: string | null;
+  imageUrl: string | null;
+  costCny: number | null;
+  triggeredByUserId: string | null;
+  images: Array<{
+    url: string;
+    role: string;
+    label: string | null;
+    sortOrder: number;
+    source: string;
+    isPrimary: boolean;
+  }>;
+}
 
 export interface AuthorizedCollectionOutput {
   observations: AppendSourcingEvidenceObservationCommand[];
@@ -79,7 +115,7 @@ export type CommitAuthorizedCollectionResult =
       duplicateCount: number;
       staleDiscardedCount: number;
     }
-  | { kind: 'authorization_changed' }
+  | { kind: 'source_denied'; reasonCode: 'source_not_allowed' | 'source_disabled' }
   | { kind: 'lease_lost' }
   | { kind: 'cancelled' }
   | { kind: 'superseded' };
@@ -91,6 +127,9 @@ export interface FailAuthorizedCollectionInput {
 
 export interface SourcingCollectionRepositoryPort {
   claimAuthorizedRun(
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult>;
+  resumeAuthorizedRun(
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult>;
   checkpoint(

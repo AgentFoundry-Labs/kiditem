@@ -20,7 +20,6 @@ import {
   type SourcingGateStatus,
   type SourcingLaunchCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-launch-candidate.repository.port';
-import { SourcingSourceRegistryService } from './sourcing-source-registry.service';
 
 const POSTGRES_INT_MIN = -2_147_483_648;
 const POSTGRES_INT_MAX = 2_147_483_647;
@@ -72,7 +71,6 @@ export class SourcingLaunchCandidateService {
     private readonly supply: SourcingSupplyIntelligencePort,
     @Inject(SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT)
     private readonly evidence: SourcingEvidenceLedgerRepositoryPort,
-    private readonly sources: SourcingSourceRegistryService,
   ) {}
 
   async create(input: CreateSourcingLaunchCandidateInput) {
@@ -91,18 +89,6 @@ export class SourcingLaunchCandidateService {
       );
     }
     const provenanceAt = new Date();
-    const retention = await this.sources.authorize({
-      organizationId: input.organizationId,
-      sourceKey: offerEvidence.sourceKey,
-      scopeKey: offerEvidence.sourceScopeKey,
-      operation: 'retain',
-      at: provenanceAt,
-    });
-    if (!retention.allowed) {
-      throw new BadRequestException(
-        'Supplier offer provenance is suspended, expired, or no longer retainable',
-      );
-    }
     const [latestEvidence] = await this.evidence.findLatestObservationRevisions({
       organizationId: input.organizationId,
       observationKeys: [offerEvidence.observationKey],

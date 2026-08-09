@@ -186,7 +186,7 @@ function decisionItem(overrides: Record<string, unknown> = {}) {
 function intentRecord(
   overrides: Partial<CreateProcurementTestIntentRecord> = {},
 ): CreateProcurementTestIntentRecord {
-  const base = {
+  const base: Omit<CreateProcurementTestIntentRecord, 'requestHash'> = {
     decisionBatchItemId: 'decision-item-1',
     launchCandidateId: 'launch-1',
     supplierOfferSkuSnapshotId: 'snapshot-1',
@@ -361,32 +361,9 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
         }),
       }),
     );
-    expect(
-      prisma.sourcingSourceEntitlementVersion.findFirst,
-    ).toHaveBeenCalledWith({
-      where: {
-        organizationId: 'org-1',
-        sourceKey: '1688-offer',
-        scopeKey: 'stationery',
-        isCurrent: true,
-        retiredAt: null,
-      },
-      select: expect.objectContaining({
-        sourceLifecycle: true,
-        decisionImpact: true,
-        killSwitch: true,
-      }),
-    });
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(1);
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      prisma.sourcingSourceEntitlementVersion.findFirst.mock
-        .invocationCallOrder[0],
-    );
-    expect(
-      prisma.sourcingSourceEntitlementVersion.findFirst.mock
-        .invocationCallOrder[0],
-    ).toBeLessThan(
+    expect(prisma.sourcingEvidenceObservation.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.supplierOfferSkuSnapshot.create.mock.invocationCallOrder[0],
     );
     expect(
@@ -502,55 +479,6 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     ).resolves.toEqual({ kind: 'evidence_payload_mismatch' });
   });
 
-  it('checks the exact current source scope under the shared advisory lock', async () => {
-    const prisma = makePrisma();
-    prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(rawOffer());
-    prisma.sourcingSourceEntitlementVersion.findFirst.mockResolvedValue(
-      currentEntitlement({ killSwitch: true }),
-    );
-    const adapter = new SupplySourcingProcurementRepositoryAdapter(
-      prisma as never,
-    );
-
-    await expect(
-      adapter.createOfferSnapshot('org-1', offerRecord()),
-    ).resolves.toEqual({ kind: 'source_entitlement_retain_denied' });
-    expect(prisma.supplierOfferSkuSnapshot.findUnique).not.toHaveBeenCalled();
-    expect(prisma.$queryRaw).toHaveBeenCalledTimes(2);
-    expect(
-      prisma.sourcingSourceEntitlementVersion.findFirst,
-    ).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          organizationId: 'org-1',
-          sourceKey: '1688-offer',
-          scopeKey: 'stationery',
-          isCurrent: true,
-        }),
-      }),
-    );
-  });
-
-  it('does not revive evidence collected under an older entitlement version', async () => {
-    const prisma = makePrisma();
-    prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(rawOffer());
-    prisma.sourcingSourceEntitlementVersion.findFirst.mockResolvedValue(
-      currentEntitlement({ id: 'entitlement-2' }),
-    );
-    const adapter = new SupplySourcingProcurementRepositoryAdapter(
-      prisma as never,
-    );
-
-    await expect(
-      adapter.createOfferSnapshot('org-1', offerRecord()),
-    ).resolves.toEqual({ kind: 'source_entitlement_version_mismatch' });
-    await expect(
-      adapter.createTestIntent('org-1', intentRecord()),
-    ).resolves.toEqual({ kind: 'source_entitlement_version_mismatch' });
-    expect(prisma.supplierOfferSkuSnapshot.findUnique).not.toHaveBeenCalled();
-    expect(prisma.procurementTestIntent.findUnique).not.toHaveBeenCalled();
-  });
-
   it('makes same key and same request hash a duplicate', async () => {
     const prisma = makePrisma();
     prisma.procurementTestIntent.findUnique.mockResolvedValue(rawIntent());
@@ -653,48 +581,6 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     });
   });
 
-  it('blocks test orders when current source execution or run quality is ineligible', async () => {
-    const shadowPrisma = makePrisma();
-    shadowPrisma.sourcingSourceEntitlementVersion.findFirst.mockResolvedValue(
-      currentEntitlement({
-        sourceLifecycle: 'shadow',
-        decisionImpact: 'disabled',
-      }),
-    );
-    const shadowAdapter = new SupplySourcingProcurementRepositoryAdapter(
-      shadowPrisma as never,
-    );
-    await expect(
-      shadowAdapter.createTestIntent('org-1', intentRecord()),
-    ).resolves.toEqual({ kind: 'source_entitlement_execution_denied' });
-    expect(
-      shadowPrisma.procurementTestIntent.findUnique,
-    ).not.toHaveBeenCalled();
-
-    const lowCoveragePrisma = makePrisma();
-    lowCoveragePrisma.sourcingEvidenceObservation.findFirst.mockResolvedValue(
-      sourceContext({
-        ingestionRun: {
-          sourceEntitlementVersionId: 'entitlement-1',
-          targetKey: 'stationery',
-          status: 'complete',
-          completedAt: NOW,
-          coverageNumerator: 7,
-          coverageDenominator: 10,
-        },
-      }),
-    );
-    const lowCoverageAdapter = new SupplySourcingProcurementRepositoryAdapter(
-      lowCoveragePrisma as never,
-    );
-    await expect(
-      lowCoverageAdapter.createTestIntent('org-1', intentRecord()),
-    ).resolves.toEqual({ kind: 'source_quality_not_execution_eligible' });
-    expect(
-      lowCoveragePrisma.procurementTestIntent.findUnique,
-    ).not.toHaveBeenCalled();
-  });
-
   it('creates only a proposed intent with snapshot-matched launch provenance', async () => {
     const prisma = makePrisma();
     prisma.procurementTestIntent.findUnique.mockResolvedValue(null);
@@ -744,14 +630,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       }),
     );
     expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-    expect(prisma.$queryRaw.mock.invocationCallOrder[0]).toBeLessThan(
-      prisma.sourcingSourceEntitlementVersion.findFirst.mock
-        .invocationCallOrder[0],
-    );
-    expect(
-      prisma.sourcingSourceEntitlementVersion.findFirst.mock
-        .invocationCallOrder[0],
-    ).toBeLessThan(
+    expect(prisma.sourcingEvidenceObservation.findFirst.mock.invocationCallOrder[0]).toBeLessThan(
       prisma.procurementTestIntent.create.mock.invocationCallOrder[0],
     );
   });

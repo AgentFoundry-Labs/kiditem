@@ -3,6 +3,7 @@ import {
   safeStorageRemove,
   safeStorageSet,
 } from '@/lib/browser-storage';
+import { sessionScopedCacheKey } from '@/lib/session-cache-key';
 import type { Search1688ImageResponse } from './1688-image-search-api';
 
 const IMAGE_SEARCH_DAILY_CACHE_PREFIX = 'kiditem:sourcing-ai:1688-image-search:daily:';
@@ -69,5 +70,5 @@ export function todayLocalDateKey(): string {
 }
 
 function dailyImageSearchCacheKey(dateKey: string): string {
-  return `${IMAGE_SEARCH_DAILY_CACHE_PREFIX}${dateKey}`;
+  return sessionScopedCacheKey(`${IMAGE_SEARCH_DAILY_CACHE_PREFIX}${dateKey}`);
 }

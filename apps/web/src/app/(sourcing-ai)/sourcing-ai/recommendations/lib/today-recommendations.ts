@@ -1,4 +1,5 @@
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import { sessionScopedDailyCacheKey } from '@/lib/session-cache-key';
 import type { WingCatalogProduct } from '../../wing-catalog/lib/wing-catalog-extension';
 
 export const DEFAULT_TODAY_RECOMMENDATION_KEYWORDS = [
@@ -24,10 +25,8 @@ export const DEFAULT_TODAY_RECOMMENDATION_KEYWORDS = [
   '키즈 캠핑의자',
 ];
 
-const LEGACY_TODAY_RECOMMENDATION_ROWS_STORAGE_KEY = 'kiditem:sourcing-ai:today-recommendation:rows';
-const LEGACY_TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY = 'kiditem:sourcing-ai:today-recommendation:snapshots';
-export const TODAY_RECOMMENDATION_ROWS_STORAGE_KEY = `${LEGACY_TODAY_RECOMMENDATION_ROWS_STORAGE_KEY}:v1`;
-export const TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY = `${LEGACY_TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY}:v1`;
+const TODAY_RECOMMENDATION_ROWS_STORAGE_KEY = 'kiditem:sourcing-ai:today-recommendation:rows:v2';
+const TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY = 'kiditem:sourcing-ai:today-recommendation:snapshots:v2';
 export const TODAY_RECOMMENDATION_ROWS_UPDATED_EVENT = 'kiditem:sourcing-ai:today-recommendation-rows-updated';
 export const TODAY_RECOMMENDATION_SNAPSHOTS_UPDATED_EVENT = 'kiditem:sourcing-ai:today-recommendation-snapshots-updated';
 export const THREE_DAY_TRACKING_MS = 3 * 24 * 60 * 60 * 1000;
@@ -270,8 +269,7 @@ export function buildProductTrackingSummary(
 export function readTodayRecommendationRows(): TodayRecommendationRow[] {
   try {
     const raw =
-      safeStorageGet('local', TODAY_RECOMMENDATION_ROWS_STORAGE_KEY) ??
-      safeStorageGet('local', LEGACY_TODAY_RECOMMENDATION_ROWS_STORAGE_KEY);
+      safeStorageGet('local', sessionScopedDailyCacheKey(TODAY_RECOMMENDATION_ROWS_STORAGE_KEY));
     const parsed = raw ? JSON.parse(raw) : null;
     return Array.isArray(parsed) ? parsed.filter(isTodayRecommendationRow) : [];
   } catch {
@@ -281,15 +279,18 @@ export function readTodayRecommendationRows(): TodayRecommendationRow[] {
 
 export function writeTodayRecommendationRows(rows: TodayRecommendationRow[]) {
   if (typeof window === 'undefined') return;
-  safeStorageSet('local', TODAY_RECOMMENDATION_ROWS_STORAGE_KEY, JSON.stringify(rows.slice(0, 100)));
+  safeStorageSet(
+    'local',
+    sessionScopedDailyCacheKey(TODAY_RECOMMENDATION_ROWS_STORAGE_KEY),
+    JSON.stringify(rows.slice(0, 100)),
+  );
   window.dispatchEvent(new Event(TODAY_RECOMMENDATION_ROWS_UPDATED_EVENT));
 }
 
 export function readTodayRecommendationSnapshots(): ProductSnapshot[] {
   try {
     const raw =
-      safeStorageGet('local', TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY) ??
-      safeStorageGet('local', LEGACY_TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY);
+      safeStorageGet('local', sessionScopedDailyCacheKey(TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY));
     const parsed = raw ? JSON.parse(raw) : [];
     return Array.isArray(parsed) ? parsed.filter(isProductSnapshot) : [];
   } catch {
@@ -301,7 +302,7 @@ export function writeTodayRecommendationSnapshots(snapshots: ProductSnapshot[]) 
   if (typeof window === 'undefined') return;
   safeStorageSet(
     'local',
-    TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY,
+    sessionScopedDailyCacheKey(TODAY_RECOMMENDATION_SNAPSHOTS_STORAGE_KEY),
     JSON.stringify(snapshots.slice(0, MAX_STORED_PRODUCT_SNAPSHOTS)),
   );
   window.dispatchEvent(new Event(TODAY_RECOMMENDATION_SNAPSHOTS_UPDATED_EVENT));

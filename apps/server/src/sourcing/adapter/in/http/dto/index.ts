@@ -1,4 +1,6 @@
 export { ReceiveExtensionDataDto } from './receive-extension-data.dto';
+export { ReceiveExtensionV2DataDto } from './receive-extension-v2-data.dto';
+export { CreateExtensionV2CollectionSessionDto } from './create-extension-v2-collection-session.dto';
 export { RegisterManualProductDto } from './register-manual-product.dto';
 export { CreateProductGenerationDto } from './product-generation.dto';
 export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';
@@ -25,6 +27,8 @@ export {
   ListEntryRecommendationsQueryDto,
 } from './sourcing-entry-recommendation.dto';
 export { RunSourcingMarketModelDto } from './sourcing-market-model.dto';
+export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto';
+export { Append1688NewProductItemsDto } from './append-1688-new-product-items.dto';
 export {
   CompareNaverDatalabSearchTrendsDto,
   SaveSourcingWorkspaceSnapshotDto,

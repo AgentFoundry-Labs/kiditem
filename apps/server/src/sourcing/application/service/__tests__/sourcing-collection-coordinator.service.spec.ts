@@ -14,9 +14,6 @@ const permit: SourcingCollectionPermit = {
   targetKey: 'children-plate',
   leaseToken: '00000000-0000-4000-8000-000000000010',
   generation: 1,
-  entitlementVersionId: '00000000-0000-4000-8000-000000000020',
-  entitlementVersionHash: 'a'.repeat(64),
-  decisionImpactAtIngest: 'disabled',
   leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
 };
 
@@ -37,6 +34,7 @@ const request: ClaimAuthorizedRunInput = {
 function repository(): SourcingCollectionRepositoryPort {
   return {
     claimAuthorizedRun: vi.fn(),
+    resumeAuthorizedRun: vi.fn(),
     checkpoint: vi.fn(async () => 'continue' as const),
     commit: vi.fn(async () => ({
       kind: 'committed',
@@ -51,33 +49,34 @@ function repository(): SourcingCollectionRepositoryPort {
 }
 
 describe('SourcingCollectionCoordinator', () => {
-  it.each(['missing', 'expired', 'killed'] as const)(
-    'does not call a provider or commit when entitlement is %s',
+  it.each(['source_not_allowed', 'source_disabled'] as const)(
+    'does not call a provider or commit when the source is %s',
     async (state) => {
       const collectionRepository = repository();
       vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
         kind: 'denied',
-        reasonCode: `source_entitlement_${state}`,
+        reasonCode: state,
       });
       const provider = vi.fn();
       const coordinator = new SourcingCollectionCoordinator(collectionRepository);
 
       await expect(coordinator.execute(request, provider)).rejects.toMatchObject({
-        response: { code: `source_entitlement_${state}` },
+        response: { code: state },
       });
       expect(provider).not.toHaveBeenCalled();
       expect(collectionRepository.commit).not.toHaveBeenCalled();
     },
   );
 
-  it('discards results when entitlement changes during provider IO', async () => {
+  it('discards results when the source is disabled during provider IO', async () => {
     const collectionRepository = repository();
     vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
       kind: 'claimed',
       permit,
     });
     vi.mocked(collectionRepository.commit).mockResolvedValue({
-      kind: 'authorization_changed',
+      kind: 'source_denied',
+      reasonCode: 'source_disabled',
     });
     const provider = vi.fn(async () => ({
       observations: [],
@@ -89,7 +88,7 @@ describe('SourcingCollectionCoordinator', () => {
     const coordinator = new SourcingCollectionCoordinator(collectionRepository);
 
     await expect(coordinator.execute(request, provider)).rejects.toMatchObject({
-      response: { code: 'SOURCE_AUTHORIZATION_CHANGED' },
+      response: { code: 'source_disabled' },
     });
     expect(provider).toHaveBeenCalledTimes(1);
     expect(collectionRepository.commit).toHaveBeenCalledTimes(1);
@@ -110,5 +109,24 @@ describe('SourcingCollectionCoordinator', () => {
       runId: permit.runId,
     });
     expect(provider).not.toHaveBeenCalled();
+  });
+
+  it('uses only a pre-issued permit when an extension v2 commit requires one', async () => {
+    const collectionRepository = repository();
+    vi.mocked(collectionRepository.resumeAuthorizedRun).mockResolvedValue({
+      kind: 'existing',
+      permit,
+    });
+    const provider = vi.fn(async () => ({
+      observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {},
+    }));
+    const coordinator = new SourcingCollectionCoordinator(collectionRepository);
+
+    await expect(coordinator.execute({ ...request, requireExistingPermit: true }, provider))
+      .resolves.toMatchObject({ kind: 'committed', runId: permit.runId });
+    expect(collectionRepository.resumeAuthorizedRun).toHaveBeenCalledWith(
+      expect.objectContaining({ idempotencyKey: request.idempotencyKey }),
+    );
+    expect(collectionRepository.claimAuthorizedRun).not.toHaveBeenCalled();
   });
 });

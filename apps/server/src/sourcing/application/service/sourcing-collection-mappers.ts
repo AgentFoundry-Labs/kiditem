@@ -9,6 +9,11 @@ import type {
 } from '../port/out/repository/sourcing-collection.repository.port';
 import type { AppendSourcingEvidenceObservationCommand } from '../port/out/repository/sourcing-evidence-ledger.repository.port';
 
+type TrendTypedCollectionRecord = Exclude<
+  SourcingTypedCollectionRecord,
+  { kind: 'extension_candidate' }
+>;
+
 export function normalizeCollectionTarget(value: string): string {
   const normalized = value
     .normalize('NFKC')
@@ -30,65 +35,80 @@ export function map1688HotProductsToAuthorizedOutput(input: {
   qualityReport?: Record<string, unknown>;
 }): AuthorizedCollectionOutput {
   const rows = dedupe1688Rows(input.rows);
+  const observations = rows.map((row) => to1688Observation(input.permit, row));
   return {
-    observations: rows.map((row) => {
-      const rawPayload = {
-        offerId: row.offerId,
-        sourceKeyword: row.sourceKeyword,
-        rank: row.rank,
-        title: row.title,
-        priceCny: row.priceCny,
-        monthlySales: row.monthlySales,
-        repurchaseRate: row.repurchaseRate,
-        tradeScore: row.tradeScore,
-        supplierName: row.supplierName,
-        imageUrl: row.imageUrl,
-        sourceUrl: row.sourceUrl,
-      };
-      return {
-        organizationId: input.permit.organizationId,
-        ingestionRunId: input.permit.runId,
-        sourceEntitlementVersionId: input.permit.entitlementVersionId,
-        sourceKey: input.permit.sourceKey,
-        platform: '1688',
-        evidenceFamily: 'hot_product',
-        signalRole: 'supply' as const,
-        granularity: 'supply_catalog' as const,
-        conceptKey: normalizeCollectionTarget(row.sourceKeyword),
-        sourceEntityType: 'supplier_offer',
-        sourceEntityId: row.offerId,
-        schemaVersion: '1688-hot-product/v2',
-        observationKey: hashCollectionRequest({
-          sourceKey: input.permit.sourceKey,
-          sourceEntityType: 'supplier_offer',
-          externalOfferId: row.offerId,
-          variantKey: '',
-          sourceKeyword: normalizeCollectionTarget(row.sourceKeyword),
-          capturedAt: row.capturedAt,
-        }),
-        revision: 1,
-        supportsCandidate: true,
-        sourceUrl: row.sourceUrl,
-        eventAt: row.capturedAt,
-        observedAt: row.capturedAt,
-        availableAt: row.capturedAt,
-        revisionAt: null,
-        rawPayload,
-        payloadHash: hashCollectionRequest(rawPayload),
-        decisionImpactAtIngest: input.permit.decisionImpactAtIngest,
-        ingestedAt: row.capturedAt,
-      };
-    }),
-    typedRecords: rows.map((row) => ({ kind: 'offer_1688_hot' as const, row })),
+    observations,
+    typedRecords: rows.flatMap((row, index) => [
+      { kind: 'offer_1688_hot' as const, row },
+      {
+        kind: 'offer_1688_keyword_observation' as const,
+        row: {
+          ...row,
+          ingestionRunId: input.permit.runId,
+          evidenceObservationKey: observations[index].observationKey,
+          evidenceRevision: observations[index].revision,
+        },
+      },
+    ]),
     discoveredCount: rows.length,
     rejectedCount: input.rejectedCount ?? 0,
     qualityReport: input.qualityReport ?? {},
   };
 }
 
+function to1688Observation(
+  permit: SourcingCollectionPermit,
+  row: Sourcing1688HotProductSnapshotUpsert,
+): AppendSourcingEvidenceObservationCommand {
+  const rawPayload = {
+    offerId: row.offerId,
+    sourceKeyword: row.sourceKeyword,
+    rank: row.rank,
+    title: row.title,
+    priceCny: row.priceCny,
+    monthlySales: row.monthlySales,
+    repurchaseRate: row.repurchaseRate,
+    tradeScore: row.tradeScore,
+    supplierName: row.supplierName,
+    imageUrl: row.imageUrl,
+    sourceUrl: row.sourceUrl,
+  };
+  return {
+    organizationId: permit.organizationId,
+    ingestionRunId: permit.runId,
+    sourceKey: permit.sourceKey,
+    platform: '1688',
+    evidenceFamily: 'hot_product',
+    signalRole: 'supply',
+    granularity: 'supply_catalog',
+    conceptKey: normalizeCollectionTarget(row.sourceKeyword),
+    sourceEntityType: 'supplier_offer',
+    sourceEntityId: row.offerId,
+    schemaVersion: '1688-hot-product/v2',
+    observationKey: hashCollectionRequest({
+      sourceKey: permit.sourceKey,
+      sourceEntityType: 'supplier_offer',
+      externalOfferId: row.offerId,
+      variantKey: '',
+      sourceKeyword: normalizeCollectionTarget(row.sourceKeyword),
+      capturedAt: row.capturedAt,
+    }),
+    revision: 1,
+    supportsCandidate: true,
+    sourceUrl: row.sourceUrl,
+    eventAt: row.capturedAt,
+    observedAt: row.capturedAt,
+    availableAt: row.capturedAt,
+    revisionAt: null,
+    rawPayload,
+    payloadHash: hashCollectionRequest(rawPayload),
+    ingestedAt: row.capturedAt,
+  };
+}
+
 export function mapTrendTypedRecordsToAuthorizedOutput(input: {
   permit: SourcingCollectionPermit;
-  typedRecords: SourcingTypedCollectionRecord[];
+  typedRecords: TrendTypedCollectionRecord[];
   rejectedCount?: number;
   qualityReport?: Record<string, unknown>;
 }): AuthorizedCollectionOutput {
@@ -103,7 +123,7 @@ export function mapTrendTypedRecordsToAuthorizedOutput(input: {
 
 function mapTrendRecordObservation(
   permit: SourcingCollectionPermit,
-  record: SourcingTypedCollectionRecord,
+  record: TrendTypedCollectionRecord,
 ): AppendSourcingEvidenceObservationCommand {
   const row = record.row;
   const identity = trendRecordIdentity(record);
@@ -112,7 +132,6 @@ function mapTrendRecordObservation(
   return {
     organizationId: permit.organizationId,
     ingestionRunId: permit.runId,
-    sourceEntitlementVersionId: permit.entitlementVersionId,
     sourceKey: permit.sourceKey,
     platform: trendPlatform(record, isNaver),
     evidenceFamily: record.kind,
@@ -137,47 +156,47 @@ function mapTrendRecordObservation(
     revisionAt: null,
     rawPayload,
     payloadHash: hashCollectionRequest(rawPayload),
-    decisionImpactAtIngest: permit.decisionImpactAtIngest,
     ingestedAt: row.capturedAt,
   };
 }
 
-function trendRecordIdentity(record: SourcingTypedCollectionRecord): string {
-  const row = record.row;
-  if (record.kind === 'naver_keyword') return row.keyword;
-  if (record.kind === 'naver_popular_keyword') return `${row.boardKey}:${row.keyword}`;
-  if (record.kind === 'offer_1688_hot') return row.offerId;
-  if (record.kind === 'shorts') return row.videoKey;
+function trendRecordIdentity(record: TrendTypedCollectionRecord): string {
+  if (record.kind === 'naver_keyword') return record.row.keyword;
+  if (record.kind === 'naver_popular_keyword') return `${record.row.boardKey}:${record.row.keyword}`;
+  if (record.kind === 'offer_1688_hot') return record.row.offerId;
+  if (record.kind === 'offer_1688_keyword_observation') return record.row.offerId;
+  if (record.kind === 'shorts') return record.row.videoKey;
   if (record.kind === 'tiktok_creative') {
-    return `${row.region}:${row.trendType}:${row.entityKey}`;
+    return `${record.row.region}:${record.row.trendType}:${record.row.entityKey}`;
   }
-  if (record.kind === 'live_commerce_broadcast') return `${row.source}:${row.broadcastId}`;
-  return `${row.source}:${row.broadcastId}:${row.productId}`;
+  if (record.kind === 'live_commerce_broadcast') return `${record.row.source}:${record.row.broadcastId}`;
+  return `${record.row.source}:${record.row.broadcastId}:${record.row.productId}`;
 }
 
-function trendConceptKey(record: SourcingTypedCollectionRecord): string | null {
-  const row = record.row;
-  if (record.kind === 'naver_keyword') return normalizeCollectionTarget(row.keyword);
-  if (record.kind === 'naver_popular_keyword') return normalizeCollectionTarget(row.keyword);
-  if (record.kind === 'offer_1688_hot') return normalizeCollectionTarget(row.sourceKeyword);
-  if (record.kind === 'shorts') return row.keyword ? normalizeCollectionTarget(row.keyword) : null;
+function trendConceptKey(record: TrendTypedCollectionRecord): string | null {
+  if (record.kind === 'naver_keyword') return normalizeCollectionTarget(record.row.keyword);
+  if (record.kind === 'naver_popular_keyword') return normalizeCollectionTarget(record.row.keyword);
+  if (record.kind === 'offer_1688_hot') return normalizeCollectionTarget(record.row.sourceKeyword);
+  if (record.kind === 'offer_1688_keyword_observation') return normalizeCollectionTarget(record.row.sourceKeyword);
+  if (record.kind === 'shorts') return record.row.keyword ? normalizeCollectionTarget(record.row.keyword) : null;
   if (record.kind === 'tiktok_creative') {
-    return row.sourceKeyword ? normalizeCollectionTarget(row.sourceKeyword) : null;
+    return record.row.sourceKeyword ? normalizeCollectionTarget(record.row.sourceKeyword) : null;
   }
   return null;
 }
 
-function trendEntityType(record: SourcingTypedCollectionRecord): string {
+function trendEntityType(record: TrendTypedCollectionRecord): string {
   if (record.kind === 'naver_keyword') return 'search_keyword';
   if (record.kind === 'naver_popular_keyword') return 'popular_keyword';
   if (record.kind === 'offer_1688_hot') return 'supplier_offer';
+  if (record.kind === 'offer_1688_keyword_observation') return 'supplier_offer';
   if (record.kind === 'shorts') return 'short_video';
   if (record.kind === 'tiktok_creative') return 'creative_trend_entity';
   if (record.kind === 'live_commerce_broadcast') return 'live_broadcast';
   return 'live_commerce_product';
 }
 
-function trendPlatform(record: SourcingTypedCollectionRecord, isNaver: boolean): string {
+function trendPlatform(record: TrendTypedCollectionRecord, isNaver: boolean): string {
   if (isNaver) return 'naver';
   if (record.kind === 'shorts') return 'shortstrend';
   if (record.kind === 'tiktok_creative') return 'tiktok';
@@ -187,11 +206,15 @@ function trendPlatform(record: SourcingTypedCollectionRecord, isNaver: boolean):
   return '1688';
 }
 
-function trendSourceUrl(record: SourcingTypedCollectionRecord): string | null {
+function trendSourceUrl(record: TrendTypedCollectionRecord): string | null {
   if (record.kind === 'offer_1688_hot') return record.row.sourceUrl;
+  if (record.kind === 'offer_1688_keyword_observation') return record.row.sourceUrl;
   if (record.kind === 'shorts') return record.row.videoUrl;
   if (record.kind === 'tiktok_creative') return record.row.sourceUrl;
-  return record.row.sourceUrl;
+  if (record.kind === 'live_commerce_broadcast' || record.kind === 'live_commerce_product') {
+    return record.row.sourceUrl;
+  }
+  return null;
 }
 
 function dedupe1688Rows(

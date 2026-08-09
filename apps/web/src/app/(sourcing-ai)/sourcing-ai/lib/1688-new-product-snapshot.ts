@@ -1,7 +1,5 @@
 import {
-  createManualSourcingWorkspaceSnapshotMeta,
-  getTodaySourcingWorkspaceSnapshot,
-  saveTodaySourcingWorkspaceSnapshot,
+  append1688NewProductItems,
 } from './sourcing-workspace-snapshot-api';
 import {
   buildCoupangImageSearchRows,
@@ -23,23 +21,6 @@ type Appendable1688Item = object & {
   title?: string | null;
 };
 
-type Persistable1688Item = Record<string, unknown> & Appendable1688Item;
-
-interface NewProductSnapshotPayload {
-  version: 1;
-  input: {
-    source: string;
-    keyword?: string;
-    category?: string;
-  };
-  result: {
-    keyword?: string;
-    category?: string;
-    items: Persistable1688Item[];
-  };
-  meta: ReturnType<typeof createManualSourcingWorkspaceSnapshotMeta>;
-}
-
 const DEFAULT_1688_NEW_PRODUCT_SNAPSHOT_LIMIT = 240;
 
 export async function append1688NewProductSnapshot(input: {
@@ -50,28 +31,17 @@ export async function append1688NewProductSnapshot(input: {
   limit?: number;
 }) {
   const limit = input.limit ?? DEFAULT_1688_NEW_PRODUCT_SNAPSHOT_LIMIT;
-  const current = await getTodaySourcingWorkspaceSnapshot<NewProductSnapshotPayload>('1688_new_products')
-    .then(({ snapshot }) => snapshot?.payload ?? null)
-    .catch(() => null);
-  const currentItems = Array.isArray(current?.result.items) ? current.result.items : [];
   const incomingItems = input.items.map((item) => ({
     ...(item as Record<string, unknown>),
     keyword: item.keyword ?? input.keyword ?? null,
   }));
 
-  await saveTodaySourcingWorkspaceSnapshot<NewProductSnapshotPayload>('1688_new_products', {
-    version: 1,
-    input: {
-      source: input.source,
-      keyword: input.keyword,
-      category: input.category,
-    },
-    result: {
-      keyword: input.keyword,
-      category: input.category,
-      items: merge1688Items([...incomingItems, ...currentItems]).slice(0, limit),
-    },
-    meta: createManualSourcingWorkspaceSnapshotMeta(),
+  await append1688NewProductItems({
+    source: input.source,
+    keyword: input.keyword,
+    category: input.category,
+    items: incomingItems,
+    limit,
   });
 }
 
@@ -220,26 +190,6 @@ export function buildCached1688ImageMatchCandidates(input: {
   return candidates
     .sort((a, b) => b.score - a.score)
     .map((candidate, index) => ({ ...candidate, rank: index + 1 }));
-}
-
-function merge1688Items(items: Persistable1688Item[]): Persistable1688Item[] {
-  const seen = new Set<string>();
-  return items.filter((item) => {
-    const key = itemKey(item);
-    if (!key) return false;
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-}
-
-function itemKey(item: Persistable1688Item): string {
-  const matchedCoupang = item.matchedCoupang;
-  const coupangProductId = matchedCoupang && typeof matchedCoupang === 'object' && 'productId' in matchedCoupang
-    ? String(matchedCoupang.productId ?? '').trim()
-    : '';
-  const offerKey = String(item.sourceUrl || item.title || '').trim();
-  return [coupangProductId, offerKey].filter(Boolean).join(':');
 }
 
 function percentageValue(value: string | null | undefined): number | null {

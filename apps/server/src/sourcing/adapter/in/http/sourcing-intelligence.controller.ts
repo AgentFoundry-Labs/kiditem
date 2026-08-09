@@ -4,6 +4,7 @@ import {
   Get,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UnauthorizedException,
@@ -14,73 +15,43 @@ import { Roles } from '../../../../auth/decorators/roles.decorator';
 import { SourcingDecisionBatchService } from '../../../application/service/sourcing-decision-batch.service';
 import { SourcingEvidenceLedgerService } from '../../../application/service/sourcing-evidence-ledger.service';
 import { SourcingLaunchCandidateService } from '../../../application/service/sourcing-launch-candidate.service';
-import { SourcingSourceRegistryService } from '../../../application/service/sourcing-source-registry.service';
+import { SourcingCollectionSourceControlService } from '../../../application/service/sourcing-collection-source-control.service';
 import {
   AppendEvidenceObservationsDto,
   CreateDecisionBatchDto,
   CreateDecisionProcurementIntentDto,
   CreateLaunchCandidateDto,
-  CreateSourceEntitlementVersionDto,
   FinalizeEvidenceRunDto,
   StartEvidenceRunDto,
-  SuspendSourceEntitlementDto,
+  SetSourcingCollectionSourceEnabledDto,
 } from './dto/sourcing-intelligence.dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/intelligence')
 export class SourcingIntelligenceController {
   constructor(
-    private readonly sources: SourcingSourceRegistryService,
+    private readonly sourceControls: SourcingCollectionSourceControlService,
     private readonly evidence: SourcingEvidenceLedgerService,
     private readonly launchCandidates: SourcingLaunchCandidateService,
     private readonly decisions: SourcingDecisionBatchService,
   ) {}
 
-  @Post('sources')
-  @Roles('owner', 'admin')
-  createSource(
-    @Body() body: CreateSourceEntitlementVersionDto,
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-  ) {
-    return this.sources.createVersion({
-      organizationId,
-      reviewedByUserId: requireUserId(user),
-      ...body,
-      permissionStartsAt: toOptionalDate(body.permissionStartsAt),
-      permissionExpiresAt: toOptionalDate(body.permissionExpiresAt),
-    });
-  }
-
   @Get('sources')
-  listSources(
-    @CurrentOrganization() organizationId: string,
-    @Query('sourceKey') sourceKey?: string,
-    @Query('scopeKey') scopeKey?: string,
-    @Query('includeHistory') includeHistory?: string,
-  ) {
-    return this.sources.list({
-      organizationId,
-      sourceKey,
-      scopeKey,
-      includeHistory: includeHistory === 'true',
-    });
+  listSources(@CurrentOrganization() organizationId: string) {
+    return this.sourceControls.list(organizationId);
   }
 
-  @Post('sources/:sourceKey/suspend')
+  @Patch('sources/:sourceKey')
   @Roles('owner', 'admin')
-  suspendSource(
+  setSourceEnabled(
     @Param('sourceKey') sourceKey: string,
-    @Body() body: SuspendSourceEntitlementDto,
+    @Body() body: SetSourcingCollectionSourceEnabledDto,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
-    return this.sources.suspend({
+    return this.sourceControls.setEnabled({
       organizationId,
       sourceKey,
-      scopeKey: body.scopeKey,
-      reviewedByUserId: requireUserId(user),
-      reason: body.reason,
+      enabled: body.enabled,
     });
   }
 

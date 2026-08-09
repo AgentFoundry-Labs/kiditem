@@ -11,10 +11,19 @@ export interface ReceiveExtensionDataInput extends Record<string, unknown> {
   category_name?: string;
   tags?: string[];
   price?: number | string;
+  price_min?: number | string;
+  price_max?: number | string;
   priceRange?: string;
   offer?: Record<string, unknown>;
   skuProps?: unknown[];
   priceRanges?: unknown[];
+  moq?: number | string;
+  supplier_name?: string;
+  product_id?: string;
+  specs?: Array<{ key?: string; value?: string }>;
+  sku_attrs?: unknown[];
+  sku_list?: unknown[];
+  price_tiers?: unknown[];
   total_found?: number;
 }
 

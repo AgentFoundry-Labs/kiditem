@@ -14,7 +14,7 @@ import {
   type SourcingEvidenceRunStatus,
   type SourcingEvidenceSignalRole,
 } from '../port/out/repository/sourcing-evidence-ledger.repository.port';
-import { SourcingSourceRegistryService } from './sourcing-source-registry.service';
+import { isAllowedSourcingCollectionSource } from '../../domain/sourcing-collection-source-policy';
 
 const POSTGRES_INT_MAX = 2_147_483_647;
 
@@ -43,7 +43,6 @@ export class SourcingEvidenceLedgerService {
   constructor(
     @Inject(SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT)
     private readonly repository: SourcingEvidenceLedgerRepositoryPort,
-    private readonly sources: SourcingSourceRegistryService,
   ) {}
 
   async startRun(input: {
@@ -60,32 +59,22 @@ export class SourcingEvidenceLedgerService {
     assertDateOrder(input.windowStartAt, input.windowEndAt, 'collection window');
     const requestedScopeKey = requiredText(input.scopeKey, 'scopeKey');
     const startedAt = new Date();
-    const authorization = await this.sources.authorize({
-      organizationId: input.organizationId,
-      sourceKey: input.sourceKey,
-      scopeKey: requestedScopeKey,
-      operation: 'collect',
-      at: startedAt,
-    });
-    if (!authorization.allowed || !authorization.entitlement) {
+    if (!isAllowedSourcingCollectionSource(input.sourceKey)) {
       throw new BadRequestException({
-        code: 'source_collection_not_authorized',
-        reason: authorization.reasonCode,
+        code: 'source_not_allowed',
       });
     }
 
     const normalized = {
       organizationId: input.organizationId,
-      sourceEntitlementVersionId: authorization.entitlement.id,
-      sourceKey: authorization.entitlement.sourceKey,
+      sourceKey: requiredText(input.sourceKey, 'sourceKey'),
       runKey: requiredText(input.runKey, 'runKey'),
-      scopeKey: authorization.entitlement.scopeKey,
+      scopeKey: requestedScopeKey,
       collectorVersion: requiredText(input.collectorVersion, 'collectorVersion'),
       triggeredByUserId: requiredText(
         input.triggeredByUserId,
         'triggeredByUserId',
       ),
-      decisionImpactAtIngest: authorization.entitlement.decisionImpact,
       windowStartAt: input.windowStartAt ?? null,
       windowEndAt: input.windowEndAt ?? null,
       expectedCount: nullableNonNegativeInteger(input.expectedCount, 'expectedCount'),
@@ -123,25 +112,6 @@ export class SourcingEvidenceLedgerService {
       throw new ConflictException(`Evidence ingestion run is ${run.status}`);
     }
 
-    const authorization = await this.sources.authorize({
-      organizationId: input.organizationId,
-      sourceKey: run.sourceKey,
-      scopeKey: run.scopeKey,
-      operation: 'collect',
-      at: new Date(),
-    });
-    if (!authorization.allowed || !authorization.entitlement) {
-      throw new BadRequestException({
-        code: 'source_collection_not_authorized',
-        reason: authorization.reasonCode,
-      });
-    }
-    if (authorization.entitlement.id !== run.sourceEntitlementVersionId) {
-      throw new ConflictException(
-        'Source entitlement changed or is no longer collectable; start a new evidence run',
-      );
-    }
-
     const ingestedAt = new Date();
     const commands = input.observations.map((observation) =>
       toObservationCommand({
@@ -157,11 +127,6 @@ export class SourcingEvidenceLedgerService {
     }
     if (result.kind === 'run_not_collecting') {
       throw new ConflictException(`Evidence ingestion run is ${result.status}`);
-    }
-    if (result.kind === 'source_entitlement_changed') {
-      throw new ConflictException(
-        'Source entitlement changed or is no longer collectable; start a new evidence run',
-      );
     }
     if (result.kind === 'observation_revision_gap') {
       throw new ConflictException(
@@ -215,11 +180,6 @@ export class SourcingEvidenceLedgerService {
     if (result.kind === 'not_found') {
       throw new NotFoundException('Evidence ingestion run not found');
     }
-    if (result.kind === 'source_entitlement_changed') {
-      throw new ConflictException(
-        'Source entitlement changed or is no longer collectable; close the run as failed or quarantined',
-      );
-    }
     if (result.kind === 'coverage_mismatch') {
       throw new BadRequestException({
         code: 'evidence_run_coverage_mismatch',
@@ -242,9 +202,7 @@ function toObservationCommand(input: {
   organizationId: string;
   run: {
     id: string;
-    sourceEntitlementVersionId: string;
     sourceKey: string;
-    decisionImpactAtIngest: 'disabled' | 'enabled';
   };
   observation: AppendSourcingEvidenceObservationInput;
   ingestedAt: Date;
@@ -275,7 +233,6 @@ function toObservationCommand(input: {
   return {
     organizationId: input.organizationId,
     ingestionRunId: input.run.id,
-    sourceEntitlementVersionId: input.run.sourceEntitlementVersionId,
     sourceKey: input.run.sourceKey,
     platform: normalizedKey(observation.platform, 'platform'),
     evidenceFamily: normalizedKey(observation.evidenceFamily, 'evidenceFamily'),
@@ -288,7 +245,6 @@ function toObservationCommand(input: {
     observationKey: requiredText(observation.observationKey, 'observationKey'),
     revision,
     supportsCandidate: observation.supportsCandidate ?? false,
-    decisionImpactAtIngest: input.run.decisionImpactAtIngest,
     sourceUrl: optionalText(observation.sourceUrl),
     eventAt: observation.eventAt,
     observedAt: observation.observedAt,

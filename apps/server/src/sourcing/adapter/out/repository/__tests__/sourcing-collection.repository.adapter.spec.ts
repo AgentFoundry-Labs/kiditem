@@ -9,9 +9,6 @@ const permit = {
   targetKey: 'children plate',
   leaseToken: '00000000-0000-4000-8000-000000000003',
   generation: 2,
-  entitlementVersionId: '00000000-0000-4000-8000-000000000004',
-  entitlementVersionHash: 'a'.repeat(64),
-  decisionImpactAtIngest: 'enabled' as const,
   leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
 };
 

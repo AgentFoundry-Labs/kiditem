@@ -14,7 +14,10 @@ import {
   type SourcingCollectionRepositoryPort,
 } from '../port/out/repository/sourcing-collection.repository.port';
 
-export type ExecuteSourcingCollectionInput = ClaimAuthorizedRunInput;
+export type ExecuteSourcingCollectionInput = ClaimAuthorizedRunInput & {
+  /** v2 extension posts may commit only a permit issued before browser IO. */
+  requireExistingPermit?: boolean;
+};
 
 export type SourcingAuthorizedCollector = (context: {
   permit: SourcingCollectionPermit;
@@ -42,10 +45,12 @@ export class SourcingCollectionCoordinator {
     input: ExecuteSourcingCollectionInput,
     collector: SourcingAuthorizedCollector,
   ): Promise<SourcingCollectionExecutionResult> {
-    const claim = await this.repository.claimAuthorizedRun(input);
+    const claim = input.requireExistingPermit
+      ? await this.repository.resumeAuthorizedRun(input)
+      : await this.repository.claimAuthorizedRun(input);
     if (claim.kind === 'denied') throw sourceDenied(claim.reasonCode);
     if (claim.kind === 'idempotency_conflict') throw idempotencyConflict();
-    if (claim.kind === 'existing') {
+    if (claim.kind === 'existing' && !input.requireExistingPermit) {
       return { kind: 'existing', runId: claim.permit.runId };
     }
 
@@ -68,6 +73,13 @@ export class SourcingCollectionCoordinator {
     }
 
     return mapCommit(await this.repository.commit({ permit: claim.permit, output }));
+  }
+
+  async issuePermit(input: ClaimAuthorizedRunInput): Promise<SourcingCollectionPermit> {
+    const claim = await this.repository.claimAuthorizedRun(input);
+    if (claim.kind === 'denied') throw sourceDenied(claim.reasonCode);
+    if (claim.kind === 'idempotency_conflict') throw idempotencyConflict();
+    return claim.permit;
   }
 }
 
@@ -106,8 +118,8 @@ function mapCommit(
   result: CommitAuthorizedCollectionResult,
 ): SourcingCollectionExecutionResult {
   if (result.kind === 'committed') return result;
-  if (result.kind === 'authorization_changed') {
-    throw new ForbiddenException({ code: 'SOURCE_AUTHORIZATION_CHANGED' });
+  if (result.kind === 'source_denied') {
+    throw sourceDenied(result.reasonCode);
   }
   if (result.kind === 'cancelled') throw collectionStopped('cancel');
   if (result.kind === 'superseded' || result.kind === 'lease_lost') {

@@ -329,15 +329,7 @@ describe('sourcing procurement policy', () => {
     );
   });
 
-  it('separates retention permission from qualified execution quality', () => {
-    const entitlement = {
-      sourceLifecycle: 'shadow',
-      decisionImpact: 'disabled',
-      killSwitch: false,
-      permissionStartsAt: null,
-      permissionExpiresAt: new Date('2027-01-01T00:00:00.000Z'),
-      minimumCoverageBps: 8_000,
-    };
+  it('requires a completed evidence run without source-policy lifecycle state', () => {
     const ingestionRun = {
       status: 'complete',
       completedAt: new Date('2026-08-01T00:00:00.000Z'),
@@ -349,7 +341,6 @@ describe('sourcing procurement policy', () => {
     expect(
       evaluateSupplySourceEligibility({
         usage: 'retain',
-        entitlement,
         ingestionRun,
         at,
       }),
@@ -357,63 +348,25 @@ describe('sourcing procurement policy', () => {
     expect(
       evaluateSupplySourceEligibility({
         usage: 'test_order',
-        entitlement,
         ingestionRun,
         at,
       }),
-    ).toMatchObject({ allowed: false, reason: 'lifecycle_not_qualified' });
-    expect(
-      evaluateSupplySourceEligibility({
-        usage: 'test_order',
-        entitlement: {
-          ...entitlement,
-          sourceLifecycle: 'qualified',
-          decisionImpact: 'enabled',
-        },
-        ingestionRun: { ...ingestionRun, coverageNumerator: 7 },
-        at,
-      }),
-    ).toMatchObject({
-      allowed: false,
-      reason: 'ingestion_coverage_below_minimum',
-      coverageBps: 7_000,
-    });
+    ).toEqual({ allowed: true, reason: null, coverageBps: null });
   });
 
-  it('denies retention after a kill switch or permission expiry', () => {
+  it('denies source facts from a non-terminal run', () => {
     const ingestionRun = {
       status: 'partial',
       completedAt: new Date('2026-08-01T00:00:00.000Z'),
       coverageNumerator: null,
       coverageDenominator: null,
     };
-    const entitlement = {
-      sourceLifecycle: 'onboarding',
-      decisionImpact: 'disabled',
-      killSwitch: true,
-      permissionStartsAt: null,
-      permissionExpiresAt: null,
-      minimumCoverageBps: null,
-    };
     expect(
       evaluateSupplySourceEligibility({
         usage: 'retain',
-        entitlement,
         ingestionRun,
       }),
-    ).toMatchObject({ allowed: false, reason: 'kill_switch_enabled' });
-    expect(
-      evaluateSupplySourceEligibility({
-        usage: 'retain',
-        entitlement: {
-          ...entitlement,
-          killSwitch: false,
-          permissionExpiresAt: new Date('2026-08-01T00:00:00.000Z'),
-        },
-        ingestionRun,
-        at: new Date('2026-08-01T00:00:00.000Z'),
-      }),
-    ).toMatchObject({ allowed: false, reason: 'permission_expired' });
+    ).toMatchObject({ allowed: false, reason: 'ingestion_run_not_complete' });
   });
 
   it('rejects overlapping supplier price tiers', () => {

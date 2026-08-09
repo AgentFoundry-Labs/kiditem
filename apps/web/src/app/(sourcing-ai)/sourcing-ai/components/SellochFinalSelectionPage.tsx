@@ -3,6 +3,7 @@
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
 import { Bot, PackageCheck, SendHorizontal } from 'lucide-react';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import { sessionScopedDailyCacheKey } from '@/lib/session-cache-key';
 import { cn, formatNumber } from '@/lib/utils';
 import { buildFinalSelectionAgentResponse } from '../lib/final-selection-chat';
 import {
@@ -51,7 +52,7 @@ export function SellochFinalSelectionPage() {
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
   const [resultFilter, setResultFilter] = useState<ResultFilter>('all');
-  const coupangRows = useMemo(() => localRows.length > 0 ? localRows : snapshotRows, [localRows, snapshotRows]);
+  const coupangRows = useMemo(() => snapshotRows.length > 0 ? snapshotRows : localRows, [localRows, snapshotRows]);
 
   useEffect(() => {
     let active = true;
@@ -64,7 +65,7 @@ export function SellochFinalSelectionPage() {
         if (active) setInterestTargets([]);
       });
 
-    const raw = safeStorageGet('local', FINAL_SELECTION_STORAGE_KEY);
+    const raw = safeStorageGet('local', sessionScopedDailyCacheKey(FINAL_SELECTION_STORAGE_KEY));
     if (raw && active) setSelectedRows(parseStoredSelections(raw));
 
     return () => {
@@ -74,10 +75,6 @@ export function SellochFinalSelectionPage() {
 
   useEffect(() => {
     let active = true;
-    if (localRows.length > 0) return () => {
-      active = false;
-    };
-
     void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
       .then(({ snapshot }) => {
         const rows = snapshot?.payload?.result?.rows;
@@ -90,7 +87,7 @@ export function SellochFinalSelectionPage() {
     return () => {
       active = false;
     };
-  }, [localRows.length]);
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -127,7 +124,7 @@ export function SellochFinalSelectionPage() {
   }, [coupangRows]);
 
   useEffect(() => {
-    safeStorageSet('local', FINAL_SELECTION_STORAGE_KEY, JSON.stringify(selectedRows));
+    safeStorageSet('local', sessionScopedDailyCacheKey(FINAL_SELECTION_STORAGE_KEY), JSON.stringify(selectedRows));
   }, [selectedRows]);
 
   const candidateRows = useMemo(() => {

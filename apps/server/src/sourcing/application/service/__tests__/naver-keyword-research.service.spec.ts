@@ -70,7 +70,6 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
           generation: 1,
           entitlementVersionId: '00000000-0000-4000-8000-000000000003',
           entitlementVersionHash: 'a'.repeat(64),
-          decisionImpactAtIngest: 'enabled',
           leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
         },
         checkpoint: async () => undefined,

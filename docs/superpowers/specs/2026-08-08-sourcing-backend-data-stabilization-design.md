@@ -33,7 +33,7 @@ Web API / Extension v1 compatibility facade
 
 핵심 결정은 다음과 같다.
 
-1. 수집 권한은 evidence 적재 뒤의 부가 검사가 아니라 외부 호출과 저장의 선행조건이다.
+1. 수집 안정성은 서버 허용 소스 목록과 선택적 조직별 `enabled`를 외부 호출과 저장의 선행조건으로 확인하고, DB lease·idempotency·cancel fencing으로 보장한다. 승인 이력, 버전, 만료, lifecycle은 운영 모델에 두지 않는다.
 2. 브라우저와 `SourcingWorkspaceSnapshot.payload`는 canonical state를 소유하지 않는다.
 3. 관심 키워드, 1688 offer 관찰, 추천 실행, 검증 실행, 검토 선택을 정규화한다.
 4. 추천 점수와 상태는 서버의 versioned model만 계산한다.
@@ -48,7 +48,7 @@ Web API / Extension v1 compatibility facade
 ### 1.1 목표
 
 - 현재 소싱 사이드바의 화면, 탭, 버튼, 진행 상태, 결과 표현을 유지한다.
-- source entitlement, expiry, kill switch가 모든 신규 외부 수집과 extension 결과 수용을 실제로 차단하게 한다.
+- 서버 허용 소스 목록과 선택적 조직별 `enabled`가 모든 신규 외부 수집과 extension 결과 수용을 실제로 차단하게 한다.
 - 자동 수집, 수동 수집, scheduler, extension 결과가 하나의 실행·증거 계약을 사용하게 한다.
 - 병렬 탭, 재시도, 새로고침, 늦게 도착한 응답에서도 데이터가 유실되거나 되돌아가지 않게 한다.
 - 같은 offer와 variant가 화면마다 같은 stable identity를 갖게 한다.
@@ -101,7 +101,7 @@ Web API / Extension v1 compatibility facade
 
 ### 2.2 적용 원칙
 
-1. **권한 먼저**: 외부 IO 전에 fail closed한다.
+1. **간단한 수집 제어 먼저**: 외부 IO 전에 서버 허용 목록과 조직별 `enabled`를 확인한다. 승인 버전, 만료, lifecycle, 소스별 정책 이력은 만들지 않는다.
 2. **관찰과 판단 분리**: source fact, recommendation, validation, review selection은 별도 수명주기를 가진다.
 3. **서버 단일 소유권**: score, freshness, identity, selection mutation은 서버가 소유한다.
 4. **immutable run**: 추천과 검증은 입력 cutoff와 version을 고정한 실행 단위로 남긴다.
@@ -155,7 +155,7 @@ Application services
   - SourcingReviewService
           │
           ├── Operations: top-level operation envelope and cancellation
-          ├── Sourcing: entitlement, evidence, recommendation, validation, review
+├── Sourcing: source control, evidence, recommendation, validation, review
           ├── Supply: immutable supplier offer and future procurement intent
           └── Ads: competitor/product tracking read boundary
           │
@@ -169,7 +169,7 @@ HTTP adapter는 DTO translation과 authentication만 한다. scorer, merge, dedu
 
 | 등급 | 데이터 | 성질 | 삭제/재생성 |
 |---|---|---|---|
-| Source contract | `SourcingSourceEntitlementVersion` | reviewed, versioned | 명시적 retire만 허용 |
+| Source control | `SourcingCollectionSourceControl` | 조직별 enabled override; 허용 목록은 코드 상수 | 언제든 disable/enable 가능 |
 | Source fact | ingestion run, evidence observation, typed trend/offer observation | append-only 또는 freshness-guarded | retention 조건 내에서만 purge |
 | Supply fact | `SupplierOfferSkuSnapshot`, tiers | immutable | Supply 경계와 참조 검사 필요 |
 | Derived run | recommendation, rising, validation | immutable versioned output | source fact로 새 run 생성 가능 |
@@ -215,8 +215,8 @@ Naver, popular keyword, Shorts/TikTok, 1688 typed table은 query-efficient sourc
 
 collection permit과 실행 기록의 단일 persistence owner로 확장한다.
 
-- exact `sourceKey`, `scopeKey`를 entitlement relation과 함께 run에 고정한다.
-- `leaseToken`, `leaseExpiresAt`, `authorizationCheckedAt`, `entitlementVersionHash`, `generation`을 추가한다.
+- exact `sourceKey`, `scopeKey`를 run에 고정한다.
+- `leaseToken`, `leaseExpiresAt`, `sourceControlCheckedAt`, `generation`을 추가한다.
 - active 상태는 `collecting | cancel_requested`로 제한한다.
 - `organizationId + sourceKey/scope + targetKey`당 active run 하나를 partial unique constraint로 보장한다.
 - 기존 terminal vocabulary인 `complete | partial | failed | quarantined`를 유지하고 `cancelled | superseded`를 추가한다.
@@ -368,7 +368,7 @@ JSON 금지:
 - 선택/제외 상태
 - offer/variant identity와 가격/MOQ
 - query/filter/sort 대상 점수와 상태
-- idempotency, version, expiry, permission
+- idempotency, lease generation, source-control state
 
 ### 5.4 참조와 인덱스
 
@@ -398,18 +398,18 @@ JSON 금지:
 
 ```text
 1. organization/user/source/target 정규화
-2. DB clock 기준 current entitlement + kill switch 검사
+2. 서버 고정 허용 source와 조직별 단일 `enabled` override 검사
 3. idempotency hash 검사와 active-run lease 획득
-4. exact entitlement version을 permit에 고정
+4. source key, lease token, generation을 permit에 고정
 5. transaction 밖에서 bounded external IO
 6. payload schema/identity/URL/freshness 검증
-7. 짧은 transaction에서 entitlement version/expiry/kill switch 재검사
+7. 짧은 transaction에서 source 허용/활성 상태를 재검사
 8. evidence envelope + typed observations atomic commit
 9. run terminal 상태와 projection invalidation 기록
 10. 필요하면 recommendation/validation 후속 operation enqueue
 ```
 
-외부 IO를 DB transaction 안에서 수행하지 않는다. 첫 검사는 불필요한 호출을 막고, 두 번째 검사는 대기 중 만료·kill-switch·version 교체된 결과의 저장을 막는다.
+외부 IO를 DB transaction 안에서 수행하지 않는다. 첫 검사는 불필요한 호출을 막고, 두 번째 검사는 대기 중 source 비활성화 또는 run 세대 교체 결과의 저장을 막는다. source 정책은 정적 allowlist와 조직별 `enabled` 한 필드뿐이며 review/expiry/lifecycle 이력을 만들지 않는다.
 
 ### 6.3 동시성·멱등성
 
@@ -426,15 +426,15 @@ JSON 금지:
 
 - incoming `capturedAt`이 더 새로울 때만 mutable latest projection을 교체한다.
 - provider의 event/observed/available/captured 시각을 구분한다.
-- application 시작 시각을 entitlement/offer expiry 판단 시각으로 재사용하지 않는다.
+- application 시작 시각을 offer freshness 판단 시각으로 재사용하지 않는다.
 - recommendation input cutoff 뒤에 도착한 evidence는 해당 run에 섞지 않고 다음 run 입력이 된다.
 
 ### 6.5 provider 부하 제어
 
-- source entitlement의 rate limit을 per-organization semaphore와 global provider semaphore에 반영한다.
+- source별 고정 동시성 한도를 per-organization semaphore와 global provider semaphore에 반영한다.
 - 도매 자동 검색은 브라우저가 최대 20~30개 HTTP 요청을 직접 순차 실행하지 않고 한 server operation을 시작한다.
 - coordinator가 missing target을 우선하고, bounded concurrency와 exponential backoff를 사용한다.
-- retry 가능한 transport/rate-limit 실패와 validation/permission 영구 실패를 구분한다.
+- retry 가능한 transport/rate-limit 실패와 validation/source-disabled 영구 실패를 구분한다.
 
 ## 7. Web API와 Extension 호환
 
@@ -471,8 +471,8 @@ error? { code, retryable, message }
 - adapter는 `price_min`, `price_max`, `moq`, `supplier_name`, `specs`, `sku_attrs`, `sku_list`, `price_tiers`를 shared canonical DTO로 명시 변환한다.
 - global `ValidationPipe`를 통과한 실제 extractor fixture로 계약 테스트한다.
 - 알 수 없는 field는 관측 metric에 남기고 critical commercial field 누락은 성공으로 삼키지 않는다.
-- v1 payload도 commit 전에 현재 entitlement를 검증하고 server가 inline ingestion run/permit을 발급한 뒤에만 저장한다. 인증된 조직·사용자 경계 밖의 payload는 받지 않는다.
-- 이미 배포된 v1은 server-issued session ID가 없으므로 browser DOM read 이전의 permit을 강제할 수 없다. 이는 wire 호환을 위한 제한된 예외이며, server persistence와 후속 model 입력은 commit-time entitlement로 차단한다. 업데이트된 extension은 v2 session을 먼저 발급받아 browser-side read와 추가 fetch 전에도 permit을 확인한다.
+- v1 payload도 commit 전에 고정 allowlist와 조직별 `enabled` 상태를 검증하고 server가 inline ingestion run을 발급한 뒤에만 저장한다. 인증된 조직·사용자 경계 밖의 payload는 받지 않는다.
+- 이미 배포된 v1은 server-issued session ID가 없으므로 browser DOM read 이전의 run lease를 강제할 수 없다. 이는 wire 호환을 위한 제한된 예외이며, server persistence와 후속 model 입력은 commit-time source control로 차단한다. 업데이트된 extension은 v2 session을 먼저 발급받아 browser-side read와 추가 fetch 전에도 lease를 확인한다.
 
 ### 7.3 Extension v2
 
@@ -589,7 +589,7 @@ canonical decision center 연결과 procurement enablement는 별도 설계·승
 
 | 분류 | 예 | 재시도 | UI 표현 |
 |---|---|---|---|
-| permission | entitlement missing/expired/killed | 검토 전 불가 | unavailable + 관리자 안내 |
+| source control | allowlist 밖 또는 disabled source | source 활성화 전 불가 | unavailable + source-disabled 안내 |
 | validation | malformed extension/provider payload | 수정 전 불가 | failed item count + reason |
 | conflict | idempotency hash/version/CAS conflict | 최신 read 후 가능 | 충돌 안내 또는 자동 safe retry |
 | provider transient | timeout, 429, 5xx | backoff 후 가능 | collecting/partial failure |
@@ -599,7 +599,7 @@ canonical decision center 연결과 procurement enablement는 별도 설계·승
 
 ### 11.2 last-known-good
 
-- source별 entitlement의 `maxStalenessSeconds` 안에서만 제공한다.
+- 화면별 고정 freshness window 안에서만 제공한다.
 - stale reason과 last successful capture를 함께 반환한다.
 - 오래된 local row가 있다는 이유로 최신 server failure를 숨기지 않는다.
 - malformed 한 행이 org 전체 read를 500으로 만들지 않도록 ingest에서 reject하고 read path는 validated rows만 소비한다.
@@ -622,7 +622,7 @@ assistant 생성 기능은 CLI flag를 security boundary로 사용하지 않는�
 
 - trend seed, typed daily source snapshot, workspace/recommendation/RAG projection
 - interest, selection, validation state
-- entitlement/evidence runs/observations
+- source-control rows/evidence runs/observations
 - sourcing launch/decision state
 - downstream reference가 없는 sourcing candidates/images
 - Supply가 확인한 downstream reference 없는 sourcing-origin offer/intent rows
@@ -650,19 +650,17 @@ data migration은 explicit allowlist와 두 단계 실행을 사용한다.
 
 현재 release train이 유지되면 script 위치는 `scripts/data-migrations/v0.1.30/005_reset_sourcing_runtime_state.ts`이고 phase는 `pre-schema`다. 최종 Prisma schema가 legacy sourcing table을 제거하기 전에, 배포 대상 SHA의 raw-SQL allowlist로 dry-run hash를 확인하고 reset을 실행한다. 구현 전에 active `VERSION`과 사용 중인 sequence를 다시 확인하고 충돌 시 해당 train의 다음 sequence를 사용한다.
 
-### 12.3 entitlement seed
+### 12.3 source control bootstrap
 
-reset 후 Naver, 1688 server collector, Shorts/TikTok, Coupang Wing Extension, 1688 Extension source manifest로 fresh entitlement version을 생성한다.
+reset 후 source control row를 별도로 seed하지 않는다. 서버 코드의 고정 allowlist가 기본 허용 상태이며, 운영자가 일시 중지를 요청한 조직/source 조합에만 `enabled = false` row를 만든다.
 
-- 실행 시 `reviewedByUserId`를 필수로 받는다.
-- 해당 사용자가 조직의 허용된 reviewer인지 검증한다.
-- legal basis, allowed method, permitted fields, rate limit, expiry, retention, max staleness를 manifest에 명시한다.
-- placeholder reviewer나 system user로 자동 서명하지 않는다.
-- seed 실패 시 collection은 fail closed하고 UI는 unavailable을 표시한다.
+- review, reviewer, expiry, 계약 메타데이터, source lifecycle 이력은 만들지 않는다.
+- allowlist에 없는 source는 항상 거절한다.
+- 비활성 source는 provider 호출과 결과 저장을 모두 건너뛰고 UI에는 source-disabled 사유를 돌려준다.
 
 ### 12.4 bootstrap
 
-entitlement seed가 성공하면 server operation이 다음 순서로 자동 bootstrap한다.
+source control 확인 후 server operation이 다음 순서로 자동 bootstrap한다.
 
 1. interest/default seed 확인
 2. source별 bounded collection
@@ -678,10 +676,10 @@ bootstrap은 idempotent하며 실패 source만 재시도할 수 있다. UI는 bo
 
 하나의 PR에서 다음 네 논리 phase를 일곱 개의 reviewer-sized 커밋으로 완성한다. PR 전체가 모든 gate를 통과하기 전에는 `develop`에 병합하거나 Office에 promote하지 않는다.
 
-1. **Collection control plane**: entitlement preflight, lease/idempotency, freshness, extension v1 translation, URL/assistant hardening
+1. **Collection control plane**: static source allowlist + optional enabled switch, lease/idempotency, freshness, extension v1 translation, URL/assistant hardening
 2. **Normalized schema**: interest, offer-keyword observation, recommendation, validation, review selection/batch, indexes/FKs, reset/bootstrap tooling
 3. **Server read models**: shared scorer, rising/RAG consistency, validation engine, 14-screen presenters and new Web clients
-4. **Atomic cutover and cleanup**: old client snapshot writes/scorers 제거, cache version bump, reset→seed→bootstrap runbook, dead backend paths 정리, end-to-end/performance gates
+4. **Atomic cutover and cleanup**: old client snapshot writes/scorers 제거, cache version bump, reset→bootstrap runbook, dead backend paths 정리, end-to-end/performance gates
 
 Office cutover 순서:
 
@@ -693,7 +691,7 @@ maintenance 시작
 -> allowlisted pre-schema reset 실행
 -> schema 적용
 -> 새 artifact를 sourcing cutover-closed mode로 배포
--> entitlement seed
+-> source control 확인
 -> bootstrap
 -> 14-screen canary
 -> sourcing ingress 재개
@@ -707,8 +705,8 @@ cutover-closed mode에서는 health/admin cutover endpoint와 sourcing read의 `
 
 ### 13.1 domain/unit tests
 
-- missing/expired/killed entitlement에서 provider spy 호출 0회, DB observation 0행
-- external IO 중 entitlement version/expiry 변경 시 commit 0행
+- allowlist 밖 또는 disabled source에서 provider spy 호출 0회, DB observation 0행
+- external IO 중 source가 비활성화되거나 lease generation이 교체되면 commit 0행
 - observation retry는 full envelope가 같을 때만 duplicate success
 - identity hash가 URL tracking parameter와 array order에 독립적
 - score/grade/action은 한 server model version에서만 생성
@@ -734,7 +732,7 @@ cutover-closed mode에서는 health/admin cutover endpoint와 sourcing read의 `
 
 - 실제 1688 extractor fixture를 global `ValidationPipe`를 포함한 HTTP stack에 통과시켜 price/MOQ/supplier/SKU/tier가 보존되는지 검증
 - extension v1과 v2 payload 모두 같은 canonical observation을 생성
-- v1은 현재 entitlement가 없으면, v2는 사전 session 또는 commit-time entitlement가 없으면 commit 0행
+- v1/v2 모두 allowlist 밖 또는 disabled source면 commit 0행
 - redirect를 포함한 private/local/metadata URL 거절
 - malformed one-item ingest가 전체 org read를 500으로 만들지 않음
 - error와 empty data의 response envelope 차이 검증
@@ -766,7 +764,7 @@ cutover-closed mode에서는 health/admin cutover endpoint와 sourcing read의 `
 
 - collection run duration/status/retry/cancel/supersede
 - provider call count, rate-limit wait, timeout
-- entitlement deny/expiry/version-change/kill-switch
+- source-not-allowed/source-disabled/lease-generation-change
 - discovered/accepted/rejected/duplicate/stale-discarded count
 - source coverage와 freshness
 - recommendation/validation input coverage와 data gaps
@@ -779,13 +777,13 @@ cutover-closed mode에서는 health/admin cutover endpoint와 sourcing read의 `
 - organizationId
 - operationId / ingestionRunId
 - sourceKey / targetKey
-- entitlement version hash
+- source key, source-control check timestamp, lease generation
 - schema/model/policy version
 - error code와 retryability
 
 Retention:
 
-- source별 entitlement `retentionDays`를 background purge policy에 반영한다.
+- source별 고정 retention policy를 background purge policy에 반영한다.
 - decision/review/supply provenance가 참조하는 observation은 보존한다.
 - unreferenced raw payload는 작은 batch와 cursor로 삭제한다.
 - projection과 RAG index는 TTL 만료 시 즉시 재생성 가능하다.
@@ -798,20 +796,20 @@ Retention:
 - reset 후 bootstrap 실패 시 신규 collection ingress를 닫고 화면을 `collecting/unavailable`로 유지한다.
 - downstream Product/Channel/Order row는 reset과 rollback 어느 쪽에서도 수정하지 않는다.
 - old browser cache와 workspace snapshot을 rollback source로 사용하지 않는다.
-- permission 또는 source manifest가 불완전하면 기능 가용성보다 fail-closed를 우선한다.
+- source key가 fixed allowlist 밖이면 기능 가용성보다 fail-closed를 우선한다.
 
 ## 16. 구현 완료 조건
 
 다음 조건이 모두 충족되어야 안정화가 완료된 것으로 본다.
 
 1. 14개 화면의 사용자 기능이 유지되고 fixture/no-op/false-success가 제거된다.
-2. 모든 external collection과 extension commit 앞에 strict entitlement가 적용된다.
+2. 모든 external collection과 extension commit 앞에 fixed allowlist와 optional enabled switch가 적용된다.
 3. client whole-document snapshot write와 authoritative global localStorage가 없다.
 4. 관심, offer observation, 추천, 검증, 선택, review batch가 normalized server state다.
 5. recommendation score/identity/freshness의 source of truth가 하나다.
 6. actual PG concurrency/constraint suite와 actual extension fixture contract가 통과한다.
 7. reset이 downstream-protected row를 보존한다는 dry-run 및 integration evidence가 있다.
-8. entitlement seed와 bootstrap이 idempotent하게 완료된다.
+8. source control 확인과 bootstrap이 idempotent하게 완료된다.
 9. Office에서 14-screen canary와 performance 목표를 만족한다.
 10. procurement intent, PO, provider call은 이 reconstruction으로 새로 열리지 않는다.
 
@@ -824,8 +822,8 @@ Retention:
 | downstream 참조 candidate도 삭제하는가 | 아니오; 기존 status를 보존한 soft-deleted provenance로 보존 |
 | Web API 호환이 필요한가 | 같은 릴리스 내 변경 가능 |
 | Extension API 호환이 필요한가 | 배포된 v1 호환 필수 |
-| entitlement는 soft warning인가 | 아니오; strict preflight와 commit-time recheck |
-| reset 뒤 데이터는 어떻게 채우는가 | reviewed entitlement seed 후 server bootstrap |
+| source control은 soft warning인가 | 아니오; fixed allowlist와 commit-time enabled recheck |
+| reset 뒤 데이터는 어떻게 채우는가 | source control 확인 후 server bootstrap |
 | 상품 검증은 fixture를 유지하는가 | 아니오; 실제 validation episode로 교체 |
 | 최종 선택이 발주를 만드는가 | 아니오; immutable review batch까지만 생성 |
 | delivery 단위는 | 하나의 PR, 네 논리 phase/일곱 reviewer-sized 커밋, Office atomic cutover |

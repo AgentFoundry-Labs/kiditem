@@ -139,4 +139,15 @@ describe('sourcing architecture contract', () => {
       'extensions/product-scraper/extractors',
     );
   });
+
+  it('does not leave a subprocess-based sourcing assistant runtime behind', () => {
+    const sourcing = sourcingRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'node:child_process|SOURCING_ASSISTANT_CLI|ClaudeCliAssistant' ${sourcing} --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `Sourcing assistant must remain retrieval-only; subprocess runtime references found:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
 });

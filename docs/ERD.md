@@ -31,7 +31,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 5 |
 | [Inventory](erd/inventory.md) | 12 |
 | [Orders](erd/orders.md) | 13 |
-| [Sourcing](erd/sourcing.md) | 19 |
+| [Sourcing](erd/sourcing.md) | 30 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 11 |
 
@@ -160,14 +160,25 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ProductRegistrationExecution | Sourcing | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
 | Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
+| Sourcing1688OfferKeywordObservation | Sourcing | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
+| SourcingCollectionSourceControl | Sourcing | `sourcing_collection_source_controls` | Optional organization-level pause for an allowlisted collection source. Absence means enabled. |
 | SourcingDecisionBatch | Sourcing | `sourcing_decision_batches` | Immutable point-in-time policy decision header. Items and evidence are inserted in the same transaction after deterministic evaluation succeeds. |
 | SourcingDecisionBatchItem | Sourcing | `sourcing_decision_batch_items` | One immutable canonical test_order, hold, or reject decision. Offer-only rows support RFQ provenance before an exact LaunchCandidate exists. |
 | SourcingDecisionEvidence | Sourcing | `sourcing_decision_evidence` | Immutable many-to-many link from one decision item to the exact observations available at its decision cutoff. |
-| SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable collector attempt tied to the exact entitlement version, request hash, collection window, coverage, and terminal result. |
+| SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result. |
 | SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
+| SourcingInterestTarget | Sourcing | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingLaunchCandidate | Sourcing | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
-| SourcingSourceEntitlementVersion | Sourcing | `sourcing_source_entitlement_versions` | Versioned source-access contract. A collector may run or influence decisions only through the one current reviewed version for its source scope. |
+| SourcingRecommendationItem | Sourcing | `sourcing_recommendation_items` | 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다. |
+| SourcingRecommendationItemEvidence | Sourcing | `sourcing_recommendation_item_evidence` | 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다. |
+| SourcingRecommendationRun | Sourcing | `sourcing_recommendation_runs` | 재현 가능한 추천 계산의 immutable header. 입력 manifest와 모델 버전을 함께 고정한다. |
+| SourcingReviewBatch | Sourcing | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
+| SourcingReviewBatchItem | Sourcing | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
+| SourcingReviewSelection | Sourcing | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingValidationCheck | Sourcing | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
+| SourcingValidationCheckEvidence | Sourcing | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
+| SourcingValidationEpisode | Sourcing | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | Sourcing | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
@@ -2424,11 +2435,35 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  Sourcing1688OfferKeywordObservation {
+    String id PK
+    String organizationId FK
+    String evidenceObservationId FK
+    String ingestionRunId FK
+    DateTime businessDate
+    String sourceKeywordNormalized
+    String externalOfferId
+    String variantKeyNormalized
+    String sourceUrl
+    String title
+    String supplierName
+    String imageUrl
+    Int rank
+    Decimal priceCny
+    Int monthlySales
+    Json rawOffer
+    DateTime capturedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingCandidate {
     String id PK
     String organizationId FK
     String sourceUrl
     String sourcePlatform
+    String externalOfferId
+    String variantKeyNormalized
+    String sourceIdentityHash
     Json rawData
     String name
     String description
@@ -2445,6 +2480,14 @@ erDiagram
     String triggeredByUserId FK
     Boolean isDeleted
     DateTime deletedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingCollectionSourceControl {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    Boolean enabled
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2515,7 +2558,14 @@ erDiagram
   SourcingEvidenceIngestionRun {
     String id PK
     String organizationId FK
-    String sourceEntitlementVersionId FK
+    String sourceKey
+    String scopeKey
+    String leaseToken
+    DateTime leaseExpiresAt
+    DateTime sourceControlCheckedAt
+    Int generation
+    DateTime cancelRequestedAt
+    Int staleDiscardedCount
     String targetKey
     String idempotencyKey
     String requestHash
@@ -2560,7 +2610,6 @@ erDiagram
     String observationType
     String schemaVersion
     String evidenceClass
-    String decisionImpact
     DateTime eventAt
     DateTime observedAt
     DateTime availableAt
@@ -2569,10 +2618,29 @@ erDiagram
     String sourceRevisionKey
     String sourceUrl
     String payloadHash
+    String envelopeHash
     Json payload
     String rawArtifactRef
     DateTime ingestedAt
     DateTime createdAt
+  }
+  SourcingInterestTarget {
+    String id PK
+    String organizationId FK
+    String targetKey
+    String targetType
+    String label
+    StringArray sourceKeys
+    String keyword
+    String category
+    String productId
+    String itemId
+    String vendorItemId
+    String productName
+    Boolean enabled
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
   }
   SourcingLaunchCandidate {
     String id PK
@@ -2618,51 +2686,137 @@ erDiagram
     String createdByUserId FK
     DateTime createdAt
   }
-  SourcingSourceEntitlementVersion {
+  SourcingRecommendationItem {
     String id PK
     String organizationId FK
-    String sourceKey
-    String scopeKey
-    Int version
-    String versionHash
-    String sourceLifecycle
-    String decisionImpact
-    String ownerLabel
-    String legalBasis
-    String allowedMethod
-    String credentialRef
-    StringArray permittedFields
-    StringArray prohibitedUses
-    Int rateLimitValue
-    Int rateLimitWindowSeconds
-    StringArray geographyCoverage
-    String coverageDefinition
-    String accountCoverage
-    String searchCoverage
-    String categoryCoverage
-    String denominatorDefinition
-    String historyBackfillPolicy
-    Int expectedDelaySeconds
-    Int maxStalenessSeconds
-    Int minimumCoverageBps
-    String revisionPolicy
-    Int retentionDays
-    DateTime permissionStartsAt
-    DateTime permissionExpiresAt
-    Boolean killSwitch
-    String killReason
-    Boolean isCurrent
-    String reviewedByUserId FK
-    DateTime reviewedAt
-    DateTime retiredAt
+    String recommendationRunId FK
+    String itemKey
+    String sourcePlatform
+    String externalOfferId
+    String variantKeyNormalized
+    String matchedCoupangProductId
+    String displayName
+    Int rank
+    Int score
+    String grade
+    String baselineAction
+    StringArray reasonCodes
+    StringArray riskCodes
+    Json scoreComponents
+    Json sourceSnapshot
     DateTime createdAt
+  }
+  SourcingRecommendationItemEvidence {
+    String id PK
+    String organizationId FK
+    String recommendationItemId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingRecommendationRun {
+    String id PK
+    String organizationId FK
+    String policyKey
+    String policyVersion
+    String modelVersion
+    String calculationVersion
+    String inputManifestHash
+    Json inputManifest
+    String status
+    DateTime businessDate
+    DateTime generatedAt
+    DateTime completedAt
+    DateTime expiresAt
+    StringArray warningCodes
+    String errorCode
+    String errorMessage
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingReviewBatch {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String idempotencyKey
+    String requestHash
+    String status
+    DateTime requestedAt
+    DateTime cancelledAt
+    String cancelReason
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingReviewBatchItem {
+    String id PK
+    String organizationId FK
+    String reviewBatchId FK
+    String recommendationItemId FK
+    String validationEpisodeId FK
+    String offerKeywordObservationId FK
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingReviewSelection {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String workspaceKey
+    String itemKey
+    String state
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  SourcingValidationCheck {
+    String id PK
+    String organizationId FK
+    String validationEpisodeId FK
+    String checkKey
+    String status
+    String severity
+    Int score
+    String summary
+    Json details
+    DateTime evaluatedAt
+    DateTime createdAt
+  }
+  SourcingValidationCheckEvidence {
+    String id PK
+    String organizationId FK
+    String validationCheckId FK
+    String evidenceObservationId FK
+    String role
+    Int ordinal
+    DateTime createdAt
+  }
+  SourcingValidationEpisode {
+    String id PK
+    String organizationId FK
+    String recommendationRunId FK
+    String recommendationItemId FK
+    String status
+    String policyKey
+    String policyVersion
+    DateTime evidenceCutoffAt
+    DateTime startedAt
+    DateTime completedAt
+    DateTime validUntil
+    Json summary
+    DateTime createdAt
+    DateTime updatedAt
   }
   SourcingWorkspaceSnapshot {
     String id PK
     String organizationId FK
     String scope
     DateTime businessDate
+    String projectionVersion
+    String inputHash
     Json payload
+    DateTime generatedAt
+    DateTime expiresAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -3319,14 +3473,25 @@ erDiagram
   Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
   Organization ||--o{ Sourcing1688HotProductDailySnapshot : "organization"
+  Organization ||--o{ Sourcing1688OfferKeywordObservation : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
+  Organization ||--o{ SourcingCollectionSourceControl : "organization"
   Organization ||--o{ SourcingDecisionBatch : "organization"
   Organization ||--o{ SourcingDecisionBatchItem : "organization"
   Organization ||--o{ SourcingDecisionEvidence : "organization"
   Organization ||--o{ SourcingEvidenceIngestionRun : "organization"
   Organization ||--o{ SourcingEvidenceObservation : "organization"
+  Organization ||--o{ SourcingInterestTarget : "organization"
   Organization ||--o{ SourcingLaunchCandidate : "organization"
-  Organization ||--o{ SourcingSourceEntitlementVersion : "organization"
+  Organization ||--o{ SourcingRecommendationItem : "organization"
+  Organization ||--o{ SourcingRecommendationItemEvidence : "organization"
+  Organization ||--o{ SourcingRecommendationRun : "organization"
+  Organization ||--o{ SourcingReviewBatch : "organization"
+  Organization ||--o{ SourcingReviewBatchItem : "organization"
+  Organization ||--o{ SourcingReviewSelection : "organization"
+  Organization ||--o{ SourcingValidationCheck : "organization"
+  Organization ||--o{ SourcingValidationCheckEvidence : "organization"
+  Organization ||--o{ SourcingValidationEpisode : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransfer : "organization"
@@ -3380,6 +3545,7 @@ erDiagram
   SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventorySku : "lastImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
+  Sourcing1688OfferKeywordObservation ||--o{ SourcingReviewBatchItem : "offerKeywordObservation"
   SourcingCandidate ||--o{ CandidateImage : "candidate"
   SourcingCandidate o|--o{ ChannelListing : "sourceCandidate"
   SourcingCandidate o|--o{ ContentGeneration : "sourceCandidate"
@@ -3392,14 +3558,28 @@ erDiagram
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
+  SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
   SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
+  SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
+  SourcingEvidenceObservation ||--o{ SourcingRecommendationItemEvidence : "evidenceObservation"
+  SourcingEvidenceObservation ||--o{ SourcingValidationCheckEvidence : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SupplierOfferSkuSnapshot : "evidenceObservation"
   SourcingLaunchCandidate o|--o{ ProcurementTestIntent : "launchCandidate"
   SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"
   SourcingLaunchCandidate o|--o| SourcingLaunchCandidate : "supersedesLaunchCandidate"
-  SourcingSourceEntitlementVersion ||--o{ SourcingEvidenceIngestionRun : "sourceEntitlementVersion"
+  SourcingRecommendationItem ||--o{ SourcingRecommendationItemEvidence : "recommendationItem"
+  SourcingRecommendationItem ||--o{ SourcingReviewBatchItem : "recommendationItem"
+  SourcingRecommendationItem ||--o{ SourcingValidationEpisode : "recommendationItem"
+  SourcingRecommendationRun ||--o{ SourcingRecommendationItem : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingReviewBatch : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingReviewSelection : "recommendationRun"
+  SourcingRecommendationRun ||--o{ SourcingValidationEpisode : "recommendationRun"
+  SourcingReviewBatch ||--o{ SourcingReviewBatchItem : "reviewBatch"
+  SourcingValidationCheck ||--o{ SourcingValidationCheckEvidence : "validationCheck"
+  SourcingValidationEpisode o|--o{ SourcingReviewBatchItem : "validationEpisode"
+  SourcingValidationEpisode ||--o{ SourcingValidationCheck : "validationEpisode"
   Supplier o|--o{ PurchaseOrder : "supplier"
   Supplier o|--o{ SupplierOfferSkuSnapshot : "supplier"
   Supplier ||--o{ SupplierPayment : "supplier"
@@ -3464,7 +3644,6 @@ erDiagram
   User ||--o{ SourcingDecisionBatch : "requestedByUser"
   User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
   User ||--o{ SourcingLaunchCandidate : "createdByUser"
-  User ||--o{ SourcingSourceEntitlementVersion : "reviewedByUser"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"

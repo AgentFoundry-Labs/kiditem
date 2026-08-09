@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SourcingAssistantService } from '../../../application/service/sourcing-assistant.service';
 import { SourcingEntryRecommendationService } from '../../../application/service/sourcing-entry-recommendation.service';
@@ -29,6 +30,7 @@ export class SourcingEntryRecommendationController {
   }
 
   @Post('assistant-ask')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
   async ask(@Body() body: AskSourcingAssistantDto, @CurrentOrganization() organizationId: string) {
     return this.assistant.ask({
       organizationId,

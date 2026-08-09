@@ -7,7 +7,6 @@ import {
   PROCUREMENT_TEST_INTENT_STATUS,
   resolveProcurementQuantityConservation,
   supplierOfferEvidencePayloadMatches,
-  type SupplySourceEligibilityDenialReason,
   type SupplySourceIngestionRunPolicyRecord,
   type SupplySourceUsage,
   type ProcurementTestIntentStatus,
@@ -34,7 +33,6 @@ const SOURCE_CONTEXT_SELECT = {
   sourceKey: true,
   ingestionRun: {
     select: {
-      sourceEntitlementVersionId: true,
       targetKey: true,
       status: true,
       completedAt: true,
@@ -43,16 +41,6 @@ const SOURCE_CONTEXT_SELECT = {
     },
   },
 } satisfies Prisma.SourcingEvidenceObservationSelect;
-
-const CURRENT_SOURCE_ENTITLEMENT_SELECT = {
-  id: true,
-  sourceLifecycle: true,
-  decisionImpact: true,
-  killSwitch: true,
-  permissionStartsAt: true,
-  permissionExpiresAt: true,
-  minimumCoverageBps: true,
-} satisfies Prisma.SourcingSourceEntitlementVersionSelect;
 
 const PROCUREMENT_DECISION_CONTEXT_SELECT = {
   id: true,
@@ -126,7 +114,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
         payload: true,
         ingestionRun: {
           select: {
-            sourceEntitlementVersionId: true,
             targetKey: true,
             status: true,
             completedAt: true,
@@ -137,12 +124,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
       },
     });
     if (!evidence) return { kind: 'evidence_observation_not_found' as const };
-    await lockSourceScope(
-      tx,
-      organizationId,
-      evidence.sourceKey,
-      evidence.ingestionRun.targetKey,
-    );
     const cutoffAt = await databaseClock(tx);
     const sourceGate = await this.evaluateCurrentSourceGate(
       tx,
@@ -152,9 +133,7 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
       cutoffAt,
     );
     if (
-      sourceGate === 'source_entitlement_not_found' ||
-      sourceGate === 'source_entitlement_version_mismatch' ||
-      sourceGate === 'source_entitlement_retain_denied'
+      sourceGate === 'evidence_observation_not_terminal'
     ) {
       return { kind: sourceGate };
     }
@@ -392,14 +371,8 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
       select: SOURCE_CONTEXT_SELECT,
     });
     if (!sourceContext) {
-      return { kind: 'source_entitlement_not_found' as const };
+      return { kind: 'evidence_observation_not_found' as const };
     }
-    await lockSourceScope(
-      tx,
-      organizationId,
-      sourceContext.sourceKey,
-      sourceContext.ingestionRun.targetKey,
-    );
     const now = await databaseClock(tx);
     const sourceGate = await this.evaluateCurrentSourceGate(
       tx,
@@ -621,47 +594,16 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     usage: SupplySourceUsage,
     at: Date,
   ): Promise<
-    | 'source_entitlement_not_found'
-    | 'source_entitlement_version_mismatch'
-    | 'source_entitlement_retain_denied'
-    | 'source_entitlement_execution_denied'
-    | 'source_quality_not_execution_eligible'
+    | 'evidence_observation_not_terminal'
     | null
   > {
-    const entitlement = await tx.sourcingSourceEntitlementVersion.findFirst({
-      where: {
-        organizationId,
-        sourceKey: sourceContext.sourceKey,
-        scopeKey: sourceContext.ingestionRun.targetKey,
-        isCurrent: true,
-        retiredAt: null,
-      },
-      select: CURRENT_SOURCE_ENTITLEMENT_SELECT,
-    });
-    if (!entitlement) return 'source_entitlement_not_found';
-    if (
-      entitlement.id !== sourceContext.ingestionRun.sourceEntitlementVersionId
-    ) {
-      return 'source_entitlement_version_mismatch';
-    }
-
     const eligibility = evaluateSupplySourceEligibility({
       usage,
-      entitlement,
       ingestionRun: sourceContext.ingestionRun,
       at,
     });
     if (eligibility.allowed) return null;
-    if (isRetentionDenial(eligibility.reason)) {
-      return 'source_entitlement_retain_denied';
-    }
-    if (
-      eligibility.reason === 'lifecycle_not_qualified' ||
-      eligibility.reason === 'decision_impact_disabled'
-    ) {
-      return 'source_entitlement_execution_denied';
-    }
-    return 'source_quality_not_execution_eligible';
+    return 'evidence_observation_not_terminal';
   }
 
   private async findOfferByHash(
@@ -689,32 +631,6 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     });
     return row ? mapIntent(row) : null;
   }
-}
-
-function isRetentionDenial(
-  reason: SupplySourceEligibilityDenialReason,
-): boolean {
-  return [
-    'kill_switch_enabled',
-    'permission_invalid',
-    'permission_not_started',
-    'permission_expired',
-    'lifecycle_not_retainable',
-  ].includes(reason);
-}
-
-async function lockSourceScope(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceKey: string,
-  scopeKey: string,
-): Promise<void> {
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`sourcing-source:${organizationId}:${sourceKey}:${scopeKey}`}, 0)
-    )::text AS "lock"
-  `;
 }
 
 async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {

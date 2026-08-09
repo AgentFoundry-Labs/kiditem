@@ -124,7 +124,9 @@ export class LiveCommerceService {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const queryDate = input.queryDate ?? formatChinaCalendarDate(capturedAt);
-    let collected: { broadcastCount: number; productCount: number; warnings: string[] } | null = null;
+    const collectionSummary: {
+      current: { broadcastCount: number; productCount: number; warnings: string[] } | null;
+    } = { current: null };
     await this.collectionCoordinator.execute(
       liveCollectionRequest({
         organizationId,
@@ -155,7 +157,7 @@ export class LiveCommerceService {
           ...product,
           capturedAt,
         }));
-        collected = {
+        collectionSummary.current = {
           broadcastCount: broadcasts.length,
           productCount: products.length,
           warnings: result.warnings,
@@ -171,6 +173,7 @@ export class LiveCommerceService {
         });
       },
     );
+    const collected = collectionSummary.current;
     if (!collected) throw new BadRequestException('An idempotent Taobao collection is already in progress.');
     return {
       businessDate: toDateString(businessDate),

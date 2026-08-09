@@ -10,6 +10,15 @@ import {
 
 const MAX_SNAPSHOT_PAYLOAD_BYTES = 2_000_000;
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+const DEFAULT_1688_NEW_PRODUCT_LIMIT = 240;
+
+export interface Append1688NewProductItemsInput {
+  source: string;
+  keyword?: string;
+  category?: string;
+  items: Record<string, unknown>[];
+  limit?: number;
+}
 
 @Injectable()
 export class SourcingWorkspaceSnapshotService {
@@ -57,6 +66,34 @@ export class SourcingWorkspaceSnapshotService {
       scope,
       businessDate: kstBusinessDate(new Date()),
       payload: validatedPayload,
+    });
+  }
+
+  async append1688NewProductItems(
+    organizationId: string,
+    input: Append1688NewProductItemsInput,
+  ): Promise<SourcingWorkspaceSnapshotRow> {
+    const source = normalizeRequiredText(input.source, 'source', 80);
+    const keyword = normalizeOptionalText(input.keyword, 'keyword', 120);
+    const category = normalizeOptionalText(input.category, 'category', 120);
+    const limit = input.limit ?? DEFAULT_1688_NEW_PRODUCT_LIMIT;
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+      throw new BadRequestException('limit 범위가 올바르지 않습니다.');
+    }
+    if (input.items.length === 0 || input.items.length > 500) {
+      throw new BadRequestException('items는 1개 이상 500개 이하여야 합니다.');
+    }
+
+    const items = input.items.map((item, index) => validate1688NewProductItem(item, index));
+    return this.snapshots.append1688Items({
+      organizationId,
+      businessDate: kstBusinessDate(new Date()),
+      source,
+      keyword,
+      category,
+      items,
+      limit,
+      generatedAt: new Date(),
     });
   }
 }
@@ -226,7 +263,26 @@ function assert1688NewProductsPayload(
   assertString(input.source, 'input.source', 80);
   if (input.keyword !== undefined) assertString(input.keyword, 'input.keyword', 120);
   if (input.category !== undefined) assertString(input.category, 'input.category', 120);
-  assertArray(result.items, 'result.items', 500);
+  const items = result.items;
+  assertArray(items, 'result.items', 500);
+  if (items.length === 0) {
+    throw new BadRequestException('result.items는 1개 이상이어야 합니다.');
+  }
+  items.forEach((item, index) => validate1688NewProductItem(item, index));
+}
+
+function validate1688NewProductItem(value: unknown, index: number): Record<string, unknown> {
+  const item = requireRecord(value, `result.items[${index}]`);
+  const offerId = normalizeOptionalText(item.offerId, `result.items[${index}].offerId`, 160);
+  const sourceUrl = normalizeOptionalText(item.sourceUrl, `result.items[${index}].sourceUrl`, 2_000);
+  if (!offerId && !sourceUrl) {
+    throw new BadRequestException(`result.items[${index}]에는 offerId 또는 sourceUrl이 필요합니다.`);
+  }
+  normalizeRequiredText(item.title, `result.items[${index}].title`, 1_000);
+  if (item.priceCny !== undefined && (!isFiniteNonNegativeNumber(item.priceCny))) {
+    throw new BadRequestException(`result.items[${index}].priceCny 숫자 범위가 올바르지 않습니다.`);
+  }
+  return item;
 }
 
 function assertSourcing1688NewProductModelPayload(
@@ -272,7 +328,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function assertArray(value: unknown, path: string, maxLength: number) {
+function assertArray(value: unknown, path: string, maxLength: number): asserts value is unknown[] {
   if (!Array.isArray(value)) {
     throw new BadRequestException(`${path} 배열이 필요합니다.`);
   }
@@ -285,6 +341,22 @@ function assertString(value: unknown, path: string, maxLength: number) {
   if (typeof value !== 'string' || value.length > maxLength) {
     throw new BadRequestException(`${path} 문자열이 올바르지 않습니다.`);
   }
+}
+
+function normalizeRequiredText(value: unknown, path: string, maxLength: number): string {
+  if (typeof value !== 'string' || value.trim().length === 0 || value.trim().length > maxLength) {
+    throw new BadRequestException(`${path} 문자열이 올바르지 않습니다.`);
+  }
+  return value.trim();
+}
+
+function normalizeOptionalText(value: unknown, path: string, maxLength: number): string | undefined {
+  if (value === undefined || value === null || value === '') return undefined;
+  return normalizeRequiredText(value, path, maxLength);
+}
+
+function isFiniteNonNegativeNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value) && value >= 0;
 }
 
 function assertIsoDateString(value: unknown, path: string) {
