@@ -38,10 +38,10 @@ Web API / Extension v1 compatibility facade
 3. 관심 키워드, 1688 offer 관찰, 추천 실행, 검증 실행, 검토 선택을 정규화한다.
 4. 추천 점수와 상태는 서버의 versioned model만 계산한다.
 5. 동시 쓰기는 keyed command, DB uniqueness, lease, compare-and-set으로 해결한다.
-6. 기존 sourcing 데이터는 새 구조로 옮기지 않고 명시적 allowlist reset 후 자동 bootstrap한다.
-7. downstream 참조가 있는 `SourcingCandidate`는 기존 status를 보존한 soft-deleted provenance로 남긴다.
+6. 기존 sourcing display state는 새 구조로 옮기지 않고 명시적으로 reset 후 자동 bootstrap한다.
+7. candidate와 downstream provenance는 이 cutover에서 변경하지 않는다.
 8. canonical 발주 경로는 이번 단계에서 열지 않는다. 최종 선택은 immutable review batch까지만 만든다.
-9. 하나의 통합 PR 안에서 네 개의 논리 phase를 일곱 개의 reviewer-sized 커밋으로 완성한 뒤 Office를 한 번에 전환한다. 운영 dual-read/dual-write 기간은 두지 않는다.
+9. 하나의 통합 PR 안에서 네 개의 논리 phase를 여섯 개의 reviewer-sized 커밋으로 완성한 뒤 Office를 한 번에 전환한다. 운영 dual-read/dual-write 기간은 두지 않는다.
 
 ## 1. 목표와 비목표
 
@@ -78,7 +78,7 @@ Web API / Extension v1 compatibility facade
 
 ### 1.4 현재 데이터 전제
 
-감사 시점의 현재 checkout이 가리키는 local PostgreSQL에는 `SourcingCandidate` 3행과 `CandidateImage` 13행이 있었고, workspace/trend/entitlement/evidence/launch/decision/offer/intent 행은 없었다. 이는 Office DB가 비어 있다는 증거는 아니다. 이 설계의 reset 정책은 환경별 row count가 아니라 “기존 sourcing-owned 데이터는 보존할 필요가 없다”는 운영 결정에 근거한다. 따라서 Office에서는 dry run으로 실제 참조를 다시 분류하되 sourcing 데이터를 backfill하지 않는다.
+감사 시점의 현재 checkout이 가리키는 local PostgreSQL에는 `SourcingCandidate` 3행과 `CandidateImage` 13행이 있었고, workspace/trend/entitlement/evidence/launch/decision/offer/intent 행은 없었다. 이는 Office DB가 비어 있다는 증거는 아니다. 이 설계는 기존 display state를 backfill하지 않되 candidate·evidence·supply provenance의 삭제 판단을 새로 만들지 않고 그대로 보존한다.
 
 ## 2. 현재 문제와 설계 원칙
 
@@ -618,14 +618,11 @@ assistant 생성 기능은 CLI flag를 security boundary로 사용하지 않는�
 
 ### 12.1 보존 정책
 
-기존 sourcing 데이터를 새 schema로 backfill하지 않는다. reset 대상은 다음 sourcing-owned 상태다.
+기존 sourcing 데이터를 새 schema로 backfill하지 않는다. reset 대상은 화면에 직접 노출되는 sourcing-owned display state다.
 
 - trend seed, typed daily source snapshot, workspace/recommendation/RAG projection
 - interest, selection, validation state
-- source-control rows/evidence runs/observations
-- sourcing launch/decision state
-- downstream reference가 없는 sourcing candidates/images
-- Supply가 확인한 downstream reference 없는 sourcing-origin offer/intent rows
+- source-control rows와 화면용 recommendation/review/validation projection
 
 절대 삭제하지 않는 대상:
 
@@ -635,20 +632,11 @@ assistant 생성 기능은 CLI flag를 security boundary로 사용하지 않는�
 - 실제 주문, 입출고, 재고, 정산, 광고 성과
 - 위 downstream record가 provenance로 참조하는 sourcing candidate와 필요한 image/provenance row
 
-candidate 자체 또는 candidate image를 Product, Channel, Content, Order 등 non-sourcing row가 직접·간접 참조하면 candidate 전체를 보호 대상으로 분류한다. 보호된 candidate는 기존 status 값을 변경하지 않고 `isDeleted = true`, `deletedAt`만 기록해 UI에서 제외하며 FK provenance를 유지한다. soft-delete 사유와 reset run ID는 migration audit 결과에 남긴다. cascade delete를 사용하지 않는다.
+`SourcingCandidate`, candidate image, evidence run/observation, offer, launch/decision/intent는 이 cutover에서 삭제하거나 변경하지 않는다. 이들은 supply 또는 다른 도메인의 provenance가 될 수 있다. 새 allowlist는 legacy evidence의 빈 `sourceKey`를 수집·추천의 입력에서 제외하므로, 참조 그래프를 순회하는 삭제·soft-delete 상태를 새로 만들 필요가 없다.
 
 ### 12.2 reset 도구 계약
 
-data migration은 explicit allowlist와 두 단계 실행을 사용한다.
-
-1. dry run이 테이블별 purge 수, protected candidate 수, cross-domain reference 수를 출력한다.
-2. 예상하지 못한 참조 종류가 하나라도 있으면 execute를 거절한다.
-3. operator가 report를 검토한 뒤 명시적 execute flag로 실행한다.
-4. dependency 순서대로 sourcing/Supply-owned row만 삭제하고, 보호된 candidate는 위 soft-delete 규칙만 적용한다.
-5. protected downstream row는 update/delete하지 않는다.
-6. 실행 결과와 row count를 audit log로 남긴다.
-
-현재 release train이 유지되면 script 위치는 `scripts/data-migrations/v0.1.30/005_reset_sourcing_runtime_state.ts`이고 phase는 `pre-schema`다. 최종 Prisma schema가 legacy sourcing table을 제거하기 전에, 배포 대상 SHA의 raw-SQL allowlist로 dry-run hash를 확인하고 reset을 실행한다. 구현 전에 active `VERSION`과 사용 중인 sequence를 다시 확인하고 충돌 시 해당 train의 다음 sequence를 사용한다.
+data migration은 기존 release-runner의 explicit confirmation과 audit log를 사용한다. `scripts/data-migrations/v0.1.30/005_reset_sourcing_display_state.ts`는 **post-schema**로 실행하며 dependency 순서대로 화면 projection만 지운 뒤 테이블별 row count를 기록한다. schema 변경으로 사라지는 entitlement table은 `db:push --accept-data-loss`가 처리한다. protected provenance에는 update/delete가 없고, 별도 dry-run hash·soft-delete lifecycle도 만들지 않는다.
 
 ### 12.3 source control bootstrap
 
@@ -674,7 +662,7 @@ bootstrap은 idempotent하며 실패 source만 재시도할 수 있다. UI는 bo
 
 ### 12.5 배포 순서
 
-하나의 PR에서 다음 네 논리 phase를 일곱 개의 reviewer-sized 커밋으로 완성한다. PR 전체가 모든 gate를 통과하기 전에는 `develop`에 병합하거나 Office에 promote하지 않는다.
+하나의 PR에서 다음 네 논리 phase를 여섯 개의 reviewer-sized 커밋으로 완성한다. PR 전체가 모든 gate를 통과하기 전에는 `develop`에 병합하거나 Office에 promote하지 않는다.
 
 1. **Collection control plane**: static source allowlist + optional enabled switch, lease/idempotency, freshness, extension v1 translation, URL/assistant hardening
 2. **Normalized schema**: interest, offer-keyword observation, recommendation, validation, review selection/batch, indexes/FKs, reset/bootstrap tooling
@@ -687,9 +675,8 @@ Office cutover 순서:
 maintenance 시작
 -> sourcing write ingress 중지
 -> DB backup/checkpoint
--> 배포 대상 SHA에서 reset dry-run 및 operator hash 확인
--> allowlisted pre-schema reset 실행
--> schema 적용
+-> schema 적용 (`db:push --accept-data-loss`)
+-> explicit post-schema display-state reset 실행
 -> 새 artifact를 sourcing cutover-closed mode로 배포
 -> source control 확인
 -> bootstrap
@@ -723,7 +710,7 @@ cutover-closed mode에서는 health/admin cutover endpoint와 sourcing read의 `
 - stale capturedAt commit이 최신 행을 덮지 않음
 - `P2002`/`P2003` 후 aborted transaction 재사용 없음
 - organization composite FK와 cross-org IDOR 차단
-- reset dry-run/execute가 downstream-protected candidate의 기존 status를 보존한 채 soft-delete하고 나머지만 제거
+- post-schema reset이 화면 projection만 지우고 candidate·evidence·supply provenance를 변경하지 않음
 - batch evidence ingest가 constraint conflict를 deterministic하게 보고
 
 실제 PG suite는 mock 통과로 대체하지 않는다. destructive `db push --accept-data-loss`가 필요한 격리 DB setup은 승인된 test DB 경로에서만 실행한다.
@@ -819,12 +806,12 @@ Retention:
 |---|---|
 | UI를 바꾸는가 | 화면과 기능은 유지하고 backend/data ownership만 재구축 |
 | 기존 sourcing 데이터가 필요한가 | 아니오; backfill 없이 reset |
-| downstream 참조 candidate도 삭제하는가 | 아니오; 기존 status를 보존한 soft-deleted provenance로 보존 |
+| downstream 참조 candidate도 삭제하는가 | 아니오; candidate와 provenance를 변경하지 않음 |
 | Web API 호환이 필요한가 | 같은 릴리스 내 변경 가능 |
 | Extension API 호환이 필요한가 | 배포된 v1 호환 필수 |
 | source control은 soft warning인가 | 아니오; fixed allowlist와 commit-time enabled recheck |
 | reset 뒤 데이터는 어떻게 채우는가 | source control 확인 후 server bootstrap |
 | 상품 검증은 fixture를 유지하는가 | 아니오; 실제 validation episode로 교체 |
 | 최종 선택이 발주를 만드는가 | 아니오; immutable review batch까지만 생성 |
-| delivery 단위는 | 하나의 PR, 네 논리 phase/일곱 reviewer-sized 커밋, Office atomic cutover |
+| delivery 단위는 | 하나의 PR, 네 논리 phase/여섯 reviewer-sized 커밋, Office atomic cutover |
 | 운영 dual-read/dual-write를 두는가 | 아니오 |
