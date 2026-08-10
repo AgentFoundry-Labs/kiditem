@@ -1,6 +1,7 @@
 # Sourcing AgentOS Capability And Runtime Design
 
 - Date: 2026-08-10
+- Updated: 2026-08-11
 - Status: Approved design
 - Classification: sourcing-domain reconstruction with a bounded Agent OS runtime boundary
 - Scope: the Sourcing Agent used from the existing `/sourcing-ai` dashboard and the future Operator-to-Sourcing delegation path
@@ -69,6 +70,27 @@ An interrupted model process is closed as failed. The user retries explicitly.
 Zero-downtime maintenance requires a separate multi-replica deployment design
 and is not approximated with more business statuses.
 
+### 3.5 Selected: process-bound execution and synchronous domain commit
+
+The local Claude/Codex CLI and its MCP child are subordinate to the server
+process. A server shutdown or crash ends the execution; Agent OS records the
+request and run as `failed/process_interrupted` and never attempts to recover
+the model process, replay its prompt, or publish a delayed model result.
+
+Required business writes complete inside the deterministic owner-domain
+capability before that capability returns and before Agent OS can mark the run
+successful. For URL sourcing the order is supplier extraction, output
+validation, Sourcing-owned candidate upsert, candidate identity return, and
+only then AgentRun finalization. A failed candidate write therefore cannot
+produce a successful AgentRun.
+
+The global `agent.run.finalized` event is observability and alert plumbing. It
+must not create, update, or delete canonical Sourcing rows. No outbox, durable
+event replay, or additional delivery lifecycle is introduced for local CLI
+execution. If a domain write committed immediately before interruption, the
+capability's stable idempotency key and source identity make an explicit user
+retry converge on that existing result.
+
 ## 4. Current-State Findings
 
 The existing repository already contains useful foundations:
@@ -100,6 +122,11 @@ The current integration is incomplete or misleading in these exact ways:
    running Claude/Codex and MCP child process.
 7. All AgentRunRequests default to three attempts, which is inappropriate for a
    synchronous read-only dashboard question.
+8. Required Sourcing candidate creation currently occurs in
+   `SourcingScrapeFinalizedBridge` after AgentRun finalization. Because this is
+   an in-memory event listener, the run can be durable success while the
+   canonical candidate is absent. That writer must move into the synchronous,
+   idempotent Sourcing scrape workflow.
 
 ## 5. Ownership Architecture
 
@@ -202,6 +229,9 @@ Capability constraints:
 - Every input receives `organizationId` and actor context from Agent OS, never
   from model arguments.
 - Every mutating or external-I/O capability requires a stable idempotency key.
+- Every required canonical write completes before the capability returns. An
+  AgentRun cannot become successful while a required Sourcing write is still
+  waiting on an in-memory event listener.
 - `refreshCollection` uses the existing source allowlist, organization enabled
   switch, operation lease, and collection coordinator.
 - `createReviewBatch` cannot create a SourcingDecisionBatch, procurement intent,
@@ -420,6 +450,17 @@ the request and run with status `failed` and error code
 terminal transition for stale dashboard-assistant `claimed` requests and
 `running` runs; it never puts them back in `pending`.
 
+Request and run terminal transitions use one repository transaction. Startup
+reconciliation treats either side being nonterminal as an interrupted local
+execution and monotonically closes only the remaining nonterminal rows; it
+never overwrites `cancelled`, `succeeded`, `failed`, or `requires_approval`
+request intent. Pre-run failures update only a still-`claimed` request.
+
+There is no restart delivery phase for a local model result. Canonical
+Sourcing writes happen in the capability call before run success. Finalized
+events may close alerts or add audit detail, but listener failure cannot change
+the terminal run result and cannot leave required Sourcing data uncommitted.
+
 The general Agent OS queue and retry support remain for future delegated or
 approval workflows. They are not used to simulate uninterrupted dashboard
 chat. Operations leases/fencing remain because they prevent concurrent workers
@@ -519,7 +560,9 @@ Cutover order:
 1. Add and validate code-owned prompt, runtime skills, and output schema.
 2. Add the generic AgentInteraction and Agent OS local CLI/MCP runtime boundary.
 3. Register the new Sourcing capabilities and replace the repeated discovery
-   playbook with artifact/run-based workflows.
+   playbook with artifact/run-based workflows. Move URL scrape validation and
+   candidate upsert into the synchronous Sourcing-owned capability path and
+   remove `SourcingScrapeFinalizedBridge` as a canonical-data writer.
 4. Route the dashboard assistant through AgentInteraction and keep the existing
    HTTP presenter/fallback shape.
 5. Remove the Sourcing-owned direct CLI adapter and old assistant runtime/model
@@ -547,6 +590,10 @@ execution path, or `docs/ARCHITECTURE.md` change is part of this cutover.
   provider order, payment, or listing.
 - Dashboard questions are not automatically resumed or replayed after restart.
 - Restart reconciliation fails stale inline runs instead of requeueing them.
+- Server shutdown never resumes or replays a local CLI execution; request and
+  run converge on `failed/process_interrupted` unless already terminal.
+- Required Sourcing writes finish before AgentRun success. Finalized events are
+  non-authoritative and no canonical Sourcing writer depends on them.
 - Existing sourcing routes, visible copy, direct deterministic buttons, and
   assistant response presentation remain compatible.
 - Claude and Codex each pass one real local dashboard smoke test.
