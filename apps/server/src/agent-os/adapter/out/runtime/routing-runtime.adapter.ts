@@ -4,9 +4,11 @@ import {
   type AgentRuntimeExecutionContext,
   type AgentRuntimePort,
   type AgentRuntimeResult,
+  type CancelAgentRuntimeInput,
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { AgentRuntimeHandlerRegistry } from '../../../application/service/agent-runtime-handler-registry.service';
 import { resolveAgentRuntimeAllowNoop } from '../../../application/service/agent-runtime.config';
+import { AgentLocalCliRuntimeAdapter } from './agent-local-cli-runtime.adapter';
 
 /**
  * Default runtime adapter — routes execute() calls to the per-agent-type
@@ -36,11 +38,26 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
   private readonly logger = new Logger(RoutingRuntimeAdapter.name);
   private readonly allowNoop = resolveAgentRuntimeAllowNoop();
 
-  constructor(private readonly registry: AgentRuntimeHandlerRegistry) {}
+  constructor(
+    private readonly registry: AgentRuntimeHandlerRegistry,
+    private readonly localCliRuntime?: AgentLocalCliRuntimeAdapter,
+  ) {}
 
   async execute(
     context: AgentRuntimeExecutionContext,
   ): Promise<AgentRuntimeResult> {
+    if (
+      context.adapterType === 'claude_cli' ||
+      context.adapterType === 'codex_cli'
+    ) {
+      if (!this.localCliRuntime) {
+        throw new AgentOsRuntimeError(
+          'runtime_not_configured',
+          'Agent OS local CLI runtime is not configured.',
+        );
+      }
+      return this.localCliRuntime.execute(context);
+    }
     const handler = this.registry.resolve(context.agentType);
     if (handler) {
       return handler.execute(context);
@@ -78,5 +95,9 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
       'runtime_not_configured',
       `Agent OS runtime is not bound to a real handler for ${context.agentType}.`,
     );
+  }
+
+  cancel(input: CancelAgentRuntimeInput): Promise<boolean> {
+    return this.localCliRuntime?.cancel(input) ?? Promise.resolve(false);
   }
 }

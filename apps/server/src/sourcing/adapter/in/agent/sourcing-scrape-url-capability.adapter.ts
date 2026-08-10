@@ -246,6 +246,10 @@ export class SourcingScrapeUrlCapabilityAdapter
           model: 'deterministic',
           modelPlan: { primary: 'deterministic' },
           promptPath: 'agent-config/prompts/agents/sourcing.md',
+          conversationId: executionInput.conversationId ?? null,
+          requestedByUserId: executionInput.requestedByUserId ?? null,
+          skillKeys: [],
+          outputSchemaPath: null,
           input: {
             action: 'scrape_url',
             url: sourceUrl,

@@ -464,6 +464,7 @@ export interface AgentOsRepositoryPort {
     workerId: string;
     now: Date;
     organizationId?: string | null;
+    excludedSources?: string[];
   }): Promise<AgentRunRequestRecord | null>;
   claimRunRequestById(input: {
     workerId: string;
@@ -476,6 +477,21 @@ export interface AgentOsRepositoryPort {
   markRequestStatusIfCurrent(
     input: MarkRequestStatusIfCurrentInput,
   ): Promise<AgentRunRequestRecord | null>;
+  failInterruptedInlineRuns(input: {
+    source: 'sourcing_dashboard';
+    requestStatuses: ['pending', 'claimed'];
+    createdBefore: Date;
+    errorCode: 'process_interrupted';
+    errorMessage: string;
+    limit: 100;
+  }): Promise<
+    Array<{
+      organizationId: string;
+      requestId: string;
+      runId: string | null;
+      agentInstanceId: string;
+    }>
+  >;
 
   // Runs + events
   createRunForRequest(input: CreateRunRecordInput): Promise<AgentRunRecord>;

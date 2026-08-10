@@ -130,6 +130,7 @@ function makeExecutor(options: {
       if (options.runtimeError) throw options.runtimeError;
       return options.runtimeResult ?? { output: { ok: true } };
     }),
+    cancel: vi.fn().mockResolvedValue(true),
   };
   const eventEmitter = {
     emit: vi.fn(),
@@ -297,6 +298,36 @@ describe('AgentRunExecutor', () => {
         sourceResourceType: 'rule_set',
         sourceResourceId: 'rules-42',
         requestedByUserId: 'user-77',
+      }),
+    );
+  });
+
+  it('threads immutable caller context and definition assets into the runtime', async () => {
+    const { executor, runtime } = makeExecutor({
+      instance: makeInstance({ type: 'sourcing', adapterType: 'codex_cli' }),
+      claimed: makeClaimedRequest({
+        agentType: 'sourcing',
+        adapterType: 'codex_cli',
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        payload: { userMessage: '질문' },
+      }),
+    });
+    vi.stubEnv('AGENT_SOURCING_MODEL', 'gpt-5.6-sol');
+
+    await executor.executeRequest('inline-1', ORGANIZATION_ID, REQUEST_ID);
+
+    expect(runtime.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        skillKeys: [
+          'sourcing.evidence-grounded-analysis',
+          'sourcing.collection-planning',
+          'sourcing.safe-review-handoff',
+        ],
+        outputSchemaPath:
+          'agent-config/schemas/sourcing-agent-answer.schema.json',
       }),
     );
   });
@@ -492,6 +523,7 @@ describe('AgentRunExecutor', () => {
         expect.objectContaining({
           workerId: 'worker-internal',
           organizationId: null,
+          excludedSources: ['sourcing_dashboard'],
         }),
       );
       expect(result.executed).toBe(true);
@@ -556,6 +588,35 @@ describe('AgentRunExecutor', () => {
         reason: 'organization_required',
       });
       expect(repository.claimNextRunRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps inline dashboard requests out of the scoped background claim', async () => {
+    const { executor, repository } = makeExecutor({ claimed: null });
+
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(repository.claimNextRunRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ excludedSources: ['sourcing_dashboard'] }),
+    );
+  });
+
+  it('cancels the active runtime through the runtime boundary', async () => {
+    const { executor, runtime } = makeExecutor({});
+
+    await expect(
+      executor.cancelActiveRuntime({
+        organizationId: ORGANIZATION_ID,
+        requestId: REQUEST_ID,
+        runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        reason: 'user_cancelled',
+      }),
+    ).resolves.toBe(true);
+    expect(runtime.cancel).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'user_cancelled',
     });
   });
 });

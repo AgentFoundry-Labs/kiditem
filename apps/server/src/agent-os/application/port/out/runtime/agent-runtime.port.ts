@@ -14,9 +14,20 @@ export interface AgentRuntimeExecutionContext {
   model: string;
   modelPlan: AgentModelPlan;
   promptPath: string;
+  conversationId: string | null;
+  requestedByUserId: string | null;
+  skillKeys: string[];
+  outputSchemaPath: string | null;
   input: Record<string, unknown>;
   trustLevel: number;
   runtimeConfig: Record<string, unknown>;
+}
+
+export interface CancelAgentRuntimeInput {
+  organizationId: string;
+  requestId: string;
+  runId: string;
+  reason: 'user_cancelled' | 'process_interrupted';
 }
 
 export interface AgentRuntimeResult {
@@ -34,4 +45,5 @@ export interface AgentRuntimeResult {
 
 export interface AgentRuntimePort {
   execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult>;
+  cancel?(input: CancelAgentRuntimeInput): Promise<boolean>;
 }

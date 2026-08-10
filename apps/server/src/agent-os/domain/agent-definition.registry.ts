@@ -194,7 +194,7 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
       'Evidence-grounded Sourcing Agent for analysis, collection planning, and explicit review handoff.',
     promptPath: `${PROMPT_BASE}/sourcing.md`,
     outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
-    defaultAdapterType: 'claude_local',
+    defaultAdapterType: 'codex_cli',
     defaultModelEnv: 'AGENT_SOURCING_MODEL',
     defaultRuntimeConfig: {},
     defaultCapabilities: {},

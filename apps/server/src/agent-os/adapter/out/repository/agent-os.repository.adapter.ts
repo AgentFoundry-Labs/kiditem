@@ -146,6 +146,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     workerId: string;
     now: Date;
     organizationId?: string | null;
+    excludedSources?: string[];
   }) {
     return this.requests.claimNextRunRequest(input);
   }
@@ -161,6 +162,17 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   failClaimedRequest(input: FailClaimedRequestInput) {
     return this.requests.failClaimedRequest(input);
+  }
+
+  failInterruptedInlineRuns(input: {
+    source: 'sourcing_dashboard';
+    requestStatuses: ['pending', 'claimed'];
+    createdBefore: Date;
+    errorCode: 'process_interrupted';
+    errorMessage: string;
+    limit: 100;
+  }) {
+    return this.requests.failInterruptedInlineRuns(input);
   }
 
   markRequestStatus(input: MarkRequestStatusInput) {

@@ -28,6 +28,7 @@ export interface AgentRunnerInput {
   payload?: Record<string, unknown>;
   scheduledFor?: Date;
   dryRun?: boolean;
+  maxAttempts?: number;
 }
 
 export interface AgentRunnerResult {
