@@ -97,7 +97,7 @@ export function findClaudeShimFindings(agentFiles, claudeContents) {
 
 export function findInstructionChainSizeFindings(
   agentContents,
-  limitBytes = 28 * 1024,
+  limitBytes = 24 * 1024,
 ) {
   const findings = [];
   for (const agentFile of agentContents.keys()) {

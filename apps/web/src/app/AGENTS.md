@@ -23,20 +23,14 @@ route groups need it.
 
 ## State Rules
 
-- Backend data flows through `apiClient` and React Query.
-- Keep durable server state out of local React state and Zustand.
 - `page.tsx` should compose state and sections; move reusable behavior to
   route-local `hooks/` or `lib/` before the page becomes hard to scan.
 - Prefer `queryKeys` entries for server state. Add a key before introducing a
   new cross-component query family.
-- Use `refetchInterval` for polling. New SSE or WebSocket surfaces require a
-  scoped plan and an instruction update.
 
 ## Boundary Rules
 
 - Do not add `app/api/*/route.ts` handlers for Nest-owned APIs.
-- Do not send `organizationId`; backend session scope owns tenancy.
-- Do not import Prisma, `pg`, Supabase DB clients, or backend adapters.
 - Do not move route-local components into global `src/components` until another
   route group actually imports them.
 - When adding a route group or moving a route, update `apps/web/AGENTS.md` and

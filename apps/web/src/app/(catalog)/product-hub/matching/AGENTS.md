@@ -6,18 +6,6 @@ workbook / Rocket matching-CSV catalog import and channel/Sellpia matching revie
 MasterProduct is an automatic summary only when every option resolves to the
 same canonical inventory product.
 
-## Data Flow
-
-```text
-React Query + apiClient
-  -> GET /api/channels/accounts
-  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-wing
-  -> POST /api/channels/accounts/:channelAccountId/catalog-imports/coupang-rocket-matching
-  -> /api/channels/product-mappings (queue, candidates, confirmations)
-  -> /api/channels/product-mappings/auto-match
-  -> /api/products/channel-options/:channelListingOptionId/inventory-components
-```
-
 ## State Rules
 
 - React Query owns accounts, queue rows, candidates, import, and confirmations.
@@ -59,7 +47,6 @@ React Query + apiClient
   conflicting, or unverifiable evidence requires review. Rank/name/AI never
   confirms channel identity; only catalog publication may reuse a unique typed
   seller SKU or safe normalized barcode.
-- Do not send `organizationId`; backend session scope owns it.
 - Operator status is only `매칭 완료`, `매칭 수량 검토`, or `미매칭 상품`.
   Quantity review never counts as unmatched; internal reasons stay available.
 - Wing and Rocket collection must preserve already confirmed links.

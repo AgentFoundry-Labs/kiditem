@@ -249,7 +249,6 @@ export class SourcingRecommendationService {
     );
     const items = [...offerItems, ...wingItems]
       .sort((left, right) => right.score - left.score || left.itemKey.localeCompare(right.itemKey))
-      .slice(0, limit)
       .map((item, index) => ({ ...item, rank: index + 1 }));
     const warningCodes = [
       ...(offersResult.rejectedCount > 0 ? ['offer_observations_rejected'] : []),
@@ -283,7 +282,7 @@ export class SourcingRecommendationService {
       errorMessage: null,
       items,
     });
-    return readyEnvelope(result.run, 'today', limit);
+    return readyEnvelope(result.run, 'entry', limit);
   }
 }
 
@@ -431,9 +430,15 @@ function presentItems(
   surface: SourcingRecommendationSurface,
 ): SourcingRecommendationPresenterItem[] {
   const filtered = run.items.filter((item) => {
+    if (surface === 'home' || surface === 'today') {
+      return item.sourcePlatform === 'coupang';
+    }
     if (surface === 'entry') return item.sourcePlatform === '1688';
-    if (surface === 'final') return item.baselineAction !== 'exclude';
-    return true;
+    if (surface === 'final') {
+      const source = recordValue(item.sourceSnapshot);
+      return item.sourcePlatform === '1688' && stringsValue(source.offerObservationIds).length > 0;
+    }
+    return false;
   });
   return filtered.map((item, index) => presentItem(item, index + 1));
 }

@@ -6,11 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  SOURCING_1688_NEW_PRODUCT_MODEL_GENERATOR_VERSION,
-  SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-  SOURCING_1688_NEW_PRODUCT_MODEL_VERSION,
-  type Sourcing1688NewProductCandidate,
-} from '../../domain/sourcing-1688-new-product-model';
+  SOURCING_RECOMMENDATION_PROJECTION_GENERATOR_VERSION,
+  SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+  SOURCING_RECOMMENDATION_PROJECTION_VERSION,
+  type SourcingRecommendationProjectionSupplierCandidate,
+} from '../../domain/sourcing-recommendation-projection';
 import {
   decideSourcingRecommendation,
   type RecommendationGateStatus,
@@ -110,15 +110,7 @@ export class SourcingDecisionBatchService {
       sourceCutoffAt,
       bindings: effectiveBindings,
     });
-    const batchDataGaps = Array.from(new Set([
-      ...discovery.dataGaps,
-      'legacy_discovery_context_not_source_entitled',
-      'legacy_snapshot_point_in_time_not_guaranteed',
-      'calibrated_purchase_probability_missing',
-      'collector_semantics_server_validation_missing',
-      'assessment_provenance_server_validation_missing',
-      'exposure_outcome_ledger_missing',
-    ]));
+    const batchDataGaps = Array.from(new Set(discovery.dataGaps));
 
     const items = discovery.supplierMatches.map((candidate) =>
       this.toDecisionItem({
@@ -150,9 +142,9 @@ export class SourcingDecisionBatchService {
       keyword: request.keyword,
       category: request.category,
       policyVersion: RECOMMENDATION_POLICY_VERSION,
-      modelPipeline: SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-      modelVersion: String(SOURCING_1688_NEW_PRODUCT_MODEL_VERSION),
-      modelGeneratorVersion: SOURCING_1688_NEW_PRODUCT_MODEL_GENERATOR_VERSION,
+      modelPipeline: SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+      modelVersion: String(SOURCING_RECOMMENDATION_PROJECTION_VERSION),
+      modelGeneratorVersion: SOURCING_RECOMMENDATION_PROJECTION_GENERATOR_VERSION,
       decisionAt,
       sourceCutoffAt,
       expiresAt,
@@ -315,12 +307,12 @@ export class SourcingDecisionBatchService {
    */
   private async deriveCandidateBindings(input: {
     organizationId: string;
-    candidates: Sourcing1688NewProductCandidate[];
+    candidates: SourcingRecommendationProjectionSupplierCandidate[];
     explicitCandidateIds: Set<string>;
     sourceCutoffAt: Date;
   }): Promise<NormalizedCandidateBinding[]> {
     const pending = input.candidates.filter(
-      (candidate): candidate is Sourcing1688NewProductCandidate & { offerId: string } =>
+      (candidate): candidate is SourcingRecommendationProjectionSupplierCandidate & { offerId: string } =>
         !input.explicitCandidateIds.has(candidate.id) && Boolean(candidate.offerId),
     );
     if (pending.length === 0) return [];
@@ -455,7 +447,7 @@ export class SourcingDecisionBatchService {
   }
 
   private toDecisionItem(input: {
-    candidate: Sourcing1688NewProductCandidate;
+    candidate: SourcingRecommendationProjectionSupplierCandidate;
     confidence: number;
     binding: NormalizedCandidateBinding | null;
     references: DecisionReferences;
@@ -695,7 +687,7 @@ function normalizeBinding(
 
 function indexBindings(
   bindings: NormalizedCandidateBinding[],
-  candidates: Sourcing1688NewProductCandidate[],
+  candidates: SourcingRecommendationProjectionSupplierCandidate[],
 ): Map<string, NormalizedCandidateBinding> {
   const candidateIds = new Set(candidates.map(({ id }) => id));
   const indexed = new Map<string, NormalizedCandidateBinding>();
@@ -727,7 +719,7 @@ function evidenceRole(
 
 function evidenceIsAdmissible(input: {
   observation: SourcingEvidenceObservationRecord;
-  candidate: Sourcing1688NewProductCandidate;
+  candidate: SourcingRecommendationProjectionSupplierCandidate;
   launch: SourcingLaunchCandidateRecord | null;
   offer: SourcingSupplierOfferSnapshot | null;
   latestObservationId: string | undefined;

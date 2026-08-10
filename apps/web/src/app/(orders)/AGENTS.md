@@ -1,27 +1,8 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/orders - Order Collection, Processing, Rocket PO Reads, Reviews
 
 `app/(orders)/` owns the active order collection, processing, Rocket PO
 monitoring, and review screens. It uses NestJS owner APIs and browser extension
 bridges where explicitly documented.
-
-## Owned Surfaces
-
-- Order pipeline reads and order action mutations
-- Order collection and generated-file download flows
-- Read-only Rocket PO list/summaries and local legacy file history
-- Review operations
-- Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews`
-  screens
-
-## Data Flow
-
-```text
-React Query + apiClient
-  -> /api/orders, /api/reviews, /api/orders/collection/*
-  -> extensions/order-collector for browser-side collection
-```
 
 ## State Rules
 
@@ -50,7 +31,6 @@ React Query + apiClient
 
 ## Boundary Rules
 
-- Do not send `organizationId`; backend session scope owns order tenancy.
 - Do not write directly to marketplace pages from the web app. Use the
   documented order-collector extension bridge.
 - Rocket catalog listing, saved evidence load, and preview use the shared Supply

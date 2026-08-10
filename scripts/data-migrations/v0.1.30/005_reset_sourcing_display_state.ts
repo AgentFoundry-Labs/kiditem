@@ -1,20 +1,26 @@
 import type { DataMigration } from "../types";
 
 /**
- * The sourcing screens now read normalized commands and versioned server
- * projections. The prior display caches are neither compatible inputs nor
- * durable provenance, so start them empty rather than translating their JSON
- * payloads into the new contracts.
+ * New normalized recommendation/validation/review projections start empty.
+ * Existing workspace cache rows, typed daily history, offer-keyword
+ * observations, collection seeds, and operator-managed settings remain
+ * canonical inputs: they are not display caches, and some sources cannot
+ * backfill prior dates.
  *
  * Evidence, supplier offers, launch candidates, and decisions are outside this
  * reset because supply or another domain can reference them. Pre-cutover
  * evidence has an empty source key after the schema change, so the new static
  * allowlist excludes it from collection and recommendation inputs.
+ *
+ * `sourcing_1688_hot_product_daily_snapshots` is intentionally absent from
+ * this post-schema data migration. The drop happens during reviewed Prisma
+ * schema application, not through a delete operation here. It is the only
+ * intentional legacy storage removal in this cutover.
  */
 export const resetSourcingDisplayState: DataMigration = {
   id: "v0.1.30:005_reset_sourcing_display_state",
   releaseVersion: "0.1.30",
-  name: "Reset legacy sourcing display projections for normalized sourcing",
+  name: "Reset derived sourcing display projections for normalized sourcing",
   phase: "post-schema",
   async run(tx) {
     // Delete dependency leaves before recommendation headers. These are all
@@ -36,35 +42,6 @@ export const resetSourcingDisplayState: DataMigration = {
       await tx.sourcingRecommendationItem.deleteMany();
     const deletedRecommendationRuns =
       await tx.sourcingRecommendationRun.deleteMany();
-    const deletedOfferKeywordObservations =
-      await tx.sourcing1688OfferKeywordObservation.deleteMany();
-
-    const [
-      deletedWorkspaceSnapshots,
-      deletedInterestTargets,
-      deletedSourceControls,
-      deletedTrendSeeds,
-      deletedNaverKeywordSnapshots,
-      deletedNaverPopularSnapshots,
-      deleted1688HotProductSnapshots,
-      deletedShortsSnapshots,
-      deletedLiveBroadcastSnapshots,
-      deletedLiveProductSnapshots,
-      deletedTiktokSnapshots,
-    ] = await Promise.all([
-      tx.sourcingWorkspaceSnapshot.deleteMany(),
-      tx.sourcingInterestTarget.deleteMany(),
-      tx.sourcingCollectionSourceControl.deleteMany(),
-      tx.trendSeedKeyword.deleteMany(),
-      tx.naverKeywordDailySnapshot.deleteMany(),
-      tx.naverPopularKeywordDailySnapshot.deleteMany(),
-      tx.sourcing1688HotProductDailySnapshot.deleteMany(),
-      tx.shortsTrendDailySnapshot.deleteMany(),
-      tx.liveCommerceBroadcastDailySnapshot.deleteMany(),
-      tx.liveCommerceProductDailySnapshot.deleteMany(),
-      tx.tiktokCreativeTrendDailySnapshot.deleteMany(),
-    ]);
-
     const counts = {
       reviewBatchItems: deletedReviewBatchItems.count,
       reviewBatches: deletedReviewBatches.count,
@@ -75,18 +52,6 @@ export const resetSourcingDisplayState: DataMigration = {
       recommendationEvidence: deletedRecommendationEvidence.count,
       recommendationItems: deletedRecommendationItems.count,
       recommendationRuns: deletedRecommendationRuns.count,
-      offerKeywordObservations: deletedOfferKeywordObservations.count,
-      workspaceSnapshots: deletedWorkspaceSnapshots.count,
-      interestTargets: deletedInterestTargets.count,
-      sourceControls: deletedSourceControls.count,
-      trendSeeds: deletedTrendSeeds.count,
-      naverKeywordSnapshots: deletedNaverKeywordSnapshots.count,
-      naverPopularSnapshots: deletedNaverPopularSnapshots.count,
-      hotProductSnapshots: deleted1688HotProductSnapshots.count,
-      shortsSnapshots: deletedShortsSnapshots.count,
-      liveBroadcastSnapshots: deletedLiveBroadcastSnapshots.count,
-      liveProductSnapshots: deletedLiveProductSnapshots.count,
-      tiktokSnapshots: deletedTiktokSnapshots.count,
     };
 
     return {
@@ -96,15 +61,33 @@ export const resetSourcingDisplayState: DataMigration = {
       ),
       details: {
         ...counts,
+        retainedCanonicalInputs: [
+          "sourcing_workspace_snapshots",
+          "trend_seed_keywords",
+          "naver_keyword_daily_snapshots",
+          "naver_popular_keyword_daily_snapshots",
+          "shorts_trend_daily_snapshots",
+          "live_commerce_broadcast_daily_snapshots",
+          "live_commerce_product_daily_snapshots",
+          "tiktok_creative_trend_daily_snapshots",
+          "sourcing_1688_offer_keyword_observations",
+        ],
         retainedProvenance: [
           "sourcing_candidates",
           "sourcing_candidate_images",
           "sourcing_evidence_ingestion_runs",
           "sourcing_evidence_observations",
           "supplier_offer_sku_snapshots",
+          "supplier_offer_price_tiers",
           "sourcing_launch_candidates",
           "sourcing_decision_batches",
+          "sourcing_decision_batch_items",
+          "sourcing_decision_evidence",
           "procurement_test_intents",
+          "purchase_orders",
+        ],
+        removedLegacyStorage: [
+          "sourcing_1688_hot_product_daily_snapshots",
         ],
       },
     };

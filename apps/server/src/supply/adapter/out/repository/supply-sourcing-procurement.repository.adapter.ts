@@ -635,8 +635,9 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
 
 async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
   const rows = await tx.$queryRaw<Array<{ at: Date }>>`
-    SELECT CURRENT_TIMESTAMP AS "at"
+    SELECT clock_timestamp() AS "at"
   `;
+  // queryraw-tenancy-exempt: database clock only
   const at = rows[0]?.at;
   if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
     throw new Error('Database clock query returned no timestamp.');

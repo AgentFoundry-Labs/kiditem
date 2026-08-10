@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-  type Sourcing1688NewProductCandidate,
-} from '../../domain/sourcing-1688-new-product-model';
-import type { SourcingMarketModelCandidate } from '../../domain/sourcing-market-model';
+  SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+  type SourcingRecommendationProjectionCoupangCandidate,
+  type SourcingRecommendationProjectionSupplierCandidate,
+} from '../../domain/sourcing-recommendation-projection';
 import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverKeywordSnapshotRow,
@@ -29,15 +29,15 @@ export interface SourcingMarketDiscoveryInput {
 }
 
 export type SourcingRecommendationScore = Pick<
-  Sourcing1688NewProductCandidate,
+  SourcingRecommendationProjectionSupplierCandidate,
   'score' | 'grade' | 'decision' | 'components' | 'reasons' | 'risks' | 'modelTags'
 >;
 
 export interface SourcingRecommendationCandidate {
   id: string;
   productName: string;
-  coupangEvidence: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
-  supplierEvidence: Sourcing1688NewProductCandidate['wholesale'] & {
+  coupangEvidence: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
+  supplierEvidence: SourcingRecommendationProjectionSupplierCandidate['wholesale'] & {
     offerId: string | null;
     sourceUrl: string;
     imageUrl: string | null;
@@ -51,12 +51,12 @@ export interface SourcingRecommendationCandidate {
 
 export interface SourcingScoredOpportunity {
   id: string;
-  pipeline: typeof SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE;
+  pipeline: typeof SOURCING_RECOMMENDATION_PROJECTION_PIPELINE;
   productName: string;
   score: number;
-  grade: Sourcing1688NewProductCandidate['grade'];
-  decision: Sourcing1688NewProductCandidate['decision'];
-  components: Sourcing1688NewProductCandidate['components'];
+  grade: SourcingRecommendationProjectionSupplierCandidate['grade'];
+  decision: SourcingRecommendationProjectionSupplierCandidate['decision'];
+  components: SourcingRecommendationProjectionSupplierCandidate['components'];
   reasons: string[];
   risks: string[];
   modelTags: string[];
@@ -70,9 +70,9 @@ export interface SourcingMarketDiscoveryResult {
   confidence: number;
   dataGaps: string[];
   marketSignals: Array<Record<string, unknown>>;
-  coupangMatches: SourcingMarketModelCandidate[];
+  coupangMatches: SourcingRecommendationProjectionCoupangCandidate[];
   trackingSnapshots: Array<Record<string, unknown>>;
-  supplierMatches: Sourcing1688NewProductCandidate[];
+  supplierMatches: SourcingRecommendationProjectionSupplierCandidate[];
   scoredOpportunities: SourcingScoredOpportunity[];
   recommendations: SourcingRecommendationCandidate[];
 }
@@ -120,11 +120,11 @@ export class SourcingMarketDiscoveryService {
       .filter((item) => item.sourcePlatform === '1688')
       .filter((item) => matchesSearchTerms(supplierSearchTerms(item), searchTerms))
       .map((item) => toSupplierCandidate(item, sourcePrefix, sourceDate))
-      .filter((item): item is Sourcing1688NewProductCandidate => item !== null)
+      .filter((item): item is SourcingRecommendationProjectionSupplierCandidate => item !== null)
       .map((item) => ({ ...item, matchedCoupang: findCoupangMatch(item, coupangMatches) }));
     const recommendations = supplierMatches
-      .filter((candidate): candidate is Sourcing1688NewProductCandidate & {
-        matchedCoupang: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
+      .filter((candidate): candidate is SourcingRecommendationProjectionSupplierCandidate & {
+        matchedCoupang: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
       } => candidate.matchedCoupang !== null && candidate.decision !== 'exclude')
       .map((candidate) => toRecommendation(candidate, input, confidenceFromEvidence({
         naverKeywordCount: evidence.naverKeywords.length,
@@ -211,7 +211,7 @@ function toCoupangCandidate(
   item: SourcingRecommendationPresenterItem,
   runId: string,
   sourceDate: string,
-): SourcingMarketModelCandidate {
+): SourcingRecommendationProjectionCoupangCandidate {
   const coupang = item.coupang;
   const productId = coupang?.productId ?? item.externalOfferId;
   const itemId = item.variantKey || null;
@@ -273,7 +273,7 @@ function toSupplierCandidate(
   item: SourcingRecommendationPresenterItem,
   runId: string,
   sourceDate: string,
-): Sourcing1688NewProductCandidate | null {
+): SourcingRecommendationProjectionSupplierCandidate | null {
   const sourceUrl = item.sourceUrl;
   if (!sourceUrl) return null;
   const priceCny = item.overseasPriceCny;
@@ -328,9 +328,9 @@ function toSupplierCandidate(
 }
 
 function findCoupangMatch(
-  supplier: Sourcing1688NewProductCandidate,
-  candidates: SourcingMarketModelCandidate[],
-): Sourcing1688NewProductCandidate['matchedCoupang'] {
+  supplier: SourcingRecommendationProjectionSupplierCandidate,
+  candidates: SourcingRecommendationProjectionCoupangCandidate[],
+): SourcingRecommendationProjectionSupplierCandidate['matchedCoupang'] {
   const supplierTerms = compactStrings([supplier.keyword, supplier.title]);
   const match = candidates
     .filter((candidate) => matchesSearchTerms([
@@ -427,7 +427,7 @@ function toMarketSignals(evidence: DiscoveryEvidence): Array<Record<string, unkn
   ];
 }
 
-function toTrackingSnapshot(candidate: SourcingMarketModelCandidate): Record<string, unknown> {
+function toTrackingSnapshot(candidate: SourcingRecommendationProjectionCoupangCandidate): Record<string, unknown> {
   return {
     id: candidate.id,
     productId: candidate.productId,
@@ -448,11 +448,11 @@ function toTrackingSnapshot(candidate: SourcingMarketModelCandidate): Record<str
 }
 
 function toScoredOpportunity(
-  candidate: Sourcing1688NewProductCandidate,
+  candidate: SourcingRecommendationProjectionSupplierCandidate,
 ): SourcingScoredOpportunity {
   return {
     id: candidate.id,
-    pipeline: SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
+    pipeline: SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
     productName: candidate.title,
     score: candidate.score,
     grade: candidate.grade,
@@ -467,8 +467,8 @@ function toScoredOpportunity(
 }
 
 function toRecommendation(
-  candidate: Sourcing1688NewProductCandidate & {
-    matchedCoupang: NonNullable<Sourcing1688NewProductCandidate['matchedCoupang']>;
+  candidate: SourcingRecommendationProjectionSupplierCandidate & {
+    matchedCoupang: NonNullable<SourcingRecommendationProjectionSupplierCandidate['matchedCoupang']>;
   },
   input: SourcingMarketDiscoveryInput,
   confidence: number,

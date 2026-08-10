@@ -1,11 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
-import { Sourcing1688NewProductModelService } from "../application/service/sourcing-1688-new-product-model.service";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
-import { SourcingMarketModelService } from "../application/service/sourcing-market-model.service";
 import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
 import { TrendCollectService } from "../application/service/trend-collect.service";
 import { TrendQueryService } from "../application/service/trend-query.service";
@@ -13,8 +11,8 @@ import { LiveCommerceService } from "../application/service/live-commerce.servic
 import { SourcingService } from "../application/service/sourcing.service";
 import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
-import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
 import { SourcingRecommendationService } from "../application/service/sourcing-recommendation.service";
+import { SourcingKeywordPreferenceService } from "../application/service/sourcing-keyword-preference.service";
 import { SourcingValidationService } from "../application/service/sourcing-validation.service";
 import { SourcingReviewService } from "../application/service/sourcing-review.service";
 import { SourcingWingCatalogIngestService } from "../application/service/sourcing-wing-catalog-ingest.service";
@@ -49,6 +47,7 @@ import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/so
 import { SourcingCollectionSourceControlRepositoryAdapter } from "../adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "../adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingKeywordPreferenceRepositoryAdapter } from "../adapter/out/repository/sourcing-keyword-preference.repository.adapter";
 import { SourcingValidationRepositoryAdapter } from "../adapter/out/repository/sourcing-validation.repository.adapter";
 import { SourcingReviewRepositoryAdapter } from "../adapter/out/repository/sourcing-review.repository.adapter";
 import { SourcingRecommendationSourceRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation-source.repository.adapter";
@@ -94,6 +93,7 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repo
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-keyword-preference.repository.port";
 import { SOURCING_VALIDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-validation.repository.port";
 import { SOURCING_REVIEW_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-review.repository.port";
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation-source.repository.port";
@@ -148,13 +148,10 @@ describe("SourcingModule canonical owner wiring", () => {
       "Sourcing1688ImageSearchController",
       "Sourcing1688KeywordSearchController",
       "SourcingAgentRagController",
-      "SourcingMarketModelController",
-      "Sourcing1688NewProductModelController",
       "SourcingRisingProductController",
       "SourcingIntelligenceController",
       "SourcingCandidateWorkspaceController",
       "MarketShadowSignalController",
-      "SourcingWorkspaceSnapshotController",
       "SourcingInterestTargetController",
       "SourcingWorkspaceController",
       "SourcingReviewController",
@@ -178,12 +175,10 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(Sourcing1688ImageSearchService);
     expect(providers).toContain(Sourcing1688KeywordSearchService);
     expect(providers).toContain(SourcingAgentRagService);
-    expect(providers).toContain(SourcingMarketModelService);
-    expect(providers).toContain(Sourcing1688NewProductModelService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
-    expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingRecommendationService);
+    expect(providers).toContain(SourcingKeywordPreferenceService);
     expect(providers).toContain(SourcingValidationService);
     expect(providers).toContain(SourcingReviewService);
     expect(providers).toContain(SourcingWingCatalogIngestService);
@@ -229,6 +224,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingCollectionSourceControlRepositoryAdapter);
     expect(providers).toContain(SourcingInterestTargetRepositoryAdapter);
     expect(providers).toContain(SourcingRecommendationRepositoryAdapter);
+    expect(providers).toContain(SourcingKeywordPreferenceRepositoryAdapter);
     expect(providers).toContain(SourcingValidationRepositoryAdapter);
     expect(providers).toContain(SourcingReviewRepositoryAdapter);
     expect(providers).toContain(SourcingRecommendationSourceRepositoryAdapter);
@@ -362,6 +358,11 @@ describe("SourcingModule canonical owner wiring", () => {
       providers,
       SOURCING_RECOMMENDATION_REPOSITORY_PORT,
       SourcingRecommendationRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT,
+      SourcingKeywordPreferenceRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -587,13 +588,10 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/1688/image-search",
       "sourcing/1688/keyword-search",
       "sourcing/agent-rag",
-      "sourcing/market-model",
-      "sourcing/1688-new-product-model",
       "sourcing/rising-products",
       "sourcing/intelligence",
       "sourcing",
       "sourcing/trend/shadow",
-      "sourcing/workspace-snapshots",
       "sourcing/workspace/interests",
       "sourcing/workspace",
       "sourcing/workspace",

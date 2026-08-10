@@ -242,6 +242,76 @@ export const SourcingReviewSelectionListSchema = z
   .array(SourcingReviewSelectionSchema)
   .max(200);
 
+export const SourcingKeywordPreferenceCommandSchema = z
+  .object({
+    excluded: z.boolean(),
+    expectedVersion: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const SourcingKeywordPreferenceSchema = z
+  .object({
+    keyword: z.string().trim().min(1).max(200),
+    excluded: z.boolean(),
+    version: z.number().int().positive(),
+    updatedAt: InstantSchema,
+  })
+  .strict();
+
+export const SourcingKeywordPreferenceListSchema = z
+  .array(SourcingKeywordPreferenceSchema)
+  .max(1_000);
+
+export const SourcingInterestTargetTypeSchema = z.enum([
+  'keyword',
+  'category',
+  'product',
+]);
+
+export const SourcingInterestSourceSchema = z.enum([
+  'keyword_analysis',
+  'today_recommendation',
+  'wing_catalog',
+  'manual',
+]);
+
+export const SourcingInterestTargetCommandSchema = z
+  .object({
+    targetType: SourcingInterestTargetTypeSchema,
+    source: SourcingInterestSourceSchema,
+    label: z.string().trim().min(1).max(300).optional(),
+    keyword: z.string().trim().min(1).max(200).optional(),
+    category: z.string().trim().min(1).max(200).optional(),
+    productId: z.string().trim().min(1).max(200).optional(),
+    itemId: z.string().trim().min(1).max(200).nullable().optional(),
+    vendorItemId: z.string().trim().min(1).max(200).nullable().optional(),
+    productName: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+export const SourcingInterestTargetSchema = z
+  .object({
+    id: z.string().uuid(),
+    targetType: SourcingInterestTargetTypeSchema,
+    label: z.string().trim().min(1).max(300),
+    sourceKeys: z.array(SourcingInterestSourceSchema).min(1).max(10),
+    keyword: z.string().trim().min(1).max(200).nullable(),
+    category: z.string().trim().min(1).max(200).nullable(),
+    productId: z.string().trim().min(1).max(200).nullable(),
+    itemId: z.string().trim().min(1).max(200).nullable(),
+    vendorItemId: z.string().trim().min(1).max(200).nullable(),
+    productName: z.string().trim().min(1).max(500).nullable(),
+    enabled: z.boolean(),
+    version: z.number().int().positive(),
+    createdAt: InstantSchema,
+    updatedAt: InstantSchema,
+  })
+  .strip();
+
+export const SourcingInterestTargetListSchema = z
+  .array(SourcingInterestTargetSchema)
+  .max(1_000);
+
 export const SourcingRecommendationEnvelopeSchema = sourcingReadEnvelopeSchema(
   z
     .object({
@@ -272,3 +342,15 @@ export type SourcingReviewBatch = z.infer<typeof SourcingReviewBatchSchema>;
 export type SourcingValidationCheck = z.infer<typeof SourcingValidationCheckSchema>;
 export type SourcingValidationItem = z.infer<typeof SourcingValidationItemSchema>;
 export type SourcingValidationEnvelope = z.infer<typeof SourcingValidationEnvelopeSchema>;
+export type SourcingKeywordPreferenceCommand = z.infer<
+  typeof SourcingKeywordPreferenceCommandSchema
+>;
+export type SourcingKeywordPreference = z.infer<typeof SourcingKeywordPreferenceSchema>;
+export type SourcingInterestTargetType = z.infer<
+  typeof SourcingInterestTargetTypeSchema
+>;
+export type SourcingInterestSource = z.infer<typeof SourcingInterestSourceSchema>;
+export type SourcingInterestTargetCommand = z.infer<
+  typeof SourcingInterestTargetCommandSchema
+>;
+export type SourcingInterestTarget = z.infer<typeof SourcingInterestTargetSchema>;

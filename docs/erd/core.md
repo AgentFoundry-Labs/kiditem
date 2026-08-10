@@ -470,7 +470,6 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | ProductRegistrationExecution |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
-| Organization | organization | referenced by external | Sourcing | Sourcing1688HotProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | Sourcing1688OfferKeywordObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingCollectionSourceControl |
@@ -480,6 +479,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
 | Organization | organization | referenced by external | Sourcing | SourcingEvidenceObservation |
 | Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
+| Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
 | Organization | organization | referenced by external | Sourcing | SourcingLaunchCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItem |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItemEvidence |
@@ -552,6 +552,7 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
+| User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedBy | referenced by external | System | OperationRun |
 | User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
 | User | requestedByUser | referenced by external | Sourcing | ProductRegistrationExecution |

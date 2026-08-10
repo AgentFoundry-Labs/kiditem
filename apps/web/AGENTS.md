@@ -6,19 +6,8 @@ API routes or database access.
 
 ## Scoped Guide Discovery
 
-Do not rely on this file as a route index or on remembered route rules. Before
-editing a web file, use `rg --files -g AGENTS.md apps/web/src` and read every
-applicable guide in path order: `apps/web/AGENTS.md`, then any `AGENTS.md`
-under `src/app`, route group, route, or shared component/helper directory that
-contains the target file. Route groups do not affect URLs.
-
-When a change expands into another route group, shared frontend folder, or
-nested route, rerun discovery and read the newly applicable guide before
-editing there. Shared frontend guidance lives beside the owned surface:
-`src/components/AGENTS.md`, `src/hooks/AGENTS.md`, `src/lib/AGENTS.md`,
-`src/store/AGENTS.md`, and any nested `AGENTS.md` under those folders.
-Web `Folder Map` sections are intentionally sparse; use `rg --files` for route
-contents and keep local maps only when they encode ownership or exceptions.
+Follow the root discovery rule for route, route-group, and shared-folder guides.
+Route groups do not affect URLs; use `rg --files` instead of route inventories.
 
 ## Shared Frontend Boundaries
 

@@ -18,6 +18,7 @@ import {
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import { SourcingRecommendationService } from './sourcing-recommendation.service';
 
 @Injectable()
 export class Sourcing1688ImageSearchService {
@@ -25,6 +26,7 @@ export class Sourcing1688ImageSearchService {
     @Inject(SOURCING_1688_IMAGE_SEARCH_PORT)
     private readonly imageSearch: Sourcing1688ImageSearchPort,
     private readonly collectionCoordinator: SourcingCollectionCoordinator,
+    private readonly recommendations: SourcingRecommendationService,
   ) {}
 
   getStatus(): Search1688ImageStatus {
@@ -41,7 +43,7 @@ export class Sourcing1688ImageSearchService {
     const keyword = input.keyword?.trim() || undefined;
     const capturedAt = new Date();
     let result: Search1688ImageResult | null = null;
-    await this.collectionCoordinator.execute(
+    const execution = await this.collectionCoordinator.execute(
       {
         organizationId,
         sourceKey: '1688.image_search',
@@ -108,6 +110,9 @@ export class Sourcing1688ImageSearchService {
         });
       },
     );
+    if (execution.kind === 'committed') {
+      await this.recommendations.refresh({ organizationId, limit: 50 });
+    }
     if (!result) {
       throw new BadRequestException('An idempotent image search is already in progress.');
     }

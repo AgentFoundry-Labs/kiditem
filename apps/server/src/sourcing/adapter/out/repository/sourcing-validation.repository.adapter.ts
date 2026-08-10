@@ -50,6 +50,7 @@ export class SourcingValidationRepositoryAdapter
       where: {
         organizationId: input.organizationId,
         recommendationRunId: input.recommendationRunId,
+        recommendationItem: { sourcePlatform: '1688' },
         ...(cursor && {
           OR: [
             { updatedAt: { lt: cursor.updatedAt } },

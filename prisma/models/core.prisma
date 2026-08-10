@@ -183,6 +183,7 @@ model Organization {
   candidateImages            CandidateImage[]
   sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
   sourcingInterestTargets                    SourcingInterestTarget[]
+  sourcingKeywordPreferences                 SourcingKeywordPreference[]
   sourcing1688OfferKeywordObservations       Sourcing1688OfferKeywordObservation[]
   sourcingRecommendationRuns                 SourcingRecommendationRun[]
   sourcingRecommendationItems                SourcingRecommendationItem[]

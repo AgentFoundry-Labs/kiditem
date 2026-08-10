@@ -10,25 +10,6 @@
 - `/product-hub/matching` explicitly links channel listings to KidItem products
   and configures option-level Sellpia consumption rules.
 
-## Data Flow
-
-```text
-/product-hub and /product-hub/[id]
-  -> /api/products/masters
-  -> /api/products/recipe-component-candidates
-  -> queryKeys.products.operations
-
-/product-hub/options
-  -> /api/inventory/sellpia-skus
-  -> queryKeys.inventory
-
-/product-hub/matching
-  -> /api/channels/product-mappings
-  -> /api/channels/product-mappings/auto-match
-  -> /api/products/channel-options/:channelListingOptionId/inventory-components
-  -> queryKeys.channelProductMappings
-```
-
 ## State Rules
 
 - Preserve the operations-center composition: header controls, command cards,
@@ -51,18 +32,8 @@
   `abcGrade` and `abcCalculationStatus` are exclusive; unclassified is not C.
 - `수익성 데이터 갱신` requests `full` (product-profit then ABC),
   separately from inventory refresh.
-- Product detail and matching share the complete option-component replacement
-  contract. Matching uses one listing modal with child Sellpia identities and
-  quantities. The MasterProduct relationship is derived from saved recipes;
-  there is no separate product picker. A sole option renders as `기본 옵션`.
 - `/product-hub/options` owns independent Sellpia search, stock, active, link,
   refresh, and paging state. Its stock and price fields are provider facts.
-- Candidate generation on `/product-hub/matching` never confirms an identity
-  link. Product link mutations and component replacement require explicit
-  operator confirmation.
-- Channel catalog publication preserves option consumption rules. It does not
-  create channel-origin MasterProducts; the listing summary is rebuilt only
-  from confirmed option recipes.
 - Channel options without a confirmed Sellpia component rule remain
   visible here as `재고 연결 필요`; matching is the operator correction and
   component-attention workspace.
@@ -87,7 +58,6 @@
 - Channel rows show component status and capacity. Manual complete component
   edits are available both in product detail and the matching page's unified
   operating-product modal through the same direct option-component contract.
-- All API calls use `apiClient` + React Query and never send `organizationId`.
 - Keep all edited UI light-only; do not add `dark:` variants.
 
 ## Verification

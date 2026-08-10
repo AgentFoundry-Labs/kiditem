@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   SourcingCoupangObservationCommandSchema,
+  SourcingKeywordPreferenceCommandSchema,
+  SourcingKeywordPreferenceSchema,
   SourcingReadEnvelopeSchema,
   SourcingRecommendationItemSchema,
   SourcingReviewSelectionCommandSchema,
@@ -166,5 +168,29 @@ describe('sourcing workspace contracts', () => {
         ],
       }),
     ).toThrow();
+  });
+
+  it('keeps keyword preference updates keyed and compare-and-swap protected', () => {
+    expect(
+      SourcingKeywordPreferenceCommandSchema.parse({
+        excluded: true,
+        expectedVersion: 0,
+      }),
+    ).toEqual({ excluded: true, expectedVersion: 0 });
+    expect(() =>
+      SourcingKeywordPreferenceCommandSchema.parse({
+        excluded: true,
+        expectedVersion: 0,
+        keyword: 'body identity is rejected',
+      }),
+    ).toThrow();
+    expect(
+      SourcingKeywordPreferenceSchema.parse({
+        keyword: '유아 우산',
+        excluded: true,
+        version: 1,
+        updatedAt: '2026-08-10T00:00:00.000Z',
+      }),
+    ).toMatchObject({ keyword: '유아 우산', excluded: true });
   });
 });

@@ -1,166 +1,114 @@
 import { StrictMode } from 'react';
 import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
-import { runSourcing1688NewProductModel } from '../lib/sourcing-1688-new-product-model-api';
+import {
+  useCreateSourcingReviewBatch,
+  useSaveSourcingReviewSelection,
+  useSourcingInterestTargets,
+  useSourcingRecommendations,
+  useSourcingReviewSelections,
+} from '../hooks/use-sourcing-workspace';
 import { SellochFinalSelectionPage } from './SellochFinalSelectionPage';
 
-const SOURCE_URL = 'https://detail.1688.com/offer/123456789.html';
-let storedSelection: string | null = null;
+const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const ITEM_KEY = 'a'.repeat(64);
 
-vi.mock('@/lib/browser-storage', () => ({
-  safeStorageGet: vi.fn(),
-  safeStorageSet: vi.fn(),
-}));
-
-vi.mock('@/lib/session-cache-key', () => ({
-  sessionScopedDailyCacheKey: vi.fn(() => 'final-selection-test-key'),
-}));
-
-vi.mock('../lib/final-selection-chat', () => ({
-  buildFinalSelectionAgentResponse: vi.fn(),
-}));
-
-vi.mock('../lib/1688-new-product-snapshot', () => ({
-  appendCached1688ImageMatchesToSnapshot: vi.fn().mockResolvedValue(0),
-  buildCached1688ImageMatchCandidates: vi.fn(() => []),
-}));
-
-vi.mock('../lib/sourcing-1688-new-product-model-api', () => ({
-  runSourcing1688NewProductModel: vi.fn(),
+vi.mock('../hooks/use-sourcing-workspace', () => ({
+  useCreateSourcingReviewBatch: vi.fn(),
+  useSaveSourcingReviewSelection: vi.fn(),
+  useSourcingInterestTargets: vi.fn(),
+  useSourcingRecommendations: vi.fn(),
+  useSourcingReviewSelections: vi.fn(),
 }));
 
 vi.mock('../lib/sourcing-agent-rag-api', () => ({
   querySourcingAgentRag: vi.fn(),
 }));
 
-vi.mock('../lib/sourcing-interest-tracking', () => ({
-  loadLatestInterestTrackingPayload: vi.fn().mockResolvedValue({
-    result: { targets: [] },
-  }),
-}));
-
-vi.mock('../lib/sourcing-workspace-snapshot-api', () => ({
-  getTodaySourcingWorkspaceSnapshot: vi.fn().mockResolvedValue({ snapshot: null }),
-}));
-
-vi.mock('../lib/use-today-recommendation-rows', () => ({
-  useTodayRecommendationRows: vi.fn(() => []),
-}));
-
 vi.mock('./SellochFinalSelectionParts', () => ({
-  FinalCandidateCard: ({
-    row,
-    selected,
-    onToggleSelection,
-  }: {
-    row: { title: string };
-    selected: boolean;
-    onToggleSelection: (row: unknown) => void;
-  }) => (
-    <button type="button" onClick={() => onToggleSelection(row)}>
-      {selected ? '선택됨' : '선택'}
-    </button>
+  FinalCandidateCard: ({ selected }: { selected: boolean }) => (
+    <button type="button">{selected ? '선택됨' : '선택'}</button>
   ),
 }));
 
-describe('SellochFinalSelectionPage persisted selections', () => {
+describe('SellochFinalSelectionPage review state', () => {
   beforeEach(() => {
-    vi.mocked(safeStorageGet).mockReset();
-    vi.mocked(safeStorageSet).mockReset();
-    storedSelection = JSON.stringify({ [SOURCE_URL]: true });
-    vi.mocked(safeStorageGet).mockImplementation(() => storedSelection);
-    vi.mocked(safeStorageSet).mockImplementation((_, __, value) => {
-      storedSelection = value;
-      return true;
-    });
-    vi.mocked(runSourcing1688NewProductModel).mockReset();
-    vi.mocked(runSourcing1688NewProductModel).mockResolvedValue({
-      generatedAt: '2026-08-10T00:00:00.000Z',
-      result: {
-        candidates: [
-          {
-            id: 'server-candidate-id',
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({ data: [] } as never);
+    vi.mocked(useSourcingRecommendations).mockReturnValue({
+      data: {
+        status: 'ready',
+        generatedAt: '2026-08-10T00:00:00.000Z',
+        lastSuccessfulAt: '2026-08-10T00:00:00.000Z',
+        freshUntil: null,
+        operationId: null,
+        warnings: [],
+        error: null,
+        data: {
+          runId: RUN_ID,
+          nextCursor: null,
+          items: [{
+            itemKey: ITEM_KEY,
+            sourcePlatform: '1688',
+            externalOfferId: '123456789',
+            variantKey: '',
             rank: 1,
-            offerId: '123456789',
-            title: '테스트 1688 상품',
-            imageUrl: null,
-            sourceUrl: SOURCE_URL,
-            keyword: '테스트',
-            matchMethod: 'image',
             score: 80,
             grade: 'A',
-            decision: 'order',
-            components: {
-              newProductSignal: 80,
-              supplyQuality: 80,
-              coupangMatch: 80,
-              marketReaction: 80,
-              threeDayValidation: 80,
-              marginPotential: 80,
-              riskPenalty: 0,
-            },
-            wholesale: {
-              priceCny: 10,
-              monthlySales: 100,
-              tradeScore: 90,
-              repurchaseRate: null,
-              supplierName: '테스트 공급사',
-              shippingFulfillmentRate: '99%',
-              shippingPickupRate: '99%',
-              serviceScore: 90,
-              landedCostKrw: 3000,
-              estimatedProfitKrw: 5000,
-              estimatedMarginRate: 40,
-              sourceDate: '2026-08-10',
-            },
-            matchedCoupang: {
-              productId: 'coupang-product-1',
-              productName: '테스트 쿠팡 상품',
-              primaryKeyword: '테스트',
-              score: 80,
-              grade: 'A',
-              salePrice: 10000,
-              salesLast3d: 20,
-              salesLast28d: 100,
-              reviews: 10,
-              matchScore: 95,
-            },
-            reasons: [],
-            risks: [],
-            modelTags: [],
-            sourceSnapshotId: 'snapshot-1',
-            sourceDate: '2026-08-10',
-          },
-        ],
-        stats: {
-          candidateCount: 1,
-          sourceSnapshotCount: 1,
-          orderCount: 1,
-          observeCount: 0,
-          excludedCount: 0,
-          averageScore: 80,
-          topKeyword: '테스트',
-        },
-        model: {
-          pipeline: '1688_first_new_product_validation',
-          version: 1,
-          generatorVersion: 'test',
-          weights: {},
+            baselineAction: 'order',
+            reasonCodes: [],
+            riskCodes: [],
+            displayName: '테스트 1688 상품',
+            keyword: '테스트',
+            isNewKeyword: false,
+            imageUrl: null,
+            sourceUrl: 'https://detail.1688.com/offer/123456789.html',
+            overseasPriceCny: 10,
+            overseasPriceKrw: 2000,
+            salePriceKrw: 10000,
+            supplierName: '테스트 공급사',
+            monthlySales: 100,
+            repurchaseRate: null,
+            tradeScore: null,
+            minOrderQuantity: 2,
+            estimatedMarginRate: 40,
+            estimatedProfitKrw: 5000,
+            shippingLabel: null,
+            rating: null,
+            tags: [],
+            sourceKeywords: ['테스트'],
+            offerObservationIds: [],
+            evidenceObservationIds: [],
+            scoreComponents: { momentum: 60 },
+            coupang: null,
+            interest: null,
+            contributingSources: ['1688'],
+          }],
         },
       },
-    });
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useSourcingRecommendations>);
+    vi.mocked(useSourcingReviewSelections).mockReturnValue({
+      data: [{
+        workspaceKey: 'final',
+        recommendationRunId: RUN_ID,
+        itemKey: ITEM_KEY,
+        state: 'selected',
+        version: 1,
+        updatedAt: '2026-08-10T00:00:00.000Z',
+      }],
+    } as ReturnType<typeof useSourcingReviewSelections>);
+    vi.mocked(useSaveSourcingReviewSelection).mockReturnValue({ mutate: vi.fn() } as never);
+    vi.mocked(useCreateSourcingReviewBatch).mockReturnValue({ mutate: vi.fn(), isPending: false } as never);
   });
 
-  it('restores a selection when the current model row has a different transient id', async () => {
+  it('renders a persisted server review selection for the current recommendation run', async () => {
     render(
       <StrictMode>
         <SellochFinalSelectionPage />
       </StrictMode>,
     );
 
-    expect(
-      await screen.findByRole('button', { name: '선택됨' }),
-    ).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: '선택됨' })).toBeInTheDocument();
   });
 });

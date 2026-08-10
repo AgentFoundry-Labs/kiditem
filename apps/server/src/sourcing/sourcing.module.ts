@@ -8,7 +8,6 @@ import { ChannelsModule } from "../channels/channels.module";
 import { InventoryModule } from "../inventory/inventory.module";
 import { OperationsModule } from "../operations/operations.module";
 import { SupplyModule } from "../supply/supply.module";
-import { Sourcing1688NewProductModelController } from "./adapter/in/http/sourcing-1688-new-product-model.controller";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { MarketShadowSignalCapabilityAdapter } from "./adapter/in/agent/market-shadow-signal-capability.adapter";
@@ -23,11 +22,9 @@ import { Sourcing1688TrendExtensionController } from "./adapter/in/http/sourcing
 import { SourcingTiktokCcTrendExtensionController } from "./adapter/in/http/sourcing-tiktok-cc-trend-extension.controller";
 import { SourcingLiveCommerceExtensionController } from "./adapter/in/http/sourcing-live-commerce-extension.controller";
 import { SourcingKeywordResearchController } from "./adapter/in/http/sourcing-keyword-research.controller";
-import { SourcingMarketModelController } from "./adapter/in/http/sourcing-market-model.controller";
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
 import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intelligence.controller";
 import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcing-entry-recommendation.controller";
-import { SourcingWorkspaceSnapshotController } from "./adapter/in/http/sourcing-workspace-snapshot.controller";
 import { SourcingInterestTargetController } from "./adapter/in/http/sourcing-interest-target.controller";
 import { SourcingWorkspaceController } from "./adapter/in/http/sourcing-workspace.controller";
 import { SourcingReviewController } from "./adapter/in/http/sourcing-review.controller";
@@ -35,11 +32,9 @@ import { TrendCollectionController } from "./adapter/in/http/trend-collection.co
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
-import { Sourcing1688NewProductModelService } from "./application/service/sourcing-1688-new-product-model.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "./application/service/sourcing-1688-keyword-search.service";
 import { SourcingAgentRagService } from "./application/service/sourcing-agent-rag.service";
-import { SourcingMarketModelService } from "./application/service/sourcing-market-model.service";
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
@@ -47,10 +42,10 @@ import { SourcingAssistantService } from "./application/service/sourcing-assista
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
+import { SourcingKeywordPreferenceService } from "./application/service/sourcing-keyword-preference.service";
 import { SourcingValidationService } from "./application/service/sourcing-validation.service";
 import { SourcingReviewService } from "./application/service/sourcing-review.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
-import { SourcingWorkspaceSnapshotService } from "./application/service/sourcing-workspace-snapshot.service";
 import { SourcingShadowSignalService } from "./application/service/sourcing-shadow-signal.service";
 import { ProductRegistrationService } from "./application/service/product-registration.service";
 import { SourcingScrapeFinalizedBridge } from "./application/service/sourcing-scrape-finalized.bridge";
@@ -76,6 +71,7 @@ import { SourcingCandidateRepositoryAdapter } from "./adapter/out/repository/sou
 import { SourcingCollectionSourceControlRepositoryAdapter } from "./adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingKeywordPreferenceRepositoryAdapter } from "./adapter/out/repository/sourcing-keyword-preference.repository.adapter";
 import { SourcingValidationRepositoryAdapter } from "./adapter/out/repository/sourcing-validation.repository.adapter";
 import { SourcingReviewRepositoryAdapter } from "./adapter/out/repository/sourcing-review.repository.adapter";
 import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation-source.repository.adapter";
@@ -134,6 +130,7 @@ import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repo
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-keyword-preference.repository.port";
 import { SOURCING_VALIDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-validation.repository.port";
 import { SOURCING_REVIEW_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-review.repository.port";
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation-source.repository.port";
@@ -192,13 +189,10 @@ import {
     Sourcing1688ImageSearchController,
     Sourcing1688KeywordSearchController,
     SourcingAgentRagController,
-    SourcingMarketModelController,
-    Sourcing1688NewProductModelController,
     SourcingRisingProductController,
     SourcingIntelligenceController,
     SourcingCandidateWorkspaceController,
     MarketShadowSignalController,
-    SourcingWorkspaceSnapshotController,
     SourcingInterestTargetController,
     SourcingWorkspaceController,
     SourcingReviewController,
@@ -212,13 +206,11 @@ import {
     Sourcing1688ImageSearchService,
     Sourcing1688KeywordSearchService,
     SourcingAgentRagService,
-    SourcingMarketModelService,
-    Sourcing1688NewProductModelService,
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
-    SourcingWorkspaceSnapshotService,
     SourcingEntryRecommendationService,
     SourcingRecommendationService,
+    SourcingKeywordPreferenceService,
     SourcingValidationService,
     SourcingReviewService,
     SourcingWingCatalogIngestService,
@@ -254,6 +246,7 @@ import {
     SourcingCollectionSourceControlRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
+    SourcingKeywordPreferenceRepositoryAdapter,
     SourcingValidationRepositoryAdapter,
     SourcingReviewRepositoryAdapter,
     SourcingRecommendationSourceRepositoryAdapter,
@@ -360,6 +353,10 @@ import {
     {
       provide: SOURCING_RECOMMENDATION_REPOSITORY_PORT,
       useExisting: SourcingRecommendationRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT,
+      useExisting: SourcingKeywordPreferenceRepositoryAdapter,
     },
     {
       provide: SOURCING_VALIDATION_REPOSITORY_PORT,

@@ -1,11 +1,14 @@
-import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query } from '@nestjs/common';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingRecommendationService } from '../../../application/service/sourcing-recommendation.service';
 import { SourcingWingCatalogIngestService } from '../../../application/service/sourcing-wing-catalog-ingest.service';
+import { SourcingKeywordPreferenceService } from '../../../application/service/sourcing-keyword-preference.service';
 import {
   SourcingCoupangObservationDto,
+  SourcingKeywordPreferenceDto,
+  SourcingKeywordPreferenceParamsDto,
   SourcingRecommendationQueryDto,
 } from './dto';
 
@@ -14,6 +17,7 @@ export class SourcingWorkspaceController {
   constructor(
     private readonly recommendations: SourcingRecommendationService,
     private readonly wingCatalog: SourcingWingCatalogIngestService,
+    private readonly keywordPreferences: SourcingKeywordPreferenceService,
   ) {}
 
   @Get('recommendations')
@@ -57,6 +61,25 @@ export class SourcingWorkspaceController {
         salesLast28d: item.salesLast28d ?? null,
         capturedAt: item.capturedAt,
       })),
+    });
+  }
+
+  @Get('keyword-preferences')
+  listKeywordPreferences(@CurrentOrganization() organizationId: string) {
+    return this.keywordPreferences.list(organizationId);
+  }
+
+  @Put('keyword-preferences/:keyword')
+  saveKeywordPreference(
+    @Param() params: SourcingKeywordPreferenceParamsDto,
+    @Body() body: SourcingKeywordPreferenceDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.keywordPreferences.save({
+      organizationId,
+      keyword: params.keyword,
+      excluded: body.excluded,
+      expectedVersion: body.expectedVersion,
     });
   }
 }

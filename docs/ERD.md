@@ -159,7 +159,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | NaverPopularKeywordDailySnapshot | Sourcing | `naver_popular_keyword_daily_snapshots` | 네이버 데이터랩 인기키워드 보드(출산/육아·완구/인형·문구/사무 등)의 일별 순위 스냅샷. 보드×키워드 identity를 사용하고 매 수집마다 보드×일자 범위를 통째로 교체한다. |
 | ProductRegistrationExecution | Sourcing | `product_registration_executions` | Reviewed product preparation의 marketplace create/reconcile side effect 실행 기록. 준비 입력과 provider lifecycle을 분리해 보존한다. |
 | ShortsTrendDailySnapshot | Sourcing | `shorts_trend_daily_snapshots` | 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행. |
-| Sourcing1688HotProductDailySnapshot | Sourcing | `sourcing_1688_hot_product_daily_snapshots` | 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행. |
 | Sourcing1688OfferKeywordObservation | Sourcing | `sourcing_1688_offer_keyword_observations` | 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다. |
 | SourcingCandidate | Sourcing | `sourcing_candidates` | 외부 플랫폼에서 스크랩한 소싱 후보. MasterProduct와 분리된 sourcing inbox. |
 | SourcingCollectionSourceControl | Sourcing | `sourcing_collection_source_controls` | Optional organization-level pause for an allowlisted collection source. Absence means enabled. |
@@ -169,6 +168,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingEvidenceIngestionRun | Sourcing | `sourcing_evidence_ingestion_runs` | Durable collector attempt with a fenced lease, request identity, collection window, coverage, and terminal result. |
 | SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | Sourcing | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
+| SourcingKeywordPreference | Sourcing | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
 | SourcingLaunchCandidate | Sourcing | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
 | SourcingRecommendationItem | Sourcing | `sourcing_recommendation_items` | 한 추천 실행 안의 stable offer/variant 후보. 점수와 근거는 이 행을 기준으로 추적한다. |
 | SourcingRecommendationItemEvidence | Sourcing | `sourcing_recommendation_item_evidence` | 추천 후보가 사용한 immutable evidence 링크. retention과 재현성의 기준이다. |
@@ -2416,25 +2416,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  Sourcing1688HotProductDailySnapshot {
-    String id PK
-    String organizationId FK
-    DateTime businessDate
-    String offerId
-    String sourceKeyword
-    Int rank
-    String title
-    Decimal priceCny
-    Int monthlySales
-    String repurchaseRate
-    String tradeScore
-    String supplierName
-    String imageUrl
-    String sourceUrl
-    DateTime capturedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   Sourcing1688OfferKeywordObservation {
     String id PK
     String organizationId FK
@@ -2642,6 +2623,16 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingKeywordPreference {
+    String id PK
+    String organizationId FK
+    String keywordNormalized
+    String displayKeyword
+    Boolean excluded
+    Int version
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingLaunchCandidate {
     String id PK
     String organizationId FK
@@ -2739,6 +2730,7 @@ erDiagram
     String id PK
     String organizationId FK
     String recommendationRunId FK
+    String requestedByUserId FK
     String idempotencyKey
     String requestHash
     String status
@@ -3472,7 +3464,6 @@ erDiagram
   Organization ||--o{ ShipmentItem : "organization"
   Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
-  Organization ||--o{ Sourcing1688HotProductDailySnapshot : "organization"
   Organization ||--o{ Sourcing1688OfferKeywordObservation : "organization"
   Organization ||--o{ SourcingCandidate : "organization"
   Organization ||--o{ SourcingCollectionSourceControl : "organization"
@@ -3482,6 +3473,7 @@ erDiagram
   Organization ||--o{ SourcingEvidenceIngestionRun : "organization"
   Organization ||--o{ SourcingEvidenceObservation : "organization"
   Organization ||--o{ SourcingInterestTarget : "organization"
+  Organization ||--o{ SourcingKeywordPreference : "organization"
   Organization ||--o{ SourcingLaunchCandidate : "organization"
   Organization ||--o{ SourcingRecommendationItem : "organization"
   Organization ||--o{ SourcingRecommendationItemEvidence : "organization"
@@ -3644,6 +3636,7 @@ erDiagram
   User ||--o{ SourcingDecisionBatch : "requestedByUser"
   User o|--o{ SourcingEvidenceIngestionRun : "triggeredByUser"
   User ||--o{ SourcingLaunchCandidate : "createdByUser"
+  User ||--o{ SourcingReviewBatch : "requestedBy"
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"

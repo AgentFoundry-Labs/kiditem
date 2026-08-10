@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # orders — Marketplace Order Collection Domain
 
 `extensions/kiditem-os/background/orders/` automates marketplace order collection
@@ -10,25 +8,10 @@ KidItem web app for NestJS conversion.
 
 ## Owned Surfaces
 
-- Icecream Mall PO delivery inquiry grid capture.
-- Coupang supplier ASN visible-row Label/statement download triggers.
-- Coupang shipment cookie remediation: on a supplier.coupang.com `400 Bad
-  Request` (accumulated cookies overflow the request header), collectors
-  surface `errorCode: coupang_cookie_bloat`, and `clearCoupangCookies` removes
-  the cookies applying to supplier.coupang.com so the operator can re-login.
-- Supported marketplace order export capture, including Kakao Shopping Seller.
-- Coupang Rocket purchase-order list/detail collection for purchase quantity
-  previews and confirmation-workbook evidence.
-- Sellpia delivery-tracking lookup and order-file upload.
-- Sellpia 판매현황(sale_summary) 몰별·일별 매출 조회(읽기 전용) + `chrome.alarms`
-  매일 자동수집 캐시(웹앱이 백엔드로 flush).
-- Sellpia 상품별 이익현황(stat_prd_profit) 상품×월별 소진(판매수량) 조회(읽기 전용).
-- Sellpia option-product inventory full-snapshot collection from the fixed
-  authenticated `kiditem.sellpia.com` product-search JSON contract.
-- Domeggook and Onchannel tracking registration initiated from the KidItem
-  order-collection page.
-- KidItem local and Office extension-id discovery for order operations only.
-- Versioned order-collection failure evidence for operator recovery.
+Marketplace order exports, Rocket PO evidence, Sellpia inventory/sales/profit
+reads, Sellpia order upload/tracking lookup, supported tracking registration,
+cookie recovery, and versioned failure evidence live here. Use `rg --files` for
+the collector inventory.
 
 ## Browser Boundary
 
@@ -38,15 +21,9 @@ KidItem web app for NestJS conversion.
 - Host permissions stay exact to the supported marketplace origins.
 - Do not persist, log, return, forward, commit, or store marketplace session
   tokens, cookies, passwords, or browser credential-store values.
-- A supported marketplace collector may read a marketplace session token only
-  transiently when that marketplace's export API requires it. Use the token only
-  for same-marketplace origin requests, keep it in function scope, and never
-  include it in extension responses to KidItem.
-- Extension responses to the web app and backend carry only export artifacts,
-  structured order data, and non-secret metadata such as `xlsxBase64`,
-  `csvBase64`, file names, counts, and rows. Backend conversion, analysis, and
-  auth remain owned by the KidItem web app and NestJS API; marketplace tokens
-  must never be sent to KidItem.
+- Marketplace tokens are transient, function-scoped, and same-origin only;
+  never persist, log, return, or send them to KidItem. Responses contain only
+  export artifacts, structured rows, and non-secret metadata.
 - Destructive marketplace actions such as tracking registration require an
   explicit confirmation in the KidItem web page before the allowlisted action
   is sent to the extension.
@@ -56,24 +33,17 @@ KidItem web app for NestJS conversion.
   of every Coupang portal (supplier/WING/Rocket), so it requires an explicit
   KidItem web-page confirmation stating that blast radius. Remove cookies by
   name/path only; never read, return, forward, or store cookie values.
-- Do not send `organizationId`; backend auth/session scope owns organization
-  context.
 
 ## Collection Failure Contract
 
 - Return explicit zero (`success: true`, `empty: true`, `rowCount: 0`) only when
   authenticated content proves it. Missing, invalid, unloaded, or bare-404
   content is `provider_contract_changed`; auth evidence is `login_required`.
-- Advertise `orderCollectionFailureEvidenceV1` only when every automatic mall
-  failure leaving the common lifecycle includes versioned evidence with
-  `provider`, `action`, `code`, `retryable`, and `operatorAction`.
-- Keep the stable codes `login_required`, `operator_action_required`,
-  `provider_contract_changed`, `network_failed`, and `unknown_failure`.
-  Marketplace text remains display detail, not program control flow in the web
-  app. A verification screen (SMS/2-step/OTP) is `operator_action_required` for
-  every marketplace, matched before the login branch since such prompts also say
-  "로그인": `complete_sms_auth` (GS Shop SMS), `complete_auth` (other), or
-  `complete_login`.
+- Advertise `orderCollectionFailureEvidenceV1` only when every failure includes
+  `provider`, `action`, `code`, `retryable`, and `operatorAction`. Stable codes
+  are `login_required`, `operator_action_required`,
+  `provider_contract_changed`, `network_failed`, and `unknown_failure`;
+  provider text is display-only. Match SMS/OTP verification before login.
 - The web app must distinguish a pinging but incompatible extension from a
   missing extension and show the loaded version plus missing capabilities.
 
@@ -165,8 +135,7 @@ KidItem web app for NestJS conversion.
 
 ## Verification
 
-Inherits [`extensions/kiditem-os/AGENTS.md`](../../AGENTS.md#verification). The
-order-collection tests are the narrow gate for this domain:
+The order-collection tests are the narrow local gate:
 
 ```bash
 node --test extensions/tests/order-collector-*.test.mjs

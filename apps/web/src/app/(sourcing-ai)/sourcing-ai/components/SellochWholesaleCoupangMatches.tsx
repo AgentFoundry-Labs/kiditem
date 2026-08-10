@@ -13,7 +13,8 @@ import {
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
+import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import {
   buildCoupangImageSearchRows,
   buildImageSearchOffer,
@@ -27,25 +28,10 @@ import {
   search1688ByImage,
   type Search1688ImageResponse,
 } from '../lib/1688-image-search-api';
-import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
-import {
-  clearDailyImageSearchCache,
-  loadDailyImageSearchCache,
-  saveDailyImageSearchState,
-  type CachedImageSearchState,
-} from '../lib/daily-image-search-cache';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 const IMAGE_SEARCH_LAUNCH_INTERVAL_MS = 500;
 const IMAGE_SEARCH_RESULT_LIMIT = 18;
-
-type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
 
 type ImageSearchState =
   | { status: 'loading' }
@@ -58,14 +44,16 @@ type ImageSearchAvailability =
   | { status: 'error'; message: string };
 
 export function SellochWholesaleCoupangMatches() {
-  const localRows = useTodayRecommendationRows();
-  const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const coupangRows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
   const [imageSearches, setImageSearches] = useState<Record<string, ImageSearchState>>({});
   const [imageSearchAvailability, setImageSearchAvailability] = useState<ImageSearchAvailability>({ status: 'checking' });
   const autoRequestedIds = useRef<Set<string>>(new Set());
   const autoSearchTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
-  const coupangRows = localRows.length > 0 ? localRows : snapshotRows;
   const matches = useMemo(
     () => buildCoupangImageSearchRows({ coupangRows, limit: 24 }),
     [coupangRows],
@@ -100,46 +88,13 @@ export function SellochWholesaleCoupangMatches() {
         keyword: match.searchQuery,
         maxResults: IMAGE_SEARCH_RESULT_LIMIT,
       });
-      void append1688NewProductSnapshot({
-        source: '1688_image_match',
-        keyword: match.searchQuery,
-        items: result.items.map((item) => {
-          const offer = buildImageSearchOffer(item, match.targetSalePriceKrw);
-          return {
-            ...item,
-            keyword: match.searchQuery,
-            imageMatchScore: item.score,
-            targetSalePriceKrw: match.targetSalePriceKrw,
-            landedCostKrw: offer.landedCostKrw,
-            estimatedProfitKrw: offer.estimatedProfitKrw,
-            estimatedMarginRate: offer.estimatedMarginRate,
-            matchedCoupang: {
-              productId: match.coupangProduct.productId,
-              productName: match.coupangProduct.productName,
-              primaryKeyword: match.coupangProduct.primaryKeyword,
-              keywords: match.coupangProduct.keywords,
-              score: match.coupangProduct.score,
-              grade: match.coupangProduct.grade,
-              salePrice: match.coupangProduct.salePrice ?? match.targetSalePriceKrw,
-              salesLast3d: match.coupangProduct.salesLast3d,
-              salesLast28d: match.coupangProduct.salesLast28d ?? 0,
-              reviews: match.coupangProduct.ratingCount ?? 0,
-              marketReaction: match.coupangProduct.marketReactionSignal,
-              threeDayValidation: match.coupangProduct.newEntrySignal,
-              matchScore: item.score,
-            },
-          };
-        }),
-      }).catch(() => undefined);
-      const nextState: CachedImageSearchState = { status: 'success', result };
-      saveDailyImageSearchState(match.id, nextState);
+      const nextState: ImageSearchState = { status: 'success', result };
       setImageSearches((prev) => ({ ...prev, [match.id]: nextState }));
     } catch (error) {
-      const nextState: CachedImageSearchState = {
+      const nextState: ImageSearchState = {
         status: 'error',
         message: formatImageSearchError(error),
       };
-      saveDailyImageSearchState(match.id, nextState);
       setImageSearches((prev) => ({
         ...prev,
         [match.id]: nextState,
@@ -167,24 +122,9 @@ export function SellochWholesaleCoupangMatches() {
     if (!canRunImageSearch) return;
     clearAutoSearchTimers();
     autoRequestedIds.current.clear();
-    clearDailyImageSearchCache();
     setImageSearches({});
     scheduleImageSearches(matches);
   }, [canRunImageSearch, clearAutoSearchTimers, matches, scheduleImageSearches]);
-
-  useEffect(() => {
-    if (matches.length === 0) return;
-    const cached = loadDailyImageSearchCache();
-    const cachedStates = Object.fromEntries(
-      matches
-        .map((match) => [match.id, cached.states[match.id]] as const)
-        .filter((entry): entry is [string, CachedImageSearchState] => Boolean(entry[1])),
-    );
-    if (Object.keys(cachedStates).length === 0) return;
-
-    Object.keys(cachedStates).forEach((matchId) => autoRequestedIds.current.add(matchId));
-    setImageSearches((prev) => ({ ...cachedStates, ...prev }));
-  }, [matches]);
 
   useEffect(() => {
     if (!canRunImageSearch) return;
@@ -210,26 +150,6 @@ export function SellochWholesaleCoupangMatches() {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (localRows.length > 0) return () => {
-      active = false;
-    };
-
-    void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        const rows = snapshot?.payload?.result?.rows;
-        if (active && Array.isArray(rows)) setSnapshotRows(rows);
-      })
-      .catch(() => {
-        if (active) setSnapshotRows([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [localRows.length]);
 
   const finishedSearchCount = matches.filter((match) => {
     const state = imageSearches[match.id];

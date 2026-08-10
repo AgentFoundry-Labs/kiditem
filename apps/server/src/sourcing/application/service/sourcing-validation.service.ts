@@ -81,6 +81,7 @@ export class SourcingValidationService {
     if (!run) return unavailable(now, 'RECOMMENDATION_RUN_MISSING');
 
     const episodes = run.items
+      .filter((item) => item.sourcePlatform === '1688')
       .slice(0, limit)
       .map((item) => buildEpisode(item, now));
     const items = episodes.length === 0

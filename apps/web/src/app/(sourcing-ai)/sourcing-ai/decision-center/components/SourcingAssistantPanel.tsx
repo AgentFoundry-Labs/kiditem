@@ -169,7 +169,7 @@ function Turn({ turn }: { turn: AssistantTurn }) {
               : 'bg-emerald-50 text-emerald-700 ring-emerald-200',
           )}
         >
-          {degraded ? '근거만 (생성 안 됨)' : `CLI 생성 · ${answer.runtime ?? 'runtime'} · ${answer.model ?? ''}`}
+          {degraded ? '근거만 (생성 안 됨)' : `CLI 생성 · ${answer.model ?? ''}`}
         </span>
       )}
       <p className="whitespace-pre-line text-[11px] font-semibold leading-4 text-[var(--text-primary)]">

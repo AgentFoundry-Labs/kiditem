@@ -2,6 +2,7 @@ import { Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsDateString,
   IsIn,
   IsInt,
@@ -164,4 +165,20 @@ export class SourcingReviewBatchDto {
 export class SourcingReviewBatchParamsDto {
   @IsUUID()
   id!: string;
+}
+
+export class SourcingKeywordPreferenceParamsDto {
+  @IsString()
+  @MaxLength(200)
+  keyword!: string;
+}
+
+export class SourcingKeywordPreferenceDto {
+  @IsBoolean()
+  excluded!: boolean;
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedVersion!: number;
 }

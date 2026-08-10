@@ -14,6 +14,7 @@ import {
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import { SourcingRecommendationService } from './sourcing-recommendation.service';
 
 @Injectable()
 export class Sourcing1688KeywordSearchService {
@@ -21,6 +22,7 @@ export class Sourcing1688KeywordSearchService {
     @Inject(SOURCING_1688_KEYWORD_SEARCH_PORT)
     private readonly keywordSearch: Sourcing1688KeywordSearchPort,
     private readonly collectionCoordinator: SourcingCollectionCoordinator,
+    private readonly recommendations: SourcingRecommendationService,
   ) {}
 
   getStatus(): Search1688KeywordStatus {
@@ -39,7 +41,7 @@ export class Sourcing1688KeywordSearchService {
 
     let result: Search1688KeywordResult | null = null;
     const capturedAt = new Date();
-    await this.collectionCoordinator.execute(
+    const execution = await this.collectionCoordinator.execute(
       {
         organizationId,
         sourceKey: '1688.hot_product',
@@ -86,6 +88,9 @@ export class Sourcing1688KeywordSearchService {
         });
       },
     );
+    if (execution.kind === 'committed') {
+      await this.recommendations.refresh({ organizationId, limit: 50 });
+    }
     if (!result) {
       throw new BadRequestException('An idempotent keyword search is already in progress.');
     }

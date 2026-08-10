@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # kiditem-os — Unified KidItem Chrome Extension
 
 `extensions/kiditem-os/` is the single Manifest V3 extension for every KidItem
@@ -9,17 +7,10 @@ install and keep in sync separately.
 
 ## Folder Map
 
-| Path | Owner |
-|---|---|
-| `background/service-worker.js` | Loads every module, wires the unified dispatch. The only MV3 entrypoint. |
-| `background/domain-registry.js` | `KidItemDomains`: producer-prefix -> domain lookup and merged capabilities. |
-| `background/external-dispatch.js` | `ping` and the shared collection-session actions. |
-| `background/worker-globals.js` | Globals the three domains had duplicated: web URL patterns, `collectionSessions`, `interactiveTabs`. |
-| `background/{environment-context,collection-session,interactive-tabs}.js` | Shared foundation. The first two are generated from `extensions/shared/`. |
-| `background/coupang/`, `background/orders/`, `background/sourcing/` | Domain workers and their domain-only modules. |
-| `content/host-bridge.js` | Answers all three extension-id handshakes with the one extension id. |
-| `content/coupang/`, `content/sourcing/` | Marketplace content scripts. |
-| `popup/` | Side panel. `sourcing-panel.js` owns the sourcing section. |
+`background/service-worker.js` is the only MV3 entrypoint. Shared dispatch,
+environment/session/tab foundations load before the Coupang, orders, and
+sourcing workers. `content/` owns host/marketplace bridges; `popup/` owns the
+side panel. Use `rg --files` for the module inventory.
 
 ## Owned Surfaces
 

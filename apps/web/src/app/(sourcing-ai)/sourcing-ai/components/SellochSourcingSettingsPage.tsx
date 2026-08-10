@@ -1,90 +1,73 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Layers, Plus, RefreshCw, Tag, Trash2, type LucideIcon } from 'lucide-react';
+import type { SourcingInterestTarget } from '@kiditem/shared/sourcing';
 import { cn, formatNumber } from '@/lib/utils';
 import {
-  addSourcingInterestTarget,
   createCategoryInterestTarget,
   createKeywordInterestTarget,
-  loadLatestInterestTrackingPayload,
-  removeSourcingInterestTarget,
-  type SourcingInterestTarget,
-  type SourcingInterestTrackingSnapshotPayload,
-} from '../lib/sourcing-interest-tracking';
+} from '../lib/sourcing-interest-target';
+import {
+  useRemoveSourcingInterestTarget,
+  useSaveSourcingInterestTarget,
+  useSourcingInterestTargets,
+} from '../hooks/use-sourcing-workspace';
 
 export function SellochSourcingSettingsPage() {
-  const [payload, setPayload] = useState<SourcingInterestTrackingSnapshotPayload | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
   const [keywordInput, setKeywordInput] = useState('');
   const [categoryInput, setCategoryInput] = useState('');
   const [notice, setNotice] = useState<string | null>(null);
+  const targetsQuery = useSourcingInterestTargets();
+  const saveInterest = useSaveSourcingInterestTarget();
+  const removeInterest = useRemoveSourcingInterestTarget();
 
-  const targets = payload?.result.targets ?? [];
-  const keywordTargets = targets.filter((target) => target.type === 'keyword');
-  const categoryTargets = targets.filter((target) => target.type === 'category');
+  const targets = targetsQuery.data ?? [];
+  const loading = targetsQuery.isLoading || targetsQuery.isFetching;
+  const saving = saveInterest.isPending || removeInterest.isPending;
+  const keywordTargets = targets.filter((target) => target.targetType === 'keyword');
+  const categoryTargets = targets.filter((target) => target.targetType === 'category');
 
-  const refresh = () => {
-    setLoading(true);
-    void loadLatestInterestTrackingPayload(3)
-      .then((nextPayload) => setPayload(nextPayload))
-      .catch(() => setNotice('소싱 설정을 불러오지 못했습니다.'))
-      .finally(() => setLoading(false));
+  const refresh = async () => {
+    setNotice(null);
+    const result = await targetsQuery.refetch();
+    if (result.error) setNotice('소싱 설정을 불러오지 못했습니다.');
   };
-
-  useEffect(() => {
-    refresh();
-  }, []);
 
   const addKeyword = async () => {
     const keyword = keywordInput.trim();
     if (!keyword) return;
-    setSaving(true);
     try {
-      const nextPayload = await addSourcingInterestTarget({
-        target: createKeywordInterestTarget({ keyword, source: 'manual' }),
-        observation: { source: 'manual', note: '소싱 설정에서 직접 등록' },
-      });
-      setPayload(nextPayload);
+      await saveInterest.mutateAsync(
+        createKeywordInterestTarget({ keyword, source: 'manual' }),
+      );
       setKeywordInput('');
       setNotice('관심 키워드를 저장했습니다.');
     } catch {
       setNotice('관심 키워드 저장에 실패했습니다.');
-    } finally {
-      setSaving(false);
     }
   };
 
   const addCategory = async () => {
     const category = categoryInput.trim();
     if (!category) return;
-    setSaving(true);
     try {
-      const nextPayload = await addSourcingInterestTarget({
-        target: createCategoryInterestTarget({ category, source: 'manual' }),
-        observation: { source: 'manual', note: '소싱 설정에서 직접 등록' },
-      });
-      setPayload(nextPayload);
+      await saveInterest.mutateAsync(
+        createCategoryInterestTarget({ category, source: 'manual' }),
+      );
       setCategoryInput('');
       setNotice('관심 카테고리를 저장했습니다.');
     } catch {
       setNotice('관심 카테고리 저장에 실패했습니다.');
-    } finally {
-      setSaving(false);
     }
   };
 
   const removeTarget = async (target: SourcingInterestTarget) => {
-    setSaving(true);
     try {
-      const nextPayload = await removeSourcingInterestTarget({ targetId: target.id });
-      setPayload(nextPayload);
+      await removeInterest.mutateAsync(target.id);
       setNotice(`${target.label} 설정을 삭제했습니다.`);
     } catch {
       setNotice('소싱 설정 삭제에 실패했습니다.');
-    } finally {
-      setSaving(false);
     }
   };
 

@@ -7,75 +7,25 @@ and cross-domain backend ports.
 ## Folder Map
 
 ```text
-apps/server/
-├── src/
-│   ├── {owner-domain}/       # business/platform owner modules
-│   ├── auth/                 # authentication and organization context
-│   ├── common/               # shared backend infrastructure
-│   ├── prisma/               # PrismaService and DB module
-│   └── main.ts               # app bootstrap
-└── AGENTS.md                 # shared backend rules
-```
-
-Target structure for reconstructed owner domains:
-
-```text
 src/{owner-domain}/
 ├── {owner-domain}.module.ts
-├── adapter/in/http/          # controllers + HTTP DTO binding
-├── adapter/out/{lane}/       # DB/provider/runtime/storage/event adapters
-├── application/
-│   ├── port/in/              # incoming use-case ports when useful
-│   ├── port/out/             # DB/cross-domain/provider/runtime ports
-│   └── service/              # orchestration and transactions
-├── domain/                   # pure model/policy/services; no IO
-└── mapper/                   # row/DTO/domain mapping
+├── adapter/in/{http,agent,workflow,cli}/
+├── adapter/out/{lane}/
+├── application/{port,service}/
+├── domain/
+└── mapper/
 ```
 
-Flat controller/service modules are valid for simple owner capabilities and
-legacy CRUD. Convert to ports/adapters only when a real seam exists: provider
-SDK, Agent OS/runtime, workflow integration, cross-domain mutation, raw SQL,
-row-lock transaction, shared use-case consumer, meaningful pure policy,
-LLM/media/storage/fetch boundary, or large-file pressure.
+Flat modules are valid until a real provider, runtime, cross-domain, raw-SQL,
+transaction, storage, shared-use-case, or pure-policy seam exists.
 
 ## Owner Domain Map
 
-| Owner | Scope |
-|---|---|
-| `products` | Canonical inventory-product (`MasterProduct`) operations, automatic ABC, direct channel-option inventory composition, and `/api/categories` compatibility |
-| `sourcing` | Chinese product discovery, candidate inbox, account-scoped registration preparation |
-| `supply` | suppliers, SellpiaInventorySku supplier policy, purchase orders |
-| `inventory` | SellpiaInventorySku snapshot, warehouses, transfer/picking records |
-| `orders` | orders, returns, CS/reviews, return-transfer surfaces |
-| `finance` | P&L, settlements, supplier payments, cost/plan analytics |
-| `advertising` | ad operations, scrape ingest, ad actions |
-| `channels` | marketplace accounts, listing/option catalog import, option-to-inventory matching, derived listing-product summaries, and order sync |
-| `ai` | image/text/detail-page/thumbnail AI boundaries |
-| `rules` | business policy definitions and Agent OS delegation |
-| `agent-os` | agent catalog, queue, runtime, policy, cost, observability |
-| `automation` | workflows, alerts, action board, panel projection |
-| `analytics` | reporting/read models |
-| `platform` | auth, organizations, feature gates, uploads, readiness, common infra |
-
-Small table-shaped modules should fold into their owner domain during
-reconstruction. `/api/categories` remains a products compatibility route.
-Products owns the canonical inventory-product metadata and ABC on
-`MasterProduct`, plus the direct `ChannelListingOptionInventoryComponent`
-consumption recipe. Inventory alone owns physical
-`SellpiaInventorySku.currentStock` and atomically provisions/updates the
-one-to-one canonical MasterProduct for each imported SKU. Channels owns
-listing/option identity. `ChannelListing.masterProductId` is a derived summary
-only when every option resolves to the same inventory product. Do not recreate
-an operating variant layer, a second recipe, or a stock balance.
-
-## Scoped Guide Discovery
-
-Do not rely on remembered backend rules as a complete index.
-Before editing a backend file, use `rg --files -g AGENTS.md apps/server/src`
-and read every applicable guide in path order: `apps/server/AGENTS.md`, then
-the nearest owner-domain or nested surface guide that contains the target file.
-If the work expands into another owner domain or nested surface, rerun
-discovery and read the newly applicable guide before editing there.
+[`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) is the complete owner map.
+Critical splits: Products owns `MasterProduct` metadata/ABC and direct option
+recipes; Inventory owns physical `SellpiaInventorySku.currentStock`; Channels
+owns listing/option identity and its derived product summary. Do not recreate a
+variant, recipe, or stock ledger.
 
 ## Global HTTP Rules
 
@@ -108,52 +58,15 @@ discovery and read the newly applicable guide before editing there.
 
 ## Port Directory Rules
 
-Hexagonal owner modules classify ports by direction first. The second-level
-folder is intentionally asymmetric: incoming ports are owner capability
-Interfaces, while outgoing ports are driven Adapter family Interfaces.
-
-Incoming ports live under `application/port/in/`. Keep them flat when the owner
-publishes only one or two use-case Interfaces. Use a capability folder when
-three or more incoming ports share one owner capability, when a capability is
-published as an Agent/tool surface, or when the incoming Interface is exported
-for multiple consuming owners.
-
-Do not classify incoming ports by caller or entrypoint type. Folders such as
-`application/port/in/agent/`, `application/port/in/http/`, and
-`application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
-entrypoints belong under `adapter/in/{http,agent,workflow,cli}/` and may share
-the same incoming capability Interface.
-
-Outgoing ports live under `application/port/out/`. Use these lane folders when
-the lane exists:
-
-- `repository/` for Prisma or raw-SQL persistence Interfaces.
-- `transaction/` for unit-of-work or row-lock transaction Interfaces.
-- `provider/` for external API, SDK, LLM, marketplace, scrape, fetch, or model
-  provider Interfaces.
-- `storage/` for object, file, image, or media storage Interfaces.
-- `runtime/` for Agent OS, worker, browser, CLI, or execution runtime
-  Interfaces.
-- `event/` for event publication, audit, activity, panel, or ledger event
-  Interfaces.
-- `sink/` for finalized-output projection or event-consuming Interfaces.
-- `workflow/` for workflow orchestration, cancellation, or workflow engine
-  Interfaces.
-- `cross-domain/` for anti-corruption Interfaces to another owner Module.
-
-Outgoing port files do not stay directly under `application/port/out/`.
-Domain-specific outgoing ports still use the narrowest lane that explains the
-Adapter family. A direct `application/port/out/*.ts` exception requires both a
-documented architecture note and an explicit checker change.
-
-Cross-domain capabilities are not copied into `common` by default. The owning
-Module publishes an incoming Interface from `application/port/in/`, and
-consuming Modules depend on that Interface or define a narrow local outgoing
-Interface only when they need an anti-corruption Seam.
-
-Lane folders may export a local `index.ts`. Do not add broad barrels such as
-`application/port/index.ts` or `application/index.ts`; those hide the IO lane
-and weaken the Adapter Seam.
+- Incoming capability interfaces live under `application/port/in/`; caller
+  types belong under `adapter/in/*`, never `port/in/http|agent|workflow`.
+- Outgoing ports use the narrowest adapter-family lane:
+  `repository|transaction|provider|storage|runtime|event|sink|workflow|cross-domain`.
+  Do not leave files directly under `port/out/` without a documented checker
+  exception.
+- Owners publish incoming interfaces; consumers use them or a narrow local
+  anti-corruption port. Do not move cross-domain contracts into `common`.
+- Local lane barrels are allowed; broad `application`/`port` barrels are not.
 
 ## Special Surfaces
 

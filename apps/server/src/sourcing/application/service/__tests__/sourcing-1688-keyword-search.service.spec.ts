@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Sourcing1688KeywordSearchPort } from '../../port/out/provider/1688-keyword-search.port';
 import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 import { Sourcing1688KeywordSearchService } from '../sourcing-1688-keyword-search.service';
+import type { SourcingRecommendationService } from '../sourcing-recommendation.service';
 
 const organizationId = '00000000-0000-4000-8000-000000000001';
 
@@ -42,7 +43,8 @@ describe('Sourcing1688KeywordSearchService', () => {
       })),
     };
     const collection = coordinator();
-    const service = new Sourcing1688KeywordSearchService(provider, collection);
+    const recommendations = { refresh: vi.fn(async () => undefined) } as unknown as SourcingRecommendationService;
+    const service = new Sourcing1688KeywordSearchService(provider, collection, recommendations);
 
     await expect(service.searchByKeyword(organizationId, { keyword: ' 儿童餐盘 ' })).resolves.toMatchObject({
       keyword: '儿童餐盘',
@@ -53,5 +55,6 @@ describe('Sourcing1688KeywordSearchService', () => {
       expect.objectContaining({ organizationId, sourceKey: '1688.hot_product', targetKey: '儿童餐盘' }),
       expect.any(Function),
     );
+    expect(recommendations.refresh).toHaveBeenCalledWith({ organizationId, limit: 50 });
   });
 });

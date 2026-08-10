@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { KeyRound, Loader2, PackageSearch, RefreshCw, Search } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
 import {
   build1688SearchUrl,
   buildCoupangImageSearchRows,
@@ -15,29 +14,21 @@ import {
   search1688ByKeyword,
   type Search1688KeywordResponse,
 } from '../lib/1688-keyword-search-api';
-import { append1688NewProductSnapshot } from '../lib/1688-new-product-snapshot';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
+import { createKeywordInterestTarget } from '../lib/sourcing-interest-target';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import {
-  addSourcingInterestTarget,
-  createKeywordInterestTarget,
-  loadLatestInterestTrackingPayload,
-  removeSourcingInterestTarget,
-  type SourcingInterestTrackingSnapshotPayload,
-} from '../lib/sourcing-interest-tracking';
+  useRemoveSourcingInterestTarget,
+  useSaveSourcingInterestTarget,
+  useSourcingInterestTargets,
+  useSourcingRecommendations,
+} from '../hooks/use-sourcing-workspace';
 import { InterestKeywordManager } from '../keywords/components/InterestKeywordManager';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
-import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 const AUTO_KEYWORD_SEARCH_LIMIT = 6;
 const KEYWORD_SEARCH_RESULT_LIMIT = 6;
 const INLINE_KEYWORD_RESULT_LIMIT = 6;
 const DEFAULT_KEYWORD_TARGET_SALE_PRICE_KRW = 15900;
-
-type TodayRecommendationSnapshotPayload = Record<string, unknown> & {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
 
 type KeywordSearchState =
   | { status: 'loading' }
@@ -58,23 +49,31 @@ interface KeywordSearchCandidate {
 }
 
 export function SellochWholesaleKeywordSearch() {
-  const localRows = useTodayRecommendationRows();
-  const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const coupangRows = useMemo(
+    () => toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []),
+    [recommendationsQuery.data],
+  );
+  const interestTargetsQuery = useSourcingInterestTargets();
+  const saveInterestTarget = useSaveSourcingInterestTarget();
+  const removeInterestTarget = useRemoveSourcingInterestTarget();
   const [keywordSearches, setKeywordSearches] = useState<Record<string, KeywordSearchState>>({});
   const [availability, setAvailability] = useState<KeywordSearchAvailability>({ status: 'checking' });
-  const [interestPayload, setInterestPayload] = useState<SourcingInterestTrackingSnapshotPayload | null>(null);
-  const [loadingInterestKeywords, setLoadingInterestKeywords] = useState(false);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
   const [newKeywordText, setNewKeywordText] = useState('');
   const autoRequestedQueries = useRef<Set<string>>(new Set());
 
-  const coupangRows = localRows.length > 0 ? localRows : snapshotRows;
   const interestKeywords = useMemo(
-    () => (interestPayload?.result.targets ?? [])
-      .filter((target) => target.type === 'keyword' && target.keyword)
+    () => (interestTargetsQuery.data ?? [])
+      .filter((target) => target.targetType === 'keyword' && target.keyword)
       .map((target) => target.keyword as string),
-    [interestPayload],
+    [interestTargetsQuery.data],
   );
+  const loadingInterestKeywords =
+    interestTargetsQuery.isLoading ||
+    interestTargetsQuery.isFetching ||
+    saveInterestTarget.isPending ||
+    removeInterestTarget.isPending;
   const matches = useMemo(
     () => {
       if (interestKeywords.length > 0) {
@@ -121,11 +120,6 @@ export function SellochWholesaleKeywordSearch() {
         page: 1,
         maxResults: KEYWORD_SEARCH_RESULT_LIMIT,
       });
-      void append1688NewProductSnapshot({
-        source: '1688_keyword_search',
-        keyword: match.searchQuery,
-        items: result.items,
-      }).catch(() => undefined);
       setKeywordSearches((prev) => ({ ...prev, [match.searchQuery]: { status: 'success', result } }));
     } catch (error) {
       setKeywordSearches((prev) => ({
@@ -147,65 +141,43 @@ export function SellochWholesaleKeywordSearch() {
   }, [canRunKeywordSearch, matches, runKeywordSearch]);
 
   const loadInterestKeywords = useCallback(async () => {
-    setLoadingInterestKeywords(true);
+    setInterestNotice(null);
     try {
-      setInterestPayload(await loadLatestInterestTrackingPayload(3));
+      const result = await interestTargetsQuery.refetch();
+      if (result.error) throw result.error;
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, []);
+  }, [interestTargetsQuery]);
 
   const registerKeywords = useCallback(async () => {
     const keywords = parseKeywordText(newKeywordText);
     if (keywords.length === 0) return;
-    setLoadingInterestKeywords(true);
     setInterestNotice(null);
     try {
-      let payload: SourcingInterestTrackingSnapshotPayload | null = null;
       for (const keyword of keywords) {
-        payload = await addSourcingInterestTarget({
-          target: createKeywordInterestTarget({
-            keyword,
-            source: 'manual',
-          }),
-          observation: {
-            source: 'manual',
-            metrics: {
-              label: '1688 검색어 직접 등록',
-            },
-            note: '1688 키워드검색에서 관심 키워드로 저장',
-          },
-          trackingWindowDays: 3,
-        });
+        await saveInterestTarget.mutateAsync(
+          createKeywordInterestTarget({ keyword, source: 'manual' }),
+        );
       }
-      if (payload) setInterestPayload(payload);
+      await interestTargetsQuery.refetch();
       setNewKeywordText('');
       setInterestNotice(`${formatNumber(keywords.length)}개 키워드를 관심 키워드에 등록했습니다.`);
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, [newKeywordText]);
+  }, [interestTargetsQuery, newKeywordText, saveInterestTarget]);
 
   const removeKeywordInterest = useCallback(async (targetId: string) => {
-    setLoadingInterestKeywords(true);
     setInterestNotice(null);
     try {
-      const payload = await removeSourcingInterestTarget({
-        targetId,
-        trackingWindowDays: 3,
-      });
-      setInterestPayload(payload);
+      await removeInterestTarget.mutateAsync(targetId);
+      await interestTargetsQuery.refetch();
       setInterestNotice('관심 키워드를 삭제했습니다.');
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
-  }, []);
+  }, [interestTargetsQuery, removeInterestTarget]);
 
   const runManagedKeywordSearch = useCallback((keyword: string) => {
     const normalizedKeyword = keyword.trim();
@@ -223,10 +195,6 @@ export function SellochWholesaleKeywordSearch() {
   }, [canRunKeywordSearch, matches, runKeywordSearch]);
 
   useEffect(() => {
-    void loadInterestKeywords();
-  }, [loadInterestKeywords]);
-
-  useEffect(() => {
     let active = true;
     void get1688KeywordSearchStatus()
       .then((status) => {
@@ -240,26 +208,6 @@ export function SellochWholesaleKeywordSearch() {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (localRows.length > 0) return () => {
-      active = false;
-    };
-
-    void getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations')
-      .then(({ snapshot }) => {
-        const rows = snapshot?.payload?.result?.rows;
-        if (active && Array.isArray(rows)) setSnapshotRows(rows);
-      })
-      .catch(() => {
-        if (active) setSnapshotRows([]);
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [localRows.length]);
 
   const loadingSearchCount = matches.filter((match) => keywordSearches[match.searchQuery]?.status === 'loading').length;
 
@@ -331,8 +279,7 @@ export function SellochWholesaleKeywordSearch() {
           className="mt-4 border-[#eef1f5] bg-white shadow-none"
           loading={loadingInterestKeywords}
           notice={interestNotice}
-          observations={interestPayload?.result.observations ?? []}
-          targets={interestPayload?.result.targets ?? []}
+          targets={interestTargetsQuery.data ?? []}
           onRefresh={() => void loadInterestKeywords()}
           onRemove={(targetId) => {
             void removeKeywordInterest(targetId);

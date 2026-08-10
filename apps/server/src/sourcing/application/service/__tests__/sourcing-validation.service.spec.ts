@@ -54,6 +54,43 @@ describe('SourcingValidationService', () => {
       error: expect.objectContaining({ code: 'RECOMMENDATION_RUN_MISSING' }),
     });
   });
+
+  it('validates 1688 supply candidates independently of higher-ranked Coupang demand', async () => {
+    const supplyRun = run();
+    const recommendations = {
+      findLatest: vi.fn(async () => ({
+        ...supplyRun,
+        items: [
+          {
+            ...supplyRun.items[0],
+            id: '00000000-0000-4000-8000-000000000030',
+            itemKey: 'c'.repeat(64),
+            sourcePlatform: 'coupang' as const,
+            externalOfferId: '123456',
+            displayName: '쿠팡 유아 우산',
+            rank: 1,
+            score: 100,
+          },
+          { ...supplyRun.items[0], rank: 2 },
+        ],
+      })),
+      findById: vi.fn(),
+    };
+    const validations = {
+      replaceForRun: vi.fn(async () => [view()]),
+      listForRun: vi.fn(),
+    };
+    const service = new SourcingValidationService(
+      recommendations as never,
+      validations as never,
+    );
+
+    await service.refresh({ organizationId: ORGANIZATION_ID, limit: 1 });
+
+    expect(validations.replaceForRun.mock.calls[0][0].episodes).toEqual([
+      expect.objectContaining({ recommendationItemId: ITEM_ID }),
+    ]);
+  });
 });
 
 function run() {

@@ -38,20 +38,21 @@ export class SourcingReviewController {
   }
 
   @Get('review-selections')
-  listSelections(
+  async listSelections(
     @Query() query: SourcingReviewSelectionListQueryDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.review.listSelections({ organizationId, ...query });
+    const selections = await this.review.listSelections({ organizationId, ...query });
+    return selections.map(toReviewSelectionResponse);
   }
 
   @Put('review-selections/:itemKey')
-  saveSelection(
+  async saveSelection(
     @Param() params: SourcingReviewItemKeyParamsDto,
     @Body() body: SourcingReviewSelectionDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.review.saveSelection({
+    const selection = await this.review.saveSelection({
       organizationId,
       itemKey: params.itemKey,
       workspaceKey: body.workspaceKey,
@@ -59,28 +60,63 @@ export class SourcingReviewController {
       state: body.state,
       expectedVersion: body.expectedVersion,
     });
+    return toReviewSelectionResponse(selection);
   }
 
   @Post('review-batches')
-  createBatch(
+  async createBatch(
     @Body() body: SourcingReviewBatchDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    return this.review.createBatch({
+    const batch = await this.review.createBatch({
       organizationId,
       requestedByUserId: user.id,
       recommendationRunId: body.recommendationRunId,
       itemKeys: body.itemKeys,
       idempotencyKey: body.idempotencyKey,
     });
+    return toReviewBatchResponse(batch);
   }
 
   @Get('review-batches/:id')
-  getBatch(
+  async getBatch(
     @Param() params: SourcingReviewBatchParamsDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.review.getBatch(organizationId, params.id);
+    const batch = await this.review.getBatch(organizationId, params.id);
+    return toReviewBatchResponse(batch);
   }
+}
+
+function toReviewSelectionResponse(selection: {
+  workspaceKey: 'entry' | 'final';
+  recommendationRunId: string;
+  itemKey: string;
+  state: 'neutral' | 'selected' | 'removed';
+  version: number;
+  updatedAt: Date;
+}) {
+  return {
+    workspaceKey: selection.workspaceKey,
+    recommendationRunId: selection.recommendationRunId,
+    itemKey: selection.itemKey,
+    state: selection.state,
+    version: selection.version,
+    updatedAt: selection.updatedAt.toISOString(),
+  };
+}
+
+function toReviewBatchResponse(batch: {
+  id: string;
+  status: 'awaiting_procurement_enablement' | 'cancelled';
+  itemCount: number;
+  createdAt: Date;
+}) {
+  return {
+    id: batch.id,
+    status: batch.status,
+    itemCount: batch.itemCount,
+    createdAt: batch.createdAt.toISOString(),
+  };
 }

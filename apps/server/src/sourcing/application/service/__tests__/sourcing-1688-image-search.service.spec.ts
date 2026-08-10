@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Sourcing1688ImageSearchPort } from '../../port/out/provider/1688-image-search.port';
 import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 import { Sourcing1688ImageSearchService } from '../sourcing-1688-image-search.service';
+import type { SourcingRecommendationService } from '../sourcing-recommendation.service';
 
 describe('Sourcing1688ImageSearchService', () => {
   it('requires an authorized collection run before image provider IO', async () => {
@@ -14,7 +15,8 @@ describe('Sourcing1688ImageSearchService', () => {
         throw new Error('source_entitlement_missing');
       }),
     } as unknown as SourcingCollectionCoordinator;
-    const service = new Sourcing1688ImageSearchService(provider, collection);
+    const recommendations = { refresh: vi.fn(async () => undefined) } as unknown as SourcingRecommendationService;
+    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations);
 
     await expect(
       service.searchByImage('00000000-0000-4000-8000-000000000001', {
@@ -22,6 +24,7 @@ describe('Sourcing1688ImageSearchService', () => {
       }),
     ).rejects.toThrow('source_entitlement_missing');
     expect(provider.searchByImage).not.toHaveBeenCalled();
+    expect(recommendations.refresh).not.toHaveBeenCalled();
   });
 
   it('persists trusted image-search offers as keyword observations', async () => {
@@ -75,7 +78,8 @@ describe('Sourcing1688ImageSearchService', () => {
         };
       }),
     } as unknown as SourcingCollectionCoordinator;
-    const service = new Sourcing1688ImageSearchService(provider, collection);
+    const recommendations = { refresh: vi.fn(async () => undefined) } as unknown as SourcingRecommendationService;
+    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations);
 
     await service.searchByImage(
       '00000000-0000-4000-8000-000000000001',
@@ -101,6 +105,10 @@ describe('Sourcing1688ImageSearchService', () => {
           },
         },
       ],
+    });
+    expect(recommendations.refresh).toHaveBeenCalledWith({
+      organizationId: '00000000-0000-4000-8000-000000000001',
+      limit: 50,
     });
   });
 });

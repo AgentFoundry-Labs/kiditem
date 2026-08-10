@@ -73,6 +73,29 @@ describe('SourcingValidationRepositoryAdapter', () => {
       take: 51,
     }));
   });
+
+  it('lists only 1688 supply validation episodes for the validation workspace', async () => {
+    const prisma = {
+      sourcingValidationEpisode: {
+        findMany: vi.fn(async () => []),
+      },
+    };
+    const repository = new SourcingValidationRepositoryAdapter(prisma as never);
+
+    await repository.listForRun({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      limit: 50,
+    });
+
+    expect(prisma.sourcingValidationEpisode.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          recommendationItem: { sourcePlatform: '1688' },
+        }),
+      }),
+    );
+  });
 });
 
 function episode() {

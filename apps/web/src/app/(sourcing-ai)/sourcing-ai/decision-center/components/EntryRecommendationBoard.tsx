@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
@@ -9,14 +9,28 @@ import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
 import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
+import { useAuth } from '@/hooks/useAuth';
 import {
   askSourcingAssistant,
-  fetchEntryRecommendations,
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
   type EntrySourceStatus,
 } from '../lib/entry-recommendation-api';
 import { collectInterestKeywordsFrom1688 } from '../lib/collect-interest-1688';
+import {
+  toEntryInterestKeywordStatuses,
+  toEntryRecommendations,
+  toEntrySourceStatuses,
+} from '../../lib/sourcing-recommendation-presenter';
+import {
+  useRefreshSourcingRecommendations,
+  useSaveSourcingReviewSelection,
+  useSourcingInterestTargets,
+  useSourcingRecommendations,
+  useSourcingReviewSelections,
+} from '../../hooks/use-sourcing-workspace';
+import { interestTargetSource } from '../../lib/sourcing-interest-target';
+import { SourcingReadState } from '../../components/SourcingReadState';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
 import { SourcingAssistantPanel, type AssistantTurn } from './SourcingAssistantPanel';
@@ -36,14 +50,16 @@ type InterestFilter = 'all' | 'interest' | 'other';
  * (`CompetitorTrackingPage` 와 같은 패턴). 새 SSE 는 열지 않는다.
  */
 export function EntryRecommendationBoard() {
+  const { user } = useAuth();
+  const organizationId = user?.organizationId ?? null;
   const queryClient = useQueryClient();
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const [operationRunId, setOperationRunId] = useState<string | null>(null);
   const handledRunRef = useRef<string | null>(null);
+  const refreshRecommendations = useRefreshSourcingRecommendations();
+  const saveSelection = useSaveSourcingReviewSelection();
 
   const { data: run, isError: runQueryFailed } = useOperationRun(operationRunId);
   // run 조회가 실패하면 `run` 이 계속 undefined 라 "수집 중"으로 굳어 버튼이 영구히
@@ -53,13 +69,10 @@ export function EntryRecommendationBoard() {
     !runQueryFailed &&
     (!run || !isTerminalOperationStatus(run.status));
 
-  const recommendationsQuery = useQuery({
-    queryKey: queryKeys.sourcing.entryRecommendations(LIMIT),
-    queryFn: () => fetchEntryRecommendations(LIMIT),
-    // 수집 중에는 자주, 평소에는 느리게. 화면이 살아 있는 느낌을 주되 서버를 때리지 않는다.
-    refetchInterval: isCollecting ? 5_000 : 60_000,
-    placeholderData: keepPreviousData,
-  });
+  const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
+  const recommendationRunId = recommendationsQuery.data?.data?.runId ?? null;
+  const selectionsQuery = useSourcingReviewSelections('entry', recommendationRunId);
+  const interestTargetsQuery = useSourcingInterestTargets();
 
   const collectMutation = useMutation({
     mutationFn: () => startTrendCollectionAction({ sourceSurface: 'domain_screen' }),
@@ -91,8 +104,15 @@ export function EntryRecommendationBoard() {
       );
     }
 
-    void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-  }, [run, queryClient]);
+    if (run.status === 'succeeded') {
+      void refreshRecommendations.mutateAsync().catch(() => {
+        toast.error('수집은 완료됐지만 추천 결과를 갱신하지 못했습니다. 새로고침으로 다시 시도해주세요.');
+      });
+    }
+    void queryClient.invalidateQueries({
+      queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+    });
+  }, [organizationId, queryClient, refreshRecommendations, run]);
 
   /**
    * 관심 키워드로 1688 공급 후보를 확장 프로그램으로 수집한다.
@@ -101,10 +121,13 @@ export function EntryRecommendationBoard() {
    * 슬라이더 검증이 뜨면 확장이 탭을 열어 두고 운영자에게 넘기므로, 그 사유를
    * 삼키지 않고 토스트로 그대로 전달한다.
    */
-  const interestKeywords = recommendationsQuery.data?.interestKeywords ?? [];
   const collectInterestMutation = useMutation({
     mutationFn: () =>
-      collectInterestKeywordsFrom1688(interestKeywords.map((entry) => entry.keyword)),
+      collectInterestKeywordsFrom1688(
+        interestKeywords
+          .filter((entry) => entry.state !== 'candidates')
+          .map((entry) => entry.keyword),
+      ),
     onSuccess: (result) => {
       if (result.merged > 0) {
         // "추가"가 아니라 "반영" — 병합 후 중복이 제거되므로 순증가분과 다를 수 있다.
@@ -115,7 +138,9 @@ export function EntryRecommendationBoard() {
       for (const error of result.errors.slice(0, 3)) {
         toast.error(`${error.keyword}: ${error.message}`);
       }
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+      });
     },
     onError: (error: unknown) => {
       toast.error(error instanceof Error ? error.message : '관심 키워드 수집에 실패했습니다.');
@@ -143,7 +168,42 @@ export function EntryRecommendationBoard() {
     },
   });
 
-  const allItems = recommendationsQuery.data?.items ?? [];
+  const recommendationItems = recommendationsQuery.data?.data?.items ?? [];
+  const allItems = useMemo(() => toEntryRecommendations(recommendationItems), [recommendationItems]);
+  const selectionByItemId = useMemo(
+    () => new Map((selectionsQuery.data ?? []).map((selection) => [selection.itemKey, selection])),
+    [selectionsQuery.data],
+  );
+  const selectedIds = useMemo(
+    () => new Set(
+      [...selectionByItemId.values()]
+        .filter((selection) => selection.state === 'selected')
+        .map((selection) => selection.itemKey),
+    ),
+    [selectionByItemId],
+  );
+  const removedIds = useMemo(
+    () => new Set(
+      [...selectionByItemId.values()]
+        .filter((selection) => selection.state === 'removed')
+        .map((selection) => selection.itemKey),
+    ),
+    [selectionByItemId],
+  );
+  const interestTargets = useMemo(
+    () => (interestTargetsQuery.data ?? []).map((target) => ({
+      keyword: target.keyword ?? undefined,
+      label: target.label,
+      source: interestTargetSource(target),
+    })),
+    [interestTargetsQuery.data],
+  );
+  const interestKeywords = useMemo(
+    () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
+    [interestTargets, recommendationItems],
+  );
+  const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
+  const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
     () => allItems.filter((item) => !removedIds.has(item.id)),
     [allItems, removedIds],
@@ -167,29 +227,37 @@ export function EntryRecommendationBoard() {
     assistantMutation.mutate(question);
   };
 
-  const toggle = (id: string) =>
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+  const saveEntrySelection = (itemKey: string, state: 'neutral' | 'selected' | 'removed') => {
+    if (!recommendationRunId) {
+      toast.error('추천 결과를 불러온 뒤 다시 시도해주세요.');
+      return Promise.resolve();
+    }
+    const current = selectionByItemId.get(itemKey);
+    return saveSelection.mutateAsync({
+      itemKey,
+      command: {
+        workspaceKey: 'entry',
+        recommendationRunId,
+        state,
+        expectedVersion: current?.version ?? 0,
+      },
+    }).catch(() => {
+      toast.error('선택 상태를 저장하지 못했습니다. 최신 상태를 확인한 뒤 다시 시도해주세요.');
     });
+  };
+
+  const toggle = (id: string) => {
+    const current = selectionByItemId.get(id);
+    void saveEntrySelection(id, current?.state === 'selected' ? 'neutral' : 'selected');
+  };
 
   // "지금 보이는 행이 모두 선택돼 있는가"로 판단한다. 개수만 비교하면 필터를 바꿔
   // 개수가 우연히 같아졌을 때 전체선택이 해제로 뒤집힌다.
-  const toggleAll = () =>
-    setSelectedIds((prev) => {
-      const allVisibleSelected =
-        items.length > 0 && items.every((item) => prev.has(item.id));
-      if (allVisibleSelected) {
-        const next = new Set(prev);
-        items.forEach((item) => next.delete(item.id));
-        return next;
-      }
-      const next = new Set(prev);
-      items.forEach((item) => next.add(item.id));
-      return next;
-    });
+  const toggleAll = () => {
+    const allVisibleSelected = items.length > 0 && items.every((item) => selectedIds.has(item.id));
+    const state = allVisibleSelected ? 'neutral' : 'selected';
+    void Promise.all(items.map((item) => saveEntrySelection(item.id, state)));
+  };
 
   return (
     <div className="grid gap-4 xl:h-[calc(100dvh-48px)] xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -203,10 +271,7 @@ export function EntryRecommendationBoard() {
           onRefresh={() => void recommendationsQuery.refetch()}
         />
 
-        <SourceStrip
-          sources={recommendationsQuery.data?.sources ?? []}
-          dataGaps={recommendationsQuery.data?.dataGaps ?? []}
-        />
+        <SourceStrip sources={sources} dataGaps={dataGaps} />
 
         <InterestStrip
           keywords={interestKeywords}
@@ -227,29 +292,32 @@ export function EntryRecommendationBoard() {
           />
         )}
 
-        {recommendationsQuery.isLoading ? (
-          <p className="flex items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-6 text-xs font-semibold text-[var(--text-tertiary)]">
-            <Loader2 size={14} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            추천 상품을 불러오는 중…
-          </p>
-        ) : items.length === 0 ? (
-          <EmptyState
-            dataGaps={recommendationsQuery.data?.dataGaps ?? []}
-            filter={interestFilter}
-            hasAnyItem={visibleItems.length > 0}
-            onClearFilter={() => setInterestFilter('all')}
-          />
-        ) : (
-          <EntryRecommendationTable
-            items={items}
-            selectedIds={selectedIds}
-            activeId={activeId}
-            onToggle={toggle}
-            onToggleAll={toggleAll}
-            onRemove={(id) => setRemovedIds((prev) => new Set(prev).add(id))}
-            onSelectRow={(id) => setActiveId((prev) => (prev === id ? null : id))}
-          />
-        )}
+        <SourcingReadState
+          envelope={recommendationsQuery.data}
+          isLoading={recommendationsQuery.isLoading}
+          error={recommendationsQuery.error}
+          emptyLabel="추천 상품을 불러오는 중…"
+        >
+          {items.length === 0 ? (
+            <EmptyState
+              dataGaps={dataGaps}
+              filter={interestFilter}
+              hasAnyItem={visibleItems.length > 0}
+              onClearFilter={() => setInterestFilter('all')}
+            />
+          ) : (
+            <EntryRecommendationTable
+              items={items}
+              selectedIds={selectedIds}
+              activeId={activeId}
+              isSaving={saveSelection.isPending}
+              onToggle={toggle}
+              onToggleAll={toggleAll}
+              onRemove={(id) => void saveEntrySelection(id, 'removed')}
+              onSelectRow={(id) => setActiveId((prev) => (prev === id ? null : id))}
+            />
+          )}
+        </SourcingReadState>
       </div>
 
       <SourcingAssistantPanel
@@ -417,7 +485,7 @@ function InterestStrip({
         <button
           type="button"
           onClick={onCollect}
-          disabled={isCollecting}
+          disabled={isCollecting || missingSupply === 0}
           title="확장 프로그램이 내 브라우저에서 1688 검색 결과를 수집합니다"
           className="inline-flex items-center gap-1 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-1 text-[10px] font-black text-violet-700 transition-colors hover:bg-violet-100 disabled:cursor-not-allowed disabled:opacity-60"
         >

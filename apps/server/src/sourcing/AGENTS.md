@@ -165,30 +165,24 @@ by importing sourcing application services directly.
 
 ## Boundary Rules
 
-- Application services must not import `PrismaService`, `@prisma/client`, HTTP
-  DTOs, concrete `adapter/out/**` implementations, AI services, products
-  services, or automation services.
-- Source collection requires an allowlisted source key and a non-disabled
-  organization source control at claim and commit. Do not add review versions,
-  expiry dates, lifecycle states, or source-specific policy history to this
-  runtime.
+- Application services must not import Prisma, HTTP DTOs, concrete outbound
+  adapters, or AI/products/automation services.
+- Collection claim and commit require an allowlisted source and non-disabled
+  organization control; no review, expiry, lifecycle, or policy history.
 - Canonical recommendation actions are exactly `test_order|hold|reject`.
   Current heuristic `order|observe_3d|exclude` is baseline model output only.
   Coverage confidence cannot create an execution-eligible test order.
 - Every supplier-offer snapshot, LaunchCandidate, decision, and procurement
   intent is immutable/idempotent provenance. Do not add direct intent→PO or
   provider-execution paths.
-- Extension ingest records a controlled immutable evidence observation before
-  it projects `SourcingCandidate` and `CandidateImage`;
-  registration state belongs to `ProductPreparation` and account-scoped
-  `ChannelListing` rows, never candidate status.
+- Extension ingest records controlled immutable evidence before projecting a
+  candidate/image; registration belongs to `ProductPreparation` and
+  account-scoped `ChannelListing`, never candidate status.
 - Product-less detail generation uses direct AI content workspaces and must not
   create collected-product `SourcingCandidate` rows.
-- Candidate delete archives the active source-candidate workspace and related
-  AI rows; it must not delete promoted masters, product images, channel
-  listings, orders, inventory, or finance data.
-- Physical storage deletion is a retention/GC concern and must re-check active
-  references before deleting objects.
+- Candidate delete archives its workspace/AI rows, never promoted masters,
+  product images, channel listings, orders, inventory, or finance data.
+- Storage deletion is retention/GC only and rechecks active references.
 - Candidate status is only `sourced|rejected`. Registration state is derived
   from preparations/listings; concurrent active-draft losers surface as
   conflict.

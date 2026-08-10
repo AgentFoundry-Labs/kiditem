@@ -31,6 +31,9 @@ Current runbooks:
 - [Release Train Versioning](release-train-versioning.md) — open one root
   `VERSION` per deployable train, classify schema/data work, assign durable
   migrations, and promote the assembled train without another bump.
+- [Sourcing Backend Normalized Cutover](sourcing-backend-cutover.md) — preserve
+  canonical sourcing history and provenance while removing the lossy 1688
+  hot-product storage and resetting only derived dashboard projections.
 - [Office Deploy](office-deploy.md) — build immutable office images in GitHub
   Actions, apply digest-only releases to the Windows office runtime, verify
   health, manage disk pressure, and roll back without local image builds.

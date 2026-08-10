@@ -152,6 +152,26 @@ model SourcingInterestTarget {
 }
 
 /// @namespace Sourcing
+/// @describe 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다.
+model SourcingKeywordPreference {
+  id                String   @id @default(uuid()) @db.Uuid
+  organizationId    String   @map("organization_id") @db.Uuid
+  keywordNormalized String   @map("keyword_normalized") @db.VarChar(200)
+  displayKeyword    String   @map("display_keyword") @db.VarChar(200)
+  excluded          Boolean  @default(false)
+  version           Int      @default(1)
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([id, organizationId], map: "sourcing_keyword_preferences_id_org_key")
+  @@unique([organizationId, keywordNormalized], map: "sourcing_keyword_preferences_org_keyword_key")
+  @@index([organizationId, excluded, updatedAt], map: "sourcing_keyword_preferences_excluded_idx")
+  @@map("sourcing_keyword_preferences")
+}
+
+/// @namespace Sourcing
 /// @describe 1688 키워드 검색에서 수집한 정확한 offer/variant 관측치. 같은 offer가 여러 키워드에서 발견된 provenance를 보존한다.
 model Sourcing1688OfferKeywordObservation {
   id                    String @id @default(uuid()) @db.Uuid
