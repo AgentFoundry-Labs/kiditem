@@ -121,6 +121,7 @@ function makeExecutor(options: {
     createRunForClaimedRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
     finalizeRun: vi.fn().mockResolvedValue({
+      finalized: true,
       run: makeRun({
         status: 'succeeded',
         finishedAt: new Date('2026-05-07T00:01:00.000Z'),
@@ -465,6 +466,7 @@ describe('AgentRunExecutor', () => {
       runtimeResult: { output: { ok: true } },
     });
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
       run: makeRun({ status: 'succeeded' }),
       requestStatus: 'cancelled',
     });
@@ -491,6 +493,7 @@ describe('AgentRunExecutor', () => {
       runtimeResult: { output: { ok: true, stale: 'must-not-publish' } },
     });
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
       run: makeRun({
         status: 'failed',
         errorCode: 'process_interrupted',
@@ -524,6 +527,7 @@ describe('AgentRunExecutor', () => {
       runtimeResult: { output: { status: 'waiting_approval' } },
     });
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: true,
       run: makeRun({ status: 'succeeded' }),
       requestStatus: 'requires_approval',
     });
@@ -550,6 +554,7 @@ describe('AgentRunExecutor', () => {
     });
     runtime.execute.mockRejectedValueOnce(new Error('provider timeout'));
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
       run: makeRun({ status: 'failed' }),
       requestStatus: 'cancelled',
     });
@@ -558,6 +563,41 @@ describe('AgentRunExecutor', () => {
 
     expect(repository.markRequestStatus).not.toHaveBeenCalledWith(
       expect.objectContaining({ status: 'failed' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+  });
+
+  it('does not overwrite a reconciliation failure after a late runtime failure', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ attempts: 1, maxAttempts: 3 }),
+      runtimeError: new Error('old runtime failed after restart'),
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
+      run: makeRun({
+        status: 'failed',
+        errorCode: 'process_interrupted',
+        errorMessage: 'Interrupted during restart reconciliation.',
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+      }),
+      requestStatus: 'failed',
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'process_interrupted',
+      errorCode: 'process_interrupted',
+    });
+    expect(repository.markRequestStatus).not.toHaveBeenCalled();
+    expect(repository.appendRunEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'run.failed' }),
     );
     expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,

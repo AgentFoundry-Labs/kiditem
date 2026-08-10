@@ -10,6 +10,7 @@ import {
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import {
   type AgentRunEventRecord,
+  type AgentRunRecord,
   type AgentRunRequestStatus,
   type AgentRunStatus,
 } from '../../../domain/agent-os.types';
@@ -180,24 +181,16 @@ export class AgentOsRunRepository {
 
   async finalizeRun(input: FinalizeRunInput) {
     return this.prisma.$transaction(async (tx) => {
-      const existing = await tx.agentRun.findFirst({
-        where: {
-          id: input.runId,
-          organizationId: input.organizationId,
-          requestId: input.requestId,
-        },
-      });
-      if (!existing) {
-        throw new AgentOsBoundaryError(
-          'run_organization_mismatch',
-          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
-        );
-      }
-
-      const request = await tx.agentRunRequest.findFirst({
-        where: { id: input.requestId, organizationId: input.organizationId },
-        select: { id: true, status: true },
-      });
+      const requests = await tx.$queryRaw<
+        Array<{ id: string; status: AgentRunRequestStatus }>
+      >`
+        SELECT request."id", request."status"
+        FROM "agent_run_requests" request
+        WHERE request."id" = ${input.requestId}::uuid
+          AND request."organization_id" = ${input.organizationId}::uuid
+        FOR UPDATE OF request
+      `;
+      const request = requests[0];
       if (!request) {
         throw new AgentOsBoundaryError(
           'request_organization_mismatch',
@@ -205,18 +198,63 @@ export class AgentOsRunRepository {
         );
       }
 
-      if (existing.status !== 'running') {
-        return {
-          run: toRunRecord(existing),
-          requestStatus: request.status as AgentRunRequestStatus,
-        };
+      const runs = await tx.$queryRaw<AgentRunRecord[]>`
+        SELECT
+          run."id",
+          run."organization_id" AS "organizationId",
+          run."agent_instance_id" AS "agentInstanceId",
+          run."request_id" AS "requestId",
+          run."task_session_id" AS "taskSessionId",
+          run."retry_of_run_id" AS "retryOfRunId",
+          run."status",
+          run."attempt",
+          run."invocation_source" AS "invocationSource",
+          run."adapter_type" AS "adapterType",
+          run."model",
+          run."provider",
+          run."task_key" AS "taskKey",
+          run."started_at" AS "startedAt",
+          run."finished_at" AS "finishedAt",
+          run."error_code" AS "errorCode",
+          run."error_message" AS "errorMessage",
+          run."output",
+          run."last_event_seq" AS "lastEventSeq"
+        FROM "agent_runs" run
+        WHERE run."id" = ${input.runId}::uuid
+          AND run."organization_id" = ${input.organizationId}::uuid
+          AND run."request_id" = ${input.requestId}::uuid
+        FOR UPDATE OF run
+      `;
+      const existing = runs[0];
+      if (!existing) {
+        throw new AgentOsBoundaryError(
+          'run_organization_mismatch',
+          `AgentRun ${input.runId} does not belong to organization ${input.organizationId}.`,
+        );
       }
 
       const requestWasCancelled = request.status === 'cancelled';
       const requestRequiresApproval = request.status === 'requires_approval';
+      const mayFinalize =
+        request.status === 'claimed' ||
+        (requestRequiresApproval && input.status === 'succeeded') ||
+        (requestWasCancelled && input.status === 'cancelled');
+      if (existing.status !== 'running' || !mayFinalize) {
+        return {
+          finalized: false,
+          run: existing,
+          requestStatus: request.status,
+        };
+      }
+
       const runStatus = requestWasCancelled ? 'cancelled' : input.status;
-      const run = await tx.agentRun.update({
-        where: { id: input.runId },
+      const runUpdate = await tx.agentRun.updateMany({
+        where: {
+          id: input.runId,
+          organizationId: input.organizationId,
+          requestId: input.requestId,
+          status: 'running',
+        },
         data: {
           status: runStatus,
           output:
@@ -232,8 +270,21 @@ export class AgentOsRunRepository {
           finishedAt: new Date(),
         },
       });
+      if (runUpdate.count !== 1) {
+        throw new AgentOsBoundaryError(
+          'run_finalization_conflict',
+          `AgentRun ${input.runId} could not be finalized from running state.`,
+        );
+      }
+      const run = await tx.agentRun.findFirstOrThrow({
+        where: {
+          id: input.runId,
+          organizationId: input.organizationId,
+          requestId: input.requestId,
+        },
+      });
 
-      let requestStatus = request.status as AgentRunRequestStatus;
+      let requestStatus = request.status;
       if (!requestWasCancelled && !requestRequiresApproval) {
         requestStatus =
           runStatus === 'succeeded'
@@ -244,7 +295,11 @@ export class AgentOsRunRepository {
                 ? 'cancelled'
                 : 'skipped';
         const requestUpdate = await tx.agentRunRequest.updateMany({
-          where: { id: input.requestId, organizationId: input.organizationId },
+          where: {
+            id: input.requestId,
+            organizationId: input.organizationId,
+            status: 'claimed',
+          },
           data: {
             status: requestStatus,
             finishedAt: new Date(),
@@ -307,6 +362,7 @@ export class AgentOsRunRepository {
       }
 
       return {
+        finalized: true,
         run: toRunRecord(run),
         requestStatus,
       };

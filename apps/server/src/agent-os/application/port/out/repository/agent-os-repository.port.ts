@@ -147,6 +147,7 @@ export interface FinalizeRunInput {
 }
 
 export interface FinalizeRunResult {
+  finalized: boolean;
   run: AgentRunRecord;
   requestStatus: AgentRunRequestRecord['status'];
 }
