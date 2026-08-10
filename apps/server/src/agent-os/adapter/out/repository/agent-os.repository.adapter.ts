@@ -184,8 +184,8 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   }
 
   // ---- Runs / events ------------------------------------------------------
-  createRunForRequest(input: CreateRunRecordInput) {
-    return this.runs.createRunForRequest(input);
+  createRunForClaimedRequest(input: CreateRunRecordInput) {
+    return this.runs.createRunForClaimedRequest(input);
   }
 
   findRunById(input: { organizationId: string; runId: string }) {

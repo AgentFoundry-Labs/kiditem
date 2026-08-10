@@ -269,28 +269,7 @@ export class AgentRunExecutor {
     }
 
     const promptPath = instance.promptPathOverride ?? definition.promptPath;
-    const currentRequest = await this.repository.findRunRequestById({
-      organizationId: claimed.organizationId,
-      requestId: claimed.id,
-    });
-    if (
-      !currentRequest ||
-      currentRequest.id !== claimed.id ||
-      currentRequest.organizationId !== claimed.organizationId ||
-      currentRequest.agentInstanceId !== claimed.agentInstanceId ||
-      currentRequest.status !== 'claimed'
-    ) {
-      return {
-        executed: false,
-        requestId: claimed.id,
-        reason:
-          currentRequest?.status === 'cancelled'
-            ? 'user_cancelled'
-            : 'process_interrupted',
-      };
-    }
-
-    const run = await this.repository.createRunForRequest({
+    const run = await this.repository.createRunForClaimedRequest({
       organizationId: claimed.organizationId,
       agentInstanceId: instance.id,
       requestId: claimed.id,
@@ -302,6 +281,20 @@ export class AgentRunExecutor {
       taskKey: claimed.taskKey,
       input: claimed.payload,
     });
+    if (!run) {
+      const currentRequest = await this.repository.findRunRequestById({
+        organizationId: claimed.organizationId,
+        requestId: claimed.id,
+      });
+      return {
+        executed: false,
+        requestId: claimed.id,
+        reason:
+          currentRequest?.status === 'cancelled'
+            ? 'user_cancelled'
+            : 'process_interrupted',
+      };
+    }
 
     await this.repository.appendRunEvent({
       organizationId: run.organizationId,
@@ -358,7 +351,11 @@ export class AgentRunExecutor {
               },
       });
 
-      if (finalized.requestStatus === 'cancelled') {
+      if (
+        finalized.requestStatus === 'cancelled' ||
+        finalized.run.status === 'cancelled' ||
+        finalized.run.errorCode === 'user_cancelled'
+      ) {
         await this.repository.appendRunEvent({
           organizationId: run.organizationId,
           runId: run.id,
@@ -366,10 +363,19 @@ export class AgentRunExecutor {
           type: 'run.finalized_after_cancel',
           data: { requestId: claimed.id, runtimeStatus: 'succeeded' },
         });
-        return { executed: true, requestId: claimed.id, runId: run.id };
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: 'user_cancelled',
+          errorCode: 'user_cancelled',
+        };
       }
 
-      if (finalized.requestStatus === 'requires_approval') {
+      if (
+        finalized.requestStatus === 'requires_approval' &&
+        finalized.run.status === 'succeeded'
+      ) {
         await this.repository.appendRunEvent({
           organizationId: run.organizationId,
           runId: run.id,
@@ -382,6 +388,19 @@ export class AgentRunExecutor {
           requestId: claimed.id,
           runId: run.id,
           reason: 'requires_approval',
+        };
+      }
+
+      if (
+        finalized.run.status !== 'succeeded' ||
+        finalized.requestStatus !== 'succeeded'
+      ) {
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: 'process_interrupted',
+          errorCode: 'process_interrupted',
         };
       }
 

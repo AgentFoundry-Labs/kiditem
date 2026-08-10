@@ -22,27 +22,51 @@ import {
 export class AgentOsRunRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  async createRunForRequest(input: CreateRunRecordInput) {
-    const session = await this.prisma.agentTaskSession.findFirst({
-      where: { id: input.taskSessionId, organizationId: input.organizationId },
-      select: { taskKey: true, adapterType: true },
-    });
+  async createRunForClaimedRequest(input: CreateRunRecordInput) {
+    return this.prisma.$transaction(async (tx) => {
+      const claimed = await tx.$queryRaw<Array<{ id: string }>>`
+        SELECT request."id"
+        FROM "agent_run_requests" request
+        WHERE request."id" = ${input.requestId}::uuid
+          AND request."organization_id" = ${input.organizationId}::uuid
+          AND request."agent_instance_id" = ${input.agentInstanceId}::uuid
+          AND request."task_session_id" = ${input.taskSessionId}::uuid
+          AND request."status" = 'claimed'
+        FOR UPDATE OF request
+      `;
+      if (claimed.length === 0) return null;
 
-    const row = await this.prisma.agentRun.create({
-      data: {
-        organizationId: input.organizationId,
-        agentInstanceId: input.agentInstanceId,
-        requestId: input.requestId,
-        taskSessionId: input.taskSessionId,
-        attempt: input.attempt,
-        invocationSource: input.invocationSource,
-        adapterType: input.adapterType,
-        model: input.model,
-        taskKey: input.taskKey ?? session?.taskKey ?? null,
-        input: input.input as Prisma.InputJsonValue,
-      },
+      const session = await tx.agentTaskSession.findFirst({
+        where: {
+          id: input.taskSessionId,
+          organizationId: input.organizationId,
+          agentInstanceId: input.agentInstanceId,
+        },
+        select: { taskKey: true },
+      });
+      if (!session) {
+        throw new AgentOsBoundaryError(
+          'agent_run_context_missing',
+          'Cannot create AgentRun without its organization-scoped task session.',
+        );
+      }
+
+      const row = await tx.agentRun.create({
+        data: {
+          organizationId: input.organizationId,
+          agentInstanceId: input.agentInstanceId,
+          requestId: input.requestId,
+          taskSessionId: input.taskSessionId,
+          attempt: input.attempt,
+          invocationSource: input.invocationSource,
+          adapterType: input.adapterType,
+          model: input.model,
+          taskKey: input.taskKey ?? session.taskKey,
+          input: input.input as Prisma.InputJsonValue,
+        },
+      });
+      return toRunRecord(row);
     });
-    return toRunRecord(row);
   }
 
   async findRunById(input: { organizationId: string; runId: string }) {

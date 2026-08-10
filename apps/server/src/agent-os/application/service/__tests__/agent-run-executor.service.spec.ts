@@ -118,10 +118,13 @@ function makeExecutor(options: {
     findRunRequestById: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
-    createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
+    createRunForClaimedRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
     finalizeRun: vi.fn().mockResolvedValue({
-      run: makeRun(),
+      run: makeRun({
+        status: 'succeeded',
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+      }),
       requestStatus: 'succeeded',
     }),
     markRequestStatus: vi.fn().mockResolvedValue(undefined),
@@ -159,9 +162,10 @@ describe('AgentRunExecutor', () => {
     { status: 'cancelled' as const, reason: 'user_cancelled' },
     { status: 'failed' as const, reason: 'process_interrupted' },
   ])(
-    'does not create a run when the claimed request became $status during pre-run work',
+    'does not run when atomic creation observes a $status request',
     async ({ status, reason }) => {
       const { executor, repository, runtime } = makeExecutor({});
+      repository.createRunForClaimedRequest.mockResolvedValue(null);
       repository.findRunRequestById.mockResolvedValue(
         makeClaimedRequest({ status }),
       );
@@ -178,7 +182,13 @@ describe('AgentRunExecutor', () => {
         organizationId: ORGANIZATION_ID,
         requestId: REQUEST_ID,
       });
-      expect(repository.createRunForRequest).not.toHaveBeenCalled();
+      expect(repository.createRunForClaimedRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          requestId: REQUEST_ID,
+        }),
+      );
+      expect(repository.appendRunEvent).not.toHaveBeenCalled();
       expect(runtime.execute).not.toHaveBeenCalled();
     },
   );
@@ -224,7 +234,7 @@ describe('AgentRunExecutor', () => {
         errorCode: testCase.errorCode,
       }),
     );
-    expect(repository.createRunForRequest).not.toHaveBeenCalled();
+    expect(repository.createRunForClaimedRequest).not.toHaveBeenCalled();
     // Pre-run failures must still carry routing metadata so AI bridges can
     // correlate runtime_not_configured-style failures with their domain row.
     expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
@@ -281,7 +291,7 @@ describe('AgentRunExecutor', () => {
         requestId: REQUEST_ID,
         errorCode: 'agent_definition_missing',
       });
-      expect(repository.createRunForRequest).not.toHaveBeenCalled();
+      expect(repository.createRunForClaimedRequest).not.toHaveBeenCalled();
       expect(runtime.execute).not.toHaveBeenCalled();
       expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
         AGENT_RUN_EVENTS.FINALIZED,
@@ -459,10 +469,48 @@ describe('AgentRunExecutor', () => {
       requestStatus: 'cancelled',
     });
 
-    await executor.executeNext('worker-1', ORGANIZATION_ID);
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
 
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: REQUEST_ID, status: 'succeeded' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      reason: 'user_cancelled',
+      errorCode: 'user_cancelled',
+    });
+  });
+
+  it('does not publish success when restart reconciliation finalized the run as interrupted', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      runtimeResult: { output: { ok: true, stale: 'must-not-publish' } },
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      run: makeRun({
+        status: 'failed',
+        errorCode: 'process_interrupted',
+        errorMessage: 'Interrupted during restart reconciliation.',
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+      }),
+      requestStatus: 'failed',
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'process_interrupted',
+      errorCode: 'process_interrupted',
+    });
+    expect(repository.appendRunEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'run.succeeded' }),
     );
     expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
