@@ -269,6 +269,26 @@ export class AgentRunExecutor {
     }
 
     const promptPath = instance.promptPathOverride ?? definition.promptPath;
+    const currentRequest = await this.repository.findRunRequestById({
+      organizationId: claimed.organizationId,
+      requestId: claimed.id,
+    });
+    if (
+      !currentRequest ||
+      currentRequest.id !== claimed.id ||
+      currentRequest.organizationId !== claimed.organizationId ||
+      currentRequest.agentInstanceId !== claimed.agentInstanceId ||
+      currentRequest.status !== 'claimed'
+    ) {
+      return {
+        executed: false,
+        requestId: claimed.id,
+        reason:
+          currentRequest?.status === 'cancelled'
+            ? 'user_cancelled'
+            : 'process_interrupted',
+      };
+    }
 
     const run = await this.repository.createRunForRequest({
       organizationId: claimed.organizationId,

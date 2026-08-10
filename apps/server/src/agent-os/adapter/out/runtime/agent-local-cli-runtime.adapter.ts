@@ -31,6 +31,7 @@ import type {
   CancelAgentRuntimeInput,
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { resolveAgentLocalCliRuntimeConfig } from '../../../application/service/agent-runtime.config';
+import { assertAgentOsMcpExecutionActive } from '../../../application/service/agent-os-mcp-execution-fence';
 import { modelFacingMcpToolNamesForAgentType } from '../../../application/service/kiditem-mcp-tool-registry.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import { findAgentDefinitionByType } from '../../../domain/agent-definition.registry';
@@ -334,6 +335,7 @@ export class AgentLocalCliRuntimeAdapter {
     const release = await this.processes.acquire(context.runId);
     let runDirectory: string | null = null;
     try {
+      await assertAgentOsMcpExecutionActive(this.repository, context);
       runDirectory = await mkdtemp(join(tmpdir(), 'kiditem-agent-run-'));
       await chmod(runDirectory, 0o700);
       const mcpHomeDirectory = join(runDirectory, 'mcp-home');
@@ -553,17 +555,28 @@ export class AgentLocalCliRuntimeAdapter {
       let stderr = Buffer.alloc(0);
       let stdoutBytes = 0;
       let settled = false;
+      let timeout: NodeJS.Timeout | null = null;
+      let unsubscribeTermination: () => void = () => undefined;
       const settle = (
         action: (reason: AgentLocalTerminationReason | null) => void,
       ) => {
         if (settled) return;
         settled = true;
-        clearTimeout(timeout);
+        if (timeout) clearTimeout(timeout);
+        unsubscribeTermination();
         const reason = this.processes.consumeReason(runId);
         this.processes.detach(runId);
         action(reason);
       };
-      const timeout = setTimeout(() => {
+      unsubscribeTermination = this.processes.subscribeTermination(
+        runId,
+        (completedReason) => {
+          settle((reason) =>
+            rejectExecution(terminationError(reason ?? completedReason)),
+          );
+        },
+      );
+      timeout = setTimeout(() => {
         void this.processes.cancel(runId, 'timeout').catch(() => undefined);
       }, this.config.executionTimeoutMs);
       timeout.unref?.();
@@ -582,12 +595,12 @@ export class AgentLocalCliRuntimeAdapter {
         if (remaining <= 0) return;
         stderr = Buffer.concat([stderr, chunk.subarray(0, remaining)]);
       });
-      child.once('error', (error) =>
-        settle((reason) =>
-          rejectExecution(reason ? terminationError(reason) : error),
-        ),
-      );
+      child.once('error', (error) => {
+        if (this.processes.reasonFor(runId)) return;
+        settle(() => rejectExecution(error));
+      });
       child.once('close', (exitCode) => {
+        if (this.processes.reasonFor(runId)) return;
         settle((reason) => {
           if (reason) {
             rejectExecution(terminationError(reason));

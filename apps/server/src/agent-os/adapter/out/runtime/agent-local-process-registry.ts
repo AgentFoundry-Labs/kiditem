@@ -9,6 +9,10 @@ export type AgentLocalTerminationReason =
   | 'timeout'
   | 'output_limit';
 
+type AgentLocalTerminationListener = (
+  reason: AgentLocalTerminationReason,
+) => void;
+
 export interface AgentLocalProcessRegistryOptions {
   capacity?: number;
   capacityWaitMs?: number;
@@ -42,6 +46,10 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
   private readonly leases = new Set<string>();
   private readonly pendingRuns = new Set<string>();
   private readonly pendingResumes = new Map<string, () => void>();
+  private readonly terminationListeners = new Map<
+    string,
+    Set<AgentLocalTerminationListener>
+  >();
   private readonly waiters: Array<() => void> = [];
   private stopping = false;
 
@@ -109,6 +117,7 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
       released = true;
       this.leases.delete(runId);
       this.reasons.delete(runId);
+      this.terminationListeners.delete(runId);
       this.waiters.shift()?.();
     };
   }
@@ -141,6 +150,34 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
     return reason;
   }
 
+  subscribeTermination(
+    runId: string,
+    listener: AgentLocalTerminationListener,
+  ): () => void {
+    const listeners = this.terminationListeners.get(runId) ?? new Set();
+    listeners.add(listener);
+    this.terminationListeners.set(runId, listeners);
+    return () => {
+      listeners.delete(listener);
+      if (listeners.size === 0) this.terminationListeners.delete(runId);
+    };
+  }
+
+  private notifyTermination(
+    runId: string,
+    reason: AgentLocalTerminationReason,
+  ): void {
+    const listeners = this.terminationListeners.get(runId);
+    this.terminationListeners.delete(runId);
+    for (const listener of listeners ?? []) {
+      try {
+        listener(reason);
+      } catch {
+        // A listener observes termination; it cannot change registry cleanup.
+      }
+    }
+  }
+
   assertCanSpawn(runId: string): void {
     const reason =
       this.reasons.get(runId) ??
@@ -170,7 +207,11 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
     }
     if (!this.reasons.has(runId)) this.reasons.set(runId, reason);
     this.pendingResumes.get(runId)?.();
-    if (!child?.pid) return true;
+    const terminationReason = this.reasons.get(runId)!;
+    if (!child?.pid) {
+      queueMicrotask(() => this.notifyTermination(runId, terminationReason));
+      return true;
+    }
 
     const termination = new Promise<boolean>((resolveTermination) => {
       let settled = false;
@@ -210,6 +251,9 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
       }
     });
     this.terminations.set(runId, trackedTermination);
+    void trackedTermination.then(() => {
+      this.notifyTermination(runId, terminationReason);
+    });
     return trackedTermination;
   }
 

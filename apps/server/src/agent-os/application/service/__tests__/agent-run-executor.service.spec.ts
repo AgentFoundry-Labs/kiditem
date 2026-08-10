@@ -115,6 +115,7 @@ function makeExecutor(options: {
   const repository = {
     claimNextRunRequest: vi.fn().mockResolvedValue(claimed),
     claimRunRequestById: vi.fn().mockResolvedValue(claimed),
+    findRunRequestById: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
     failClaimedRequest: vi.fn().mockResolvedValue(undefined),
     createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
@@ -153,6 +154,34 @@ describe('AgentRunExecutor', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
+
+  it.each([
+    { status: 'cancelled' as const, reason: 'user_cancelled' },
+    { status: 'failed' as const, reason: 'process_interrupted' },
+  ])(
+    'does not create a run when the claimed request became $status during pre-run work',
+    async ({ status, reason }) => {
+      const { executor, repository, runtime } = makeExecutor({});
+      repository.findRunRequestById.mockResolvedValue(
+        makeClaimedRequest({ status }),
+      );
+
+      await expect(
+        executor.executeNext('worker-1', ORGANIZATION_ID),
+      ).resolves.toMatchObject({
+        executed: false,
+        requestId: REQUEST_ID,
+        reason,
+      });
+
+      expect(repository.findRunRequestById).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        requestId: REQUEST_ID,
+      });
+      expect(repository.createRunForRequest).not.toHaveBeenCalled();
+      expect(runtime.execute).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     {
