@@ -190,7 +190,8 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
   {
     type: 'sourcing',
     name: 'Sourcing',
-    description: '소싱 URL 스크래핑/상품 수집 tool-wrapper.',
+    description:
+      'Evidence-grounded Sourcing Agent for analysis, collection planning, and explicit review handoff.',
     promptPath: `${PROMPT_BASE}/sourcing.md`,
     outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
     defaultAdapterType: 'claude_local',

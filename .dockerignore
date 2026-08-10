@@ -29,5 +29,9 @@ agents/__pycache__/
 # Unnecessary for server build
 extensions/
 *.md
+!agent-config/prompts/agents/sourcing.md
+!agent-config/skills/sourcing/evidence-grounded-analysis/SKILL.md
+!agent-config/skills/sourcing/collection-planning/SKILL.md
+!agent-config/skills/sourcing/safe-review-handoff/SKILL.md
 .planning/
 .sisyphus/

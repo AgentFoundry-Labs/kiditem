@@ -37,6 +37,12 @@ export function createAgentOsSeedPrisma(): PrismaClient {
   });
 }
 
+export function resolveAgentOsRepositoryRoot(
+  moduleDirectory = __dirname,
+): string {
+  return resolve(moduleDirectory, '../../../..');
+}
+
 function resolveDefaultModel(definition: AgentDefinitionRecord): string {
   // Per-definition env first, then a single shared fallback.
   const value = resolveDefinitionDefaultModel(definition);
@@ -130,7 +136,7 @@ export async function seedAgentOs(prisma: PrismaClient): Promise<AgentOsSeedResu
     resolveDefaultModel(definition);
     if (definition.outputSchemaPath) {
       await resolveAgentRuntimeAssetsFromFilesystem({
-        repositoryRoot: process.cwd(),
+        repositoryRoot: resolveAgentOsRepositoryRoot(),
         agentType: definition.type,
         promptPath: definition.promptPath,
         skillKeys: definition.defaultSkillKeys,
