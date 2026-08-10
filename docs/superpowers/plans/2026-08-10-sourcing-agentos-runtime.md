@@ -6,7 +6,7 @@
 
 **Architecture:** Agent OS owns the interaction, conversation, run, local CLI process, MCP session, cancellation, output verification, and audit lifecycle. Sourcing continues to own normalized evidence, collection Operations, recommendation runs, validation, URL intake, and review batches; Agent OS reaches those behaviors only through typed capability adapters. Existing `AgentRunRequest`, `AgentRun`, `AgentMessage`, `AgentToolInvocation`, and `AgentArtifact` rows are reused, so no Prisma model or data backfill is introduced.
 
-**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, MCP stdio, Claude Code CLI 2.1.122+, Codex CLI 0.144.4+, Next.js/React Query, Vitest, Testing Library.
+**Tech Stack:** NestJS, TypeScript, Prisma/PostgreSQL, Zod, MCP stdio, Claude Code CLI 2.1.122+, Codex CLI 0.147.0+, Next.js/React Query, Vitest, Testing Library.
 
 ## Global Constraints
 
@@ -21,7 +21,10 @@
 - The dashboard profile must not expose `sourcing.createReviewBatch`; the existing Final CTA remains the only current review-batch command.
 - The Sourcing Agent must not receive shell, filesystem, web, browser, Chrome, computer-use, plugin, image-generation, purchase, registration, or provider-execution tools.
 - A dashboard question uses inline execution with `maxAttempts=1`; it is never automatically replayed, resumed, or requeued after failure or restart.
-- Restart reconciliation uses existing `failed` statuses with error code `process_interrupted`; do not introduce a new lifecycle status or schema table.
+- Claude/Codex CLI and MCP children are process-bound to the Nest server. Shutdown terminates them; restart reconciliation closes remaining nonterminal rows as `failed/process_interrupted` and never resumes, replays, or publishes their old output.
+- Request/run start, cancellation, finalization, and interruption transitions use one repository transaction per transition. Do not introduce a new lifecycle status or schema table.
+- Required Sourcing writes complete in an idempotent Sourcing-owned capability before AgentRun success. `agent.run.finalized` is alert/audit plumbing and must not write canonical Sourcing data.
+- Do not add an outbox, delivery worker, or restart replay path for local CLI results.
 - A long collection returns an Operations run ID and does not keep the CLI open while polling.
 - `visibleContext` remains accepted for wire compatibility but never becomes authoritative model evidence.
 - No `docs/ARCHITECTURE.md` change and no Prisma schema/data migration are part of this work.
@@ -49,6 +52,7 @@
 - `apps/server/src/agent-os/adapter/out/runtime/agent-local-cli-command.ts`: pure Claude/Codex command and environment construction.
 - `apps/server/src/agent-os/adapter/out/runtime/agent-local-process-registry.ts`: bounded capacity plus run-keyed process-tree cancellation.
 - `apps/server/src/agent-os/adapter/out/runtime/agent-local-cli-runtime.adapter.ts`: asset loading, CLI execution, telemetry parsing, artifact-backed citation verification, and classified errors.
+- `apps/server/src/agent-os/adapter/out/repository/agent-os.lifecycle.repository.ts`: all cross-row request/run start, cancel, finalize, and interruption transactions.
 - `apps/server/src/agent-os/application/service/agent-inline-run-reconciler.service.ts`: fails interrupted inline dashboard requests on boot without replay.
 
 ### Sourcing capabilities and playbooks
@@ -56,6 +60,7 @@
 - `apps/server/src/sourcing/application/port/in/capability/sourcing-agent-workspace-capability.port.ts`: business-level evidence/recommendation/collection/validation/review interfaces.
 - `apps/server/src/sourcing/application/port/out/cross-domain/sourcing-collection-operation.port.ts`: narrow Operations start/read bridge.
 - `apps/server/src/sourcing/application/service/sourcing-agent-workspace-capability.service.ts`: Sourcing-owned implementation of the bounded capability surface.
+- `apps/server/src/sourcing/application/service/sourcing-scrape-result.service.ts`: validates Playwright output and upserts the canonical candidate before the AgentRun can succeed.
 - `apps/server/src/sourcing/adapter/out/operations/sourcing-collection-operation.adapter.ts`: delegates collection to `OPERATION_RUNNER_PORT`.
 - `apps/server/src/sourcing/adapter/in/agent/sourcing-workspace-capability.adapter.ts`: registers typed Zod handlers and produces evidence artifacts.
 - `apps/server/src/agent-os/application/service/agent-playbook.registry.ts`: four artifact/run-oriented sourcing playbooks.
@@ -477,6 +482,8 @@ Expected: one commit containing runtime assets and their resolver, with no Sourc
 - Create: `apps/server/src/agent-os/application/service/agent-inline-run-reconciler.service.ts`
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-inline-run-reconciler.service.spec.ts`
 - Create: `apps/server/src/agent-os/__tests__/agent-inline-run-reconcile.pg.integration.spec.ts`
+- Create: `apps/server/src/agent-os/adapter/out/repository/agent-os.lifecycle.repository.ts`
+- Create: `apps/server/src/agent-os/adapter/out/repository/__tests__/agent-os.lifecycle.repository.spec.ts`
 - Modify: `apps/server/src/agent-os/application/port/in/agent-runner.port.ts:1-45`
 - Modify: `apps/server/src/agent-os/application/port/out/runtime/agent-runtime.port.ts:1-42`
 - Modify: `apps/server/src/agent-os/application/port/out/runtime/agent-runtime-handler.port.ts:1-30`
@@ -486,7 +493,9 @@ Expected: one commit containing runtime assets and their resolver, with no Sourc
 - Modify: `apps/server/src/agent-os/application/service/agent-runtime.config.ts:1-40`
 - Modify: `apps/server/src/agent-os/adapter/out/runtime/routing-runtime.adapter.ts:1-85`
 - Modify: `apps/server/src/agent-os/adapter/out/repository/agent-os.request.repository.ts:1-310`
+- Modify: `apps/server/src/agent-os/adapter/out/repository/agent-os.run.repository.ts:1-360`
 - Modify: `apps/server/src/agent-os/adapter/out/repository/agent-os.repository.adapter.ts:115-175`
+- Modify: `apps/server/src/agent-os/adapter/out/repository/__tests__/agent-os.run.repository.spec.ts:1-330`
 - Modify: `apps/server/src/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts:1-320`
 - Test: `apps/server/src/agent-os/adapter/in/mcp/__tests__/kiditem-agent-os-mcp-server.spec.ts`
 - Modify: `apps/server/src/agent-os/agent-os.module.ts:1-110`
@@ -596,6 +605,66 @@ export interface AgentLocalCliCommand {
 }
 ```
 
+The cross-row lifecycle boundary is owned by one repository component. The
+public `AgentOsRepositoryPort` exposes these existing/new methods while
+`AgentOsRepositoryAdapter` delegates them to
+`AgentOsRunLifecycleRepository`:
+
+```ts
+export interface CancelRequestAndRunInput {
+  organizationId: string;
+  requestId: string;
+  expectedRunId?: string | null;
+  currentRequestStatuses: AgentRunRequestStatus[];
+  errorCode: 'user_cancelled';
+  errorMessage: string;
+  payload: Record<string, unknown>;
+}
+
+export interface CancelRequestAndRunResult {
+  requestId: string;
+  run: AgentRunRecord | null;
+}
+
+export type FinalizeRequestStatus = 'succeeded' | 'failed' | 'pending';
+
+export interface AgentRunCostInput {
+  provider: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cachedInputTokens?: number;
+  costMicros: bigint;
+}
+
+export interface FinalizeRunInput {
+  organizationId: string;
+  requestId: string;
+  runId: string;
+  status: 'succeeded' | 'failed';
+  nextRequestStatus: FinalizeRequestStatus;
+  output?: Record<string, unknown>;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  provider?: string | null;
+  cost?: AgentRunCostInput;
+}
+
+failClaimedRequest(
+  input: FailClaimedRequestInput,
+): Promise<boolean>;
+
+cancelRequestAndRun(
+  input: CancelRequestAndRunInput,
+): Promise<CancelRequestAndRunResult | null>;
+```
+
+`createRunForClaimedRequest`, `finalizeRun`, `failClaimedRequest`,
+`cancelRequestAndRun`, and `failInterruptedInlineRuns` live in that lifecycle
+repository because each either locks or updates both request/run state. The
+request repository retains inbox/claim/query operations; the run repository
+retains run/event queries and non-authoritative event append.
+
 - Task 3 supplies the allowlisted capabilities reached by this MCP session.
 - Task 4 injects `AGENT_INTERACTION_PORT` into `SourcingAssistantService`.
 
@@ -697,6 +766,7 @@ expect(buildCodexCommand(input).args).toEqual(expect.arrayContaining([
   '--disable', 'computer_use',
   '--disable', 'plugins',
   '--disable', 'image_generation',
+  '--disable', 'view_image',
   '--output-schema', input.outputSchemaFile,
   '--output-last-message', input.outputFile,
   '--json',
@@ -723,7 +793,7 @@ it('fails interrupted dashboard requests without requeueing them', async () => {
   await reconciler.onModuleInit();
   expect(repository.failInterruptedInlineRuns).toHaveBeenCalledWith(expect.objectContaining({
     source: 'sourcing_dashboard',
-    requestStatuses: ['pending', 'claimed'],
+    requestStatuses: ['pending', 'claimed', 'requires_approval'],
     errorCode: 'process_interrupted',
     limit: 100,
   }));
@@ -744,6 +814,108 @@ it('does not reconcile requests from an Agent OS MCP child context', async () =>
   await reconciler.onModuleInit();
   expect(repository.failInterruptedInlineRuns).not.toHaveBeenCalled();
 });
+
+it('does not overwrite cancellation when pre-run validation finishes late', async () => {
+  repository.failClaimedRequest.mockResolvedValue(false);
+
+  await executor.executeRequest('inline', ORGANIZATION_ID, REQUEST_ID);
+
+  expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+    AGENT_RUN_EVENTS.FINALIZED,
+    expect.objectContaining({ requestStatus: 'failed' }),
+  );
+});
+
+it('cancels the request and its active run in one repository transition', async () => {
+  repository.cancelRequestAndRun.mockResolvedValue({
+    requestId: REQUEST_ID,
+    run: run('cancelled'),
+  });
+
+  await coordinator.cancelRequest({
+    organizationId: ORGANIZATION_ID,
+    requestId: REQUEST_ID,
+    reason: '사용자 취소',
+  });
+
+  expect(repository.markRequestStatusIfCurrent).not.toHaveBeenCalled();
+  expect(repository.finalizeRun).not.toHaveBeenCalled();
+  expect(repository.cancelRequestAndRun).toHaveBeenCalledWith(
+    expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      currentRequestStatuses: ['pending', 'claimed', 'requires_approval'],
+      errorCode: 'user_cancelled',
+    }),
+  );
+  expect(executor.cancelActiveRuntime).toHaveBeenCalledWith(
+    expect.objectContaining({ runId: RUN_ID, reason: 'user_cancelled' }),
+  );
+});
+
+it('requeues a retryable failure in the same transition that fails the run', async () => {
+  repository.finalizeRun.mockResolvedValue({
+    finalized: true,
+    run: run('failed'),
+    requestStatus: 'pending',
+  });
+
+  await executor.executeRequest('inline', ORGANIZATION_ID, REQUEST_ID);
+
+  expect(repository.finalizeRun).toHaveBeenCalledWith(
+    expect.objectContaining({
+      status: 'failed',
+      nextRequestStatus: 'pending',
+    }),
+  );
+  expect(repository.markRequestStatus).not.toHaveBeenCalled();
+  expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+    AGENT_RUN_EVENTS.FINALIZED,
+    expect.anything(),
+  );
+});
+
+it('closes a stranded running run even when the request was already cancelled', async () => {
+  const stranded = await seedRequest({
+    organizationId: TEST_ORGANIZATION_ID,
+    label: 'stranded-cancelled',
+    source: 'sourcing_dashboard',
+    status: 'running',
+  });
+  await prisma!.agentRunRequest.update({
+    where: { id: stranded.request.id },
+    data: {
+      status: 'cancelled',
+      finishedAt: new Date('2026-08-10T00:01:00.000Z'),
+      lastErrorCode: 'user_cancelled',
+    },
+  });
+
+  const result = await repository.failInterruptedInlineRuns({
+    source: 'sourcing_dashboard',
+    requestStatuses: ['pending', 'claimed', 'requires_approval'],
+    createdBefore: new Date('2026-08-11T00:00:00.000Z'),
+    errorCode: 'process_interrupted',
+    errorMessage: 'Server process ended.',
+    limit: 100,
+  });
+
+  expect(result).toContainEqual(expect.objectContaining({
+    requestId: stranded.request.id,
+    runId: stranded.run!.id,
+  }));
+  await expect(
+    prisma!.agentRunRequest.findUniqueOrThrow({
+      where: { id: stranded.request.id },
+    }),
+  ).resolves.toMatchObject({ status: 'cancelled' });
+  await expect(
+    prisma!.agentRun.findUniqueOrThrow({ where: { id: stranded.run!.id } }),
+  ).resolves.toMatchObject({
+    status: 'cancelled',
+    errorCode: 'user_cancelled',
+  });
+});
 ```
 
 - [ ] **Step 2: Run the new tests and verify the platform boundary is absent**
@@ -757,10 +929,15 @@ rtk npm exec --workspace=apps/server vitest -- run \
   src/agent-os/adapter/out/runtime/__tests__/agent-local-cli-command.spec.ts \
   src/agent-os/adapter/out/runtime/__tests__/agent-local-process-registry.spec.ts \
   src/agent-os/adapter/out/runtime/__tests__/agent-local-cli-runtime.adapter.spec.ts \
-  src/agent-os/application/service/__tests__/agent-inline-run-reconciler.service.spec.ts
+  src/agent-os/application/service/__tests__/agent-inline-run-reconciler.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-run-coordinator.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-run-executor.service.spec.ts \
+  src/agent-os/adapter/out/repository/__tests__/agent-os.lifecycle.repository.spec.ts
 ```
 
-Expected: FAIL on missing ports, services, command builders, and reconciliation method.
+Expected: FAIL on the missing lifecycle repository, conditional pre-run failure,
+atomic cancellation, and stranded-run reconciliation contracts in addition to
+the missing interaction/runtime boundary.
 
 - [ ] **Step 3: Thread inline execution metadata through the existing runner**
 
@@ -990,7 +1167,7 @@ Claude command contract:
 }
 ```
 
-Codex command contract must add only one `mcp_servers.kiditem` descriptor through `--config`, pass `--cd <run-temp-directory>`, use `--json` for token telemetry, end arguments with `-` to read the prompt from stdin, and disable these installed feature names: `shell_tool`, `unified_exec`, `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, `plugins`, `image_generation`, `apps`, `multi_agent`, `workspace_dependencies`, `code_mode`, `code_mode_host`, and `in_app_browser`. It also sets `approval_policy="never"`, `allow_login_shell=false`, `tools.view_image=false`, `tools.web_search=false`, and `web_search="disabled"`.
+Codex command contract must add only one `mcp_servers.kiditem` descriptor through `--config`, pass `--cd <run-temp-directory>`, use `--json` for token telemetry, end arguments with `-` to read the prompt from stdin, and disable these installed feature names: `shell_tool`, `unified_exec`, `browser_use`, `browser_use_external`, `browser_use_full_cdp_access`, `computer_use`, `plugins`, `image_generation`, `view_image`, `apps`, `multi_agent`, `workspace_dependencies`, `code_mode`, `code_mode_host`, and `in_app_browser`. It also sets `approval_policy="never"`, `allow_login_shell=false`, `tools.web_search=false`, and `web_search="disabled"`.
 
 Filter the child environment to these shared keys needed to locate the installed local CLI sessions:
 
@@ -1069,7 +1246,7 @@ Verify every resource ref against a same-run artifact: `kind='artifact'` matches
 }
 ```
 
-- [ ] **Step 8: Wire cancellation and fail-on-startup reconciliation without new states**
+- [ ] **Step 8: Centralize process-bound request/run transitions without new states**
 
 Extend `AgentRuntimePort` and `AgentTypeRuntimeHandler` with optional cancellation:
 
@@ -1084,21 +1261,25 @@ export interface CancelAgentRuntimeInput {
 cancel?(input: CancelAgentRuntimeInput): Promise<boolean>;
 ```
 
-`RoutingRuntimeAdapter.cancel()` delegates to the local CLI runtime for `claude_cli|codex_cli`. Keep the current `AgentRunCoordinator.cancelRequest/cancelRun` order: conditionally set the request to `cancelled`, finalize the running run as `cancelled`, and only then call `executor.cancelActiveRuntime()` as a best-effort process termination. A late child close still reaches `finalizeRun`, whose existing request-status fence must leave both rows cancelled rather than restoring success or retrying.
+`RoutingRuntimeAdapter.cancel()` delegates to the local CLI runtime for
+`claude_cli|codex_cli`. The CLI is never resumed. A durable cancellation first
+changes the request and its active run in one transaction, then terminates the
+process tree best-effort. A late child close reaches `finalizeRun`, sees terminal
+rows, and cannot publish output or retry.
 
-Add the internal repository method:
+Move every cross-row lifecycle mutation from `AgentOsRequestRepository` and
+`AgentOsRunRepository` into `AgentOsRunLifecycleRepository`. The adapter creates
+one instance and delegates these five methods to it:
 
 ```ts
-claimNextRunRequest(input: {
-  workerId: string;
-  now: Date;
-  organizationId?: string | null;
-  excludedSources?: string[];
-}): Promise<AgentRunRequestRecord | null>;
+createRunForClaimedRequest(input: CreateRunRecordInput): Promise<AgentRunRecord | null>;
+finalizeRun(input: FinalizeRunInput): Promise<FinalizeRunResult>;
+failClaimedRequest(input: FailClaimedRequestInput): Promise<boolean>;
+cancelRequestAndRun(input: CancelRequestAndRunInput): Promise<CancelRequestAndRunResult | null>;
 
 failInterruptedInlineRuns(input: {
   source: 'sourcing_dashboard';
-  requestStatuses: ['pending', 'claimed'];
+  requestStatuses: ['pending', 'claimed', 'requires_approval'];
   createdBefore: Date;
   errorCode: 'process_interrupted';
   errorMessage: string;
@@ -1111,6 +1292,88 @@ failInterruptedInlineRuns(input: {
 }>>;
 ```
 
+`failClaimedRequest` is compare-and-set, so cancellation or another terminal
+transition wins without being overwritten:
+
+```ts
+const changed = await tx.agentRunRequest.updateMany({
+  where: {
+    id: input.requestId,
+    organizationId: input.organizationId,
+    status: 'claimed',
+  },
+  data: {
+    status: 'failed',
+    finishedAt: now,
+    lastErrorCode: input.errorCode,
+    lastErrorMessage: input.errorMessage,
+  },
+});
+return changed.count === 1;
+```
+
+`finalizeRun` receives the executor's final request disposition and commits the
+run plus request transition while both rows are locked. `status='succeeded'`
+requires `nextRequestStatus='succeeded'`; `status='failed'` permits only
+`failed|pending`. A retryable failure writes the run as `failed` and resets the
+request to `pending` (`claimedAt`, `claimedBy`, and `finishedAt` cleared) in this
+single transaction. The executor never follows finalization with a separate
+`markRequestStatus` call. When the locked request is already
+`requires_approval`, only a successful run may finish and the request remains
+`requires_approval`; every terminal or otherwise stale request returns
+`finalized:false` unchanged.
+
+`AgentRunExecutor.failBeforeRun()` emits a failure notification only when that
+conditional transition returns `true`. Otherwise it reloads the request and
+returns `user_cancelled` for cancellation or `process_interrupted` for every
+other winner. It never changes the winner's state.
+
+`cancelRequestAndRun` locks in request-then-run order and applies both durable
+changes before returning:
+
+```ts
+return this.prisma.$transaction(async (tx) => {
+  const request = await this.lockCancellableRequest(tx, input);
+  if (!request) return null;
+  const run = await this.lockRunningRun(tx, {
+    organizationId: input.organizationId,
+    requestId: input.requestId,
+    expectedRunId: input.expectedRunId ?? null,
+  });
+
+  const cancelledRequest = await tx.agentRunRequest.update({
+    where: { id: request.id },
+    data: {
+      status: 'cancelled',
+      payload: input.payload as Prisma.InputJsonValue,
+      finishedAt: now,
+      lastErrorCode: input.errorCode,
+      lastErrorMessage: input.errorMessage,
+    },
+  });
+  const cancelledRun = run
+    ? await tx.agentRun.update({
+        where: { id: run.id },
+        data: {
+          status: 'cancelled',
+          finishedAt: now,
+          errorCode: input.errorCode,
+          errorMessage: input.errorMessage,
+        },
+      })
+    : null;
+  return {
+    requestId: cancelledRequest.id,
+    run: cancelledRun ? toRunRecord(cancelledRun) : null,
+  };
+});
+```
+
+Both `cancelRequest()` and `cancelRun()` call only this method for durable state.
+They append `run.cancel_requested` as non-authoritative audit detail when a run
+exists, but event failure is caught and cannot prevent `cancelActiveRuntime()`.
+The reported `cancelledRuns` count is based on the transaction result.
+
 In `claimNextRunRequest`, build the optional predicate only from parameterized values:
 
 ```ts
@@ -1119,7 +1382,36 @@ const excludedSourcePredicate = input.excludedSources?.length
   : Prisma.empty;
 ```
 
-Pass `excludedSources: ['sourcing_dashboard']` from both generic `executeNext()` methods; `executeRequest(requestId)` remains the only claim path for this surface. The reconciliation transaction changes only `source='sourcing_dashboard'` requests in `pending|claimed` created before the current boot, plus their `status='running'` runs, to `failed` with `process_interrupted`. This covers a crash between request insertion and the inline ID claim without allowing the background worker to steal the request. It never updates a request to `pending`. The reconciler executes at most ten 100-row batches at boot and returns immediately when `KIDITEM_AGENT_OS_MCP_CHILD=1`, so an MCP child can never mark its own parent run interrupted.
+Pass `excludedSources: ['sourcing_dashboard']` from both generic
+`executeNext()` methods; `executeRequest(requestId)` remains the only claim path
+for this surface. Reconcile `pending|claimed|requires_approval` because none of
+those states can continue after their local CLI/MCP process disappears. It also
+selects any `running` run for an old dashboard request even when the request was
+already terminal: a cancelled request closes that run as cancelled; every
+other stranded running run closes as `failed/process_interrupted`. Existing
+terminal request state is never rewritten. This is cleanup, not recovery: no
+row is moved to `pending`, no prompt is replayed, and no old output is emitted.
+The reconciler executes at most ten 100-row batches at boot and returns
+immediately when `KIDITEM_AGENT_OS_MCP_CHILD=1`, so an MCP child can never mark
+its own parent run interrupted.
+
+`emitFinalized()` becomes non-blocking alert/audit plumbing:
+
+```ts
+private emitFinalized(event: AgentRunFinalizedEvent): void {
+  void this.eventEmitter
+    .emitAsync(AGENT_RUN_EVENTS.FINALIZED, event)
+    .catch((error: unknown) => {
+      this.logger.warn(
+        `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for ${event.runId ?? event.requestId}: ${String(error)}`,
+      );
+    });
+}
+```
+
+Call it only after a persisted terminal state. No executor result waits for it,
+and no listener failure enters runtime failure handling. Task 3 removes the
+only canonical-data listener before this non-blocking behavior is shipped.
 
 Replace the Agent OS runtime guidance with the implemented ownership: local Claude/Codex process execution, scoped MCP sessions, and cancellation belong to Agent OS; owner handlers retain deterministic actions; stale inline dashboard runs fail with `process_interrupted` and never replay. Do not add architecture prose elsewhere.
 
@@ -1137,16 +1429,24 @@ rtk npm exec --workspace=apps/server vitest -- run \
   src/agent-os/application/service/__tests__/agent-inline-run-reconciler.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-run-coordinator.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-run-executor.service.spec.ts \
+  src/agent-os/adapter/out/repository/__tests__/agent-os.lifecycle.repository.spec.ts \
   src/agent-os/adapter/out/runtime/__tests__/routing-runtime.adapter.spec.ts \
   src/agent-os/adapter/in/mcp/__tests__/kiditem-agent-os-mcp-server.spec.ts \
   src/ai/application/service/__tests__/ai-direct-job.config.spec.ts \
   src/ai/application/service/__tests__/ai-direct-job-worker.service.spec.ts
 rtk npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/__tests__/agent-inline-run-reconcile.pg.integration.spec.ts
+  src/agent-os/__tests__/agent-inline-run-reconcile.pg.integration.spec.ts \
+  src/agent-os/__tests__/agent-os-repository.pg.integration.spec.ts
 rtk npm run check:agents-hygiene
 ```
 
-Expected: all unit tests PASS; the PostgreSQL test proves generic claims skip dashboard requests, pending/claimed/running interruption failure is atomic, organization data is preserved, and no interrupted request is requeued.
+Expected: all unit tests PASS. The PostgreSQL tests prove cancellation,
+interruption, and retry disposition update request/run rows atomically; generic
+claims skip dashboard requests; `pending|claimed|requires_approval` rows are
+never replayed; a stranded run is closed; organization data is preserved; and
+no interrupted request is requeued. Running these isolated Testcontainers specs requires an
+explicit current consent for their `prisma db push --accept-data-loss` reset;
+never point that consent or command at an Office database.
 
 - [ ] **Step 10: Commit the Agent OS platform boundary**
 
@@ -1178,7 +1478,11 @@ rtk git add \
   apps/server/src/agent-os/adapter/out/runtime/__tests__/kiditem-mcp-session.adapter.spec.ts \
   apps/server/src/agent-os/adapter/out/runtime/__tests__/routing-runtime.adapter.spec.ts \
   apps/server/src/agent-os/adapter/out/repository/agent-os.request.repository.ts \
+  apps/server/src/agent-os/adapter/out/repository/agent-os.run.repository.ts \
+  apps/server/src/agent-os/adapter/out/repository/agent-os.lifecycle.repository.ts \
   apps/server/src/agent-os/adapter/out/repository/agent-os.repository.adapter.ts \
+  apps/server/src/agent-os/adapter/out/repository/__tests__/agent-os.run.repository.spec.ts \
+  apps/server/src/agent-os/adapter/out/repository/__tests__/agent-os.lifecycle.repository.spec.ts \
   apps/server/src/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts \
   apps/server/src/agent-os/adapter/in/mcp/__tests__/kiditem-agent-os-mcp-server.spec.ts \
   apps/server/src/agent-os/__tests__/agent-inline-run-reconcile.pg.integration.spec.ts \
@@ -1189,8 +1493,11 @@ rtk git add \
   apps/server/src/ai/application/service/__tests__/ai-direct-job.config.spec.ts \
   apps/server/src/ai/application/service/__tests__/ai-direct-job-worker.service.spec.ts
 rtk git diff --cached --quiet -- \
+  apps/server/src/agent-os/adapter/out/runtime/__tests__/operator-runtime.handler.spec.ts \
   apps/server/src/agent-os/adapter/out/runtime/operator-runtime.handler.ts \
+  apps/server/src/agent-os/application/service/__tests__/operator-decision-executor.service.spec.ts \
   apps/server/src/agent-os/application/service/operator-decision-executor.service.ts \
+  apps/server/src/sourcing/adapter/out/runtime/__tests__/sourcing-runtime.handler.spec.ts \
   apps/server/src/sourcing/adapter/out/runtime/sourcing-runtime.handler.ts
 rtk git commit -m "feat: add AgentOS local CLI runtime"
 ```
@@ -1206,11 +1513,15 @@ Expected: one platform commit with no Sourcing UI changes, no Prisma model diff,
 - Create: `apps/server/src/sourcing/application/port/out/cross-domain/sourcing-collection-operation.port.ts`
 - Create: `apps/server/src/sourcing/application/service/sourcing-agent-workspace-capability.service.ts`
 - Create: `apps/server/src/sourcing/application/service/__tests__/sourcing-agent-workspace-capability.service.spec.ts`
+- Create: `apps/server/src/sourcing/application/service/sourcing-scrape-result.service.ts`
+- Create: `apps/server/src/sourcing/application/service/__tests__/sourcing-scrape-result.service.spec.ts`
 - Create: `apps/server/src/sourcing/adapter/out/operations/sourcing-collection-operation.adapter.ts`
 - Create: `apps/server/src/sourcing/adapter/in/agent/sourcing-workspace-capability.adapter.ts`
 - Create: `apps/server/src/sourcing/adapter/in/agent/__tests__/sourcing-workspace-capability.adapter.spec.ts`
 - Delete: `apps/server/src/sourcing/adapter/in/agent/sourcing-discovery-capability.adapter.ts`
 - Delete: `apps/server/src/sourcing/adapter/in/agent/__tests__/sourcing-discovery-capability.adapter.spec.ts`
+- Delete: `apps/server/src/sourcing/application/service/sourcing-scrape-finalized.bridge.ts`
+- Delete: `apps/server/src/sourcing/application/service/__tests__/sourcing-scrape-finalized.bridge.spec.ts`
 - Delete: `apps/server/src/agent-os/domain/agent-handoff-intent.ts`
 - Delete: `apps/server/src/agent-os/domain/__tests__/agent-handoff-intent.spec.ts`
 - Modify: `apps/server/src/sourcing/application/service/sourcing-agent-rag.service.ts:35-225`
@@ -1338,6 +1649,34 @@ export interface SourcingCollectionOperationPort {
   }): Promise<{ operationRunId: string; status: string }>;
 }
 ```
+
+`SourcingScrapeResultService` is an application service, not an Agent OS event
+listener:
+
+```ts
+export interface PersistSourcingScrapeResultInput {
+  organizationId: string;
+  triggeredByUserId: string | null;
+  output: Record<string, unknown>;
+}
+
+export interface PersistSourcingScrapeResult {
+  candidateId: string;
+  href: string;
+}
+
+export class SourcingScrapeResultService {
+  persist(
+    input: PersistSourcingScrapeResultInput,
+  ): Promise<PersistSourcingScrapeResult>;
+}
+```
+
+The service owns the extraction-output validation and `UpsertCandidateInput`
+mapping currently embedded in `SourcingScrapeFinalizedBridge`. Its only write
+port is `SOURCING_CANDIDATE_REPOSITORY_PORT`. It throws stable
+`AgentOsRuntimeError` codes for `ok !== true`, missing `scraped_data`, missing
+source URL, or missing title, so the runtime cannot finalize as succeeded.
 
 - Task 4 consumes `retrieveWorkspaceEvidence` only for deterministic failure fallback; every model-triggered call goes through the registered Agent capability.
 
@@ -1467,6 +1806,90 @@ it('returns the durable capability summary to the MCP model', async () => {
     },
   });
 });
+
+it('upserts the canonical candidate before the scrape runtime returns success', async () => {
+  playwright.execute.mockResolvedValue({
+    provider: 'ts-playwright',
+    output: {
+      ok: true,
+      source_url: 'https://detail.1688.com/offer/123.html',
+      platform: '1688',
+      scraped_data: {
+        source_url: 'https://detail.1688.com/offer/123.html',
+        title: '실리콘 식판',
+        price: 12.5,
+        images: ['https://img.example/123.jpg'],
+      },
+    },
+  });
+  scrapeResults.persist.mockResolvedValue({
+    candidateId: 'candidate-1',
+    href: '/product-pipeline/collected-products/candidate-1',
+  });
+  const handler = new SourcingRuntimeHandler(
+    registry,
+    toolRouter,
+    playwright,
+    scrapeResults,
+  );
+
+  const result = await handler.execute(context({
+    action: 'scrape_url',
+    url: 'https://detail.1688.com/offer/123.html',
+  }));
+
+  expect(scrapeResults.persist).toHaveBeenCalledWith({
+    organizationId: ORGANIZATION_ID,
+    triggeredByUserId: USER_ID,
+    output: expect.objectContaining({ ok: true }),
+  });
+  expect(result.output).toMatchObject({
+    candidateId: 'candidate-1',
+    href: '/product-pipeline/collected-products/candidate-1',
+  });
+});
+
+it('fails the runtime when canonical candidate persistence fails', async () => {
+  playwright.execute.mockResolvedValue({
+    provider: 'ts-playwright',
+    output: {
+      ok: true,
+      source_url: 'https://detail.1688.com/offer/123.html',
+      platform: '1688',
+      scraped_data: {
+        source_url: 'https://detail.1688.com/offer/123.html',
+        title: '실리콘 식판',
+      },
+    },
+  });
+  scrapeResults.persist.mockRejectedValue(
+    new AgentOsRuntimeError(
+      'sourcing_scrape_missing_title',
+      'Scraped sourcing result requires a title.',
+    ),
+  );
+
+  const handler = new SourcingRuntimeHandler(
+    registry,
+    toolRouter,
+    playwright,
+    scrapeResults,
+  );
+
+  await expect(handler.execute(context({
+    action: 'scrape_url',
+    url: 'https://detail.1688.com/offer/123.html',
+  }))).rejects.toMatchObject({
+    code: 'sourcing_scrape_missing_title',
+  });
+});
+
+it('keeps finalized events out of canonical Sourcing persistence', () => {
+  const providers: unknown[] =
+    Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+  expect(providers).toContain(SourcingScrapeResultService);
+  expect(providers).not.toContain(SourcingScrapeFinalizedBridge);
+});
 ```
 
 - [ ] **Step 2: Run the focused Sourcing tests and confirm the new surface is missing**
@@ -1476,7 +1899,9 @@ Run:
 ```bash
 rtk npm exec --workspace=apps/server vitest -- run \
   src/sourcing/application/service/__tests__/sourcing-agent-workspace-capability.service.spec.ts \
+  src/sourcing/application/service/__tests__/sourcing-scrape-result.service.spec.ts \
   src/sourcing/adapter/in/agent/__tests__/sourcing-workspace-capability.adapter.spec.ts \
+  src/sourcing/adapter/out/runtime/__tests__/sourcing-runtime.handler.spec.ts \
   src/sourcing/domain/__tests__/sourcing-agent-rag.spec.ts \
   src/sourcing/domain/operation/__tests__/sourcing.operations.spec.ts \
   src/sourcing/application/service/__tests__/sourcing-validation.service.spec.ts \
@@ -1485,9 +1910,199 @@ rtk npm exec --workspace=apps/server vitest -- run \
   src/sourcing/__tests__/sourcing-capabilities.spec.ts
 ```
 
-Expected: FAIL because the workspace capability port/service/adapter are not registered.
+Expected: FAIL because the workspace capability port/service/adapter and
+synchronous scrape-result service are not registered, the runtime still returns
+before candidate persistence, and the finalized bridge remains a canonical
+writer.
 
-- [ ] **Step 3: Expose normalized RAG retrieval with stable provenance**
+- [ ] **Step 3: Persist URL scrape candidates before AgentRun success**
+
+Create `SourcingScrapeResultService` by moving the output-to-candidate mapping
+out of the finalized listener. The service rejects unsuccessful or malformed
+extractor output and writes through the existing candidate repository:
+
+```ts
+@Injectable()
+export class SourcingScrapeResultService {
+  constructor(
+    @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
+    private readonly candidates: SourcingCandidateRepositoryPort,
+  ) {}
+
+  async persist(
+    input: PersistSourcingScrapeResultInput,
+  ): Promise<PersistSourcingScrapeResult> {
+    const output = input.output;
+    if (output.ok !== true) {
+      throw new AgentOsRuntimeError(
+        'sourcing_scrape_failed',
+        nonEmptyString(output.error) ?? 'Sourcing scrape did not succeed.',
+      );
+    }
+    const scraped = isRecord(output.scraped_data) ? output.scraped_data : null;
+    if (!scraped) {
+      throw new AgentOsRuntimeError(
+        'sourcing_scrape_missing_output',
+        'Sourcing scrape returned no scraped_data.',
+      );
+    }
+    const sourceUrl =
+      nonEmptyString(scraped.source_url) ?? nonEmptyString(output.source_url);
+    if (!sourceUrl) {
+      throw new AgentOsRuntimeError(
+        'sourcing_scrape_missing_source_url',
+        'Scraped sourcing result requires a source URL.',
+      );
+    }
+    const title = nonEmptyString(scraped.title);
+    if (!title) {
+      throw new AgentOsRuntimeError(
+        'sourcing_scrape_missing_title',
+        'Scraped sourcing result requires a title.',
+      );
+    }
+
+    const rawPlatform =
+      nonEmptyString(scraped.source_platform) ??
+      nonEmptyString(output.platform) ??
+      'unknown';
+    const platform = PLATFORM_MAP[rawPlatform.toLowerCase()] ?? rawPlatform;
+    const images = extractImageUrls(scraped);
+    const candidate = await this.candidates.upsertSourced({
+      organizationId: input.organizationId,
+      sourceUrl,
+      sourcePlatform: platform,
+      rawData: {
+        ...scraped,
+        source_url: sourceUrl,
+        page_type: scraped.page_type ?? 'detail',
+      },
+      name: title,
+      description:
+        nonEmptyString(scraped.description) ??
+        nonEmptyString(scraped.description_text) ??
+        '',
+      category: nonEmptyString(scraped.category_name),
+      tags: Array.isArray(scraped.tags)
+        ? scraped.tags.filter((tag): tag is string => typeof tag === 'string')
+        : [],
+      thumbnailUrl: images[0] ?? null,
+      imageUrl: images[0] ?? null,
+      costCny: extractCostCny(scraped, platform),
+      triggeredByUserId: input.triggeredByUserId,
+      images: images.map((url, index) => ({
+        url,
+        role: 'product',
+        label: null,
+        sortOrder: index,
+        source: 'sourcing-scrape-url',
+        isPrimary: index === 0,
+      })),
+    });
+    return {
+      candidateId: candidate.id,
+      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}`,
+    };
+  }
+}
+```
+
+Define the mapping helpers in the same service with the extractor fields the
+old bridge accepted:
+
+```ts
+const PLATFORM_MAP: Record<string, string> = {
+  '1688': 'ALIBABA_1688',
+  alibaba: 'ALIBABA',
+};
+const PRODUCT_IMAGE_FIELD_KEYS = [
+  'images', 'imageUrls', 'image_urls', 'mainImages', 'main_images',
+  'mainImage', 'main_image', 'offerImgList',
+] as const;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
+}
+
+function nonEmptyString(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+}
+
+function extractCostCny(data: Record<string, unknown>, platform: string): number | null {
+  const currency = nonEmptyString(data.currency)?.toUpperCase();
+  if (currency && currency !== 'CNY') return null;
+  if (!currency && platform !== 'ALIBABA_1688') return null;
+  for (const key of ['price', 'price_min']) {
+    const raw = data[key];
+    const value = typeof raw === 'number' ? raw : Number.parseFloat(String(raw));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  const priceRange = nonEmptyString(data.priceRange);
+  if (priceRange?.includes('-')) {
+    const value = Number.parseFloat(priceRange.split('-')[0]);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  const offer = isRecord(data.offer) ? data.offer : null;
+  if (offer?.price != null) {
+    const value = Number.parseFloat(String(offer.price));
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return null;
+}
+
+function extractImageUrls(data: Record<string, unknown>): string[] {
+  const seen = new Set<string>();
+  const urls: string[] = [];
+  const collect = (value: unknown): void => {
+    if (Array.isArray(value)) {
+      value.forEach(collect);
+      return;
+    }
+    if (typeof value !== 'string') return;
+    const trimmed = value.trim();
+    const url = trimmed.startsWith('//') ? `https:${trimmed}` : trimmed;
+    if ((!url.startsWith('https://') && !url.startsWith('http://')) || seen.has(url)) return;
+    seen.add(url);
+    urls.push(url);
+  };
+  PRODUCT_IMAGE_FIELD_KEYS.forEach((key) => collect(data[key]));
+  return urls;
+}
+```
+
+Inject the result service into `SourcingRuntimeHandler` and make `scrape_url`
+return only after persistence:
+
+```ts
+private async executeScrapeUrl(
+  context: AgentRuntimeExecutionContext,
+): Promise<AgentRuntimeResult> {
+  const scraped = await this.playwright.execute(context);
+  const persisted = await this.scrapeResults.persist({
+    organizationId: context.organizationId,
+    triggeredByUserId: context.requestedByUserId,
+    output: scraped.output,
+  });
+  return {
+    ...scraped,
+    output: {
+      ...scraped.output,
+      candidateId: persisted.candidateId,
+      href: persisted.href,
+    },
+  };
+}
+```
+
+Delete `SourcingScrapeFinalizedBridge` and its spec, register
+`SourcingScrapeResultService`, and update the module wiring test. Keep the
+generic Agent OS operation-alert listener; it is non-authoritative and its
+failure cannot change candidate or run state. Update the Sourcing runtime rule
+in `apps/server/src/sourcing/AGENTS.md` to state that the synchronous result
+service writes the candidate before AgentRun success and finalized listeners
+write no canonical sourcing rows.
+
+- [ ] **Step 4: Expose normalized RAG retrieval with stable provenance**
 
 Export the match helper from `sourcing-agent-rag.ts` so displayed provenance and ranking share one tokenizer:
 
@@ -1541,7 +2156,7 @@ async retrieveWorkspaceEvidence(input: {
 
 Keep `SourcingWorkspaceSnapshot` only as the rebuildable `inputHash`/TTL index cache; do not add raw business writes to it.
 
-- [ ] **Step 4: Implement collection, recommendation inspection, validation, and review use cases**
+- [ ] **Step 5: Implement collection, recommendation inspection, validation, and review use cases**
 
 `SourcingCollectionOperationAdapter` wraps the existing Operations port:
 
@@ -1631,7 +2246,7 @@ SourcingCollectionOperationAdapter,
 },
 ```
 
-- [ ] **Step 5: Register typed handlers and evidence artifacts**
+- [ ] **Step 6: Register typed handlers and evidence artifacts**
 
 Every model input schema is `.strict()` and omits `organizationId`, user ID, conversation ID, request ID, run ID, idempotency key, and provider/model fields; the adapter reads those only from `AgentCapabilityExecutionInput` fixed by MCP context.
 
@@ -1805,7 +2420,7 @@ Inside the existing `FIRST_CLASS_CAPABILITY_TOOL_NAMES` record, add these exact 
 'sourcing.createReviewBatch': 'sourcing_create_review_batch',
 ```
 
-- [ ] **Step 6: Replace repeated discovery capabilities and playbooks**
+- [ ] **Step 7: Replace repeated discovery capabilities and playbooks**
 
 Remove these Agent-facing keys from the Sourcing manifest, MCP allowlist, plan validator, default Sourcing policies, runtime handler, and capability adapter:
 
@@ -1942,7 +2557,7 @@ export const SOURCING_REVIEW_HANDOFF_PLAYBOOK: AgentPlaybook = {
 
 Update the Operator prompt/eval to choose `sourcing_market_research_v2` and `manual_product_intake_from_url_v2`. Keep the existing validation that rejects a missing sourcing keyword; do not restore the `실리콘 식판` fallback in either Operator or Sourcing runtime.
 
-- [ ] **Step 7: Preserve deterministic scrape routing while sending conversations to the generic CLI**
+- [ ] **Step 8: Preserve deterministic scrape routing while sending conversations to the generic CLI**
 
 Add an optional support predicate to owner runtime handlers:
 
@@ -1966,9 +2581,11 @@ supports(context: AgentRuntimeExecutionContext): boolean {
 
 Remove the Sourcing handler's market-discovery/manual-intake tool loop. `RoutingRuntimeAdapter` uses a registered owner handler when `supports` is absent or returns true; when it returns false, only `adapterType === 'claude_cli' || adapterType === 'codex_cli'` may use `AgentLocalCliRuntimeAdapter`. Every other unsupported request retains the existing `runtime_not_configured` failure.
 
-This preserves `/api/sourcing/scrape-url` and the Playwright finalization bridge while eliminating repeated whole-discovery calls from conversational runs.
+This preserves `/api/sourcing/scrape-url` and the synchronous
+Playwright-result-to-candidate path while eliminating repeated whole-discovery
+calls from conversational runs. No finalized listener writes a candidate.
 
-- [ ] **Step 8: Run Sourcing capability, Agent OS registry, and module gates**
+- [ ] **Step 9: Run Sourcing capability, Agent OS registry, and module gates**
 
 Run:
 
@@ -1991,11 +2608,17 @@ rtk npm exec --workspace=apps/server vitest -- run \
   src/agent-os/adapter/out/runtime/__tests__/operator-runtime.handler.spec.ts \
   src/agent-os/application/service/__tests__/operator-decision-executor.service.spec.ts
 rtk npm run check:agents-hygiene
+rtk rg -n "SourcingScrapeFinalizedBridge|@OnEvent\(AGENT_RUN_EVENTS\.FINALIZED\)" \
+  apps/server/src/sourcing
 ```
 
-Expected: PASS; no registered/default Sourcing Agent key invokes the old complete discovery calculation, and `sourcing.createReviewBatch` is absent from the direct Sourcing policy.
+Expected: all tests and instruction hygiene PASS. The final search returns no
+Sourcing canonical writer subscribed to `AGENT_RUN_EVENTS.FINALIZED`; no
+registered/default Sourcing Agent key invokes the old complete discovery
+calculation, and `sourcing.createReviewBatch` is absent from the direct Sourcing
+policy.
 
-- [ ] **Step 9: Commit the bounded capability and playbook cutover**
+- [ ] **Step 10: Commit the bounded capability and playbook cutover**
 
 ```bash
 rtk git add apps/server/src/sourcing \
@@ -2384,49 +3007,51 @@ rtk cp /Users/yhc125/workspace/kiditem/apps/web/.env.local \
 Preflight authentication without printing a secret:
 
 ```bash
-rtk claude auth status >/dev/null
+rtk codex --version
 rtk codex login status >/dev/null
 ```
 
-Expected: both commands exit `0` using the current OS user's existing local CLI sessions. Do not provision an API key, silently switch providers, or fall back from one CLI to the other. The development and Office service processes must run under an operator account that has explicitly completed both local CLI logins; otherwise deployment/QA preflight fails, and an attempted interaction returns the classified `unauthenticated` result.
+Expected: the installed Codex CLI is at least `0.147.0`, and the login command
+exits `0` using the current OS user's existing local CLI session. Do not
+provision an API key, silently switch providers, or fall back from one CLI to
+the other. Claude remains a supported explicit adapter, but its local auth is
+not a blocker for this computer's Codex QA.
 
-Seed and boot Claude first:
+Seed and boot the code-owned Codex default:
 
 ```bash
-rtk env AGENT_SOURCING_ADAPTER_TYPE=claude_cli \
-  AGENT_SOURCING_MODEL=claude-sonnet-4-6 \
+rtk env AGENT_SOURCING_ADAPTER_TYPE=codex_cli \
+  AGENT_SOURCING_MODEL=gpt-5.6-terra \
   npm run seed:agent-os
 rtk env AGENT_RUNTIME_WORKER_ENABLED=1 \
-  AGENT_SOURCING_MODEL=claude-sonnet-4-6 \
+  AGENT_SOURCING_MODEL=gpt-5.6-terra \
   npm run dev:server
 rtk npm run dev --workspace=apps/web
 ```
 
-Expected: Nest reports zero TypeScript errors and boots on port 4000; Next responds on port 3000. The Sourcing definition/instance resolves `claude_cli` and an explicit model.
+Expected: Nest reports zero TypeScript errors and boots on port 4000; Next
+responds on port 3000. The Sourcing definition/instance resolves `codex_cli`
+and the explicit `gpt-5.6-terra` model.
 
 - [ ] **Step 9: Perform authenticated Chrome QA without changing visible copy**
 
-Using the existing signed-in browser session:
+Using the existing signed-in browser and Wing sessions:
 
 1. Open each of the 14 `/sourcing-ai` sidebar routes and confirm no 404, blank error substitution, or copy/layout regression.
 2. In the decision-center assistant, ask a grounded question that has recommendation evidence.
 3. Confirm the response contains only verified citations and that Agent OS has one conversation, one request with `maxAttempts=1`, one run, one evidence ToolInvocation, and assistant/user messages.
 4. Ask for a collection refresh, confirm one Operations run ID is returned, and confirm the CLI exits instead of polling.
 5. Confirm no review batch, decision, procurement intent, purchase order, provider call, listing, or registration is created by the conversation.
-6. Restart the backend during a deliberately running assistant request, then confirm it becomes `failed/process_interrupted` and is not requeued; retry manually from the same screen.
+6. Confirm `provider=codex_cli`, model `gpt-5.6-terra`, the registered
+   capability policy/output schema, verified citations, and no local
+   shell/filesystem/web/browser tool invocation.
+7. Restart the backend during a deliberately running assistant request, then
+   confirm it becomes `failed/process_interrupted`, no local process survives,
+   and nothing is requeued; retry manually from the same screen.
 
-Switch to Codex by stopping the backend, reseeding the same organization, and restarting:
-
-```bash
-rtk env AGENT_SOURCING_ADAPTER_TYPE=codex_cli \
-  AGENT_SOURCING_MODEL=gpt-5.6-sol \
-  npm run seed:agent-os
-rtk env AGENT_RUNTIME_WORKER_ENABLED=1 \
-  AGENT_SOURCING_MODEL=gpt-5.6-sol \
-  npm run dev:server
-```
-
-Repeat the grounded assistant question and verify `provider=codex_cli`, explicit model, the same capability policy/output schema, verified citations, and no local shell/filesystem/web/browser tool invocation.
+If Claude Code is also installed and already authenticated on this machine,
+run one separate opt-in smoke interaction with `claude_cli`. A missing Claude
+login does not fail the Codex acceptance gate and never causes fallback.
 
 - [ ] **Step 10: Commit the dashboard cutover and operational configuration**
 
@@ -2456,6 +3081,10 @@ Expected: the fourth implementation commit completes the cutover; local `.env` f
 - [ ] `rtk rg -n "procurement|purchase|provider|listing|registration" agent-config/prompts/agents/sourcing.md agent-config/skills/sourcing` confirms those effects are prohibited, not offered as tools.
 - [ ] Claude and Codex each produced one real signed-in dashboard answer with an AgentRun and verified citations.
 - [ ] Restart interruption produced `failed/process_interrupted`, zero automatic replay, and a successful explicit user retry.
+- [ ] Server shutdown terminated the active local CLI/MCP process tree; no old prompt, output, request, or run resumed after restart.
+- [ ] Request/run cancellation and interruption each use one repository transaction, and conditional pre-run failure cannot overwrite cancellation.
+- [ ] URL scrape candidate upsert completed before AgentRun success; malformed output or candidate persistence failure produced a failed run.
+- [ ] `SourcingScrapeFinalizedBridge` is absent and no `AGENT_RUN_EVENTS.FINALIZED` listener writes canonical Sourcing rows.
 - [ ] A background `claimNextRunRequest` skipped `source='sourcing_dashboard'`; only the inline request-ID path claimed it.
 - [ ] Sourcing MCP tools excluded `agent_os_finalize_task`, raw Playwright, shell/filesystem/web/browser, and every non-Sourcing business capability.
 - [ ] Existing deterministic collection/save buttons and Final review CTA still work through their current non-LLM APIs.
