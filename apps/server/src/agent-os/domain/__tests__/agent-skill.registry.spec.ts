@@ -16,15 +16,34 @@ describe('agent skill registry', () => {
       category: 'sourcing',
       version: '1.0.0',
       skillPath: '~/.codex/skills/magic-scraper/SKILL.md',
-      defaultPreload: true,
+      defaultPreload: false,
       allowedAgentTypes: ['sourcing'],
       mode: 'development_workflow',
     });
   });
 
+  it('keeps Magic Scraper development-only and out of runtime preload', () => {
+    expect(findAgentSkillByKey('sourcing.magic_scraper')).toMatchObject({
+      defaultPreload: false,
+      mode: 'development_workflow',
+    });
+    expect(
+      listAgentSkillsForAgentType('sourcing')
+        .filter((skill) => skill.defaultPreload)
+        .map((skill) => skill.key),
+    ).toEqual([
+      'sourcing.evidence-grounded-analysis',
+      'sourcing.collection-planning',
+      'sourcing.safe-review-handoff',
+    ]);
+  });
+
   it('lists skills by allowed agent type', () => {
     expect(listAgentSkillsForAgentType('sourcing').map((skill) => skill.key)).toEqual([
       'sourcing.magic_scraper',
+      'sourcing.evidence-grounded-analysis',
+      'sourcing.collection-planning',
+      'sourcing.safe-review-handoff',
     ]);
     expect(listAgentSkillsForAgentType('order')).toEqual([]);
   });
