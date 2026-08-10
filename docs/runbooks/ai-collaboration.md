@@ -6,10 +6,10 @@ start other sessions.
 
 ## System Of Record
 
-- Linear owns work identity, the accountable human, priority, status, durable
-  decisions, blockers, and handoffs.
+- Linear owns every internal work item, the accountable human, priority,
+  status, durable decisions, blockers, and handoffs.
 - GitHub owns implementation evidence: branch, commits, PR, checks, review, and
-  merge.
+  merge. GitHub Issues are not an internal task ledger.
 - Slack owns live discussion, meetings, explicit Hermes requests, and exception
   alerts. It is not a second task ledger.
 
@@ -36,6 +36,25 @@ start other sessions.
 4. Reserve `Agent:<actual-profile-name>` for an autonomous profile explicitly
    dispatched by an orchestrator. Directly operated Codex or Claude sessions
    name their actual tool in comments and do not add an `Agent:*` route label.
+5. Never create or ask another Agent to create a GitHub Issue for an internal
+   bug, task, review follow-up, technical-debt item, cleanup, or discussion
+   outcome. Create the Linear issue directly, even when intake starts in Slack,
+   Codex, Claude, Hermes, a PR review, or another tool.
+
+## GitHub Issue Exception
+
+- Reserve GitHub Issues for externally authored intake when the reporter cannot
+  use Linear, or for an issue that must live in another repository owned by an
+  upstream project.
+- For an external issue in this repository, create or link exactly one Linear
+  issue for execution. Use GitHub only for communication with the reporter;
+  keep status, priority, ownership, and internal decisions in Linear.
+- If external discussion no longer needs to remain open, comment with the
+  Linear identifier and close the GitHub Issue. Do not mirror routine Linear
+  updates back to GitHub.
+- Never put a suspected vulnerability or secret in a public GitHub Issue. Use a
+  private security channel or GitHub Security Advisory and track remediation in
+  a restricted Linear issue.
 
 ## Start Work
 
@@ -53,6 +72,9 @@ start other sessions.
 Update Linear only when shared state changes:
 
 - PR opened: link the PR and verification evidence, then use `In Review`.
+- Feedback fixed in the current PR stays in its GitHub review conversation;
+  deferred or separately owned follow-up work becomes a Linear issue, never a
+  new GitHub Issue.
 - Rework requested: record the reason and return to `In Progress`.
 - Human decision or authorization required: use `Human Input` and name the
   decision owner.
@@ -105,6 +127,10 @@ After merge, the executor owns closeout:
 Hermes acts only after an explicit request such as `KID-123 진행해줘`,
 `Ready에서 다음 작업 찾아줘`, or `KID-123 PR 리뷰해줘`. It may then select,
 implement, review, or archive a decision within the requested scope.
+
+Hermes never creates or mirrors an internal GitHub Issue. It may read an
+externally authored or legacy GitHub Issue, link it to Linear, communicate with
+the external reporter, and close it when the Linear handoff is complete.
 
 Do not add Ready polling, watchers, webhook auto-start, or background inspection
 of Codex or Claude sessions. Hermes must re-read live Linear and GitHub state
