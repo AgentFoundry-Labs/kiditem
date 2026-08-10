@@ -82,6 +82,7 @@
 - Create: `apps/server/src/agent-os/adapter/out/runtime/__tests__/filesystem-agent-runtime-assets.adapter.spec.ts`
 - Create: `apps/server/src/agent-os/application/service/agent-runtime-assets-startup-validator.service.ts`
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-runtime-assets-startup-validator.service.spec.ts`
+- Create: `apps/server/src/agent-os/__tests__/seed-agent-os.spec.ts`
 - Modify: `apps/server/src/agent-os/domain/agent-os.types.ts:139-161`
 - Modify: `apps/server/src/agent-os/domain/agent-definition.registry.ts:1-270`
 - Modify: `apps/server/src/agent-os/domain/agent-skill.registry.ts:1-45`
@@ -89,6 +90,8 @@
 - Modify: `apps/server/src/agent-os/domain/__tests__/agent-skill.registry.spec.ts:1-45`
 - Modify: `apps/server/src/agent-os/seed-agent-os.ts:1-155`
 - Modify: `apps/server/src/agent-os/agent-os.module.ts:1-105`
+- Modify: `apps/server/Dockerfile:70-120`
+- Modify: `.dockerignore:28-35`
 
 **Interfaces:**
 - Consumes: `AgentDefinitionRecord`, `AgentSkillDefinitionRecord`, and code-owned relative paths rooted at the repository.
@@ -200,7 +203,11 @@ it('fails when a configured asset escapes the repository or is missing', async (
   })).rejects.toMatchObject({ code: 'runtime_asset_path_invalid' });
 });
 
-it('fails server startup when a configured runtime asset cannot be resolved', async () => {
+it('validates every configured definition and fails on the later missing asset', async () => {
+  vi.mocked(listAgentDefinitions).mockReturnValue([
+    validAssetDefinition('first'),
+    missingPromptDefinition('second'),
+  ]);
   assets.resolve.mockRejectedValueOnce(
     new AgentOsRuntimeError('runtime_asset_missing', 'Missing sourcing prompt.'),
   );
@@ -208,6 +215,13 @@ it('fails server startup when a configured runtime asset cannot be resolved', as
   await expect(validator.onApplicationBootstrap()).rejects.toMatchObject({
     code: 'runtime_asset_missing',
   });
+  expect(assets.resolve).toHaveBeenNthCalledWith(1, expect.objectContaining({
+    agentType: 'first',
+  }));
+  expect(assets.resolve).toHaveBeenNthCalledWith(2, expect.objectContaining({
+    agentType: 'second',
+    promptPath: 'agent-config/prompts/agents/missing.md',
+  }));
 });
 ```
 
@@ -385,7 +399,7 @@ for (const definition of definitions) {
   resolveDefaultModel(definition);
   if (definition.outputSchemaPath) {
     await resolveAgentRuntimeAssetsFromFilesystem({
-      repositoryRoot: process.cwd(),
+      repositoryRoot: resolveAgentOsRepositoryRoot(),
       agentType: definition.type,
       promptPath: definition.promptPath,
       skillKeys: definition.defaultSkillKeys,
@@ -394,6 +408,10 @@ for (const definition of definitions) {
   }
 }
 ```
+
+Implement `resolveAgentOsRepositoryRoot(moduleDirectory = __dirname): string` with `resolve(moduleDirectory, '../../../..')`, and use it in seed validation instead of `process.cwd()`. Its source and compiled locations both resolve to the repository root (`apps/server/src/agent-os` and `apps/server/dist/agent-os` respectively). Add a focused seed test using a production-shaped module directory and an arbitrary process cwd; assert it resolves `/app` from `/app/apps/server/dist/agent-os` without consulting cwd.
+
+The runtime image executes from `/app/apps/server`, while the resolver roots runtime assets at `/app`. Do not copy the whole `agent-config` tree: add one runner-stage `COPY` instruction for the Sourcing prompt, each of the three runtime `SKILL.md` files, and the Sourcing answer schema only. Add matching narrow `.dockerignore` negations for those four Markdown files below the global `*.md` rule. Add a bounded image-build assertion that reads the prompt, all three runtime `SKILL.md` files, and parses `sourcing-agent-answer.schema.json`. Do not copy credentials, eval fixtures, the Operator schema, or any development-only skill directory. This is required because the startup validator must succeed in the Office image as well as the local repository.
 
 - [ ] **Step 5: Run Task 1 tests and the shared schema build**
 
@@ -404,7 +422,8 @@ rtk npm exec --workspace=apps/server vitest -- run \
   src/agent-os/domain/__tests__/agent-definition.registry.spec.ts \
   src/agent-os/domain/__tests__/agent-skill.registry.spec.ts \
   src/agent-os/adapter/out/runtime/__tests__/filesystem-agent-runtime-assets.adapter.spec.ts \
-  src/agent-os/application/service/__tests__/agent-runtime-assets-startup-validator.service.spec.ts
+  src/agent-os/application/service/__tests__/agent-runtime-assets-startup-validator.service.spec.ts \
+  src/agent-os/__tests__/seed-agent-os.spec.ts
 rtk npm run build --workspace=packages/shared
 ```
 
@@ -421,13 +440,16 @@ rtk git add agent-config/prompts/agents/sourcing.md \
   apps/server/src/agent-os/adapter/out/runtime/__tests__/filesystem-agent-runtime-assets.adapter.spec.ts \
   apps/server/src/agent-os/application/service/agent-runtime-assets-startup-validator.service.ts \
   apps/server/src/agent-os/application/service/__tests__/agent-runtime-assets-startup-validator.service.spec.ts \
+  apps/server/src/agent-os/__tests__/seed-agent-os.spec.ts \
   apps/server/src/agent-os/domain/agent-os.types.ts \
   apps/server/src/agent-os/domain/agent-definition.registry.ts \
   apps/server/src/agent-os/domain/agent-skill.registry.ts \
   apps/server/src/agent-os/domain/__tests__/agent-definition.registry.spec.ts \
   apps/server/src/agent-os/domain/__tests__/agent-skill.registry.spec.ts \
   apps/server/src/agent-os/seed-agent-os.ts \
-  apps/server/src/agent-os/agent-os.module.ts
+  apps/server/src/agent-os/agent-os.module.ts \
+  apps/server/Dockerfile \
+  .dockerignore
 rtk git commit -m "feat: define sourcing agent runtime assets"
 ```
 
@@ -2003,7 +2025,7 @@ Expected: one commit that can be reviewed independently for business capability 
 - Modify: `apps/server/src/agent-os/domain/agent-definition.registry.ts:185-205`
 - Modify: `apps/server/src/agent-os/domain/__tests__/agent-definition.registry.spec.ts:36-75`
 - Modify: `apps/server/src/agent-os/seed-agent-os.ts:35-145`
-- Create: `apps/server/src/agent-os/__tests__/seed-agent-os.spec.ts`
+- Modify: `apps/server/src/agent-os/__tests__/seed-agent-os.spec.ts`
 - Modify: `apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/lib/entry-recommendation-api.ts:90-140`
 - Modify: `apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.tsx:140-240`
 - Modify: `apps/web/src/app/(sourcing-ai)/sourcing-ai/decision-center/components/EntryRecommendationBoard.spec.tsx:1-150`
