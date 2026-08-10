@@ -44,6 +44,12 @@ Keep active AGENTS chains below 28 KiB. Run
 - Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
   of git.
 
+## Collaboration
+
+Before repository changes, follow
+[`docs/runbooks/ai-collaboration.md`](docs/runbooks/ai-collaboration.md), the
+shared Codex, Claude, Hermes, Linear, GitHub, and Slack contract.
+
 ## Platform Ownership
 
 | `operations` | operation catalog, schedules, run envelope, engine dispatch |
