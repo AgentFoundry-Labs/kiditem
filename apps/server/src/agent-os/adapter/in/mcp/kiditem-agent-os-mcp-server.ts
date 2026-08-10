@@ -5,7 +5,6 @@ import { NestFactory } from '@nestjs/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod/v3';
-import { AppModule } from '../../../../app.module';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
   AgentOsMcpToolExecutor,
@@ -300,13 +299,18 @@ export function createKidItemAgentOsMcpServer(input: {
   return server;
 }
 
-export function loadKidItemAgentOsMcpEnv(cwd = process.cwd()): void {
-  config({ path: resolve(cwd, 'apps/server/.env') });
-  config({ path: resolve(cwd, '.env') });
+export function loadKidItemAgentOsMcpEnv(repositoryRoot: string): void {
+  config({ path: resolve(repositoryRoot, 'apps/server/.env') });
+  config({ path: resolve(repositoryRoot, '.env') });
 }
 
 export async function runKidItemAgentOsMcpServer(): Promise<void> {
-  loadKidItemAgentOsMcpEnv();
+  const repositoryRoot = readRequiredEnv(
+    process.env,
+    'KIDITEM_AGENT_OS_ENV_ROOT',
+  );
+  loadKidItemAgentOsMcpEnv(repositoryRoot);
+  const { AppModule } = await import('../../../../app.module');
   const context = readKidItemAgentOsMcpContext();
   const app = await NestFactory.createApplicationContext(AppModule, {
     logger: false,
@@ -322,28 +326,18 @@ export async function runKidItemAgentOsMcpServer(): Promise<void> {
     await app.close();
   };
 
-  process.once('SIGINT', () => {
-    close()
-      .then(() => {
-        process.exitCode = 0;
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(redactMcpErrorMessage(message));
-        process.exitCode = 1;
-      });
-  });
-  process.once('SIGTERM', () => {
-    close()
-      .then(() => {
-        process.exitCode = 0;
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        console.error(redactMcpErrorMessage(message));
-        process.exitCode = 1;
-      });
-  });
+  const closeForSignal = () => {
+    void close().catch((error: unknown) => {
+      console.error(
+        redactMcpErrorMessage(
+          error instanceof Error ? error.message : String(error),
+        ),
+      );
+      process.exitCode = 1;
+    });
+  };
+  process.once('SIGINT', closeForSignal);
+  process.once('SIGTERM', closeForSignal);
 
   try {
     await server.connect(new StdioServerTransport());

@@ -145,6 +145,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       requestedByUserId: input.requestedByUserId ?? null,
       requestedByActorType: input.requestedByActorType ?? null,
       requestedByActorId: input.requestedByActorId ?? null,
+      maxAttempts: input.maxAttempts,
       payload: input.payload ?? {},
       scheduledFor: input.scheduledFor ?? new Date(),
     });
@@ -287,6 +288,14 @@ export class AgentRunCoordinator implements AgentRunnerPort {
         errorCode: 'user_cancelled',
         errorMessage: cancelReason(input.reason),
       });
+      await this.executor
+        ?.cancelActiveRuntime({
+          organizationId: input.organizationId,
+          requestId: request.id,
+          runId: runningRun.id,
+          reason: 'user_cancelled',
+        })
+        .catch(() => false);
     }
 
     return this.cancelResult({
@@ -369,6 +378,14 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       errorCode: 'user_cancelled',
       errorMessage: cancelReason(input.reason),
     });
+    await this.executor
+      ?.cancelActiveRuntime({
+        organizationId: input.organizationId,
+        requestId: request.id,
+        runId: run.id,
+        reason: 'user_cancelled',
+      })
+      .catch(() => false);
 
     return this.cancelResult({
       cancelledRequests: 1,

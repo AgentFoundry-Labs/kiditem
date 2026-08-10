@@ -87,9 +87,13 @@ function makeCoordinator(overrides: Record<string, unknown> = {}) {
     finalizeRun: vi.fn().mockResolvedValue({ run: run('cancelled'), requestStatus: 'cancelled' }),
     ...overrides,
   };
+  const executor = {
+    cancelActiveRuntime: vi.fn().mockResolvedValue(true),
+  };
   return {
     repository,
-    coordinator: new AgentRunCoordinator(repository as never),
+    executor,
+    coordinator: new AgentRunCoordinator(repository as never, executor as never),
   };
 }
 
@@ -174,7 +178,7 @@ describe('AgentRunCoordinator cancellation', () => {
   });
 
   it('records cancel request on a running run and cancels its request ledger', async () => {
-    const { coordinator, repository } = makeCoordinator({
+    const { coordinator, repository, executor } = makeCoordinator({
       findRunById: vi.fn().mockResolvedValue(run('running')),
       findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
     });
@@ -212,7 +216,32 @@ describe('AgentRunCoordinator cancellation', () => {
         errorCode: 'user_cancelled',
       }),
     );
+    expect(executor.cancelActiveRuntime).toHaveBeenCalledWith({
+      organizationId: ORG,
+      requestId: REQUEST_ID,
+      runId: RUN_ID,
+      reason: 'user_cancelled',
+    });
     expect(result.cancelledRuns).toBe(1);
+  });
+
+  it('keeps the durable cancellation when best-effort process termination fails', async () => {
+    const { coordinator, repository, executor } = makeCoordinator({
+      findRunById: vi.fn().mockResolvedValue(run('running')),
+      findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
+    });
+    executor.cancelActiveRuntime.mockRejectedValueOnce(new Error('process gone'));
+
+    await expect(
+      coordinator.cancelRun({
+        organizationId: ORG,
+        runId: RUN_ID,
+        reason: '사용자 요청',
+      }),
+    ).resolves.toMatchObject({ cancelledRequests: 1, cancelledRuns: 1 });
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({ status: 'cancelled' }),
+    );
   });
 
   it('cancels non-terminal requests by workflow run id', async () => {
@@ -245,6 +274,29 @@ describe('AgentRunCoordinator cancellation', () => {
 });
 
 describe('AgentRunCoordinator runByType', () => {
+  it('passes an inline maxAttempts override unchanged to the request repository', async () => {
+    const repository = {
+      findActiveInstanceByType: vi.fn().mockResolvedValue({
+        id: 'instance-1',
+        lifecycleStatus: 'active',
+        adapterType: 'codex_cli',
+      }),
+      ensureTaskSession: vi.fn().mockResolvedValue({ id: 'session-1' }),
+      createRunRequest: vi.fn().mockResolvedValue(request('pending')),
+    };
+    const coordinator = new AgentRunCoordinator(repository as never);
+
+    await coordinator.runByType('sourcing', {
+      organizationId: ORG,
+      sourceType: 'sourcing_dashboard',
+      maxAttempts: 1,
+    });
+
+    expect(repository.createRunRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ maxAttempts: 1 }),
+    );
+  });
+
   it('rejects agent types that are no longer registered in the code-owned definition registry', async () => {
     const { coordinator, repository } = makeCoordinator({
       findActiveInstanceByType: vi.fn(),

@@ -7,6 +7,7 @@ import {
   readKidItemAgentOsMcpContext,
   toMcpText,
 } from '../kiditem-agent-os-mcp-server';
+import { kidItemAgentOsMcpChildEnvironment } from '../../../out/runtime/kiditem-mcp-session.adapter';
 
 const CONTEXT_ENV = {
   KIDITEM_AGENT_OS_ORGANIZATION_ID: 'org_123',
@@ -63,6 +64,15 @@ function parseTextResult(result: unknown) {
 }
 
 describe('KidItem Agent OS MCP server', () => {
+  it('pins every background worker and scheduler off in the MCP child', () => {
+    expect(kidItemAgentOsMcpChildEnvironment()).toMatchObject({
+      AGENT_RUNTIME_WORKER_ENABLED: '0',
+      OPERATION_RUNTIME_WORKER_ENABLED: '0',
+      OPERATION_SCHEDULER_ENABLED: '0',
+      AI_DIRECT_JOB_WORKER_ENABLED: '0',
+    });
+  });
+
   it('reads valid MCP env context and defaults agentType to manager when unset', () => {
     expect(readKidItemAgentOsMcpContext(CONTEXT_ENV)).toEqual(CONTEXT);
   });

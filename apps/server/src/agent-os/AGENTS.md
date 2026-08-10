@@ -89,6 +89,25 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Finalized listeners filter by event metadata (`agentType`, `source`,
   `sourceResourceType`, `sourceResourceId`), not by output payload.
 
+## Local Agent Runtime
+
+- Agent OS owns local Claude/Codex process execution, code-owned prompt/skill
+  resolution, scoped KidItem MCP sessions, structured-output verification, and
+  detached process-group cancellation. Owner-domain runtime handlers retain
+  deterministic actions; they do not implement a second local CLI boundary.
+- Sourcing interactions use the code-owned `codex_cli` default. The Claude CLI
+  remains a supported explicitly configured adapter and uses the operator's
+  existing local login; neither provider requires an API key when its local
+  CLI session is already authenticated.
+- Each local run receives one child-only MCP session. The parent CLI process
+  receives only local CLI session/auth discovery variables, never KidItem DB,
+  Redis, commerce-provider, or server `.env` credentials.
+- Generic background claims exclude `sourcing_dashboard`; only its inline
+  request-id claim may execute that surface. Stale pending/claimed dashboard
+  requests and running attempts fail with `process_interrupted` at startup and
+  are never replayed. MCP child application contexts never run reconciliation
+  or background workers.
+
 ## Boundary Rules
 
 - Application services must not import concrete adapters, `PrismaService`, Nest

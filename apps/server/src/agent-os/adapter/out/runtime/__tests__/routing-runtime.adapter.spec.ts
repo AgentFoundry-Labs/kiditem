@@ -22,6 +22,10 @@ function makeContext(
     model: 'claude-test',
     modelPlan: { primary: 'claude-test' },
     promptPath: 'agent-config/prompts/agents/rules-evaluation.md',
+    conversationId: null,
+    requestedByUserId: null,
+    skillKeys: [],
+    outputSchemaPath: null,
     input: { ruleSetId: 'rules-1' },
     trustLevel: 0,
     runtimeConfig: {},
@@ -57,6 +61,33 @@ describe('RoutingRuntimeAdapter', () => {
     const result = await adapter.execute(makeContext());
     expect(handler.execute).toHaveBeenCalledTimes(1);
     expect(result).toBe(expected);
+  });
+
+  it('routes Claude and Codex CLI adapters through the generic local runtime', async () => {
+    const registry = new AgentRuntimeHandlerRegistry();
+    const localRuntime = {
+      execute: vi.fn().mockResolvedValue({ output: { text: 'answer' } }),
+      cancel: vi.fn().mockResolvedValue(true),
+    };
+    const adapter = new RoutingRuntimeAdapter(registry, localRuntime as never);
+    const context = makeContext({
+      agentType: 'sourcing',
+      adapterType: 'codex_cli',
+      conversationId: 'conversation-1',
+    });
+
+    await expect(adapter.execute(context)).resolves.toEqual({
+      output: { text: 'answer' },
+    });
+    expect(localRuntime.execute).toHaveBeenCalledWith(context);
+    await expect(
+      adapter.cancel({
+        organizationId: 'org-1',
+        requestId: 'req-1',
+        runId: 'run-1',
+        reason: 'user_cancelled',
+      }),
+    ).resolves.toBe(true);
   });
 
   it('throws runtime_not_configured when no handler is registered (default mode)', async () => {

@@ -6,6 +6,7 @@ import {
 } from '../port/out/repository/agent-os-repository.port';
 import {
   AGENT_RUNTIME_PORT,
+  type CancelAgentRuntimeInput,
   type AgentRuntimePort,
 } from '../port/out/runtime/agent-runtime.port';
 import {
@@ -123,6 +124,7 @@ export class AgentRunExecutor {
       workerId,
       now: new Date(),
       organizationId,
+      excludedSources: ['sourcing_dashboard'],
     });
 
     if (!claimed) {
@@ -174,6 +176,7 @@ export class AgentRunExecutor {
       workerId,
       now: new Date(),
       organizationId: null,
+      excludedSources: ['sourcing_dashboard'],
     });
     if (!claimed) {
       return { executed: false, reason: 'no_pending_request' };
@@ -306,6 +309,10 @@ export class AgentRunExecutor {
         model,
         modelPlan: modelPlanResolution.modelPlan,
         promptPath,
+        conversationId: claimed.conversationId,
+        requestedByUserId: claimed.requestedByUserId,
+        skillKeys: [...definition.defaultSkillKeys],
+        outputSchemaPath: definition.outputSchemaPath,
         input: claimed.payload,
         trustLevel: instance.trustLevel,
         runtimeConfig: { ...definition.defaultRuntimeConfig, ...instance.runtimeConfig },
@@ -467,5 +474,9 @@ export class AgentRunExecutor {
    */
   expectsAbort(error: unknown): boolean {
     return error instanceof AgentOsRuntimeError && error.code === 'aborted';
+  }
+
+  async cancelActiveRuntime(input: CancelAgentRuntimeInput): Promise<boolean> {
+    return this.runtime.cancel ? this.runtime.cancel(input) : false;
   }
 }

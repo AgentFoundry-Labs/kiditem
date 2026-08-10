@@ -16,12 +16,17 @@ import { OpenAiResponsesOperatorRuntimeAdapter } from './adapter/out/runtime/ope
 import { OperatorRuntimeHandler } from './adapter/out/runtime/operator-runtime.handler';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
 import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
+import { AgentLocalCliRuntimeAdapter } from './adapter/out/runtime/agent-local-cli-runtime.adapter';
+import { AgentLocalProcessRegistry } from './adapter/out/runtime/agent-local-process-registry';
+import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-session.adapter';
 import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
 import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
+import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
+import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
 import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { AgentApprovalService } from './application/service/agent-approval.service';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
@@ -42,6 +47,16 @@ import { KidItemMcpToolRegistry } from './application/service/kiditem-mcp-tool-r
 import { OperatorDecisionExecutor } from './application/service/operator-decision-executor.service';
 import { OperatorDecisionParser } from './application/service/operator-decision-parser.service';
 import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-runtime-assets-startup-validator.service';
+import { AgentInteractionService } from './application/service/agent-interaction.service';
+import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
+
+const agentInteractionProviders = [
+  AgentInteractionService,
+  {
+    provide: AGENT_INTERACTION_PORT,
+    useExisting: AgentInteractionService,
+  },
+];
 
 @Module({
   imports: [AutomationModule, ReadinessModule],
@@ -55,6 +70,7 @@ import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-
     AgentConversationsController,
   ],
   providers: [
+    ...agentInteractionProviders,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,
@@ -78,6 +94,10 @@ import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-
     OperatorDecisionParser,
     OperatorRuntimeHandler,
     RoutingRuntimeAdapter,
+    AgentLocalCliRuntimeAdapter,
+    AgentLocalProcessRegistry,
+    KidItemMcpSessionAdapter,
+    AgentInlineRunReconciler,
     FilesystemAgentRuntimeAssetsAdapter,
     AgentRunOperationAlertBridge,
     AgentOsLiveReadinessAdapter,
@@ -92,9 +112,14 @@ import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-
       provide: AGENT_RUNTIME_ASSETS_PORT,
       useExisting: FilesystemAgentRuntimeAssetsAdapter,
     },
+    {
+      provide: AGENT_MCP_SESSION_PORT,
+      useExisting: KidItemMcpSessionAdapter,
+    },
     { provide: AGENT_LOG_STORE_PORT, useClass: FilesystemAgentLogStoreAdapter },
   ],
   exports: [
+    AGENT_INTERACTION_PORT,
     AGENT_RUNNER_PORT,
     AgentRunCoordinator,
     AgentRunExecutor,

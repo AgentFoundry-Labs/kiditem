@@ -44,6 +44,7 @@ describe('agent definition registry', () => {
       outputSchemaPath:
         'agent-config/schemas/sourcing-agent-answer.schema.json',
       defaultModelEnv: 'AGENT_SOURCING_MODEL',
+      defaultAdapterType: 'codex_cli',
       defaultSkillKeys: [
         'sourcing.evidence-grounded-analysis',
         'sourcing.collection-planning',
