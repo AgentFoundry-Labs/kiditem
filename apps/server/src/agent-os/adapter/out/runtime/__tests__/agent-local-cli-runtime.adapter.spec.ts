@@ -2,13 +2,22 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
+
+const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+
+vi.mock('node:child_process', () => ({
+  spawn: spawnMock,
+}));
+
 import {
+  AgentLocalCliRuntimeAdapter,
   claudeMcpConfig,
   codexMcpConfigOverrides,
   readBoundedOutputFile,
   verifyAgentLocalCliAnswer,
   type AgentLocalCliAnswer,
 } from '../agent-local-cli-runtime.adapter';
+import { AgentLocalProcessRegistry } from '../agent-local-process-registry';
 
 const CONTEXT = {
   organizationId: 'org-1',
@@ -51,6 +60,79 @@ function evidenceArtifact(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AgentLocalCliRuntimeAdapter verification', () => {
+  it('does not spawn a CLI after cancellation during pre-spawn preparation', async () => {
+    spawnMock.mockReset();
+    spawnMock.mockImplementation(() => {
+      throw new Error('unexpected spawn');
+    });
+    const processes = new AgentLocalProcessRegistry({
+      capacity: 1,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup: vi.fn(),
+    });
+    const repository = {
+      appendRunEvent: vi.fn(),
+    };
+    const assets = {
+      resolve: vi.fn().mockResolvedValue({
+        promptPath: 'agent-config/prompts/agents/sourcing.md',
+        prompt: 'Use evidence.',
+        promptSha256: 'prompt-sha',
+        skills: [],
+        outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
+        outputSchemaVersion: 'sourcing-agent-answer.v1',
+        outputSchema: { type: 'object' },
+        outputSchemaSha256: 'schema-sha',
+      }),
+    };
+    const mcpSessions = {
+      prepare: vi.fn().mockImplementation(async () => {
+        await processes.cancel('run-1', 'user_cancelled');
+        return {
+          name: 'kiditem',
+          command: 'node',
+          args: ['mcp-server.js'],
+          env: {},
+        };
+      }),
+    };
+    const adapter = new AgentLocalCliRuntimeAdapter(
+      repository as never,
+      assets as never,
+      mcpSessions as never,
+      processes,
+    );
+
+    await expect(
+      adapter.execute({
+        organizationId: 'org-1',
+        agentInstanceId: 'instance-1',
+        agentType: 'sourcing',
+        requestId: 'request-1',
+        runId: 'run-1',
+        taskSessionId: 'session-1',
+        taskKey: 'default',
+        adapterType: 'codex_cli',
+        model: 'gpt-5.6-terra',
+        modelPlan: { primary: 'gpt-5.6-terra' },
+        promptPath: 'agent-config/prompts/agents/sourcing.md',
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        skillKeys: [],
+        outputSchemaPath:
+          'agent-config/schemas/sourcing-agent-answer.schema.json',
+        input: { userMessage: 'Find products.' },
+        trustLevel: 0,
+        runtimeConfig: {},
+      }),
+    ).rejects.toMatchObject({ code: 'user_cancelled' });
+
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(repository.appendRunEvent).not.toHaveBeenCalled();
+    expect(processes.reasonFor('run-1')).toBeNull();
+  });
+
   it('keeps the MCP child isolated from the operator home in both CLI configs', () => {
     const descriptor = {
       name: 'kiditem' as const,

@@ -152,4 +152,112 @@ describe('AgentLocalProcessRegistry', () => {
     child.emit('close', 0);
     await shutdown;
   });
+
+  it('tombstones an acquired run when shutdown happens before attach', async () => {
+    const killProcessGroup = vi.fn();
+    const registry = new AgentLocalProcessRegistry({
+      capacity: 2,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup,
+    });
+    const release = await registry.acquire('run-1');
+
+    await registry.onModuleDestroy();
+
+    expect(() => registry.assertCanSpawn('run-1')).toThrow(
+      expect.objectContaining({ code: 'process_interrupted' }),
+    );
+    const child = childWithPid(777);
+    expect(registry.attach('run-1', child as never)).toBe(false);
+    await Promise.resolve();
+    expect(killProcessGroup).toHaveBeenCalledWith(777, 'SIGTERM');
+    const termination = registry.cancel('run-1', 'process_interrupted');
+    child.emit('close', 0);
+    await expect(termination).resolves.toBe(true);
+
+    release();
+    expect(registry.reasonFor('run-1')).toBeNull();
+    await expect(
+      registry.cancel('run-1', 'process_interrupted'),
+    ).resolves.toBe(false);
+    await expect(registry.acquire('run-2')).rejects.toMatchObject({
+      code: 'process_interrupted',
+    });
+  });
+
+  it('tombstones cancellation between acquire and attach', async () => {
+    const killProcessGroup = vi.fn();
+    const registry = new AgentLocalProcessRegistry({
+      capacity: 2,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup,
+    });
+    const release = await registry.acquire('run-1');
+
+    await expect(registry.cancel('run-1', 'user_cancelled')).resolves.toBe(
+      true,
+    );
+    expect(() => registry.assertCanSpawn('run-1')).toThrow(
+      expect.objectContaining({ code: 'user_cancelled' }),
+    );
+    const child = childWithPid(888);
+    expect(registry.attach('run-1', child as never)).toBe(false);
+    await Promise.resolve();
+    expect(killProcessGroup).toHaveBeenCalledWith(888, 'SIGTERM');
+    const termination = registry.cancel('run-1', 'user_cancelled');
+    child.emit('close', 0);
+    await expect(termination).resolves.toBe(true);
+
+    release();
+    expect(registry.reasonFor('run-1')).toBeNull();
+    await expect(registry.cancel('run-1', 'user_cancelled')).resolves.toBe(
+      false,
+    );
+  });
+
+  it('tombstones a cancelled run while it is waiting to acquire capacity', async () => {
+    const registry = new AgentLocalProcessRegistry({
+      capacity: 1,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup: vi.fn(),
+    });
+    const releaseFirst = await registry.acquire('run-1');
+    const waiting = registry.acquire('run-2');
+    const waitingAssertion = expect(waiting).rejects.toMatchObject({
+      code: 'user_cancelled',
+    });
+
+    await expect(registry.cancel('run-2', 'user_cancelled')).resolves.toBe(
+      true,
+    );
+    releaseFirst();
+    await waitingAssertion;
+    expect(registry.reasonFor('run-2')).toBeNull();
+
+    const releaseThird = await registry.acquire('run-3');
+    releaseThird();
+  });
+
+  it('consumes an observed termination reason instead of leaking it per run', async () => {
+    const registry = new AgentLocalProcessRegistry({
+      capacity: 2,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup: vi.fn(),
+    });
+    const release = await registry.acquire('run-1');
+    const child = childWithPid(999);
+    registry.attach('run-1', child as never);
+    const termination = registry.cancel('run-1', 'user_cancelled');
+    child.emit('close', 0);
+    await termination;
+
+    expect(registry.consumeReason('run-1')).toBe('user_cancelled');
+    expect(registry.reasonFor('run-1')).toBeNull();
+    release();
+    expect(registry.reasonFor('run-1')).toBeNull();
+  });
 });
