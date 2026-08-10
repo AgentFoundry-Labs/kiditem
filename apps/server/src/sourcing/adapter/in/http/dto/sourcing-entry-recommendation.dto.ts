@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class ListEntryRecommendationsQueryDto {
   @IsOptional()
@@ -21,4 +21,8 @@ export class AskSourcingAssistantDto {
   @IsString()
   @MaxLength(8000)
   visibleContext?: string;
+
+  @IsOptional()
+  @IsUUID()
+  conversationId?: string;
 }

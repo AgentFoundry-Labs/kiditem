@@ -4,13 +4,18 @@
   "title": "SourcingAgentAnswerV1",
   "type": "object",
   "additionalProperties": false,
-  "required": ["text", "citationIds", "dataGaps", "resourceRefs", "operationRunId"],
+  "required": [
+    "text",
+    "citationIds",
+    "dataGaps",
+    "resourceRefs",
+    "operationRunId"
+  ],
   "properties": {
     "text": { "type": "string", "minLength": 1, "maxLength": 6000 },
     "citationIds": {
       "type": "array",
       "maxItems": 12,
-      "uniqueItems": true,
       "items": { "type": "string", "minLength": 1, "maxLength": 500 }
     },
     "dataGaps": {
@@ -41,10 +46,8 @@
       }
     },
     "operationRunId": {
-      "oneOf": [
-        { "type": "string", "format": "uuid" },
-        { "type": "null" }
-      ]
+      "type": ["string", "null"],
+      "format": "uuid"
     }
   }
 }

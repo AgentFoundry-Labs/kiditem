@@ -114,6 +114,7 @@ export interface SourcingAssistantAnswer {
   model: string | null;
   degradedReason: string | null;
   degradedCode: string | null;
+  conversationId: string | null;
 }
 
 /**
@@ -129,6 +130,7 @@ export function fetchEntryRecommendations(limit = 50): Promise<EntryRecommendati
 export function askSourcingAssistant(input: {
   question: string;
   visibleContext?: string;
+  conversationId?: string;
 }): Promise<SourcingAssistantAnswer> {
   return apiClient.post<SourcingAssistantAnswer>('/api/sourcing/entry/assistant-ask', input);
 }

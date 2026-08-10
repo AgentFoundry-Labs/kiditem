@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
@@ -92,10 +92,23 @@ describe('sourcing architecture contract', () => {
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
+    const assistantService = path.join(
+      sourcing,
+      'application/service/sourcing-assistant.service.ts',
+    );
+    const violators = hits.filter((file) => file !== assistantService);
     expect(
-      hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+      violators,
+      `application services must reach other owner domains through ports, not services:\n${violators.join('\n')}`,
     ).toEqual([]);
+    const assistantSource = readFileSync(
+      path.join(SOURCING_ROOT, 'application/service/sourcing-assistant.service.ts'),
+      'utf8',
+    );
+    expect(assistantSource).toContain(
+      'agent-os/application/port/in/agent-interaction.port',
+    );
+    expect(assistantSource).not.toContain('agent-os/application/service/');
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
@@ -140,26 +153,14 @@ describe('sourcing architecture contract', () => {
     );
   });
 
-  it('keeps assistant subprocess execution inside the single locked-down runtime adapter', () => {
+  it('keeps local CLI subprocess execution out of the Sourcing owner domain', () => {
     const sourcing = sourcingRel();
     const hits = rg(
       `--type ts --files-with-matches 'node:child_process' ${sourcing} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
-      `Only the assistant runtime adapter may spawn a sourcing subprocess:\n${hits.join('\n')}`,
-    ).toEqual([
-      path.join(sourcing, 'adapter/out/runtime/sourcing-assistant-cli-generation.adapter.ts'),
-    ]);
-
-    const runtimeSource = readFileSync(
-      path.join(SOURCING_ROOT, 'adapter/out/runtime/sourcing-assistant-cli-generation.adapter.ts'),
-      'utf8',
-    );
-    expect(runtimeSource).toContain("'--tools', ''");
-    expect(runtimeSource).not.toContain("'--allowed-tools'");
-    expect(runtimeSource).toContain("'--disable', 'shell_tool'");
-    expect(runtimeSource).toContain("'--ignore-user-config'");
-    expect(runtimeSource).toContain("'approval_policy=\"never\"'");
+      `Sourcing must use Agent OS for local CLI execution:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 });

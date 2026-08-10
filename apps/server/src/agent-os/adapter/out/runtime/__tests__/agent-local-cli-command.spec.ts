@@ -20,7 +20,7 @@ function commandInput(): BuildAgentLocalCliCommandInput {
       DATABASE_URL: 'postgres://secret',
       REDIS_URL: 'redis://secret',
       COUPANG_ACCESS_KEY: 'commerce-secret',
-      SOURCING_ASSISTANT_RUNTIME: 'codex',
+      SOURCING_PRIVATE_TOKEN: 'sourcing-secret',
     },
     prompt: '추천 근거를 설명해줘',
     outputSchema: { type: 'object' },
@@ -121,11 +121,12 @@ describe('agent local CLI command builders', () => {
       'multi_agent',
       'workspace_dependencies',
       'code_mode',
-      'code_mode_host',
       'in_app_browser',
       'view_image',
     ]) {
-      expect(command.args).toEqual(expect.arrayContaining(['--disable', feature]));
+      expect(command.args).toEqual(
+        expect.arrayContaining(['--disable', feature]),
+      );
     }
     expect(command.args).toEqual(
       expect.arrayContaining([
@@ -140,13 +141,16 @@ describe('agent local CLI command builders', () => {
       ]),
     );
     expect(command.args).not.toContain('tools.view_image=false');
+    expect(command.args).not.toEqual(
+      expect.arrayContaining(['--disable', 'code_mode_host']),
+    );
     expect(command.env).not.toHaveProperty('DATABASE_URL');
     expect(command.stdin).toBe(input.prompt);
     expect(command.args).not.toContain(input.prompt);
     expect(command.args.join(' ')).not.toContain('SOURCING_ASSISTANT');
-    expect(command.args.filter((value) => value.startsWith('mcp_servers.'))).toEqual(
-      input.codexMcpConfigOverrides,
-    );
+    expect(
+      command.args.filter((value) => value.startsWith('mcp_servers.')),
+    ).toEqual(input.codexMcpConfigOverrides);
   });
 
   it('forwards only the selected providers local authentication environment', () => {

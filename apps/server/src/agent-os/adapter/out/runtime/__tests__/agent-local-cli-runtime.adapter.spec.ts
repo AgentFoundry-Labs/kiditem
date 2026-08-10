@@ -28,7 +28,9 @@ const CONTEXT = {
   runId: 'run-1',
 };
 
-function answer(overrides: Partial<AgentLocalCliAnswer> = {}): AgentLocalCliAnswer {
+function answer(
+  overrides: Partial<AgentLocalCliAnswer> = {},
+): AgentLocalCliAnswer {
   return {
     text: '근거가 있는 답변',
     citationIds: ['evidence-1'],
@@ -163,7 +165,10 @@ async function executionOutcome(
   ]);
 }
 
-function runtimeHarness(provider: 'codex_cli' | 'claude_cli', timeoutMs: number) {
+function runtimeHarness(
+  provider: 'codex_cli' | 'claude_cli',
+  timeoutMs: number,
+) {
   vi.stubEnv('AGENT_RUNTIME_EXECUTION_TIMEOUT_MS', String(timeoutMs));
   const killProcessGroup = vi.fn();
   const processes = new AgentLocalProcessRegistry({
@@ -190,8 +195,7 @@ function runtimeHarness(provider: 'codex_cli' | 'claude_cli', timeoutMs: number)
     killProcessGroup,
     context: localContext({
       adapterType: provider,
-      model:
-        provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
+      model: provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
       modelPlan: {
         primary:
           provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
@@ -234,9 +238,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
       processes,
     );
 
-    await expect(
-      adapter.execute(localContext()),
-    ).rejects.toMatchObject({ code: 'user_cancelled' });
+    await expect(adapter.execute(localContext())).rejects.toMatchObject({
+      code: 'user_cancelled',
+    });
 
     expect(spawnMock).not.toHaveBeenCalled();
     expect(repository.appendRunEvent).not.toHaveBeenCalled();
@@ -400,6 +404,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
     expect(codexOverrides).toContain(
       'mcp_servers.kiditem.env.CODEX_HOME="/tmp/kiditem-run/mcp-home"',
     );
+    expect(codexOverrides).toContain(
+      'mcp_servers.kiditem.default_tools_approval_mode="approve"',
+    );
     expect(JSON.stringify(claudeConfig)).not.toContain('/Users/operator');
     expect(codexOverrides.join('\n')).not.toContain('/Users/operator');
   });
@@ -460,7 +467,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
         provider: 'claude_cli',
         model: 'claude-sonnet-4-6',
       }),
-    ).toThrow(expect.objectContaining({ code: 'citation_verification_failed' }));
+    ).toThrow(
+      expect.objectContaining({ code: 'citation_verification_failed' }),
+    );
   });
 
   it('accepts no citation only with a data gap or a verified resource reference', () => {
@@ -510,6 +519,47 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
         provider: 'codex_cli',
         model: 'gpt-5.6-sol',
       }),
-    ).toThrow(expect.objectContaining({ code: 'resource_verification_failed' }));
+    ).toThrow(
+      expect.objectContaining({ code: 'resource_verification_failed' }),
+    );
+  });
+
+  it('uses the same-run collection artifact instead of a model-copied operation id', () => {
+    const operationRunId = '11111111-1111-4111-8111-111111111111';
+    const copiedWrongId = '22222222-2222-4222-8222-222222222222';
+
+    const result = verifyAgentLocalCliAnswer({
+      context: CONTEXT,
+      answer: answer({
+        text: `Operations 실행 ID: ${copiedWrongId}`,
+        citationIds: [],
+        dataGaps: [],
+        resourceRefs: [{ kind: 'operation_run', id: copiedWrongId }],
+        operationRunId: copiedWrongId,
+      }),
+      artifacts: [
+        evidenceArtifact({
+          id: 'artifact-operation',
+          artifactType: 'operation_run',
+          targetId: operationRunId,
+        }),
+      ],
+      toolInvocations: [
+        {
+          capabilityKey: 'sourcing.refreshCollection',
+          status: 'succeeded',
+          outputSummary: { operationRunId, status: 'queued' },
+        },
+      ],
+      provider: 'codex_cli',
+      model: 'gpt-5.6-sol',
+    });
+
+    expect(result.operationRunId).toBe(operationRunId);
+    expect(result.resourceRefs).toContainEqual({
+      kind: 'operation_run',
+      id: operationRunId,
+    });
+    expect(result.text).toBe(`Operations 실행 ID: ${operationRunId}`);
   });
 });

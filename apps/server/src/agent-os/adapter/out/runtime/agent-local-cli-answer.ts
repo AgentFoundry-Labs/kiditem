@@ -82,6 +82,34 @@ function toVerifiedCitation(artifact: VerificationArtifact) {
   };
 }
 
+function verifiedCollectionOperationId(input: {
+  artifacts: VerificationArtifact[];
+  toolInvocations: VerificationInvocation[];
+}): string | null {
+  const artifactIds = new Set(
+    input.artifacts
+      .filter(
+        (artifact) =>
+          artifact.artifactType === 'operation_run' && artifact.targetId,
+      )
+      .map((artifact) => artifact.targetId!),
+  );
+  const operationIds = new Set<string>();
+  for (const invocation of input.toolInvocations) {
+    if (
+      invocation.capabilityKey !== 'sourcing.refreshCollection' ||
+      invocation.status !== 'succeeded'
+    ) {
+      continue;
+    }
+    const operationRunId = invocation.outputSummary?.operationRunId;
+    if (typeof operationRunId === 'string' && artifactIds.has(operationRunId)) {
+      operationIds.add(operationRunId);
+    }
+  }
+  return operationIds.size === 1 ? [...operationIds][0] : null;
+}
+
 export function verifyAgentLocalCliAnswer(input: {
   context: { organizationId: string; requestId: string; runId: string };
   answer: AgentLocalCliAnswer;
@@ -133,39 +161,43 @@ export function verifyAgentLocalCliAnswer(input: {
     );
   }
 
-  const verifiedResourceRefs = input.answer.resourceRefs.map((reference) => {
-    const matched = sameRunArtifacts.some((artifact) =>
-      reference.kind === 'artifact'
-        ? artifact.id === reference.id
-        : artifact.artifactType === reference.kind &&
-          artifact.targetId === reference.id,
-    );
-    if (!matched) {
-      throw new AgentOsRuntimeError(
-        'resource_verification_failed',
-        'Agent answer contains an unverified resource reference.',
-      );
-    }
-    return reference;
+  const canonicalOperationRunId = verifiedCollectionOperationId({
+    artifacts: sameRunArtifacts,
+    toolInvocations: input.toolInvocations,
   });
-
-  if (input.answer.operationRunId !== null) {
-    const hasRef = verifiedResourceRefs.some(
-      (reference) =>
-        reference.kind === 'operation_run' &&
-        reference.id === input.answer.operationRunId,
-    );
-    const hasArtifact = sameRunArtifacts.some(
-      (artifact) =>
-        artifact.artifactType === 'operation_run' &&
-        artifact.targetId === input.answer.operationRunId,
-    );
-    if (!hasRef || !hasArtifact) {
-      throw new AgentOsRuntimeError(
-        'resource_verification_failed',
-        'operationRunId is not backed by the same-run operation artifact.',
+  const verifiedResourceRefs = input.answer.resourceRefs
+    .filter((reference) => reference.kind !== 'operation_run')
+    .map((reference) => {
+      const matched = sameRunArtifacts.some((artifact) =>
+        reference.kind === 'artifact'
+          ? artifact.id === reference.id
+          : artifact.artifactType === reference.kind &&
+            artifact.targetId === reference.id,
       );
-    }
+      if (!matched) {
+        throw new AgentOsRuntimeError(
+          'resource_verification_failed',
+          'Agent answer contains an unverified resource reference.',
+        );
+      }
+      return reference;
+    });
+
+  const modelReturnedOperation =
+    input.answer.operationRunId !== null ||
+    input.answer.resourceRefs.some(
+      (reference) => reference.kind === 'operation_run',
+    );
+  if (canonicalOperationRunId) {
+    verifiedResourceRefs.push({
+      kind: 'operation_run',
+      id: canonicalOperationRunId,
+    });
+  } else if (modelReturnedOperation) {
+    throw new AgentOsRuntimeError(
+      'resource_verification_failed',
+      'operationRunId is not backed by one same-run collection artifact.',
+    );
   }
 
   if (
@@ -195,12 +227,14 @@ export function verifyAgentLocalCliAnswer(input: {
 
   return {
     schemaVersion: 'sourcing-agent-answer.v1' as const,
-    text: input.answer.text,
+    text: canonicalOperationRunId
+      ? `Operations 실행 ID: ${canonicalOperationRunId}`
+      : input.answer.text,
     citations: verifiedEvidence.map(toVerifiedCitation),
     invalidCitationIds,
     dataGaps: input.answer.dataGaps,
     resourceRefs: verifiedResourceRefs,
-    operationRunId: input.answer.operationRunId,
+    operationRunId: canonicalOperationRunId,
     documentCount,
     provider: input.provider,
     model: input.model,

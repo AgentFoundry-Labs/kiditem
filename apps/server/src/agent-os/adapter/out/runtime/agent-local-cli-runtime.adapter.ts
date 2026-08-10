@@ -25,11 +25,6 @@ import {
   type AgentMcpSessionDescriptor,
   type AgentMcpSessionPort,
 } from '../../../application/port/out/runtime/agent-mcp-session.port';
-import type {
-  AgentRuntimeExecutionContext,
-  AgentRuntimeResult,
-  CancelAgentRuntimeInput,
-} from '../../../application/port/out/runtime/agent-runtime.port';
 import { resolveAgentLocalCliRuntimeConfig } from '../../../application/service/agent-runtime.config';
 import { assertAgentOsMcpExecutionActive } from '../../../application/service/agent-os-mcp-execution-fence';
 import { modelFacingMcpToolNamesForAgentType } from '../../../application/service/kiditem-mcp-tool-registry.service';
@@ -49,6 +44,11 @@ import {
   AgentLocalProcessRegistry,
   type AgentLocalTerminationReason,
 } from './agent-local-process-registry';
+import type {
+  AgentRuntimeExecutionContext,
+  AgentRuntimeResult,
+  CancelAgentRuntimeInput,
+} from '../../../application/port/out/runtime/agent-runtime.port';
 
 export { verifyAgentLocalCliAnswer } from './agent-local-cli-answer';
 export type { AgentLocalCliAnswer } from './agent-local-cli-answer';
@@ -61,7 +61,8 @@ function buildPrompt(
   return [
     assets.prompt.trim(),
     ...assets.skills.map(
-      (skill) => `\n## Runtime skill: ${skill.key}@${skill.version}\n${skill.content.trim()}`,
+      (skill) =>
+        `\n## Runtime skill: ${skill.key}@${skill.version}\n${skill.content.trim()}`,
     ),
     `\n## Available KidItem MCP tools\n${allowedMcpToolNames.join('\n')}`,
     `\n## User message\n${userMessage}`,
@@ -86,6 +87,7 @@ export function codexMcpConfigOverrides(
   return [
     `mcp_servers.kiditem.command=${JSON.stringify(descriptor.command)}`,
     `mcp_servers.kiditem.args=${JSON.stringify(descriptor.args)}`,
+    'mcp_servers.kiditem.default_tools_approval_mode="approve"',
     ...Object.entries(descriptor.env).map(
       ([key, value]) =>
         `mcp_servers.kiditem.env.${key}=${JSON.stringify(value)}`,
@@ -123,7 +125,10 @@ export function classifyLocalCliFailure(error: unknown): AgentOsRuntimeError {
   if (error instanceof AgentOsRuntimeError) return error;
   const candidate = error as NodeJS.ErrnoException & { statusCode?: number };
   if (candidate?.code === 'ENOENT') {
-    return stableProcessError('cli_not_found', 'The configured local CLI is not installed.');
+    return stableProcessError(
+      'cli_not_found',
+      'The configured local CLI is not installed.',
+    );
   }
   const message = error instanceof Error ? error.message : String(error);
   if (
@@ -138,7 +143,10 @@ export function classifyLocalCliFailure(error: unknown): AgentOsRuntimeError {
       'The local CLI session is not authenticated.',
     );
   }
-  return stableProcessError('execution_failed', 'The local CLI execution failed.');
+  return stableProcessError(
+    'execution_failed',
+    'The local CLI execution failed.',
+  );
 }
 
 const versionCache = new Map<AgentLocalCliProvider, Promise<string>>();
@@ -181,7 +189,9 @@ async function resolveCliVersion(
     child.once('close', (code) => {
       clearTimeout(timer);
       const lines = output.trim().split(/\r?\n/);
-      resolveVersion(code === 0 && lines.length === 1 && lines[0] ? lines[0] : 'unknown');
+      resolveVersion(
+        code === 0 && lines.length === 1 && lines[0] ? lines[0] : 'unknown',
+      );
     });
   });
   versionCache.set(provider, promise);
@@ -203,7 +213,9 @@ function parseClaudeResult(stdout: string): {
   const envelope = JSON.parse(stdout) as Record<string, unknown>;
   if (envelope.is_error) {
     const error = new Error(
-      typeof envelope.result === 'string' ? envelope.result : 'Claude CLI failed.',
+      typeof envelope.result === 'string'
+        ? envelope.result
+        : 'Claude CLI failed.',
     ) as Error & { statusCode?: number };
     if (typeof envelope.api_error_status === 'number') {
       error.statusCode = envelope.api_error_status;
@@ -304,8 +316,13 @@ export class AgentLocalCliRuntimeAdapter {
     private readonly processes: AgentLocalProcessRegistry,
   ) {}
 
-  async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {
-    if (context.adapterType !== 'claude_cli' && context.adapterType !== 'codex_cli') {
+  async execute(
+    context: AgentRuntimeExecutionContext,
+  ): Promise<AgentRuntimeResult> {
+    if (
+      context.adapterType !== 'claude_cli' &&
+      context.adapterType !== 'codex_cli'
+    ) {
       throw new AgentOsRuntimeError(
         'runtime_adapter_unsupported',
         'Agent local CLI runtime supports only claude_cli or codex_cli.',
@@ -362,10 +379,14 @@ export class AgentLocalCliRuntimeAdapter {
         context.agentType,
       );
       const capabilityKeys =
-        findAgentDefinitionByType(context.agentType)?.defaultToolPolicies
-          .filter((policy) => policy.effect !== 'deny')
+        findAgentDefinitionByType(context.agentType)
+          ?.defaultToolPolicies.filter((policy) => policy.effect !== 'deny')
           .map((policy) => policy.toolKey) ?? [];
-      const prompt = buildPrompt(resolvedAssets, userMessage, allowedMcpToolNames);
+      const prompt = buildPrompt(
+        resolvedAssets,
+        userMessage,
+        allowedMcpToolNames,
+      );
       const schemaFile = join(runDirectory, 'output.schema.json');
       const outputFile = join(runDirectory, 'output.json');
       const claudeMcpConfigFile = join(runDirectory, 'mcp.json');

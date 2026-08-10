@@ -11,6 +11,7 @@ import { LiveCommerceService } from "../application/service/live-commerce.servic
 import { SourcingService } from "../application/service/sourcing.service";
 import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
+import { SourcingAssistantService } from "../application/service/sourcing-assistant.service";
 import { SourcingRecommendationService } from "../application/service/sourcing-recommendation.service";
 import { SourcingKeywordPreferenceService } from "../application/service/sourcing-keyword-preference.service";
 import { SourcingValidationService } from "../application/service/sourcing-validation.service";
@@ -71,7 +72,6 @@ import { TrendCollectionRepositoryAdapter } from "../adapter/out/repository/tren
 import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-commerce.repository.adapter";
 import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
 import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
-import { SourcingAssistantCliGenerationAdapter } from "../adapter/out/runtime/sourcing-assistant-cli-generation.adapter";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
 import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
@@ -90,7 +90,6 @@ import {
   SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
 } from "../application/port/out/provider/naver-keyword-research.port";
 import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sourcing-agent.gateway.port";
-import { SOURCING_ASSISTANT_GENERATION_PORT } from "../application/port/out/runtime/sourcing-assistant-generation.port";
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
 import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
@@ -181,6 +180,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
+    expect(providers).toContain(SourcingAssistantService);
     expect(providers).toContain(SourcingRecommendationService);
     expect(providers).toContain(SourcingKeywordPreferenceService);
     expect(providers).toContain(SourcingValidationService);
@@ -259,7 +259,6 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(LiveCommerceRepositoryAdapter);
     expect(providers).toContain(TaobaoLiveAdapter);
     expect(providers).toContain(SourcingRuntimeHandler);
-    expect(providers).toContain(SourcingAssistantCliGenerationAdapter);
     expect(providers).toContain(ProductPreparationRepositoryAdapter);
     expect(providers).toContain(ChannelProductRegistrationAdapter);
     expect(providers).toContain(RegistrationContentWorkspaceAdapter);
@@ -278,15 +277,6 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expect(gatewayBinding).toBeDefined();
     expect(gatewayBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
-    const assistantGenerationBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_ASSISTANT_GENERATION_PORT,
-    );
-    expect(assistantGenerationBinding?.useExisting).toBe(
-      SourcingAssistantCliGenerationAdapter,
-    );
     const workspaceCapabilityBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&

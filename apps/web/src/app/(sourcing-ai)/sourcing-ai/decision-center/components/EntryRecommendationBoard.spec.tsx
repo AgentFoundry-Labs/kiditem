@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '@/hooks/useAuth';
 import { useOperationRun } from '@/hooks/useOperationRun';
@@ -10,6 +11,7 @@ import {
   useSourcingRecommendations,
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
+import { askSourcingAssistant } from '../lib/entry-recommendation-api';
 import { EntryRecommendationBoard } from './EntryRecommendationBoard';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
@@ -42,6 +44,7 @@ function renderBoard() {
 
 describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
+    vi.mocked(askSourcingAssistant).mockReset();
     vi.mocked(useAuth).mockReturnValue({
       user: { organizationId: 'org-a' },
     } as ReturnType<typeof useAuth>);
@@ -92,7 +95,47 @@ describe('EntryRecommendationBoard review state', () => {
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
     expect(screen.queryByText('상품 B')).not.toBeInTheDocument();
   });
+
+  it('reuses only the conversation returned during the mounted panel session', async () => {
+    const user = userEvent.setup();
+    vi.mocked(askSourcingAssistant)
+      .mockResolvedValueOnce(assistantAnswer('첫 답변', 'conversation-1'))
+      .mockResolvedValueOnce(assistantAnswer('두 번째 답변', 'conversation-1'));
+
+    renderBoard();
+    const input = await screen.findByRole('textbox', { name: '어시스턴트 질문' });
+    await user.type(input, '첫 질문');
+    await user.click(screen.getByRole('button', { name: '질문 보내기' }));
+    await screen.findByText('첫 답변');
+    await user.type(input, '두 번째 질문');
+    await user.click(screen.getByRole('button', { name: '질문 보내기' }));
+    await screen.findByText('두 번째 답변');
+
+    await waitFor(() => expect(askSourcingAssistant).toHaveBeenCalledTimes(2));
+    expect(askSourcingAssistant).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      question: '첫 질문',
+      conversationId: undefined,
+    }));
+    expect(askSourcingAssistant).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      question: '두 번째 질문',
+      conversationId: 'conversation-1',
+    }));
+  });
 });
+
+function assistantAnswer(text: string, conversationId: string) {
+  return {
+    mode: 'generated' as const,
+    text,
+    citations: [],
+    documentCount: 1,
+    runtime: 'codex' as const,
+    model: 'gpt-5.6-sol',
+    degradedReason: null,
+    degradedCode: null,
+    conversationId,
+  };
+}
 
 function recommendationItem(itemKey: string, displayName: string) {
   return {

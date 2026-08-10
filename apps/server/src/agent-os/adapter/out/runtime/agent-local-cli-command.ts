@@ -35,14 +35,22 @@ const SHARED_ENV_KEYS = [
   'TMPDIR',
   'TZ',
 ] as const;
-const CLAUDE_ENV_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
-const CODEX_ENV_KEYS = ['CODEX_API_KEY', 'OPENAI_API_KEY', 'CODEX_HOME'] as const;
+const CLAUDE_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'CLAUDE_CODE_OAUTH_TOKEN',
+] as const;
+const CODEX_ENV_KEYS = [
+  'CODEX_API_KEY',
+  'OPENAI_API_KEY',
+  'CODEX_HOME',
+] as const;
 
 export function filterLocalCliEnvironment(
   provider: AgentLocalCliProvider,
   hostEnvironment: Readonly<NodeJS.ProcessEnv>,
 ): Record<string, string> {
-  const providerKeys = provider === 'claude_cli' ? CLAUDE_ENV_KEYS : CODEX_ENV_KEYS;
+  const providerKeys =
+    provider === 'claude_cli' ? CLAUDE_ENV_KEYS : CODEX_ENV_KEYS;
   const result: Record<string, string> = {};
   for (const key of [...SHARED_ENV_KEYS, ...providerKeys]) {
     const value = hostEnvironment[key];
@@ -67,7 +75,9 @@ export function buildClaudeCommand(
       '--tools',
       '',
       '--allowedTools',
-      input.allowedMcpToolNames.map((name) => `mcp__kiditem__${name}`).join(','),
+      input.allowedMcpToolNames
+        .map((name) => `mcp__kiditem__${name}`)
+        .join(','),
       '--strict-mcp-config',
       '--mcp-config',
       input.claudeMcpConfigFile,
@@ -100,7 +110,6 @@ const DISABLED_CODEX_FEATURES = [
   'multi_agent',
   'workspace_dependencies',
   'code_mode',
-  'code_mode_host',
   'in_app_browser',
   'view_image',
 ] as const;

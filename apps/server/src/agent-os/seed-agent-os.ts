@@ -43,6 +43,24 @@ export function resolveAgentOsRepositoryRoot(
   return resolve(moduleDirectory, '../../../..');
 }
 
+const SOURCING_ADAPTER_TYPES = ['claude_cli', 'codex_cli'] as const;
+
+export function resolveSeedAdapterType(
+  definition: AgentDefinitionRecord,
+): string {
+  if (definition.type !== 'sourcing') return definition.defaultAdapterType;
+  const configured = process.env.AGENT_SOURCING_ADAPTER_TYPE?.trim();
+  if (!configured) return definition.defaultAdapterType;
+  if (!SOURCING_ADAPTER_TYPES.includes(
+    configured as (typeof SOURCING_ADAPTER_TYPES)[number],
+  )) {
+    throw new Error(
+      'AGENT_SOURCING_ADAPTER_TYPE must be claude_cli or codex_cli.',
+    );
+  }
+  return configured;
+}
+
 function resolveDefaultModel(definition: AgentDefinitionRecord): string {
   // Per-definition env first, then a single shared fallback.
   const value = resolveDefinitionDefaultModel(definition);
@@ -71,6 +89,7 @@ async function ensureInstance(
   organizationId: string,
   definition: AgentDefinitionRecord,
 ) {
+  const adapterType = resolveSeedAdapterType(definition);
   const existing = await prisma.agentInstance.findFirst({
     where: { organizationId, type: definition.type },
     select: { id: true },
@@ -80,7 +99,7 @@ async function ensureInstance(
       where: { id: existing.id },
       data: {
         name: definition.name,
-        adapterType: definition.defaultAdapterType,
+        adapterType,
       },
     });
     // Ensure runtime state row exists (1:1 with instance).
@@ -100,7 +119,7 @@ async function ensureInstance(
         organization: { connect: { id: organizationId } },
         type: definition.type,
         name: definition.name,
-        adapterType: definition.defaultAdapterType,
+        adapterType,
       },
       select: { id: true },
     });

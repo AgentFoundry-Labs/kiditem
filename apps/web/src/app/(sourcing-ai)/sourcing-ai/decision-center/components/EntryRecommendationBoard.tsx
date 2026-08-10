@@ -56,6 +56,7 @@ export function EntryRecommendationBoard() {
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
+  const assistantConversationIdRef = useRef<string | null>(null);
   const [operationRunId, setOperationRunId] = useState<string | null>(null);
   const handledRunRef = useRef<string | null>(null);
   const refreshRecommendations = useRefreshSourcingRecommendations();
@@ -149,8 +150,13 @@ export function EntryRecommendationBoard() {
 
   const assistantMutation = useMutation({
     mutationFn: (question: string) =>
-      askSourcingAssistant({ question, visibleContext: buildVisibleContext(items) }),
+      askSourcingAssistant({
+        question,
+        visibleContext: buildVisibleContext(items),
+        conversationId: assistantConversationIdRef.current ?? undefined,
+      }),
     onSuccess: (answer, question) => {
+      assistantConversationIdRef.current = answer.conversationId;
       setTurns((prev) => [
         ...prev,
         { id: `a:${prev.length}:${question}`, role: 'assistant', text: answer.text, answer },

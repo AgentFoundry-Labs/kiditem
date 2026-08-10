@@ -22,6 +22,9 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
 
     expect(assets.outputSchemaVersion).toBe('sourcing-agent-answer.v1');
     expect(assets.prompt).toContain('KidItem Sourcing Agent');
+    expect(assets.prompt).toContain(
+      'Do not conclude that evidence is absent before calling a relevant KidItem MCP capability.',
+    );
     expect(assets.skills.map((skill) => skill.key)).toEqual(
       definition.defaultSkillKeys,
     );
@@ -84,7 +87,9 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     await mkdir(join(repositoryRoot, 'agent-config/prompts/agents'), {
       recursive: true,
     });
-    await mkdir(join(repositoryRoot, 'agent-config/schemas'), { recursive: true });
+    await mkdir(join(repositoryRoot, 'agent-config/schemas'), {
+      recursive: true,
+    });
     await writeFile(join(repositoryRoot, promptPath), 'prompt', 'utf8');
 
     try {
@@ -129,7 +134,9 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     await mkdir(join(repositoryRoot, 'agent-config/prompts/agents'), {
       recursive: true,
     });
-    await mkdir(join(repositoryRoot, 'agent-config/schemas'), { recursive: true });
+    await mkdir(join(repositoryRoot, 'agent-config/schemas'), {
+      recursive: true,
+    });
     await writeFile(join(fixtureRoot, 'outside.md'), 'outside', 'utf8');
     await symlink(
       join(fixtureRoot, 'outside.md'),
