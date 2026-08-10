@@ -13,7 +13,7 @@ import { AgentOsBoundaryError } from '../domain/agent-os.errors';
 let prisma: PrismaClient | null = null;
 let repository: AgentOsRepositoryAdapter;
 
-async function seedRun(organizationId: string, label: string) {
+async function seedClaimedRequest(organizationId: string, label: string) {
   const instance = await repository.createInstanceWithRuntimeState({
     organizationId,
     type: 'boundary_test',
@@ -35,7 +35,22 @@ async function seedRun(organizationId: string, label: string) {
     payload: { label },
     scheduledFor: new Date(),
   });
-  const run = await repository.createRunForRequest({
+  const claimed = await repository.claimRunRequestById({
+    workerId: 'boundary-test',
+    now: new Date(),
+    organizationId,
+    requestId: request.id,
+  });
+  if (!claimed) throw new Error('Failed to claim seeded request');
+  return { instance, session, request: claimed };
+}
+
+async function seedRun(organizationId: string, label: string) {
+  const { instance, session, request } = await seedClaimedRequest(
+    organizationId,
+    label,
+  );
+  const run = await repository.createRunForClaimedRequest({
     organizationId,
     agentInstanceId: instance.id,
     requestId: request.id,
@@ -46,6 +61,7 @@ async function seedRun(organizationId: string, label: string) {
     model: 'test-model',
     input: { label },
   });
+  if (!run) throw new Error('Failed to create run for claimed request');
   return { instance, session, request, run };
 }
 
@@ -66,6 +82,58 @@ beforeEach(async () => {
 });
 
 describe('AgentOsRepositoryAdapter organization boundary', () => {
+  it('does not create a run when cancellation commits before the claimed-request lock', async () => {
+    const { instance, session, request } = await seedClaimedRequest(
+      TEST_ORGANIZATION_ID,
+      'cancel-race',
+    );
+    let cancellationLocked = () => undefined;
+    const lockHeld = new Promise<void>((resolve) => {
+      cancellationLocked = resolve;
+    });
+    let releaseCancellation = () => undefined;
+    const holdCancellation = new Promise<void>((resolve) => {
+      releaseCancellation = resolve;
+    });
+    const cancellation = prisma!.$transaction(async (tx) => {
+      const updated = await tx.agentRunRequest.updateMany({
+        where: {
+          id: request.id,
+          organizationId: TEST_ORGANIZATION_ID,
+          status: 'claimed',
+        },
+        data: {
+          status: 'cancelled',
+          lastErrorCode: 'user_cancelled',
+          finishedAt: new Date(),
+        },
+      });
+      expect(updated.count).toBe(1);
+      cancellationLocked();
+      await holdCancellation;
+    });
+    await lockHeld;
+
+    const runCreation = repository.createRunForClaimedRequest({
+      organizationId: TEST_ORGANIZATION_ID,
+      agentInstanceId: instance.id,
+      requestId: request.id,
+      taskSessionId: session.id,
+      attempt: request.attempts,
+      invocationSource: request.source,
+      adapterType: request.adapterType,
+      model: 'test-model',
+      input: request.payload,
+    });
+    releaseCancellation();
+    await cancellation;
+
+    await expect(runCreation).resolves.toBeNull();
+    await expect(
+      prisma!.agentRun.count({ where: { requestId: request.id } }),
+    ).resolves.toBe(0);
+  });
+
   it('does not finalize another organization run before checking scope', async () => {
     const other = await seedRun(OTHER_ORGANIZATION_ID, 'other');
 
@@ -83,7 +151,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
     const request = await prisma!.agentRunRequest.findUniqueOrThrow({ where: { id: other.request.id } });
     expect(run.status).toBe('running');
     expect(run.output).toBeNull();
-    expect(request.status).toBe('pending');
+    expect(request.status).toBe('claimed');
   });
 
   it('does not append events to another organization run', async () => {
@@ -135,7 +203,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
     ).rejects.toBeInstanceOf(AgentOsBoundaryError);
 
     const request = await prisma!.agentRunRequest.findUniqueOrThrow({ where: { id: other.request.id } });
-    expect(request.status).toBe('pending');
+    expect(request.status).toBe('claimed');
     expect(await prisma!.agentApprovalRequest.count()).toBe(0);
   });
 
@@ -154,7 +222,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
     ).rejects.toBeInstanceOf(AgentOsBoundaryError);
 
     const request = await prisma!.agentRunRequest.findUniqueOrThrow({ where: { id: mine.request.id } });
-    expect(request.status).toBe('pending');
+    expect(request.status).toBe('claimed');
     expect(await prisma!.agentApprovalRequest.count()).toBe(0);
   });
 

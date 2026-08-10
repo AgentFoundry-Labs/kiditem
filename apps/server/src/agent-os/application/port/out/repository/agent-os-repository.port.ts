@@ -494,7 +494,9 @@ export interface AgentOsRepositoryPort {
   >;
 
   // Runs + events
-  createRunForRequest(input: CreateRunRecordInput): Promise<AgentRunRecord>;
+  createRunForClaimedRequest(
+    input: CreateRunRecordInput,
+  ): Promise<AgentRunRecord | null>;
   findRunById(input: {
     organizationId: string;
     runId: string;

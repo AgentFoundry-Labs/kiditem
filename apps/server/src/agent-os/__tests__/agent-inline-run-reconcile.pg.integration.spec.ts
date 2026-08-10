@@ -53,7 +53,7 @@ async function seedRequest(input: {
   if (input.status === 'claimed') {
     return { instance, session, request: claimed, run: null };
   }
-  const run = await repository.createRunForRequest({
+  const run = await repository.createRunForClaimedRequest({
     organizationId: input.organizationId,
     agentInstanceId: instance.id,
     requestId: request.id,
@@ -64,6 +64,7 @@ async function seedRequest(input: {
     model: 'gpt-test',
     input: { label: input.label },
   });
+  if (!run) throw new Error('Failed to create run for claimed request');
   return { instance, session, request: claimed, run };
 }
 
