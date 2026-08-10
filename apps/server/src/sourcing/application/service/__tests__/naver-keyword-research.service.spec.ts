@@ -11,6 +11,7 @@ import type {
   NaverPopularKeywordSnapshotRow,
   TrendCollectionRepositoryPort,
 } from '../../port/out/repository/trend-collection.repository.port';
+import type { SourcingTypedCollectionRecord } from '../../port/out/repository/sourcing-collection.repository.port';
 import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 function board(ranks: Array<{ rank: number; keyword: string }>): NaverDatalabPopularKeywordBoard {
@@ -55,8 +56,8 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
   } as unknown as NaverDatalabPopularKeywordPort;
   const trendRepo = {
     findPopularKeywordHistory: vi.fn(async () => history),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async () => boards[0].ranks.length),
   } as unknown as TrendCollectionRepositoryPort;
+  let committedRecords: SourcingTypedCollectionRecord[] = [];
   const collectionCoordinator = {
     execute: vi.fn(async (input: any, collector: any) => {
       const output = await collector({
@@ -68,16 +69,11 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
           targetKey: input.targetKey,
           leaseToken: '00000000-0000-4000-8000-000000000002',
           generation: 1,
-          entitlementVersionId: '00000000-0000-4000-8000-000000000003',
-          entitlementVersionHash: 'a'.repeat(64),
           leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
         },
         checkpoint: async () => undefined,
       });
-      const rows = output.typedRecords
-        .filter((record: any) => record.kind === 'naver_popular_keyword')
-        .map((record: any) => record.row);
-      if (rows.length > 0) await trendRepo.replaceNaverPopularKeywordSnapshots(rows);
+      committedRecords = output.typedRecords;
       return { kind: 'committed', runId: input.idempotencyKey, acceptedCount: output.discoveredCount, duplicateCount: 0, staleDiscardedCount: 0 };
     }),
   } as unknown as SourcingCollectionCoordinator;
@@ -90,12 +86,12 @@ function makeService(history: NaverPopularKeywordSnapshotRow[], boards: NaverDat
     trendRepo,
     collectionCoordinator,
   );
-  return { service, trendRepo };
+  return { service, trendRepo, committedRecords: () => committedRecords };
 }
 
 describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () => {
   it('직전 저장일과 비교해 신규/상승/하락을 채운다', async () => {
-    const { service, trendRepo } = makeService(
+    const { service, committedRecords } = makeService(
       [priorRow(1, '토미카'), priorRow(2, '레고')],
       [board([
         { rank: 1, keyword: '레고' }, // 이전 2위 → 상승(+1)
@@ -111,9 +107,10 @@ describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () =
     expect(ranks[1]).toMatchObject({ keyword: '신상완구', isNew: true, previousRank: null, rankDelta: null });
     expect(ranks[2]).toMatchObject({ keyword: '토미카', isNew: false, previousRank: 1, rankDelta: -2 });
 
-    // 오늘 순위를 일별 스냅샷으로 저장한다
-    expect(trendRepo.replaceNaverPopularKeywordSnapshots).toHaveBeenCalledOnce();
-    const savedRows = (trendRepo.replaceNaverPopularKeywordSnapshots as ReturnType<typeof vi.fn>).mock.calls[0][0];
+    // 오늘 순위는 coordinator의 단일 typed-record commit으로 전달한다.
+    const savedRows = committedRecords()
+      .filter((record) => record.kind === 'naver_popular_keyword')
+      .map((record) => record.row);
     expect(savedRows).toHaveLength(3);
     expect(savedRows[0]).toMatchObject({ organizationId: 'org-1', boardKey: 'toys_dolls', keyword: '레고', rank: 1 });
   });

@@ -74,6 +74,8 @@ catches single-segment paths and fails as a bad candidate UUID.
 - `ChannelListing` registration is owned by Channels and reached only through
   a sourcing outgoing registration port. Registration never creates or returns
   a `MasterProduct`.
+- Registration ledger, provider-call, uncertain-outcome, and retry invariants
+  are defined in [Account-Scoped Registration And Content Ownership](../../../../docs/ARCHITECTURE.md#account-scoped-registration-and-content-ownership-0180125).
 - AI-generated detail pages, thumbnails, and content assets remain owned by the
   AI domain.
 

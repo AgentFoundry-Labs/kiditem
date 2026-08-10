@@ -1,33 +1,19 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
-import {
-  SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
-  type SourcingWorkspaceSnapshotRepositoryPort,
-  type SourcingWorkspaceSnapshotRow,
-} from '../port/out/repository/sourcing-workspace-snapshot.repository.port';
-import {
-  TREND_COLLECTION_REPOSITORY_PORT,
-  type TrendCollectionRepositoryPort,
-} from '../port/out/repository/trend-collection.repository.port';
-import {
-  SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
-  type SourcingInterestTargetRepositoryPort,
-} from '../port/out/repository/sourcing-interest-target.repository.port';
-import {
-  buildEntryRecommendations,
-  type EntryInterestKeyword,
-  type EntryPopularKeyword,
-  type EntryRecommendationResult,
-  type EntryRisingCandidate,
-  type EntrySupplyItem,
+import { Injectable } from '@nestjs/common';
+import type {
+  EntryInterestKeywordStatus,
+  EntryRecommendation,
+  EntryRecommendationComponents,
+  EntryRecommendationResult,
+  EntrySourceKey,
+  EntrySourceStatus,
 } from '../../domain/sourcing-entry-recommendation';
+import {
+  SourcingRecommendationService,
+  type SourcingRecommendationPresenterItem,
+} from './sourcing-recommendation.service';
 
-/** 스냅샷을 거슬러 올라가며 찾는 최대 일수. 이 창을 넘으면 "데이터 없음"으로 본다. */
-const SNAPSHOT_LOOKBACK_DAYS = 45;
-/** 인기 키워드 신규 진입 판정에는 최신 두 일자만 있으면 된다. 여유 있게 14일을 읽는다. */
-const KEYWORD_LOOKBACK_DAYS = 14;
 const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+const MAX_LIMIT = 100;
 
 export interface GetEntryRecommendationsInput {
   organizationId: string;
@@ -35,172 +21,185 @@ export interface GetEntryRecommendationsInput {
 }
 
 /**
- * 초기 진입 후보 표를 만든다.
+ * 기존 `/sourcing/entry/recommendations` 화면 계약을 보존하는 presenter이다.
  *
- * 키워드를 입력받지 않는다 — 운영자가 뭘 쳐야 할지 아는 상태를 전제하지 않고,
- * 이미 수집된 네 소스에서 바로 상품을 올린다.
- *
- * 소스가 비어 있어도 예외를 던지지 않고 `dataGaps` 로 이유를 돌려준다. 화면이
- * 빈 표와 "왜 비었는지" 를 같이 보여줄 수 있어야 하기 때문이다.
+ * 추천 계산과 원본 관측 조회는 `SourcingRecommendationService`만 소유한다. 이
+ * facade는 이전 Entry 카드가 기대하는 필드로 저장된 recommendation run을 투영할
+ * 뿐, workspace JSON이나 별도의 점수 모델을 다시 읽거나 계산하지 않는다.
  */
 @Injectable()
 export class SourcingEntryRecommendationService {
-  private readonly logger = new Logger(SourcingEntryRecommendationService.name);
-
-  constructor(
-    @Inject(SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT)
-    private readonly snapshots: SourcingWorkspaceSnapshotRepositoryPort,
-    @Inject(TREND_COLLECTION_REPOSITORY_PORT)
-    private readonly trends: TrendCollectionRepositoryPort,
-    @Inject(SOURCING_INTEREST_TARGET_REPOSITORY_PORT)
-    private readonly interests: SourcingInterestTargetRepositoryPort,
-  ) {}
+  constructor(private readonly recommendations: SourcingRecommendationService) {}
 
   async getRecommendations(
     input: GetEntryRecommendationsInput,
   ): Promise<EntryRecommendationResult> {
-    const { organizationId } = input;
-    const limit = Math.min(MAX_LIMIT, Math.max(1, input.limit ?? DEFAULT_LIMIT));
-    // 스냅샷은 KST 영업일(UTC 자정 Date)로 저장된다. 여기서 raw `new Date()` 를 쓰면
-    // 00:00~09:00 KST 구간에 UTC 날짜가 하루 뒤처져 **오늘 쓴 스냅샷이 조회에서 빠진다**
-    // (방금 수집했는데 표가 어제 것을 보여주고 경과일을 0일로 적는 증상).
-    const today = kstBusinessDate(new Date());
-
-    const [supplySnapshot, risingSnapshot, popularKeywordRows, interestKeywords] = await Promise.all([
-      this.findLatestSnapshot(organizationId, '1688_new_products', today),
-      this.findLatestSnapshot(organizationId, 'coupang_rising_products', today),
-      this.trends
-        .findPopularKeywordHistory({ organizationId, days: KEYWORD_LOOKBACK_DAYS })
-        .catch((error: unknown) => {
-          // 키워드는 보조 신호다. 실패해도 표 자체는 만들 수 있어야 한다.
-          this.logger.warn(`인기 키워드 조회 실패: ${describeError(error)}`);
-          return [];
-        }),
-      this.loadInterestKeywords(organizationId),
-    ]);
-
-    const popularKeywords: EntryPopularKeyword[] = popularKeywordRows.map((row) => ({
-      keyword: row.keyword,
-      boardKey: row.boardKey,
-      boardLabel: row.boardLabel,
-      businessDate: row.businessDate,
-      rank: row.rank,
-    }));
-
-    return buildEntryRecommendations({
-      supplyItems: readSupplyItems(supplySnapshot),
-      risingCandidates: readRisingCandidates(risingSnapshot),
-      popularKeywords,
-      interestKeywords,
-      supplyBusinessDate: toDateKey(supplySnapshot?.businessDate ?? null),
-      risingBusinessDate: toDateKey(risingSnapshot?.businessDate ?? null),
-      today,
-      limit,
+    const result = await this.recommendations.latest({
+      organizationId: input.organizationId,
+      surface: 'entry',
+      limit: normalizeLimit(input.limit),
     });
+    const items = (result.data?.items ?? []).map(toEntryRecommendation);
+    const businessDate = toBusinessDate(result.lastSuccessfulAt);
+
+    return {
+      items,
+      sources: buildSourceStatuses(items, businessDate),
+      interestKeywords: readInterestKeywords(result.data?.items ?? []),
+      dataGaps: [
+        ...result.warnings.map((warning) => warning.message),
+        ...(result.error ? [result.error.message] : []),
+      ],
+    };
   }
+}
 
-  /**
-   * 운영자가 등록한 관심 키워드를 두 곳에서 모은다.
-   *
-   * - `SourcingInterestTarget`: 키워드 분석 화면에서 "관심 키워드로 저장"한 것
-   * - `trend_seed_keywords`: 트렌드 수집 시드로 등록한 것(비활성 시드는 제외)
-   *
-   * 한쪽이 실패해도 나머지로 분류는 할 수 있어야 하므로 각각 따로 감싼다.
-   */
-  private async loadInterestKeywords(
-    organizationId: string,
-  ): Promise<EntryInterestKeyword[]> {
-    const [saved, seeds] = await Promise.all([
-      this.interests.list(organizationId).catch((error: unknown) => {
-        this.logger.warn(`관심 키워드 조회 실패: ${describeError(error)}`);
-        return [];
-      }),
-      this.trends.listSeeds(organizationId).catch((error: unknown) => {
-        this.logger.warn(`트렌드 시드 조회 실패: ${describeError(error)}`);
-        return [];
-      }),
-    ]);
+function toEntryRecommendation(item: SourcingRecommendationPresenterItem): EntryRecommendation {
+  const components = toComponents(item.scoreComponents);
+  const contributingSources = readContributingSources(item.contributingSources);
 
-    const keywords: EntryInterestKeyword[] = [];
+  return {
+    itemKey: item.itemKey,
+    id: item.itemKey,
+    externalOfferId: item.externalOfferId,
+    variantKey: item.variantKey,
+    offerObservationId: item.offerObservationIds[0] ?? null,
+    evidenceObservationId: item.evidenceObservationIds[0] ?? null,
+    rank: item.rank,
+    keyword: item.keyword,
+    isNewKeyword: item.isNewKeyword,
+    title: item.displayName,
+    imageUrl: item.imageUrl,
+    overseasMall: item.sourcePlatform === '1688' ? '1688' : '쿠팡',
+    sourceUrl: item.sourceUrl,
+    overseasPriceKrw: item.overseasPriceKrw,
+    overseasPriceCny: item.overseasPriceCny,
+    salePriceKrw: item.salePriceKrw,
+    shippingLabel: item.shippingLabel ?? '배송 정보 없음',
+    rating: item.rating,
+    tags: item.tags,
+    minOrderQuantity: item.minOrderQuantity,
+    estimatedMarginRate: item.estimatedMarginRate,
+    estimatedProfitKrw: item.estimatedProfitKrw,
+    supplierName: item.supplierName,
+    coupang: item.coupang
+      ? {
+          productId: item.coupang.productId,
+          productName: item.coupang.productName,
+          salePrice: item.coupang.salePriceKrw,
+          reviews: item.coupang.ratingCount,
+        }
+      : null,
+    score: item.score,
+    grade: item.grade,
+    components,
+    reasons: item.reasonCodes,
+    risks: item.riskCodes,
+    contributingSources,
+    interest: item.interest,
+  };
+}
 
-    for (const target of saved) {
-      // 관심 대상은 키워드/카테고리/상품이 섞여 있다. 키워드만 분류에 쓴다.
-      if (target.targetType !== 'keyword') continue;
-      const keyword = asNonEmptyString(target.keyword) ?? asNonEmptyString(target.label);
-      if (keyword) keywords.push({ keyword, origin: 'saved' });
+function buildSourceStatuses(
+  items: EntryRecommendation[],
+  businessDate: string | null,
+): EntrySourceStatus[] {
+  const keys: EntrySourceKey[] = [
+    'supply_1688_new',
+    'keyword_trend',
+    'coupang_competitor',
+    'coupang_rising',
+  ];
+  const labels: Record<EntrySourceKey, string> = {
+    supply_1688_new: '1688 신상품',
+    keyword_trend: '키워드 트렌드',
+    coupang_competitor: '쿠팡 경쟁상품',
+    coupang_rising: '쿠팡 급상승',
+  };
+  const staleDays = businessDate ? ageInDays(businessDate) : null;
+
+  return keys.map((key) => ({
+    key,
+    label: labels[key],
+    rowCount: items.filter((item) => item.contributingSources.includes(key)).length,
+    businessDate,
+    staleDays,
+  }));
+}
+
+function readInterestKeywords(
+  items: SourcingRecommendationPresenterItem[],
+): EntryInterestKeywordStatus[] {
+  const byKeyword = new Map<string, EntryInterestKeywordStatus>();
+  for (const item of items) {
+    const interest = item.interest;
+    if (!interest) continue;
+    for (const match of interest.matches) {
+      const existing = byKeyword.get(match.keyword);
+      const exactCount = match.tier === 'exact' ? 1 : 0;
+      const relatedCount = match.tier === 'related' ? 1 : 0;
+      if (existing) {
+        existing.exactCount += exactCount;
+        existing.relatedCount += relatedCount;
+        continue;
+      }
+      byKeyword.set(match.keyword, {
+        keyword: match.keyword,
+        origins: interest.origins,
+        exactCount,
+        relatedCount,
+        state: 'candidates',
+        demand: null,
+      });
     }
-
-    for (const seed of seeds) {
-      if (!seed.enabled) continue;
-      const keyword = seed.keyword?.trim();
-      if (keyword) keywords.push({ keyword, origin: 'seed' });
-    }
-
-    return keywords;
   }
-
-  /**
-   * 오늘자 스냅샷이 없는 날이 잦으므로 최근 것부터 거슬러 찾는다.
-   * 오늘 것만 보면 수집이 하루라도 밀린 순간 화면이 통째로 빈다.
-   */
-  private async findLatestSnapshot(
-    organizationId: string,
-    scope: '1688_new_products' | 'coupang_rising_products',
-    today: Date,
-  ): Promise<SourcingWorkspaceSnapshotRow | null> {
-    const from = new Date(today);
-    from.setUTCDate(from.getUTCDate() - SNAPSHOT_LOOKBACK_DAYS);
-
-    const rows = await this.snapshots.listRecent({
-      organizationId,
-      scope,
-      fromBusinessDate: from,
-      toBusinessDate: today,
-      limit: SNAPSHOT_LOOKBACK_DAYS,
-    });
-
-    if (rows.length === 0) return null;
-    return rows.reduce((latest, row) =>
-      row.businessDate.getTime() > latest.businessDate.getTime() ? row : latest,
-    );
-  }
+  return [...byKeyword.values()].sort((left, right) => left.keyword.localeCompare(right.keyword));
 }
 
-/** `payload.result.items` 배열만 신뢰하고, 모양이 다르면 조용히 빈 배열로 떨어뜨린다. */
-function readSupplyItems(snapshot: SourcingWorkspaceSnapshotRow | null): EntrySupplyItem[] {
-  const items = readArray(snapshot, 'items');
-  return items.filter(isRecord) as EntrySupplyItem[];
+function toComponents(value: Record<string, number>): EntryRecommendationComponents {
+  return {
+    margin: finiteNumber(value.margin) ?? 0,
+    demand: finiteNumber(value.demand) ?? 0,
+    competition: finiteNumber(value.competition) ?? 0,
+    momentum: finiteNumber(value.momentum) ?? 0,
+    supplier: finiteNumber(value.supplier) ?? 0,
+  };
 }
 
-function readRisingCandidates(
-  snapshot: SourcingWorkspaceSnapshotRow | null,
-): EntryRisingCandidate[] {
-  const items = readArray(snapshot, 'candidates');
-  return items.filter(isRecord) as EntryRisingCandidate[];
+function readContributingSources(value: unknown): EntrySourceKey[] {
+  const allowed = new Set<EntrySourceKey>([
+    'supply_1688_new',
+    'keyword_trend',
+    'coupang_competitor',
+    'coupang_rising',
+  ]);
+  const sources = strings(value).filter((source): source is EntrySourceKey => allowed.has(source as EntrySourceKey));
+  return sources.length > 0 ? sources : ['supply_1688_new'];
 }
 
-function readArray(snapshot: SourcingWorkspaceSnapshotRow | null, key: string): unknown[] {
-  if (!snapshot) return [];
-  const result = (snapshot.payload as Record<string, unknown> | undefined)?.result;
-  if (!isRecord(result)) return [];
-  const value = result[key];
-  return Array.isArray(value) ? value : [];
+function strings(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.flatMap((item) => typeof item === 'string' && item.trim() ? [item.trim()] : [])
+    : [];
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
+function finiteNumber(value: unknown): number | null {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
-function asNonEmptyString(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+function toBusinessDate(value: string | null): string | null {
+  if (!value) return null;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date.toISOString().slice(0, 10);
 }
 
-function toDateKey(date: Date | null): string | null {
-  return date ? date.toISOString().slice(0, 10) : null;
+function ageInDays(date: string): number {
+  const then = new Date(`${date}T00:00:00.000Z`);
+  if (Number.isNaN(then.getTime())) return 0;
+  return Math.max(0, Math.floor((Date.now() - then.getTime()) / 86_400_000));
 }
 
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
+function normalizeLimit(value: number | undefined): number {
+  if (value == null || !Number.isFinite(value)) return DEFAULT_LIMIT;
+  return Math.max(1, Math.min(MAX_LIMIT, Math.floor(value)));
 }

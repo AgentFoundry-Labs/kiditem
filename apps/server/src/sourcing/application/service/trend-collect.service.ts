@@ -22,7 +22,7 @@ import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverKeywordSnapshotUpsert,
   type NaverPopularKeywordSnapshotUpsert,
-  type Sourcing1688HotProductSnapshotUpsert,
+  type Sourcing1688OfferKeywordObservationInput,
   type ShortsSnapshotUpsert,
   type TiktokCcSnapshotUpsert,
   type TrendCollectionRepositoryPort,
@@ -189,15 +189,17 @@ export class TrendCollectService implements TrendCollectionPort {
   ): Promise<Extension1688TrendBatchResult> {
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
-    const seenOfferIds = new Set<string>();
-    const rows: Sourcing1688HotProductSnapshotUpsert[] = [];
+    const seenKeywordOffers = new Set<string>();
+    const rows: Sourcing1688OfferKeywordObservationInput[] = [];
 
     for (const keywordResult of input.keywords) {
       const sourceKeyword = keywordResult.keyword.trim();
       keywordResult.items.forEach((item, index) => {
         const offerId = item.offerId.trim();
-        if (!offerId || seenOfferIds.has(offerId)) return;
-        seenOfferIds.add(offerId);
+        if (!sourceKeyword || !offerId) return;
+        const identity = `${normalizeCollectionTarget(sourceKeyword)}\u001f${offerId}`;
+        if (seenKeywordOffers.has(identity)) return;
+        seenKeywordOffers.add(identity);
         rows.push({
           organizationId,
           businessDate,
@@ -598,8 +600,8 @@ export class TrendCollectService implements TrendCollectionPort {
         triggeredByUserId,
       }),
       async ({ permit, checkpoint }) => {
-        const rows: Sourcing1688HotProductSnapshotUpsert[] = [];
-        const seenOfferIds = new Set<string>();
+        const rows: Sourcing1688OfferKeywordObservationInput[] = [];
+        const seenKeywordOffers = new Set<string>();
         for (const seed of seeds) {
           await checkpoint();
           if (rows.length >= MAX_1688_OFFERS_PER_RUN) break;
@@ -626,8 +628,9 @@ export class TrendCollectService implements TrendCollectionPort {
           items.forEach((item, index) => {
             if (rows.length >= MAX_1688_OFFERS_PER_RUN) return;
             const offerId = item.offerId as string;
-            if (seenOfferIds.has(offerId)) return;
-            seenOfferIds.add(offerId);
+            const identity = `${normalizeCollectionTarget(seed.keyword)}\u001f${offerId}`;
+            if (seenKeywordOffers.has(identity)) return;
+            seenKeywordOffers.add(identity);
             rows.push({
               organizationId,
               businessDate,

@@ -198,7 +198,6 @@ model Organization {
   trendSeedKeywords                    TrendSeedKeyword[]
   naverKeywordDailySnapshots           NaverKeywordDailySnapshot[]
   naverPopularKeywordDailySnapshots    NaverPopularKeywordDailySnapshot[]
-  sourcing1688HotProductDailySnapshots Sourcing1688HotProductDailySnapshot[]
   shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]

@@ -520,45 +520,6 @@ async function persistTypedRecord(
     });
     return 'accepted';
   }
-  if (record.kind === 'offer_1688_hot') {
-    const row = record.row;
-    await lockTypedIdentity(tx, `1688-hot:${row.organizationId}:${row.businessDate.toISOString()}:${row.offerId}`);
-    const existing = await tx.sourcing1688HotProductDailySnapshot.findUnique({
-      where: {
-        organizationId_businessDate_offerId: {
-          organizationId: row.organizationId,
-          businessDate: row.businessDate,
-          offerId: row.offerId,
-        },
-      },
-      select: { capturedAt: true },
-    });
-    if (existing && existing.capturedAt >= row.capturedAt) return existing.capturedAt.getTime() === row.capturedAt.getTime() ? 'duplicate' : 'stale';
-    await tx.sourcing1688HotProductDailySnapshot.upsert({
-      where: {
-        organizationId_businessDate_offerId: {
-          organizationId: row.organizationId,
-          businessDate: row.businessDate,
-          offerId: row.offerId,
-        },
-      },
-      create: row,
-      update: {
-        sourceKeyword: row.sourceKeyword,
-        rank: row.rank,
-        title: row.title,
-        priceCny: row.priceCny,
-        monthlySales: row.monthlySales,
-        repurchaseRate: row.repurchaseRate,
-        tradeScore: row.tradeScore,
-        supplierName: row.supplierName,
-        imageUrl: row.imageUrl,
-        sourceUrl: row.sourceUrl,
-        capturedAt: row.capturedAt,
-      },
-    });
-    return 'accepted';
-  }
   if (record.kind === 'shorts') {
     const row = record.row;
     await lockTypedIdentity(tx, `shorts:${row.organizationId}:${row.businessDate.toISOString()}:${row.videoKey}`);

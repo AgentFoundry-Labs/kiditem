@@ -28,6 +28,10 @@ export {
 } from './sourcing-entry-recommendation.dto';
 export { RunSourcingMarketModelDto } from './sourcing-market-model.dto';
 export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto';
+export {
+  SourcingCoupangObservationDto,
+  SourcingRecommendationQueryDto,
+} from './sourcing-workspace.dto';
 export { Append1688NewProductItemsDto } from './append-1688-new-product-items.dto';
 export {
   CompareNaverDatalabSearchTrendsDto,

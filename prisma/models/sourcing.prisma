@@ -267,37 +267,6 @@ model NaverPopularKeywordDailySnapshot {
 }
 
 /// @namespace Sourcing
-/// @describe 1688 키워드별 핫셀링 offer 일별 스냅샷. sourceKeyword 는 시드 키워드, rank 는 해당 키워드 결과셋 내 monthlySales 내림차순 순위. offer×일자당 1행.
-model Sourcing1688HotProductDailySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  businessDate   DateTime @map("business_date") @db.Date
-  offerId        String   @map("offer_id")
-  sourceKeyword  String   @map("source_keyword")
-
-  rank           Int?
-  title          String?
-  priceCny       Decimal? @map("price_cny") @db.Decimal(12, 2)
-  monthlySales   Int?     @map("monthly_sales")
-  repurchaseRate String?  @map("repurchase_rate")
-  tradeScore     String?  @map("trade_score")
-  supplierName   String?  @map("supplier_name")
-  imageUrl       String?  @map("image_url")
-  sourceUrl      String?  @map("source_url")
-
-  capturedAt DateTime @map("captured_at") @db.Timestamptz
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, businessDate, offerId])
-  @@index([organizationId, businessDate])
-  @@map("sourcing_1688_hot_product_daily_snapshots")
-}
-
-/// @namespace Sourcing
 /// @describe 쇼츠트렌드(shortstrend.co.kr) 급상승 쇼츠 일별 스냅샷. rank 는 소스 노출 순위, videoKey 는 영상 식별자. video×일자당 1행.
 model ShortsTrendDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid

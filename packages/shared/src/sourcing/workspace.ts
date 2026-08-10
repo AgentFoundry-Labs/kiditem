@@ -2,6 +2,39 @@ import { z } from 'zod';
 
 const InstantSchema = z.string().datetime({ offset: true });
 
+export const RecommendationSurfaceSchema = z.enum(['home', 'today', 'entry', 'final']);
+export type RecommendationSurface = z.infer<typeof RecommendationSurfaceSchema>;
+
+export const ReviewWorkspaceKeySchema = z.enum(['entry', 'final']);
+export type ReviewWorkspaceKey = z.infer<typeof ReviewWorkspaceKeySchema>;
+
+const SourcingCoupangObservationItemSchema = z
+  .object({
+    productId: z.string().trim().min(1).max(200),
+    itemId: z.string().trim().max(200).nullable(),
+    vendorItemId: z.string().trim().max(200).nullable(),
+    productName: z.string().trim().min(1).max(500),
+    sourceKeyword: z.string().trim().min(1).max(200),
+    salePriceKrw: z.number().int().nonnegative().nullable(),
+    ratingCount: z.number().int().nonnegative().nullable(),
+    ratingAverage: z.number().min(0).max(5).nullable(),
+    viewsLast28d: z.number().int().nonnegative().nullable(),
+    salesLast28d: z.number().int().nonnegative().nullable(),
+    capturedAt: InstantSchema,
+  })
+  .strict();
+
+export const SourcingCoupangObservationCommandSchema = z
+  .object({
+    idempotencyKey: z.string().uuid(),
+    items: z.array(SourcingCoupangObservationItemSchema).min(1).max(100),
+  })
+  .strict();
+
+export type SourcingCoupangObservationCommand = z.infer<
+  typeof SourcingCoupangObservationCommandSchema
+>;
+
 const SourcingWarningSchema = z
   .object({
     code: z.string().min(1).max(100),
@@ -66,7 +99,7 @@ export const SourcingReadEnvelopeSchema = sourcingReadEnvelopeSchema(
 export const SourcingRecommendationItemSchema = z
   .object({
     itemKey: z.string().regex(/^[a-f0-9]{64}$/),
-    sourcePlatform: z.string().min(1).max(60),
+    sourcePlatform: z.enum(['1688', 'coupang']),
     externalOfferId: z.string().min(1).max(200),
     variantKey: z.string().max(300),
     rank: z.number().int().positive(),
@@ -75,6 +108,59 @@ export const SourcingRecommendationItemSchema = z
     baselineAction: z.enum(['order', 'observe_3d', 'exclude']),
     reasonCodes: z.array(z.string().min(1).max(100)).max(50),
     riskCodes: z.array(z.string().min(1).max(100)).max(50),
+    displayName: z.string().trim().min(1).max(500),
+    keyword: z.string().trim().min(1).max(200).nullable(),
+    isNewKeyword: z.boolean(),
+    imageUrl: z.string().max(2_000).nullable(),
+    sourceUrl: z.string().max(2_000).nullable(),
+    overseasPriceCny: z.number().nonnegative().nullable(),
+    overseasPriceKrw: z.number().int().nonnegative().nullable(),
+    salePriceKrw: z.number().int().nonnegative().nullable(),
+    supplierName: z.string().trim().min(1).max(500).nullable(),
+    monthlySales: z.number().nonnegative().nullable(),
+    repurchaseRate: z.string().trim().min(1).max(100).nullable(),
+    tradeScore: z.number().nonnegative().nullable(),
+    minOrderQuantity: z.number().nonnegative().nullable(),
+    estimatedMarginRate: z.number().nullable(),
+    estimatedProfitKrw: z.number().int().nullable(),
+    shippingLabel: z.string().trim().min(1).max(500).nullable(),
+    rating: z.number().nonnegative().nullable(),
+    tags: z.array(z.string().trim().min(1).max(200)).max(50),
+    sourceKeywords: z.array(z.string().trim().min(1).max(200)).max(100),
+    offerObservationIds: z.array(z.string().uuid()).max(100),
+    evidenceObservationIds: z.array(z.string().uuid()).max(100),
+    scoreComponents: z.record(z.number().finite()),
+    coupang: z
+      .object({
+        productId: z.string().trim().min(1).max(200),
+        productName: z.string().trim().min(1).max(500),
+        salePriceKrw: z.number().int().nonnegative().nullable(),
+        ratingCount: z.number().int().nonnegative().nullable(),
+        ratingAverage: z.number().min(0).max(5).nullable(),
+        viewsLast28d: z.number().int().nonnegative().nullable(),
+        salesLast28d: z.number().int().nonnegative().nullable(),
+      })
+      .strict()
+      .nullable(),
+    interest: z
+      .object({
+        tier: z.enum(['exact', 'related']),
+        keywords: z.array(z.string().trim().min(1).max(200)).max(100),
+        origins: z.array(z.enum(['saved', 'seed'])).max(2),
+        matches: z
+          .array(
+            z
+              .object({
+                keyword: z.string().trim().min(1).max(200),
+                tier: z.enum(['exact', 'related']),
+              })
+              .strict(),
+          )
+          .max(100),
+      })
+      .strict()
+      .nullable(),
+    contributingSources: z.array(z.string().trim().min(1).max(100)).max(20),
   })
   .strict();
 

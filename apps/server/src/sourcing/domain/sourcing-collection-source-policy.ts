@@ -10,6 +10,7 @@ export const ALLOWED_SOURCING_COLLECTION_SOURCES = [
   '1688.image_search',
   '1688.product_extension',
   'alibaba.product_extension',
+  'coupang.wing_catalog',
   'naver.autocomplete',
   'naver.datalab_popular',
   'naver.datalab_trend',

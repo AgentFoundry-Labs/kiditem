@@ -27,7 +27,7 @@ describe('sourcing collection mappers', () => {
     );
   });
 
-  it('maps 1688 rows to immutable evidence and freshness-fenced typed rows', () => {
+  it('maps 1688 rows to immutable evidence and exact keyword observations only', () => {
     const capturedAt = new Date('2026-08-08T00:00:00.000Z');
     const output = map1688HotProductsToAuthorizedOutput({
       permit,
@@ -62,10 +62,6 @@ describe('sourcing collection mappers', () => {
       ],
       typedRecords: [
         {
-          kind: 'offer_1688_hot',
-          row: { offerId: 'offer-1', sourceKeyword: '儿童 餐盘' },
-        },
-        {
           kind: 'offer_1688_keyword_observation',
           row: {
             offerId: 'offer-1',
@@ -77,5 +73,51 @@ describe('sourcing collection mappers', () => {
     });
     expect(output.observations[0].observationKey).toHaveLength(64);
     expect(output.observations[0].observationKey).not.toContain('https');
+  });
+
+  it('keeps the same offer found by two keywords as two source observations', () => {
+    const capturedAt = new Date('2026-08-08T00:00:00.000Z');
+    const output = map1688HotProductsToAuthorizedOutput({
+      permit,
+      rows: [
+        {
+          organizationId: permit.organizationId,
+          businessDate: capturedAt,
+          offerId: '607635921546',
+          sourceKeyword: '키즈 우산',
+          rank: 1,
+          title: '우산',
+          priceCny: 1,
+          monthlySales: 10,
+          repurchaseRate: null,
+          tradeScore: null,
+          supplierName: null,
+          imageUrl: null,
+          sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
+          capturedAt,
+        },
+        {
+          organizationId: permit.organizationId,
+          businessDate: capturedAt,
+          offerId: '607635921546',
+          sourceKeyword: '어린이 우산',
+          rank: 1,
+          title: '우산',
+          priceCny: 1,
+          monthlySales: 10,
+          repurchaseRate: null,
+          tradeScore: null,
+          supplierName: null,
+          imageUrl: null,
+          sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
+          capturedAt,
+        },
+      ],
+    });
+
+    expect(output.typedRecords).toHaveLength(2);
+    expect(output.typedRecords.every((record) => record.kind === 'offer_1688_keyword_observation')).toBe(
+      true,
+    );
   });
 });

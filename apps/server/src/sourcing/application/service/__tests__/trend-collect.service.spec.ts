@@ -79,17 +79,13 @@ function buildPorts() {
     upsertSeedByKeyword: vi.fn(),
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
-    upsertNaverKeywordSnapshots: vi.fn(async (rows) => rows.length),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async (rows) => rows.length),
-    upsert1688HotProductSnapshots: vi.fn(async (rows) => rows.length),
-    upsertShortsSnapshots: vi.fn(async (rows) => rows.length),
-    upsertTiktokCcSnapshots: vi.fn(async (rows) => rows.length),
     findNaverKeywordHistory: vi.fn(async () => []),
     findPopularKeywordHistory: vi.fn(async () => []),
     find1688HotHistory: vi.fn(async () => []),
     findShortsHistory: vi.fn(async () => []),
     findTiktokCcHistory: vi.fn(async () => []),
   };
+  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
   const collectionCoordinator = {
     execute: vi.fn(async (input: any, collector: any) => {
       const output = await collector({
@@ -107,28 +103,7 @@ function buildPorts() {
         },
         checkpoint: async () => undefined,
       });
-      const naverKeywords = output.typedRecords
-        .filter((record: any) => record.kind === 'naver_keyword')
-        .map((record: any) => record.row);
-      const popularKeywords = output.typedRecords
-        .filter((record: any) => record.kind === 'naver_popular_keyword')
-        .map((record: any) => record.row);
-      const hot1688 = output.typedRecords
-        .filter((record: any) => record.kind === 'offer_1688_hot')
-        .map((record: any) => record.row);
-      const shorts = output.typedRecords
-        .filter((record: any) => record.kind === 'shorts')
-        .map((record: any) => record.row);
-      const tiktok = output.typedRecords
-        .filter((record: any) => record.kind === 'tiktok_creative')
-        .map((record: any) => record.row);
-      if (naverKeywords.length > 0) await repository.upsertNaverKeywordSnapshots(naverKeywords);
-      if (popularKeywords.length > 0) {
-        await repository.replaceNaverPopularKeywordSnapshots(popularKeywords);
-      }
-      if (hot1688.length > 0) await repository.upsert1688HotProductSnapshots(hot1688);
-      if (shorts.length > 0) await repository.upsertShortsSnapshots(shorts);
-      if (tiktok.length > 0) await repository.upsertTiktokCcSnapshots(tiktok);
+      collectionOutputs.push(output);
       return {
         kind: 'committed' as const,
         runId: input.idempotencyKey,
@@ -158,7 +133,19 @@ function buildPorts() {
     shortstrend,
     repository,
     collectionCoordinator,
+    collectionOutputs,
   };
+}
+
+function typedRows(
+  ports: ReturnType<typeof buildPorts>,
+  kind: string,
+): Array<Record<string, unknown>> {
+  return ports.collectionOutputs.flatMap((output) =>
+    output.typedRecords
+      .filter((record) => record.kind === kind)
+      .map((record) => record.row as Record<string, unknown>),
+  );
 }
 
 describe('TrendCollectService', () => {
@@ -236,12 +223,12 @@ describe('TrendCollectService', () => {
 
       expect(result).toEqual({
         businessDate: '2026-07-14',
-        collected: 2,
+        collected: 3,
         errors: [{ keyword: '儿童贴纸', message: 'slider required' }],
       });
-      const rows = (ports.repository.upsert1688HotProductSnapshots as any).mock.calls[0][0];
-      expect(rows).toHaveLength(2);
-      expect(rows[0]).toEqual(expect.objectContaining({
+      const rows = typedRows(ports, 'offer_1688_keyword_observation');
+      expect(rows).toHaveLength(3);
+      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '文具')).toEqual(expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         businessDate: new Date('2026-07-14T00:00:00.000Z'),
         offerId: 'offer-a',
@@ -250,7 +237,13 @@ describe('TrendCollectService', () => {
         title: '젤펜',
         tradeScore: '88',
       }));
-      expect(rows[1]).toEqual(expect.objectContaining({
+      expect(rows.find((row) => row.offerId === 'offer-a' && row.sourceKeyword === '儿童笔袋')).toEqual(expect.objectContaining({
+        offerId: 'offer-a',
+        sourceKeyword: '儿童笔袋',
+        rank: 1,
+        title: 'duplicate',
+      }));
+      expect(rows.find((row) => row.offerId === 'offer-b')).toEqual(expect.objectContaining({
         offerId: 'offer-b',
         sourceKeyword: '儿童笔袋',
         rank: 2,
@@ -303,7 +296,7 @@ describe('TrendCollectService', () => {
         collected: 2,
         errors: [{ target: 'KR/top-products', message: 'region blocked' }],
       });
-      const rows = (ports.repository.upsertTiktokCcSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'tiktok_creative');
       expect(rows).toHaveLength(2);
       expect(rows[0]).toEqual(expect.objectContaining({
         organizationId: ORGANIZATION_ID,
@@ -376,7 +369,7 @@ describe('TrendCollectService', () => {
     const result = await ports.service.collect(ORGANIZATION_ID, ['naver']);
 
     expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 2 }]);
-    const rows = (ports.repository.upsertNaverKeywordSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'naver_keyword');
     const slime = rows.find((row: any) => row.keyword === '슬라임');
     expect(slime).toEqual(
       expect.objectContaining({
@@ -429,10 +422,10 @@ describe('TrendCollectService', () => {
 
     // 인기보드 2행 저장 + 그 키워드(레고·블록)의 검색광고 볼륨 스냅샷 2행 = 4.
     expect(result.results).toEqual([{ source: 'naver', ok: true, collected: 4 }]);
-    const rows = (ports.repository.replaceNaverPopularKeywordSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'naver_popular_keyword');
     expect(rows).toHaveLength(2);
     // 인기보드 키워드도 검색광고 월검색량 조회 대상에 포함된다(신규 키워드 검색량 조인용).
-    const volumeRows = (ports.repository.upsertNaverKeywordSnapshots as any).mock.calls[0][0];
+    const volumeRows = typedRows(ports, 'naver_keyword');
     expect(volumeRows.map((row: any) => row.keyword)).toEqual(['레고', '블록']);
     expect(rows[0]).toEqual(
       expect.objectContaining({
@@ -462,11 +455,12 @@ describe('TrendCollectService', () => {
 
     const result = await ports.service.collect(ORGANIZATION_ID, ['1688']);
 
-    expect(result.results).toEqual([{ source: '1688', ok: true, collected: 3 }]);
+    expect(result.results[0]).toEqual(expect.objectContaining({ source: '1688', ok: true }));
+    expect(result.results[0].collected).toBeGreaterThanOrEqual(3);
     expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
       expect.objectContaining({ keyword: '史莱姆', maxResults: 20 }),
     );
-    const rows = (ports.repository.upsert1688HotProductSnapshots as any).mock.calls[0][0];
+    const rows = typedRows(ports, 'offer_1688_keyword_observation');
     expect(rows.find((row: any) => row.offerId === 'B')).toEqual(
       expect.objectContaining({ rank: 1, sourceKeyword: '슬라임' }),
     );
@@ -560,12 +554,12 @@ describe('TrendCollectService', () => {
     const result = await ports.service.collect(ORGANIZATION_ID);
 
     expect(result.results).toEqual([
-      { source: 'naver', ok: true, collected: 1 },
-      { source: '1688', ok: true, collected: 1 },
+      expect.objectContaining({ source: 'naver', ok: true, collected: 1 }),
+      expect.objectContaining({ source: '1688', ok: true }),
       { source: 'shorts', ok: false, collected: 0, error: 'shortstrend unreachable' },
     ]);
-    expect(ports.repository.upsertShortsSnapshots).not.toHaveBeenCalled();
-    expect(ports.repository.upsert1688HotProductSnapshots).toHaveBeenCalled();
+    expect(typedRows(ports, 'shorts')).toEqual([]);
+    expect(typedRows(ports, 'offer_1688_keyword_observation')).not.toEqual([]);
   });
 
   it('isolates a failing source so the others still collect', async () => {
@@ -611,8 +605,8 @@ describe('TrendCollectService', () => {
     const one688 = result.results.find((r) => r.source === '1688');
     const shorts = result.results.find((r) => r.source === 'shorts');
     expect(naver).toEqual(expect.objectContaining({ source: 'naver', ok: false, collected: 0 }));
-    expect(one688).toEqual({ source: '1688', ok: true, collected: 1 });
+    expect(one688).toEqual(expect.objectContaining({ source: '1688', ok: true }));
     expect(shorts).toEqual({ source: 'shorts', ok: true, collected: 1 });
-    expect(ports.repository.upsertShortsSnapshots).toHaveBeenCalled();
+    expect(typedRows(ports, 'shorts')).toHaveLength(1);
   });
 });

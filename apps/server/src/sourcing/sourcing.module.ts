@@ -29,6 +29,7 @@ import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intel
 import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcing-entry-recommendation.controller";
 import { SourcingWorkspaceSnapshotController } from "./adapter/in/http/sourcing-workspace-snapshot.controller";
 import { SourcingInterestTargetController } from "./adapter/in/http/sourcing-interest-target.controller";
+import { SourcingWorkspaceController } from "./adapter/in/http/sourcing-workspace.controller";
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
@@ -44,6 +45,8 @@ import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-
 import { SourcingAssistantService } from "./application/service/sourcing-assistant.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
+import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
+import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
 import { SourcingWorkspaceSnapshotService } from "./application/service/sourcing-workspace-snapshot.service";
 import { SourcingShadowSignalService } from "./application/service/sourcing-shadow-signal.service";
 import { ProductRegistrationService } from "./application/service/product-registration.service";
@@ -69,6 +72,8 @@ import { SourcingOperationAlertAdapter } from "./adapter/out/automation/operatio
 import { SourcingCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-candidate.repository.adapter";
 import { SourcingCollectionSourceControlRepositoryAdapter } from "./adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
+import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation-source.repository.adapter";
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
@@ -123,6 +128,8 @@ import { LIVE_COMMERCE_REPOSITORY_PORT } from "./application/port/out/repository
 import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repository/product-preparation.repository.port";
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-interest-target.repository.port";
+import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation-source.repository.port";
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
@@ -186,6 +193,7 @@ import {
     MarketShadowSignalController,
     SourcingWorkspaceSnapshotController,
     SourcingInterestTargetController,
+    SourcingWorkspaceController,
     SourcingEntryRecommendationController,
     TrendCollectionController,
     LiveCommerceController,
@@ -202,6 +210,8 @@ import {
     SourcingWorkspaceArchiveService,
     SourcingWorkspaceSnapshotService,
     SourcingEntryRecommendationService,
+    SourcingRecommendationService,
+    SourcingWingCatalogIngestService,
     SourcingAssistantService,
     SourcingExtensionIngestService,
     SourcingShadowSignalService,
@@ -233,6 +243,8 @@ import {
     SourcingCandidateRepositoryAdapter,
     SourcingCollectionSourceControlRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
+    SourcingRecommendationRepositoryAdapter,
+    SourcingRecommendationSourceRepositoryAdapter,
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
     SourcingDecisionBatchRepositoryAdapter,
@@ -332,6 +344,14 @@ import {
     {
       provide: SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
       useExisting: SourcingInterestTargetRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_RECOMMENDATION_REPOSITORY_PORT,
+      useExisting: SourcingRecommendationRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT,
+      useExisting: SourcingRecommendationSourceRepositoryAdapter,
     },
     {
       provide: SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT,

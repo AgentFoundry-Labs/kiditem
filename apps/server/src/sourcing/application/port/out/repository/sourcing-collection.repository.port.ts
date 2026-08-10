@@ -2,7 +2,7 @@ import type {
   NaverKeywordSnapshotUpsert,
   NaverPopularKeywordSnapshotUpsert,
   ShortsSnapshotUpsert,
-  Sourcing1688HotProductSnapshotUpsert,
+  Sourcing1688OfferKeywordObservationInput,
   TiktokCcSnapshotUpsert,
 } from './trend-collection.repository.port';
 import type {
@@ -49,7 +49,6 @@ export interface ClaimAuthorizedRunInput {
 export type SourcingTypedCollectionRecord =
   | { kind: 'naver_keyword'; row: NaverKeywordSnapshotUpsert }
   | { kind: 'naver_popular_keyword'; row: NaverPopularKeywordSnapshotUpsert }
-  | { kind: 'offer_1688_hot'; row: Sourcing1688HotProductSnapshotUpsert }
   | {
       kind: 'offer_1688_keyword_observation';
       row: Sourcing1688OfferKeywordObservationUpsert;
@@ -61,7 +60,7 @@ export type SourcingTypedCollectionRecord =
   | { kind: 'extension_candidate'; row: SourcingExtensionCandidateProjection };
 
 export interface Sourcing1688OfferKeywordObservationUpsert
-  extends Sourcing1688HotProductSnapshotUpsert {
+  extends Sourcing1688OfferKeywordObservationInput {
   ingestionRunId: string;
   evidenceObservationKey: string;
   evidenceRevision: number;

@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type {
-  Sourcing1688HotProductSnapshotUpsert,
+  Sourcing1688OfferKeywordObservationInput,
 } from '../port/out/repository/trend-collection.repository.port';
 import type {
   AuthorizedCollectionOutput,
@@ -8,6 +8,7 @@ import type {
   SourcingTypedCollectionRecord,
 } from '../port/out/repository/sourcing-collection.repository.port';
 import type { AppendSourcingEvidenceObservationCommand } from '../port/out/repository/sourcing-evidence-ledger.repository.port';
+import { canonicalJson } from '../../domain/sourcing-stable-json';
 
 type TrendTypedCollectionRecord = Exclude<
   SourcingTypedCollectionRecord,
@@ -30,7 +31,7 @@ export function hashCollectionRequest(value: unknown): string {
 
 export function map1688HotProductsToAuthorizedOutput(input: {
   permit: SourcingCollectionPermit;
-  rows: Sourcing1688HotProductSnapshotUpsert[];
+  rows: Sourcing1688OfferKeywordObservationInput[];
   rejectedCount?: number;
   qualityReport?: Record<string, unknown>;
 }): AuthorizedCollectionOutput {
@@ -38,18 +39,15 @@ export function map1688HotProductsToAuthorizedOutput(input: {
   const observations = rows.map((row) => to1688Observation(input.permit, row));
   return {
     observations,
-    typedRecords: rows.flatMap((row, index) => [
-      { kind: 'offer_1688_hot' as const, row },
-      {
-        kind: 'offer_1688_keyword_observation' as const,
-        row: {
-          ...row,
-          ingestionRunId: input.permit.runId,
-          evidenceObservationKey: observations[index].observationKey,
-          evidenceRevision: observations[index].revision,
-        },
+    typedRecords: rows.map((row, index) => ({
+      kind: 'offer_1688_keyword_observation' as const,
+      row: {
+        ...row,
+        ingestionRunId: input.permit.runId,
+        evidenceObservationKey: observations[index].observationKey,
+        evidenceRevision: observations[index].revision,
       },
-    ]),
+    })),
     discoveredCount: rows.length,
     rejectedCount: input.rejectedCount ?? 0,
     qualityReport: input.qualityReport ?? {},
@@ -58,7 +56,7 @@ export function map1688HotProductsToAuthorizedOutput(input: {
 
 function to1688Observation(
   permit: SourcingCollectionPermit,
-  row: Sourcing1688HotProductSnapshotUpsert,
+  row: Sourcing1688OfferKeywordObservationInput,
 ): AppendSourcingEvidenceObservationCommand {
   const rawPayload = {
     offerId: row.offerId,
@@ -163,7 +161,6 @@ function mapTrendRecordObservation(
 function trendRecordIdentity(record: TrendTypedCollectionRecord): string {
   if (record.kind === 'naver_keyword') return record.row.keyword;
   if (record.kind === 'naver_popular_keyword') return `${record.row.boardKey}:${record.row.keyword}`;
-  if (record.kind === 'offer_1688_hot') return record.row.offerId;
   if (record.kind === 'offer_1688_keyword_observation') return record.row.offerId;
   if (record.kind === 'shorts') return record.row.videoKey;
   if (record.kind === 'tiktok_creative') {
@@ -176,7 +173,6 @@ function trendRecordIdentity(record: TrendTypedCollectionRecord): string {
 function trendConceptKey(record: TrendTypedCollectionRecord): string | null {
   if (record.kind === 'naver_keyword') return normalizeCollectionTarget(record.row.keyword);
   if (record.kind === 'naver_popular_keyword') return normalizeCollectionTarget(record.row.keyword);
-  if (record.kind === 'offer_1688_hot') return normalizeCollectionTarget(record.row.sourceKeyword);
   if (record.kind === 'offer_1688_keyword_observation') return normalizeCollectionTarget(record.row.sourceKeyword);
   if (record.kind === 'shorts') return record.row.keyword ? normalizeCollectionTarget(record.row.keyword) : null;
   if (record.kind === 'tiktok_creative') {
@@ -188,7 +184,6 @@ function trendConceptKey(record: TrendTypedCollectionRecord): string | null {
 function trendEntityType(record: TrendTypedCollectionRecord): string {
   if (record.kind === 'naver_keyword') return 'search_keyword';
   if (record.kind === 'naver_popular_keyword') return 'popular_keyword';
-  if (record.kind === 'offer_1688_hot') return 'supplier_offer';
   if (record.kind === 'offer_1688_keyword_observation') return 'supplier_offer';
   if (record.kind === 'shorts') return 'short_video';
   if (record.kind === 'tiktok_creative') return 'creative_trend_entity';
@@ -207,7 +202,6 @@ function trendPlatform(record: TrendTypedCollectionRecord, isNaver: boolean): st
 }
 
 function trendSourceUrl(record: TrendTypedCollectionRecord): string | null {
-  if (record.kind === 'offer_1688_hot') return record.row.sourceUrl;
   if (record.kind === 'offer_1688_keyword_observation') return record.row.sourceUrl;
   if (record.kind === 'shorts') return record.row.videoUrl;
   if (record.kind === 'tiktok_creative') return record.row.sourceUrl;
@@ -218,9 +212,9 @@ function trendSourceUrl(record: TrendTypedCollectionRecord): string | null {
 }
 
 function dedupe1688Rows(
-  rows: Sourcing1688HotProductSnapshotUpsert[],
-): Sourcing1688HotProductSnapshotUpsert[] {
-  const byIdentity = new Map<string, Sourcing1688HotProductSnapshotUpsert>();
+  rows: Sourcing1688OfferKeywordObservationInput[],
+): Sourcing1688OfferKeywordObservationInput[] {
+  const byIdentity = new Map<string, Sourcing1688OfferKeywordObservationInput>();
   for (const row of rows) {
     const offerId = row.offerId.trim();
     const sourceKeyword = normalizeCollectionTarget(row.sourceKeyword);
@@ -233,18 +227,4 @@ function dedupe1688Rows(
     }
   }
   return [...byIdentity.values()];
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null) return 'null';
-  if (value instanceof Date) return JSON.stringify(value.toISOString());
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
-  if (typeof value === 'object') {
-    const record = value as Record<string, unknown>;
-    return `{${Object.keys(record)
-      .sort()
-      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-      .join(',')}}`;
-  }
-  return JSON.stringify(value);
 }

@@ -7,6 +7,7 @@ import {
 describe('sourcing collection source policy', () => {
   it('accepts only a reviewed server-side collector key', () => {
     expect(isAllowedSourcingCollectionSource('1688.hot_product')).toBe(true);
+    expect(isAllowedSourcingCollectionSource('coupang.wing_catalog')).toBe(true);
     expect(isAllowedSourcingCollectionSource('page_world.fetch')).toBe(false);
     expect(collectionSourceDeniedReason('page_world.fetch')).toBe(
       'source_not_allowed',

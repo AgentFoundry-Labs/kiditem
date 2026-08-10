@@ -50,10 +50,12 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     ]);
     expect(findUnique).toHaveBeenCalledWith({
       where: {
-        organizationId_scope_businessDate: {
+        organizationId_scope_businessDate_projectionVersion_inputHash: {
           organizationId: ORGANIZATION_ID,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: BUSINESS_DATE,
+          projectionVersion: 'legacy',
+          inputHash: '',
         },
       },
     });
@@ -62,6 +64,8 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
         organizationId: ORGANIZATION_ID,
         scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
         businessDate: BUSINESS_DATE,
+        projectionVersion: 'legacy',
+        inputHash: '',
         payload: { status: 'collecting' },
       },
     });
@@ -139,10 +143,12 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
     expect(finalized.payload).toEqual({ status: 'complete' });
     expect(update).toHaveBeenCalledWith({
       where: {
-        organizationId_scope_businessDate: {
+        organizationId_scope_businessDate_projectionVersion_inputHash: {
           organizationId: ORGANIZATION_ID,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: BUSINESS_DATE,
+          projectionVersion: 'legacy',
+          inputHash: '',
         },
       },
       data: { payload: { status: 'complete' } },
@@ -183,6 +189,8 @@ describe('MarketShadowSnapshotRepositoryAdapter', () => {
       where: {
         organizationId: ORGANIZATION_ID,
         scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        projectionVersion: 'legacy',
+        inputHash: '',
         businessDate: {
           gte: fromBusinessDate,
           lte: BUSINESS_DATE,

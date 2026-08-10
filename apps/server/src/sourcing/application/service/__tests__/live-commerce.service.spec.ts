@@ -13,11 +13,10 @@ function buildService() {
     collect: vi.fn(async () => ({ rooms: [], products: [], warnings: [] })),
   };
   const repository: LiveCommerceRepositoryPort = {
-    upsertBroadcastSnapshots: vi.fn(async (rows) => rows.length),
-    upsertProductSnapshots: vi.fn(async (rows) => rows.length),
     findBroadcastSnapshots: vi.fn(async () => []),
     findProductSnapshots: vi.fn(async () => []),
   };
+  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
   const collectionCoordinator = {
     execute: vi.fn(async (input: any, collector: any) => {
       const output = await collector({
@@ -35,14 +34,7 @@ function buildService() {
         },
         checkpoint: async () => undefined,
       });
-      const broadcasts = output.typedRecords
-        .filter((record: any) => record.kind === 'live_commerce_broadcast')
-        .map((record: any) => record.row);
-      const products = output.typedRecords
-        .filter((record: any) => record.kind === 'live_commerce_product')
-        .map((record: any) => record.row);
-      if (broadcasts.length > 0) await repository.upsertBroadcastSnapshots(broadcasts);
-      if (products.length > 0) await repository.upsertProductSnapshots(products);
+      collectionOutputs.push(output);
       return {
         kind: 'committed' as const,
         runId: input.idempotencyKey,
@@ -57,7 +49,19 @@ function buildService() {
     taobao,
     repository,
     collectionCoordinator,
+    collectionOutputs,
   };
+}
+
+function typedRows(
+  ports: ReturnType<typeof buildService>,
+  kind: string,
+): Array<Record<string, unknown>> {
+  return ports.collectionOutputs.flatMap((output) =>
+    output.typedRecords
+      .filter((record) => record.kind === kind)
+      .map((record) => record.row as Record<string, unknown>),
+  );
 }
 
 describe('LiveCommerceService', () => {
@@ -89,7 +93,7 @@ describe('LiveCommerceService', () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ source: 'douyin', broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         source: 'douyin',
@@ -97,12 +101,8 @@ describe('LiveCommerceService', () => {
         broadcasterName: '문구상점',
       }),
     ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
-      expect.objectContaining({
-        source: 'douyin',
-        productId: 'item-1',
-        rank: 1,
-      }),
+    expect(typedRows(ports, 'live_commerce_product')).toEqual([
+      expect.objectContaining({ source: 'douyin', productId: 'item-1', rank: 1 }),
     ]);
   });
 
@@ -113,7 +113,7 @@ describe('LiveCommerceService', () => {
       broadcast: { broadcastId: '123' },
       products: [],
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
   });
 
   it('rejects an insecure live page URL before persistence', async () => {
@@ -123,7 +123,7 @@ describe('LiveCommerceService', () => {
       broadcast: { broadcastId: '123' },
       products: [],
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
   });
 
   it('persists official Taobao rooms and products under the organization scope', async () => {
@@ -160,10 +160,10 @@ describe('LiveCommerceService', () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', broadcastId: 'tb-live-1' }),
     ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_product')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', productId: 'tb-item-1' }),
     ]);
   });

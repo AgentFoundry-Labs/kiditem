@@ -3,129 +3,109 @@ import type { PrismaService } from '../../../../../prisma/prisma.service';
 import { TrendCollectionRepositoryAdapter } from '../trend-collection.repository.adapter';
 
 describe('TrendCollectionRepositoryAdapter', () => {
-  it('writes Naver keyword snapshots in bounded transactions with an explicit timeout', async () => {
-    const upsert = vi.fn(async () => ({}));
-    const batchSizes: number[] = [];
-    const transaction = vi.fn(async (
-      operation: (tx: {
-        naverKeywordDailySnapshot: { upsert: typeof upsert };
-      }) => Promise<void>,
-      options: { maxWait: number; timeout: number },
-    ) => {
-      const before = upsert.mock.calls.length;
-      await operation({ naverKeywordDailySnapshot: { upsert } });
-      batchSizes.push(upsert.mock.calls.length - before);
-      expect(options).toEqual({ maxWait: 10_000, timeout: 30_000 });
-    });
-    const prisma = { $transaction: transaction } as unknown as PrismaService;
-    const adapter = new TrendCollectionRepositoryAdapter(prisma);
+  it('reads Naver keyword history from the typed daily projection', async () => {
     const businessDate = new Date('2026-07-29T00:00:00.000Z');
     const capturedAt = new Date('2026-07-29T02:00:00.000Z');
-
-    const saved = await adapter.upsertNaverKeywordSnapshots(
-      Array.from({ length: 25 }, (_, index) => ({
-        organizationId: 'organization-1',
-        keyword: `키워드-${index + 1}`,
-        businessDate,
-        monthlyTotalSearchCount: index + 1,
-        monthlyPcSearchCount: null,
-        monthlyMobileSearchCount: null,
-        competitionIndex: null,
-        averageAdRank: null,
-        trendRatio: null,
-        trendDelta: null,
-        capturedAt,
-      })),
-    );
-
-    expect(saved).toBe(25);
-    expect(transaction).toHaveBeenCalledTimes(3);
-    expect(batchSizes).toEqual([10, 10, 5]);
-    expect(upsert).toHaveBeenCalledTimes(25);
-  });
-
-  it('replaces a complete Naver board-date scope and rejects a stale replacement', async () => {
-    const businessDate = new Date('2026-07-14T00:00:00.000Z');
-    const stored = [
-      {
-        organizationId: 'organization-1',
-        boardKey: 'stationery',
-        boardLabel: '문구',
-        cid: '50000008',
-        businessDate,
-        rank: 1,
-        keyword: '지난 키워드',
-        linkId: null,
-        capturedAt: new Date('2026-07-14T02:00:00.000Z'),
-      },
-    ];
-    const transactionClient = {
-      $queryRaw: async () => [{ lock: '' }],
-      naverPopularKeywordDailySnapshot: {
-        findFirst: async ({ where }: { where: Record<string, unknown> }) =>
-          stored
-            .filter(
-              (row) =>
-                row.organizationId === where.organizationId &&
-                row.boardKey === where.boardKey &&
-                row.businessDate.getTime() === (where.businessDate as Date).getTime(),
-            )
-            .sort((a, b) => b.capturedAt.getTime() - a.capturedAt.getTime())[0] ?? null,
-        deleteMany: async ({ where }: { where: Record<string, unknown> }) => {
-          const before = stored.length;
-          for (let index = stored.length - 1; index >= 0; index -= 1) {
-            const row = stored[index];
-            if (
-              row.organizationId === where.organizationId &&
-              row.boardKey === where.boardKey &&
-              row.businessDate.getTime() === (where.businessDate as Date).getTime()
-            ) {
-              stored.splice(index, 1);
-            }
-          }
-          return { count: before - stored.length };
-        },
-        createMany: async ({ data }: { data: typeof stored }) => {
-          stored.push(...data);
-          return { count: data.length };
-        },
-      },
-    };
+    const findMany = vi.fn().mockResolvedValue([{
+      keyword: '학용품',
+      businessDate,
+      monthlyTotalSearchCount: 1200,
+      monthlyPcSearchCount: 200,
+      monthlyMobileSearchCount: 1000,
+      competitionIndex: '높음',
+      averageAdRank: 3,
+      trendRatio: 91,
+      trendDelta: 4,
+      capturedAt,
+    }]);
     const prisma = {
-      $transaction: async (operation: (tx: typeof transactionClient) => Promise<number>) =>
-        operation(transactionClient),
+      naverKeywordDailySnapshot: { findMany },
     } as unknown as PrismaService;
     const adapter = new TrendCollectionRepositoryAdapter(prisma);
 
-    const saved = await adapter.replaceNaverPopularKeywordSnapshots([
-      {
-        organizationId: 'organization-1',
-        boardKey: 'stationery',
-        boardLabel: '문구',
-        cid: '50000008',
-        businessDate,
-        rank: 1,
-        keyword: '새 키워드',
-        linkId: 'new-link',
-        capturedAt: new Date('2026-07-14T03:00:00.000Z'),
-      },
-    ]);
-    const staleSaved = await adapter.replaceNaverPopularKeywordSnapshots([
-      {
-        organizationId: 'organization-1',
-        boardKey: 'stationery',
-        boardLabel: '문구',
-        cid: '50000008',
-        businessDate,
-        rank: 1,
-        keyword: '오래된 재시도',
-        linkId: null,
-        capturedAt: new Date('2026-07-14T02:30:00.000Z'),
-      },
-    ]);
+    const rows = await adapter.findNaverKeywordHistory({
+      organizationId: 'organization-1',
+      days: 7,
+    });
 
-    expect(saved).toBe(1);
-    expect(staleSaved).toBe(0);
-    expect(stored.map((row) => row.keyword)).toEqual(['새 키워드']);
+    expect(rows).toEqual([{
+      keyword: '학용품',
+      businessDate,
+      monthlyTotalSearchCount: 1200,
+      monthlyPcSearchCount: 200,
+      monthlyMobileSearchCount: 1000,
+      competitionIndex: '높음',
+      averageAdRank: 3,
+      trendRatio: 91,
+      trendDelta: 4,
+      capturedAt,
+    }]);
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        businessDate: { gte: expect.any(Date) },
+      },
+      orderBy: [{ keyword: 'asc' }, { businessDate: 'asc' }],
+    });
+  });
+
+  it('keeps one 1688 observation per offer and source keyword', async () => {
+    const businessDate = new Date('2026-07-29T00:00:00.000Z');
+    const capturedAt = new Date('2026-07-29T02:00:00.000Z');
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        businessDate,
+        capturedAt,
+        externalOfferId: 'offer-1',
+        sourceKeywordNormalized: '필통',
+        rank: 1,
+        title: '캐릭터 필통',
+        priceCny: { toString: () => '12.5' },
+        monthlySales: 100,
+        rawOffer: { repurchaseRate: '20%', tradeScore: '4.8' },
+        supplierName: '공급사',
+        imageUrl: 'https://img.example/offer-1.jpg',
+        sourceUrl: 'https://detail.1688.com/offer/1.html',
+      },
+      {
+        businessDate,
+        capturedAt,
+        externalOfferId: 'offer-1',
+        sourceKeywordNormalized: '문구',
+        rank: 5,
+        title: '캐릭터 필통',
+        priceCny: null,
+        monthlySales: null,
+        rawOffer: {},
+        supplierName: null,
+        imageUrl: null,
+        sourceUrl: 'https://detail.1688.com/offer/1.html',
+      },
+    ]);
+    const prisma = {
+      sourcing1688OfferKeywordObservation: { findMany },
+    } as unknown as PrismaService;
+    const adapter = new TrendCollectionRepositoryAdapter(prisma);
+
+    const rows = await adapter.find1688HotHistory({
+      organizationId: 'organization-1',
+      days: 7,
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows.map((row) => row.sourceKeyword)).toEqual(['필통', '문구']);
+    expect(rows[0]).toMatchObject({
+      offerId: 'offer-1',
+      priceCny: 12.5,
+      repurchaseRate: '20%',
+      tradeScore: '4.8',
+    });
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        businessDate: { gte: expect.any(Date) },
+      },
+      orderBy: [{ businessDate: 'asc' }, { rank: 'asc' }],
+    });
   });
 });
