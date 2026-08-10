@@ -48,6 +48,7 @@ export function SellochFinalSelectionPage() {
   const [snapshotRows, setSnapshotRows] = useState<TodayRecommendationRow[]>([]);
   const [wholesaleCandidates, setWholesaleCandidates] = useState<Sourcing1688NewProductModelCandidate[]>([]);
   const [selectedRows, setSelectedRows] = useState<SelectionMap>({});
+  const [selectionHydrated, setSelectionHydrated] = useState(false);
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -66,7 +67,10 @@ export function SellochFinalSelectionPage() {
       });
 
     const raw = safeStorageGet('local', sessionScopedDailyCacheKey(FINAL_SELECTION_STORAGE_KEY));
-    if (raw && active) setSelectedRows(parseStoredSelections(raw));
+    if (active) {
+      setSelectedRows(raw ? parseStoredSelections(raw) : {});
+      setSelectionHydrated(true);
+    }
 
     return () => {
       active = false;
@@ -124,8 +128,9 @@ export function SellochFinalSelectionPage() {
   }, [coupangRows]);
 
   useEffect(() => {
+    if (!selectionHydrated) return;
     safeStorageSet('local', sessionScopedDailyCacheKey(FINAL_SELECTION_STORAGE_KEY), JSON.stringify(selectedRows));
-  }, [selectedRows]);
+  }, [selectedRows, selectionHydrated]);
 
   const candidateRows = useMemo(() => {
     return [...wholesaleCandidates]
@@ -403,7 +408,7 @@ function parseStoredSelections(raw: string): SelectionMap {
 }
 
 function finalCandidateKey(row: Pick<Sourcing1688NewProductModelCandidate, 'id' | 'sourceUrl'>): string {
-  return row.id || row.sourceUrl;
+  return row.sourceUrl || row.id;
 }
 
 function resolveResultFilter(message: string): ResultFilter | null {
