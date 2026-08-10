@@ -44,7 +44,10 @@ import {
   filterLocalCliEnvironment,
   type AgentLocalCliProvider,
 } from './agent-local-cli-command';
-import { AgentLocalProcessRegistry } from './agent-local-process-registry';
+import {
+  AgentLocalProcessRegistry,
+  type AgentLocalTerminationReason,
+} from './agent-local-process-registry';
 
 export { verifyAgentLocalCliAnswer } from './agent-local-cli-answer';
 export type { AgentLocalCliAnswer } from './agent-local-cli-answer';
@@ -98,6 +101,21 @@ function stableProcessError(
   message: string,
 ): AgentOsRuntimeError {
   return new AgentOsRuntimeError(code, message);
+}
+
+function terminationError(
+  reason: AgentLocalTerminationReason,
+): AgentOsRuntimeError {
+  return new AgentOsRuntimeError(
+    reason,
+    reason === 'user_cancelled'
+      ? 'The Agent OS run was cancelled.'
+      : reason === 'process_interrupted'
+        ? 'The local Agent OS process was interrupted.'
+        : reason === 'timeout'
+          ? 'The local CLI execution timed out.'
+          : 'The local CLI output exceeded its limit.',
+  );
 }
 
 export function classifyLocalCliFailure(error: unknown): AgentOsRuntimeError {
@@ -359,6 +377,7 @@ export class AgentLocalCliRuntimeAdapter {
         writeFile(outputFile, '', { mode: 0o600 }),
       ]);
       const cliEnvironment = filterLocalCliEnvironment(provider, process.env);
+      this.processes.assertCanSpawn(context.runId);
       const cliVersion = await resolveCliVersion(
         provider,
         cliEnvironment,
@@ -516,6 +535,7 @@ export class AgentLocalCliRuntimeAdapter {
     return new Promise((resolveExecution, rejectExecution) => {
       let child: ChildProcess;
       try {
+        this.processes.assertCanSpawn(runId);
         child = spawn(command.bin, command.args, {
           cwd: command.cwd,
           env: command.env,
@@ -533,12 +553,15 @@ export class AgentLocalCliRuntimeAdapter {
       let stderr = Buffer.alloc(0);
       let stdoutBytes = 0;
       let settled = false;
-      const settle = (action: () => void) => {
+      const settle = (
+        action: (reason: AgentLocalTerminationReason | null) => void,
+      ) => {
         if (settled) return;
         settled = true;
         clearTimeout(timeout);
+        const reason = this.processes.consumeReason(runId);
         this.processes.detach(runId);
-        action();
+        action(reason);
       };
       const timeout = setTimeout(() => {
         void this.processes.cancel(runId, 'timeout').catch(() => undefined);
@@ -559,23 +582,15 @@ export class AgentLocalCliRuntimeAdapter {
         if (remaining <= 0) return;
         stderr = Buffer.concat([stderr, chunk.subarray(0, remaining)]);
       });
-      child.once('error', (error) => settle(() => rejectExecution(error)));
+      child.once('error', (error) =>
+        settle((reason) =>
+          rejectExecution(reason ? terminationError(reason) : error),
+        ),
+      );
       child.once('close', (exitCode) => {
-        settle(() => {
-          const reason = this.processes.reasonFor(runId);
+        settle((reason) => {
           if (reason) {
-            rejectExecution(
-              new AgentOsRuntimeError(
-                reason,
-                reason === 'user_cancelled'
-                  ? 'The Agent OS run was cancelled.'
-                  : reason === 'process_interrupted'
-                    ? 'The local Agent OS process was interrupted.'
-                    : reason === 'timeout'
-                      ? 'The local CLI execution timed out.'
-                      : 'The local CLI output exceeded its limit.',
-              ),
-            );
+            rejectExecution(terminationError(reason));
             return;
           }
           if (exitCode !== 0) {

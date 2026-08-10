@@ -40,7 +40,10 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
   private readonly terminations = new Map<string, Promise<boolean>>();
   private readonly reasons = new Map<string, AgentLocalTerminationReason>();
   private readonly leases = new Set<string>();
+  private readonly pendingRuns = new Set<string>();
+  private readonly pendingResumes = new Map<string, () => void>();
   private readonly waiters: Array<() => void> = [];
+  private stopping = false;
 
   constructor(@Optional() options: AgentLocalProcessRegistryOptions = {}) {
     const config = resolveAgentLocalCliRuntimeConfig();
@@ -52,45 +55,76 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
   }
 
   async acquire(runId: string): Promise<() => void> {
-    if (this.leases.size >= this.capacity) {
-      await new Promise<void>((resolve, reject) => {
-        let settled = false;
-        const resume = () => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          this.leases.add(runId);
-          resolve();
-        };
-        const timer = setTimeout(() => {
-          if (settled) return;
-          settled = true;
-          const index = this.waiters.indexOf(resume);
-          if (index >= 0) this.waiters.splice(index, 1);
-          reject(
-            new AgentOsRuntimeError(
-              'busy',
-              'Local Agent OS runtime capacity is exhausted.',
-            ),
-          );
-        }, this.capacityWaitMs);
-        timer.unref?.();
-        this.waiters.push(resume);
-      });
+    this.assertCanSpawn(runId);
+    this.pendingRuns.add(runId);
+    try {
+      if (this.leases.size >= this.capacity) {
+        await new Promise<void>((resolve, reject) => {
+          let settled = false;
+          const resume = () => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timer);
+            this.pendingResumes.delete(runId);
+            const index = this.waiters.indexOf(resume);
+            if (index >= 0) this.waiters.splice(index, 1);
+            try {
+              this.assertCanSpawn(runId);
+            } catch (error: unknown) {
+              reject(error);
+              return;
+            }
+            this.leases.add(runId);
+            resolve();
+          };
+          const timer = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            this.pendingResumes.delete(runId);
+            const index = this.waiters.indexOf(resume);
+            if (index >= 0) this.waiters.splice(index, 1);
+            reject(
+              new AgentOsRuntimeError(
+                'busy',
+                'Local Agent OS runtime capacity is exhausted.',
+              ),
+            );
+          }, this.capacityWaitMs);
+          timer.unref?.();
+          this.pendingResumes.set(runId, resume);
+          this.waiters.push(resume);
+        });
+      }
+      this.leases.add(runId);
+    } catch (error: unknown) {
+      this.reasons.delete(runId);
+      throw error;
+    } finally {
+      this.pendingRuns.delete(runId);
+      this.pendingResumes.delete(runId);
     }
-    this.leases.add(runId);
     let released = false;
     return () => {
       if (released) return;
       released = true;
       this.leases.delete(runId);
+      this.reasons.delete(runId);
       this.waiters.shift()?.();
     };
   }
 
-  attach(runId: string, child: ChildProcess): void {
+  attach(runId: string, child: ChildProcess): boolean {
     this.children.set(runId, child);
     child.once('close', () => this.children.delete(runId));
+    const reason =
+      this.reasons.get(runId) ??
+      (this.stopping ? 'process_interrupted' : null);
+    if (!reason) return true;
+    this.reasons.set(runId, reason);
+    queueMicrotask(() => {
+      void this.cancel(runId, reason).catch(() => undefined);
+    });
+    return false;
   }
 
   detach(runId: string): void {
@@ -101,6 +135,25 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
     return this.reasons.get(runId) ?? null;
   }
 
+  consumeReason(runId: string): AgentLocalTerminationReason | null {
+    const reason = this.reasonFor(runId);
+    this.reasons.delete(runId);
+    return reason;
+  }
+
+  assertCanSpawn(runId: string): void {
+    const reason =
+      this.reasons.get(runId) ??
+      (this.stopping ? 'process_interrupted' : null);
+    if (!reason) return;
+    throw new AgentOsRuntimeError(
+      reason,
+      reason === 'user_cancelled'
+        ? 'The Agent OS run was cancelled.'
+        : 'The local Agent OS process was interrupted.',
+    );
+  }
+
   async cancel(
     runId: string,
     reason: AgentLocalTerminationReason,
@@ -108,8 +161,16 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
     const activeTermination = this.terminations.get(runId);
     if (activeTermination) return activeTermination;
     const child = this.children.get(runId);
-    if (!child?.pid) return false;
+    if (
+      !child &&
+      !this.leases.has(runId) &&
+      !this.pendingRuns.has(runId)
+    ) {
+      return false;
+    }
     if (!this.reasons.has(runId)) this.reasons.set(runId, reason);
+    this.pendingResumes.get(runId)?.();
+    if (!child?.pid) return true;
 
     const termination = new Promise<boolean>((resolveTermination) => {
       let settled = false;
@@ -153,6 +214,13 @@ export class AgentLocalProcessRegistry implements OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
+    this.stopping = true;
+    for (const runId of [...this.leases, ...this.pendingRuns]) {
+      if (!this.reasons.has(runId)) {
+        this.reasons.set(runId, 'process_interrupted');
+      }
+    }
+    for (const resume of this.waiters.splice(0)) resume();
     await Promise.all(
       [...this.children.keys()].map((runId) =>
         this.cancel(runId, 'process_interrupted'),
