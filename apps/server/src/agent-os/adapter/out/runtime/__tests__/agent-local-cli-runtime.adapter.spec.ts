@@ -1,7 +1,9 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, vi } from 'vitest';
+import { PassThrough } from 'node:stream';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
 
@@ -18,6 +20,7 @@ import {
   type AgentLocalCliAnswer,
 } from '../agent-local-cli-runtime.adapter';
 import { AgentLocalProcessRegistry } from '../agent-local-process-registry';
+import type { AgentRuntimeExecutionContext } from '../../../../application/port/out/runtime/agent-runtime.port';
 
 const CONTEXT = {
   organizationId: 'org-1',
@@ -59,7 +62,150 @@ function evidenceArtifact(overrides: Record<string, unknown> = {}) {
   };
 }
 
+function localContext(
+  overrides: Partial<AgentRuntimeExecutionContext> = {},
+): AgentRuntimeExecutionContext {
+  return {
+    organizationId: 'org-1',
+    agentInstanceId: 'instance-1',
+    agentType: 'sourcing',
+    requestId: 'request-1',
+    runId: 'run-1',
+    taskSessionId: 'session-1',
+    taskKey: 'default',
+    adapterType: 'codex_cli',
+    model: 'gpt-5.6-terra',
+    modelPlan: { primary: 'gpt-5.6-terra' },
+    promptPath: 'agent-config/prompts/agents/sourcing.md',
+    conversationId: 'conversation-1',
+    requestedByUserId: 'user-1',
+    skillKeys: [],
+    outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
+    input: { userMessage: 'Find products.' },
+    trustLevel: 0,
+    runtimeConfig: {},
+    ...overrides,
+  };
+}
+
+function lifecycleRepository(input?: {
+  requestStatus?: string;
+  runStatus?: string;
+}) {
+  return {
+    findRunRequestById: vi.fn().mockResolvedValue({
+      id: 'request-1',
+      organizationId: 'org-1',
+      agentInstanceId: 'instance-1',
+      status: input?.requestStatus ?? 'claimed',
+    }),
+    findRunById: vi.fn().mockResolvedValue({
+      id: 'run-1',
+      organizationId: 'org-1',
+      requestId: 'request-1',
+      agentInstanceId: 'instance-1',
+      status: input?.runStatus ?? 'running',
+    }),
+    appendRunEvent: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+function resolvedAssets() {
+  return {
+    promptPath: 'agent-config/prompts/agents/sourcing.md',
+    prompt: 'Use evidence.',
+    promptSha256: 'prompt-sha',
+    skills: [],
+    outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
+    outputSchemaVersion: 'sourcing-agent-answer.v1',
+    outputSchema: { type: 'object' },
+    outputSchemaSha256: 'schema-sha',
+  };
+}
+
+function mcpDescriptor() {
+  return {
+    name: 'kiditem',
+    command: 'node',
+    args: ['mcp-server.js'],
+    env: {},
+  };
+}
+
+function childProcess(pid: number) {
+  const child = new EventEmitter() as EventEmitter & {
+    pid: number;
+    stdout: PassThrough;
+    stderr: PassThrough;
+    stdin: PassThrough;
+    kill: ReturnType<typeof vi.fn>;
+  };
+  child.pid = pid;
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  child.stdin = new PassThrough();
+  child.kill = vi.fn();
+  return child;
+}
+
+async function executionOutcome(
+  execution: Promise<unknown>,
+  deadlineMs = 100,
+): Promise<{ status: 'resolved' | 'rejected' | 'hung'; error?: unknown }> {
+  return Promise.race([
+    execution.then(
+      () => ({ status: 'resolved' as const }),
+      (error: unknown) => ({ status: 'rejected' as const, error }),
+    ),
+    new Promise<{ status: 'hung' }>((resolveOutcome) => {
+      setTimeout(() => resolveOutcome({ status: 'hung' }), deadlineMs);
+    }),
+  ]);
+}
+
+function runtimeHarness(provider: 'codex_cli' | 'claude_cli', timeoutMs: number) {
+  vi.stubEnv('AGENT_RUNTIME_EXECUTION_TIMEOUT_MS', String(timeoutMs));
+  const killProcessGroup = vi.fn();
+  const processes = new AgentLocalProcessRegistry({
+    capacity: 1,
+    capacityWaitMs: 5_000,
+    killGraceMs: 5,
+    killExitWaitMs: 5,
+    killProcessGroup,
+  });
+  const repository = lifecycleRepository();
+  const assets = { resolve: vi.fn().mockResolvedValue(resolvedAssets()) };
+  const mcpSessions = {
+    prepare: vi.fn().mockResolvedValue(mcpDescriptor()),
+  };
+  const adapter = new AgentLocalCliRuntimeAdapter(
+    repository as never,
+    assets as never,
+    mcpSessions as never,
+    processes,
+  );
+  return {
+    adapter,
+    processes,
+    killProcessGroup,
+    context: localContext({
+      adapterType: provider,
+      model:
+        provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
+      modelPlan: {
+        primary:
+          provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
+      },
+    }),
+  };
+}
+
 describe('AgentLocalCliRuntimeAdapter verification', () => {
+  afterEach(() => {
+    spawnMock.mockReset();
+    vi.unstubAllEnvs();
+  });
+
   it('does not spawn a CLI after cancellation during pre-spawn preparation', async () => {
     spawnMock.mockReset();
     spawnMock.mockImplementation(() => {
@@ -71,30 +217,14 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
       killGraceMs: 20,
       killProcessGroup: vi.fn(),
     });
-    const repository = {
-      appendRunEvent: vi.fn(),
-    };
+    const repository = lifecycleRepository();
     const assets = {
-      resolve: vi.fn().mockResolvedValue({
-        promptPath: 'agent-config/prompts/agents/sourcing.md',
-        prompt: 'Use evidence.',
-        promptSha256: 'prompt-sha',
-        skills: [],
-        outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
-        outputSchemaVersion: 'sourcing-agent-answer.v1',
-        outputSchema: { type: 'object' },
-        outputSchemaSha256: 'schema-sha',
-      }),
+      resolve: vi.fn().mockResolvedValue(resolvedAssets()),
     };
     const mcpSessions = {
       prepare: vi.fn().mockImplementation(async () => {
         await processes.cancel('run-1', 'user_cancelled');
-        return {
-          name: 'kiditem',
-          command: 'node',
-          args: ['mcp-server.js'],
-          env: {},
-        };
+        return mcpDescriptor();
       }),
     };
     const adapter = new AgentLocalCliRuntimeAdapter(
@@ -105,32 +235,145 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
     );
 
     await expect(
-      adapter.execute({
-        organizationId: 'org-1',
-        agentInstanceId: 'instance-1',
-        agentType: 'sourcing',
-        requestId: 'request-1',
-        runId: 'run-1',
-        taskSessionId: 'session-1',
-        taskKey: 'default',
-        adapterType: 'codex_cli',
-        model: 'gpt-5.6-terra',
-        modelPlan: { primary: 'gpt-5.6-terra' },
-        promptPath: 'agent-config/prompts/agents/sourcing.md',
-        conversationId: 'conversation-1',
-        requestedByUserId: 'user-1',
-        skillKeys: [],
-        outputSchemaPath:
-          'agent-config/schemas/sourcing-agent-answer.schema.json',
-        input: { userMessage: 'Find products.' },
-        trustLevel: 0,
-        runtimeConfig: {},
-      }),
+      adapter.execute(localContext()),
     ).rejects.toMatchObject({ code: 'user_cancelled' });
 
     expect(spawnMock).not.toHaveBeenCalled();
     expect(repository.appendRunEvent).not.toHaveBeenCalled();
     expect(processes.reasonFor('run-1')).toBeNull();
+  });
+
+  it('durably fences a cancelled request before local preparation', async () => {
+    spawnMock.mockImplementation(() => {
+      throw new Error('unexpected spawn');
+    });
+    const processes = new AgentLocalProcessRegistry({
+      capacity: 1,
+      capacityWaitMs: 5_000,
+      killGraceMs: 20,
+      killProcessGroup: vi.fn(),
+    });
+    const repository = lifecycleRepository({
+      requestStatus: 'cancelled',
+      runStatus: 'cancelled',
+    });
+    const assets = { resolve: vi.fn().mockResolvedValue(resolvedAssets()) };
+    const mcpSessions = {
+      prepare: vi.fn().mockResolvedValue(mcpDescriptor()),
+    };
+    const adapter = new AgentLocalCliRuntimeAdapter(
+      repository as never,
+      assets as never,
+      mcpSessions as never,
+      processes,
+    );
+
+    await expect(adapter.execute(localContext())).rejects.toMatchObject({
+      code: 'user_cancelled',
+    });
+
+    expect(repository.findRunRequestById).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      requestId: 'request-1',
+    });
+    expect(repository.findRunById).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      runId: 'run-1',
+    });
+    expect(assets.resolve).not.toHaveBeenCalled();
+    expect(mcpSessions.prepare).not.toHaveBeenCalled();
+    expect(spawnMock).not.toHaveBeenCalled();
+    expect(processes.reasonFor('run-1')).toBeNull();
+  });
+
+  it('rejects timeout after the bounded kill deadline when close never arrives', async () => {
+    const versionChild = childProcess(700);
+    const runtimeChild = childProcess(701);
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          versionChild.stdout.write('codex-cli 0.147.0\n');
+          versionChild.emit('close', 0);
+        });
+        return versionChild;
+      })
+      .mockReturnValueOnce(runtimeChild);
+    const { adapter, processes, killProcessGroup, context } = runtimeHarness(
+      'codex_cli',
+      5,
+    );
+    const execution = adapter.execute(context);
+    const outcomePromise = executionOutcome(execution);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    const runDirectory = (
+      spawnMock.mock.calls[1]?.[2] as { cwd: string } | undefined
+    )?.cwd;
+
+    const outcome = await outcomePromise;
+    try {
+      expect(outcome).toMatchObject({
+        status: 'rejected',
+        error: expect.objectContaining({ code: 'timeout' }),
+      });
+    } finally {
+      runtimeChild.emit('close', null, 'SIGKILL');
+      await execution.catch(() => undefined);
+    }
+
+    expect(killProcessGroup).toHaveBeenNthCalledWith(1, 701, 'SIGTERM');
+    expect(killProcessGroup).toHaveBeenNthCalledWith(2, 701, 'SIGKILL');
+    await expect(access(runDirectory!)).rejects.toThrow();
+    const release = await processes.acquire('run-2');
+    release();
+  });
+
+  it('rejects external cancellation after the bounded kill deadline when close never arrives', async () => {
+    const versionChild = childProcess(800);
+    const runtimeChild = childProcess(801);
+    spawnMock
+      .mockImplementationOnce(() => {
+        queueMicrotask(() => {
+          versionChild.stdout.write('claude-code 2.1.0\n');
+          versionChild.emit('close', 0);
+        });
+        return versionChild;
+      })
+      .mockReturnValueOnce(runtimeChild);
+    const { adapter, processes, killProcessGroup, context } = runtimeHarness(
+      'claude_cli',
+      1_000,
+    );
+    const execution = adapter.execute(context);
+    const outcomePromise = executionOutcome(execution);
+    await vi.waitFor(() => expect(spawnMock).toHaveBeenCalledTimes(2));
+    const runDirectory = (
+      spawnMock.mock.calls[1]?.[2] as { cwd: string } | undefined
+    )?.cwd;
+
+    await expect(
+      adapter.cancel({
+        organizationId: 'org-1',
+        requestId: 'request-1',
+        runId: 'run-1',
+        reason: 'user_cancelled',
+      }),
+    ).resolves.toBe(true);
+    const outcome = await outcomePromise;
+    try {
+      expect(outcome).toMatchObject({
+        status: 'rejected',
+        error: expect.objectContaining({ code: 'user_cancelled' }),
+      });
+    } finally {
+      runtimeChild.emit('close', null, 'SIGKILL');
+      await execution.catch(() => undefined);
+    }
+
+    expect(killProcessGroup).toHaveBeenNthCalledWith(1, 801, 'SIGTERM');
+    expect(killProcessGroup).toHaveBeenNthCalledWith(2, 801, 'SIGKILL');
+    await expect(access(runDirectory!)).rejects.toThrow();
+    const release = await processes.acquire('run-2');
+    release();
   });
 
   it('keeps the MCP child isolated from the operator home in both CLI configs', () => {
