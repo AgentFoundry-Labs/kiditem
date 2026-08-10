@@ -5,6 +5,7 @@ import {
   buildSourcingAgentRagAnswer,
   buildSourcingAgentRagIndex,
   isSourcingAgentRagIndexPayload,
+  matchedSourcingAgentRagTerms,
   retrieveSourcingAgentRag,
   SOURCING_AGENT_RAG_GENERATOR_VERSION,
   SOURCING_AGENT_RAG_INDEX_VERSION,
@@ -16,6 +17,7 @@ import {
   type SourcingAgentRagSourceSnapshot,
 } from '../../domain/sourcing-agent-rag';
 import { canonicalJson } from '../../domain/sourcing-stable-json';
+import type { SourcingWorkspaceEvidenceResult } from '../port/in/capability/sourcing-agent-workspace-capability.port';
 import {
   SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
   type SourcingWorkspaceSnapshotRepositoryPort,
@@ -125,6 +127,41 @@ export class SourcingAgentRagService {
   }): Promise<SourcingAgentRagDocument[]> {
     const corpus = await this.loadCorpus(input.organizationId, normalizeDays(input.days));
     return buildSourcingAgentRagIndex({ snapshots: corpus.snapshots }).documents;
+  }
+
+  async retrieveWorkspaceEvidence(input: {
+    organizationId: string;
+    query: string;
+    topK?: number;
+    days?: number;
+  }): Promise<SourcingWorkspaceEvidenceResult> {
+    const query = input.query.trim();
+    const corpus = await this.loadCorpus(
+      input.organizationId,
+      normalizeDays(input.days),
+    );
+    const index = buildSourcingAgentRagIndex({ snapshots: corpus.snapshots });
+    const matches = retrieveSourcingAgentRag({
+      index,
+      query,
+      topK: input.topK,
+    });
+    return {
+      inputHash: corpus.inputHash,
+      documentCount: index.stats.documentCount,
+      documents: matches.map(({ document, score }) => ({
+        documentId: document.id,
+        title: document.title,
+        text: document.text,
+        sourceScope: document.sourceScope,
+        sourceDate: document.sourceDate,
+        sourceSnapshotId: document.sourceSnapshotId,
+        matchedTerms: matchedSourcingAgentRagTerms(document, query),
+        score,
+        metadata: document.metadata,
+      })),
+      dataGaps: matches.length === 0 ? ['workspace_evidence_not_found'] : [],
+    };
   }
 
   private async rebuildAndLoad(input: {

@@ -62,6 +62,37 @@ describe('SourcingReviewRepositoryAdapter', () => {
     expect((tx as Record<string, unknown>)).not.toHaveProperty('procurementTestIntent');
     expect((tx as Record<string, unknown>)).not.toHaveProperty('purchaseOrder');
   });
+
+  it('locks and validates selected item versions inside the batch transaction', async () => {
+    const tx = {
+      sourcingReviewBatch: { findUnique: vi.fn(async () => null) },
+      $queryRaw: vi.fn(async () => [{
+        item_key: ITEM_KEY,
+        state: 'selected',
+        version: 3,
+      }]),
+      sourcingRecommendationItem: { findMany: vi.fn() },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback) => callback(tx)),
+    };
+    const repository = new SourcingReviewRepositoryAdapter(prisma as never);
+
+    const result = await repository.createBatch({
+      organizationId: ORGANIZATION_ID,
+      requestedByUserId: '00000000-0000-4000-8000-000000000003',
+      recommendationRunId: RUN_ID,
+      workspaceKey: 'final',
+      expectedSelections: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
+      itemKeys: [ITEM_KEY],
+      idempotencyKey: 'review-1',
+      requestHash: 'b'.repeat(64),
+    });
+
+    expect(result).toEqual({ kind: 'selection_conflict', itemKeys: [ITEM_KEY] });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(1);
+    expect(tx.sourcingRecommendationItem.findMany).not.toHaveBeenCalled();
+  });
 });
 
 function selection(overrides: Record<string, unknown> = {}) {

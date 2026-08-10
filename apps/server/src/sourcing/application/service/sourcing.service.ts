@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { paginationParams } from '../../../common/pagination';
 import {
@@ -37,6 +37,10 @@ import {
   parseAllowedSupplierUrl,
 } from '../../domain/supplier-source-url-policy';
 import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
+import {
+  normalizeSourcingVariantKey,
+  stableSourcingCandidateIdentity,
+} from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 
 const PLATFORM_MAP: Record<string, string> = {
@@ -107,7 +111,11 @@ export class SourcingService {
         externalOfferId,
         variantKeyNormalized,
         sourceIdentityHash: externalOfferId
-          ? stableCandidateIdentity(platform, externalOfferId, variantKeyNormalized)
+          ? stableSourcingCandidateIdentity(
+              platform,
+              externalOfferId,
+              variantKeyNormalized,
+            )
           : null,
         rawData: data as Record<string, unknown>,
         name: data.title as string,
@@ -657,24 +665,10 @@ export class SourcingService {
   }
 
   private variantKeyFrom(data: FlatExtensionData): string {
-    const variant = (data as Record<string, unknown>).variant_key;
-    if (typeof variant !== 'string') return '';
-    return variant.normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase('en-US');
+    return normalizeSourcingVariantKey(
+      (data as Record<string, unknown>).variant_key,
+    );
   }
-}
-
-function stableCandidateIdentity(
-  sourcePlatform: string,
-  externalOfferId: string,
-  variantKeyNormalized: string,
-): string {
-  return createHash('sha256')
-    .update([
-      sourcePlatform.trim().toLocaleLowerCase('en-US'),
-      externalOfferId.trim(),
-      variantKeyNormalized,
-    ].join('\u001f'))
-    .digest('hex');
 }
 
 function quickProcessMessage(task: ProductGenerationTask): string {

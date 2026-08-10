@@ -11,9 +11,9 @@ import { SupplyModule } from "../supply/supply.module";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { MarketShadowSignalCapabilityAdapter } from "./adapter/in/agent/market-shadow-signal-capability.adapter";
-import { SourcingDiscoveryCapabilityAdapter } from "./adapter/in/agent/sourcing-discovery-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "./adapter/in/agent/sourcing-listing-prep-capability.adapter";
 import { SourcingScrapeUrlCapabilityAdapter } from "./adapter/in/agent/sourcing-scrape-url-capability.adapter";
+import { SourcingWorkspaceCapabilityAdapter } from "./adapter/in/agent/sourcing-workspace-capability.adapter";
 import { Sourcing1688ImageSearchController } from "./adapter/in/http/sourcing-1688-image-search.controller";
 import { Sourcing1688KeywordSearchController } from "./adapter/in/http/sourcing-1688-keyword-search.controller";
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
@@ -48,7 +48,8 @@ import { SourcingReviewService } from "./application/service/sourcing-review.ser
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
 import { SourcingShadowSignalService } from "./application/service/sourcing-shadow-signal.service";
 import { ProductRegistrationService } from "./application/service/product-registration.service";
-import { SourcingScrapeFinalizedBridge } from "./application/service/sourcing-scrape-finalized.bridge";
+import { SourcingScrapeResultService } from "./application/service/sourcing-scrape-result.service";
+import { SourcingAgentWorkspaceCapabilityService } from "./application/service/sourcing-agent-workspace-capability.service";
 import { SourcingMarketDiscoveryService } from "./application/service/sourcing-market-discovery.service";
 import { SourcingRisingProductService } from "./application/service/sourcing-rising-product.service";
 import { SourcingCollectionSourceControlService } from "./application/service/sourcing-collection-source-control.service";
@@ -99,12 +100,14 @@ import { GoogleTrendsRssAdapter } from "./adapter/out/google-trends/google-trend
 import { LinkfoxEchotikShadowAdapter } from "./adapter/out/linkfox/linkfox-echotik-shadow.adapter";
 import { SourcingRuntimeHandler } from "./adapter/out/runtime/sourcing-runtime.handler";
 import { SourcingSupplyIntelligenceAdapter } from "./adapter/out/supply/sourcing-supply-intelligence.adapter";
+import { SourcingCollectionOperationAdapter } from "./adapter/out/operations/sourcing-collection-operation.adapter";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "./application/port/in/capability/market-shadow-capability.port";
 import {
-  SOURCING_DISCOVERY_CAPABILITY_PORT,
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from "./application/port/in/capability/sourcing-capability.ports";
+import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from "./application/port/in/capability/sourcing-agent-workspace-capability.port";
+import { SOURCING_COLLECTION_OPERATION_PORT } from "./application/port/out/cross-domain/sourcing-collection-operation.port";
 import { SOURCING_ASSISTANT_GENERATION_PORT } from "./application/port/out/runtime/sourcing-assistant-generation.port";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "./application/port/out/provider/1688-image-search.port";
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "./application/port/out/provider/1688-keyword-search.port";
@@ -230,11 +233,12 @@ import {
     TrendQueryService,
     LiveCommerceService,
     ProductRegistrationService,
-    SourcingScrapeFinalizedBridge,
-    SourcingDiscoveryCapabilityAdapter,
+    SourcingScrapeResultService,
+    SourcingAgentWorkspaceCapabilityService,
     MarketShadowSignalCapabilityAdapter,
     SourcingListingPrepCapabilityAdapter,
     SourcingScrapeUrlCapabilityAdapter,
+    SourcingWorkspaceCapabilityAdapter,
     NaverDatalabPopularKeywordAdapter,
     NaverDatalabTrendAdapter,
     NaverAutocompleteKeywordAdapter,
@@ -274,13 +278,10 @@ import {
     LinkfoxEchotikShadowAdapter,
     SourcingRuntimeHandler,
     SourcingSupplyIntelligenceAdapter,
+    SourcingCollectionOperationAdapter,
     {
       provide: MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
       useExisting: MarketShadowSignalCapabilityAdapter,
-    },
-    {
-      provide: SOURCING_DISCOVERY_CAPABILITY_PORT,
-      useExisting: SourcingDiscoveryCapabilityAdapter,
     },
     {
       provide: SOURCING_LISTING_PREP_CAPABILITY_PORT,
@@ -289,6 +290,14 @@ import {
     {
       provide: SOURCING_SCRAPE_URL_WORKFLOW_PORT,
       useExisting: SourcingScrapeUrlCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT,
+      useExisting: SourcingAgentWorkspaceCapabilityService,
+    },
+    {
+      provide: SOURCING_COLLECTION_OPERATION_PORT,
+      useExisting: SourcingCollectionOperationAdapter,
     },
     {
       provide: SOURCING_1688_IMAGE_SEARCH_PORT,

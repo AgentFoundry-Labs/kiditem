@@ -10,9 +10,6 @@ export const SOURCING_INGEST_CANDIDATE_PORT = Symbol(
 export const SOURCING_SCRAPE_URL_WORKFLOW_PORT = Symbol(
   'SOURCING_SCRAPE_URL_WORKFLOW_PORT',
 );
-export const SOURCING_DISCOVERY_CAPABILITY_PORT = Symbol(
-  'SOURCING_DISCOVERY_CAPABILITY_PORT',
-);
 export const SOURCING_LISTING_PREP_CAPABILITY_PORT = Symbol(
   'SOURCING_LISTING_PREP_CAPABILITY_PORT',
 );
@@ -100,27 +97,6 @@ export interface SourcingScrapeUrlWorkflowPort {
   scrapeUrlWorkflow(
     input: SourcingScrapeUrlWorkflowInput,
   ): Promise<SourcingScrapeUrlWorkflowResult>;
-}
-
-export interface SourcingDiscoveryCapabilityInput {
-  organizationId: string;
-  keyword: string;
-  category?: string | null;
-  mode?: 'replay';
-}
-
-export interface SourcingDiscoveryCapabilityResult {
-  artifacts: Array<{
-    artifactType: string;
-    title: string;
-    summary: Record<string, unknown>;
-  }>;
-}
-
-export interface SourcingDiscoveryCapabilityPort {
-  executeDiscoveryCapability(
-    input: SourcingDiscoveryCapabilityInput,
-  ): Promise<SourcingDiscoveryCapabilityResult>;
 }
 
 export interface SourcingListingPrepCapabilityInput {

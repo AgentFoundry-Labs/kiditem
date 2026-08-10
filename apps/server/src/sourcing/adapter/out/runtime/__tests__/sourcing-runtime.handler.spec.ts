@@ -1,11 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SourcingRuntimeHandler } from '../sourcing-runtime.handler';
-
-const originalEnv = { ...process.env };
-
-afterEach(() => {
-  process.env = { ...originalEnv };
-});
 
 function context(input: Record<string, unknown>) {
   return {
@@ -15,365 +9,131 @@ function context(input: Record<string, unknown>) {
     requestId: 'request-1',
     runId: 'run-1',
     taskSessionId: 'session-1',
-    taskKey: 'listing-prep',
-    adapterType: 'claude_local',
+    taskKey: 'sourcing',
+    adapterType: 'codex_cli',
     model: 'gpt-test',
     modelPlan: { primary: 'gpt-test' },
     promptPath: 'agent-config/prompts/agents/sourcing.md',
+    conversationId: null,
+    requestedByUserId: 'user-1',
+    skillKeys: [],
+    outputSchemaPath: null,
     input,
     trustLevel: 5,
     runtimeConfig: {},
   };
 }
 
-function listingContext(input: Record<string, unknown>) {
+function handler(overrides: {
+  toolRouter?: { invoke: ReturnType<typeof vi.fn> };
+  playwright?: { execute: ReturnType<typeof vi.fn> };
+  scrapeResults?: { persist: ReturnType<typeof vi.fn> };
+} = {}) {
+  const registry = { register: vi.fn() };
+  const toolRouter = overrides.toolRouter ?? { invoke: vi.fn() };
+  const playwright = overrides.playwright ?? { execute: vi.fn() };
+  const scrapeResults = overrides.scrapeResults ?? { persist: vi.fn() };
   return {
-    ...context(input),
-    agentInstanceId: 'agent-listing-1',
-    agentType: 'listing',
-    promptPath: 'agent-config/prompts/agents/listing.md',
+    registry,
+    toolRouter,
+    playwright,
+    scrapeResults,
+    value: new SourcingRuntimeHandler(
+      registry as never,
+      toolRouter as never,
+      playwright as never,
+      scrapeResults as never,
+    ),
   };
 }
 
 describe('SourcingRuntimeHandler', () => {
-  it('registers both sourcing and listing Agent OS runtime handlers', () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = { invoke: vi.fn() };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    handler.onModuleInit();
-
-    expect(registry.register).toHaveBeenCalledWith('sourcing', handler);
-    expect(registry.register).toHaveBeenCalledWith('listing', handler);
-  });
-
-  it('keeps deterministic handlers registered when retired leaf runtime env is present', () => {
-    process.env.AGENT_OS_HERMES_LEAF_AGENT_TYPES = 'sourcing,listing';
-    const registry = { register: vi.fn() };
-    const toolRouter = { invoke: vi.fn() };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    handler.onModuleInit();
-
-    expect(registry.register).toHaveBeenCalledWith('sourcing', handler);
-    expect(registry.register).toHaveBeenCalledWith('listing', handler);
-  });
-
-  it('passes supplier URLs into the 1688 supplier matching capability', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        invocation: { id: 'tool-1' },
-        artifacts: [],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    const result = await handler.execute(
-      context({
-        action: 'market_opportunity_discovery',
-        keyword: '실리콘 식판',
-        supplierUrl: 'https://detail.1688.com/offer/123.html',
-      }),
-    );
-
-    expect(toolRouter.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        capabilityKey: 'supplier1688.match_products',
-        input: expect.objectContaining({
-          keyword: '실리콘 식판',
-          mode: 'replay',
-          supplierUrl: 'https://detail.1688.com/offer/123.html',
-        }),
-      }),
-    );
-    expect(result.provider).toBe('kiditem-sourcing-replay');
-  });
-
-  it('routes manual URL intake through the sourcing scrape workflow capability', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        invocation: { id: 'tool-scrape-1' },
-        artifacts: [{ id: 'artifact-scrape-1' }],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    const result = await handler.execute(
-      context({
-        action: 'manual_url_intake',
-        sourceUrl: 'https://detail.1688.com/offer/123.html',
-        requestedByUserId: 'user-1',
-      }),
-    );
-
-    expect(playwright.execute).not.toHaveBeenCalled();
-    expect(toolRouter.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'org-1',
-        capabilityKey: 'sourcing.scrapeUrlWorkflow',
-        requestedByUserId: 'user-1',
-        input: {
-          sourceUrl: 'https://detail.1688.com/offer/123.html',
-        },
-      }),
-    );
-    expect(result).toEqual({
-      provider: 'kiditem-sourcing-manual-url-intake',
-      output: {
-        action: 'manual_url_intake',
-        toolInvocationIds: ['tool-scrape-1'],
-        artifactIds: ['artifact-scrape-1'],
-        status: 'scrape_workflow_started',
-      },
-    });
-  });
-
-  it('fails manual URL intake when Tool Router returns a failed scrape invocation', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
-        status: 'failed',
-        invocation: {
-          id: 'tool-scrape-1',
-          errorCode: 'capability_failed',
-          errorMessage: 'Scrape workflow failed.',
-        },
-        artifacts: [],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    await expect(
-      handler.execute(
-        context({
-          action: 'manual_url_intake',
-          sourceUrl: 'https://detail.1688.com/offer/123.html',
-        }),
-      ),
-    ).rejects.toMatchObject({
-      name: 'AgentOsRuntimeError',
-      code: 'capability_failed',
-      message: 'Scrape workflow failed.',
-    });
-  });
-
-  it('fails market discovery as soon as a Tool Router capability fails', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi
-        .fn()
-        .mockResolvedValueOnce({
-          status: 'succeeded',
-          invocation: { id: 'tool-market-1' },
-          artifacts: [],
-        })
-        .mockResolvedValueOnce({
-          status: 'failed',
-          invocation: {
-            id: 'tool-coupang-1',
-            errorCode: 'capability_failed',
-            errorMessage: 'Coupang match failed.',
+  it('persists a scrape result before returning Agent OS success', async () => {
+    const runtime = handler({
+      playwright: { execute: vi.fn().mockResolvedValue({
+        provider: 'ts-playwright',
+        output: {
+          ok: true,
+          scraped_data: {
+            source_url: 'https://detail.1688.com/offer/123.html',
+            title: '실리콘 식판',
           },
-          artifacts: [],
-        }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    await expect(
-      handler.execute(
-        context({
-          action: 'market_opportunity_discovery',
-          keyword: '실리콘 식판',
-        }),
-      ),
-    ).rejects.toMatchObject({
-      name: 'AgentOsRuntimeError',
-      code: 'capability_failed',
-      message: 'Coupang match failed.',
-    });
-    expect(toolRouter.invoke).toHaveBeenCalledTimes(2);
-  });
-
-  it('invokes the listing-prep capability for product listing generation packages', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
-        status: 'succeeded',
-        invocation: { id: 'tool-1' },
-        artifacts: [{ id: 'artifact-1' }],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    const result = await handler.execute(
-      context({
-        action: 'product_listing_generation_package',
-        productName: '실리콘 흡착 식판',
-        imageUrls: ['https://cdn.example.com/plate.jpg'],
-        requestedByUserId: 'user-1',
-      }),
-    );
-
-    expect(toolRouter.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'org-1',
-        conversationId: null,
-        agentInstanceId: 'agent-sourcing-1',
-        agentType: 'sourcing',
-        requestId: 'request-1',
-        runId: 'run-1',
-        capabilityKey: 'product_listing.create_generation_package',
-        requestedByUserId: 'user-1',
-        input: {
-          productName: '실리콘 흡착 식판',
-          imageUrls: ['https://cdn.example.com/plate.jpg'],
         },
-      }),
-    );
-    expect(result).toEqual({
-      provider: 'kiditem-sourcing-listing-prep',
-      output: {
-        action: 'product_listing_generation_package',
-        toolInvocationIds: ['tool-1'],
-        artifactIds: ['artifact-1'],
-        status: 'listing_prep_started',
-      },
+      }) },
+      scrapeResults: { persist: vi.fn().mockResolvedValue({
+        candidateId: 'candidate-1',
+        href: '/product-pipeline/collected-products/candidate-1',
+      }) },
+    });
+
+    const result = await runtime.value.execute(context({
+      action: 'scrape_url',
+      url: 'https://detail.1688.com/offer/123.html',
+    }));
+
+    expect(runtime.scrapeResults.persist).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      triggeredByUserId: 'user-1',
+      output: expect.objectContaining({ ok: true }),
+    });
+    expect(result.output).toMatchObject({
+      candidateId: 'candidate-1',
+      href: '/product-pipeline/collected-products/candidate-1',
     });
   });
 
-  it('runs listing agent tasks as listing-prep package creation by default', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
+  it('fails the runtime when canonical candidate persistence fails', async () => {
+    const runtime = handler({
+      playwright: { execute: vi.fn().mockResolvedValue({
+        output: { ok: true, scraped_data: { title: '실리콘 식판' } },
+      }) },
+      scrapeResults: { persist: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Scraped sourcing result requires a title.'), {
+          code: 'sourcing_scrape_missing_title',
+        }),
+      ) },
+    });
+
+    await expect(runtime.value.execute(context({ action: 'scrape_url' })))
+      .rejects.toMatchObject({ code: 'sourcing_scrape_missing_title' });
+  });
+
+  it('registers the deterministic sourcing and listing handlers', () => {
+    const runtime = handler();
+    runtime.value.onModuleInit();
+    expect(runtime.registry.register).toHaveBeenCalledWith('sourcing', runtime.value);
+    expect(runtime.registry.register).toHaveBeenCalledWith('listing', runtime.value);
+  });
+
+  it('supports only scrape_url for Sourcing conversations', () => {
+    const runtime = handler().value;
+    expect(runtime.supports(context({ action: 'scrape_url' }))).toBe(true);
+    expect(runtime.supports(context({ action: 'market_research' }))).toBe(false);
+    expect(runtime.supports({
+      ...context({ productName: 'RC카' }),
+      agentType: 'listing',
+    })).toBe(true);
+  });
+
+  it('keeps deterministic listing package creation on the owner handler', async () => {
+    const runtime = handler({
+      toolRouter: { invoke: vi.fn().mockResolvedValue({
         status: 'succeeded',
         invocation: { id: 'tool-listing-1' },
         artifacts: [{ id: 'artifact-listing-1' }],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    const result = await handler.execute(
-      listingContext({
-        productName: '무선 RC카',
-        imageUrls: ['https://cdn.example.com/car.jpg'],
-        requestedByUserId: 'user-1',
-      }),
-    );
-
-    expect(toolRouter.invoke).toHaveBeenCalledWith(
+      }) },
+    });
+    const result = await runtime.value.execute({
+      ...context({ productName: '무선 RC카', imageUrls: ['https://cdn.test/car.jpg'] }),
+      agentType: 'listing',
+      agentInstanceId: 'agent-listing-1',
+    });
+    expect(runtime.toolRouter.invoke).toHaveBeenCalledWith(
       expect.objectContaining({
-        agentInstanceId: 'agent-listing-1',
         agentType: 'listing',
         capabilityKey: 'product_listing.create_generation_package',
-        input: {
-          productName: '무선 RC카',
-          imageUrls: ['https://cdn.example.com/car.jpg'],
-        },
       }),
     );
-    expect(result).toEqual({
-      provider: 'kiditem-sourcing-listing-prep',
-      output: {
-        action: 'product_listing_generation_package',
-        toolInvocationIds: ['tool-listing-1'],
-        artifactIds: ['artifact-listing-1'],
-        status: 'listing_prep_started',
-      },
-    });
-  });
-
-  it('invokes approval-gated Wing thumbnail registration through Tool Router', async () => {
-    const registry = { register: vi.fn() };
-    const toolRouter = {
-      invoke: vi.fn().mockResolvedValue({
-        status: 'waiting_approval',
-        invocation: { id: 'tool-wing-1' },
-        artifacts: [],
-      }),
-    };
-    const playwright = { execute: vi.fn() };
-    const handler = new SourcingRuntimeHandler(
-      registry as never,
-      toolRouter as never,
-      playwright as never,
-    );
-
-    const result = await handler.execute(
-      context({
-        action: 'wing_thumbnail_registration',
-        generationId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
-        conversationId: 'conversation-1',
-        requestedByUserId: 'user-1',
-      }),
-    );
-
-    expect(toolRouter.invoke).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'org-1',
-        conversationId: 'conversation-1',
-        agentInstanceId: 'agent-sourcing-1',
-        agentType: 'sourcing',
-        requestId: 'request-1',
-        runId: 'run-1',
-        capabilityKey: 'product_listing.submit_wing_thumbnail',
-        requestedByUserId: 'user-1',
-        input: {
-          generationId: '0187e942-9098-7382-9a22-c5b821f2f5d1',
-        },
-      }),
-    );
-    expect(result).toEqual({
-      provider: 'kiditem-sourcing-wing-registration',
-      output: {
-        action: 'wing_thumbnail_registration',
-        toolInvocationIds: ['tool-wing-1'],
-        artifactIds: [],
-        status: 'waiting_approval',
-      },
-    });
+    expect(result.output).toMatchObject({ status: 'listing_prep_started' });
   });
 });

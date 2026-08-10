@@ -139,4 +139,53 @@ describe('SourcingScrapeUrlCapabilityAdapter', () => {
 
     expect(byUrl).toBe(bySourceUrl);
   });
+
+  it('returns a canonical candidate artifact only after the workflow has one', async () => {
+    const registry = { register: vi.fn() } as unknown as AgentCapabilityRegistry;
+    const sourcing = {
+      scrapeUrl: vi.fn().mockResolvedValue({
+        skipped: false,
+        candidateId: 'candidate-1',
+        href: '/product-pipeline/collected-products/candidate-1',
+        operationKey: 'sourcing.scrape-url',
+        taskId: null,
+      }),
+    } as unknown as SourcingService;
+    const adapter = new SourcingScrapeUrlCapabilityAdapter(
+      registry,
+      sourcing,
+      { execute: vi.fn() } as unknown as SourcingPlaywrightRuntimeHandler,
+    );
+    adapter.onModuleInit();
+    const handler = vi.mocked(registry.register).mock.calls
+      .map(([registered]) => registered)
+      .find((registered) => registered.key === 'sourcing.scrapeUrlWorkflow')!;
+
+    const result = await handler.execute({
+      organizationId: 'org-1',
+      conversationId: 'conversation-1',
+      agentInstanceId: 'agent-1',
+      agentType: 'sourcing',
+      requestId: 'request-1',
+      runId: 'run-1',
+      requestedByUserId: 'user-1',
+      input: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
+    });
+
+    expect(result.artifacts).toEqual([
+      expect.objectContaining({ artifactType: 'sourcing_scrape_request' }),
+      expect.objectContaining({
+        artifactType: 'sourcing_candidate',
+        targetModel: 'SourcingCandidate',
+        targetId: 'candidate-1',
+      }),
+    ]);
+    expect(handler.idempotencyKey({
+      organizationId: 'org-1',
+      agentInstanceId: 'agent-1',
+      agentType: 'sourcing',
+      requestId: 'request-1',
+      input: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
+    })).toContain('request-1');
+  });
 });

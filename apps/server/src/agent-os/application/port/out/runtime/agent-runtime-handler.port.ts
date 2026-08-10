@@ -24,6 +24,7 @@ import type {
  * `onModuleInit`. agent-os never sees the AI domain.
  */
 export interface AgentTypeRuntimeHandler {
+  supports?(context: AgentRuntimeExecutionContext): boolean;
   execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult>;
   cancel?(input: CancelAgentRuntimeInput): Promise<boolean>;
 }

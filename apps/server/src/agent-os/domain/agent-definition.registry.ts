@@ -27,64 +27,19 @@ type AgentDefinitionSeed = Omit<
   delegationRole?: AgentDefinitionRecord['delegationRole'];
 };
 
-const SOURCING_DISCOVERY_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  {
-    toolKey: 'market.collect_shadow_signals',
-    effect: 'approval_required',
-    approvalMode: 'admin',
-    dryRunMode: 'disabled',
-    constraints: {},
-  },
-  {
-    toolKey: 'market.collect_keyword_category_rankings',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'coupang.match_products',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'coupang.collect_tracking_snapshot',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'supplier1688.match_products',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'sourcing.score_opportunities',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'sourcing.create_recommendation_packet',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-  {
-    toolKey: 'sourcing.scrapeProductUrl',
-    effect: 'allow',
-    approvalMode: 'none',
-    dryRunMode: 'optional',
-    constraints: {},
-  },
-];
+const SOURCING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.inspectRecommendationRun',
+  'sourcing.refreshCollection',
+  'sourcing.refreshValidation',
+  'sourcing.scrapeUrlWorkflow',
+].map((toolKey) => ({
+  toolKey,
+  effect: 'allow',
+  approvalMode: 'none',
+  dryRunMode: 'optional',
+  constraints: {},
+}));
 
 const LISTING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
   {
@@ -204,7 +159,7 @@ const DEFINITIONS: readonly AgentDefinitionSeed[] = [
       'sourcing.safe-review-handoff',
     ],
     runtimeKind: 'agent',
-    defaultToolPolicies: SOURCING_DISCOVERY_TOOL_POLICIES,
+    defaultToolPolicies: SOURCING_TOOL_POLICIES,
   },
   {
     type: 'listing',

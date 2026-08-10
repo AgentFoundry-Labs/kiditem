@@ -110,6 +110,16 @@ export function retrieveSourcingAgentRag(input: {
     .slice(0, topK);
 }
 
+export function matchedSourcingAgentRagTerms(
+  document: SourcingAgentRagDocument,
+  query: string,
+): string[] {
+  const haystack = `${document.title} ${document.tags.join(' ')} ${document.text}`
+    .normalize('NFKC')
+    .toLowerCase();
+  return tokenize(query).filter((term) => haystack.includes(term));
+}
+
 export function buildSourcingAgentRagAnswer(input: {
   query: string;
   contexts: SourcingAgentRagMatch[];

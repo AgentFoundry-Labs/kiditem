@@ -74,13 +74,20 @@ describe('agent definition registry', () => {
     expect(sourcing?.defaultToolPolicies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          toolKey: 'sourcing.scrapeProductUrl',
+          toolKey: 'sourcing.retrieveWorkspaceEvidence',
           effect: 'allow',
         }),
       ]),
     );
+    expect(sourcing?.defaultToolPolicies.map((policy) => policy.toolKey)).toEqual([
+      'sourcing.retrieveWorkspaceEvidence',
+      'sourcing.inspectRecommendationRun',
+      'sourcing.refreshCollection',
+      'sourcing.refreshValidation',
+      'sourcing.scrapeUrlWorkflow',
+    ]);
     expect(sourcing?.defaultToolPolicies.map((policy) => policy.toolKey)).not.toContain(
-      'product_listing.create_generation_package',
+      'sourcing.createReviewBatch',
     );
     expect(listing).toMatchObject({
       name: 'Listing Agent',

@@ -91,6 +91,32 @@ describe('SourcingValidationService', () => {
       expect.objectContaining({ recommendationItemId: ITEM_ID }),
     ]);
   });
+
+  it('refreshes one explicit recommendation run without resolving latest', async () => {
+    const recommendations = {
+      findLatest: vi.fn(),
+      findById: vi.fn(async () => run()),
+    };
+    const validations = {
+      replaceForRun: vi.fn(async () => [view()]),
+      listForRun: vi.fn(),
+    };
+    const service = new SourcingValidationService(
+      recommendations as never,
+      validations as never,
+    );
+
+    await service.refreshForRun({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+    });
+
+    expect(recommendations.findById).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      id: RUN_ID,
+    });
+    expect(recommendations.findLatest).not.toHaveBeenCalled();
+  });
 });
 
 function run() {

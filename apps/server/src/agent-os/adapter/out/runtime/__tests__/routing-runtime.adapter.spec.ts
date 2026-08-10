@@ -90,6 +90,52 @@ describe('RoutingRuntimeAdapter', () => {
     ).resolves.toBe(true);
   });
 
+  it('uses a supporting deterministic handler before a local CLI adapter', async () => {
+    const registry = new AgentRuntimeHandlerRegistry();
+    const handler = {
+      supports: vi.fn().mockReturnValue(true),
+      execute: vi.fn().mockResolvedValue({ output: { candidateId: 'candidate-1' } }),
+    };
+    registry.register('sourcing', handler);
+    const localRuntime = { execute: vi.fn() };
+    const adapter = new RoutingRuntimeAdapter(registry, localRuntime as never);
+    const context = makeContext({
+      agentType: 'sourcing',
+      adapterType: 'codex_cli',
+      input: { action: 'scrape_url' },
+    });
+
+    await expect(adapter.execute(context)).resolves.toEqual({
+      output: { candidateId: 'candidate-1' },
+    });
+    expect(handler.execute).toHaveBeenCalledWith(context);
+    expect(localRuntime.execute).not.toHaveBeenCalled();
+  });
+
+  it('falls through an unsupported owner handler to the configured local CLI', async () => {
+    const registry = new AgentRuntimeHandlerRegistry();
+    const handler = {
+      supports: vi.fn().mockReturnValue(false),
+      execute: vi.fn(),
+    };
+    registry.register('sourcing', handler);
+    const localRuntime = {
+      execute: vi.fn().mockResolvedValue({ output: { answer: '근거 기반 답변' } }),
+    };
+    const adapter = new RoutingRuntimeAdapter(registry, localRuntime as never);
+    const context = makeContext({
+      agentType: 'sourcing',
+      adapterType: 'codex_cli',
+      input: { action: 'market_research' },
+    });
+
+    await expect(adapter.execute(context)).resolves.toEqual({
+      output: { answer: '근거 기반 답변' },
+    });
+    expect(handler.execute).not.toHaveBeenCalled();
+    expect(localRuntime.execute).toHaveBeenCalledWith(context);
+  });
+
   it('throws runtime_not_configured when no handler is registered (default mode)', async () => {
     const registry = new AgentRuntimeHandlerRegistry();
     const adapter = new RoutingRuntimeAdapter(registry);

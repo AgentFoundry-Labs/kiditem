@@ -686,6 +686,7 @@ export class AgentOsMcpToolExecutor {
       status: toPublicStatus(result.status),
       invocationId: result.invocation.id,
       approvalRequestId: result.invocation.approvalRequestId,
+      output: result.invocation.outputSummary ?? {},
       artifactIds: result.artifacts.map((artifact) => artifact.id),
       artifacts: result.artifacts.map((artifact) => ({
         id: artifact.id,

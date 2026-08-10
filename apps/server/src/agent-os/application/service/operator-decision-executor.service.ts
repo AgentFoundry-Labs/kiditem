@@ -109,12 +109,12 @@ function sourcingPayloadForPlaybook(
   playbookKey: string,
   taskInput: Record<string, unknown>,
 ): Record<string, unknown> {
-  if (playbookKey === 'manual_product_intake_from_url_v1') {
+  if (playbookKey === 'manual_product_intake_from_url_v2') {
     const url = nonEmptyString(taskInput.sourceUrl) ?? nonEmptyString(taskInput.url);
     if (!url) {
       throw new AgentOsRuntimeError(
         'operator_decision_invalid_task_input',
-        'manual_product_intake_from_url_v1 requires sourceUrl or url.',
+        'manual_product_intake_from_url_v2 requires sourceUrl or url.',
       );
     }
     return {
@@ -125,9 +125,18 @@ function sourcingPayloadForPlaybook(
     };
   }
 
+  const keyword = nonEmptyString(taskInput.keyword);
+  if (!keyword) {
+    throw new AgentOsRuntimeError(
+      'operator_decision_invalid_task_input',
+      'sourcing_market_research_v2 requires keyword.',
+    );
+  }
+
   return {
     ...taskInput,
-    action: 'market_opportunity_discovery',
+    keyword,
+    action: 'market_research',
   };
 }
 

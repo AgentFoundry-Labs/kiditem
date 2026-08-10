@@ -73,25 +73,58 @@ export class SourcingValidationService {
     limit?: number;
   }): Promise<SourcingValidationEnvelope> {
     const now = new Date();
-    const limit = normalizeLimit(input.limit);
     const run = await this.recommendations.findLatest({
       organizationId: input.organizationId,
       now,
     });
     if (!run) return unavailable(now, 'RECOMMENDATION_RUN_MISSING');
 
-    const episodes = run.items
+    return this.refreshResolvedRun({
+      organizationId: input.organizationId,
+      run,
+      limit: normalizeLimit(input.limit),
+      now,
+    });
+  }
+
+  async refreshForRun(input: {
+    organizationId: string;
+    recommendationRunId: string;
+    limit?: number;
+  }): Promise<SourcingValidationEnvelope> {
+    const now = new Date();
+    const run = await this.recommendations.findById({
+      organizationId: input.organizationId,
+      id: input.recommendationRunId,
+    });
+    if (!run) return unavailable(now, 'RECOMMENDATION_RUN_MISSING');
+
+    return this.refreshResolvedRun({
+      organizationId: input.organizationId,
+      run,
+      limit: normalizeLimit(input.limit),
+      now,
+    });
+  }
+
+  private async refreshResolvedRun(input: {
+    organizationId: string;
+    run: SourcingRecommendationRunGraph;
+    limit: number;
+    now: Date;
+  }): Promise<SourcingValidationEnvelope> {
+    const episodes = input.run.items
       .filter((item) => item.sourcePlatform === '1688')
-      .slice(0, limit)
-      .map((item) => buildEpisode(item, now));
+      .slice(0, input.limit)
+      .map((item) => buildEpisode(item, input.now));
     const items = episodes.length === 0
       ? []
       : await this.validations.replaceForRun({
           organizationId: input.organizationId,
-          recommendationRunId: run.id,
+          recommendationRunId: input.run.id,
           episodes,
         });
-    return ready(run, items, null);
+    return ready(input.run, items, null);
   }
 }
 

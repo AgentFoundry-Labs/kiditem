@@ -183,13 +183,13 @@ describe('AgentOsMcpToolExecutor', () => {
     };
     vi.mocked(toolRegistry.resolveTool).mockReturnValue({
       descriptor: {
-        name: 'sourcing_scrape_url',
-        capabilityKey: 'sourcing.scrapeProductUrl',
+        name: 'sourcing_retrieve_workspace_evidence',
+        capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
         ownerDomain: 'sourcing',
         approvalRisk: 'none',
-        sideEffects: ['browser', 'external_io'],
+        sideEffects: ['read'],
       },
-      handler: handler('sourcing.scrapeProductUrl'),
+      handler: handler('sourcing.retrieveWorkspaceEvidence'),
     });
     const executor = new AgentOsMcpToolExecutor(
       contextBuilder,
@@ -276,7 +276,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'listing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           taskInput: { productName: 'Toy car' },
         },
       }),
@@ -322,7 +322,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'sourcing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           executeMode: 'queued',
         },
       }),
@@ -336,7 +336,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'sourcing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           taskInput: { sourceUrl: 'https://detail.1688.com/offer/1.html' },
         },
       }),
@@ -366,7 +366,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'order',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           planStepKey: 'scrape_url',
           executeMode: 'queued',
           taskInput: {},
@@ -405,7 +405,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'sourcing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           planStepKey: 'sourcing_agent',
           displayName: 'Sourcing Agent',
           executeMode: 'queued',
@@ -419,7 +419,7 @@ describe('AgentOsMcpToolExecutor', () => {
       taskId: 'request-sourcing-1',
       summary: {
         agentType: 'sourcing',
-        playbookKey: 'manual_product_intake_from_url_v1',
+        playbookKey: 'manual_product_intake_from_url_v2',
         executeMode: 'queued',
       },
     });
@@ -431,29 +431,35 @@ describe('AgentOsMcpToolExecutor', () => {
     const { executor, toolRegistry, toolRouter } = createExecutor();
     vi.mocked(toolRegistry.resolveTool).mockReturnValue({
       descriptor: {
-        name: 'sourcing_scrape_url',
-        capabilityKey: 'sourcing.scrapeProductUrl',
+        name: 'sourcing_retrieve_workspace_evidence',
+        capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
         ownerDomain: 'sourcing',
         approvalRisk: 'none',
-        sideEffects: ['browser', 'external_io'],
+        sideEffects: ['read'],
       },
-      handler: handler('sourcing.scrapeProductUrl'),
+      handler: handler('sourcing.retrieveWorkspaceEvidence'),
     });
     vi.mocked(toolRouter.invoke).mockResolvedValue({
       status: 'succeeded',
       invocation: {
         id: 'tool-invocation-1',
         approvalRequestId: null,
+        outputSummary: {
+          inputHash: 'a'.repeat(64),
+          documentCount: 0,
+          citationIds: [],
+          dataGaps: ['workspace_evidence_not_found'],
+        },
       },
       artifacts: [
         {
           id: 'artifact-1',
-          artifactType: 'sourcing_candidate',
-          title: '1688 candidate',
-          summary: { candidateId: 'candidate-1' },
-          href: '/sourcing/candidates/candidate-1',
+          artifactType: 'sourcing_evidence_document',
+          title: 'Workspace evidence',
+          summary: { documentId: 'doc-1' },
+          href: null,
           targetDomain: 'sourcing',
-          targetModel: 'SourcingCandidate',
+          targetModel: 'SourcingAgentRagDocument',
         },
       ],
     } as Awaited<ReturnType<AgentToolRouter['invoke']>>);
@@ -461,28 +467,34 @@ describe('AgentOsMcpToolExecutor', () => {
     await expect(
       executor.execute({
         context: mcpContext,
-        toolName: 'sourcing_scrape_url',
+        toolName: 'sourcing_retrieve_workspace_evidence',
         arguments: {
-          sourceUrl: 'https://detail.1688.com/offer/767987154308.html',
+          query: '실리콘 식판',
         },
       }),
     ).resolves.toEqual({
       status: 'succeeded',
       invocationId: 'tool-invocation-1',
       approvalRequestId: null,
+      output: {
+        inputHash: 'a'.repeat(64),
+        documentCount: 0,
+        citationIds: [],
+        dataGaps: ['workspace_evidence_not_found'],
+      },
       artifactIds: ['artifact-1'],
       artifacts: [
         {
           id: 'artifact-1',
-          artifactType: 'sourcing_candidate',
-          title: '1688 candidate',
-          summary: { candidateId: 'candidate-1' },
+          artifactType: 'sourcing_evidence_document',
+          title: 'Workspace evidence',
+          summary: { documentId: 'doc-1' },
         },
       ],
     });
 
     expect(toolRegistry.resolveTool).toHaveBeenCalledWith(
-      'sourcing_scrape_url',
+      'sourcing_retrieve_workspace_evidence',
       mcpContext,
     );
     expect(toolRouter.invoke).toHaveBeenCalledWith({
@@ -493,9 +505,9 @@ describe('AgentOsMcpToolExecutor', () => {
       agentInstanceId: 'agent-1',
       agentType: 'sourcing',
       requestedByUserId: 'user-1',
-      capabilityKey: 'sourcing.scrapeProductUrl',
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
       input: {
-        sourceUrl: 'https://detail.1688.com/offer/767987154308.html',
+        query: '실리콘 식판',
       },
     });
   });
@@ -824,7 +836,7 @@ describe('AgentOsMcpToolExecutor', () => {
         toolName: 'agent_os_create_task',
         arguments: {
           agentType: 'sourcing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           planStepKey: 'sourcing_agent',
           executeMode: 'inline',
           taskInput: {
@@ -901,13 +913,13 @@ describe('AgentOsMcpToolExecutor', () => {
     const { executor, toolRegistry, toolRouter } = createExecutor();
     vi.mocked(toolRegistry.resolveCapabilityKey).mockReturnValue({
       descriptor: {
-        name: 'kiditem__sourcing_score_opportunities',
-        capabilityKey: 'sourcing.score_opportunities',
+        name: 'kiditem__sourcing_refreshCollection',
+        capabilityKey: 'sourcing.refreshCollection',
         ownerDomain: 'sourcing',
         approvalRisk: 'none',
         sideEffects: ['read'],
       },
-      handler: handler('sourcing.score_opportunities'),
+      handler: handler('sourcing.refreshCollection'),
     });
     vi.mocked(toolRouter.invoke).mockResolvedValue({
       status: 'succeeded',
@@ -918,12 +930,12 @@ describe('AgentOsMcpToolExecutor', () => {
       artifacts: [
         {
           id: 'artifact-1',
-          artifactType: 'sourcing_recommendation',
-          title: 'Top candidates',
-          summary: { count: 3 },
-          href: 'https://internal.example/artifacts/artifact-1',
-          targetDomain: 'sourcing',
-          targetModel: 'SourcingRecommendation',
+          artifactType: 'operation_run',
+          title: 'Collection run',
+          summary: { operationRunId: 'operation-1' },
+          href: null,
+          targetDomain: 'operations',
+          targetModel: 'OperationRun',
         },
       ],
     } as Awaited<ReturnType<AgentToolRouter['invoke']>>);
@@ -933,27 +945,28 @@ describe('AgentOsMcpToolExecutor', () => {
         context: mcpContext,
         toolName: 'kiditem_capability_invoke',
         arguments: {
-          capabilityKey: 'sourcing.score_opportunities',
-          input: { candidates: ['candidate-1'] },
+          capabilityKey: 'sourcing.refreshCollection',
+          input: { sources: ['1688'] },
         },
       }),
     ).resolves.toEqual({
       status: 'succeeded',
       invocationId: 'tool-invocation-1',
       approvalRequestId: null,
+      output: {},
       artifactIds: ['artifact-1'],
       artifacts: [
         {
           id: 'artifact-1',
-          artifactType: 'sourcing_recommendation',
-          title: 'Top candidates',
-          summary: { count: 3 },
+          artifactType: 'operation_run',
+          title: 'Collection run',
+          summary: { operationRunId: 'operation-1' },
         },
       ],
     });
 
     expect(toolRegistry.resolveCapabilityKey).toHaveBeenCalledWith(
-      'sourcing.score_opportunities',
+      'sourcing.refreshCollection',
     );
     expect(toolRouter.invoke).toHaveBeenCalledWith({
       organizationId: 'org-1',
@@ -963,8 +976,8 @@ describe('AgentOsMcpToolExecutor', () => {
       agentInstanceId: 'agent-1',
       agentType: 'sourcing',
       requestedByUserId: 'user-1',
-      capabilityKey: 'sourcing.score_opportunities',
-      input: { candidates: ['candidate-1'] },
+      capabilityKey: 'sourcing.refreshCollection',
+      input: { sources: ['1688'] },
     });
     expect(
       vi.mocked(toolRegistry.resolveCapabilityKey).mock.invocationCallOrder[0],
@@ -1078,6 +1091,7 @@ describe('AgentOsMcpToolExecutor', () => {
       status: 'waiting_approval',
       invocationId: 'tool-approval-1',
       approvalRequestId: 'approval-1',
+      output: {},
       artifactIds: [],
       artifacts: [],
     });

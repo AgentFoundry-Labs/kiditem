@@ -115,8 +115,11 @@ Chrome extension: it runs in the operator's session and hands any slider to them
 rather than bypassing it.
 
 `magic-scraper` is development-only: never expose arbitrary browser JS, CDN
-scripts, or raw CDP as Agent OS/MCP tools. The runtime writes no sourcing rows;
-`SourcingScrapeFinalizedBridge` creates candidates after Agent OS finalization.
+scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
+`SourcingScrapeResultService` validates and upserts the canonical candidate
+synchronously before the runtime returns success. Agent OS finalized listeners
+are non-authoritative alert/audit projections and never write canonical sourcing
+rows.
 
 Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
 single parser for extension ingest, scrape DTO validation, and Playwright
@@ -153,11 +156,19 @@ Sourcing is the first domain adopting the shared capability manifest model. The
 initial manifest lives in `domain/capability/sourcing.capabilities.ts`:
 
 - `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
-- `sourcing.scrapeProductUrl` (`tool`) runs the browser/runtime scraper and
-  returns a product snapshot without canonical DB writes.
+- `sourcing.scrapeProductUrl` (`tool`) is an internal deterministic bridge for
+  reviewed scrape workflows; it is not exposed to the Sourcing model.
 - `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
 - `sourcing.scrapeUrlWorkflow` (`workflow`) composes duplicate-check, scrape,
   sink, alerting, and candidate-detail routing deterministically.
+- `sourcing.retrieveWorkspaceEvidence`, `sourcing.inspectRecommendationRun`,
+  `sourcing.refreshCollection`, and `sourcing.refreshValidation` are the direct
+  dashboard model's bounded evidence/run capabilities.
+- `sourcing.createReviewBatch` is registry-valid for a future explicit
+  selection handoff but is absent from the dashboard Sourcing policy.
+
+The dashboard assistant reaches Claude/Codex only through
+`AGENT_INTERACTION_PORT`; Sourcing does not own a second CLI subprocess path.
 
 Capability manifests describe the platform-facing surface only. Agent OS and
 automation must reach sourcing through incoming ports/capability dispatch, not

@@ -124,7 +124,7 @@ describe('AgentCatalogService', () => {
     });
     expect(
       policies.find(
-        (policy) => policy.toolKey === 'market.collect_keyword_category_rankings',
+        (policy) => policy.toolKey === 'sourcing.retrieveWorkspaceEvidence',
       ),
     ).toMatchObject({
       effect: 'allow',

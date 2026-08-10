@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type {
   CreateReviewBatchCommand,
   CreateReviewBatchResult,
@@ -113,6 +113,40 @@ export class SourcingReviewRepositoryAdapter implements SourcingReviewRepository
       return existing.requestHash === command.requestHash
         ? { kind: 'existing', batch: toBatch(existing) }
         : { kind: 'idempotency_conflict' };
+    }
+
+    if (
+      command.workspaceKey &&
+      command.expectedSelections &&
+      command.expectedSelections.length > 0
+    ) {
+      const itemKeys = command.expectedSelections.map((item) => item.itemKey);
+      const selections = await tx.$queryRaw<Array<{
+        item_key: string;
+        state: string;
+        version: number;
+      }>>`
+        SELECT "item_key", "state", "version"
+        FROM "sourcing_review_selections"
+        WHERE "organization_id" = ${command.organizationId}::uuid
+          AND "workspace_key" = ${command.workspaceKey}
+          AND "recommendation_run_id" = ${command.recommendationRunId}::uuid
+          AND "item_key" IN (${Prisma.join(itemKeys)})
+        FOR UPDATE
+      `;
+      const current = new Map(selections.map((row) => [row.item_key, row]));
+      const conflicts = command.expectedSelections.filter((expected) => {
+        const row = current.get(expected.itemKey);
+        return !row ||
+          row.state !== 'selected' ||
+          row.version !== expected.expectedVersion;
+      });
+      if (conflicts.length > 0) {
+        return {
+          kind: 'selection_conflict',
+          itemKeys: conflicts.map((item) => item.itemKey),
+        };
+      }
     }
 
     const recommendationItems = await tx.sourcingRecommendationItem.findMany({

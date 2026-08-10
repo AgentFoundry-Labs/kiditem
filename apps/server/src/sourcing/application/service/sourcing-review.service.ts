@@ -57,6 +57,11 @@ export class SourcingReviewService {
     recommendationRunId: string;
     itemKeys: string[];
     idempotencyKey: string;
+    workspaceKey?: 'entry' | 'final';
+    expectedSelections?: Array<{
+      itemKey: string;
+      expectedVersion: number;
+    }>;
   }) {
     const run = await this.requireRun(input.organizationId, input.recommendationRunId);
     const itemKeys = [...new Set(input.itemKeys.map((itemKey) => itemKey.trim()).filter(Boolean))]
@@ -78,17 +83,38 @@ export class SourcingReviewService {
       });
     }
 
+    const expectedSelections = input.expectedSelections
+      ? [...input.expectedSelections]
+          .map((selection) => ({
+            itemKey: selection.itemKey.trim(),
+            expectedVersion: selection.expectedVersion,
+          }))
+          .sort((left, right) => left.itemKey.localeCompare(right.itemKey))
+      : undefined;
     const requestHash = createHash('sha256').update(canonicalJson({
       recommendationRunId: input.recommendationRunId,
       itemKeys,
+      ...(input.workspaceKey && expectedSelections
+        ? {
+            workspaceKey: input.workspaceKey,
+            expectedSelections,
+          }
+        : {}),
     })).digest('hex');
     const result = await this.repository.createBatch({
       ...input,
       itemKeys,
+      expectedSelections,
       requestHash,
     });
     if (result.kind === 'idempotency_conflict') {
       throw new ConflictException({ code: 'REVIEW_BATCH_IDEMPOTENCY_CONFLICT' });
+    }
+    if (result.kind === 'selection_conflict') {
+      throw new ConflictException({
+        code: 'REVIEW_SELECTION_VERSION_CONFLICT',
+        itemKeys: result.itemKeys,
+      });
     }
     if (result.kind === 'invalid_items') {
       throw new BadRequestException({

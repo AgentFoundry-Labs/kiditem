@@ -20,6 +20,7 @@ const ScrapeUrlInputSchema = z
     sourceUrl: z.string().trim().optional(),
     url: z.string().trim().optional(),
   })
+  .strict()
   .refine((input) => Boolean(sourceUrlOf(input)), {
     message: 'sourceUrl or url is required',
   });
@@ -172,10 +173,10 @@ export class SourcingScrapeUrlCapabilityAdapter
       outputSchema: ScrapeUrlOutputSchema,
       sideEffects: ['browser', 'external_io', 'db_write', 'job_enqueue'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId, input }) => {
+      idempotencyKey: ({ organizationId, requestId, input }) => {
         const sourceUrl = sourceUrlOf(input);
-        return sourceUrl
-          ? [organizationId, SCRAPE_URL_WORKFLOW_KEY, sourceUrl].join(':')
+        return sourceUrl && requestId
+          ? [organizationId, requestId, SCRAPE_URL_WORKFLOW_KEY, sourceUrl].join(':')
           : null;
       },
       execute: async (executionInput) => {
@@ -203,6 +204,17 @@ export class SourcingScrapeUrlCapabilityAdapter
               href: result.href ?? COLLECTED_PRODUCTS_HREF,
               summary: outputSummaryOf(result),
             },
+            ...(result.candidateId
+              ? [{
+                  artifactType: 'sourcing_candidate',
+                  targetDomain: 'sourcing',
+                  targetModel: 'SourcingCandidate',
+                  targetId: result.candidateId,
+                  title: '소싱 후보',
+                  href: result.href,
+                  summary: outputSummaryOf(result),
+                }]
+              : []),
           ],
         };
       },

@@ -35,6 +35,7 @@ function runtimeContext(
       conversationId: 'conversation-1',
       requestedByUserId: 'user-1',
       userMessage: '실리콘 식판 찾아줘',
+      keyword: '실리콘 식판',
       ...(inputOverrides ?? {}),
     },
     trustLevel: 1,
@@ -59,7 +60,7 @@ function makeHandler() {
       conversation: { id: 'conversation-1', title: '실리콘 식판', rootRequestId: 'request-operator-1' },
       rootRequest: {
         id: 'request-operator-1', agentType: 'manager', status: 'claimed',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         planStepKey: 'operator', displayName: 'Operator', payload: {},
       },
       activeUserMessage: '실리콘 식판 찾아줘',
@@ -79,7 +80,7 @@ function makeHandler() {
   const parser = {
     parse: vi.fn().mockReturnValue({
       decisionType: 'delegate', targetAgentType: 'sourcing',
-      playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+      playbookKey: 'sourcing_market_research_v2',
       taskInput: { keyword: '실리콘 식판' },
       userVisibleRationale: '소싱 에이전트가 시장 신호를 확인해야 합니다.',
     }),
@@ -162,7 +163,7 @@ describe('OperatorRuntimeHandler', () => {
       requestId: 'request-operator-1', activeUserMessage: '실리콘 식판 찾아줘',
     });
     expect(openAiRuntime.decide).toHaveBeenCalledWith(expect.objectContaining({
-      prompt: expect.stringContaining('manual_product_intake_from_url_v1'),
+      prompt: expect.stringContaining('manual_product_intake_from_url_v2'),
       outputSchemaPath: expect.stringContaining('agent-config/schemas/operator-decision.schema.json'),
       model: 'gpt-5.1', apiKey: 'sk-test',
       baseUrl: 'https://api.example.test/v1', timeoutMs: 23456,
@@ -200,6 +201,26 @@ describe('OperatorRuntimeHandler', () => {
     });
   });
 
+  it('blocks deterministic sourcing delegation when no keyword was supplied', async () => {
+    delete process.env.AGENT_OS_OPERATOR_RUNTIME;
+    const { handler, delegation } = makeHandler();
+
+    const result = await handler.execute(runtimeContext({
+      input: {
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        userMessage: '추천해줘',
+        keyword: '',
+      },
+    }));
+
+    expect(result).toEqual({
+      provider: 'kiditem-operator',
+      output: { status: 'blocked', reason: 'sourcing_keyword_required' },
+    });
+    expect(delegation.delegate).not.toHaveBeenCalled();
+  });
+
   it('delegates URL messages to manual URL intake in the deterministic path', async () => {
     delete process.env.AGENT_OS_OPERATOR_RUNTIME;
     const { handler, delegation } = makeHandler();
@@ -212,7 +233,7 @@ describe('OperatorRuntimeHandler', () => {
     }));
 
     expect(delegation.delegate).toHaveBeenCalledWith(expect.objectContaining({
-      agentType: 'sourcing', playbookKey: 'manual_product_intake_from_url_v1',
+      agentType: 'sourcing', playbookKey: 'manual_product_intake_from_url_v2',
       planStepKey: 'scrape_url', payload: expect.objectContaining({
         action: 'manual_url_intake',
         sourceUrl: 'https://detail.1688.com/offer/767987154308.html?offerId=767987154308',
@@ -220,7 +241,7 @@ describe('OperatorRuntimeHandler', () => {
       }),
     }));
     expect(result.output).toMatchObject({
-      status: 'delegated', playbookKey: 'manual_product_intake_from_url_v1',
+      status: 'delegated', playbookKey: 'manual_product_intake_from_url_v2',
       delegatedRequestId: 'request-sourcing-1',
     });
   });

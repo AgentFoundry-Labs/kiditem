@@ -39,6 +39,11 @@ export interface CreateReviewBatchCommand {
   itemKeys: string[];
   idempotencyKey: string;
   requestHash: string;
+  workspaceKey?: 'entry' | 'final';
+  expectedSelections?: Array<{
+    itemKey: string;
+    expectedVersion: number;
+  }>;
 }
 
 export type SaveReviewSelectionResult =
@@ -49,6 +54,7 @@ export type CreateReviewBatchResult =
   | { kind: 'created'; batch: SourcingReviewBatchRecord }
   | { kind: 'existing'; batch: SourcingReviewBatchRecord }
   | { kind: 'idempotency_conflict' }
+  | { kind: 'selection_conflict'; itemKeys: string[] }
   | { kind: 'invalid_items'; itemKeys: string[] };
 
 export interface SourcingReviewRepositoryPort {

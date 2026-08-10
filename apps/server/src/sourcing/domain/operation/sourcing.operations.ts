@@ -14,7 +14,7 @@ export const SOURCING_OPERATIONS = [
     title: '일일 트렌드 수집',
     ownerDomain: 'sourcing',
     engineType: 'composite',
-    allowedTriggers: ['dashboard', 'domain_screen', 'schedule'],
+    allowedTriggers: ['dashboard', 'domain_screen', 'agent', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
     inputSchema: SourcingDailyTrendInputSchema,

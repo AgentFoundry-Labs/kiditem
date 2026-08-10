@@ -63,6 +63,35 @@ describe('SourcingReviewService', () => {
       requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
     }));
   });
+
+  it('maps an atomic selection version conflict without creating a batch', async () => {
+    const recommendations = { findById: vi.fn(async () => run()), findLatest: vi.fn() };
+    const repository = {
+      listSelections: vi.fn(),
+      saveSelection: vi.fn(),
+      createBatch: vi.fn(async () => ({
+        kind: 'selection_conflict',
+        itemKeys: [ITEM_KEY],
+      })),
+      findBatch: vi.fn(),
+    };
+    const service = new SourcingReviewService(recommendations as never, repository as never);
+
+    await expect(service.createBatch({
+      organizationId: ORGANIZATION_ID,
+      requestedByUserId: USER_ID,
+      recommendationRunId: RUN_ID,
+      workspaceKey: 'final',
+      expectedSelections: [{ itemKey: ITEM_KEY, expectedVersion: 4 }],
+      itemKeys: [ITEM_KEY],
+      idempotencyKey: IDEMPOTENCY_KEY,
+    })).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({
+        code: 'REVIEW_SELECTION_VERSION_CONFLICT',
+      }),
+    });
+  });
 });
 
 function run() {

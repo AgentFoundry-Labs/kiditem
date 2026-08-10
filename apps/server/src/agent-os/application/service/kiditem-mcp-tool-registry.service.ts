@@ -5,13 +5,11 @@ import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 
 export const DEFAULT_KIDITEM_MCP_CAPABILITY_ALLOWLIST = [
   'market.collect_shadow_signals',
-  'market.collect_keyword_category_rankings',
-  'coupang.match_products',
-  'coupang.collect_tracking_snapshot',
-  'supplier1688.match_products',
-  'sourcing.score_opportunities',
-  'sourcing.create_recommendation_packet',
-  'sourcing.scrapeProductUrl',
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.inspectRecommendationRun',
+  'sourcing.refreshCollection',
+  'sourcing.refreshValidation',
+  'sourcing.createReviewBatch',
   'sourcing.scrapeUrlWorkflow',
   'product_listing.create_generation_package',
   'product_listing.submit_wing_thumbnail',
@@ -47,17 +45,20 @@ export const OPERATOR_AGENT_OS_MCP_TOOLS = [
   'agent_os_request_user_input',
 ] as const;
 
+export const SOURCING_AGENT_OS_MCP_TOOLS = [
+  'agent_os_read_context',
+  'agent_os_read_task_graph',
+  'agent_os_read_artifacts',
+] as const;
+
 const FIRST_CLASS_CAPABILITY_TOOL_NAMES: Record<string, string> = {
   'market.collect_shadow_signals': 'market_collect_shadow_signals',
-  'market.collect_keyword_category_rankings':
-    'market_collect_keyword_category_rankings',
-  'coupang.match_products': 'coupang_match_products',
-  'coupang.collect_tracking_snapshot': 'coupang_collect_tracking_snapshot',
-  'supplier1688.match_products': 'supplier1688_match_products',
-  'sourcing.score_opportunities': 'sourcing_score_opportunities',
-  'sourcing.create_recommendation_packet':
-    'sourcing_create_recommendation_packet',
-  'sourcing.scrapeProductUrl': 'sourcing_scrape_url',
+  'sourcing.retrieveWorkspaceEvidence':
+    'sourcing_retrieve_workspace_evidence',
+  'sourcing.inspectRecommendationRun': 'sourcing_inspect_recommendation_run',
+  'sourcing.refreshCollection': 'sourcing_refresh_collection',
+  'sourcing.refreshValidation': 'sourcing_refresh_validation',
+  'sourcing.createReviewBatch': 'sourcing_create_review_batch',
   'sourcing.scrapeUrlWorkflow': 'sourcing_scrape_url_workflow',
   'product_listing.create_generation_package':
     'listing_create_generation_package',
@@ -103,7 +104,7 @@ export function firstClassMcpToolNameForCapability(capabilityKey: string): strin
 
 export function modelFacingMcpToolNamesForAgentType(agentType: string): string[] {
   const definition = findAgentDefinitionByType(agentType);
-  const common = [...COMMON_AGENT_OS_MCP_TOOLS];
+  const common = commonMcpToolsForAgentType(agentType);
   if (definition?.delegationRole === 'orchestrator') {
     return [...common, ...OPERATOR_AGENT_OS_MCP_TOOLS];
   }
@@ -135,7 +136,7 @@ export class KidItemMcpToolRegistry {
   listToolsForContext(
     context: KidItemMcpToolContext,
   ): KidItemMcpToolDescriptor[] {
-    const common = COMMON_AGENT_OS_MCP_TOOLS.map((name) =>
+    const common = commonMcpToolsForAgentType(context.agentType).map((name) =>
       this.toControlDescriptor(name, 'common'),
     );
     const definition = findAgentDefinitionByType(context.agentType);
@@ -241,4 +242,10 @@ export class KidItemMcpToolRegistry {
       toolKind,
     };
   }
+}
+
+function commonMcpToolsForAgentType(agentType: string): string[] {
+  return agentType === 'sourcing'
+    ? [...SOURCING_AGENT_OS_MCP_TOOLS]
+    : [...COMMON_AGENT_OS_MCP_TOOLS];
 }
