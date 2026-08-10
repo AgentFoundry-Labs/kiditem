@@ -48,6 +48,7 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
     agentInstanceId: string;
     agentType: string;
     requestedByUserId: string | null;
+    homeDirectory: string;
   }): Promise<AgentMcpSessionDescriptor> {
     const compiled = resolve(this.repositoryRoot, COMPILED_ENTRY);
     const typescript = resolve(this.repositoryRoot, TYPESCRIPT_ENTRY);
@@ -73,6 +74,12 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
       command,
       args,
       env: {
+        HOME: input.homeDirectory,
+        CODEX_HOME: input.homeDirectory,
+        ANTHROPIC_API_KEY: '',
+        CLAUDE_CODE_OAUTH_TOKEN: '',
+        CODEX_API_KEY: '',
+        OPENAI_API_KEY: '',
         KIDITEM_AGENT_OS_ENV_ROOT: this.repositoryRoot,
         KIDITEM_AGENT_OS_ORGANIZATION_ID: input.organizationId,
         KIDITEM_AGENT_OS_CONVERSATION_ID: input.conversationId,

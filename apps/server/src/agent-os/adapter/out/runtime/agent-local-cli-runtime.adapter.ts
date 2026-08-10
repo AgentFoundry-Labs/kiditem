@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   chmod,
+  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -63,7 +64,7 @@ function buildPrompt(
   ].join('\n');
 }
 
-function claudeMcpConfig(descriptor: AgentMcpSessionDescriptor) {
+export function claudeMcpConfig(descriptor: AgentMcpSessionDescriptor) {
   return {
     mcpServers: {
       kiditem: {
@@ -75,7 +76,7 @@ function claudeMcpConfig(descriptor: AgentMcpSessionDescriptor) {
   };
 }
 
-function codexMcpConfigOverrides(
+export function codexMcpConfigOverrides(
   descriptor: AgentMcpSessionDescriptor,
 ): string[] {
   return [
@@ -315,6 +316,10 @@ export class AgentLocalCliRuntimeAdapter {
     const release = await this.processes.acquire(context.runId);
     let runDirectory: string | null = null;
     try {
+      runDirectory = await mkdtemp(join(tmpdir(), 'kiditem-agent-run-'));
+      await chmod(runDirectory, 0o700);
+      const mcpHomeDirectory = join(runDirectory, 'mcp-home');
+      await mkdir(mcpHomeDirectory, { mode: 0o700 });
       const [resolvedAssets, mcp] = await Promise.all([
         this.assets.resolve({
           agentType: context.agentType,
@@ -330,6 +335,7 @@ export class AgentLocalCliRuntimeAdapter {
           agentInstanceId: context.agentInstanceId,
           agentType: context.agentType,
           requestedByUserId: context.requestedByUserId,
+          homeDirectory: mcpHomeDirectory,
         }),
       ]);
       const allowedMcpToolNames = modelFacingMcpToolNamesForAgentType(
@@ -340,8 +346,6 @@ export class AgentLocalCliRuntimeAdapter {
           .filter((policy) => policy.effect !== 'deny')
           .map((policy) => policy.toolKey) ?? [];
       const prompt = buildPrompt(resolvedAssets, userMessage, allowedMcpToolNames);
-      runDirectory = await mkdtemp(join(tmpdir(), 'kiditem-agent-run-'));
-      await chmod(runDirectory, 0o700);
       const schemaFile = join(runDirectory, 'output.schema.json');
       const outputFile = join(runDirectory, 'output.json');
       const claudeMcpConfigFile = join(runDirectory, 'mcp.json');

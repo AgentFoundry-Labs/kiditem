@@ -9,7 +9,7 @@ function childWithPid(pid: number) {
 }
 
 describe('AgentLocalProcessRegistry', () => {
-  it('kills the registered process group when the run is cancelled', async () => {
+  it('waits for the registered process group to close after SIGTERM', async () => {
     const killProcessGroup = vi.fn();
     const registry = new AgentLocalProcessRegistry({
       capacity: 2,
@@ -17,11 +17,82 @@ describe('AgentLocalProcessRegistry', () => {
       killGraceMs: 2_000,
       killProcessGroup,
     });
-    registry.attach('run-1', childWithPid(321) as never);
+    const child = childWithPid(321);
+    registry.attach('run-1', child as never);
 
-    await expect(registry.cancel('run-1', 'user_cancelled')).resolves.toBe(true);
+    const cancellation = registry.cancel('run-1', 'user_cancelled');
+    let settled = false;
+    void cancellation.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+
     expect(killProcessGroup).toHaveBeenCalledWith(321, 'SIGTERM');
     expect(registry.reasonFor('run-1')).toBe('user_cancelled');
+    expect(settled).toBe(false);
+
+    child.emit('close', 0);
+    await expect(cancellation).resolves.toBe(true);
+  });
+
+  it('waits for close after the SIGKILL fallback', async () => {
+    vi.useFakeTimers();
+    try {
+      const killProcessGroup = vi.fn();
+      const registry = new AgentLocalProcessRegistry({
+        capacity: 2,
+        capacityWaitMs: 5_000,
+        killGraceMs: 20,
+        killProcessGroup,
+      });
+      const child = childWithPid(456);
+      registry.attach('run-1', child as never);
+
+      const cancellation = registry.cancel('run-1', 'user_cancelled');
+      await vi.advanceTimersByTimeAsync(20);
+      expect(killProcessGroup).toHaveBeenNthCalledWith(1, 456, 'SIGTERM');
+      expect(killProcessGroup).toHaveBeenNthCalledWith(2, 456, 'SIGKILL');
+
+      let settled = false;
+      void cancellation.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      child.emit('close', null, 'SIGKILL');
+      await expect(cancellation).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves after a bounded post-SIGKILL deadline when close never arrives', async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new AgentLocalProcessRegistry({
+        capacity: 2,
+        capacityWaitMs: 5_000,
+        killGraceMs: 20,
+        killExitWaitMs: 30,
+        killProcessGroup: vi.fn(),
+      });
+      registry.attach('run-1', childWithPid(789) as never);
+
+      const cancellation = registry.cancel('run-1', 'user_cancelled');
+      await vi.advanceTimersByTimeAsync(49);
+      let settled = false;
+      void cancellation.then(() => {
+        settled = true;
+      });
+      await Promise.resolve();
+      expect(settled).toBe(false);
+
+      await vi.advanceTimersByTimeAsync(1);
+      await expect(cancellation).resolves.toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('rejects capacity waits with the stable busy code', async () => {
@@ -70,11 +141,15 @@ describe('AgentLocalProcessRegistry', () => {
       killGraceMs: 2_000,
       killProcessGroup,
     });
-    registry.attach('run-1', childWithPid(654) as never);
+    const child = childWithPid(654);
+    registry.attach('run-1', child as never);
 
-    await registry.onModuleDestroy();
+    const shutdown = registry.onModuleDestroy();
+    await Promise.resolve();
 
     expect(registry.reasonFor('run-1')).toBe('process_interrupted');
     expect(killProcessGroup).toHaveBeenCalledWith(654, 'SIGTERM');
+    child.emit('close', 0);
+    await shutdown;
   });
 });

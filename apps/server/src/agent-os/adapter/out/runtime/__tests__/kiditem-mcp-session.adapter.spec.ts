@@ -36,6 +36,7 @@ describe('KidItemMcpSessionAdapter', () => {
       agentInstanceId: 'instance-1',
       agentType: 'sourcing',
       requestedByUserId: 'user-1',
+      homeDirectory: '/tmp/kiditem-run/mcp-home',
     });
 
     expect(descriptor).toEqual({
@@ -43,6 +44,12 @@ describe('KidItemMcpSessionAdapter', () => {
       command: process.execPath,
       args: [entry],
       env: {
+        HOME: '/tmp/kiditem-run/mcp-home',
+        CODEX_HOME: '/tmp/kiditem-run/mcp-home',
+        ANTHROPIC_API_KEY: '',
+        CLAUDE_CODE_OAUTH_TOKEN: '',
+        CODEX_API_KEY: '',
+        OPENAI_API_KEY: '',
         KIDITEM_AGENT_OS_ENV_ROOT: root,
         KIDITEM_AGENT_OS_ORGANIZATION_ID: 'org-1',
         KIDITEM_AGENT_OS_CONVERSATION_ID: 'conversation-1',
@@ -58,6 +65,7 @@ describe('KidItemMcpSessionAdapter', () => {
         AI_DIRECT_JOB_WORKER_ENABLED: '0',
       },
     });
+    expect(Object.values(descriptor.env)).not.toContain('/Users/operator');
   });
 
   it('does not use the TypeScript entrypoint outside development', async () => {
@@ -74,6 +82,7 @@ describe('KidItemMcpSessionAdapter', () => {
         agentInstanceId: 'instance-1',
         agentType: 'sourcing',
         requestedByUserId: null,
+        homeDirectory: '/tmp/kiditem-run/mcp-home',
       }),
     ).rejects.toMatchObject({ code: 'mcp_entrypoint_missing' });
   });
