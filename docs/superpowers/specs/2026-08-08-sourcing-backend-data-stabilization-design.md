@@ -606,13 +606,29 @@ canonical decision center 연결과 procurement enablement는 별도 설계·승
 
 ### 11.3 assistant runtime
 
-assistant 생성 기능은 CLI flag를 security boundary로 사용하지 않는다.
+assistant는 retrieval-first다. `SOURCING_ASSISTANT_RUNTIME`이 없으면 생성하지 않고
+근거만 반환한다. 런타임을 켤 때는 서버가 `claude|codex`와
+`SOURCING_ASSISTANT_MODEL`을 함께 명시하며, HTTP body·조직 설정·브라우저는 provider나
+model을 고를 수 없다. 기본 모델이나 provider fallback은 없다.
 
-- 우선안은 filesystem/tool access가 없는 provider API/SDK 호출이다.
-- CLI를 임시 유지하면 repo와 secret이 mount되지 않은 별도 sandbox/user에서 실행하고 network allowlist, process semaphore, timeout, input/output byte limit을 적용한다.
-- 안전한 sandbox를 제공할 수 없으면 retrieval-only 응답으로 명시적으로 degrade한다.
-- 모든 prompt와 RAG text는 untrusted data로 취급한다.
-- endpoint에는 per-org/per-user rate limit, 최대 동시 실행 수, 비용·시간 budget을 적용한다.
+- 모든 prompt/RAG text는 untrusted data다. prompt는 24k 문자, output은 16kB,
+  실행은 45초로 제한하며 한 Nest 프로세스에서 동시에 하나만 실행한다. Entry endpoint는
+  분당 3회 throttle을 둔다.
+- Claude는 `--tools ""`, strict empty MCP 설정, session persistence off로 실행한다.
+  `--allowed-tools ""`는 자동승인 목록일 뿐이므로 사용하지 않는다.
+- Codex는 `codex exec --ephemeral --ignore-user-config --ignore-rules`와 read-only
+  sandbox를 사용하고 shell, browser, computer, plugins, apps, image, web-search를
+  모두 비활성화한다. Codex CLI의 `features.shell_tool=false`가 default shell tool을
+  끄는 설정이다.
+- 두 CLI 모두 repository 대신 OS temp root에서 실행하고 application env 전체를
+  상속하지 않는다. provider별 auth와 기본 locale/path만 넘긴다. Office image가 CLI를
+  포함하지 않는 동안에는 `cli_not_found`로 retrieval-only가 된다; 배포에서 생성 기능을
+  실제로 열려면 별도 restricted runtime user/container와 provider egress allowlist를
+  먼저 갖춘다.
+- CLI flags만으로 host 격리를 주장하지 않는다. runtime config, CLI, auth, timeout,
+  output limit, 또는 tool lock이 하나라도 실패하면 source data를 잃지 않고
+  retrieval-only 응답으로 명시적으로 degrade한다. 어떤 CLI도 sourcing/Supply write
+  authority를 받지 않는다.
 
 ## 12. 클린 reset과 cutover
 

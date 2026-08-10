@@ -84,6 +84,7 @@ import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registrati
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
 import { SellpiaSalePriceAdapter } from "./adapter/out/inventory/sellpia-sale-price.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "./adapter/out/runtime/sourcing-playwright-runtime.handler";
+import { SourcingAssistantCliGenerationAdapter } from "./adapter/out/runtime/sourcing-assistant-cli-generation.adapter";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
 import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
 import { ShortstrendTrendAdapter } from "./adapter/out/shortstrend/shortstrend-trend.adapter";
@@ -98,6 +99,7 @@ import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from "./application/port/in/capability/sourcing-capability.ports";
+import { SOURCING_ASSISTANT_GENERATION_PORT } from "./application/port/out/runtime/sourcing-assistant-generation.port";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "./application/port/out/provider/1688-image-search.port";
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "./application/port/out/provider/1688-keyword-search.port";
 import { SHORTSTREND_TREND_PORT } from "./application/port/out/provider/shortstrend-trend.port";
@@ -246,6 +248,7 @@ import {
     CandidateContentAssetAdapter,
     SellpiaSalePriceAdapter,
     SourcingPlaywrightRuntimeHandler,
+    SourcingAssistantCliGenerationAdapter,
     Direct1688ImageSearchAdapter,
     Direct1688KeywordSearchAdapter,
     ShortstrendTrendAdapter,
@@ -305,6 +308,10 @@ import {
     {
       provide: SOURCING_AGENT_GATEWAY_PORT,
       useExisting: SourcingAgentGatewayAdapter,
+    },
+    {
+      provide: SOURCING_ASSISTANT_GENERATION_PORT,
+      useExisting: SourcingAssistantCliGenerationAdapter,
     },
     {
       provide: SOURCING_OPERATION_ALERT_PORT,

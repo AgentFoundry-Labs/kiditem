@@ -3,7 +3,7 @@ import { CurrentOrganization } from '../../../../auth/decorators/current-organiz
 import { SourcingInterestTargetService } from '../../../application/service/sourcing-interest-target.service';
 import { UpsertSourcingInterestTargetDto } from './dto';
 
-@Controller('sourcing/interests')
+@Controller('sourcing/workspace/interests')
 export class SourcingInterestTargetController {
   constructor(private readonly interests: SourcingInterestTargetService) {}
 

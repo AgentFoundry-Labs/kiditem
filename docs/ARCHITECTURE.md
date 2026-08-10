@@ -592,8 +592,14 @@ explicitly. Both flows claim an allowlisted, enabled lane before any durable wri
 at commit, append an immutable observation,
 then project a candidate using `(platform, externalOfferId, normalizedVariant)`
 rather than a title, URL tracking parameter, or result index. The assistant
-adjacent to Entry is retrieval-only and never launches a server-side CLI from
-scraped text.
+adjacent to Entry is retrieval-first: without explicit server configuration it
+returns only organization-scoped internal evidence. Its optional single
+generation port accepts server-selected `claude` or `codex`, never client
+provider/model input, and has bounded prompt/output/time/concurrency. Claude
+has an empty actual tool list; Codex uses ephemeral read-only non-interactive
+execution with every local execution, browser, plugin/app, image, and web
+search surface disabled. Either runtime failure remains a retrieval-only
+answer and neither may write sourcing or Supply records.
 
 `SourcingEvidenceObservation` is revision-aware and append-only. Every decision
 freezes the exact observation IDs that were available at its cutoff, while the

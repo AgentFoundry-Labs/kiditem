@@ -8,6 +8,8 @@
 
 > **2026-08-09 implementation amendment:** 아래의 초안 일부에 남은 `entitlement`, reviewer, expiry, manifest seed, kill-switch 관련 예시는 폐기한다. 구현 기준은 코드의 fixed source allowlist와 조직별 optional `enabled` record 한 개다. collection run에는 lease/idempotency/cancel/fencing에 필요한 기술 상태만 두며, source review·승인 버전·만료·lifecycle state는 추가하지 않는다.
 
+> **2026-08-10 assistant-runtime amendment:** Entry assistant는 기본 retrieval-only를 유지하되, 서버가 명시적으로 `SOURCING_ASSISTANT_RUNTIME=claude|codex`와 `SOURCING_ASSISTANT_MODEL`을 함께 설정하면 하나의 locked-down CLI generation port를 쓴다. 사용자 요청은 runtime/model을 고르지 못하며, Claude의 `--tools ""`와 Codex의 shell/browser/computer/plugin/app/image/web lock을 regression test로 고정한다. CLI 실패는 근거 검색으로 degrade하고 source/procurement write는 열지 않는다.
+
 **Tech Stack:** NestJS 11, Prisma 7, PostgreSQL 17, Zod 3, class-validator, Next.js/React 19, TanStack Query, Chrome Manifest V3, Vitest, Supertest, Node test, Testcontainers
 
 ## Global Constraints

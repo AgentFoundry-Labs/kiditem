@@ -140,14 +140,26 @@ describe('sourcing architecture contract', () => {
     );
   });
 
-  it('does not leave a subprocess-based sourcing assistant runtime behind', () => {
+  it('keeps assistant subprocess execution inside the single locked-down runtime adapter', () => {
     const sourcing = sourcingRel();
     const hits = rg(
-      `--type ts --files-with-matches 'node:child_process|SOURCING_ASSISTANT_CLI|ClaudeCliAssistant' ${sourcing} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'node:child_process' ${sourcing} --glob '!**/__tests__/**'`,
     );
     expect(
       hits,
-      `Sourcing assistant must remain retrieval-only; subprocess runtime references found:\n${hits.join('\n')}`,
-    ).toEqual([]);
+      `Only the assistant runtime adapter may spawn a sourcing subprocess:\n${hits.join('\n')}`,
+    ).toEqual([
+      path.join(sourcing, 'adapter/out/runtime/sourcing-assistant-cli-generation.adapter.ts'),
+    ]);
+
+    const runtimeSource = readFileSync(
+      path.join(SOURCING_ROOT, 'adapter/out/runtime/sourcing-assistant-cli-generation.adapter.ts'),
+      'utf8',
+    );
+    expect(runtimeSource).toContain("'--tools', ''");
+    expect(runtimeSource).not.toContain("'--allowed-tools'");
+    expect(runtimeSource).toContain("'--disable', 'shell_tool'");
+    expect(runtimeSource).toContain("'--ignore-user-config'");
+    expect(runtimeSource).toContain("'approval_policy=\"never\"'");
   });
 });

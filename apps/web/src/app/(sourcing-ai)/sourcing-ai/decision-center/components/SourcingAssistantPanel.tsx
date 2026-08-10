@@ -29,7 +29,7 @@ const QUICK_QUESTIONS = [
 /**
  * 자사 데이터 근거 어시스턴트.
  *
- * 답변 생성은 서버가 로컬 CLI 를 띄워서 한다(HTTP LLM API 아님). CLI 를 못 쓰면
+ * 답변 생성은 서버가 선택적으로 Claude 또는 Codex CLI를 띄워서 한다. CLI를 못 쓰면
  * 검색된 근거만 돌아오며, 그 사실을 배지로 분명히 드러낸다 — 근거만 나온 것을
  * 생성된 답으로 오해하면 판단이 틀어진다.
  */
@@ -169,7 +169,7 @@ function Turn({ turn }: { turn: AssistantTurn }) {
               : 'bg-emerald-50 text-emerald-700 ring-emerald-200',
           )}
         >
-          {degraded ? '근거만 (생성 안 됨)' : `CLI 생성 · ${answer.model ?? ''}`}
+          {degraded ? '근거만 (생성 안 됨)' : `CLI 생성 · ${answer.runtime ?? 'runtime'} · ${answer.model ?? ''}`}
         </span>
       )}
       <p className="whitespace-pre-line text-[11px] font-semibold leading-4 text-[var(--text-primary)]">

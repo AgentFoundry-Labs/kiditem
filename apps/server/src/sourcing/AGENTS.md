@@ -141,8 +141,9 @@ an unknown or disabled source must leave zero candidate and evidence rows.
 Candidate identity is platform + external offer + normalized variant, never
 title, tracking URL, or search-result array index.
 
-The entry assistant is retrieval-only. It returns organization-scoped internal
-evidence and never spawns a CLI/process or interprets scraped text as tools.
+Entry assistant: server-only runtime/model; client never selects. Claude:
+`--tools ""` (not `--allowed-tools`). Codex: ephemeral read-only/no tools.
+Failure: retrieval-only.
 
 ## Capability Surface
 

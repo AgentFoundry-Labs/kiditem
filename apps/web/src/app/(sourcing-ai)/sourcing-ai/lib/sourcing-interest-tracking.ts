@@ -65,7 +65,7 @@ export async function addSourcingInterestTarget(input: {
   trackingWindowDays?: number;
 }): Promise<SourcingInterestTrackingSnapshotPayload> {
   const target = input.target;
-  await apiClient.post<SourcingInterestTargetResponse>('/api/sourcing/interests', {
+  await apiClient.post<SourcingInterestTargetResponse>('/api/sourcing/workspace/interests', {
     targetType: target.type,
     source: target.source,
     label: target.label,
@@ -83,14 +83,14 @@ export async function removeSourcingInterestTarget(input: {
   targetId: string;
   trackingWindowDays?: number;
 }): Promise<SourcingInterestTrackingSnapshotPayload> {
-  await apiClient.delete(`/api/sourcing/interests/${encodeURIComponent(input.targetId)}`);
+  await apiClient.delete(`/api/sourcing/workspace/interests/${encodeURIComponent(input.targetId)}`);
   return loadLatestInterestTrackingPayload(input.trackingWindowDays);
 }
 
 export async function loadLatestInterestTrackingPayload(
   trackingWindowDays = 3,
 ): Promise<SourcingInterestTrackingSnapshotPayload> {
-  const rows = await apiClient.get<SourcingInterestTargetResponse[]>('/api/sourcing/interests');
+  const rows = await apiClient.get<SourcingInterestTargetResponse[]>('/api/sourcing/workspace/interests');
   return toPayload(rows, trackingWindowDays);
 }
 

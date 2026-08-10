@@ -110,6 +110,7 @@ export interface SourcingAssistantAnswer {
   text: string;
   citations: SourcingAssistantCitation[];
   documentCount: number;
+  runtime: 'claude' | 'codex' | null;
   model: string | null;
   degradedReason: string | null;
   degradedCode: string | null;

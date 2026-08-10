@@ -310,6 +310,8 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
+| `SOURCING_ASSISTANT_RUNTIME` | Entry assistant should generate a short answer after retrieval | Sourcing assistant generation port | Optional and server-only: `claude` or `codex`. Omit it for retrieval-only. Any other value fails closed to retrieval-only; the browser never chooses it. |
+| `SOURCING_ASSISTANT_MODEL` | `SOURCING_ASSISTANT_RUNTIME` is set | Sourcing assistant generation port | Required explicit model name for the selected CLI. There is no provider/model fallback. Keep provider credentials in the restricted runtime secret store, not source-controlled env files. |
 
 ## Python Agents Runtime
 
