@@ -351,6 +351,20 @@ export class AgentRunExecutor {
               },
       });
 
+      if (!finalized.finalized) {
+        const cancelled =
+          finalized.requestStatus === 'cancelled' ||
+          finalized.run.status === 'cancelled' ||
+          finalized.run.errorCode === 'user_cancelled';
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: cancelled ? 'user_cancelled' : 'process_interrupted',
+          errorCode: cancelled ? 'user_cancelled' : 'process_interrupted',
+        };
+      }
+
       if (
         finalized.requestStatus === 'cancelled' ||
         finalized.run.status === 'cancelled' ||
@@ -431,6 +445,29 @@ export class AgentRunExecutor {
       const errorCode = normalizeAgentErrorCode(error);
       const errorMessage = normalizeAgentErrorMessage(error);
 
+      const finalized = await this.repository.finalizeRun({
+        organizationId: run.organizationId,
+        runId: run.id,
+        requestId: claimed.id,
+        status: 'failed',
+        errorCode,
+        errorMessage,
+      });
+
+      if (!finalized.finalized) {
+        const cancelled =
+          finalized.requestStatus === 'cancelled' ||
+          finalized.run.status === 'cancelled' ||
+          finalized.run.errorCode === 'user_cancelled';
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: cancelled ? 'user_cancelled' : 'process_interrupted',
+          errorCode: cancelled ? 'user_cancelled' : 'process_interrupted',
+        };
+      }
+
       await this.repository.appendRunEvent({
         organizationId: run.organizationId,
         runId: run.id,
@@ -439,15 +476,6 @@ export class AgentRunExecutor {
         level: 'error',
         message: errorMessage,
         data: { errorCode },
-      });
-
-      const finalized = await this.repository.finalizeRun({
-        organizationId: run.organizationId,
-        runId: run.id,
-        requestId: claimed.id,
-        status: 'failed',
-        errorCode,
-        errorMessage,
       });
 
       if (finalized.requestStatus === 'cancelled') {
