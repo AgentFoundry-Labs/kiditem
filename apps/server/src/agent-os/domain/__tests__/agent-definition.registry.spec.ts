@@ -37,6 +37,8 @@ describe('agent definition registry', () => {
 
   it('defines Sourcing as an agent with code-owned runtime assets', () => {
     expect(findAgentDefinitionByType('sourcing')).toMatchObject({
+      description:
+        'Evidence-grounded Sourcing Agent for analysis, collection planning, and explicit review handoff.',
       runtimeKind: 'agent',
       promptPath: 'agent-config/prompts/agents/sourcing.md',
       outputSchemaPath:
