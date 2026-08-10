@@ -31,6 +31,12 @@ export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto'
 export {
   SourcingCoupangObservationDto,
   SourcingRecommendationQueryDto,
+  SourcingReviewBatchDto,
+  SourcingReviewBatchParamsDto,
+  SourcingReviewItemKeyParamsDto,
+  SourcingReviewSelectionDto,
+  SourcingReviewSelectionListQueryDto,
+  SourcingValidationQueryDto,
 } from './sourcing-workspace.dto';
 export { Append1688NewProductItemsDto } from './append-1688-new-product-items.dto';
 export {

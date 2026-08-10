@@ -15,6 +15,8 @@ import { SourcingPromotionService } from "../application/service/sourcing-promot
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
 import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
 import { SourcingRecommendationService } from "../application/service/sourcing-recommendation.service";
+import { SourcingValidationService } from "../application/service/sourcing-validation.service";
+import { SourcingReviewService } from "../application/service/sourcing-review.service";
 import { SourcingWingCatalogIngestService } from "../application/service/sourcing-wing-catalog-ingest.service";
 import { SourcingShadowSignalService } from "../application/service/sourcing-shadow-signal.service";
 import { SourcingMarketDiscoveryService } from "../application/service/sourcing-market-discovery.service";
@@ -35,6 +37,7 @@ import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-s
 import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
 import { SourcingInterestTargetController } from "../adapter/in/http/sourcing-interest-target.controller";
 import { SourcingWorkspaceController } from "../adapter/in/http/sourcing-workspace.controller";
+import { SourcingReviewController } from "../adapter/in/http/sourcing-review.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "../adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -46,6 +49,8 @@ import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/so
 import { SourcingCollectionSourceControlRepositoryAdapter } from "../adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "../adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingValidationRepositoryAdapter } from "../adapter/out/repository/sourcing-validation.repository.adapter";
+import { SourcingReviewRepositoryAdapter } from "../adapter/out/repository/sourcing-review.repository.adapter";
 import { SourcingRecommendationSourceRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation-source.repository.adapter";
 import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
@@ -89,6 +94,8 @@ import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repo
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_VALIDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-validation.repository.port";
+import { SOURCING_REVIEW_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-review.repository.port";
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation-source.repository.port";
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
@@ -150,6 +157,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "SourcingWorkspaceSnapshotController",
       "SourcingInterestTargetController",
       "SourcingWorkspaceController",
+      "SourcingReviewController",
       "SourcingEntryRecommendationController",
       "TrendCollectionController",
       "LiveCommerceController",
@@ -176,6 +184,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingWorkspaceArchiveService);
     expect(providers).toContain(SourcingWorkspaceSnapshotService);
     expect(providers).toContain(SourcingRecommendationService);
+    expect(providers).toContain(SourcingValidationService);
+    expect(providers).toContain(SourcingReviewService);
     expect(providers).toContain(SourcingWingCatalogIngestService);
     expect(providers).toContain(SourcingShadowSignalService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
@@ -219,6 +229,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingCollectionSourceControlRepositoryAdapter);
     expect(providers).toContain(SourcingInterestTargetRepositoryAdapter);
     expect(providers).toContain(SourcingRecommendationRepositoryAdapter);
+    expect(providers).toContain(SourcingValidationRepositoryAdapter);
+    expect(providers).toContain(SourcingReviewRepositoryAdapter);
     expect(providers).toContain(SourcingRecommendationSourceRepositoryAdapter);
     expect(providers).toContain(SourcingEvidenceLedgerRepositoryAdapter);
     expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
@@ -350,6 +362,16 @@ describe("SourcingModule canonical owner wiring", () => {
       providers,
       SOURCING_RECOMMENDATION_REPOSITORY_PORT,
       SourcingRecommendationRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_VALIDATION_REPOSITORY_PORT,
+      SourcingValidationRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_REVIEW_REPOSITORY_PORT,
+      SourcingReviewRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -573,6 +595,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/trend/shadow",
       "sourcing/workspace-snapshots",
       "sourcing/workspace/interests",
+      "sourcing/workspace",
       "sourcing/workspace",
       // 두 세그먼트여야 한다. `sourcing` (SourcingController) 이 `GET /:id` 로
       // 한 세그먼트를 잡으므로, `sourcing/entry-recommendations` 였다면 후보 ID 로

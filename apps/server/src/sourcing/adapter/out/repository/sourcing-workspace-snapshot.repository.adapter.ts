@@ -85,9 +85,11 @@ export class SourcingWorkspaceSnapshotRepositoryAdapter implements SourcingWorks
         projectionVersion: input.projectionVersion ?? 'legacy',
         inputHash: input.inputHash ?? '',
         payload: input.payload as Prisma.InputJsonValue,
+        expiresAt: input.expiresAt ?? null,
       },
       update: {
         payload: input.payload as Prisma.InputJsonValue,
+        expiresAt: input.expiresAt ?? null,
       },
     });
     return toRow(row);
@@ -206,6 +208,7 @@ function toRow(row: {
   projectionVersion: string;
   inputHash: string;
   payload: Prisma.JsonValue;
+  expiresAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }): SourcingWorkspaceSnapshotRow {
@@ -217,6 +220,7 @@ function toRow(row: {
     projectionVersion: row.projectionVersion,
     inputHash: row.inputHash,
     payload: jsonRecord(row.payload),
+    expiresAt: row.expiresAt,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

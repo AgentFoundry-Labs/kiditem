@@ -11,6 +11,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  Matches,
   Min,
   ValidateNested,
 } from 'class-validator';
@@ -102,4 +103,65 @@ export class SourcingCoupangObservationDto {
   @ValidateNested({ each: true })
   @Type(() => SourcingCoupangObservationItemDto)
   items!: SourcingCoupangObservationItemDto[];
+}
+
+export class SourcingValidationQueryDto {
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(1_000)
+  cursor?: string;
+}
+
+export class SourcingReviewSelectionListQueryDto {
+  @IsIn(['entry', 'final'])
+  workspaceKey!: 'entry' | 'final';
+
+  @IsUUID()
+  recommendationRunId!: string;
+}
+
+export class SourcingReviewItemKeyParamsDto {
+  @Matches(/^[a-f0-9]{64}$/)
+  itemKey!: string;
+}
+
+export class SourcingReviewSelectionDto {
+  @IsIn(['entry', 'final'])
+  workspaceKey!: 'entry' | 'final';
+
+  @IsUUID()
+  recommendationRunId!: string;
+
+  @IsIn(['neutral', 'selected', 'removed'])
+  state!: 'neutral' | 'selected' | 'removed';
+
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  expectedVersion!: number;
+}
+
+export class SourcingReviewBatchDto {
+  @IsUUID()
+  recommendationRunId!: string;
+
+  @IsArray()
+  @ArrayMaxSize(100)
+  @Matches(/^[a-f0-9]{64}$/, { each: true })
+  itemKeys!: string[];
+
+  @IsUUID()
+  idempotencyKey!: string;
+}
+
+export class SourcingReviewBatchParamsDto {
+  @IsUUID()
+  id!: string;
 }

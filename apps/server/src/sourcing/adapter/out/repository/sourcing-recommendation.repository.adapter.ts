@@ -15,6 +15,20 @@ export class SourcingRecommendationRepositoryAdapter
 {
   constructor(private readonly prisma: PrismaService) {}
 
+  async findById(input: {
+    organizationId: string;
+    id: string;
+  }): Promise<SourcingRecommendationRunGraph | null> {
+    const row = await this.prisma.sourcingRecommendationRun.findFirst({
+      where: {
+        id: input.id,
+        organizationId: input.organizationId,
+      },
+      include: graphInclude,
+    });
+    return row ? toGraph(row) : null;
+  }
+
   async findLatest(input: {
     organizationId: string;
     now: Date;
@@ -126,7 +140,7 @@ export class SourcingRecommendationRepositoryAdapter
 
 const graphInclude = {
   items: {
-    orderBy: [{ rank: 'asc' }, { id: 'asc' }],
+    orderBy: [{ rank: 'asc' }, { itemKey: 'asc' }],
     include: {
       evidence: {
         orderBy: [{ ordinal: 'asc' }, { id: 'asc' }],

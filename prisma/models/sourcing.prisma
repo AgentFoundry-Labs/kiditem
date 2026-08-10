@@ -898,7 +898,7 @@ model SourcingReviewSelection {
   recommendationRun SourcingRecommendationRun @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([id, organizationId], map: "sourcing_review_selections_id_org_key")
-  @@unique([organizationId, workspaceKey, itemKey], map: "sourcing_review_selections_workspace_item_key")
+  @@unique([organizationId, workspaceKey, recommendationRunId, itemKey], map: "sourcing_review_selections_workspace_run_item_key")
   @@index([organizationId, recommendationRunId, state], map: "sourcing_review_selections_run_state_idx")
   @@map("sourcing_review_selections")
 }
@@ -909,6 +909,7 @@ model SourcingReviewBatch {
   id                  String @id @default(uuid()) @db.Uuid
   organizationId      String @map("organization_id") @db.Uuid
   recommendationRunId String @map("recommendation_run_id") @db.Uuid
+  requestedByUserId   String @map("requested_by_user_id") @db.Uuid
   idempotencyKey      String @map("idempotency_key") @db.VarChar(300)
   requestHash         String @map("request_hash") @db.VarChar(64)
   status              String @default("awaiting_procurement_enablement") @db.VarChar(60)
@@ -921,10 +922,12 @@ model SourcingReviewBatch {
 
   organization      Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   recommendationRun SourcingRecommendationRun @relation(fields: [recommendationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  requestedBy       User                      @relation("SourcingReviewBatchRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
   items             SourcingReviewBatchItem[]
 
   @@unique([id, organizationId], map: "sourcing_review_batches_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "sourcing_review_batches_org_idempotency_key")
+  @@index([requestedByUserId])
   @@index([organizationId, requestedAt])
   @@map("sourcing_review_batches")
 }

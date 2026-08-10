@@ -22,6 +22,7 @@ export interface SourcingWorkspaceSnapshotRow {
   projectionVersion: string;
   inputHash: string;
   payload: Record<string, unknown>;
+  expiresAt?: Date | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -52,6 +53,7 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     projectionVersion?: string;
     inputHash?: string;
     payload: Record<string, unknown>;
+    expiresAt?: Date | null;
   }): Promise<SourcingWorkspaceSnapshotRow>;
 
   append1688Items(input: {

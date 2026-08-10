@@ -1,9 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import { kstBusinessDate } from '../../../common/kst';
-import {
-  SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
-  type SourcingWorkspaceSnapshotRepositoryPort,
-} from '../port/out/repository/sourcing-workspace-snapshot.repository.port';
+import { SourcingAgentRagService } from './sourcing-agent-rag.service';
 import {
   SOURCING_ASSISTANT_GENERATION_PORT,
   type SourcingAssistantGenerationFailureReason,
@@ -17,7 +13,7 @@ import {
   type RetrievedDocument,
 } from '../../domain/sourcing-assistant-retrieval';
 
-const RAG_LOOKBACK_DAYS = 90;
+const RAG_LOOKBACK_DAYS = 30;
 const RETRIEVAL_LIMIT = 6;
 const CLI_TIMEOUT_MS = 45_000;
 const MAX_PROMPT_CHARS = 24_000;
@@ -68,7 +64,7 @@ export interface SourcingAssistantAnswer {
 /**
  * 자사 소싱 데이터에 근거한 어시스턴트.
  *
- * 검색은 항상 조직 스냅샷에서 끝낸다. 생성은 서버가 명시적으로 `claude` 또는 `codex`
+ * 검색은 항상 정규화된 조직 코퍼스에서 끝낸다. 생성은 서버가 명시적으로 `claude` 또는 `codex`
  * runtime과 model을 함께 설정한 경우에만 시도하며, 실패해도 근거 검색 결과를 잃지 않는다.
  */
 @Injectable()
@@ -76,8 +72,7 @@ export class SourcingAssistantService {
   private readonly logger = new Logger(SourcingAssistantService.name);
 
   constructor(
-    @Inject(SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT)
-    private readonly snapshots: SourcingWorkspaceSnapshotRepositoryPort,
+    private readonly rag: SourcingAgentRagService,
     @Inject(SOURCING_ASSISTANT_GENERATION_PORT)
     private readonly generation: SourcingAssistantGenerationPort,
   ) {}
@@ -141,49 +136,13 @@ export class SourcingAssistantService {
     };
   }
 
-  /** RAG 코퍼스는 `sourcing_agent_rag` 스냅샷에 통째로 들어 있다. 최신 것 하나만 읽는다. */
+  /** Assistant와 RAG query는 같은 정규화 코퍼스를 사용한다. */
   private async loadDocuments(organizationId: string): Promise<AssistantDocument[]> {
-    // 스냅샷 businessDate 는 KST 영업일이다. raw `new Date()` 를 쓰면 00:00~09:00 KST 에
-    // 오늘자 코퍼스가 조회에서 빠진다.
-    const today = kstBusinessDate(new Date());
-    const from = new Date(today);
-    from.setUTCDate(from.getUTCDate() - RAG_LOOKBACK_DAYS);
-
-    const rows = await this.snapshots.listRecent({
+    return this.rag.loadDocuments({
       organizationId,
-      scope: 'sourcing_agent_rag',
-      fromBusinessDate: from,
-      toBusinessDate: today,
-      limit: RAG_LOOKBACK_DAYS,
+      days: RAG_LOOKBACK_DAYS,
     });
-
-    if (rows.length === 0) {
-      return [];
-    }
-
-    const latest = rows.reduce((best, row) =>
-      row.businessDate.getTime() > best.businessDate.getTime() ? row : best,
-    );
-
-    const result = (latest.payload as Record<string, unknown> | undefined)?.result;
-    const rawDocuments = isRecord(result) ? result.documents : undefined;
-    if (!Array.isArray(rawDocuments)) return [];
-
-    return rawDocuments.filter(isRecord).map(toAssistantDocument);
   }
-}
-
-function toAssistantDocument(raw: Record<string, unknown>): AssistantDocument {
-  return {
-    id: asString(raw.id) ?? '',
-    kind: asString(raw.kind) ?? 'unknown',
-    title: asString(raw.title) ?? '',
-    text: asString(raw.text) ?? '',
-    tags: Array.isArray(raw.tags) ? raw.tags.filter((tag): tag is string => typeof tag === 'string') : [],
-    sourceScope: asString(raw.sourceScope) ?? 'unknown',
-    sourceDate: asString(raw.sourceDate),
-    metadata: isRecord(raw.metadata) ? raw.metadata : {},
-  };
 }
 
 type RuntimeConfig =
@@ -316,12 +275,4 @@ function describeFailure(
     default:
       return `${label} 실행에 실패했습니다. 서버 로그에서 상세 사유를 확인하세요.`;
   }
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function asString(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0 ? value : null;
 }

@@ -168,7 +168,6 @@ export const SourcingReviewSelectionCommandSchema = z
   .object({
     workspaceKey: z.enum(['entry', 'final']),
     recommendationRunId: z.string().uuid(),
-    itemKey: z.string().regex(/^[a-f0-9]{64}$/),
     state: z.enum(['neutral', 'selected', 'removed']),
     expectedVersion: z.number().int().nonnegative(),
   })
@@ -205,6 +204,44 @@ export const SourcingReviewBatchSchema = z
   })
   .strict();
 
+export const SourcingValidationCheckSchema = z
+  .object({
+    checkKey: z.string().trim().min(1).max(120),
+    status: z.enum(['pass', 'fail', 'missing', 'pending', 'not_applicable']),
+    summary: z.string().max(2_000).nullable(),
+  })
+  .strict();
+
+export const SourcingValidationItemSchema = z
+  .object({
+    episodeId: z.string().uuid(),
+    recommendationRunId: z.string().uuid(),
+    itemKey: z.string().regex(/^[a-f0-9]{64}$/),
+    displayName: z.string().trim().min(1).max(500),
+    imageUrl: z.string().url().nullable(),
+    status: z.enum(['pending', 'observing', 'ready_for_review', 'blocked', 'failed']),
+    score: z.number().int().min(0).max(100).nullable(),
+    landedCostKrw: z.number().int().nonnegative().nullable(),
+    expectedMarginBps: z.number().int().nullable(),
+    validUntil: InstantSchema.nullable(),
+    checks: z.array(SourcingValidationCheckSchema).max(50),
+  })
+  .strict();
+
+export const SourcingValidationEnvelopeSchema = sourcingReadEnvelopeSchema(
+  z
+    .object({
+      recommendationRunId: z.string().uuid(),
+      items: z.array(SourcingValidationItemSchema).max(100),
+      nextCursor: z.string().max(1_000).nullable(),
+    })
+    .strict(),
+);
+
+export const SourcingReviewSelectionListSchema = z
+  .array(SourcingReviewSelectionSchema)
+  .max(200);
+
 export const SourcingRecommendationEnvelopeSchema = sourcingReadEnvelopeSchema(
   z
     .object({
@@ -232,3 +269,6 @@ export type SourcingReviewBatchCommand = z.infer<
   typeof SourcingReviewBatchCommandSchema
 >;
 export type SourcingReviewBatch = z.infer<typeof SourcingReviewBatchSchema>;
+export type SourcingValidationCheck = z.infer<typeof SourcingValidationCheckSchema>;
+export type SourcingValidationItem = z.infer<typeof SourcingValidationItemSchema>;
+export type SourcingValidationEnvelope = z.infer<typeof SourcingValidationEnvelopeSchema>;

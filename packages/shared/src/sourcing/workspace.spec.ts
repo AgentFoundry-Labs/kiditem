@@ -39,7 +39,7 @@ describe('sourcing workspace contracts', () => {
     ).toBe('ready');
   });
 
-  it('requires stable offer identity and optimistic selection version', () => {
+  it('requires stable offer identity and a path-owned optimistic selection version', () => {
     expect(() =>
       SourcingRecommendationItemSchema.parse({
         itemKey: 'array-index-0',
@@ -59,8 +59,9 @@ describe('sourcing workspace contracts', () => {
       SourcingReviewSelectionCommandSchema.parse({
         workspaceKey: 'entry',
         recommendationRunId: '11111111-1111-4111-8111-111111111111',
-        itemKey: 'offer-key',
         state: 'selected',
+        expectedVersion: 0,
+        itemKey: 'a'.repeat(64),
       }),
     ).toThrow();
   });

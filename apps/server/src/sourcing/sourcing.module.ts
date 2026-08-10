@@ -30,6 +30,7 @@ import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcin
 import { SourcingWorkspaceSnapshotController } from "./adapter/in/http/sourcing-workspace-snapshot.controller";
 import { SourcingInterestTargetController } from "./adapter/in/http/sourcing-interest-target.controller";
 import { SourcingWorkspaceController } from "./adapter/in/http/sourcing-workspace.controller";
+import { SourcingReviewController } from "./adapter/in/http/sourcing-review.controller";
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
@@ -46,6 +47,8 @@ import { SourcingAssistantService } from "./application/service/sourcing-assista
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
+import { SourcingValidationService } from "./application/service/sourcing-validation.service";
+import { SourcingReviewService } from "./application/service/sourcing-review.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
 import { SourcingWorkspaceSnapshotService } from "./application/service/sourcing-workspace-snapshot.service";
 import { SourcingShadowSignalService } from "./application/service/sourcing-shadow-signal.service";
@@ -73,6 +76,8 @@ import { SourcingCandidateRepositoryAdapter } from "./adapter/out/repository/sou
 import { SourcingCollectionSourceControlRepositoryAdapter } from "./adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "./adapter/out/repository/sourcing-interest-target.repository.adapter";
 import { SourcingRecommendationRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingValidationRepositoryAdapter } from "./adapter/out/repository/sourcing-validation.repository.adapter";
+import { SourcingReviewRepositoryAdapter } from "./adapter/out/repository/sourcing-review.repository.adapter";
 import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation-source.repository.adapter";
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
@@ -129,6 +134,8 @@ import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repo
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-interest-target.repository.port";
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_VALIDATION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-validation.repository.port";
+import { SOURCING_REVIEW_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-review.repository.port";
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation-source.repository.port";
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
@@ -194,6 +201,7 @@ import {
     SourcingWorkspaceSnapshotController,
     SourcingInterestTargetController,
     SourcingWorkspaceController,
+    SourcingReviewController,
     SourcingEntryRecommendationController,
     TrendCollectionController,
     LiveCommerceController,
@@ -211,6 +219,8 @@ import {
     SourcingWorkspaceSnapshotService,
     SourcingEntryRecommendationService,
     SourcingRecommendationService,
+    SourcingValidationService,
+    SourcingReviewService,
     SourcingWingCatalogIngestService,
     SourcingAssistantService,
     SourcingExtensionIngestService,
@@ -244,6 +254,8 @@ import {
     SourcingCollectionSourceControlRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
+    SourcingValidationRepositoryAdapter,
+    SourcingReviewRepositoryAdapter,
     SourcingRecommendationSourceRepositoryAdapter,
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
@@ -348,6 +360,14 @@ import {
     {
       provide: SOURCING_RECOMMENDATION_REPOSITORY_PORT,
       useExisting: SourcingRecommendationRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_VALIDATION_REPOSITORY_PORT,
+      useExisting: SourcingValidationRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_REVIEW_REPOSITORY_PORT,
+      useExisting: SourcingReviewRepositoryAdapter,
     },
     {
       provide: SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT,

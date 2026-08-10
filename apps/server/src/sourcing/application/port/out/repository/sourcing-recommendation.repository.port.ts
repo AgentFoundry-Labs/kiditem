@@ -63,6 +63,10 @@ export type CreateRecommendationRunResult =
   | { kind: 'existing'; run: SourcingRecommendationRunGraph };
 
 export interface SourcingRecommendationRepositoryPort {
+  findById(input: {
+    organizationId: string;
+    id: string;
+  }): Promise<SourcingRecommendationRunGraph | null>;
   findLatest(input: {
     organizationId: string;
     now: Date;
