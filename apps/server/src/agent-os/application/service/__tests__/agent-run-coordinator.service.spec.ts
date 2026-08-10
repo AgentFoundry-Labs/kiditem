@@ -83,6 +83,10 @@ function makeCoordinator(overrides: Record<string, unknown> = {}) {
     listRunRequests: vi.fn(),
     markRequestStatus: vi.fn().mockResolvedValue(request('cancelled')),
     markRequestStatusIfCurrent: vi.fn().mockResolvedValue(request('cancelled')),
+    cancelRequestAndRun: vi.fn().mockResolvedValue({
+      requestId: REQUEST_ID,
+      run: null,
+    }),
     appendRunEvent: vi.fn().mockResolvedValue({}),
     finalizeRun: vi.fn().mockResolvedValue({ run: run('cancelled'), requestStatus: 'cancelled' }),
     ...overrides,
@@ -110,11 +114,10 @@ describe('AgentRunCoordinator cancellation', () => {
       actorUserId: USER_ID,
     });
 
-    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith({
+    expect(repository.cancelRequestAndRun).toHaveBeenCalledWith({
       organizationId: ORG,
       requestId: REQUEST_ID,
-      currentStatuses: ['pending', 'claimed', 'requires_approval'],
-      status: 'cancelled',
+      currentRequestStatuses: ['pending', 'claimed', 'requires_approval'],
       errorCode: 'user_cancelled',
       errorMessage: '사용자 요청',
       payload: {
@@ -129,13 +132,15 @@ describe('AgentRunCoordinator cancellation', () => {
         }),
       },
     });
+    expect(repository.markRequestStatusIfCurrent).not.toHaveBeenCalled();
+    expect(repository.finalizeRun).not.toHaveBeenCalled();
     expect(result).toMatchObject({ ok: true, cancelledRequests: 1 });
   });
 
   it('does not overwrite a request that becomes terminal during cancellation', async () => {
     const { coordinator, repository } = makeCoordinator({
       findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
-      markRequestStatusIfCurrent: vi.fn().mockResolvedValue(null),
+      cancelRequestAndRun: vi.fn().mockResolvedValue(null),
     });
 
     const result = await coordinator.cancelRequest({
@@ -144,10 +149,10 @@ describe('AgentRunCoordinator cancellation', () => {
       reason: '사용자 요청',
     });
 
-    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith(
+    expect(repository.cancelRequestAndRun).toHaveBeenCalledWith(
       expect.objectContaining({
         requestId: REQUEST_ID,
-        currentStatuses: ['pending', 'claimed', 'requires_approval'],
+        currentRequestStatuses: ['pending', 'claimed', 'requires_approval'],
       }),
     );
     expect(repository.appendRunEvent).not.toHaveBeenCalled();
@@ -181,6 +186,10 @@ describe('AgentRunCoordinator cancellation', () => {
     const { coordinator, repository, executor } = makeCoordinator({
       findRunById: vi.fn().mockResolvedValue(run('running')),
       findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
+      cancelRequestAndRun: vi.fn().mockResolvedValue({
+        requestId: REQUEST_ID,
+        run: run('cancelled'),
+      }),
     });
 
     const result = await coordinator.cancelRun({
@@ -204,18 +213,16 @@ describe('AgentRunCoordinator cancellation', () => {
         }),
       }),
     );
-    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledWith(
-      expect.objectContaining({ requestId: REQUEST_ID, status: 'cancelled' }),
-    );
-    expect(repository.finalizeRun).toHaveBeenCalledWith(
+    expect(repository.cancelRequestAndRun).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORG,
-        runId: RUN_ID,
         requestId: REQUEST_ID,
-        status: 'cancelled',
+        expectedRunId: RUN_ID,
         errorCode: 'user_cancelled',
       }),
     );
+    expect(repository.markRequestStatusIfCurrent).not.toHaveBeenCalled();
+    expect(repository.finalizeRun).not.toHaveBeenCalled();
     expect(executor.cancelActiveRuntime).toHaveBeenCalledWith({
       organizationId: ORG,
       requestId: REQUEST_ID,
@@ -229,6 +236,10 @@ describe('AgentRunCoordinator cancellation', () => {
     const { coordinator, repository, executor } = makeCoordinator({
       findRunById: vi.fn().mockResolvedValue(run('running')),
       findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
+      cancelRequestAndRun: vi.fn().mockResolvedValue({
+        requestId: REQUEST_ID,
+        run: run('cancelled'),
+      }),
     });
     executor.cancelActiveRuntime.mockRejectedValueOnce(new Error('process gone'));
 
@@ -239,9 +250,8 @@ describe('AgentRunCoordinator cancellation', () => {
         reason: '사용자 요청',
       }),
     ).resolves.toMatchObject({ cancelledRequests: 1, cancelledRuns: 1 });
-    expect(repository.finalizeRun).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'cancelled' }),
-    );
+    expect(repository.cancelRequestAndRun).toHaveBeenCalledTimes(1);
+    expect(repository.finalizeRun).not.toHaveBeenCalled();
   });
 
   it('cancels non-terminal requests by workflow run id', async () => {
@@ -253,6 +263,13 @@ describe('AgentRunCoordinator cancellation', () => {
       findRunRequestById: vi.fn()
         .mockResolvedValueOnce(request('pending'))
         .mockResolvedValueOnce(request('claimed', '44444444-4444-4444-4444-444444444444')),
+      cancelRequestAndRun: vi
+        .fn()
+        .mockResolvedValueOnce({ requestId: REQUEST_ID, run: null })
+        .mockResolvedValueOnce({
+          requestId: '44444444-4444-4444-4444-444444444444',
+          run: null,
+        }),
     });
 
     const result = await coordinator.cancelByWorkflowRun({
@@ -268,7 +285,7 @@ describe('AgentRunCoordinator cancellation', () => {
         status: ['pending', 'claimed', 'requires_approval'],
       }),
     );
-    expect(repository.markRequestStatusIfCurrent).toHaveBeenCalledTimes(2);
+    expect(repository.cancelRequestAndRun).toHaveBeenCalledTimes(2);
     expect(result.cancelledRequests).toBe(2);
   });
 });

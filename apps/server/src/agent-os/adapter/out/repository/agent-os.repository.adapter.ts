@@ -3,6 +3,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type AgentOsRepositoryPort,
   type AppendRunEventInput,
+  type CancelRequestAndRunInput,
   type CompleteToolInvocationWithArtifactsInput,
   type CompleteToolInvocationInput,
   type CreateArtifactInput,
@@ -34,6 +35,7 @@ import { AgentOsApprovalRepository } from './agent-os.approval.repository';
 import { AgentOsConversationRepository } from './agent-os.conversation.repository';
 import { AgentOsCostAuditRepository } from './agent-os.cost-audit.repository';
 import { AgentOsInstanceSessionRepository } from './agent-os.instance-session.repository';
+import { AgentOsRunLifecycleRepository } from './agent-os.lifecycle.repository';
 import { AgentOsRequestRepository } from './agent-os.request.repository';
 import { AgentOsRunRepository } from './agent-os.run.repository';
 
@@ -42,6 +44,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   private readonly instances: AgentOsInstanceSessionRepository;
   private readonly requests: AgentOsRequestRepository;
   private readonly runs: AgentOsRunRepository;
+  private readonly lifecycle: AgentOsRunLifecycleRepository;
   private readonly costAudit: AgentOsCostAuditRepository;
   private readonly approvals: AgentOsApprovalRepository;
   private readonly conversations: AgentOsConversationRepository;
@@ -50,6 +53,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
     this.instances = new AgentOsInstanceSessionRepository(prisma);
     this.requests = new AgentOsRequestRepository(prisma);
     this.runs = new AgentOsRunRepository(prisma);
+    this.lifecycle = new AgentOsRunLifecycleRepository(prisma);
     this.costAudit = new AgentOsCostAuditRepository(prisma);
     this.approvals = new AgentOsApprovalRepository(prisma);
     this.conversations = new AgentOsConversationRepository(prisma);
@@ -161,18 +165,22 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   }
 
   failClaimedRequest(input: FailClaimedRequestInput) {
-    return this.requests.failClaimedRequest(input);
+    return this.lifecycle.failClaimedRequest(input);
+  }
+
+  cancelRequestAndRun(input: CancelRequestAndRunInput) {
+    return this.lifecycle.cancelRequestAndRun(input);
   }
 
   failInterruptedInlineRuns(input: {
     source: 'sourcing_dashboard';
-    requestStatuses: ['pending', 'claimed'];
+    requestStatuses: ['pending', 'claimed', 'requires_approval'];
     createdBefore: Date;
     errorCode: 'process_interrupted';
     errorMessage: string;
     limit: 100;
   }) {
-    return this.requests.failInterruptedInlineRuns(input);
+    return this.lifecycle.failInterruptedInlineRuns(input);
   }
 
   markRequestStatus(input: MarkRequestStatusInput) {
@@ -185,7 +193,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
 
   // ---- Runs / events ------------------------------------------------------
   createRunForClaimedRequest(input: CreateRunRecordInput) {
-    return this.runs.createRunForClaimedRequest(input);
+    return this.lifecycle.createRunForClaimedRequest(input);
   }
 
   findRunById(input: { organizationId: string; runId: string }) {
@@ -213,7 +221,7 @@ export class AgentOsRepositoryAdapter implements AgentOsRepositoryPort {
   }
 
   finalizeRun(input: FinalizeRunInput) {
-    return this.runs.finalizeRun(input);
+    return this.lifecycle.finalizeRun(input);
   }
 
   // ---- Cost / audit -------------------------------------------------------

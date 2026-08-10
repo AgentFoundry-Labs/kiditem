@@ -29,7 +29,7 @@ describe('AgentInlineRunReconciler', () => {
     expect(repository.failInterruptedInlineRuns).toHaveBeenCalledWith(
       expect.objectContaining({
         source: 'sourcing_dashboard',
-        requestStatuses: ['pending', 'claimed'],
+        requestStatuses: ['pending', 'claimed', 'requires_approval'],
         errorCode: 'process_interrupted',
         limit: 100,
       }),

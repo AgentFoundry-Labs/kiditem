@@ -117,17 +117,20 @@ function makeExecutor(options: {
     claimRunRequestById: vi.fn().mockResolvedValue(claimed),
     findRunRequestById: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
-    failClaimedRequest: vi.fn().mockResolvedValue(undefined),
+    failClaimedRequest: vi.fn().mockResolvedValue(true),
     createRunForClaimedRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
-    finalizeRun: vi.fn().mockResolvedValue({
+    finalizeRun: vi.fn().mockImplementation(async (input) => ({
       finalized: true,
       run: makeRun({
-        status: 'succeeded',
+        status: input.status,
         finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+        errorCode: input.errorCode ?? null,
+        errorMessage: input.errorMessage ?? null,
+        output: input.output ?? null,
       }),
-      requestStatus: 'succeeded',
-    }),
+      requestStatus: input.nextRequestStatus ?? input.status,
+    })),
     markRequestStatus: vi.fn().mockResolvedValue(undefined),
   };
   const runtime = {
@@ -254,6 +257,29 @@ describe('AgentRunExecutor', () => {
     );
   });
 
+  it('does not overwrite or publish cancellation when pre-run validation finishes late', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      instance: null,
+    });
+    repository.failClaimedRequest.mockResolvedValueOnce(false);
+    repository.findRunRequestById.mockResolvedValueOnce(
+      makeClaimedRequest({ status: 'cancelled' }),
+    );
+
+    await expect(
+      executor.executeNext('worker-1', ORGANIZATION_ID),
+    ).resolves.toMatchObject({
+      executed: false,
+      requestId: REQUEST_ID,
+      reason: 'user_cancelled',
+      errorCode: 'user_cancelled',
+    });
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+  });
+
   it.each([
     {
       type: 'image_edit',
@@ -326,7 +352,10 @@ describe('AgentRunExecutor', () => {
       requestId: REQUEST_ID,
     });
     expect(repository.finalizeRun).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'succeeded' }),
+      expect.objectContaining({
+        status: 'succeeded',
+        nextRequestStatus: 'succeeded',
+      }),
     );
     expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
@@ -397,6 +426,7 @@ describe('AgentRunExecutor', () => {
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'failed',
+        nextRequestStatus: 'failed',
         errorCode: 'runtime_not_configured',
       }),
     );
@@ -451,9 +481,13 @@ describe('AgentRunExecutor', () => {
     });
     await executor.executeNext('worker-1', ORGANIZATION_ID);
 
-    expect(repository.markRequestStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'pending' }),
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        nextRequestStatus: 'pending',
+      }),
     );
+    expect(repository.markRequestStatus).not.toHaveBeenCalled();
     const finalizedEmits = eventEmitter.emitAsync.mock.calls.filter(
       ([eventName]: [string]) => eventName === AGENT_RUN_EVENTS.FINALIZED,
     );
@@ -605,8 +639,11 @@ describe('AgentRunExecutor', () => {
     );
   });
 
-  it('waits for async finalized listeners before resolving a terminal success', async () => {
-    let sinkApplied = false;
+  it('does not wait for finalized alert listeners before resolving a terminal success', async () => {
+    let releaseListener = () => undefined;
+    const listenerBlocked = new Promise<unknown[]>((resolve) => {
+      releaseListener = () => resolve([]);
+    });
     const { executor, eventEmitter } = makeExecutor({
       claimed: makeClaimedRequest({
         agentType: 'rules_evaluation',
@@ -615,20 +652,24 @@ describe('AgentRunExecutor', () => {
         sourceResourceId: 'rules-inline',
       }),
     });
-    eventEmitter.emitAsync.mockImplementationOnce(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      sinkApplied = true;
-      return [];
-    });
+    eventEmitter.emitAsync.mockReturnValueOnce(listenerBlocked);
 
-    const result = await executor.executeRequest(
+    let executionSettled = false;
+    const execution = executor.executeRequest(
       'agent-os-inline',
       ORGANIZATION_ID,
       REQUEST_ID,
-    );
+    ).then((result) => {
+      executionSettled = true;
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(executionSettled).toBe(true);
+    releaseListener();
+    const result = await execution;
 
     expect(result).toMatchObject({ executed: true, requestId: REQUEST_ID });
-    expect(sinkApplied).toBe(true);
   });
 
   describe('executeNextUnscoped', () => {

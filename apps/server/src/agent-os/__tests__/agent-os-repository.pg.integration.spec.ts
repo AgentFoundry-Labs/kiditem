@@ -144,7 +144,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
 
       const reconciliation = repository.failInterruptedInlineRuns({
         source: 'sourcing_dashboard',
-        requestStatuses: ['pending', 'claimed'],
+        requestStatuses: ['pending', 'claimed', 'requires_approval'],
         createdBefore: new Date(Date.now() + 1_000),
         errorCode: 'process_interrupted',
         errorMessage: 'Inline Agent OS process was interrupted before completion.',
@@ -158,6 +158,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
           requestId: request.id,
           runId: run.id,
           status,
+          nextRequestStatus: status === 'succeeded' ? 'succeeded' : 'failed',
           ...(status === 'succeeded'
             ? { output: { stale: true } }
             : {
@@ -262,6 +263,7 @@ describe('AgentOsRepositoryAdapter organization boundary', () => {
         requestId: other.request.id,
         runId: other.run.id,
         status: 'succeeded',
+        nextRequestStatus: 'succeeded',
         output: { ok: true },
       }),
     ).rejects.toBeInstanceOf(AgentOsBoundaryError);
