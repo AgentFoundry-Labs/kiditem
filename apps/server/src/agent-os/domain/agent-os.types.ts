@@ -148,6 +148,7 @@ export interface AgentDefinitionRecord {
   name: string;
   description: string | null;
   promptPath: string;
+  outputSchemaPath: string | null;
   defaultAdapterType: string;
   defaultModelEnv: string;
   defaultAuxiliaryModelEnvs: Partial<

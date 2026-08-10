@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "sourcing-agent-answer.v1",
+  "title": "SourcingAgentAnswerV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["text", "citationIds", "dataGaps", "resourceRefs", "operationRunId"],
+  "properties": {
+    "text": { "type": "string", "minLength": 1, "maxLength": 6000 },
+    "citationIds": {
+      "type": "array",
+      "maxItems": 12,
+      "uniqueItems": true,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "dataGaps": {
+      "type": "array",
+      "maxItems": 20,
+      "items": { "type": "string", "minLength": 1, "maxLength": 500 }
+    },
+    "resourceRefs": {
+      "type": "array",
+      "maxItems": 12,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id"],
+        "properties": {
+          "kind": {
+            "enum": [
+              "operation_run",
+              "recommendation_run",
+              "validation_episode",
+              "sourcing_candidate",
+              "review_batch",
+              "artifact"
+            ]
+          },
+          "id": { "type": "string", "minLength": 1, "maxLength": 500 }
+        }
+      }
+    },
+    "operationRunId": {
+      "oneOf": [
+        { "type": "string", "format": "uuid" },
+        { "type": "null" }
+      ]
+    }
+  }
+}

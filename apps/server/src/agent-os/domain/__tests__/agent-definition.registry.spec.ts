@@ -35,6 +35,21 @@ describe('agent definition registry', () => {
     );
   });
 
+  it('defines Sourcing as an agent with code-owned runtime assets', () => {
+    expect(findAgentDefinitionByType('sourcing')).toMatchObject({
+      runtimeKind: 'agent',
+      promptPath: 'agent-config/prompts/agents/sourcing.md',
+      outputSchemaPath:
+        'agent-config/schemas/sourcing-agent-answer.schema.json',
+      defaultModelEnv: 'AGENT_SOURCING_MODEL',
+      defaultSkillKeys: [
+        'sourcing.evidence-grounded-analysis',
+        'sourcing.collection-planning',
+        'sourcing.safe-review-handoff',
+      ],
+    });
+  });
+
   it('registers Operator, Listing, Order Agent, and Channel Registration with default tool policies', () => {
     const manager = findAgentDefinitionByType('manager');
     const listing = findAgentDefinitionByType('listing');
@@ -48,7 +63,11 @@ describe('agent definition registry', () => {
     });
     expect(manager?.defaultToolPolicies).toEqual([]);
     const sourcing = findAgentDefinitionByType('sourcing');
-    expect(sourcing?.defaultSkillKeys).toEqual(['sourcing.magic_scraper']);
+    expect(sourcing?.defaultSkillKeys).toEqual([
+      'sourcing.evidence-grounded-analysis',
+      'sourcing.collection-planning',
+      'sourcing.safe-review-handoff',
+    ]);
     expect(sourcing?.defaultToolPolicies).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
