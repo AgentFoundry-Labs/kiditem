@@ -101,6 +101,9 @@ COPY --from=builder /app/node_modules/@prisma/client ./node_modules/@prisma/clie
 COPY --from=builder /app/packages/shared/dist ./packages/shared/dist
 COPY --from=builder /app/packages/templates/dist ./packages/templates/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
+COPY agent-config ./agent-config
+
+RUN node -e "const fs=require('fs'); const files=['agent-config/prompts/agents/sourcing.md','agent-config/skills/sourcing/evidence-grounded-analysis/SKILL.md','agent-config/skills/sourcing/collection-planning/SKILL.md','agent-config/skills/sourcing/safe-review-handoff/SKILL.md']; for (const file of files) { if (!fs.readFileSync(file,'utf8').trim()) throw new Error('Empty runtime asset: '+file); } JSON.parse(fs.readFileSync('agent-config/schemas/sourcing-agent-answer.schema.json','utf8'));"
 
 RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
 
