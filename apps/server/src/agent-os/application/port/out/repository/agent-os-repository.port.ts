@@ -131,7 +131,11 @@ export interface FinalizeRunInput {
   organizationId: string;
   runId: string;
   requestId: string;
-  status: AgentRunStatus;
+  status: Extract<AgentRunStatus, 'succeeded' | 'failed'>;
+  nextRequestStatus: Extract<
+    AgentRunRequestStatus,
+    'succeeded' | 'failed' | 'pending'
+  >;
   output?: Record<string, unknown>;
   errorCode?: string | null;
   errorMessage?: string | null;
@@ -171,7 +175,21 @@ export interface FailClaimedRequestInput {
   requestId: string;
   errorCode: string;
   errorMessage: string;
-  retryable?: boolean;
+}
+
+export interface CancelRequestAndRunInput {
+  organizationId: string;
+  requestId: string;
+  expectedRunId?: string | null;
+  currentRequestStatuses: AgentRunRequestStatus[];
+  errorCode: 'user_cancelled';
+  errorMessage: string;
+  payload: Record<string, unknown>;
+}
+
+export interface CancelRequestAndRunResult {
+  requestId: string;
+  run: AgentRunRecord | null;
 }
 
 export interface MarkRequestStatusInput {
@@ -473,14 +491,17 @@ export interface AgentOsRepositoryPort {
     organizationId: string;
     requestId: string;
   }): Promise<AgentRunRequestRecord | null>;
-  failClaimedRequest(input: FailClaimedRequestInput): Promise<void>;
+  failClaimedRequest(input: FailClaimedRequestInput): Promise<boolean>;
+  cancelRequestAndRun(
+    input: CancelRequestAndRunInput,
+  ): Promise<CancelRequestAndRunResult | null>;
   markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord>;
   markRequestStatusIfCurrent(
     input: MarkRequestStatusIfCurrentInput,
   ): Promise<AgentRunRequestRecord | null>;
   failInterruptedInlineRuns(input: {
     source: 'sourcing_dashboard';
-    requestStatuses: ['pending', 'claimed'];
+    requestStatuses: ['pending', 'claimed', 'requires_approval'];
     createdBefore: Date;
     errorCode: 'process_interrupted';
     errorMessage: string;
@@ -504,7 +525,7 @@ export interface AgentOsRepositoryPort {
   }): Promise<AgentRunRecord | null>;
   /**
    * Latest `AgentRun` for a given `(organizationId, requestId)` tuple,
-   * scoped by status if provided. Used by reconcile/replay paths that
+   * scoped by status if provided. Used by reconciliation and audit paths that
    * need the run output for a *specific* request, not the latest run on
    * the agent instance — `listRuns({ agentInstanceId, ... })` cannot
    * answer "what was THIS request's output?" because newer runs from

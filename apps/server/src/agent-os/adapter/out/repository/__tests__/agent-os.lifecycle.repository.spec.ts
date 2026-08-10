@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { AgentOsRunRepository } from '../agent-os.run.repository';
+import { AgentOsRunLifecycleRepository } from '../agent-os.lifecycle.repository';
 
 const now = new Date('2026-05-31T00:00:00.000Z');
 
@@ -28,7 +28,83 @@ function runRow(overrides: Record<string, unknown> = {}) {
   };
 }
 
-describe('AgentOsRunRepository', () => {
+describe('AgentOsRunLifecycleRepository', () => {
+  it('changes only a still-claimed request during pre-run failure', async () => {
+    const prisma = {
+      agentRunRequest: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+      },
+    };
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
+
+    await expect(repository.failClaimedRequest({
+      organizationId: 'org-1',
+      requestId: 'request-1',
+      errorCode: 'model_required',
+      errorMessage: 'Model is required.',
+    })).resolves.toBe(false);
+
+    expect(prisma.agentRunRequest.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          id: 'request-1',
+          organizationId: 'org-1',
+          status: 'claimed',
+        },
+      }),
+    );
+  });
+
+  it('cancels the request and matching running run under one transaction', async () => {
+    const cancelledRun = runRow({
+      status: 'cancelled',
+      errorCode: 'user_cancelled',
+      errorMessage: 'User cancelled the request.',
+      finishedAt: new Date('2026-05-31T00:01:00.000Z'),
+    });
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce([{ id: 'request-1' }])
+        .mockResolvedValueOnce([{ id: 'run-1' }]),
+      agentRunRequest: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      agentRun: {
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findFirstOrThrow: vi.fn().mockResolvedValue(cancelledRun),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn((callback) => callback(tx)),
+    };
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
+
+    const result = await repository.cancelRequestAndRun({
+      organizationId: 'org-1',
+      requestId: 'request-1',
+      expectedRunId: 'run-1',
+      currentRequestStatuses: ['pending', 'claimed', 'requires_approval'],
+      errorCode: 'user_cancelled',
+      errorMessage: 'User cancelled the request.',
+      payload: { operationCancellation: { result: 'cancelled' } },
+    });
+
+    expect(result).toMatchObject({
+      requestId: 'request-1',
+      run: expect.objectContaining({ id: 'run-1', status: 'cancelled' }),
+    });
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+    expect((tx.$queryRaw.mock.calls[0]?.[0] as string[]).join(' ')).toContain(
+      'agent_run_requests',
+    );
+    expect((tx.$queryRaw.mock.calls[1]?.[0] as string[]).join(' ')).toContain(
+      'agent_runs',
+    );
+    expect(tx.agentRunRequest.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.agentRun.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it('does not create a run when cancellation wins the claimed-request lock', async () => {
     const tx = {
       $queryRaw: vi.fn().mockResolvedValue([]),
@@ -42,7 +118,7 @@ describe('AgentOsRunRepository', () => {
     const prisma = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const repository = new AgentOsRunRepository(prisma as never);
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
 
     const result = await repository.createRunForClaimedRequest({
       organizationId: 'org-1',
@@ -86,7 +162,7 @@ describe('AgentOsRunRepository', () => {
     const prisma = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const repository = new AgentOsRunRepository(prisma as never);
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
 
     const result = await repository.createRunForClaimedRequest({
       organizationId: 'org-1',
@@ -140,13 +216,14 @@ describe('AgentOsRunRepository', () => {
     const prisma = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const repository = new AgentOsRunRepository(prisma as never);
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
 
     const result = await repository.finalizeRun({
       organizationId: 'org-1',
       requestId: 'request-1',
       runId: 'run-1',
       status: 'succeeded',
+      nextRequestStatus: 'succeeded',
       output: { stale: true },
     });
 
@@ -200,13 +277,14 @@ describe('AgentOsRunRepository', () => {
     const prisma = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const repository = new AgentOsRunRepository(prisma as never);
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
 
     const result = await repository.finalizeRun({
       organizationId: 'org-1',
       requestId: 'request-1',
       runId: 'run-1',
       status: 'succeeded',
+      nextRequestStatus: 'succeeded',
       output: { status: 'waiting_approval' },
     });
 
@@ -227,24 +305,24 @@ describe('AgentOsRunRepository', () => {
     expect(tx.agentRunRequest.updateMany).not.toHaveBeenCalled();
   });
 
-  it('allows only a monotonic run cancellation after the request is cancelled', async () => {
+  it('requeues a retryable failure in the same transaction that fails the run', async () => {
+    const failedRun = runRow({
+      status: 'failed',
+      errorCode: 'transient_error',
+      errorMessage: 'Temporarily unavailable.',
+      finishedAt: new Date('2026-05-31T00:01:00.000Z'),
+    });
     const tx = {
       $queryRaw: vi
         .fn()
-        .mockResolvedValueOnce([{ id: 'request-1', status: 'cancelled' }])
+        .mockResolvedValueOnce([{ id: 'request-1', status: 'claimed' }])
         .mockResolvedValueOnce([runRow()]),
       agentRun: {
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-        findFirstOrThrow: vi.fn().mockResolvedValue(
-          runRow({
-            status: 'cancelled',
-            errorCode: 'user_cancelled',
-            finishedAt: new Date('2026-05-31T00:01:00.000Z'),
-          }),
-        ),
+        findFirstOrThrow: vi.fn().mockResolvedValue(failedRun),
       },
       agentRunRequest: {
-        updateMany: vi.fn(),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
       agentRuntimeState: {
         update: vi.fn().mockResolvedValue({}),
@@ -253,28 +331,37 @@ describe('AgentOsRunRepository', () => {
     const prisma = {
       $transaction: vi.fn((callback) => callback(tx)),
     };
-    const repository = new AgentOsRunRepository(prisma as never);
+    const repository = new AgentOsRunLifecycleRepository(prisma as never);
 
     const result = await repository.finalizeRun({
       organizationId: 'org-1',
       requestId: 'request-1',
       runId: 'run-1',
-      status: 'cancelled',
-      errorCode: 'user_cancelled',
-      errorMessage: 'User cancelled the request.',
+      status: 'failed',
+      nextRequestStatus: 'pending',
+      errorCode: 'transient_error',
+      errorMessage: 'Temporarily unavailable.',
     });
 
     expect(result).toMatchObject({
       finalized: true,
-      requestStatus: 'cancelled',
-      run: expect.objectContaining({ status: 'cancelled' }),
+      requestStatus: 'pending',
+      run: expect.objectContaining({ status: 'failed' }),
     });
-    expect(tx.agentRun.updateMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({ status: 'running' }),
-        data: expect.objectContaining({ status: 'cancelled' }),
+    expect(tx.agentRunRequest.updateMany).toHaveBeenCalledWith({
+      where: {
+        id: 'request-1',
+        organizationId: 'org-1',
+        status: 'claimed',
+      },
+      data: expect.objectContaining({
+        status: 'pending',
+        claimedAt: null,
+        claimedBy: null,
+        finishedAt: null,
+        lastErrorCode: 'transient_error',
       }),
-    );
-    expect(tx.agentRunRequest.updateMany).not.toHaveBeenCalled();
+    });
   });
+
 });

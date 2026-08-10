@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type CreateRunRequestRecordInput,
-  type FailClaimedRequestInput,
   type FindRequestsQuery,
   type MarkRequestStatusIfCurrentInput,
   type MarkRequestStatusInput,
@@ -222,98 +221,6 @@ export class AgentOsRequestRepository {
       taskKey: session?.taskKey ?? 'default',
       agentType: instance?.type ?? 'unknown',
     });
-  }
-
-  async failClaimedRequest(input: FailClaimedRequestInput) {
-    await this.prisma.agentRunRequest.updateMany({
-      where: {
-        id: input.requestId,
-        organizationId: input.organizationId,
-      },
-      data: {
-        status: 'failed',
-        finishedAt: new Date(),
-        lastErrorCode: input.errorCode,
-        lastErrorMessage: input.errorMessage,
-      },
-    });
-  }
-
-  async failInterruptedInlineRuns(input: {
-    source: 'sourcing_dashboard';
-    requestStatuses: ['pending', 'claimed'];
-    createdBefore: Date;
-    errorCode: 'process_interrupted';
-    errorMessage: string;
-    limit: 100;
-  }): Promise<
-    Array<{
-      organizationId: string;
-      requestId: string;
-      runId: string | null;
-      agentInstanceId: string;
-    }>
-  > {
-    const rows = await this.prisma.$queryRaw<
-      Array<{
-        organization_id: string;
-        request_id: string;
-        run_id: string | null;
-        agent_instance_id: string;
-      }>
-    >`
-      WITH candidates AS MATERIALIZED (
-        SELECT req."id", req."organization_id", req."agent_instance_id"
-        FROM "agent_run_requests" req
-        WHERE req."source" = ${input.source}
-          AND req."status" IN (${Prisma.join(input.requestStatuses)})
-          AND req."created_at" < ${input.createdBefore}
-        ORDER BY req."created_at" ASC, req."id" ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT ${input.limit}
-      ),
-      failed_runs AS (
-        UPDATE "agent_runs" run
-        SET
-          "status" = 'failed',
-          "finished_at" = ${input.createdBefore},
-          "error_code" = ${input.errorCode},
-          "error_message" = ${input.errorMessage}
-        FROM candidates
-        WHERE run."request_id" = candidates."id"
-          AND run."organization_id" = candidates."organization_id"
-          AND run."status" = 'running'
-        RETURNING run."request_id", run."organization_id", run."id"
-      ),
-      failed_requests AS (
-        UPDATE "agent_run_requests" req
-        SET
-          "status" = 'failed',
-          "finished_at" = ${input.createdBefore},
-          "last_error_code" = ${input.errorCode},
-          "last_error_message" = ${input.errorMessage},
-          "updated_at" = ${input.createdBefore}
-        FROM candidates
-        WHERE req."id" = candidates."id"
-          AND req."organization_id" = candidates."organization_id"
-        RETURNING req."id", req."organization_id", req."agent_instance_id"
-      )
-      SELECT
-        failed_requests."organization_id",
-        failed_requests."id" AS "request_id",
-        failed_runs."id" AS "run_id",
-        failed_requests."agent_instance_id"
-      FROM failed_requests
-      LEFT JOIN failed_runs
-        ON failed_runs."request_id" = failed_requests."id"
-        AND failed_runs."organization_id" = failed_requests."organization_id"
-    `;
-    return rows.map((row) => ({
-      organizationId: row.organization_id,
-      requestId: row.request_id,
-      runId: row.run_id,
-      agentInstanceId: row.agent_instance_id,
-    }));
   }
 
   async markRequestStatus(input: MarkRequestStatusInput): Promise<AgentRunRequestRecord> {

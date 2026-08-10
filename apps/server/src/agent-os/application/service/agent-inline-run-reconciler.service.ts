@@ -19,7 +19,7 @@ export class AgentInlineRunReconciler implements OnModuleInit {
     for (let batch = 0; batch < 10; batch += 1) {
       const interrupted = await this.repository.failInterruptedInlineRuns({
         source: 'sourcing_dashboard',
-        requestStatuses: ['pending', 'claimed'],
+        requestStatuses: ['pending', 'claimed', 'requires_approval'],
         createdBefore,
         errorCode: 'process_interrupted',
         errorMessage: 'Inline Agent OS process was interrupted before completion.',

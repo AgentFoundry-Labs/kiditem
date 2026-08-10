@@ -46,13 +46,16 @@ business domain
   -> AgentRunExecutor / worker claim
   -> AGENT_RUNTIME_PORT
   -> registered runtime handler
+  -> owner-domain synchronous capability/write
   -> AgentRun terminal state
   -> global agent.run.finalized event
-  -> owner-domain bridge + sink
+  -> non-authoritative alert/audit listeners
 ```
 
-Agent OS does not update downstream business rows. Owner domains listen for
-finalized runs and apply side effects through their own idempotent sinks.
+Agent OS does not update downstream business rows. When a run requires a
+canonical business write, the owner-domain runtime/capability completes that
+write before returning success to Agent OS. Finalized listeners are
+non-authoritative alert/audit projections and cannot determine run success.
 Agent OS may call deterministic automation workflows through automation-owned
 incoming ports or registered workflow capabilities; automation must not call
 back into Agent OS.
@@ -107,6 +110,9 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
   requests and running attempts fail with `process_interrupted` at startup and
   are never replayed. MCP child application contexts never run reconciliation
   or background workers.
+- Local CLI/MCP processes are bound to the Nest process. Shutdown terminates
+  them; restart only closes stale nonterminal rows as `process_interrupted`.
+  It never resumes a process, replays a prompt, or publishes delayed output.
 
 ## Boundary Rules
 
@@ -117,8 +123,8 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
   in one transaction.
 - Missing runtime handler fails fast with `runtime_not_configured`.
 - `AGENT_RUNTIME_ALLOW_NOOP=1` is only for isolated tests.
-- Reconcile jobs must feed terminal run data through the same output schema and
-  sink port used by the hot-path bridge.
+- Reconciliation changes Agent OS ledger state only. It must not replay owner
+  capabilities or synthesize a delayed business-domain result.
 
 ## Bootstrap
 
