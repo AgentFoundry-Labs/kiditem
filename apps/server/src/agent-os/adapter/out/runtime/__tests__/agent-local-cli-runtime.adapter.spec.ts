@@ -3,6 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
+  claudeMcpConfig,
+  codexMcpConfigOverrides,
   readBoundedOutputFile,
   verifyAgentLocalCliAnswer,
   type AgentLocalCliAnswer,
@@ -49,6 +51,34 @@ function evidenceArtifact(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AgentLocalCliRuntimeAdapter verification', () => {
+  it('keeps the MCP child isolated from the operator home in both CLI configs', () => {
+    const descriptor = {
+      name: 'kiditem' as const,
+      command: 'node',
+      args: ['mcp-server.js'],
+      env: {
+        HOME: '/tmp/kiditem-run/mcp-home',
+        CODEX_HOME: '/tmp/kiditem-run/mcp-home',
+      },
+    };
+
+    const claudeConfig = claudeMcpConfig(descriptor);
+    const codexOverrides = codexMcpConfigOverrides(descriptor);
+
+    expect(claudeConfig.mcpServers.kiditem.env).toMatchObject({
+      HOME: '/tmp/kiditem-run/mcp-home',
+      CODEX_HOME: '/tmp/kiditem-run/mcp-home',
+    });
+    expect(codexOverrides).toContain(
+      'mcp_servers.kiditem.env.HOME="/tmp/kiditem-run/mcp-home"',
+    );
+    expect(codexOverrides).toContain(
+      'mcp_servers.kiditem.env.CODEX_HOME="/tmp/kiditem-run/mcp-home"',
+    );
+    expect(JSON.stringify(claudeConfig)).not.toContain('/Users/operator');
+    expect(codexOverrides.join('\n')).not.toContain('/Users/operator');
+  });
+
   it('rejects an oversized final output file before parsing it', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'agent-output-test-'));
     const outputFile = join(directory, 'output.json');

@@ -12,8 +12,9 @@ import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
 } from '../port/in/agent-runner.port';
-import { AgentRunGraphService } from './agent-run-graph.service';
+import { assertAgentOsMcpExecutionActive } from './agent-os-mcp-execution-fence';
 import { findAgentPlaybook } from './agent-playbook.registry';
+import { AgentRunGraphService } from './agent-run-graph.service';
 import { AgentTaskDelegationService } from './agent-task-delegation.service';
 import { AgentToolRouter } from './agent-tool-router.service';
 import { KidItemMcpToolRegistry } from './kiditem-mcp-tool-registry.service';
@@ -270,6 +271,7 @@ export class AgentOsMcpToolExecutor {
   }
 
   async execute(input: ExecuteAgentOsMcpToolInput) {
+    await assertAgentOsMcpExecutionActive(this.repository, input.context);
     switch (input.toolName) {
       case 'agent_os_read_context':
       case 'kiditem_context_read':

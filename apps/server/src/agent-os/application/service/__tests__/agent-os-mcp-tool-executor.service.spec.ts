@@ -20,6 +20,24 @@ const mcpContext: AgentOsMcpExecutionContext = {
   requestedByUserId: 'user-1',
 };
 
+function activeLifecycleRepository() {
+  return {
+    findRunRequestById: vi.fn().mockResolvedValue({
+      id: 'request-1',
+      organizationId: 'org-1',
+      agentInstanceId: 'agent-1',
+      status: 'claimed',
+    }),
+    findRunById: vi.fn().mockResolvedValue({
+      id: 'run-1',
+      organizationId: 'org-1',
+      requestId: 'request-1',
+      agentInstanceId: 'agent-1',
+      status: 'running',
+    }),
+  };
+}
+
 function createExecutor() {
   const contextBuilder = {
     build: vi.fn(),
@@ -33,15 +51,20 @@ function createExecutor() {
   const toolRouter = {
     invoke: vi.fn(),
   } as unknown as AgentToolRouter;
+  const repository = activeLifecycleRepository();
 
   return {
     contextBuilder,
     toolRegistry,
     toolRouter,
+    repository,
     executor: new AgentOsMcpToolExecutor(
       contextBuilder,
       toolRegistry,
       toolRouter,
+      undefined,
+      undefined,
+      repository as never,
     ),
   };
 }
@@ -61,6 +84,134 @@ function handler(key: string): AgentCapabilityHandler {
 }
 
 describe('AgentOsMcpToolExecutor', () => {
+  it('rejects a cancelled request before dispatching an MCP control tool', async () => {
+    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const repository = {
+      ...activeLifecycleRepository(),
+      findRunRequestById: vi.fn().mockResolvedValue({
+        id: 'request-1',
+        organizationId: 'org-1',
+        agentInstanceId: 'agent-1',
+        status: 'cancelled',
+      }),
+      findRunById: vi.fn().mockResolvedValue({
+        id: 'run-1',
+        organizationId: 'org-1',
+        requestId: 'request-1',
+        agentInstanceId: 'agent-1',
+        status: 'running',
+      }),
+    };
+    const executor = new AgentOsMcpToolExecutor(
+      contextBuilder,
+      toolRegistry,
+      toolRouter,
+      undefined,
+      undefined,
+      repository as never,
+    );
+
+    await expect(
+      executor.execute({
+        context: mcpContext,
+        toolName: 'kiditem_context_read',
+        arguments: {},
+      }),
+    ).rejects.toMatchObject<Partial<AgentOsRuntimeError>>({
+      code: 'user_cancelled',
+    });
+    expect(repository.findRunRequestById).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      requestId: 'request-1',
+    });
+    expect(repository.findRunById).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      runId: 'run-1',
+    });
+    expect(contextBuilder.build).not.toHaveBeenCalled();
+  });
+
+  it('rejects a failed request as process_interrupted before dispatch', async () => {
+    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const repository = {
+      ...activeLifecycleRepository(),
+      findRunRequestById: vi.fn().mockResolvedValue({
+        id: 'request-1',
+        organizationId: 'org-1',
+        agentInstanceId: 'agent-1',
+        status: 'failed',
+      }),
+    };
+    const executor = new AgentOsMcpToolExecutor(
+      contextBuilder,
+      toolRegistry,
+      toolRouter,
+      undefined,
+      undefined,
+      repository as never,
+    );
+
+    await expect(
+      executor.execute({
+        context: mcpContext,
+        toolName: 'kiditem_context_read',
+        arguments: {},
+      }),
+    ).rejects.toMatchObject<Partial<AgentOsRuntimeError>>({
+      code: 'process_interrupted',
+    });
+    expect(contextBuilder.build).not.toHaveBeenCalled();
+  });
+
+  it('rejects a non-running run before dispatching an MCP domain capability', async () => {
+    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const repository = {
+      ...activeLifecycleRepository(),
+      findRunRequestById: vi.fn().mockResolvedValue({
+        id: 'request-1',
+        organizationId: 'org-1',
+        agentInstanceId: 'agent-1',
+        status: 'claimed',
+      }),
+      findRunById: vi.fn().mockResolvedValue({
+        id: 'run-1',
+        organizationId: 'org-1',
+        requestId: 'request-1',
+        agentInstanceId: 'agent-1',
+        status: 'failed',
+      }),
+    };
+    vi.mocked(toolRegistry.resolveTool).mockReturnValue({
+      descriptor: {
+        name: 'sourcing_scrape_url',
+        capabilityKey: 'sourcing.scrapeProductUrl',
+        ownerDomain: 'sourcing',
+        approvalRisk: 'none',
+        sideEffects: ['browser', 'external_io'],
+      },
+      handler: handler('sourcing.scrapeProductUrl'),
+    });
+    const executor = new AgentOsMcpToolExecutor(
+      contextBuilder,
+      toolRegistry,
+      toolRouter,
+      undefined,
+      undefined,
+      repository as never,
+    );
+
+    await expect(
+      executor.execute({
+        context: mcpContext,
+        toolName: 'sourcing_scrape_url',
+        arguments: { sourceUrl: 'https://detail.1688.com/offer/1.html' },
+      }),
+    ).rejects.toMatchObject<Partial<AgentOsRuntimeError>>({
+      code: 'process_interrupted',
+    });
+    expect(toolRouter.invoke).not.toHaveBeenCalled();
+  });
+
   it('reads bounded operator context through OperatorContextBuilder', async () => {
     const { contextBuilder, executor } = createExecutor();
     const sanitizedContext = {
@@ -137,7 +288,8 @@ describe('AgentOsMcpToolExecutor', () => {
   });
 
   it('requires Operator-created tasks to include explicit playbookKey, taskInput, and executeMode', async () => {
-    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const { contextBuilder, toolRegistry, toolRouter, repository } =
+      createExecutor();
     const delegation = { delegate: vi.fn() };
     const executor = new AgentOsMcpToolExecutor(
       contextBuilder,
@@ -145,6 +297,7 @@ describe('AgentOsMcpToolExecutor', () => {
       toolRouter,
       undefined,
       delegation as never,
+      repository as never,
     );
 
     await expect(
@@ -195,7 +348,8 @@ describe('AgentOsMcpToolExecutor', () => {
   });
 
   it('rejects playbook and agent mismatches before delegation', async () => {
-    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const { contextBuilder, toolRegistry, toolRouter, repository } =
+      createExecutor();
     const delegation = { delegate: vi.fn() };
     const executor = new AgentOsMcpToolExecutor(
       contextBuilder,
@@ -203,6 +357,7 @@ describe('AgentOsMcpToolExecutor', () => {
       toolRouter,
       undefined,
       delegation as never,
+      repository as never,
     );
 
     await expect(
@@ -225,7 +380,8 @@ describe('AgentOsMcpToolExecutor', () => {
   });
 
   it('queues child tasks unless the Operator explicitly asks for inline execution', async () => {
-    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const { contextBuilder, toolRegistry, toolRouter, repository } =
+      createExecutor();
     const delegation = {
       delegate: vi.fn().mockResolvedValue({
         ok: true,
@@ -239,7 +395,7 @@ describe('AgentOsMcpToolExecutor', () => {
       toolRouter,
       undefined,
       delegation as never,
-      undefined,
+      repository as never,
       runner as never,
     );
 
@@ -347,6 +503,7 @@ describe('AgentOsMcpToolExecutor', () => {
   it('projects sourcing scrape artifacts into listing generation package input', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const repository = {
+      ...activeLifecycleRepository(),
       listArtifacts: vi.fn().mockResolvedValue([
         {
           id: 'artifact-sourcing-1',
@@ -455,6 +612,7 @@ describe('AgentOsMcpToolExecutor', () => {
   it('projects sourcing candidate artifacts into listing generation package input', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const repository = {
+      ...activeLifecycleRepository(),
       listArtifacts: vi.fn().mockResolvedValue([
         {
           id: 'artifact-candidate-1',
@@ -522,6 +680,7 @@ describe('AgentOsMcpToolExecutor', () => {
   it('does not project listing input from source URL matches outside the active conversation', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const repository = {
+      ...activeLifecycleRepository(),
       listArtifacts: vi.fn().mockResolvedValue([
         {
           id: 'artifact-from-previous-conversation',
@@ -593,6 +752,7 @@ describe('AgentOsMcpToolExecutor', () => {
   it('rejects finalize_task artifactIds outside the current conversation', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const repository = {
+      ...activeLifecycleRepository(),
       listArtifacts: vi.fn().mockResolvedValue([
         {
           id: 'artifact-visible-1',
@@ -632,7 +792,8 @@ describe('AgentOsMcpToolExecutor', () => {
   });
 
   it('maps inline child requires_approval execution to waiting_approval', async () => {
-    const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
+    const { contextBuilder, toolRegistry, toolRouter, repository } =
+      createExecutor();
     const delegation = {
       delegate: vi.fn().mockResolvedValue({
         ok: true,
@@ -653,7 +814,7 @@ describe('AgentOsMcpToolExecutor', () => {
       toolRouter,
       undefined,
       delegation as never,
-      undefined,
+      repository as never,
       runner as never,
     );
 
@@ -681,6 +842,7 @@ describe('AgentOsMcpToolExecutor', () => {
   it('persists Operator user-input requests as approval pauses', async () => {
     const { contextBuilder, toolRegistry, toolRouter } = createExecutor();
     const repository = {
+      ...activeLifecycleRepository(),
       markRequestStatus: vi.fn().mockResolvedValue({}),
       appendRunEvent: vi.fn().mockResolvedValue({}),
     };
@@ -823,6 +985,9 @@ describe('AgentOsMcpToolExecutor', () => {
       contextBuilder,
       toolRegistry,
       toolRouter,
+      undefined,
+      undefined,
+      activeLifecycleRepository() as never,
     );
 
     await expect(
@@ -857,6 +1022,9 @@ describe('AgentOsMcpToolExecutor', () => {
       contextBuilder,
       toolRegistry,
       toolRouter,
+      undefined,
+      undefined,
+      activeLifecycleRepository() as never,
     );
 
     await expect(

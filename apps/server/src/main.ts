@@ -85,6 +85,7 @@ async function bootstrap() {
     AppModule,
     new ExpressAdapter(expressApp),
   );
+  app.enableShutdownHooks();
   chatServiceRef = app.get(ChatService);
   sessionAuthRef = app.get(SessionAuthMiddleware);
   // 프로덕션은 CORS_ORIGINS(쉼표 구분) 화이트리스트 필수. 미지정이면 전부 차단.
