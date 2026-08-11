@@ -24,6 +24,8 @@ function makeContext(
     promptPath: 'agent-config/prompts/agents/rules-evaluation.md',
     conversationId: null,
     requestedByUserId: null,
+    playbookKey: null,
+    planStepKey: null,
     skillKeys: [],
     outputSchemaPath: null,
     input: { ruleSetId: 'rules-1' },

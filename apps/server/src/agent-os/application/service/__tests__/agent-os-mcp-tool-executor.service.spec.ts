@@ -17,6 +17,8 @@ const mcpContext: AgentOsMcpExecutionContext = {
   runId: 'run-1',
   agentInstanceId: 'agent-1',
   agentType: 'sourcing',
+  playbookKey: 'sourcing_workspace_question_v1',
+  planStepKey: 'sourcing_agent',
   requestedByUserId: 'user-1',
 };
 

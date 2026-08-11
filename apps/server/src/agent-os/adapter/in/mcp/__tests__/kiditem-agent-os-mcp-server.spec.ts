@@ -15,6 +15,8 @@ const CONTEXT_ENV = {
   KIDITEM_AGENT_OS_REQUEST_ID: 'request_123',
   KIDITEM_AGENT_OS_RUN_ID: 'run_123',
   KIDITEM_AGENT_OS_AGENT_INSTANCE_ID: 'instance_123',
+  KIDITEM_AGENT_OS_PLAYBOOK_KEY: 'sourcing_workspace_question_v1',
+  KIDITEM_AGENT_OS_PLAN_STEP_KEY: 'sourcing_agent',
   KIDITEM_AGENT_OS_REQUESTED_BY_USER_ID: 'user_123',
 };
 
@@ -25,6 +27,8 @@ const CONTEXT = {
   runId: 'run_123',
   agentInstanceId: 'instance_123',
   agentType: 'manager',
+  playbookKey: 'sourcing_workspace_question_v1',
+  planStepKey: 'sourcing_agent',
   requestedByUserId: 'user_123',
 };
 
@@ -75,6 +79,14 @@ describe('KidItem Agent OS MCP server', () => {
 
   it('reads valid MCP env context and defaults agentType to manager when unset', () => {
     expect(readKidItemAgentOsMcpContext(CONTEXT_ENV)).toEqual(CONTEXT);
+
+    const unscopedEnv: Record<string, string> = { ...CONTEXT_ENV };
+    delete unscopedEnv.KIDITEM_AGENT_OS_PLAYBOOK_KEY;
+    delete unscopedEnv.KIDITEM_AGENT_OS_PLAN_STEP_KEY;
+    expect(readKidItemAgentOsMcpContext(unscopedEnv)).toMatchObject({
+      playbookKey: null,
+      planStepKey: null,
+    });
   });
 
   it('rejects missing or explicitly blank MCP env without leaking secret-like values', () => {

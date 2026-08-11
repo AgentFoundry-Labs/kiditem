@@ -31,6 +31,8 @@ function runtimeContext(
     model: 'gpt-5.1-codex',
     modelPlan: { primary: 'gpt-5.1-codex' },
     promptPath: 'agent-config/prompts/agents/manager.md',
+    playbookKey: null,
+    planStepKey: null,
     input: {
       conversationId: 'conversation-1',
       requestedByUserId: 'user-1',

@@ -18,6 +18,8 @@ export interface KidItemAgentOsMcpEnvContext {
   runId: string;
   agentInstanceId: string;
   agentType: string;
+  playbookKey: string | null;
+  planStepKey: string | null;
   requestedByUserId?: string | null;
 }
 
@@ -104,7 +106,10 @@ export function readKidItemAgentOsMcpContext(
       contextKey,
       readRequiredEnv(env, envKey),
     ]),
-  ) as Omit<AgentOsMcpExecutionContext, 'agentType' | 'requestedByUserId'>;
+  ) as Omit<
+    AgentOsMcpExecutionContext,
+    'agentType' | 'playbookKey' | 'planStepKey' | 'requestedByUserId'
+  >;
 
   const rawAgentType = env.KIDITEM_AGENT_OS_AGENT_TYPE;
   const agentType =
@@ -113,10 +118,14 @@ export function readKidItemAgentOsMcpContext(
       : readRequiredEnv(env, 'KIDITEM_AGENT_OS_AGENT_TYPE');
   const requestedByUserId =
     env.KIDITEM_AGENT_OS_REQUESTED_BY_USER_ID?.trim() || undefined;
+  const playbookKey = env.KIDITEM_AGENT_OS_PLAYBOOK_KEY?.trim() || null;
+  const planStepKey = env.KIDITEM_AGENT_OS_PLAN_STEP_KEY?.trim() || null;
 
   return {
     ...context,
     agentType,
+    playbookKey,
+    planStepKey,
     requestedByUserId,
   };
 }

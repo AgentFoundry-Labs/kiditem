@@ -86,6 +86,16 @@ describe('agent definition registry', () => {
       'sourcing.refreshValidation',
       'sourcing.scrapeUrlWorkflow',
     ]);
+    expect(
+      sourcing?.defaultToolPolicies.find(
+        (policy) => policy.toolKey === 'sourcing.scrapeUrlWorkflow',
+      ),
+    ).toMatchObject({
+      modelExposure: {
+        playbookKeys: ['manual_product_intake_from_url_v2'],
+        planStepKeys: ['sourcing_agent'],
+      },
+    });
     expect(sourcing?.defaultToolPolicies.map((policy) => policy.toolKey)).not.toContain(
       'sourcing.createReviewBatch',
     );

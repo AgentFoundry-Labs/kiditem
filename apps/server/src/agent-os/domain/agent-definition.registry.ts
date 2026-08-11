@@ -28,18 +28,30 @@ type AgentDefinitionSeed = Omit<
 };
 
 const SOURCING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
-  'sourcing.retrieveWorkspaceEvidence',
-  'sourcing.inspectRecommendationRun',
-  'sourcing.refreshCollection',
-  'sourcing.refreshValidation',
-  'sourcing.scrapeUrlWorkflow',
-].map((toolKey) => ({
-  toolKey,
-  effect: 'allow',
-  approvalMode: 'none',
-  dryRunMode: 'optional',
-  constraints: {},
-}));
+  ...[
+    'sourcing.retrieveWorkspaceEvidence',
+    'sourcing.inspectRecommendationRun',
+    'sourcing.refreshCollection',
+    'sourcing.refreshValidation',
+  ].map((toolKey) => ({
+    toolKey,
+    effect: 'allow' as const,
+    approvalMode: 'none' as const,
+    dryRunMode: 'optional' as const,
+    constraints: {},
+  })),
+  {
+    toolKey: 'sourcing.scrapeUrlWorkflow',
+    effect: 'allow',
+    approvalMode: 'none',
+    dryRunMode: 'optional',
+    constraints: {},
+    modelExposure: {
+      playbookKeys: ['manual_product_intake_from_url_v2'],
+      planStepKeys: ['sourcing_agent'],
+    },
+  },
+];
 
 const LISTING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
   {

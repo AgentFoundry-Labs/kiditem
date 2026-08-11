@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { findAgentDefinitionByType } from '../../domain/agent-definition.registry';
+import type { AgentDefinitionToolPolicyRecord } from '../../domain/agent-os.types';
 import type { AgentCapabilityHandler } from '../port/out/capability/agent-capability-handler.port';
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 
@@ -71,6 +72,8 @@ const FIRST_CLASS_CAPABILITY_TOOL_NAMES: Record<string, string> = {
 
 export interface KidItemMcpToolContext {
   agentType: string;
+  playbookKey?: string | null;
+  planStepKey?: string | null;
 }
 
 export interface KidItemMcpToolDescriptor {
@@ -102,7 +105,40 @@ export function firstClassMcpToolNameForCapability(capabilityKey: string): strin
   );
 }
 
-export function modelFacingMcpToolNamesForAgentType(agentType: string): string[] {
+function isPolicyVisibleToModel(
+  policy: AgentDefinitionToolPolicyRecord,
+  context: KidItemMcpToolContext,
+): boolean {
+  if (policy.effect === 'deny') return false;
+  if (!policy.modelExposure) return true;
+  if (
+    !context.playbookKey ||
+    !policy.modelExposure.playbookKeys.includes(context.playbookKey)
+  ) {
+    return false;
+  }
+  if (!policy.modelExposure.planStepKeys) return true;
+  return Boolean(
+    context.planStepKey &&
+      policy.modelExposure.planStepKeys.includes(context.planStepKey),
+  );
+}
+
+export function modelFacingCapabilityKeysForContext(
+  context: KidItemMcpToolContext,
+): string[] {
+  return (
+    findAgentDefinitionByType(context.agentType)?.defaultToolPolicies
+      .filter((policy) => isPolicyVisibleToModel(policy, context))
+      .map((policy) => policy.toolKey) ?? []
+  );
+}
+
+export function modelFacingMcpToolNamesForAgentType(
+  agentType: string,
+  scope: Omit<KidItemMcpToolContext, 'agentType'> = {},
+): string[] {
+  const context = { agentType, ...scope };
   const definition = findAgentDefinitionByType(agentType);
   const common = commonMcpToolsForAgentType(agentType);
   if (definition?.delegationRole === 'orchestrator') {
@@ -112,9 +148,9 @@ export function modelFacingMcpToolNamesForAgentType(agentType: string): string[]
 
   return [
     ...common,
-    ...definition.defaultToolPolicies
-      .filter((policy) => policy.effect !== 'deny')
-      .map((policy) => firstClassMcpToolNameForCapability(policy.toolKey)),
+    ...modelFacingCapabilityKeysForContext(context).map((capabilityKey) =>
+      firstClassMcpToolNameForCapability(capabilityKey),
+    ),
   ];
 }
 
@@ -152,9 +188,7 @@ export class KidItemMcpToolRegistry {
     if (!definition) return common;
 
     const allowedCapabilityKeys = new Set(
-      definition.defaultToolPolicies
-        .filter((policy) => policy.effect !== 'deny')
-        .map((policy) => policy.toolKey),
+      modelFacingCapabilityKeysForContext(context),
     );
     const domainTools = this.capabilities
       .list()

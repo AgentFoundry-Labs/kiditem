@@ -15,6 +15,8 @@ export interface AgentMcpSessionPort {
     runId: string;
     agentInstanceId: string;
     agentType: string;
+    playbookKey: string | null;
+    planStepKey: string | null;
     requestedByUserId: string | null;
     homeDirectory: string;
   }): Promise<AgentMcpSessionDescriptor>;

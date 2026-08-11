@@ -68,6 +68,8 @@ describe('SourcingScrapeUrlCapabilityAdapter', () => {
         agentType: 'sourcing',
         requestId: 'request-1',
         runId: 'run-1',
+        playbookKey: null,
+        planStepKey: null,
         input: {
           action: 'scrape_url',
           url: 'https://detail.1688.com/offer/123.html',

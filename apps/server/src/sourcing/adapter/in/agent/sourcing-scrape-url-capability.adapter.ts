@@ -260,6 +260,8 @@ export class SourcingScrapeUrlCapabilityAdapter
           promptPath: 'agent-config/prompts/agents/sourcing.md',
           conversationId: executionInput.conversationId ?? null,
           requestedByUserId: executionInput.requestedByUserId ?? null,
+          playbookKey: null,
+          planStepKey: null,
           skillKeys: [],
           outputSchemaPath: null,
           input: {

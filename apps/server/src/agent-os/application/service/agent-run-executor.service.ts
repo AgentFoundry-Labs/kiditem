@@ -322,6 +322,8 @@ export class AgentRunExecutor {
         promptPath,
         conversationId: claimed.conversationId,
         requestedByUserId: claimed.requestedByUserId,
+        playbookKey: claimed.playbookKey,
+        planStepKey: claimed.planStepKey,
         skillKeys: [...definition.defaultSkillKeys],
         outputSchemaPath: definition.outputSchemaPath,
         input: claimed.payload,

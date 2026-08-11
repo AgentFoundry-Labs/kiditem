@@ -27,15 +27,17 @@ describe('KidItemMcpToolRegistry', () => {
     const names = modelFacingMcpToolNamesForAgentType('sourcing');
     expect(names).not.toContain('agent_os_finalize_task');
     expect(names).not.toContain('sourcing_scrape_url');
-    expect(names).toContain('sourcing_scrape_url_workflow');
+    expect(names).not.toContain('sourcing_scrape_url_workflow');
   });
 
   it('exposes first-class MCP tools by Agent OS role and agent manifest allowlist', () => {
     const sourcingEvidence = handler('sourcing.retrieveWorkspaceEvidence');
+    const sourcingScrapeWorkflow = handler('sourcing.scrapeUrlWorkflow');
     const listingPackage = handler('product_listing.create_generation_package');
     const purchaseSubmit = handler('supply.submit_purchase_order');
     const handlers = new Map([
       [sourcingEvidence.key, sourcingEvidence],
+      [sourcingScrapeWorkflow.key, sourcingScrapeWorkflow],
       [listingPackage.key, listingPackage],
       [purchaseSubmit.key, purchaseSubmit],
     ]);
@@ -65,6 +67,31 @@ describe('KidItemMcpToolRegistry', () => {
       'agent_os_read_artifacts',
       'sourcing_retrieve_workspace_evidence',
     ]);
+    const manualIntakeContext = {
+      agentType: 'sourcing',
+      playbookKey: 'manual_product_intake_from_url_v2',
+      planStepKey: 'sourcing_agent',
+    } as const;
+    expect(
+      mcpRegistry.listToolsForContext(manualIntakeContext).map((tool) => tool.name),
+    ).toEqual([
+      'agent_os_read_context',
+      'agent_os_read_task_graph',
+      'agent_os_read_artifacts',
+      'sourcing_retrieve_workspace_evidence',
+      'sourcing_scrape_url_workflow',
+    ]);
+    expect(
+      mcpRegistry.resolveTool('sourcing_scrape_url_workflow', {
+        agentType: 'sourcing',
+      }),
+    ).toBeNull();
+    expect(
+      mcpRegistry.resolveTool(
+        'sourcing_scrape_url_workflow',
+        manualIntakeContext,
+      )?.handler,
+    ).toBe(sourcingScrapeWorkflow);
     expect(
       mcpRegistry.listToolsForContext({ agentType: 'listing' }).map((tool) => tool.name),
     ).toEqual([

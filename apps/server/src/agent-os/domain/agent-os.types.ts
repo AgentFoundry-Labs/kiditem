@@ -107,6 +107,10 @@ export interface AgentDefinitionToolPolicyRecord {
   approvalMode: 'none' | 'admin' | 'self';
   dryRunMode: 'optional' | 'required' | 'disabled';
   constraints: Record<string, unknown>;
+  modelExposure?: {
+    playbookKeys: string[];
+    planStepKeys?: string[];
+  };
 }
 
 export const AGENT_SKILL_MODES = [
