@@ -150,7 +150,7 @@ function childProcess(pid: number) {
 
 async function executionOutcome(
   execution: Promise<unknown>,
-  deadlineMs = 100,
+  deadlineMs = 500,
 ): Promise<{ status: 'resolved' | 'rejected' | 'hung'; error?: unknown }> {
   return Promise.race([
     execution.then(
@@ -400,6 +400,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
     expect(codexOverrides).toContain(
       'mcp_servers.kiditem.env.CODEX_HOME="/tmp/kiditem-run/mcp-home"',
     );
+    expect(codexOverrides).toContain(
+      'mcp_servers.kiditem.default_tools_approval_mode="approve"',
+    );
     expect(JSON.stringify(claudeConfig)).not.toContain('/Users/operator');
     expect(codexOverrides.join('\n')).not.toContain('/Users/operator');
   });
@@ -511,5 +514,44 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
         model: 'gpt-5.6-sol',
       }),
     ).toThrow(expect.objectContaining({ code: 'resource_verification_failed' }));
+  });
+
+  it('uses the same-run collection artifact instead of a model-copied operation id', () => {
+    const operationRunId = '11111111-1111-4111-8111-111111111111';
+    const copiedWrongId = '22222222-2222-4222-8222-222222222222';
+
+    const result = verifyAgentLocalCliAnswer({
+      context: CONTEXT,
+      answer: answer({
+        text: `Operations 실행 ID: ${copiedWrongId}`,
+        citationIds: [],
+        dataGaps: [],
+        resourceRefs: [{ kind: 'operation_run', id: copiedWrongId }],
+        operationRunId: copiedWrongId,
+      }),
+      artifacts: [
+        evidenceArtifact({
+          id: 'artifact-operation',
+          artifactType: 'operation_run',
+          targetId: operationRunId,
+        }),
+      ],
+      toolInvocations: [
+        {
+          capabilityKey: 'sourcing.refreshCollection',
+          status: 'succeeded',
+          outputSummary: { operationRunId, status: 'queued' },
+        },
+      ],
+      provider: 'codex_cli',
+      model: 'gpt-5.6-sol',
+    });
+
+    expect(result.operationRunId).toBe(operationRunId);
+    expect(result.resourceRefs).toContainEqual({
+      kind: 'operation_run',
+      id: operationRunId,
+    });
+    expect(result.text).toBe(`Operations 실행 ID: ${operationRunId}`);
   });
 });

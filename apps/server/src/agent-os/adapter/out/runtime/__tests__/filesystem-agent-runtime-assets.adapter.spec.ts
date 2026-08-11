@@ -27,6 +27,8 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     );
     expect(assets.promptSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(assets.outputSchemaSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(assets.outputSchema)).not.toContain('"uniqueItems"');
+    expect(JSON.stringify(assets.outputSchema)).not.toContain('"oneOf"');
   });
 
   it('fails when a configured asset escapes the repository or is missing', async () => {

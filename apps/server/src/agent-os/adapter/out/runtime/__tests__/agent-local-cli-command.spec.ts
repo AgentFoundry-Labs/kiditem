@@ -121,7 +121,6 @@ describe('agent local CLI command builders', () => {
       'multi_agent',
       'workspace_dependencies',
       'code_mode',
-      'code_mode_host',
       'in_app_browser',
       'view_image',
     ]) {
@@ -140,6 +139,9 @@ describe('agent local CLI command builders', () => {
       ]),
     );
     expect(command.args).not.toContain('tools.view_image=false');
+    expect(command.args).not.toEqual(
+      expect.arrayContaining(['--disable', 'code_mode_host']),
+    );
     expect(command.env).not.toHaveProperty('DATABASE_URL');
     expect(command.stdin).toBe(input.prompt);
     expect(command.args).not.toContain(input.prompt);

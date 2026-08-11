@@ -10,7 +10,6 @@
     "citationIds": {
       "type": "array",
       "maxItems": 12,
-      "uniqueItems": true,
       "items": { "type": "string", "minLength": 1, "maxLength": 500 }
     },
     "dataGaps": {
@@ -41,7 +40,7 @@
       }
     },
     "operationRunId": {
-      "oneOf": [
+      "anyOf": [
         { "type": "string", "format": "uuid" },
         { "type": "null" }
       ]

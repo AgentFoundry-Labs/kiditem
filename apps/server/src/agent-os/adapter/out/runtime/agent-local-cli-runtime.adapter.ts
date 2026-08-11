@@ -86,6 +86,7 @@ export function codexMcpConfigOverrides(
   return [
     `mcp_servers.kiditem.command=${JSON.stringify(descriptor.command)}`,
     `mcp_servers.kiditem.args=${JSON.stringify(descriptor.args)}`,
+    'mcp_servers.kiditem.default_tools_approval_mode="approve"',
     ...Object.entries(descriptor.env).map(
       ([key, value]) =>
         `mcp_servers.kiditem.env.${key}=${JSON.stringify(value)}`,

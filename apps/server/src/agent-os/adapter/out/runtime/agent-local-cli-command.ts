@@ -100,7 +100,6 @@ const DISABLED_CODEX_FEATURES = [
   'multi_agent',
   'workspace_dependencies',
   'code_mode',
-  'code_mode_host',
   'in_app_browser',
   'view_image',
 ] as const;
