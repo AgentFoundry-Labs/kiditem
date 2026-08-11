@@ -31,6 +31,16 @@ guides add only local deltas. Run `npm run check:agents-hygiene` after changing
 - Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
   of git.
 
+## Collaboration
+
+Before repository changes, follow
+[`docs/runbooks/ai-collaboration.md`](docs/runbooks/ai-collaboration.md), the
+shared Codex, Claude, Hermes, Linear, GitHub, and Slack contract.
+
+## Platform Ownership
+
+| `operations` | operation catalog, schedules, run envelope, engine dispatch |
+
 ## Core Contracts
 
 - Frontend code uses NestJS APIs; no Prisma, `pg`, Supabase client, or direct DB
