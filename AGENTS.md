@@ -121,5 +121,6 @@ contract.
 | Testing | [`docs/TESTING.md`](docs/TESTING.md) |
 | Design system | [`DESIGN.md`](DESIGN.md) |
 | Environment | [`environment-variables.md`](docs/runbooks/environment-variables.md) |
+| Codex skill profiles | [`codex-skill-profiles.md`](docs/runbooks/codex-skill-profiles.md) |
 | Dev data | [`docs/DEV_DATA_BUNDLES.md`](docs/DEV_DATA_BUNDLES.md) |
 | Prisma models | [`prisma/models/`](prisma/models/) |

@@ -1,5 +1,19 @@
 # Codex Skill Profiles
 
+## Contents
+
+- [Purpose](#purpose)
+- [Local harness boundary](#local-harness-boundary)
+- [Prerequisites](#prerequisites)
+- [Profiles](#profiles)
+- [Inspect and switch KidItem](#inspect-and-switch-kiditem)
+- [Add or remove skills only in KidItem](#add-or-remove-skills-only-in-kiditem)
+- [Create a reusable combination](#create-a-reusable-combination)
+- [Update](#update)
+- [Verification](#verification)
+- [Blockers](#blockers)
+- [Final report](#final-report)
+
 ## Purpose
 
 KidItem exposes a small, explicit Codex skill set without globally enabling
@@ -18,8 +32,6 @@ kiditem/.agents/skills/<selected-skill>
 The hub and its exports are not Codex discovery paths. A skill becomes visible
 to KidItem only when the KidItem profile manager links it into
 `.agents/skills`.
-
-AgentOS and its PR are outside this workflow.
 
 ## Local Harness Boundary
 
