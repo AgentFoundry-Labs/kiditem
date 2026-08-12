@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "defaultProfile": "default",
+  "sources": {
+    "project": {
+      "type": "directory",
+      "pathCandidates": [
+        "tools/codex/skills"
+      ]
+    },
+    "hub-kiditem": {
+      "type": "directory",
+      "env": "AGENT_SKILL_HUB_KIDITEM",
+      "pathCandidates": [
+        "~/workspace/agent-skill-hub/exports/kiditem"
+      ]
+    },
+    "hub-full": {
+      "type": "directory",
+      "env": "AGENT_SKILL_HUB_FULL",
+      "pathCandidates": [
+        "~/workspace/agent-skill-hub/exports/full"
+      ]
+    }
+  },
+  "required": [
+    "project:agents-md-audit",
+    "project:kiditem-market-sourcing-radar",
+    "project:update-project-skills"
+  ],
+  "profiles": {
+    "project-only": {
+      "include": []
+    },
+    "default": {
+      "include": [
+        "hub-kiditem:*"
+      ]
+    },
+    "full": {
+      "include": [
+        "hub-full:*"
+      ]
+    }
+  }
+}

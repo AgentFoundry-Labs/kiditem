@@ -1,52 +1,89 @@
 ---
 name: update-project-skills
-description: Use when maintaining shared KidItem project-local Codex skills, especially updating GitHub-installed skills from skills-lock.json, repairing local skill installs, or verifying skill scope. Do not manage personal local tools such as gstack or superpowers, and avoid global Codex plugins or global skill installs.
+description: Use when maintaining KidItem project-local Codex skill profiles, reusable hub exports, external skill sources, or active discovery links. Keeps source repositories separate from project discovery and never installs global skills.
 metadata:
-  short-description: Maintain all KidItem local Codex skills
+  short-description: Maintain KidItem skill profiles and exports
 ---
 
 # Update Project Skills
 
-Use this skill from inside the KidItem repository, unless the user explicitly names another project.
+Use this skill from inside the KidItem repository unless the user explicitly
+names another project.
 
 ## Policy
 
-- Keep KidItem project-owned shared skills project-local under `<repo>/.agents/skills`.
-- Keep shared project-owned skill sources under `<repo>/tools/codex/skills`.
-- Treat `<repo>/.agents/` as each developer's local install/discovery target.
-- Treat external personal tools such as gstack and superpowers as linked dependencies whose source lives outside KidItem.
-- Do not install or enable global entries in `~/.codex/skills`, `~/.agents/skills`, or Codex plugins unless the user explicitly asks for global setup.
-- Do not run package setup commands that write global Codex skill dirs unless the user explicitly asks for global setup.
-- Update copied GitHub skills from `skills-lock.json`.
-- Do not manage gstack or superpowers here. Those are personal local tools, not shared KidItem project skills.
-- Leave local-only/custom skills unchanged unless the user asks to edit them.
-- Treat existing KidItem app changes as user work. Do not revert, stage, or commit them during skill maintenance.
-- After changing skills, tell the user that already-open Codex sessions may still show the old injected skill list; fresh sessions should reflect the new state.
+- Treat `<repo>/.agents/skills` as discovery only. Its managed entries are
+  symlinks selected by the active KidItem profile.
+- Keep KidItem-owned skill source under `<repo>/tools/codex/skills`.
+- Reuse external source checkouts through
+  `~/workspace/agent-skill-hub`. The hub exports profiles but is not itself a
+  Codex discovery directory.
+- Do not clone duplicate source repositories. Active external repositories are
+  grouped under `~/workspace/agent-skill-hub/repos`.
+- Do not install or enable global entries in `~/.codex/skills`,
+  `~/.agents/skills`, or Codex plugins unless the user explicitly requests it.
+- Preserve unrelated project changes. Do not stage, commit, or publish skill
+  maintenance unless the user asks.
+- A fresh Codex task is required after changing the active discovery links.
 
-## Source Paths
+## Sources of Truth
 
-- KidItem root: detected with `git rev-parse --show-toplevel`.
-- KidItem skills: `<repo>/.agents/skills`.
-- Lock file for copied GitHub skills: `<repo>/skills-lock.json`.
-- Source cache for GitHub skills: `<repo>/.agents/sources`.
-- Shared project skill sources: `<repo>/tools/codex/skills`.
+- KidItem profile manifest: `<repo>/tools/codex/skill-profiles.json`
+- Personal KidItem overlay: `<repo>/.agents/skill-profile.local.json`
+- Managed-link state: `<repo>/.agents/skill-profile-state.json`
+- Shared hub profiles: `~/workspace/agent-skill-hub/profiles.json`
+- Hub exports: `~/workspace/agent-skill-hub/exports/<profile>`
 
-## Workflow
+## Normal Workflow
 
 1. Inspect `git status --short --branch` in KidItem.
-2. Run `scripts/update-local-skills.sh` from this skill directory.
-3. Verify:
-   - Every skill listed in `skills-lock.json` has a local directory with `SKILL.md`.
-   - Shared project skills are linked into `.agents/skills`.
-   - Any symlinked skills still resolve to valid `SKILL.md` files.
-   - Local-only skills are reported but not overwritten.
-   - gstack and superpowers are not created or updated by this workflow; only existing symlinks are checked for validity.
-4. Report what changed and whether a fresh Codex session is needed.
+2. Run `rtk npm run skills:update`. This updates the hub source checkouts,
+   rebuilds exports, and reapplies the active KidItem profile.
+3. Run `rtk npm run skills:verify`.
+4. Report the active profile, exposed count, local additions/removals, resolved
+   source roots, and whether a fresh task is required.
+
+Use `rtk npm run skills:update -- --no-pull` when the source repositories must
+not be updated from the network.
+
+## KidItem Profile Commands
+
+```bash
+rtk npm run skills:profile -- list
+rtk npm run skills:profile -- show default
+rtk npm run skills:profile -- apply project-only
+rtk npm run skills:profile -- apply default
+rtk npm run skills:profile -- apply full
+rtk npm run skills:profile -- add hub-full:gstack-plan-eng-review
+rtk npm run skills:profile -- remove hub-kiditem:gstack-browse
+rtk npm run skills:profile -- reset hub-kiditem:gstack-browse
+rtk npm run skills:profile -- verify
+```
+
+Local `add` and `remove` commands write only the gitignored overlay. Add
+`--shared --profile <name>` only when intentionally changing the tracked team
+profile.
+
+## Reusable Hub Commands
+
+```bash
+rtk npm run skills:hub -- list
+rtk npm run skills:hub -- show core
+rtk npm run skills:hub -- profile-create review core
+rtk npm run skills:hub -- add review gstack:gstack-plan-eng-review
+rtk npm run skills:hub -- remove review gstack:gstack-browse
+rtk npm run skills:hub -- update
+rtk npm run skills:hub -- verify
+```
+
+Hub profile edits affect every project that chooses that export. KidItem-local
+overrides affect only KidItem.
 
 ## Verification Only
 
-When the user only asks to check the setup, run:
-
 ```bash
-tools/codex/skills/update-project-skills/scripts/update-local-skills.sh --verify-only
+rtk npm run skills:verify
 ```
+
+Verification must fail for missing exports, broken `SKILL.md` targets, profile
+drift, missing required KidItem skills, or malformed manifests.
