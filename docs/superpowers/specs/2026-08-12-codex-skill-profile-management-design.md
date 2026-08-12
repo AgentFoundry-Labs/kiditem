@@ -2,8 +2,8 @@
 
 **Date:** 2026-08-12
 **Status:** Implemented
-**Classification:** Cross-domain instruction cleanup. AgentOS and PR #476 are
-out of scope.
+**Classification:** Cross-domain harness and instruction cleanup accumulated
+with the active Agent OS branch; it does not change Agent OS runtime behavior.
 
 ## Decision
 
@@ -46,32 +46,38 @@ agent-skill-hub/
 └── exports/                  # generated profile symlinks
     ├── core/
     ├── kiditem/
+    ├── workflow/
     └── full/
 ```
 
 The prior top-level workspace paths for gstack, Superpowers, and Understand
-Anything are compatibility symlinks into `repos/`. No duplicate active clone is
-created.
-
-Retired Lum1104, mattpocock, and Vercel skill source checkouts were removed at
-the user's direction. The Hermes Agent checkout under KidItem remains untouched
-because it belongs to the AgentOS/PR #476 scope.
+Anything are compatibility symlinks into `repos/`. No duplicate active clone
+or external skill repository remains under KidItem.
 
 ## Reusable Profiles
 
-`core` exports 16 skills:
+`core` exports seven skills:
 
-- nine Superpowers workflow skills;
 - the gstack runtime sidecar and four selected gstack leaf skills; and
 - `understand-diff` and `understand-domain`.
 
-`kiditem` exports the 16 `core` skills plus:
+`kiditem` exports the seven `core` skills plus:
 
 - `supabase`; and
 - `supabase-postgres-best-practices`.
 
+`workflow` exports the nine `kiditem` skills plus the three non-overlapping
+Superpowers planning workflows:
+
+- `brainstorming`;
+- `writing-plans`; and
+- `executing-plans`.
+
+Debugging remains owned by `gstack-investigate` and review by
+`gstack-review`; their Superpowers equivalents are not duplicated here.
+
 `full` expands every immediate child directory containing `SKILL.md` from all
-four active repositories.
+four active repositories and currently exports 79 skills.
 
 The hub supports listing, showing, exporting, creating, adding to, removing
 from, updating, verifying, and registering machine-local sources. A leaf
@@ -84,13 +90,20 @@ The tracked manifest is `tools/codex/skill-profiles.json`. It defines:
 - three required KidItem-owned skills;
 - `project-only`, containing only required KidItem skills;
 - `default`, selecting `hub-kiditem:*`; and
+- `workflow`, selecting `hub-workflow:*`; and
 - `full`, selecting `hub-full:*`.
 
 The optional `.agents/skill-profile.local.json` records the active profile,
 local additions, local removals, and local source aliases. It is gitignored.
 
-The default active discovery contains 21 skills: three KidItem skills and the
-18-skill hub `kiditem` export.
+The primary progressive-disclosure tiers are:
+
+- `default`: 12 skills, comprising three KidItem skills and nine hub skills;
+- `workflow`: 15 skills, adding the three planning workflows; and
+- `full`: 82 skills, adding all 79 hub skills.
+
+`project-only` is the three-skill maintenance and source-isolation profile,
+not another routine exposure tier.
 
 ## Reconciliation
 

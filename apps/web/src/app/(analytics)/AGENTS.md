@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/analytics - Dashboard Read Models
 
 `app/(analytics)/` owns dashboard read-model UI: sales, ad, inventory, trends,

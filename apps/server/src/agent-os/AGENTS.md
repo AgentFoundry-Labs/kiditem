@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # agent-os — Agent Runtime Platform
 
 `src/agent-os/` owns code-defined agent definitions, organization-scoped agent
@@ -116,9 +114,6 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 
 ## Boundary Rules
 
-- Application services must not import concrete adapters, `PrismaService`, Nest
-  HTTP decorators, provider SDKs, filesystem APIs, or workflow internals.
-- Prisma access stays in outgoing repository adapters.
 - Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen
   in one transaction.
 - Missing runtime handler fails fast with `runtime_not_configured`.

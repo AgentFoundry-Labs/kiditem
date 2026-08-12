@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # agents — Python Sourcing Agent Server
 
 `agents/` owns optional FastAPI Python workers/tools for sourcing helper work

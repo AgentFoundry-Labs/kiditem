@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # finance — P&L, Costs, Payments, Settlements
 
 `src/finance/` owns live financial aggregation plus manual ledger, processing
@@ -57,8 +55,6 @@ in Supply, but the backend capability owner is finance.
   `MasterProduct.purchasePrice`; do not restore removed `ProductOption` reads.
 - Do not add date-range support without updating DTOs, services, tests, and
   this contract.
-- Raw SQL uses Prisma tagged templates only.
-- All reads/writes remain organization-scoped.
 - Do not inject automation's `OperationAlertService` directly.
 
 ## Transitional Exceptions

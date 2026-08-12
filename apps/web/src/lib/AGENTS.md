@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/lib - Shared Frontend Utilities
 
 `src/lib/` owns shared frontend utilities: `apiClient`, API base resolution,
@@ -59,13 +57,5 @@ multiple route groups.
 ## Boundary Rules
 
 - Do not import route-local files into `src/lib`.
-- Do not add Prisma, `pg`, Supabase DB, or backend adapters.
-- Do not add silent model defaults or tenant identifiers.
 - Keep generic utilities small; domain helpers belong in route-local `lib/`
   until at least two route groups need them.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/lib
-```

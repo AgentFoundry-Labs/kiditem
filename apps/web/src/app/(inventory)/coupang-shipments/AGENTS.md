@@ -1,40 +1,14 @@
-Consult this document first instead of relying on memorized knowledge.
+# web/coupang-shipments — Shipment Files
 
-# web/coupang-shipments - Shipment Files and Extension Support
+This route owns Coupang shipment file helpers, the extension bridge, local file
+convenience state, and browser download/print behavior.
 
-`coupang-shipments/` owns Coupang shipment helper UI, shipment extension
-integration, generated shipment files, and browser download/print helpers.
+Keep parsing and projection pure. Backend persistence uses the shared API
+client; browser collection uses the extension bridge. Manual date-summary
+lookup and verified persistence share
+`@/lib/coupang-shipment-summary-action` with the dashboard, including
+deferred browser-session closure after server read-back.
 
-## Owned Surfaces
-
-- Coupang shipment file parsing/generation helpers
-- Shipment extension bridge wrappers
-- Local shipment file store and browser download flow
-
-## State Rules
-
-- Keep file parsing and projection helpers pure and covered by focused tests.
-- Use `apiClient` for backend shipment APIs and extension bridge helpers for
-  browser-side collection.
-- Manual date-summary lookup and verified persistence go through
-  `@/lib/coupang-shipment-summary-action`. The shipment screen and dashboard
-  call the same action and render their existing UI around its result. The
-  action owns the deferred `orders.coupang_shipment_summary` browser session
-  and closes it only after server read-back verification.
-- Blob/download behavior may use browser APIs; durable shipment data remains
-  backend-owned.
-
-## Boundary Rules
-
-- Do not update order or inventory status directly from local file helpers.
-- Do not store shipment source-of-truth state only in browser storage.
-- Extension behavior must stay aligned with `extensions/order-collector` or the
-  relevant Coupang extension guide.
-- Do not replace manual date-summary lookup with a count-only dashboard or
-  Operation result path.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(inventory\)/coupang-shipments
-```
+Browser file state is not durable shipment truth and does not directly update
+orders or inventory. Focused specs own parsing, shared-action, verification,
+and download behavior.

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/thumbnail-generation — Generation Workspace
 
 `app/(product-pipeline)/product-pipeline/thumbnail-generation/` owns the
@@ -74,14 +72,7 @@ Edit mode always sends `purpose: 'compliance'`; creative sends `'quality'`.
 - Scene preset changes require checking `EditorControlPanel.tsx` and backend
   creative prompt handling together.
 
-## Verification
-
-For thumbnail-generation changes, run the narrow route suite first, then the
-web build:
-
-```bash
-npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/thumbnail-generation'
-```
+## Regression Focus
 
 Payload, polling, generated href, or scene preset changes need a focused
 regression spec for the changed UI/API contract.

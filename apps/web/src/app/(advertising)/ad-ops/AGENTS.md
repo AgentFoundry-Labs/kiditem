@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/ad-ops - Coupang Ads Operations
 
 `ad-ops/` owns the operational ad dashboard: status, campaign, product

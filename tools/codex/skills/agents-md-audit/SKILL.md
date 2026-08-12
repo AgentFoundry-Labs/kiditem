@@ -42,7 +42,7 @@ discovery of the guides that apply to the files being changed.
 |---|---|---|
 | Discovery | Root tells agents to find scoped guides before editing. | Agents rely on memory or a stale route table. |
 | Scope | Root has global contracts; nested files add local exceptions. | Same commands/rules repeated in many children. |
-| Size | Active chain stays under the configured byte cap; aim below 28 KiB. | Root or parent files grow with route inventories. |
+| Size | Active chain stays under the configured byte cap; aim at or below 18 KiB. | Root or parent files grow with route inventories. |
 | Verification | Local `Verification` exists only for different or narrower gates. | Every file repeats the same build command. |
 | Folder maps | Map encodes ownership, architecture, or exception contracts. | Map only duplicates `rg --files` output. |
 | Overrides | `AGENTS.override.md` is rare and intentional. | Override accidentally hides sibling `AGENTS.md`. |

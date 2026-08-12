@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/store - Shared Client UI State
 
 `src/store/` owns small global client-only UI state. It is currently a Zustand

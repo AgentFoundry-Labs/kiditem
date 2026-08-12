@@ -70,7 +70,8 @@ The default hub location is `~/workspace/agent-skill-hub`. Set
 `AGENT_SKILL_HUB_ROOT` to an absolute path when KidItem must use another
 location. Both `skills:hub` and `skills:update` honor it. The tracked
 KidItem manifest also supports `AGENT_SKILL_HUB_KIDITEM` and
-`AGENT_SKILL_HUB_FULL` overrides that point directly to export directories.
+`AGENT_SKILL_HUB_WORKFLOW` and `AGENT_SKILL_HUB_FULL` overrides that point
+directly to export directories.
 
 If a source repository is missing, stop and restore or register the intended
 existing checkout. The update workflow does not silently clone another copy.
@@ -80,16 +81,30 @@ existing checkout. The update workflow does not silently clone another copy.
 KidItem profiles are defined in `tools/codex/skill-profiles.json`:
 
 - `project-only`: three KidItem-owned skills;
-- `default`: `project-only` plus the hub `kiditem` export;
+- `default`: 12 skills: `project-only` plus the nine-skill hub `kiditem`
+  export;
+- `workflow`: 15 skills: `default` plus Superpowers brainstorming,
+  plan-writing, and plan execution;
 - `full`: `project-only` plus every skill in the hub `full` export.
 
 The shared hub profiles are defined in
 `~/workspace/agent-skill-hub/profiles.json`:
 
-- `core`: the selected Superpowers workflow skills, gstack runtime plus four
-  leaf skills, and two Understand Anything skills;
-- `kiditem`: `core` plus the two selected Supabase skills;
+- `core`: gstack runtime plus four leaf skills and two Understand Anything
+  skills;
+- `kiditem`: `core` plus the two selected Supabase skills; this keeps one
+  debugger (`gstack-investigate`) and one reviewer (`gstack-review`);
+- `workflow`: `kiditem` plus the three non-overlapping Superpowers planning
+  skills;
 - `full`: every valid immediate child skill from all four active sources.
+
+Superpowers is opt-in because its skills prescribe session behavior. Routine
+KidItem work uses `default`; apply `workflow` only for structured
+brainstorming and plan execution. Debugging remains owned by
+`gstack-investigate`, review by `gstack-review`, and the repository's
+ordinary verification contract by AGENTS.md. TDD and duplicate
+debug/review/verification workflows remain available only through `full` or
+a local selector.
 
 ## Inspect and Switch KidItem
 
@@ -98,6 +113,7 @@ rtk npm run skills:profile -- list
 rtk npm run skills:profile -- show default
 rtk npm run skills:profile -- apply project-only
 rtk npm run skills:profile -- apply default
+rtk npm run skills:profile -- apply workflow
 rtk npm run skills:profile -- apply full
 ```
 

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/components/ui - Shared UI Primitives
 
 `components/ui/` owns small reusable UI primitives such as empty states,
@@ -26,9 +24,3 @@ confirm dialogs, and skeletons. These components should be domain-neutral.
 - Do not encode domain statuses directly into primitives unless the primitive
   accepts a mapping from the caller.
 - Keep primitives accessible and keyboard-friendly when adding interactions.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/components/ui
-```

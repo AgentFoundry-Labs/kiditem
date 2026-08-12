@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/sourcing-ai/wing-catalog - Wing Catalog Collection
 
 `wing-catalog/` owns Wing catalog collection helpers, extension capability
@@ -17,9 +15,3 @@ wrappers, and keyword insight projections for sourcing research.
 - Do not create channel listings or catalog products from Wing rows here.
 - Extension capabilities must stay aligned with the relevant Chrome extension
   guide.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(sourcing-ai\)/sourcing-ai/wing-catalog
-```

@@ -1,189 +1,69 @@
-Consult this document first instead of relying on memorized knowledge.
+# ai — Media AI And Direct Generation
 
-# ai — Media AI + Agent Delegation
+`src/ai/` owns generated media, detail-page content, direct AI job execution,
+workspace projection, and provider/storage adapters. HTTP adapters live under
+`adapter/in`; application orchestration uses ports; `domain/` is pure.
 
-`src/ai/` owns AI-generated media and detail-page content for the product
-pipeline. It contains HTTP entrypoints, AI provider adapters, direct job
-schedulers/executors, output projection sinks, and generated-content read/write
-services.
+## Identity And Ledgers
 
-## Layering
+- `ContentWorkspace` is owned by one sourcing candidate, channel listing, or
+  direct detail page. `ContentGeneration` and its sources record generated
+  content and provenance.
+- `DetailPageArtifact` plus append-only revisions owns editable HTML.
+  Render-intent and immutable image-artifact rows own bounded Wing JPEG output.
+- `ContentThumbnailSelection` is the workspace's managed current-thumbnail
+  pointer. `ThumbnailGeneration` is its generation ledger.
+- `AiDirectJob` owns claims, leases, retries, checkpoints, cancellation, and
+  recovery for thumbnail, detail-page, image-edit, and re-edit work.
+- Use `contentWorkspaceId` for media workspaces. Candidate, listing, and
+  generation IDs are provenance or ledger identities; do not reintroduce
+  MasterProduct terminology.
 
-HTTP entrypoints live in `adapter/in`; providers, repositories, sinks, and
-cross-domain integrations live in `adapter/out`. Application orchestration and
-ports live under `application`, pure policy under `domain`, and row/DTO/domain
-conversion under `mapper`.
+The complete schema is
+[prisma/models/ai.prisma](../../../../prisma/models/ai.prisma), and direct-job,
+workspace, render, and recovery rules are executable in
+[the AI tests](__tests__/). The architecture-level direct-execution contract
+lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
-## Owned Surfaces
+## Direct Job Contract
 
-- Image edit: `POST /api/image-ai/edit`, `GET /api/image-ai/tasks/:taskId`
-- Text transform: `POST /api/text-ai/transform`
-- Detail-page generation and editor APIs: `/api/ai/detail-page/*`
-- Saved detail page → marketplace description image:
-  `POST /api/ai/detail-page-image/candidate/:candidateId/server-render`.
-  Missing saved HTML returns
-  `{ status: 'missing' }` rather than 404 so callers cannot silently substitute
-  another image. The server owns Chromium rasterization, revision binding,
-  stored-JPEG verification, storage, and the durable artifact. The company
-  Chrome extension only receives the completed image URL for Wing form entry.
-- Generated content archive: `/api/ai/content-archive/*`
-- Content asset library: `/api/ai/content-assets`
-- Content workspace thumbnail selection:
-  `PATCH /api/ai/content-workspaces/:workspaceId/current-thumbnail`
-- Thumbnail editor/generation APIs: `/api/thumbnail-editor/*`
-- Render, analysis, tracking, Wing sync routes for AI-assisted product media
+- Atomically create the domain ledger/provenance and a held direct job, attach
+  its alert or parent relation, then release it.
+- A leased worker performs provider/media work, checkpoints validated output,
+  and invokes a sink that atomically projects terminal domain rows.
+- Executors return validated data and do not mutate AI tables. Sinks own
+  generation projection, asset usage, artifacts, and alert closure.
+- Projecting jobs resume from checkpoints without another model call. Expired
+  leases and held jobs follow the tested recovery policy; cancellation reaches
+  the claiming worker through its heartbeat.
+- Direct generation is deterministic infrastructure and does not create Agent
+  OS runs. Agent-prefixed runtime keys are reserved for real Agent definitions.
 
-## Main Data Models
+## Detail-Page Contract
 
-- `ContentWorkspace` is the product-pipeline content/version workspace. Its
-  owner is exactly one of `sourcing_candidate`, `channel_listing`, or
-  `direct_detail_page`; the old target columns remain rollback projections in
-  0.1.8 only.
-- `ContentGeneration` is the generated content ledger for detail pages and
-  generated images.
-- `ContentGenerationGroup` is the transitional archive/media grouping used by
-  legacy archive queries and reruns.
-- `ContentGenerationSource` records provenance from sourcing candidates, input
-  assets, or other generations.
-- `DetailPageArtifact` is the editable detail-page identity.
-- `DetailPageRevision` is the append-only edited HTML/version record.
-- `DetailPageImageRenderIntent` records one candidate, artifact, revision,
-  output variant, and server-derived object key for a bounded render attempt.
-- `DetailPageImageArtifact` is the verified immutable JPEG authority used by
-  Wing registration.
-- `ContentAsset` stores reusable media in a workspace group.
-- `ContentThumbnailSelection` is the listing/workspace-owned current-thumbnail
-  pointer to a managed asset, generated candidate, or adopted external image.
-- `ContentGenerationAssetUsage` stores the current asset usage set for one
-  generation.
-- `ThumbnailGeneration` is the thumbnail generation ledger.
-- `AiDirectJob` is the durable execution ledger for direct thumbnail,
-  detail-page, image-edit, and thumbnail re-edit work. It owns claims, leases,
-  retries, validated output checkpoints, cancellation, and recovery.
+- Editor saves append a revision and update the artifact pointer; they do not
+  schedule a marketplace render or write legacy product/generation HTML fields.
+- Wing preparation reuses a verified matching artifact or synchronously renders
+  the immutable revision as the bounded 780px `wing-server-jpeg-v1` JPEG.
+  Browser-extension capture and split/stitch rendering remain retired.
+- Missing saved HTML returns the explicit missing result. Callers do not
+  substitute another image.
+- Registration branches selected revision, HTML, and managed media into a
+  listing workspace without cloning jobs or candidates.
+- Product-less operator generation uses a direct workspace, not a synthetic
+  sourcing candidate.
 
-Thumbnail analysis, generation, editing, tracking, and Wing registration use
-`ContentWorkspace.id` as `contentWorkspaceId`. `sourceCandidateId` is
-provenance, `channelListingId` identifies the marketplace listing, and
-`generationId` identifies the ledger row. Do not reintroduce `productId`,
-`masterId`, or `MasterProduct` terminology for a thumbnail workspace.
+## Ports And Boundaries
 
-## Direct AI Generation Flow
-
-Detail-page, thumbnail, and image-edit generation are asynchronous direct AI
-jobs. They are not Agent OS runs unless a future autonomous Agent owns
-orchestration and calls them as a child tool/action.
-
-```text
-HTTP/service request
-  -> atomically create the domain ledger, input provenance, and held AiDirectJob
-  -> create the operation alert or parent-child link
-  -> release the AiDirectJob
-  -> worker claims with FOR UPDATE SKIP LOCKED and a lease
-  -> executor performs provider/media work with the worker AbortSignal
-  -> worker checkpoints validated output
-  -> sink atomically projects output into domain rows
-  -> worker marks the job succeeded and closes the alert
-```
-
-Direct executors return validated output and do not update AI domain tables.
-Sinks own the `ContentGeneration` / `ThumbnailGeneration` terminal projection,
-generated asset usage, `DetailPageArtifact` creation, and alert closure. Image
-edit has no content ledger, so its direct job writes result/error metadata to
-the operation alert that backs `/api/image-ai/tasks/:taskId`.
-
-`projecting` jobs resume from their checkpoint without invoking a model again.
-Held jobs become recoverable after the hold timeout, and expired running or
-projecting leases can be reclaimed. Queue cancellation is applied before the
-domain/alert cancellation projection and aborts a claiming worker through its
-lease heartbeat. Direct jobs are deterministic execution infrastructure and
-must never create Agent OS runs.
-
-Historical Agent OS rows for `detail_page_generate`, `thumbnail_generate`, and
-`image_edit` are retired by the v0.1.2 data migration. New producer code must
-not enqueue those types, and the Agent OS executor resolves only real Agent
-definitions.
-
-## Detail-Page Notes
-
-- `DetailPageAiService` is a facade; generation, prefill, and query behavior
-  live in dedicated application services.
-- Product-bound runs attach through the canonical product workspace group.
-- Sourcing-candidate runs keep primary lineage on
-  `ContentGeneration.sourceCandidateId`.
-- Product-less operator runs use a direct content workspace and must not create
-  a collected-product `SourcingCandidate`.
-- Initial generated output lives in `ContentGeneration.generationResult`.
-- Editor saves append `DetailPageRevision` rows and update
-  `DetailPageArtifact.currentRevisionId`.
-- Editor saves never schedule marketplace raster jobs. Wing preparation reads
-  the current immutable revision, reuses a matching verified image artifact,
-  or performs a synchronous server render.
-- Wing detail rendering must remain one 780px JPEG (`wing-server-jpeg-v1`). The
-  server renders the immutable revision with Puppeteer, validates bounded
-  bytes, JPEG dimensions, and SHA-256, stores it, and finalizes the artifact
-  before returning. Do not restore browser-extension capture or a split/stitch
-  path.
-- Registration branches selected artifact/revision metadata and HTML from a
-  candidate workspace into a listing-owned workspace. It reuses storage URLs
-  and the managed thumbnail asset, but never clones generation jobs or
-  candidates.
-- New editor saves must not write edited HTML back to
-  `ContentGeneration.editedHtml` or `MasterProduct.draftContent`.
-
-## Cross-Domain Ports
-
-- Sourcing calls AI through `AI_WORKSPACE_ARCHIVE_PORT`,
-  `PRODUCT_GENERATION_AI_TRIGGER_PORT`, and
-  `POST_PROMOTION_AI_TRIGGER_PORT`; account registration additionally consumes
-  AI's `REGISTRATION_CONTENT_WORKSPACE_PORT`.
-- AI publishes incoming generation/workspace ports from
-  `application/port/in/{generation,workspace}/`.
-- AI uses `AI_OPERATION_ALERT_PORT` from
-  `application/port/out/cross-domain/` for operation-alert lifecycle writes.
-- Image edit, detail page, and thumbnail generation schedule direct AI jobs
-  through their owner application services.
-- Provider/media/fetch/storage behavior belongs behind the relevant
-  `application/port/out/{provider,storage}/` contract.
-- Inventory's read-only display-media port returns organization-owned active
-  Coupang catalog assets by exact option then primary fallback.
-- Direct detail page, thumbnail, and image-edit generation use `AI_*`.
-  Agent OS uses `AGENT_*` only for real Agent definitions.
-
-## Boundary Rules
-
-- `domain/` is pure: no NestJS, Prisma, provider SDKs, filesystem, Agent OS, or
-  HTTP dependencies.
-- Reconstructed application services depend on ports, not concrete
-  `adapter/out/**` implementations.
-- Image edit, thumbnail, and detail-page generation must go through direct AI
-  job services; controllers do not call image providers directly.
-- Gemini/model selection is explicit. Missing model/env is an error, not a
+- Controllers schedule image edit, thumbnail, and detail-page work through
+  direct-job application services; they never call providers directly.
+- Sourcing, operation alerts, Inventory display media, provider/media/fetch,
+  and storage integrations use their named incoming or outgoing ports.
+- Model selection is explicit. Asset deletion/GC rejects active generation
+  usage and current-thumbnail references.
+- Generation-control changes update shared type/tuple, HTTP DTO, web payload,
+  stored input normalization, direct input/output schema, sink, and recovery
+  together.
+- Keep Puppeteer rasterization in its bounded owner service. Authenticated Wing
+  collection belongs to Channels plus the extension, not an AI scrape
   fallback.
-- Detail-page media prompt and image-selection wording lives in
-  `domain/detail-page-media-prompts.ts`.
-- Asset deletion and archive GC must reject assets referenced by active
-  generation usage or any current-thumbnail selection.
-- Thumbnail quality grades are registration-only and independent from product ABC.
-- When generation controls change, check shared tuple/type, HTTP DTO, web
-  payload, direct generation input/output schema, stored raw-input normalizer,
-  sink, and recovery behavior together.
-
-## Transitional Exceptions
-
-These are known same-domain shortcuts. Do not grow them without replacing or
-compacting the exception.
-
-- AI application services do not import Prisma, HTTP DTOs, or concrete
-  `adapter/out/**` implementations. Keep new persistence/provider/media work
-  behind `application/port/out/*` contracts.
-- Thumbnail generation, analysis, tracking, Wing registration, image fetch,
-  reference-image warm-up, image generation, and vision/verify provider calls
-  are behind outbound ports.
-- Prisma query/write helper modules for AI-owned rows live beside their
-  repository adapters. Do not reintroduce `adapter/out/prisma` as a legacy
-  staging area.
-- `DetailPageRasterizationService` owns bounded Puppeteer rendering for both
-  the manual render endpoint and the Wing detail-image server path.
-- Authenticated Wing catalog collection belongs to Channels plus the browser
-  extension. AI consumes listing workspace media and must not restore a
-  separate image-sync job map or server-side Wing scrape fallback.
