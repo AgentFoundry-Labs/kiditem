@@ -80,6 +80,24 @@ verify_shared_project_sources() {
   }
 }
 
+verify_local_harness_layout() {
+  local stale_path
+
+  log ""
+  log "== local harness layout =="
+  for stale_path in \
+    "$KIDITEM_ROOT/.agents/sources" \
+    "$KIDITEM_ROOT/.agents/catalog" \
+    "$KIDITEM_ROOT/.agents/tmp" \
+    "$KIDITEM_ROOT/.agents/understand-anything-plugin"; do
+    if [ -e "$stale_path" ] || [ -L "$stale_path" ]; then
+      echo "Legacy project-local skill residue must be removed: $stale_path" >&2
+      exit 1
+    fi
+  done
+  log "Project-local discovery contains no legacy source or cache roots."
+}
+
 update_skill_hub() {
   require_file "$SKILL_HUB_MANAGER"
   log ""
@@ -177,6 +195,7 @@ for (const selector of manifest.required || []) console.log(selector.split(":").
 require_dir "$KIDITEM_ROOT"
 mkdir -p "$SKILLS_DIR"
 git_summary "$KIDITEM_ROOT"
+verify_local_harness_layout
 verify_shared_project_sources
 
 if [ "$VERIFY_ONLY" -eq 0 ]; then

@@ -21,6 +21,25 @@ to KidItem only when the KidItem profile manager links it into
 
 AgentOS and its PR are outside this workflow.
 
+## Local Harness Boundary
+
+KidItem's `.agents/` directory contains only:
+
+- `skills/`: active discovery links selected by the profile;
+- `skill-profile.local.json`: the developer's active profile and overrides;
+- `skill-profile-state.json`: the manager's last applied link state.
+
+Do not put repository checkouts, generated catalogs, temporary schemas, or
+top-level compatibility links under `.agents/`. External sources belong in the
+workspace hub, and generated tool output stays in its tool-owned ignored
+directory.
+
+The profile manager reconciles `.agents/skills` only. It deliberately never
+deletes arbitrary dot-directories: `.github`, `.githooks`, `.secrets`,
+`.dev-auth`, and active `.worktrees` have unrelated owners. Tool output such as
+`.gstack`, `.superpowers`, and `.understand-anything` may be removed when its
+reports are no longer needed and will be recreated on demand.
+
 ## Prerequisites
 
 The hub keeps active external repositories in one place and does not clone
@@ -152,7 +171,8 @@ Verify checks:
 - every exposed entry resolves to `SKILL.md`;
 - required project skills are present;
 - active discovery matches the selected KidItem profile; and
-- no unmanaged real directories occupy selected discovery names.
+- no unmanaged real directories occupy selected discovery names; and
+- no legacy source/cache roots remain directly under `.agents/`.
 
 ## Blockers
 
