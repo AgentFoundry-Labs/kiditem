@@ -25,8 +25,9 @@ discovery of the guides that apply to the files being changed.
    node <skill-dir>/scripts/audit-agents-md.mjs --root .
    ```
 
-   Use `--limit 32768` to match Codex's default project instruction byte cap,
-   and `--target path/to/dir` for a specific work area.
+   The KidItem default is 18432 bytes (18 KiB). Use `--limit <bytes>` only
+   when auditing a repository with a different explicit cap, and
+   `--target path/to/dir` for a specific work area.
 
 3. Read the active chain for the target path from root to nearest guide. If the
    work moves into another nested area, rerun discovery and read the new chain.
