@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { OperationDefinition } from '../../../../../common/operation-definition';
 import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { CompositeOperationCoordinatorService } from '../composite-operation-coordinator.service';
+import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
 
 const ORG_ID = '5e29b0f8-17be-4b95-9a16-5b9cfc952e99';
 const PARENT_ID = '4313fb12-dc40-4b51-881b-df83f6308b6d';
@@ -68,6 +69,12 @@ function run(input: Partial<OperationRunRecord> = {}): OperationRunRecord {
   };
 }
 
+function acceptingGate(): OperationLifecycleGateService {
+  const gate = new OperationLifecycleGateService();
+  gate.open();
+  return gate;
+}
+
 describe('CompositeOperationCoordinatorService', () => {
   it('atomically fences its parent, creates one child, and waits for dependency', async () => {
     const parent = run();
@@ -94,6 +101,7 @@ describe('CompositeOperationCoordinatorService', () => {
     const service = new CompositeOperationCoordinatorService(
       registry as never,
       repository as never,
+      acceptingGate(),
     );
 
     await service.waitForChild({
@@ -109,6 +117,7 @@ describe('CompositeOperationCoordinatorService', () => {
       parentOrganizationId: ORG_ID,
       parentRunId: PARENT_ID,
       expectedAttemptToken: parent.attemptToken,
+      signal: expect.any(AbortSignal),
       child: expect.objectContaining({
         organizationId: ORG_ID,
         parentRunId: PARENT_ID,
@@ -133,7 +142,7 @@ describe('CompositeOperationCoordinatorService', () => {
     const service = new CompositeOperationCoordinatorService({
       getDefinition: vi.fn().mockReturnValue(definition),
       parseInput: vi.fn().mockReturnValue({ scope: 'full' }),
-    } as never, repository as never);
+    } as never, repository as never, acceptingGate());
 
     await expect(service.waitForChild({
       parent,
@@ -148,7 +157,7 @@ describe('CompositeOperationCoordinatorService', () => {
     expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
   });
 
-  it('requeues a parent after a succeeded child without consuming another attempt', async () => {
+  it('requeues a parent after a succeeded child without decrementing its attempt history', async () => {
     const parent = run({ status: 'waiting_dependency', attemptToken: null, claimedBy: null });
     const child = run({ id: CHILD_ID, parentRunId: PARENT_ID, status: 'succeeded' });
     const repository = {
@@ -158,16 +167,17 @@ describe('CompositeOperationCoordinatorService', () => {
     };
     const service = new CompositeOperationCoordinatorService({
       getHandler: vi.fn().mockReturnValue({}),
-    } as never, repository as never);
+    } as never, repository as never, acceptingGate());
 
     await service.resumeTerminalChildren(new Date('2026-08-01T01:00:00.000Z'));
 
-    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+    const transition = repository.transition.mock.calls[0]?.[0];
+    expect(transition).toEqual(expect.objectContaining({
       runId: PARENT_ID,
       expectedStatuses: ['waiting_dependency'],
       status: 'queued',
-      attemptDelta: -1,
     }));
+    expect(transition).not.toHaveProperty('attemptDelta');
   });
 
   it('cancels only the non-terminal children of the selected parent', async () => {
@@ -180,7 +190,7 @@ describe('CompositeOperationCoordinatorService', () => {
     };
     const service = new CompositeOperationCoordinatorService({
       getHandler: vi.fn().mockReturnValue({}),
-    } as never, repository as never);
+    } as never, repository as never, acceptingGate());
 
     await service.cancelChildren(parent, 'operator_cancelled');
 
@@ -191,4 +201,36 @@ describe('CompositeOperationCoordinatorService', () => {
       status: 'cancelled',
     }));
   });
+
+  it.each(['BOOTSTRAPPING', 'STOPPING', 'STOPPED'] as const)(
+    'blocks child creation and composite resume in %s with zero mutation',
+    async (state) => {
+      const gate = new OperationLifecycleGateService();
+      if (state !== 'BOOTSTRAPPING') gate.beginStopping();
+      if (state === 'STOPPED') gate.finishStopping();
+      const repository = {
+        createChildAndWaitForDependency: vi.fn(),
+        listWaitingDependencyParents: vi.fn(),
+        transition: vi.fn(),
+      };
+      const service = new CompositeOperationCoordinatorService({
+        getDefinition: vi.fn().mockReturnValue(definition),
+        parseInput: vi.fn().mockReturnValue({ scope: 'full' }),
+      } as never, repository as never, gate);
+
+      await expect(service.waitForChild({
+        parent: run(),
+        child: {
+          operationKey: definition.key,
+          input: { scope: 'full' },
+          idempotencyKey: 'child-key',
+        },
+      })).rejects.toMatchObject({ status: 503 });
+      await expect(service.resumeTerminalChildren(new Date()))
+        .rejects.toMatchObject({ status: 503 });
+      expect(repository.createChildAndWaitForDependency).not.toHaveBeenCalled();
+      expect(repository.listWaitingDependencyParents).not.toHaveBeenCalled();
+      expect(repository.transition).not.toHaveBeenCalled();
+    },
+  );
 });

@@ -9,6 +9,7 @@ import type {
   OperationRunRepositoryPort,
 } from '../../port/out/repository/operation.repository.port';
 import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
+import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
 import { OperationRunService } from '../operation-run.service';
 
 const ORG_ID = '5e29b0f8-17be-4b95-9a16-5b9cfc952e99';
@@ -97,12 +98,30 @@ function makeRepository(): OperationRunRepositoryPort {
   };
 }
 
+function acceptingGate(): OperationLifecycleGateService {
+  const gate = new OperationLifecycleGateService();
+  gate.open();
+  return gate;
+}
+
+function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
+  const gate = new OperationLifecycleGateService();
+  if (state !== 'BOOTSTRAPPING') gate.beginStopping();
+  if (state === 'STOPPED') gate.finishStopping();
+  return gate;
+}
+
 describe('OperationRunService', () => {
   it('returns the same run for an idempotent start command', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);
     const repository = makeRepository();
-    const service = new OperationRunService(registry, repository, compositeCoordinator);
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
     const command = {
       organizationId: ORG_ID,
       operationKey: definition.key,
@@ -136,7 +155,12 @@ describe('OperationRunService', () => {
         deadlineAt: new Date('2026-08-01T00:20:00Z'),
       }),
     );
-    const service = new OperationRunService(registry, repository, compositeCoordinator);
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
 
     const run = await service.start({
       organizationId: ORG_ID,
@@ -164,7 +188,12 @@ describe('OperationRunService', () => {
   it('rejects a trigger that the definition does not allow', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);
-    const service = new OperationRunService(registry, makeRepository(), compositeCoordinator);
+    const service = new OperationRunService(
+      registry,
+      makeRepository(),
+      compositeCoordinator,
+      acceptingGate(),
+    );
 
     await expect(
       service.start({
@@ -176,5 +205,57 @@ describe('OperationRunService', () => {
         idempotencyKey: null,
       }),
     ).rejects.toThrow('trigger_not_allowed');
+  });
+
+  it.each(['BOOTSTRAPPING', 'STOPPING', 'STOPPED'] as const)(
+    'rejects a start in %s before any repository mutation',
+    async (state) => {
+      const registry = new OperationHandlerRegistryService();
+      registry.register(definition, handler);
+      const repository = makeRepository();
+      const service = new OperationRunService(
+        registry,
+        repository,
+        compositeCoordinator,
+        gateIn(state),
+      );
+
+      await expect(service.start({
+        organizationId: ORG_ID,
+        operationKey: definition.key,
+        triggerSource: 'dashboard',
+        input: { source: 'naver' },
+        requestedByUserId: USER_ID,
+        idempotencyKey: null,
+      })).rejects.toMatchObject({ status: 503 });
+      expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
+      expect(repository.createRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it('passes the process shutdown signal into the persisted start transaction', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    const gate = acceptingGate();
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      gate,
+    );
+
+    await service.start({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      triggerSource: 'dashboard',
+      input: { source: 'naver' },
+      requestedByUserId: USER_ID,
+      idempotencyKey: null,
+    });
+
+    expect(repository.createRun).toHaveBeenCalledWith(expect.objectContaining({
+      signal: gate.signal(),
+    }));
   });
 });

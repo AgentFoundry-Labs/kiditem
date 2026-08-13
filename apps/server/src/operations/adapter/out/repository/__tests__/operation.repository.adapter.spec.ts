@@ -84,6 +84,7 @@ function makeRunRow(overrides: Record<string, unknown> = {}) {
 
 function makeCreateRunInput(overrides: Record<string, unknown> = {}) {
   return {
+    signal: new AbortController().signal,
     organizationId: ORG_ID,
     operationKey: 'sourcing.search_1688_keyword_batch',
     definitionVersion: 1,
@@ -151,7 +152,7 @@ describe('OperationRepositoryAdapter creation boundaries', () => {
       executionTimeoutMs: MAX_OPERATION_PERSISTED_INT,
     }));
     const repository = new OperationRepositoryAdapter({
-      operationRun: { create },
+      $transaction: vi.fn((callback) => callback({ operationRun: { create } })),
     } as never);
 
     await expect(repository.createRun(makeCreateRunInput({
@@ -179,6 +180,34 @@ describe('OperationRepositoryAdapter creation boundaries', () => {
   });
 });
 
+describe('OperationRepositoryAdapter lifecycle-gated transition', () => {
+  it('keeps a shutdown observed after mutation inside the transaction rollback boundary', async () => {
+    const controller = new AbortController();
+    const reason = new Error('operation_server_shutdown');
+    const updateMany = vi.fn().mockImplementation(async () => {
+      controller.abort(reason);
+      return { count: 1 };
+    });
+    const transaction = { operationRun: { updateMany } };
+    const prisma = {
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    };
+    const repository = new OperationRepositoryAdapter(prisma as never);
+
+    await expect(repository.transition({
+      signal: controller.signal,
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedStatuses: ['waiting_dependency'],
+      status: 'queued',
+    })).rejects.toBe(reason);
+
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('OperationRepositoryAdapter composite child fencing', () => {
   it('does not read or create a child when the parent active-attempt fence is lost', async () => {
     const findFirst = vi.fn();
@@ -193,6 +222,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     } as never);
 
     await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: ORG_ID,
       parentRunId: RUN_ID,
       expectedAttemptToken: ATTEMPT_TOKEN,
@@ -230,6 +260,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     } as never);
 
     await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: ORG_ID,
       parentRunId: RUN_ID,
       expectedAttemptToken: ATTEMPT_TOKEN,
@@ -279,6 +310,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     } as never);
 
     await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: ORG_ID,
       parentRunId: RUN_ID,
       expectedAttemptToken: ATTEMPT_TOKEN,
@@ -309,6 +341,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     } as never);
 
     await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: ORG_ID,
       parentRunId: RUN_ID,
       expectedAttemptToken: ATTEMPT_TOKEN,
@@ -547,6 +580,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     const repository = new OperationRepositoryAdapter(prisma as never);
 
     await repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: ORG_ID,
       runtimeId: 'office:kiditem-os',
       now: NOW,
@@ -580,6 +614,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     const repository = new OperationRepositoryAdapter(prisma as never);
 
     await repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: ORG_ID,
       runtimeId: 'office:kiditem-os',
       now: NOW,
@@ -601,6 +636,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     } as never);
 
     await expect(repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: ORG_ID,
       runtimeId: 'office:kiditem-os',
       now: NOW,
@@ -638,6 +674,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     } as never);
 
     await expect(repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: ORG_ID,
       runtimeId: 'office:kiditem-os',
       now: NOW,
@@ -665,6 +702,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     const repository = new OperationRepositoryAdapter(prisma as never);
 
     await expect(repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: ORG_ID,
       runtimeId: 'office:kiditem-os',
       now: NOW,

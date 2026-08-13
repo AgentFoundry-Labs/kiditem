@@ -262,6 +262,7 @@ describe('operation execution repository PostgreSQL fencing', () => {
     );
 
     await expect(repository.claimNextBrowserRun({
+      signal: new AbortController().signal,
       organizationId: TEST_ORGANIZATION_ID,
       runtimeId: 'office:integration-test',
       now: new Date(),

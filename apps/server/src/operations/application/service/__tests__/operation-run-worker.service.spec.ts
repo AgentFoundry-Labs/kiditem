@@ -3,6 +3,7 @@ import type { OperationResourceClass } from '@kiditem/shared/operations';
 import { Logger } from '@nestjs/common';
 import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { OperationRunWorkerService } from '../operation-run-worker.service';
+import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
 
 const NOW = new Date('2026-08-13T01:02:03.000Z');
 const originalLimits = process.env.OPERATION_RESOURCE_CLASS_LIMITS;
@@ -65,6 +66,22 @@ function run(
   };
 }
 
+function acceptingGate(): OperationLifecycleGateService {
+  const gate = new OperationLifecycleGateService();
+  gate.open();
+  return gate;
+}
+
+function shutdownWorker(
+  worker: OperationRunWorkerService,
+  deadline = Date.now() + 5_000,
+): Promise<void> {
+  const reason = new Error('operation_server_shutdown');
+  worker.stopIntake(reason);
+  worker.abortActive(reason);
+  return worker.drainUntil(deadline, true);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(NOW);
@@ -92,6 +109,7 @@ describe('OperationRunWorkerService', () => {
     const claimed = new Set<OperationResourceClass>();
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) => {
         if (claimed.has(resourceClass)) return Promise.resolve(null);
         claimed.add(resourceClass);
@@ -114,6 +132,7 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
 
     await worker.tick();
@@ -136,6 +155,7 @@ describe('OperationRunWorkerService', () => {
     let naverClaimCount = 0;
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) => {
         if (resourceClass !== 'naver_api') return Promise.resolve(null);
         naverClaimCount += 1;
@@ -147,6 +167,7 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
 
     const tickOne = worker.tick();
@@ -170,6 +191,7 @@ describe('OperationRunWorkerService', () => {
     const blockedResume = deferred<void>();
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn().mockResolvedValue(null),
     };
     const compositeCoordinator = {
@@ -179,6 +201,7 @@ describe('OperationRunWorkerService', () => {
       { execute: vi.fn() } as never,
       repository as never,
       compositeCoordinator as never,
+      acceptingGate(),
     );
 
     const firstTick = worker.tick();
@@ -193,11 +216,15 @@ describe('OperationRunWorkerService', () => {
     await firstTick;
   });
 
-  it('sweeps deadlines before one resource-filtered null claim per class', async () => {
+  it('sweeps deadlines and lost worker leases before resource-filtered claims', async () => {
     const events: string[] = [];
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockImplementation(async () => {
         events.push('sweep');
+        return 0;
+      }),
+      cancelExpiredWorkerAttempts: vi.fn().mockImplementation(async () => {
+        events.push('lost-lease');
         return 0;
       }),
       claimNextRun: vi.fn().mockImplementation(async (
@@ -212,12 +239,17 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
 
     await worker.tick();
 
-    expect(events[0]).toBe('sweep');
+    expect(events.slice(0, 2)).toEqual(['sweep', 'lost-lease']);
     expect(repository.expirePastDeadlineRuns).toHaveBeenCalledWith({
+      now: NOW,
+      limit: 100,
+    });
+    expect(repository.cancelExpiredWorkerAttempts).toHaveBeenCalledWith({
       now: NOW,
       limit: 100,
     });
@@ -234,9 +266,10 @@ describe('OperationRunWorkerService', () => {
     expect(executor.execute).not.toHaveBeenCalled();
   });
 
-  it('aborts active executors and refuses new claims after module destroy', async () => {
+  it('aborts active executors and refuses new claims after explicit shutdown', async () => {
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn().mockResolvedValue(null),
     };
     const executor = {
@@ -247,13 +280,14 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
 
-    await worker.onModuleDestroy();
+    await shutdownWorker(worker);
     await worker.tick();
 
     expect(executor.abortAll).toHaveBeenCalledWith(expect.objectContaining({
-      message: 'operation_worker_shutdown',
+      message: 'operation_server_shutdown',
     }));
     expect(repository.claimNextRun).not.toHaveBeenCalled();
   });
@@ -263,6 +297,7 @@ describe('OperationRunWorkerService', () => {
     const resume = deferred<void>();
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
         resourceClass === 'naver_api'
           ? Promise.resolve(run('naver_api', 'naver-active'))
@@ -276,11 +311,12 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockReturnValue(resume.promise) } as never,
+      acceptingGate(),
     );
     await worker.tick();
 
     let destroyed = false;
-    const shutdown = Promise.resolve(worker.onModuleDestroy()).finally(() => {
+    const shutdown = shutdownWorker(worker).finally(() => {
       destroyed = true;
     });
     await Promise.resolve();
@@ -299,8 +335,10 @@ describe('OperationRunWorkerService', () => {
     const claim = deferred<OperationRunRecord | null>();
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
         resourceClass === 'naver_api' ? claim.promise : Promise.resolve(null)),
+      cancelClaimedAttemptForLifecycle: vi.fn().mockResolvedValue(true),
     };
     const executor = {
       execute: vi.fn(),
@@ -313,12 +351,13 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       compositeCoordinator as never,
+      acceptingGate(),
     );
     const tick = worker.tick();
     await vi.waitFor(() => expect(repository.claimNextRun).toHaveBeenCalled());
 
     let destroyed = false;
-    const shutdown = Promise.resolve(worker.onModuleDestroy()).finally(() => {
+    const shutdown = shutdownWorker(worker).finally(() => {
       destroyed = true;
     });
     await Promise.resolve();
@@ -328,8 +367,48 @@ describe('OperationRunWorkerService', () => {
     await Promise.all([tick, shutdown]);
 
     expect(executor.execute).not.toHaveBeenCalled();
+    expect(repository.cancelClaimedAttemptForLifecycle).toHaveBeenCalledWith({
+      organizationId: 'df3b198e-5b31-4f86-b054-bbf4852536a5',
+      runId: 'claimed-during-shutdown',
+      expectedAttemptToken: 'claimed-during-shutdown-token',
+      claimedBy: `operations-${process.pid}`,
+      errorCode: 'operation_server_shutdown',
+      finishedAt: expect.any(Date),
+    });
     expect(compositeCoordinator.resumeTerminalChildren).toHaveBeenCalledOnce();
     expect(destroyed).toBe(true);
+  });
+
+  it('keeps shutdown-cancel fence loss quiet without retrying or dispatching', async () => {
+    const claim = deferred<OperationRunRecord | null>();
+    const cancellationError = new Error('operation_shutdown_cancel_fence_lost');
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
+        resourceClass === 'naver_api' ? claim.promise : Promise.resolve(null)),
+      cancelClaimedAttemptForLifecycle: vi.fn().mockRejectedValue(cancellationError),
+    };
+    const executor = { execute: vi.fn(), abortAll: vi.fn() };
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
+    );
+    const tick = worker.tick();
+    await vi.waitFor(() => expect(repository.claimNextRun).toHaveBeenCalled());
+    const shutdown = shutdownWorker(worker);
+
+    claim.resolve(run('naver_api', 'rollback-fence-lost'));
+    await Promise.all([tick, shutdown]);
+
+    expect(repository.cancelClaimedAttemptForLifecycle).toHaveBeenCalledOnce();
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Operation run worker tick failed'),
+    );
   });
 
   it('aborts a selected in-flight repository claim and treats it as quiet shutdown', async () => {
@@ -337,6 +416,7 @@ describe('OperationRunWorkerService', () => {
     let claimSignal: AbortSignal | undefined;
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(async (input: {
         resourceClass: OperationResourceClass;
         signal: AbortSignal;
@@ -354,11 +434,12 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
     const tick = worker.tick();
     await vi.waitFor(() => expect(claimSignal).toBeDefined());
 
-    const shutdown = worker.onModuleDestroy();
+    const shutdown = shutdownWorker(worker);
     expect(claimSignal?.aborted).toBe(true);
     selected.resolve();
     await Promise.all([tick, shutdown]);
@@ -372,6 +453,7 @@ describe('OperationRunWorkerService', () => {
   it('bounds shutdown while an active attempt never settles', async () => {
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
         resourceClass === 'naver_api'
           ? Promise.resolve(run('naver_api', 'naver-never-settles'))
@@ -385,11 +467,12 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+      acceptingGate(),
     );
     await worker.tick();
 
     let destroyed = false;
-    const shutdown = worker.onModuleDestroy().finally(() => {
+    const shutdown = shutdownWorker(worker).finally(() => {
       destroyed = true;
     });
     await vi.advanceTimersByTimeAsync(4_999);
@@ -409,6 +492,7 @@ describe('OperationRunWorkerService', () => {
     process.on('unhandledRejection', unhandled);
     const repository = {
       expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      cancelExpiredWorkerAttempts: vi.fn().mockResolvedValue(0),
       claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) => {
         if (resourceClass === 'naver_api') {
           return Promise.resolve(run('naver_api', 'naver-late-rejection'));
@@ -428,6 +512,7 @@ describe('OperationRunWorkerService', () => {
       executor as never,
       repository as never,
       compositeCoordinator as never,
+      acceptingGate(),
     );
 
     const tick = worker.tick();
@@ -440,7 +525,7 @@ describe('OperationRunWorkerService', () => {
     const claimsBeforeShutdown = repository.claimNextRun.mock.calls.length;
     const resumesBeforeShutdown = compositeCoordinator.resumeTerminalChildren.mock.calls.length;
 
-    const shutdown = worker.onModuleDestroy();
+    const shutdown = shutdownWorker(worker);
     await vi.advanceTimersByTimeAsync(5_000);
     await shutdown;
     await worker.tick();

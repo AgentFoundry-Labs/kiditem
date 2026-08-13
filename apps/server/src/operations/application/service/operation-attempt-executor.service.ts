@@ -20,7 +20,7 @@ export class OperationAttemptExecutorService {
     private readonly repository: OperationRunRepositoryPort,
   ) {}
 
-  abortAll(reason: unknown = new Error('operation_worker_shutdown')): void {
+  abortAll(reason: unknown = new Error('operation_server_shutdown')): void {
     this.shutdownReason = reason;
     for (const controller of this.activeControllers) {
       if (!controller.signal.aborted) controller.abort(reason);
@@ -118,9 +118,25 @@ export class OperationAttemptExecutorService {
           claimedAt: null,
           leaseExpiresAt: null,
         });
+      } else if (
+        isWorkerShutdown(controller.signal.reason) &&
+        run.claimedBy !== null
+      ) {
+        await this.repository.cancelClaimedAttemptForLifecycle({
+          organizationId: run.organizationId,
+          runId: run.id,
+          expectedAttemptToken: attemptToken,
+          claimedBy: run.claimedBy,
+          errorCode: 'operation_server_shutdown',
+          finishedAt: new Date(),
+        }).catch(() => false);
       }
     } finally {
       this.activeControllers.delete(controller);
     }
   }
+}
+
+function isWorkerShutdown(reason: unknown): boolean {
+  return reason instanceof Error && reason.message === 'operation_server_shutdown';
 }

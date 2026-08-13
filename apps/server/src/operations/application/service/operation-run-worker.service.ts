@@ -2,8 +2,6 @@ import {
   Inject,
   Injectable,
   Logger,
-  type OnModuleDestroy,
-  type OnModuleInit,
 } from '@nestjs/common';
 import type { OperationResourceClass } from '@kiditem/shared/operations';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
@@ -19,6 +17,7 @@ import {
   COMPOSITE_OPERATION_COORDINATOR_PORT,
   type CompositeOperationCoordinatorPort,
 } from '../port/in/composite-operation-coordinator.port';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const RESOURCE_CLASSES: readonly OperationResourceClass[] = [
   'default',
@@ -28,10 +27,9 @@ const RESOURCE_CLASSES: readonly OperationResourceClass[] = [
   'snapshot_compute',
 ];
 const DEADLINE_SWEEP_LIMIT = 100;
-const SHUTDOWN_DRAIN_TIMEOUT_MS = 5_000;
 
 @Injectable()
-export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy {
+export class OperationRunWorkerService {
   private readonly logger = new Logger(OperationRunWorkerService.name);
   private readonly enabled = resolveOperationRuntimeWorkerEnabled();
   private readonly intervalMs = resolveOperationRuntimeWorkerIntervalMs();
@@ -40,7 +38,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
   private readonly workerId = `operations-${process.pid}`;
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
-  private readonly shutdownController = new AbortController();
+  private claimController = new AbortController();
   private tickInFlight: Promise<void> | null = null;
   private compositeResumeInFlight: Promise<void> | null = null;
   private readonly activeAttempts = new Map<
@@ -54,9 +52,11 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     private readonly repository: OperationRunRepositoryPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
   ) {}
 
-  onModuleInit(): void {
+  start(): void {
+    if (this.intervalHandle || this.stopping) return;
     if (!this.enabled) {
       this.logger.log(
         'Operation runtime worker disabled (set OPERATION_RUNTIME_WORKER_ENABLED=1 to enable).',
@@ -67,37 +67,39 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     this.intervalHandle.unref?.();
   }
 
-  async onModuleDestroy(): Promise<void> {
+  stopIntake(reason: unknown): void {
+    if (this.stopping) return;
     this.stopping = true;
     if (this.intervalHandle) clearInterval(this.intervalHandle);
     this.intervalHandle = null;
-    const reason = new Error('operation_worker_shutdown');
-    this.shutdownController.abort(reason);
+    if (!this.claimController.signal.aborted) {
+      this.claimController.abort(reason);
+    }
+  }
+
+  abortActive(reason: unknown): void {
     this.attemptExecutor.abortAll(reason);
+  }
+
+  async drainUntil(deadline: number, includeAttempts = true): Promise<void> {
     const pending = [
       this.tickInFlight,
       this.compositeResumeInFlight,
-      ...[...this.activeAttempts.values()].flatMap((attempts) => [
-        ...attempts,
-      ]),
+      ...(includeAttempts
+        ? [...this.activeAttempts.values()].flatMap((attempts) => [...attempts])
+        : []),
     ].filter((promise): promise is Promise<void> => promise !== null);
     if (pending.length === 0) return;
-
-    const settled = Promise.allSettled(pending).then(() => undefined);
-    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
-    const timedOut = new Promise<void>((resolve) => {
-      timeoutHandle = setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS);
-      timeoutHandle.unref?.();
-    });
-    try {
-      await Promise.race([settled, timedOut]);
-    } finally {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-    }
+    await settleUntil(Promise.allSettled(pending), deadline);
   }
 
   async tick(): Promise<void> {
     if (this.stopping) return;
+    try {
+      this.lifecycleGate.assertAccepting();
+    } catch {
+      return;
+    }
     if (this.tickInFlight) return this.tickInFlight;
     const tick = this.fillAvailableSlots();
     this.tickInFlight = tick;
@@ -115,8 +117,14 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
   }
 
   private async fillAvailableSlots(): Promise<void> {
+    this.lifecycleGate.assertAccepting();
     const now = new Date();
     await this.repository.expirePastDeadlineRuns({
+      now,
+      limit: DEADLINE_SWEEP_LIMIT,
+    });
+    if (this.stopping) return;
+    await this.repository.cancelExpiredWorkerAttempts({
       now,
       limit: DEADLINE_SWEEP_LIMIT,
     });
@@ -131,6 +139,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
 
   private startCompositeResume(now: Date): void {
     if (this.compositeResumeInFlight) return;
+    this.lifecycleGate.assertAccepting();
     const resume = this.compositeCoordinator
       .resumeTerminalChildren(now)
       .catch((error: unknown) => {
@@ -152,16 +161,29 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     const active = this.activeAttempts.get(resourceClass) as Set<Promise<void>>;
     const limit = this.resourceClassLimits[resourceClass];
     while (!this.stopping && active.size < limit) {
+      this.lifecycleGate.assertAccepting();
       const now = new Date();
       const claimed = await this.repository.claimNextRun({
         resourceClass,
         workerId: this.workerId,
         now,
         leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
-        signal: this.shutdownController.signal,
+        signal: this.claimController.signal,
       });
       if (!claimed) return;
-      if (this.stopping) return;
+      if (this.stopping) {
+        if (claimed.attemptToken) {
+          await this.repository.cancelClaimedAttemptForLifecycle({
+            organizationId: claimed.organizationId,
+            runId: claimed.id,
+            expectedAttemptToken: claimed.attemptToken,
+            claimedBy: this.workerId,
+            errorCode: 'operation_server_shutdown',
+            finishedAt: new Date(),
+          }).catch(() => false);
+        }
+        return;
+      }
 
       let attempt!: Promise<void>;
       attempt = this.attemptExecutor
@@ -180,7 +202,21 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
 
   private isShutdownAbort(error: unknown): boolean {
     return this.stopping &&
-      this.shutdownController.signal.aborted &&
-      error === this.shutdownController.signal.reason;
+      this.claimController.signal.aborted &&
+      error === this.claimController.signal.reason;
+  }
+}
+
+async function settleUntil(promise: Promise<unknown>, deadline: number): Promise<void> {
+  const remaining = Math.max(0, deadline - Date.now());
+  let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<void>((resolve) => {
+    timeoutHandle = setTimeout(resolve, remaining);
+    timeoutHandle.unref?.();
+  });
+  try {
+    await Promise.race([promise.then(() => undefined, () => undefined), timeout]);
+  } finally {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
   }
 }

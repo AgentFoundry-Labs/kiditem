@@ -261,30 +261,36 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async createRun(input: CreateOperationRunRecord): Promise<OperationRunRecord> {
+    input.signal.throwIfAborted();
     const executionTimeoutMs = parseExecutionTimeoutMsMutation(
       input.executionTimeoutMs,
     );
     try {
-      const row = await this.prisma.operationRun.create({
-        data: {
-          organizationId: input.organizationId,
-          operationKey: input.operationKey,
-          definitionVersion: input.definitionVersion,
-          ownerDomain: input.ownerDomain,
-          title: input.title,
-          engineType: input.engineType,
-          resourceClass: input.resourceClass,
-          executionTimeoutMs,
-          triggerSource: input.triggerSource,
-          requestedByUserId: input.requestedByUserId,
-          parentRunId: input.parentRunId,
-          scheduleId: input.scheduleId,
-          idempotencyKey: input.idempotencyKey,
-          input: input.input as Prisma.InputJsonValue,
-          maxAttempts: input.maxAttempts,
-          scheduledFor: input.scheduledFor,
-        },
-        include: runInclude,
+      const row = await this.prisma.$transaction(async (transaction) => {
+        input.signal.throwIfAborted();
+        const created = await transaction.operationRun.create({
+          data: {
+            organizationId: input.organizationId,
+            operationKey: input.operationKey,
+            definitionVersion: input.definitionVersion,
+            ownerDomain: input.ownerDomain,
+            title: input.title,
+            engineType: input.engineType,
+            resourceClass: input.resourceClass,
+            executionTimeoutMs,
+            triggerSource: input.triggerSource,
+            requestedByUserId: input.requestedByUserId,
+            parentRunId: input.parentRunId,
+            scheduleId: input.scheduleId,
+            idempotencyKey: input.idempotencyKey,
+            input: input.input as Prisma.InputJsonValue,
+            maxAttempts: input.maxAttempts,
+            scheduledFor: input.scheduledFor,
+          },
+          include: runInclude,
+        });
+        input.signal.throwIfAborted();
+        return created;
       });
       return mapOperationRunRow(row);
     } catch (error) {
@@ -305,10 +311,11 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async createChildAndWaitForDependency(input: {
+    signal: AbortSignal;
     parentOrganizationId: string;
     parentRunId: string;
     expectedAttemptToken: string;
-    child: CreateOperationRunRecord;
+    child: Omit<CreateOperationRunRecord, 'signal'>;
   }): Promise<OperationRunRecord | null> {
     const child = await createFencedCompositeChild(this.prisma, input);
     if (!child) return null;
@@ -362,6 +369,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   async transition(
     input: OperationRunTransition,
   ): Promise<OperationRunRecord | null> {
+    input.signal?.throwIfAborted();
     const data: Prisma.OperationRunUpdateManyMutationInput = {
       status: input.status,
     };
@@ -386,11 +394,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       data.leaseExpiresAt = input.leaseExpiresAt;
     }
     if (input.deadlineAt !== undefined) data.deadlineAt = input.deadlineAt;
-    if (input.attemptDelta !== undefined) {
-      data.attempts = { increment: input.attemptDelta };
-    }
-
-    const updatedCount = await this.updateRunWithStage({
+    const mutation = {
       where: {
         id: input.runId,
         organizationId: input.organizationId,
@@ -402,7 +406,15 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       data,
       stage: input.stage,
       stageUpdatedAt: new Date(),
-    });
+    };
+    const updatedCount = input.signal
+      ? await this.prisma.$transaction(async (transaction) => {
+          input.signal?.throwIfAborted();
+          const count = await this.updateRunWithStage(mutation, transaction);
+          input.signal?.throwIfAborted();
+          return count;
+        })
+      : await this.updateRunWithStage(mutation);
     if (updatedCount === 0) return null;
     return this.findRunById({
       organizationId: input.organizationId,
@@ -645,12 +657,15 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async claimNextBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runtimeId: string;
     now: Date;
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null> {
+    input.signal.throwIfAborted();
     const claimed = await this.prisma.$transaction(async (transaction) => {
+      input.signal.throwIfAborted();
       const candidates = await transaction.$queryRaw<Array<{
         id: string;
         deadline_at: Date | null;
@@ -667,6 +682,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       `;
+      input.signal.throwIfAborted();
       const candidate = candidates[0];
       if (!candidate) return null;
       if (!Object.prototype.hasOwnProperty.call(candidate, 'deadline_at')) {
@@ -677,6 +693,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         candidate.execution_timeout_ms,
       );
 
+      input.signal.throwIfAborted();
       await transaction.operationRun.update({
         where: {
           id_organizationId: {
@@ -696,6 +713,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           startedAt: input.now,
         },
       });
+      input.signal.throwIfAborted();
       return candidate.id;
     });
 
@@ -744,7 +762,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     data: Prisma.OperationRunUpdateManyMutationInput;
     stage: OperationRunTransition['stage'];
     stageUpdatedAt: Date;
-  }): Promise<number> {
+  }, client: Pick<Prisma.TransactionClient, 'operationRun'> = this.prisma): Promise<number> {
     const parsedStage = input.stage === undefined
       ? undefined
       : OperationStageSchema.nullable().safeParse(input.stage);
@@ -754,14 +772,14 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     const stage = parsedStage === undefined ? undefined : parsedStage.data;
 
     if (stage === undefined) {
-      const updated = await this.prisma.operationRun.updateMany({
+      const updated = await client.operationRun.updateMany({
         where: input.where,
         data: input.data,
       });
       return updated.count;
     }
 
-    const changed = await this.prisma.operationRun.updateMany({
+    const changed = await client.operationRun.updateMany({
       where: {
         ...input.where,
         ...(stage === null
@@ -776,7 +794,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     });
     if (changed.count > 0) return changed.count;
 
-    const repeated = await this.prisma.operationRun.updateMany({
+    const repeated = await client.operationRun.updateMany({
       where: { ...input.where, stage },
       data: input.data,
     });

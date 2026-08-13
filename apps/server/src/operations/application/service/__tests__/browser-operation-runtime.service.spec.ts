@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationHandlerRegistryPort } from '../../port/in/operation-handler-registry.port';
 import type { OperationRunRepositoryPort } from '../../port/out/repository/operation.repository.port';
 import { BrowserOperationRuntimeService } from '../browser-operation-runtime.service';
+import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
 
 const ORG_ID = 'df3b198e-5b31-4f86-b054-bbf4852536a5';
 const RUN_ID = 'c2e779aa-f5bf-42c2-91f2-dc10be211c71';
@@ -15,6 +16,25 @@ const registry: OperationHandlerRegistryPort = {
   parseInput: vi.fn(),
   listDefinitions: vi.fn(),
 };
+
+function acceptingGate(): OperationLifecycleGateService {
+  const gate = new OperationLifecycleGateService();
+  gate.open();
+  return gate;
+}
+
+function makeService(
+  repository: OperationRunRepositoryPort,
+  gate = acceptingGate(),
+  runner = { start: vi.fn() },
+) {
+  return new BrowserOperationRuntimeService(
+    registry,
+    repository,
+    gate,
+    runner as never,
+  );
+}
 
 describe('BrowserOperationRuntimeService', () => {
   beforeEach(() => {
@@ -39,20 +59,24 @@ describe('BrowserOperationRuntimeService', () => {
         deadlineAt,
       }),
     } as unknown as OperationRunRepositoryPort;
-    const service = new BrowserOperationRuntimeService(registry, repository);
+    const gate = acceptingGate();
+    const service = makeService(repository, gate);
 
     await expect(service.claim({
       organizationId: ORG_ID,
       runtimeId: 'kiditem-os',
       environmentId: 'office',
     })).resolves.toMatchObject({ deadlineAt: deadlineAt.toISOString() });
+    expect(repository.claimNextBrowserRun).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: gate.signal() }),
+    );
   });
 
   it('forwards stage and paired counts on heartbeat without losing the fence', async () => {
     const repository = {
       heartbeatBrowserRun: vi.fn().mockResolvedValue({ id: RUN_ID }),
     } as unknown as OperationRunRepositoryPort;
-    const service = new BrowserOperationRuntimeService(registry, repository);
+    const service = makeService(repository);
 
     await service.heartbeat({
       organizationId: ORG_ID,
@@ -81,7 +105,7 @@ describe('BrowserOperationRuntimeService', () => {
       transitionActiveAttempt: vi.fn().mockResolvedValue({ id: RUN_ID }),
       transition: vi.fn(),
     } as unknown as OperationRunRepositoryPort;
-    const service = new BrowserOperationRuntimeService(registry, repository);
+    const service = makeService(repository);
 
     await service.report({
       organizationId: ORG_ID,
@@ -172,7 +196,7 @@ describe('BrowserOperationRuntimeService', () => {
       transitionActiveAttempt: vi.fn().mockResolvedValue(null),
       transition: vi.fn(),
     } as unknown as OperationRunRepositoryPort;
-    const service = new BrowserOperationRuntimeService(registry, repository);
+    const service = makeService(repository);
 
     await expect(
       service.report({
@@ -186,11 +210,13 @@ describe('BrowserOperationRuntimeService', () => {
     expect(repository.transition).not.toHaveBeenCalled();
   });
 
-  it('grants one retry without clearing or extending the absolute deadline', async () => {
+  it('creates a new run for explicit UI retry without mutating the old attempt', async () => {
     const deadlineAt = new Date('2026-08-13T01:17:03.000Z');
     const current = {
       id: RUN_ID,
       organizationId: ORG_ID,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keyword: '아동 가방' },
       engineType: 'browser',
       status: 'attention_required',
       attempts: 3,
@@ -199,20 +225,117 @@ describe('BrowserOperationRuntimeService', () => {
     };
     const repository = {
       findRunById: vi.fn().mockResolvedValue(current),
-      transition: vi.fn().mockResolvedValue({ ...current, status: 'waiting_runtime' }),
+      transition: vi.fn(),
     } as unknown as OperationRunRepositoryPort;
-    const service = new BrowserOperationRuntimeService(registry, repository);
+    const runner = {
+      start: vi.fn().mockResolvedValue({ id: 'new-run-id', status: 'queued' }),
+    };
+    const service = makeService(repository, acceptingGate(), runner);
 
-    await service.retry({ organizationId: ORG_ID, runId: RUN_ID });
-
-    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+    await service.retry({
+      organizationId: ORG_ID,
       runId: RUN_ID,
-      status: 'waiting_runtime',
-      attemptDelta: -1,
+      requestedByUserId: 'user-id',
+    });
+
+    expect(runner.start).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      operationKey: current.operationKey,
+      input: current.input,
+      requestedByUserId: 'user-id',
+      idempotencyKey: expect.stringMatching(`^retry:${RUN_ID}:`),
     }));
-    expect(repository.transition).toHaveBeenCalledTimes(1);
-    expect(vi.mocked(repository.transition).mock.calls[0]?.[0]).not.toHaveProperty(
-      'deadlineAt',
-    );
+    expect(repository.transition).not.toHaveBeenCalled();
+  });
+
+  it.each(['BOOTSTRAPPING', 'STOPPING', 'STOPPED'] as const)(
+    'rejects browser claim and retry in %s with zero mutation',
+    async (state) => {
+      const gate = new OperationLifecycleGateService();
+      if (state !== 'BOOTSTRAPPING') gate.beginStopping();
+      if (state === 'STOPPED') gate.finishStopping();
+      const repository = {
+        findRunById: vi.fn(),
+        claimNextBrowserRun: vi.fn(),
+        transition: vi.fn(),
+      } as unknown as OperationRunRepositoryPort;
+      const runner = { start: vi.fn() };
+      const service = makeService(repository, gate, runner);
+
+      await expect(service.claim({
+        organizationId: ORG_ID,
+        runtimeId: 'kiditem-os',
+        environmentId: 'office',
+      })).rejects.toMatchObject({ status: 503 });
+      await expect(service.retry({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        requestedByUserId: 'user-id',
+      })).rejects.toMatchObject({ status: 503 });
+      expect(repository.claimNextBrowserRun).not.toHaveBeenCalled();
+      expect(repository.findRunById).not.toHaveBeenCalled();
+      expect(repository.transition).not.toHaveBeenCalled();
+      expect(runner.start).not.toHaveBeenCalled();
+    },
+  );
+
+  it('does not retry a lifecycle-cancelled run', async () => {
+    const repository = {
+      findRunById: vi.fn().mockResolvedValue({
+        id: RUN_ID,
+        organizationId: ORG_ID,
+        engineType: 'browser',
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+      }),
+    } as unknown as OperationRunRepositoryPort;
+    const runner = { start: vi.fn() };
+    const service = makeService(repository, acceptingGate(), runner);
+
+    await expect(service.retry({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: 'user-id',
+    })).rejects.toThrow('browser_operation_not_retryable');
+    expect(runner.start).not.toHaveBeenCalled();
+  });
+
+  it('exact-fence cancels a browser claim committed as the server enters STOPPING', async () => {
+    const gate = acceptingGate();
+    const run = {
+      id: RUN_ID,
+      organizationId: ORG_ID,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      engineType: 'browser',
+      status: 'running',
+      attemptToken: OLD_TOKEN,
+      attempts: 1,
+      claimedBy: 'office:kiditem-os',
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      deadlineAt: new Date('2026-08-13T01:17:03.000Z'),
+      input: { keyword: '아동 가방' },
+    };
+    const repository = {
+      claimNextBrowserRun: vi.fn().mockImplementation(async () => {
+        gate.beginStopping();
+        return run;
+      }),
+      cancelClaimedAttemptForLifecycle: vi.fn().mockResolvedValue(true),
+    } as unknown as OperationRunRepositoryPort;
+    const service = makeService(repository, gate);
+
+    await expect(service.claim({
+      organizationId: ORG_ID,
+      runtimeId: 'kiditem-os',
+      environmentId: 'office',
+    })).rejects.toMatchObject({ status: 503 });
+    expect(repository.cancelClaimedAttemptForLifecycle).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedAttemptToken: OLD_TOKEN,
+      claimedBy: 'office:kiditem-os',
+      errorCode: 'operation_server_shutdown',
+      finishedAt: NOW,
+    });
   });
 });

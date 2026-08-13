@@ -73,6 +73,7 @@ describe('operation composite repository PostgreSQL fencing', () => {
     );
 
     await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: organizationId,
       parentRunId: runId,
       expectedAttemptToken: scenario === 'stale token'
@@ -126,6 +127,7 @@ describe('operation composite repository PostgreSQL fencing', () => {
       updater as unknown as PrismaService,
     );
     const child = repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
       parentOrganizationId: TEST_ORGANIZATION_ID,
       parentRunId: runId,
       expectedAttemptToken: attemptToken,
@@ -157,6 +159,7 @@ describe('operation composite repository PostgreSQL fencing', () => {
       updater as unknown as PrismaService,
     );
     const request = {
+      signal: new AbortController().signal,
       parentOrganizationId: TEST_ORGANIZATION_ID,
       parentRunId: runId,
       expectedAttemptToken: attemptToken,
@@ -217,7 +220,7 @@ async function createRunningParent(
 function childInput(
   organizationId: string,
   parentRunId: string,
-): CreateOperationRunRecord {
+): Omit<CreateOperationRunRecord, 'signal'> {
   return {
     organizationId,
     operationKey: 'test.composite_child',

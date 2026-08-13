@@ -214,11 +214,12 @@ describe('OperationAttemptExecutorService', () => {
     expect(vi.getTimerCount()).toBe(0);
   });
 
-  it('aborts active dispatches during worker shutdown without finalizing them', async () => {
+  it('terminal-cancels the exact active attempt after worker shutdown aborts dispatch', async () => {
     let observedSignal: AbortSignal | undefined;
     const repository = {
       heartbeatRun: vi.fn(),
       transition: vi.fn(),
+      cancelClaimedAttemptForLifecycle: vi.fn().mockResolvedValue(true),
     };
     const executor = new OperationAttemptExecutorService(
       {
@@ -233,13 +234,21 @@ describe('OperationAttemptExecutorService', () => {
     );
 
     const execution = executor.execute(run());
-    executor.abortAll(new Error('operation_worker_shutdown'));
+    executor.abortAll(new Error('operation_server_shutdown'));
     await execution;
 
     expect(observedSignal?.aborted).toBe(true);
     expect((observedSignal?.reason as Error).message).toBe(
-      'operation_worker_shutdown',
+      'operation_server_shutdown',
     );
+    expect(repository.cancelClaimedAttemptForLifecycle).toHaveBeenCalledWith({
+      organizationId: 'df3b198e-5b31-4f86-b054-bbf4852536a5',
+      runId: 'c2e779aa-f5bf-42c2-91f2-dc10be211c71',
+      expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      claimedBy: 'operations:test',
+      errorCode: 'operation_server_shutdown',
+      finishedAt: NOW,
+    });
     expect(repository.transition).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
   });
@@ -250,7 +259,7 @@ describe('OperationAttemptExecutorService', () => {
       dispatcher as never,
       { heartbeatRun: vi.fn(), transition: vi.fn() } as never,
     );
-    executor.abortAll(new Error('operation_worker_shutdown'));
+    executor.abortAll(new Error('operation_server_shutdown'));
 
     await executor.execute(run());
 
@@ -323,6 +332,7 @@ describe('OperationAttemptExecutorService', () => {
       {
         heartbeatRun: vi.fn().mockReturnValue(heartbeat.promise),
         transition: vi.fn(),
+        cancelClaimedAttemptForLifecycle: vi.fn().mockResolvedValue(false),
       } as never,
     );
 
@@ -331,7 +341,7 @@ describe('OperationAttemptExecutorService', () => {
       settled = true;
     });
     await vi.advanceTimersByTimeAsync(300);
-    executor.abortAll(new Error('operation_worker_shutdown'));
+    executor.abortAll(new Error('operation_server_shutdown'));
     await Promise.resolve();
     await Promise.resolve();
 

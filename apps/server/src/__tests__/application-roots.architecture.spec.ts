@@ -8,6 +8,13 @@ import { ApiApplicationModule } from '../api-application.module';
 import { AgentWorkerApplicationModule } from '../agent-worker-application.module';
 import { AgentMcpApplicationModule } from '../agent-mcp-application.module';
 import { OperationsModule } from '../operations/operations.module';
+import { OperationRunWorkerService } from '../operations/application/service/operation-run-worker.service';
+import { OperationSchedulerService } from '../operations/application/service/operation-scheduler.service';
+import {
+  DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
+  OPERATION_LIFECYCLE_OPTIONS,
+  OperationServerLifecycleService,
+} from '../operations/application/service/operation-server-lifecycle.service';
 import { OperatorRuntimeHandler } from '../agent-os/adapter/out/runtime/operator-runtime.handler';
 import { SourcingRuntimeHandler } from '../sourcing/adapter/out/runtime/sourcing-runtime.handler';
 import { OrderAgentRuntimeHandler } from '../supply/adapter/out/runtime/order-agent-runtime.handler';
@@ -162,6 +169,35 @@ describe('application root topology', () => {
     expect(apiProviders).not.toContain(SourcingCollectionApiCommandAdapter);
     expect(mcpProviders).toContain(SourcingCollectionApiCommandAdapter);
     expect(mcpProviders).not.toContain(SourcingCollectionOperationAdapter);
+  });
+
+  it('gives Nest lifecycle ownership only to the Operations server lifecycle service', () => {
+    const operationProviders: ProviderLike[] =
+      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, OperationsModule) ?? [];
+    const hookNames = [
+      'onModuleInit',
+      'onApplicationBootstrap',
+      'onModuleDestroy',
+      'beforeApplicationShutdown',
+    ];
+    const lifecycleProviders = operationProviders.filter(
+      (provider): provider is Function =>
+        typeof provider === 'function' &&
+        hookNames.some((hook) => typeof provider.prototype?.[hook] === 'function'),
+    );
+
+    expect(operationProviders).toContain(OperationSchedulerService);
+    expect(operationProviders).toContain(OperationRunWorkerService);
+    expect(lifecycleProviders).toEqual([OperationServerLifecycleService]);
+    expect(operationProviders).toContainEqual({
+      provide: OPERATION_LIFECYCLE_OPTIONS,
+      useValue: DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
+    });
+    expect(DEFAULT_OPERATION_LIFECYCLE_OPTIONS).toEqual({
+      batchSize: 100,
+      startupTimeoutMs: 30_000,
+      shutdownTimeoutMs: 5_000,
+    });
   });
 
   it('leaves no production import of the retired shared AppModule', () => {

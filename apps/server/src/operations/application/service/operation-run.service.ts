@@ -17,6 +17,7 @@ import {
   COMPOSITE_OPERATION_COORDINATOR_PORT,
   type CompositeOperationCoordinatorPort,
 } from '../port/in/composite-operation-coordinator.port';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
@@ -35,9 +36,11 @@ export class OperationRunService implements OperationRunnerPort {
     private readonly repository: OperationRunRepositoryPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
   ) {}
 
   async start(command: StartOperationCommand): Promise<OperationRun> {
+    this.lifecycleGate.assertAccepting();
     const definition = this.registry.getDefinition(command.operationKey);
     if (!definition.allowedTriggers.includes(command.triggerSource)) {
       throw new Error(`trigger_not_allowed: ${command.triggerSource}`);
@@ -53,8 +56,12 @@ export class OperationRunService implements OperationRunnerPort {
       if (existing) return this.toWire(existing);
     }
 
+    this.lifecycleGate.assertAccepting();
+    const signal = this.lifecycleGate.signal();
+    signal.throwIfAborted();
     return this.toWire(
       await this.repository.createRun({
+        signal,
         organizationId: command.organizationId,
         operationKey: definition.key,
         definitionVersion: definition.version,

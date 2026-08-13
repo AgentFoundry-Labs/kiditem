@@ -13,12 +13,14 @@ class ParentFenceLostError extends Error {}
 export async function createFencedCompositeChild(
   prisma: PrismaService,
   input: {
+    signal: AbortSignal;
     parentOrganizationId: string;
     parentRunId: string;
     expectedAttemptToken: string;
-    child: CreateOperationRunRecord;
+    child: Omit<CreateOperationRunRecord, 'signal'>;
   },
 ): Promise<ChildRunIdentity | null> {
+  input.signal.throwIfAborted();
   if (
     input.child.organizationId !== input.parentOrganizationId ||
     input.child.parentRunId !== input.parentRunId ||
@@ -35,6 +37,7 @@ export async function createFencedCompositeChild(
 
   try {
     return await prisma.$transaction(async (transaction) => {
+      input.signal.throwIfAborted();
       const fencedParent = await transaction.$queryRaw<Array<{ id: string }>>`
         WITH locked_parent AS MATERIALIZED (
           SELECT id,
@@ -60,6 +63,7 @@ export async function createFencedCompositeChild(
           AND deadline_at IS NOT NULL
           AND deadline_at > locked_at
       `;
+      input.signal.throwIfAborted();
       if (fencedParent.length !== 1) return null;
 
       let child = await transaction.operationRun.findFirst({
@@ -70,6 +74,7 @@ export async function createFencedCompositeChild(
         },
         select: { id: true, organizationId: true },
       });
+      input.signal.throwIfAborted();
       child ??= await transaction.operationRun.create({
         data: {
           organizationId: input.child.organizationId,
@@ -92,6 +97,8 @@ export async function createFencedCompositeChild(
         select: { id: true, organizationId: true },
       });
 
+      input.signal.throwIfAborted();
+
       const transitioned = await transaction.$queryRaw<Array<{ id: string }>>`
         UPDATE operation_runs
         SET status = 'waiting_dependency',
@@ -110,6 +117,7 @@ export async function createFencedCompositeChild(
           AND deadline_at > clock_timestamp()
         RETURNING id
       `;
+      input.signal.throwIfAborted();
       if (transitioned.length !== 1) throw new ParentFenceLostError();
 
       return { runId: child.id, organizationId: child.organizationId };

@@ -57,6 +57,7 @@ export interface OperationRunRecord {
 }
 
 export interface CreateOperationRunRecord {
+  signal: AbortSignal;
   organizationId: string;
   operationKey: string;
   definitionVersion: number;
@@ -76,6 +77,7 @@ export interface CreateOperationRunRecord {
 }
 
 export interface OperationRunTransition {
+  signal?: AbortSignal;
   organizationId: string;
   runId: string;
   expectedStatuses: readonly OperationStatus[];
@@ -97,7 +99,6 @@ export interface OperationRunTransition {
   claimedAt?: Date | null;
   leaseExpiresAt?: Date | null;
   expectedAttemptToken?: string | null;
-  attemptDelta?: number;
 }
 
 export type OperationActiveAttemptTransition = Pick<
@@ -167,10 +168,11 @@ export interface OperationRunRepositoryPort {
   }): Promise<OperationRunRecord | null>;
   createRun(input: CreateOperationRunRecord): Promise<OperationRunRecord>;
   createChildAndWaitForDependency(input: {
+    signal: AbortSignal;
     parentOrganizationId: string;
     parentRunId: string;
     expectedAttemptToken: string;
-    child: CreateOperationRunRecord;
+    child: Omit<CreateOperationRunRecord, 'signal'>;
   }): Promise<OperationRunRecord | null>;
   listRuns(input: {
     organizationId: string;
@@ -262,6 +264,7 @@ export interface OperationRunRepositoryPort {
     nextRunAt: Date;
   }): Promise<boolean>;
   claimNextBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runtimeId: string;
     now: Date;

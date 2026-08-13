@@ -10,6 +10,7 @@ import {
   type OperationRunRecord,
   type OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const CANCELLABLE_CHILD_STATUSES = [
   'queued',
@@ -28,12 +29,14 @@ export class CompositeOperationCoordinatorService
     private readonly registry: OperationHandlerRegistryPort,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
   ) {}
 
   async waitForChild(input: {
     parent: OperationRunRecord;
     child: StartChildOperation;
   }): Promise<void> {
+    this.lifecycleGate.assertAccepting();
     if (!input.parent.attemptToken) {
       throw new Error('operation_attempt_token_missing');
     }
@@ -43,7 +46,11 @@ export class CompositeOperationCoordinatorService
       input.child.operationKey,
       input.child.input,
     );
+    this.lifecycleGate.assertAccepting();
+    const signal = this.lifecycleGate.signal();
+    signal.throwIfAborted();
     const child = await this.repository.createChildAndWaitForDependency({
+      signal,
       parentOrganizationId: input.parent.organizationId,
       parentRunId: input.parent.id,
       expectedAttemptToken: attemptToken,
@@ -80,8 +87,10 @@ export class CompositeOperationCoordinatorService
   }
 
   async resumeTerminalChildren(now: Date): Promise<void> {
+    this.lifecycleGate.assertAccepting();
     const parents = await this.repository.listWaitingDependencyParents({ limit: 100 });
     for (const parent of parents) {
+      this.lifecycleGate.assertAccepting();
       const child = (await this.repository.listChildRuns({
         organizationId: parent.organizationId,
         parentRunId: parent.id,
@@ -89,12 +98,13 @@ export class CompositeOperationCoordinatorService
       if (!child || !isTerminal(child.status)) continue;
 
       if (child.status === 'succeeded') {
+        this.lifecycleGate.assertAccepting();
         await this.repository.transition({
+          signal: this.lifecycleGate.signal(),
           organizationId: parent.organizationId,
           runId: parent.id,
           expectedStatuses: ['waiting_dependency'],
           status: 'queued',
-          attemptDelta: -1,
           errorCode: null,
           errorMessage: null,
           finishedAt: null,
@@ -102,7 +112,9 @@ export class CompositeOperationCoordinatorService
         continue;
       }
 
+      this.lifecycleGate.assertAccepting();
       await this.repository.transition({
+        signal: this.lifecycleGate.signal(),
         organizationId: parent.organizationId,
         runId: parent.id,
         expectedStatuses: ['waiting_dependency'],

@@ -17,7 +17,13 @@ import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
+import {
+  OPERATION_RUNNER_PORT,
+  type OperationRunnerPort,
+} from '../port/in/operation-runner.port';
 import { resolveOperationRunLeaseMs } from './operation-runtime.config';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
+import { randomUUID } from 'node:crypto';
 
 @Injectable()
 export class BrowserOperationRuntimeService {
@@ -28,6 +34,9 @@ export class BrowserOperationRuntimeService {
     private readonly registry: OperationHandlerRegistryPort,
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
+    @Inject(OPERATION_RUNNER_PORT)
+    private readonly runner: OperationRunnerPort,
   ) {}
 
   async claim(input: {
@@ -35,14 +44,33 @@ export class BrowserOperationRuntimeService {
     runtimeId: string;
     environmentId: 'local' | 'office';
   }): Promise<BrowserOperationClaim | null> {
+    this.lifecycleGate.assertAccepting();
+    const signal = this.lifecycleGate.signal();
+    signal.throwIfAborted();
     const now = new Date();
     const run = await this.repository.claimNextBrowserRun({
+      signal,
       organizationId: input.organizationId,
       runtimeId: `${input.environmentId}:${input.runtimeId}`,
       now,
       leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
     });
     if (!run) return null;
+    try {
+      this.lifecycleGate.assertAccepting();
+    } catch (error) {
+      if (run.attemptToken && run.claimedBy) {
+        await this.repository.cancelClaimedAttemptForLifecycle({
+          organizationId: run.organizationId,
+          runId: run.id,
+          expectedAttemptToken: run.attemptToken,
+          claimedBy: run.claimedBy,
+          errorCode: 'operation_server_shutdown',
+          finishedAt: new Date(),
+        }).catch(() => false);
+      }
+      throw error;
+    }
 
     const definition = this.registry.getDefinition(run.operationKey);
     if (definition.engineType !== 'browser') {
@@ -100,7 +128,12 @@ export class BrowserOperationRuntimeService {
     if (!run) throw new ConflictException('browser_runtime_fence_lost');
   }
 
-  async retry(input: { organizationId: string; runId: string }): Promise<void> {
+  async retry(input: {
+    organizationId: string;
+    runId: string;
+    requestedByUserId: string;
+  }): Promise<void> {
+    this.lifecycleGate.assertAccepting();
     const current = await this.repository.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,
@@ -109,23 +142,15 @@ export class BrowserOperationRuntimeService {
     if (current.engineType !== 'browser' || current.status !== 'attention_required') {
       throw new BadRequestException('browser_operation_not_retryable');
     }
-    const attemptDelta = current.attempts >= current.maxAttempts
-      ? current.maxAttempts - 1 - current.attempts
-      : undefined;
-    const resumed = await this.repository.transition({
+    this.lifecycleGate.assertAccepting();
+    await this.runner.start({
       organizationId: input.organizationId,
-      runId: input.runId,
-      expectedStatuses: ['attention_required'],
-      status: 'waiting_runtime',
-      ...(attemptDelta === undefined ? {} : { attemptDelta }),
-      errorCode: null,
-      errorMessage: null,
-      claimedBy: null,
-      attemptToken: null,
-      claimedAt: null,
-      leaseExpiresAt: null,
+      operationKey: current.operationKey,
+      triggerSource: 'dashboard',
+      input: current.input,
+      requestedByUserId: input.requestedByUserId,
+      idempotencyKey: `retry:${current.id}:${randomUUID()}`,
     });
-    if (!resumed) throw new ConflictException('browser_runtime_fence_lost');
   }
 
   private reportTransition(input: {
