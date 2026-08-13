@@ -123,9 +123,33 @@ describe('ProductOperationsService', () => {
     ]));
   });
 
-  it('counts negative profit only from the current ABC contribution-profit evaluation', async () => {
+  it('counts only negative ABC contribution profit across the full pre-pagination result', async () => {
     const repository = makeRepository();
-    const negative = rawListProduct(productId);
+    const positive = rawListProduct(productId);
+    positive.abcEvaluation = {
+      abcGrade: 'A',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 12_000,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const zero = rawListProduct('00000000-0000-4000-8000-000000000097');
+    zero.abcEvaluation = {
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 0,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const missing = rawListProduct('00000000-0000-4000-8000-000000000098');
+    missing.abcEvaluation = {
+      abcGrade: null,
+      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+      weightedContributionProfit: null,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const negative = rawListProduct('00000000-0000-4000-8000-000000000099');
     negative.abcEvaluation = {
       abcGrade: 'C',
       calculationStatus: 'READY',
@@ -133,23 +157,25 @@ describe('ProductOperationsService', () => {
       formula: null,
       sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
     } as never;
-    const missing = rawListProduct('00000000-0000-4000-8000-000000000099');
     repository.listProducts.mockResolvedValue({
-      items: [negative, missing],
+      items: [positive, zero, missing, negative],
       page: 1,
-      limit: 50,
+      limit: 1,
       sellingChannelProducts: [],
     });
     const service = makeService(repository);
 
     const result = await service.listProducts(organizationId, {
       page: 1,
-      limit: 50,
+      limit: 1,
       periodDays: 30,
       activeStatus: 'all',
       adStatus: 'all',
     });
 
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.id).toBe(positive.id);
+    expect(result.total).toBe(4);
     expect(result.summary.negativeProfitCount).toBe(1);
   });
 

@@ -8,8 +8,8 @@ accounting logic in the browser.
 ## Owned Surfaces
 
 - Profit/loss period views
-- Sales analysis, statistics, sales-plan, Sellpia-backed channel analysis, and
-  Wing daily-sales tabs
+- Sales analysis, overview/product/category/grade/Pareto/repurchase statistics,
+  sales-plan, Sellpia-backed channel analysis, and Wing daily-sales tabs
 - Settlement list, reconciliation, and confirmation inside `/sales-analysis`
 - Downloadable product, P&L, inventory, and advertising reports
 

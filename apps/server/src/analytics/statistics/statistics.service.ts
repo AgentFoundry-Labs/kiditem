@@ -9,7 +9,6 @@ import type {
   StatisticsGradeRow,
   StatisticsParetoResponse,
   StatisticsRepurchaseResponse,
-  StatisticsDeliveryResponse,
 } from '@kiditem/shared/statistics';
 import type { Prisma } from '@prisma/client';
 
@@ -119,112 +118,6 @@ export class StatisticsService {
         count: data.orders,
       } satisfies StatisticsCategoryRow))
       .sort((a, b) => b.revenue - a.revenue);
-  }
-
-  async delivery(organizationId: string, period?: string) {
-    const shippingWhere: Prisma.OrderWhereInput = {
-      organizationId,
-      shippedAt: period
-        ? (() => {
-            const { from, to } = this.resolveWindow(period);
-            return { gte: from, lt: to };
-          })()
-        : { not: null },
-    };
-
-    const shippedOrders = await this.prisma.order.findMany({
-      where: shippingWhere,
-      select: {
-        shippedAt: true,
-        deliveredAt: true,
-        shippingCompany: true,
-      },
-    });
-
-    const completedDeliveryDays = shippedOrders.flatMap((order) => {
-      if (!order.shippedAt || !order.deliveredAt) return [];
-      return [Math.max(
-        0,
-        Math.ceil((order.deliveredAt.getTime() - order.shippedAt.getTime()) / 86_400_000),
-      )];
-    });
-    const avgDeliveryDays = completedDeliveryDays.length > 0
-      ? Math.round(
-          (completedDeliveryDays.reduce((sum, days) => sum + days, 0)
-            / completedDeliveryDays.length) * 10,
-        ) / 10
-      : 0;
-
-    const courierMap = new Map<string, number>();
-    for (const order of shippedOrders) {
-      const name = order.shippingCompany ?? '미지정';
-      courierMap.set(name, (courierMap.get(name) ?? 0) + 1);
-    }
-
-    const courierDistribution = Array.from(courierMap.entries())
-      .map(([courier, count]) => ({ courier, count }))
-      .sort((a, b) => b.count - a.count);
-
-    // Daily shipment counts (last 30 days)
-    const now = new Date();
-    const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
-    const dailyShippedOrders = await this.prisma.order.findMany({
-      where: {
-        organizationId,
-        shippedAt: { gte: thirtyDaysAgo, lte: now },
-      },
-      select: { shippedAt: true },
-    });
-
-    const dailyMap = new Map<string, number>();
-    for (let i = 0; i < 30; i++) {
-      const d = new Date(now.getTime() - (29 - i) * 86400000);
-      dailyMap.set(d.toISOString().slice(0, 10), 0);
-    }
-    for (const order of dailyShippedOrders) {
-      if (order.shippedAt) {
-        const key = order.shippedAt.toISOString().slice(0, 10);
-        if (dailyMap.has(key)) {
-          dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1);
-        }
-      }
-    }
-    // Daily order counts/revenue (last 30 days)
-    const dailyOrders = await this.prisma.order.findMany({
-      where: {
-        organizationId,
-        orderedAt: { gte: thirtyDaysAgo, lte: now },
-        status: { notIn: ['cancelled', 'returned'] },
-      },
-      select: {
-        orderedAt: true,
-        totalPrice: true,
-        lineItems: { select: { quantity: true } },
-      },
-    });
-
-    const orderDailyMap = new Map<string, { orders: number; revenue: number; qty: number }>();
-    for (const o of dailyOrders) {
-      if (!o.orderedAt) continue;
-      const key = o.orderedAt.toISOString().slice(0, 10);
-      const entry = orderDailyMap.get(key) ?? { orders: 0, revenue: 0, qty: 0 };
-      entry.orders += 1;
-      entry.revenue += o.totalPrice ?? 0;
-      entry.qty += o.lineItems.reduce((s, li) => s + li.quantity, 0);
-      orderDailyMap.set(key, entry);
-    }
-
-    const daily = Array.from(dailyMap.entries()).map(([date, count]) => {
-      const orderEntry = orderDailyMap.get(date) ?? { orders: 0, revenue: 0, qty: 0 };
-      return { date, count, ...orderEntry };
-    });
-
-    return {
-      totalShipments: shippedOrders.length,
-      avgDeliveryDays,
-      courierDistribution,
-      daily,
-    } satisfies StatisticsDeliveryResponse;
   }
 
   async grades(organizationId: string, period?: string) {

@@ -351,12 +351,12 @@ describe('OperationAlertLifecycleController.start', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('routes the installed Rocket dashboard producer to the current operator page', async () => {
+  it('routes the canonical Rocket PO producer to the operator page', async () => {
     const { controller, service } = makeController();
     service.start.mockResolvedValueOnce(
       alertRow({
-        title: '쿠팡 로켓 매출 수집',
-        sourceId: 'dashboard.rocket_sales',
+        title: '쿠팡 로켓 PO 수집',
+        sourceId: 'orders.coupang_rocket_po',
         href: `/rocket-orders?collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
@@ -367,7 +367,7 @@ describe('OperationAlertLifecycleController.start', () => {
         type: 'browser_collection',
         title: 'client title ignored',
         sourceType: 'browser_collection_session',
-        sourceId: 'dashboard.rocket_sales',
+        sourceId: 'orders.coupang_rocket_po',
         href: '/settings',
         metadata: COLLECTION_ORDERING_METADATA,
       },
@@ -381,9 +381,9 @@ describe('OperationAlertLifecycleController.start', () => {
         operationKey: OPERATION_KEY,
         actorUserId: USER_ID,
         type: 'browser_collection',
-        title: '쿠팡 로켓 매출 수집',
+        title: '쿠팡 로켓 PO 수집',
         sourceType: 'browser_collection_session',
-        sourceId: 'dashboard.rocket_sales',
+        sourceId: 'orders.coupang_rocket_po',
         href: `/rocket-orders?collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );

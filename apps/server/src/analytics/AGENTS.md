@@ -23,7 +23,7 @@ import owner-domain services or take mutation authority from them.
 ## Main Data Models
 
 Analytics reads, but does not own, order, channel, product, inventory, alert,
-thumbnail, supplier, purchase, payment, and shipment tables for reporting.
+thumbnail, supplier, purchase, and payment tables for reporting.
 Dashboard is the strictest surface because it owns raw SQL and report
 hydration.
 
@@ -58,8 +58,8 @@ Analytics may directly read:
 - Channel listings/options/daily snapshots/account KPI/scrape audit rows.
 - Products/options for metadata, grade, category, and pricing inputs.
 - Inventory, alerts, grade history, and thumbnails for dashboard snapshots.
-- Supplier, supplier product, purchase order, supplier payment, and shipment
-  tables for supplier and delivery reports.
+- Supplier, supplier product, purchase order, and supplier payment tables for
+  supplier reports.
 
 ## Boundary Rules
 

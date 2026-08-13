@@ -4,8 +4,8 @@ import { zIsoDate } from './common.js';
 /**
  * Statistics domain response schemas — Plan B2c.orders T10.
  *
- * Backend `StatisticsService` 의 7 메서드 (overview / products / categories / grades /
- * pareto / repurchase / delivery) return literal 에 `satisfies <Xxx>` 바인딩.
+ * Backend `StatisticsService` 의 6 메서드 (overview / products / categories / grades /
+ * pareto / repurchase) return literal 에 `satisfies <Xxx>` 바인딩.
  * ProfitLoss.listing.master 기반 listingId-primary shape (3-layer product schema + channel-agnostic Order).
  */
 
@@ -121,24 +121,3 @@ export const StatisticsRepurchaseResponseSchema = z.object({
   repeatCustomers: z.array(StatisticsRepurchaseCustomerSchema),
 });
 export type StatisticsRepurchaseResponse = z.infer<typeof StatisticsRepurchaseResponseSchema>;
-
-// ───── Delivery ─────
-
-export const StatisticsDeliveryDailySchema = z.object({
-  date: z.string(),
-  count: z.number().int(),
-  orders: z.number().int(),
-  revenue: z.number().int(),
-  qty: z.number().int(),
-});
-export type StatisticsDeliveryDaily = z.infer<typeof StatisticsDeliveryDailySchema>;
-
-export const StatisticsDeliveryResponseSchema = z.object({
-  totalShipments: z.number().int(),
-  avgDeliveryDays: z.number(),
-  courierDistribution: z.array(
-    z.object({ courier: z.string(), count: z.number().int() }),
-  ),
-  daily: z.array(StatisticsDeliveryDailySchema),
-});
-export type StatisticsDeliveryResponse = z.infer<typeof StatisticsDeliveryResponseSchema>;

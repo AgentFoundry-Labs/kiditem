@@ -2,7 +2,6 @@ import { z } from 'zod';
 
 export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.wing_sales',
-  'dashboard.rocket_sales',
   'dashboard.coupang_ads',
   'dashboard.coupang_products',
   'dashboard.wing_kpi',

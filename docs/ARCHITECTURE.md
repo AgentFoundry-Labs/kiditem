@@ -205,7 +205,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
-| `apps/server/src/analytics/statistics` | Flat | read service. |
+| `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
 | `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
