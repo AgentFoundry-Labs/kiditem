@@ -538,7 +538,6 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
       status: z.literal('matched'),
       sellpiaInventorySkuId: z.string().uuid(),
       currentStock: z.number().int().nonnegative(),
-      activeCommitmentQuantity: z.number().int().nonnegative(),
       availableStock: z.number().int().nonnegative(),
       salesRowCount: z.number().int().positive(),
       inventoryProduct: SellpiaInventoryMasterProductSchema.nullable(),
@@ -547,15 +546,11 @@ export const SellpiaProductInventoryResolutionSchema = z.discriminatedUnion(
   ],
 ).superRefine((resolution, ctx) => {
   if (resolution.status !== 'matched') return;
-  const expectedAvailableStock = Math.max(
-    resolution.currentStock - resolution.activeCommitmentQuantity,
-    0,
-  );
-  if (resolution.availableStock !== expectedAvailableStock) {
+  if (resolution.availableStock !== resolution.currentStock) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['availableStock'],
-      message: 'availableStock must equal currentStock minus activeCommitmentQuantity',
+      message: 'availableStock must equal currentStock',
     });
   }
 });

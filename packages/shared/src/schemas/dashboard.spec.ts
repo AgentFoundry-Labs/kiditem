@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   DashboardInventorySummarySchema,
+  SellpiaProductInventoryResolutionSchema,
   SellpiaProductSalesIngestPayloadSchema,
   SellpiaSalesIngestPayloadSchema,
   SellpiaSalesSummarySchema,
@@ -15,6 +16,24 @@ describe('dashboard schemas', () => {
     responseShape: 'empty_object' as const,
     explicitEmpty: true as const,
   };
+
+  it('requires matched Sellpia availability to equal physical current stock', () => {
+    const resolution = {
+      status: 'matched' as const,
+      sellpiaInventorySkuId: '11111111-1111-4111-8111-111111111111',
+      currentStock: 30,
+      availableStock: 30,
+      salesRowCount: 1,
+      inventoryProduct: null,
+      destinations: [],
+    };
+
+    expect(SellpiaProductInventoryResolutionSchema.parse(resolution)).toEqual(resolution);
+    expect(() => SellpiaProductInventoryResolutionSchema.parse({
+      ...resolution,
+      availableStock: 29,
+    })).toThrow(/availableStock/i);
+  });
 
   it('uses stored profitability status, contribution profit, and formula context', () => {
     expect(DashboardInventorySummarySchema.parse({

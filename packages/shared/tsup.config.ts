@@ -27,7 +27,7 @@ export default defineConfig({
     'src/coupang-direct-order.ts',
     'src/channel-sku-matching.ts',
     'src/channel-sku-availability.ts',
-    'src/inventory-commitment.ts',
+    'src/inventory-availability.ts',
     'src/product-operations.ts',
     'src/product-abc.ts',
     'src/channel-product-matching.ts',
