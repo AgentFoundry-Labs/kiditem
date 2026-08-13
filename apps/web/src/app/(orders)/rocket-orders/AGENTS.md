@@ -1,95 +1,32 @@
-Consult this document first instead of relying on memorized knowledge.
+# web/rocket-orders — Rocket Review Workspace
 
-# web/rocket-orders - Preserved Rocket Operations
+`/rocket-orders` is the only operator-facing Rocket review route. Preserve
+the calendar, chart, preview/workbook panel position, and local file history.
+The date-scoped PO list is part of the preview table and must not become a
+second list.
 
-`app/(orders)/rocket-orders/` owns the independently reachable Rocket
-operations UI from `c9e7caf8`. Keep the `RocketOrdersWorkspace` calendar,
-chart, workbook-panel position, and local file-history composition.
-`/rocket-orders` is the only operator-facing Rocket review route.
+## Contract
 
-The separate per-date PO list was absorbed into the preview table, so PO
-identity (center, inbound type, PO status, ordered-at) and ordered amount are
-line-level columns there. Do not reintroduce a second date-scoped order list;
-selecting a calendar date only narrows the preview.
-
-## State Rules
-
-- The selected Rocket `ChannelAccount` scopes every catalog list, saved-source
-  load and preview request.
-- Manual extension collection and catalog publication go through
-  `collectAndPersistRocketPurchaseOrders`. The preserved Rocket button and the
-  dashboard button share that action; the screen alone continues with its
-  existing preview-state projection after the shared save succeeds. Manual
-  collection publishes the `orders.coupang_rocket_po` browser session so it is
-  not mislabeled as generic mall order collection.
-- If several active Rocket accounts exist, require an explicit compact account
-  choice. Changing the account clears the selected source/preview.
-- Calendar and PO summaries come from `listSavedRocketPos`. Reopen evidence by
-  its exact `sourceImportRunId`; never merge rows from separate source runs.
-- Request the saved-PO v2 response profile for export evidence compatibility,
-  but treat any legacy repeated snapshots as non-operational history. The
-  calendar and preview use the newest complete source run only.
-- Load the newest saved source automatically even before a date is selected.
-  A date scopes the visible preview and workbook decision to that delivery
-  date while the server still validates and allocates against the complete
-  newest source snapshot. A newer successful collection immediately replaces
-  the selected source; never expose a historical-source picker or merge rows
-  from separate runs.
-- Channels retains only the newest raw `RocketPoCatalogSnapshot` payload per
-  account after a successful publication. Supply-owned workbook decisions and
-  artifacts remain immutable evidence even when the raw predecessor is pruned.
-- The preview always displays the complete selected snapshot. A prior workbook
-  download never filters, hides, or locks preview rows.
-- A quantity or shortage-reason edit makes the preview dirty and disables
-  workbook export until one whole-preview server revalidation succeeds.
-- A recipe-backed `insufficient_capacity` row always uses reviewed/workbook
-  quantity `0`; never confirm a partial quantity from `maxQuantity`. The
-  operator may review only its shortage reason.
-- Opening or recalculating an operator preview uses the latest stored Sellpia
-  snapshot immediately and never waits for a background refresh. Official
-  workbook export remains server-fenced by a fresh inventory generation.
-- Product-link and component-review blockers link to the existing
-  Product Hub matching center. A `configuration_required` row already has a
-  confirmed channel option identity, so it creates the empty Sellpia component
-  rule directly in the Rocket table through the Products-owned endpoint.
-  A configured row displays each Sellpia component code and name and may replace
-  the complete recipe inline through Products' expected-recipe-fenced manual API.
-  After any correction, rerun the same saved-source preview; do not collect from
-  Coupang again. Quantity and shortage-reason controls stay disabled until the
-  blocker clears. Only a recipe-backed insufficient-capacity row may proceed
-  with an explicit shortage reason.
-- Workbook generation runs in the browser from the freshly revalidated preview
-  and downloads immediately. The operator flow ends at download; do not add
-  workbook-status, exact re-download, abandonment, or completion controls.
-
-## Boundary Rules
-
-- Use Supply actions on `POST /api/purchase-orders`: `previewRocket`,
-  `listSavedRocketPos`, and `loadSavedRocketCollection`. Do not add
-  `/api/orders/rocket/*` calls or a post-download workbook API workflow.
-- Catalog evidence is `SourceImportRun` + `RocketPoCatalogSnapshot` +
-  `RocketPoCatalogLine`. The durable Rocket workflow and exact workbook artifact
-  are stored by Supply; Rocket does not create inventory commitments.
-- Every downloaded workbook line, including a zero-quantity line, requires
-  its current confirmed active `ChannelListingOptionInventoryComponent` rule.
-  Never export
-  a draft workbook from an unmapped or stock-only row.
-- Workbook download must not call a marketplace provider or mutate Sellpia
-  physical stock. Reopening saved evidence reruns current Inventory freshness
-  and capacity.
-- Inline Rocket component repair may select active Sellpia inventory identities and
-  positive component quantities only. It may create an empty recipe or replace
-  an operator-reviewed complete recipe with optimistic current-recipe evidence;
-  it does not infer product identity or mutate stock.
-- Display each Sellpia component's product code, product name, and `currentStock`.
-  Within one preview/export, shared SKU
-  capacity is consumed from one in-memory remaining-stock map in stable
+- The selected active Rocket account scopes collection, source lists, saved
+  evidence, and preview. Multiple accounts require explicit selection.
+- Manual and dashboard collection share
+  `collectAndPersistRocketPurchaseOrders`. Reopen one exact complete source
+  run; never merge runs or expose a historical-source picker.
+- Load the newest source automatically. Date selection narrows display and the
+  workbook decision while server validation uses the complete source snapshot.
+- Preview always shows the complete selected evidence. Quantity/reason edits
+  make it dirty until whole-preview server revalidation succeeds.
+- Preview reads the latest stored Sellpia snapshot immediately. Official export
+  remains server-fenced to a fresh generation.
+- Mapping blockers link to Product Hub. A confirmed option may create an empty
+  component rule or replace a fully reviewed recipe through Products'
+  optimistic API, then rerun the same source preview.
+- Only recipe-backed insufficient capacity may continue with reviewed quantity
+  zero and a shortage reason. Shared components allocate once in stable
   ETA/PO/line order.
-- Do not replace or rearrange the preserved shell when integrating the shared
-  workflow.
+- Browser workbook generation follows successful server revalidation and ends
+  at download. Do not add provider submission, post-download workflow,
+  commitment, stock mutation, or alternate workbook APIs.
 
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(orders\)/rocket-orders
-```
+Focused specs in this directory own the exact preserved shell, calendar/source
+selection, blockers, allocation display, edit/revalidation, and export gates.

@@ -32,6 +32,10 @@ export function findStaleInstructionLines(file, content) {
     { name: 'placeholder', re: /\b(?:TODO|TBD)\b/i },
     { name: 'deferred work note', re: /(?:follow-up|후속)\s+(?:PR|issue|issues|work|작업|이슈|lane|plan)/i },
     { name: 'Claude review command', re: /\bclaude\s+\/review\b/i },
+    {
+      name: 'generic instruction boilerplate',
+      re: /^Consult this document first instead of relying on memorized knowledge\.$/i,
+    },
   ];
 
   const allow = [
@@ -97,7 +101,7 @@ export function findClaudeShimFindings(agentFiles, claudeContents) {
 
 export function findInstructionChainSizeFindings(
   agentContents,
-  limitBytes = 24 * 1024,
+  limitBytes = 18 * 1024,
 ) {
   const findings = [];
   for (const agentFile of agentContents.keys()) {

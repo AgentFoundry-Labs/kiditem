@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/components/providers - Global React Providers
 
 `components/providers/` owns app-wide provider composition for React Query,
@@ -43,9 +41,3 @@ here affect every route.
 - `BrowserCollectionProvider` excludes `inventory.sellpia`; only the extension
   browser runtime may upload/finalize/cancel that run. OperationRun is the
   terminal audit record; legacy Operation Alerts remain projection-only.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/components/providers
-```

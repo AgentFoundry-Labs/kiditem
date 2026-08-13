@@ -4,13 +4,7 @@
   "title": "SourcingAgentAnswerV1",
   "type": "object",
   "additionalProperties": false,
-  "required": [
-    "text",
-    "citationIds",
-    "dataGaps",
-    "resourceRefs",
-    "operationRunId"
-  ],
+  "required": ["text", "citationIds", "dataGaps", "resourceRefs", "operationRunId"],
   "properties": {
     "text": { "type": "string", "minLength": 1, "maxLength": 6000 },
     "citationIds": {
@@ -46,8 +40,10 @@
       }
     },
     "operationRunId": {
-      "type": ["string", "null"],
-      "format": "uuid"
+      "anyOf": [
+        { "type": "string", "format": "uuid" },
+        { "type": "null" }
+      ]
     }
   }
 }

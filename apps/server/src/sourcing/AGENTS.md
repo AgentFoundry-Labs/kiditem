@@ -40,7 +40,6 @@ sourcing/
   `DELETE /api/sourcing/candidates/:id`
 - Product preparation: `POST /api/sourcing/candidates/:id/preparations`,
   `PATCH /api/sourcing/preparations/:id`, and preparation submit/cancel routes
-- Candidate rejection and quick AI processing: `/api/sourcing/candidates/:id/*`
 - Decision intelligence: `/api/sourcing/intelligence/sources`,
   `/evidence-runs`, `/launch-candidates`, `/decision-batches`, and
   `/decision-items/:id/procurement-intents` beneath that prefix
@@ -62,7 +61,6 @@ catches single-segment paths and fails as a bad candidate UUID.
 - `SourcingDecisionBatch`, items, and evidence freeze server-derived baseline
   shadow decisions. Coverage confidence is never a calibrated probability and
   `policyProbability` remains null until a real assignment ledger exists.
-- `CandidateImage` stores source images attached to a candidate.
 - `ProductPreparation` owns the operator-reviewed input, selected content, and
   legacy lifecycle compatibility columns for one candidate/account attempt.
   It is not authoritative for provider side effects.
@@ -76,8 +74,6 @@ catches single-segment paths and fails as a bad candidate UUID.
   a `MasterProduct`.
 - Registration ledger, provider-call, uncertain-outcome, and retry invariants
   are defined in [Account-Scoped Registration And Content Ownership](../../../../docs/ARCHITECTURE.md#account-scoped-registration-and-content-ownership-0180125).
-- AI-generated detail pages, thumbnails, and content assets remain owned by the
-  AI domain.
 
 ## Cross-Domain Ports
 
@@ -152,8 +148,7 @@ Failure: retrieval-only.
 
 ## Capability Surface
 
-Sourcing is the first domain adopting the shared capability manifest model. The
-initial manifest lives in `domain/capability/sourcing.capabilities.ts`:
+The manifest lives in `domain/capability/sourcing.capabilities.ts`:
 
 - `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
 - `sourcing.scrapeProductUrl` (`tool`) is an internal deterministic bridge for
@@ -170,9 +165,8 @@ initial manifest lives in `domain/capability/sourcing.capabilities.ts`:
 The dashboard assistant reaches Claude/Codex only through
 `AGENT_INTERACTION_PORT`; Sourcing does not own a second CLI subprocess path.
 
-Capability manifests describe the platform-facing surface only. Agent OS and
-automation must reach sourcing through incoming ports/capability dispatch, not
-by importing sourcing application services directly.
+Agent OS and automation reach sourcing through incoming capability ports, not
+by importing sourcing application services.
 
 ## Boundary Rules
 

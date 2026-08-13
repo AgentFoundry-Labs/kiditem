@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { findAgentDefinitionByType } from '../domain/agent-definition.registry';
-import { resolveAgentOsRepositoryRoot, resolveSeedAdapterType } from '../seed-agent-os';
+import {
+  resolveAgentOsRepositoryRoot,
+  resolveSeedAdapterType,
+} from '../seed-agent-os';
 
 afterEach(() => {
   vi.unstubAllEnvs();

@@ -2,8 +2,7 @@
 
 `docs/` is for durable project documentation: current architecture, testing
 policy, maintained implementation plans and design specs, AI-executable
-runbooks, generated navigation, shared development data operations, and release
-notes that explain shipped behavior.
+runbooks, generated navigation, and shared development data operations.
 
 Keep implementation plans and design specs under `superpowers/` current as
 decisions, scope, and verification change. Disposable scratch files, agent
@@ -20,7 +19,6 @@ git; promote enduring rules into the nearest scoped `AGENTS.md`.
 | Shared Google Drive dev data concepts and operations | [DEV_DATA_BUNDLES.md](DEV_DATA_BUNDLES.md) |
 | Machine setup / repeatable procedures for AI agents | [runbooks/](runbooks/) |
 | Schema ERD and domain diagrams | [ERD.md](ERD.md), [erd/](erd/) |
-| Shipped behavior notes | [release-notes/](release-notes/) |
 | Vendor/reference source files | [references/](references/) |
 
 ## Directory Rules
@@ -29,8 +27,6 @@ git; promote enduring rules into the nearest scoped `AGENTS.md`.
 - `superpowers/plans/` and `superpowers/specs/` contain maintained
   implementation plans and design decisions. Update them when implementation
   changes their authoritative scope, sequence, or verification.
-- `release-notes/` contains dated notes for shipped behavior and migration
-  context. Keep plans and specs under `superpowers/`, not release notes.
 - `references/` contains vendor docs and source assets used as reference
   material. Heavy binary files are allowed only when they are durable inputs.
 - `erd/` contains generated domain ERD pages.

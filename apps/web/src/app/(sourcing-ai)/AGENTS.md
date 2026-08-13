@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/sourcing-ai - Sourcing Discovery Workspace
 
 `app/(sourcing-ai)/` owns AI-assisted sourcing discovery: keyword work,

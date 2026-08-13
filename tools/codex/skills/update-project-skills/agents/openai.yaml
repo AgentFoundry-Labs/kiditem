@@ -1,6 +1,4 @@
 interface:
   display_name: "Update Project Skills"
-  short_description: "Maintain all KidItem local Codex skills"
-  default_prompt: "Use $update-project-skills to update and verify all KidItem project-local skills."
-policy:
-  allow_implicit_invocation: true
+  short_description: "Maintain KidItem Codex skill profiles"
+  default_prompt: "Use $update-project-skills to update and verify the active KidItem skill profile."

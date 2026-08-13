@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/thumbnail-ai — Thumbnail Analysis Dashboard
 
 `app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns the six-tab
@@ -67,13 +65,7 @@ provenance. Thumbnail requests, URLs, query keys, and local maps must not use
 - Optimistic updates should follow the existing `onMutate/onError/onSettled`
   pattern.
 
-## Verification
-
-For thumbnail-ai changes, run the narrow route suite first, then the web build:
-
-```bash
-npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/thumbnail-ai'
-```
+## Regression Focus
 
 Tab, polling, cancellation, or optimistic-update changes need a focused
 regression spec for query-key and mutation behavior.

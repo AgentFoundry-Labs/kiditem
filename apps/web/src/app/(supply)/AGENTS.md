@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/supply - Purchase Orders
 
 `app/(supply)/` owns purchase-order operations and the Supply-side Rocket
@@ -99,7 +97,6 @@ fresh preview -> browser workbook generation -> direct download
   workflows.
 - Do not recreate a standalone supplier registry route or browser-side supplier
   cache family; backend Supplier contracts remain owned by Supply.
-- Do not send `organizationId`; backend session scope owns tenancy.
 - Do not add Rocket provider calls, `/api/orders/rocket/*` routes, local stock
   deductions, Rocket-specific commitment/available-stock projections, or a
   post-download workbook workflow.

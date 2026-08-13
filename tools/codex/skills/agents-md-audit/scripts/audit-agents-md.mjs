@@ -6,7 +6,7 @@ import process from 'node:process';
 const args = process.argv.slice(2);
 const options = {
   root: process.cwd(),
-  limit: 32768,
+  limit: 18 * 1024,
   top: 10,
   targets: [],
   includeHidden: false,

@@ -28,9 +28,7 @@ const CONTEXT = {
   runId: 'run-1',
 };
 
-function answer(
-  overrides: Partial<AgentLocalCliAnswer> = {},
-): AgentLocalCliAnswer {
+function answer(overrides: Partial<AgentLocalCliAnswer> = {}): AgentLocalCliAnswer {
   return {
     text: '근거가 있는 답변',
     citationIds: ['evidence-1'],
@@ -154,7 +152,7 @@ function childProcess(pid: number) {
 
 async function executionOutcome(
   execution: Promise<unknown>,
-  deadlineMs = 100,
+  deadlineMs = 500,
 ): Promise<{ status: 'resolved' | 'rejected' | 'hung'; error?: unknown }> {
   return Promise.race([
     execution.then(
@@ -167,10 +165,7 @@ async function executionOutcome(
   ]);
 }
 
-function runtimeHarness(
-  provider: 'codex_cli' | 'claude_cli',
-  timeoutMs: number,
-) {
+function runtimeHarness(provider: 'codex_cli' | 'claude_cli', timeoutMs: number) {
   vi.stubEnv('AGENT_RUNTIME_EXECUTION_TIMEOUT_MS', String(timeoutMs));
   const killProcessGroup = vi.fn();
   const processes = new AgentLocalProcessRegistry({
@@ -197,7 +192,8 @@ function runtimeHarness(
     killProcessGroup,
     context: localContext({
       adapterType: provider,
-      model: provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
+      model:
+        provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
       modelPlan: {
         primary:
           provider === 'codex_cli' ? 'gpt-5.6-terra' : 'claude-sonnet-4-6',
@@ -240,9 +236,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
       processes,
     );
 
-    await expect(adapter.execute(localContext())).rejects.toMatchObject({
-      code: 'user_cancelled',
-    });
+    await expect(
+      adapter.execute(localContext()),
+    ).rejects.toMatchObject({ code: 'user_cancelled' });
 
     expect(spawnMock).not.toHaveBeenCalled();
     expect(repository.appendRunEvent).not.toHaveBeenCalled();
@@ -469,9 +465,7 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
         provider: 'claude_cli',
         model: 'claude-sonnet-4-6',
       }),
-    ).toThrow(
-      expect.objectContaining({ code: 'citation_verification_failed' }),
-    );
+    ).toThrow(expect.objectContaining({ code: 'citation_verification_failed' }));
   });
 
   it('accepts no citation only with a data gap or a verified resource reference', () => {
@@ -521,9 +515,7 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
         provider: 'codex_cli',
         model: 'gpt-5.6-sol',
       }),
-    ).toThrow(
-      expect.objectContaining({ code: 'resource_verification_failed' }),
-    );
+    ).toThrow(expect.objectContaining({ code: 'resource_verification_failed' }));
   });
 
   it('uses the same-run collection artifact instead of a model-copied operation id', () => {

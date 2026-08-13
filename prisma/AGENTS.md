@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # prisma — Shared Schema
 
 `prisma/` is the database schema source of truth. KidItem uses Prisma v7

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/productgenerate - Product Generation Workflow
 
 `productgenerate/` owns the product generation workflow UI, upload helpers, and
@@ -18,9 +16,3 @@ payload assembly for backend product generation.
   backend generation endpoint returns that transition explicitly.
 - Do not persist generated draft state only in browser storage.
 - Missing model or generation configuration must remain an explicit error.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/productgenerate
-```

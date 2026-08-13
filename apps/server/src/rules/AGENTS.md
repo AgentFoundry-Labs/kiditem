@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # rules — Business Policy Rules
 
 `src/rules/` owns business rule definitions, thresholds, evaluation result

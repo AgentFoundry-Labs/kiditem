@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/registered-products - Confirmed Channel Listings
 
 `registered-products/` owns registered product/channel listing views, content
@@ -29,9 +27,3 @@ handoff screens.
   types.
 - Registration handoff actions must preserve backend ownership of marketplace
   submission and validation.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/registered-products
-```

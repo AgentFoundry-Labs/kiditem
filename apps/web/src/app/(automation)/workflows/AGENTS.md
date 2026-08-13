@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/workflows — Workflow List + Mutation Hooks
 
 `app/(automation)/workflows/` owns the workflow list UI, workflow activation,
@@ -26,8 +24,6 @@ lives in route-local hooks and API wrappers.
 - All mutations invalidate `queryKeys.workflows.all`.
 - `useWorkflows(options)` forwards `UseQueryOptions` so callers can override
   `enabled`, `staleTime`, or future polling behavior.
-- `organizationId` is never sent by the client; backend
-  `@CurrentOrganization()` owns tenant scope.
 - Filter state is UI-only and does not affect the API call.
 - The route is a static list today; do not add polling without a reason and
   query-key design.

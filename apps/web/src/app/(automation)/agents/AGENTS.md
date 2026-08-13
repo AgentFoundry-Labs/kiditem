@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/agents - Agent OS Runtime Views
 
 `agents/` owns automation-facing Agent OS read screens for instances, runs,

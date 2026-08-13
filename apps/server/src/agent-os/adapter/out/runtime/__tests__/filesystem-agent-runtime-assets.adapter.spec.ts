@@ -30,6 +30,8 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     );
     expect(assets.promptSha256).toMatch(/^[a-f0-9]{64}$/);
     expect(assets.outputSchemaSha256).toMatch(/^[a-f0-9]{64}$/);
+    expect(JSON.stringify(assets.outputSchema)).not.toContain('"uniqueItems"');
+    expect(JSON.stringify(assets.outputSchema)).not.toContain('"oneOf"');
   });
 
   it('fails when a configured asset escapes the repository or is missing', async () => {
@@ -87,9 +89,7 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     await mkdir(join(repositoryRoot, 'agent-config/prompts/agents'), {
       recursive: true,
     });
-    await mkdir(join(repositoryRoot, 'agent-config/schemas'), {
-      recursive: true,
-    });
+    await mkdir(join(repositoryRoot, 'agent-config/schemas'), { recursive: true });
     await writeFile(join(repositoryRoot, promptPath), 'prompt', 'utf8');
 
     try {
@@ -134,9 +134,7 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
     await mkdir(join(repositoryRoot, 'agent-config/prompts/agents'), {
       recursive: true,
     });
-    await mkdir(join(repositoryRoot, 'agent-config/schemas'), {
-      recursive: true,
-    });
+    await mkdir(join(repositoryRoot, 'agent-config/schemas'), { recursive: true });
     await writeFile(join(fixtureRoot, 'outside.md'), 'outside', 'utf8');
     await symlink(
       join(fixtureRoot, 'outside.md'),

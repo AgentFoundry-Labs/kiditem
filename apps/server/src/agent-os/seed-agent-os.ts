@@ -51,9 +51,11 @@ export function resolveSeedAdapterType(
   if (definition.type !== 'sourcing') return definition.defaultAdapterType;
   const configured = process.env.AGENT_SOURCING_ADAPTER_TYPE?.trim();
   if (!configured) return definition.defaultAdapterType;
-  if (!SOURCING_ADAPTER_TYPES.includes(
-    configured as (typeof SOURCING_ADAPTER_TYPES)[number],
-  )) {
+  if (
+    !SOURCING_ADAPTER_TYPES.includes(
+      configured as (typeof SOURCING_ADAPTER_TYPES)[number],
+    )
+  ) {
     throw new Error(
       'AGENT_SOURCING_ADAPTER_TYPE must be claude_cli or codex_cli.',
     );

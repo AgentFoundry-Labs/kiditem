@@ -1,148 +1,106 @@
 # KidItem
 
-KidItem is an e-commerce operations automation monorepo for kids' products:
-sourcing -> AI processing -> listing -> operations.
+KidItem automates kids-product e-commerce operations from sourcing through AI
+processing, listing, and operations.
 
-Primary owners are `apps/server` (NestJS), `apps/web` (Next.js), `agents`
-(Python runtime), `packages`, `prisma`, `extensions`, `scripts`, and `docs`.
-Use `rg --files` and [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for detail.
+## Instruction Use
 
-## Instruction Map
-
-`AGENTS.md` is the shared instruction authority; the most-specific file wins,
-then its parents. A sibling `CLAUDE.md` contains only `@AGENTS.md`.
-
-Before editing, use `rg --files -g AGENTS.md` to read root-to-target guides;
-rerun when scope moves or nests. Keep `Folder Map` only for structural
-contracts, exceptions, or ownership; use `rg --files` for ordinary exploration.
-
-Target active instruction chains below 22 KiB; 24 KiB is the hard limit. Child
-guides add only local deltas. Run `npm run check:agents-hygiene` after changing
-`AGENTS.md` or `CLAUDE.md`.
-
-## Session Boundaries
-
-- Keep one business domain per session; cross-layer work within it is allowed.
-- Cross-domain work is limited to organization/raw SQL guards, scanners, shared
-  exports, dependencies, instruction cleanup, or a declared incident hotfix for
-  one operator workflow. State the exception and exclude unrelated cleanup.
-- Apply all in-scope changes now; do not defer follow-ups.
-- Research OSS before new architecture.
-- Maintain plans/specs in `docs/superpowers/`; keep scratch and agent logs out
-  of git.
-
-## Collaboration
-
-Before repository changes, follow
-[`docs/runbooks/ai-collaboration.md`](docs/runbooks/ai-collaboration.md), the
-shared Codex, Claude, Hermes, Linear, GitHub, and Slack contract.
-
-## Platform Ownership
-
-| `operations` | operation catalog, schedules, run envelope, engine dispatch |
+- AGENTS.md is the shared authority. The nearest guide adds to or overrides its
+  parents; a sibling CLAUDE.md contains only `@AGENTS.md`.
+- Before editing, discover AGENTS.md files and read the root-to-target chain.
+  Repeat when scope moves. Keep every active chain at or below 18 KiB and run
+  `npm run check:agents-hygiene` after instruction changes.
+- Keep one business domain per session. Shared guards, exports, dependencies,
+  instruction cleanup, or one declared incident hotfix may cross domains; state
+  the exception and exclude unrelated cleanup.
+- Keep durable plans/specs in `docs/superpowers/` and generated agent output
+  out of git. Research existing OSS before introducing architecture.
+- Use the [AI collaboration runbook](docs/runbooks/ai-collaboration.md) for
+  issue intake, external-agent coordination, PR handoff, merge, and checkout
+  cleanup.
 
 ## Core Contracts
 
-- Frontend code uses NestJS APIs; no Prisma, `pg`, Supabase client, or direct DB
-  clients.
-- Automation workflows are deterministic and must not create Agent OS runs. If
-  LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
-  deterministic workflow capabilities.
-- Missing model selection is an explicit error; do not use silent
-  `model || default` fallback.
+- Frontend code reaches data through NestJS APIs; it never imports Prisma,
+  `pg`, Supabase DB clients, or another direct database client.
+- Deterministic automation never creates Agent OS runs. Work requiring LLM
+  judgment starts in Agent OS, which may invoke deterministic capabilities.
+- Missing model selection is an explicit error; do not use a silent fallback.
 - Prisma uses `String` plus DTO/Zod/domain validation instead of native
-  PostgreSQL enums.
-- Production raw SQL uses Prisma tagged templates; whitelist dynamic
-  identifiers before interpolation.
-- Organization/customer boundary is `Organization` / `organizationId`.
-  `OrganizationMembership` owns active organization and role; do not add
-  `tenantId` or `User.organizationId`.
+  PostgreSQL enums. Production raw SQL uses tagged templates and whitelisted
+  dynamic identifiers.
+- Organization scope is `Organization` / `organizationId` through
+  `OrganizationMembership`; do not add `tenantId` or
+  `User.organizationId`. Mutations carry organization scope and
+  single-resource reads use `{ id, organizationId }`.
 - `LegalEntity` is tax/settlement identity. `ChannelAccount` is
   marketplace/store identity.
-- Mutating services include `organizationId`; single-resource reads use
-  `{ id, organizationId }`.
-- `operations` owns the operation catalog, schedules, run envelope, and engine
-  dispatch.
+- `operations` owns the operation catalog, schedules, run envelope, and
+  engine dispatch.
+- Use focused `@kiditem/shared/*` subpaths rather than expanding the root
+  barrel.
 
-## Reconstruction Rules
+## Change Boundaries
 
-Reconstruction is platform-boundary cleanup, not permission to mix unrelated
-business rewrites.
-
-- Add the contract, scanner, or regression gate before deleting legacy
-  implementation.
-- Services receive `organizationId` from `@CurrentOrganization()` and never
-  trust client input.
-- Use focused `@kiditem/shared/*` subpaths; do not expand the root barrel for
-  new domains.
-- Do not add substantial behavior to 700+ line services/components.
-- Changes across 10+ files, 500+ line services/components, cross-layer
-  controls, or platform boundaries need explicit classification.
-- Update [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) when top-level backend
-  or web ownership changes.
-
-## Release + Data
-
-- Root [`VERSION`](VERSION) is the deployable release train; package versions
-  are metadata. Compatible schema changes keep the open train version and state
-  the exact `db:push`/backfill decision in the PR.
-- Durable migrations live under `scripts/data-migrations/v<VERSION>/`; a train
-  already on `main` is immutable. Follow the
-  [release-train runbook](docs/runbooks/release-train-versioning.md).
-
-## CI/CD + Infrastructure
-
-- GitHub Actions is the only Office release entrypoint. Images use immutable
-  GHCR digests; host env files never enter artifacts or `.secrets/`.
-- Do not add hosted production alternatives, local image shipping, retired
-  EC2/Terraform paths, or legacy fallbacks. Workflow/deploy changes keep the
-  [deployment runbook](docs/runbooks/deployment-architecture.md) and PR checks
-  aligned.
-
-## Documentation
-
-- Keep durable guidance in `docs/`, scoped `AGENTS.md`, or inseparable source
-  comments.
-- Consolidate nearby rules when adding guidance; do not append stale history.
-- Put environment/collaboration setup in AI-executable [`docs/runbooks/`](docs/runbooks/)
-  covering prerequisites, safe actions, env vars, paths, verification, blockers,
-  and final report format.
+- Reconstruction cleans a platform boundary; it does not authorize unrelated
+  business rewrites. Add a contract, scanner, or regression gate before
+  deleting legacy behavior.
+- Controllers derive organization scope from `@CurrentOrganization()` and
+  never trust client input.
+- Do not add substantial behavior to 700+ line services/components. Classify
+  changes spanning 10+ files, a 500+ line surface, cross-layer controls, or a
+  platform boundary.
+- Update [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) when top-level backend or
+  web ownership changes.
+- Release and schema decisions follow
+  [release-train-versioning.md](docs/runbooks/release-train-versioning.md) and
+  [prisma/AGENTS.md](prisma/AGENTS.md#data--migration-flow).
+- GitHub Actions is the only Office release entrypoint. Deployment-surface
+  changes follow
+  [deployment-architecture.md](docs/runbooks/deployment-architecture.md) and
+  keep its regression gates aligned.
 
 ## Verification
 
-Do not claim completion without evidence.
+Do not claim completion without evidence. A scoped guide adds a Verification
+section only when it has a narrower or different gate.
 
-Scoped `AGENTS.md` files include local `Verification` only when they add a
-different or narrower gate; otherwise inherit the nearest parent verification
-section.
-
-| Change type | Required gate |
+| Change | Required gate |
 |---|---|
 | Backend | `npm run dev:server` |
 | Frontend | `npm run build --workspace=apps/web` |
-| Schema | `npm run db:push` + `npx prisma generate` + `cd packages/shared && npm run build` |
+| Schema | `npm run db:push` + `npx prisma generate` + shared package build |
 | NestJS module/service | `npm run dev:server` and confirm boot |
 
-TDD specs are durable verification. Keep `*.spec.ts` / `*.test.ts` files when
-they document behavior, regression risk, domain policy, or public contracts.
+Keep tests that document behavior, regression risk, domain policy, or a public
+contract.
 
-## Commit + PR
+## Git And Pull Requests
 
-- `main`, `develop`, and `release/office` are protected. Never push directly or
-  delete/prune `release/office`; normal PRs branch from and target `develop`.
-- Branches use `feat/{issue}-{desc}`, `fix/{desc}`, `chore/{desc}`, or
-  `release/{desc}`; commits use the standard `feat|fix|chore|refactor|docs|test`
-  prefixes.
-- Squash normal PRs; use merge commits for `develop`/`main` sync and promotion.
-  Never rebase a shared branch.
-- Use the PR template, include DB/backfill/dev-data notes, read the live body
-  back after writes, and run applicable reconstruction/release guards. Stop on
-  an unexpected base, commit set, or unrelated history.
-- PRs that change `AGENTS.md` or `CLAUDE.md` must be shared with the team.
+- `main`, `develop`, and `release/office` are protected. Regular work
+  branches from and targets `develop`; promotions flow `develop` to
+  `main`.
+- Never delete, prune, or classify `release/office` as stale. Every checkout
+  keeps a local branch tracking `origin/release/office`.
+- Use the repository branch/commit naming in the
+  [AI collaboration runbook](docs/runbooks/ai-collaboration.md). Squash normal
+  PRs; use merge commits for `develop`/`main` sync and promotion. Never
+  rebase a shared branch.
+- Before opening or merging, stop on an unexpected base, commit count,
+  duplicated messages, or unrelated diff.
+- Use [the PR template](.github/PULL_REQUEST_TEMPLATE.md), including
+  DB/backfill/dev-data decisions, and read the live body back after editing.
+- Before waiting for checks, run the reconstruction and release-contract guards
+  against the intended base. Share PRs that change AGENTS.md or CLAUDE.md.
 
-## References
+## Task Routing
 
-See [`DESIGN.md`](DESIGN.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
-[`docs/TESTING.md`](docs/TESTING.md), the
-[environment runbook](docs/runbooks/environment-variables.md), and
-[`prisma/models/`](prisma/models/).
+| Topic | Durable source |
+|---|---|
+| Architecture and ownership | [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) |
+| Testing | [docs/TESTING.md](docs/TESTING.md) |
+| Design system | [DESIGN.md](DESIGN.md) |
+| Environment | [environment-variables.md](docs/runbooks/environment-variables.md) |
+| Codex skill profiles | [codex-skill-profiles.md](docs/runbooks/codex-skill-profiles.md) |
+| Dev data | [docs/DEV_DATA_BUNDLES.md](docs/DEV_DATA_BUNDLES.md) |
+| Prisma models | [prisma/models/](prisma/models/) |

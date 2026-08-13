@@ -96,7 +96,9 @@ describe('RoutingRuntimeAdapter', () => {
     const registry = new AgentRuntimeHandlerRegistry();
     const handler = {
       supports: vi.fn().mockReturnValue(true),
-      execute: vi.fn().mockResolvedValue({ output: { candidateId: 'candidate-1' } }),
+      execute: vi
+        .fn()
+        .mockResolvedValue({ output: { candidateId: 'candidate-1' } }),
     };
     registry.register('sourcing', handler);
     const localRuntime = { execute: vi.fn() };
@@ -122,7 +124,9 @@ describe('RoutingRuntimeAdapter', () => {
     };
     registry.register('sourcing', handler);
     const localRuntime = {
-      execute: vi.fn().mockResolvedValue({ output: { answer: '근거 기반 답변' } }),
+      execute: vi
+        .fn()
+        .mockResolvedValue({ output: { answer: '근거 기반 답변' } }),
     };
     const adapter = new RoutingRuntimeAdapter(registry, localRuntime as never);
     const context = makeContext({

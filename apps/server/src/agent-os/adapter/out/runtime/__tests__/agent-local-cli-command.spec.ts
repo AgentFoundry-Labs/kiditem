@@ -20,7 +20,7 @@ function commandInput(): BuildAgentLocalCliCommandInput {
       DATABASE_URL: 'postgres://secret',
       REDIS_URL: 'redis://secret',
       COUPANG_ACCESS_KEY: 'commerce-secret',
-      SOURCING_PRIVATE_TOKEN: 'sourcing-secret',
+      SOURCING_ASSISTANT_RUNTIME: 'codex',
     },
     prompt: '추천 근거를 설명해줘',
     outputSchema: { type: 'object' },
@@ -124,9 +124,7 @@ describe('agent local CLI command builders', () => {
       'in_app_browser',
       'view_image',
     ]) {
-      expect(command.args).toEqual(
-        expect.arrayContaining(['--disable', feature]),
-      );
+      expect(command.args).toEqual(expect.arrayContaining(['--disable', feature]));
     }
     expect(command.args).toEqual(
       expect.arrayContaining([
@@ -148,9 +146,9 @@ describe('agent local CLI command builders', () => {
     expect(command.stdin).toBe(input.prompt);
     expect(command.args).not.toContain(input.prompt);
     expect(command.args.join(' ')).not.toContain('SOURCING_ASSISTANT');
-    expect(
-      command.args.filter((value) => value.startsWith('mcp_servers.')),
-    ).toEqual(input.codexMcpConfigOverrides);
+    expect(command.args.filter((value) => value.startsWith('mcp_servers.'))).toEqual(
+      input.codexMcpConfigOverrides,
+    );
   });
 
   it('forwards only the selected providers local authentication environment', () => {

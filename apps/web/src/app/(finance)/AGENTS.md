@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/finance - P&L, Sales Analysis, and Reports
 
 `app/(finance)/` owns the active `/profit-loss`, `/reports`, and

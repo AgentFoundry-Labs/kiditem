@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/components - Shared Frontend Components
 
 `src/components/` owns shared React components used by multiple route groups:
@@ -30,9 +28,3 @@ UI primitives. Route-local UI should stay inside `src/app/(group)/route/`.
 - Do not add global state when local props or route-local hooks are enough.
 - Provider, panel, and UI primitive changes require checking their nested
   AGENTS guide first.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/components
-```
