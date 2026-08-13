@@ -10,6 +10,7 @@ import { OPERATION_REPOSITORY_PORT } from './application/port/out/repository/ope
 import { OperationHandlerRegistryService } from './application/service/operation-handler-registry.service';
 import { BrowserOperationRuntimeService } from './application/service/browser-operation-runtime.service';
 import { OperationDispatcherService } from './application/service/operation-dispatcher.service';
+import { OperationAttemptExecutorService } from './application/service/operation-attempt-executor.service';
 import { OperationRunService } from './application/service/operation-run.service';
 import { OperationRunWorkerService } from './application/service/operation-run-worker.service';
 import { OperationSchedulerService } from './application/service/operation-scheduler.service';
@@ -29,6 +30,7 @@ import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/comp
     OperationRunService,
     BrowserOperationRuntimeService,
     OperationDispatcherService,
+    OperationAttemptExecutorService,
     OperationRunWorkerService,
     OperationSchedulerService,
     CompositeOperationCoordinatorService,

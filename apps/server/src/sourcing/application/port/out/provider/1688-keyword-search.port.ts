@@ -4,6 +4,7 @@ export interface Search1688KeywordInput {
   keyword: string;
   page?: number;
   maxResults?: number;
+  signal?: AbortSignal;
 }
 
 export interface Search1688KeywordItem {

@@ -132,9 +132,10 @@ export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearch
   }
 
   async searchByKeyword(input: Search1688KeywordInput): Promise<Search1688KeywordResult> {
+    input.signal?.throwIfAborted();
     const page = clampInteger(input.page ?? 1, 1, 100);
     const maxResults = clampInteger(input.maxResults ?? 20, 1, 40);
-    const mtop = await bootstrapMtopSession();
+    const mtop = await bootstrapMtopSession(input.signal);
     const data = buildSearchData({
       keyword: input.keyword,
       page,
@@ -154,7 +155,7 @@ export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearch
     try {
       const payload = await fetchMtopJson(url, {
         Cookie: mtop.cookieHeader,
-      });
+      }, input.signal);
       assertMtopSuccess(payload);
       items = normalizeItems(payload, input.keyword).slice(0, maxResults);
     } catch (error) {
@@ -163,6 +164,7 @@ export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearch
         keyword: input.keyword,
         page,
         maxResults,
+        signal: input.signal,
       });
     }
 
@@ -190,7 +192,9 @@ async function searchByKeywordWithBrowserFallback(input: {
   keyword: string;
   page: number;
   maxResults: number;
+  signal?: AbortSignal;
 }): Promise<Search1688KeywordItem[]> {
+  input.signal?.throwIfAborted();
   const cdpEndpoint = resolveSourcingSearchCdpEndpoint();
   if (cdpEndpoint) {
     return searchByKeywordWithBrowserSession(input, cdpEndpoint);
@@ -362,13 +366,13 @@ async function withSourcingSearchProfileQueue<T>(
   }
 }
 
-async function bootstrapMtopSession(): Promise<MtopSession> {
+async function bootstrapMtopSession(signal?: AbortSignal): Promise<MtopSession> {
   const url = buildMtopUrl({
     data: '{}',
     sign: 'x',
     timestamp: String(Date.now()),
   });
-  const response = await fetchMtopResponse(url);
+  const response = await fetchMtopResponse(url, undefined, signal);
   const setCookieHeaders = getSetCookieHeaders(response);
   const cookieHeader = setCookieHeaders
     .map((cookie) => cookie.split(';')[0]?.trim())
@@ -433,8 +437,12 @@ function signMtopRequest(input: {
     .digest('hex');
 }
 
-async function fetchMtopJson(url: string, extraHeaders?: Record<string, string>): Promise<unknown> {
-  const response = await fetchMtopResponse(url, extraHeaders);
+async function fetchMtopJson(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<unknown> {
+  const response = await fetchMtopResponse(url, extraHeaders, signal);
 
   try {
     return await response.json();
@@ -443,7 +451,11 @@ async function fetchMtopJson(url: string, extraHeaders?: Record<string, string>)
   }
 }
 
-async function fetchMtopResponse(url: string, extraHeaders?: Record<string, string>): Promise<Response> {
+async function fetchMtopResponse(
+  url: string,
+  extraHeaders?: Record<string, string>,
+  signal?: AbortSignal,
+): Promise<Response> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -454,7 +466,9 @@ async function fetchMtopResponse(url: string, extraHeaders?: Record<string, stri
         'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
         ...extraHeaders,
       },
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+        : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
     throw new BadGatewayException(`1688 keyword search request failed: ${errorMessage(error)}`);

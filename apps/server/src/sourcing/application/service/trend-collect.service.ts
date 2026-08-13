@@ -324,7 +324,9 @@ export class TrendCollectService implements TrendCollectionPort {
     sources?: TrendCollectSource[],
     triggeredByUserId?: string | null,
     collectionRunKey?: string,
+    signal?: AbortSignal,
   ): Promise<TrendCollectResult> {
+    signal?.throwIfAborted();
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
     const requested = normalizeSources(sources);
@@ -334,6 +336,7 @@ export class TrendCollectService implements TrendCollectionPort {
 
     const results: TrendSourceCollectResult[] = [];
     for (const source of requested) {
+      signal?.throwIfAborted();
       if (source === 'naver') {
         results.push(
           await this.safe('naver', () =>
@@ -344,7 +347,9 @@ export class TrendCollectService implements TrendCollectionPort {
               capturedAt,
               triggeredByUserId ?? null,
               collectionRunKey,
+              signal,
             ),
+            signal,
           ),
         );
       } else if (source === '1688') {
@@ -357,7 +362,9 @@ export class TrendCollectService implements TrendCollectionPort {
               capturedAt,
               triggeredByUserId ?? null,
               collectionRunKey,
+              signal,
             ),
+            signal,
           ),
         );
       } else if (source === 'shorts') {
@@ -370,7 +377,9 @@ export class TrendCollectService implements TrendCollectionPort {
               capturedAt,
               triggeredByUserId ?? null,
               collectionRunKey,
+              signal,
             ),
+            signal,
           ),
         );
       }
@@ -383,10 +392,12 @@ export class TrendCollectService implements TrendCollectionPort {
   private async safe(
     source: TrendCollectSource,
     fn: () => Promise<TrendSourceCollectResult>,
+    signal?: AbortSignal,
   ): Promise<TrendSourceCollectResult> {
     try {
       return await fn();
     } catch (error) {
+      signal?.throwIfAborted();
       return { source, ok: false, collected: 0, error: errorMessage(error) };
     }
   }
@@ -398,6 +409,7 @@ export class TrendCollectService implements TrendCollectionPort {
     capturedAt: Date,
     triggeredByUserId: string | null,
     collectionRunKey?: string,
+    signal?: AbortSignal,
   ): Promise<TrendSourceCollectResult> {
     const errors: string[] = [];
     const execution = await this.collectionCoordinator.execute(
@@ -424,13 +436,21 @@ export class TrendCollectService implements TrendCollectionPort {
         let popularRows: NaverPopularKeywordSnapshotUpsert[] = [];
         let keywordRows: NaverKeywordSnapshotUpsert[] = [];
         await checkpoint();
+        signal?.throwIfAborted();
         try {
-          popularRows = await this.buildPopularBoardRows(organizationId, businessDate, capturedAt);
+          popularRows = await this.buildPopularBoardRows(
+            organizationId,
+            businessDate,
+            capturedAt,
+            signal,
+          );
         } catch (error) {
+          signal?.throwIfAborted();
           errors.push(`naver-popular: ${errorMessage(error)}`);
         }
 
         await checkpoint();
+        signal?.throwIfAborted();
         try {
           const seedKeywords = enabledSeeds
             .filter((seed) => seed.sources.includes('naver'))
@@ -447,11 +467,14 @@ export class TrendCollectService implements TrendCollectionPort {
             keywords,
             businessDate,
             capturedAt,
+            signal,
           );
         } catch (error) {
+          signal?.throwIfAborted();
           errors.push(`naver-keywords: ${errorMessage(error)}`);
         }
         await checkpoint();
+        signal?.throwIfAborted();
         return mapTrendTypedRecordsToAuthorizedOutput({
           permit,
           typedRecords: [
@@ -477,6 +500,7 @@ export class TrendCollectService implements TrendCollectionPort {
     keywords: string[],
     businessDate: Date,
     capturedAt: Date,
+    signal?: AbortSignal,
   ): Promise<NaverKeywordSnapshotUpsert[]> {
     if (keywords.length === 0) return [];
 
@@ -500,10 +524,13 @@ export class TrendCollectService implements TrendCollectionPort {
     });
 
     for (const chunk of chunkArray(keywords, NAVER_SEARCHAD_BATCH_SIZE)) {
+      signal?.throwIfAborted();
       const result = await this.keywordResearch.searchRelatedKeywords({
         seedKeywords: chunk,
         maxResults: 100,
+        signal,
       });
+      signal?.throwIfAborted();
       for (const item of result.items ?? []) {
         const row = byNormalizedKeyword.get(normalizeMatch(item.keyword));
         if (!row) continue;
@@ -519,7 +546,12 @@ export class TrendCollectService implements TrendCollectionPort {
     // 데이터랩이 실패해도 이미 채워진 SearchAd 데이터는 버리지 않고 저장한다.
     try {
       for (const chunk of chunkArray(keywords, NAVER_DATALAB_BATCH_SIZE)) {
-        const result = await this.datalabTrend.compareSearchTrends({ keywords: chunk });
+        signal?.throwIfAborted();
+        const result = await this.datalabTrend.compareSearchTrends({
+          keywords: chunk,
+          signal,
+        });
+        signal?.throwIfAborted();
         for (const item of result.items ?? []) {
           const row = byNormalizedKeyword.get(normalizeMatch(item.keyword));
           if (!row) continue;
@@ -538,10 +570,14 @@ export class TrendCollectService implements TrendCollectionPort {
     organizationId: string,
     businessDate: Date,
     capturedAt: Date,
+    signal?: AbortSignal,
   ): Promise<NaverPopularKeywordSnapshotUpsert[]> {
+    signal?.throwIfAborted();
     const result = await this.popularKeywords.searchPopularKeywords({
       boardKeys: DEFAULT_POPULAR_BOARD_KEYS,
+      signal,
     });
+    signal?.throwIfAborted();
 
     const rows: NaverPopularKeywordSnapshotUpsert[] = [];
     const seen = new Set<string>();
@@ -576,6 +612,7 @@ export class TrendCollectService implements TrendCollectionPort {
     capturedAt: Date,
     triggeredByUserId: string | null,
     collectionRunKey?: string,
+    signal?: AbortSignal,
   ): Promise<TrendSourceCollectResult> {
     const seeds = collectionSeedsFor(enabledSeeds, '1688');
     const errors: string[] = [];
@@ -600,10 +637,13 @@ export class TrendCollectService implements TrendCollectionPort {
         triggeredByUserId,
       }),
       async ({ permit, checkpoint }) => {
+        signal?.throwIfAborted();
         const rows: Sourcing1688OfferKeywordObservationInput[] = [];
         const seenKeywordOffers = new Set<string>();
         for (const seed of seeds) {
+          signal?.throwIfAborted();
           await checkpoint();
+          signal?.throwIfAborted();
           if (rows.length >= MAX_1688_OFFERS_PER_RUN) break;
           const keyword = seed.keywordCn?.trim() || seed.keyword;
           let items;
@@ -611,11 +651,14 @@ export class TrendCollectService implements TrendCollectionPort {
             const result = await this.keywordSearch1688.searchByKeyword({
               keyword,
               maxResults: ONE_1688_MAX_RESULTS_PER_SEED,
+              signal,
             });
+            signal?.throwIfAborted();
             items = [...(result.items ?? [])]
               .filter((item) => item && item.offerId)
               .sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
           } catch (error) {
+            signal?.throwIfAborted();
             const message = errorMessage(error);
             errors.push(`${seed.keyword}: ${message}`);
             if (isBlocking1688CollectionError(message)) break;
@@ -650,6 +693,7 @@ export class TrendCollectService implements TrendCollectionPort {
           });
         }
         await checkpoint();
+        signal?.throwIfAborted();
         return map1688HotProductsToAuthorizedOutput({
           permit,
           rows,
@@ -673,6 +717,7 @@ export class TrendCollectService implements TrendCollectionPort {
     capturedAt: Date,
     triggeredByUserId: string | null,
     collectionRunKey?: string,
+    signal?: AbortSignal,
   ): Promise<TrendSourceCollectResult> {
     const seeds = collectionSeedsFor(enabledSeeds, 'shorts');
     let sourceError: string | undefined;
@@ -698,11 +743,14 @@ export class TrendCollectService implements TrendCollectionPort {
       }),
       async ({ permit, checkpoint }) => {
         await checkpoint();
+        signal?.throwIfAborted();
         const result = await this.shortstrend.fetchTrending({
           keywords: seeds.map((seed) => seed.keyword),
           limit: SHORTS_LIMIT,
           publishedWithinDays: SHORTS_COLLECTION_WINDOW_DAYS,
+          signal,
         });
+        signal?.throwIfAborted();
         if (result.error) {
           sourceError = result.error;
           return mapTrendTypedRecordsToAuthorizedOutput({
@@ -713,6 +761,7 @@ export class TrendCollectService implements TrendCollectionPort {
           });
         }
         await checkpoint();
+        signal?.throwIfAborted();
         const rows = buildShortsRows(organizationId, result.items ?? [], businessDate, capturedAt);
         return mapTrendTypedRecordsToAuthorizedOutput({
           permit,

@@ -16,6 +16,10 @@ import type {
   OperationScheduleRecord,
   UpsertOperationScheduleRecord,
 } from '../../../application/port/out/repository/operation.repository.port';
+import {
+  claimNextServerRun,
+  expireServerRunsPastDeadline,
+} from './operation-execution.repository';
 
 const runInclude = {
   requestedBy: {
@@ -376,62 +380,58 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async claimNextRun(input: {
+    resourceClass: OperationRunRecord['resourceClass'];
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null> {
-    const claimed = await this.prisma.$transaction(async (transaction) => {
-      // This internal queue consumer intentionally spans organizations. The
-      // selected organizationId is carried into the composite-scoped update
-      // and every subsequent read.
-      const candidates = await transaction.$queryRaw<
-        Array<{ id: string; organization_id: string }>
-      >`
-        SELECT id, organization_id
-        FROM operation_runs
-        WHERE (
-          status = 'queued'
-          AND attempts < max_attempts
-          AND (scheduled_for IS NULL OR scheduled_for <= ${input.now})
-        ) OR (
-          status = 'running'
-          AND attempts < max_attempts
-          AND lease_expires_at IS NOT NULL
-          AND lease_expires_at <= ${input.now}
-        )
-        ORDER BY scheduled_for ASC NULLS FIRST, created_at ASC
-        FOR UPDATE SKIP LOCKED
-        LIMIT 1
-      `;
-      const candidate = candidates[0];
-      if (!candidate) return null;
-
-      const attemptToken = randomUUID();
-      await transaction.operationRun.update({
-        where: {
-          id_organizationId: {
-            id: candidate.id,
-            organizationId: candidate.organization_id,
-          },
-        },
-        data: {
-          status: 'running',
-          attempts: { increment: 1 },
-          claimedBy: input.workerId,
-          attemptToken,
-          claimedAt: input.now,
-          leaseExpiresAt: input.leaseExpiresAt,
-          startedAt: input.now,
-        },
-      });
-      return { runId: candidate.id, organizationId: candidate.organization_id };
-    });
+    const claimed = await claimNextServerRun(this.prisma, input);
 
     if (!claimed) return null;
     return this.findRunById({
       organizationId: claimed.organizationId,
       runId: claimed.runId,
     });
+  }
+
+  async heartbeatRun(input: {
+    organizationId: string;
+    runId: string;
+    attemptToken: string;
+    now: Date;
+    leaseExpiresAt: Date;
+    stage?: OperationRunTransition['stage'];
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
+  }): Promise<OperationRunRecord | null> {
+    const updatedCount = await this.updateRunWithStage({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        status: 'running',
+        attemptToken: input.attemptToken,
+        leaseExpiresAt: { gt: input.now },
+        deadlineAt: { gt: input.now },
+      },
+      data: {
+        leaseExpiresAt: input.leaseExpiresAt,
+        ...progressCountMutation(input),
+      },
+      stage: input.stage,
+      stageUpdatedAt: input.now,
+    });
+    if (updatedCount === 0) return null;
+    return this.findRunById({
+      organizationId: input.organizationId,
+      runId: input.runId,
+    });
+  }
+
+  async expirePastDeadlineRuns(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number> {
+    return expireServerRunsPastDeadline(this.prisma, input);
   }
 
   async listSchedules(input: {
@@ -616,6 +616,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         status: 'running',
         attemptToken: input.attemptToken,
         leaseExpiresAt: { gt: input.now },
+        deadlineAt: { gt: input.now },
       },
       data,
       stage: input.stage,
@@ -634,7 +635,15 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     stage: OperationRunTransition['stage'];
     stageUpdatedAt: Date;
   }): Promise<number> {
-    if (input.stage === undefined) {
+    const parsedStage = input.stage === undefined
+      ? undefined
+      : OperationStageSchema.nullable().safeParse(input.stage);
+    if (parsedStage !== undefined && !parsedStage.success) {
+      throw new Error('operation_stage_invalid');
+    }
+    const stage = parsedStage === undefined ? undefined : parsedStage.data;
+
+    if (stage === undefined) {
       const updated = await this.prisma.operationRun.updateMany({
         where: input.where,
         data: input.data,
@@ -645,20 +654,20 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     const changed = await this.prisma.operationRun.updateMany({
       where: {
         ...input.where,
-        ...(input.stage === null
+        ...(stage === null
           ? { stage: { not: null } }
-          : { OR: [{ stage: null }, { stage: { not: input.stage } }] }),
+          : { OR: [{ stage: null }, { stage: { not: stage } }] }),
       },
       data: {
         ...input.data,
-        stage: input.stage,
+        stage,
         stageUpdatedAt: input.stageUpdatedAt,
       },
     });
     if (changed.count > 0) return changed.count;
 
     const repeated = await this.prisma.operationRun.updateMany({
-      where: { ...input.where, stage: input.stage },
+      where: { ...input.where, stage },
       data: input.data,
     });
     return repeated.count;

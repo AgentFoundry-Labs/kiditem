@@ -72,13 +72,18 @@ describe('Direct1688KeywordSearchAdapter', () => {
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     const adapter = new Direct1688KeywordSearchAdapter();
+    const controller = new AbortController();
     const result = await adapter.searchByKeyword({
       keyword: '儿童餐垫',
       page: 2,
       maxResults: 1,
+      signal: controller.signal,
     });
 
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    controller.abort(new Error('operation_attempt_fence_lost'));
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetchMock.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
     const searchUrl = String(fetchMock.mock.calls[1][0]);
     expect(searchUrl).toContain('/h5/mtop.relationrecommend.wirelessrecommend.recommend/2.0/');
     expect(searchUrl).toContain('appKey=12574478');

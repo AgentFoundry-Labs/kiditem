@@ -40,6 +40,7 @@ export class SourcingTrendOperationHandler
       sources,
       context.requestedByUserId,
       context.runId,
+      context.signal,
     );
     const warningCount = collected.results.filter((result) => !result.ok).length;
     if (warningCount === collected.results.length) {

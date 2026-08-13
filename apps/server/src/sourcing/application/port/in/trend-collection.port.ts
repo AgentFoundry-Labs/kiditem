@@ -16,5 +16,6 @@ export interface TrendCollectionPort {
     triggeredByUserId?: string | null,
     /** An Operations run key fences duplicate dispatch after navigation/retry. */
     collectionRunKey?: string,
+    signal?: AbortSignal,
   ): Promise<TrendCollectResult>;
 }

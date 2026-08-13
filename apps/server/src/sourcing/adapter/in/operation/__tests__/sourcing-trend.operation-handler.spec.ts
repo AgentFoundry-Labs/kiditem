@@ -15,6 +15,8 @@ const context: OperationHandlerContext = {
   scheduleId: null,
   parentRunId: null,
   attemptToken: '4e65f19e-a04f-4aac-917c-b6f973870f87',
+  signal: new AbortController().signal,
+  checkpoint: vi.fn().mockResolvedValue(undefined),
 };
 
 describe('SourcingTrendOperationHandler', () => {
@@ -66,5 +68,26 @@ describe('SourcingTrendOperationHandler', () => {
         ],
       }),
     });
+  });
+
+  it('passes the attempt AbortSignal into trend collection', async () => {
+    const registry = new OperationHandlerRegistryService();
+    const collector: TrendCollectionPort = {
+      collect: vi.fn().mockResolvedValue({
+        businessDate: '2026-08-01',
+        results: [{ source: 'naver', ok: true, collected: 12 }],
+      }),
+    };
+    const handler = new SourcingTrendOperationHandler(registry, collector);
+
+    await handler.execute(context);
+
+    expect(collector.collect).toHaveBeenCalledWith(
+      context.organizationId,
+      ['naver', '1688'],
+      null,
+      context.runId,
+      context.signal,
+    );
   });
 });

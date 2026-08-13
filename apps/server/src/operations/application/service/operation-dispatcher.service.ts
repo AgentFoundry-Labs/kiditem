@@ -11,6 +11,15 @@ import {
   type CompositeOperationCoordinatorPort,
 } from '../port/in/composite-operation-coordinator.port';
 
+export interface OperationDispatchControls {
+  signal: AbortSignal;
+  checkpoint(update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }): Promise<void>;
+}
+
 @Injectable()
 export class OperationDispatcherService {
   constructor(
@@ -22,12 +31,16 @@ export class OperationDispatcherService {
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
   ) {}
 
-  async dispatch(run: OperationRunRecord): Promise<void> {
+  async dispatch(
+    run: OperationRunRecord,
+    controls: OperationDispatchControls,
+  ): Promise<void> {
     if (!run.attemptToken) {
       throw new Error('operation_attempt_token_missing');
     }
 
     try {
+      controls.signal.throwIfAborted();
       const handler = this.registry.getHandler(run.operationKey);
       const result = await handler.execute({
         runId: run.id,
@@ -39,10 +52,16 @@ export class OperationDispatcherService {
         scheduleId: run.scheduleId,
         parentRunId: run.parentRunId,
         attemptToken: run.attemptToken,
+        signal: controls.signal,
+        checkpoint: controls.checkpoint,
       });
+      controls.signal.throwIfAborted();
+      await controls.checkpoint();
+      controls.signal.throwIfAborted();
 
       switch (result.kind) {
         case 'completed':
+          controls.signal.throwIfAborted();
           await this.repository.transition({
             organizationId: run.organizationId,
             runId: run.id,
@@ -59,6 +78,7 @@ export class OperationDispatcherService {
           });
           return;
         case 'delegated':
+          controls.signal.throwIfAborted();
           await this.repository.transition({
             organizationId: run.organizationId,
             runId: run.id,
@@ -74,6 +94,7 @@ export class OperationDispatcherService {
           });
           return;
         case 'waiting_runtime':
+          controls.signal.throwIfAborted();
           await this.repository.transition({
             organizationId: run.organizationId,
             runId: run.id,
@@ -87,12 +108,14 @@ export class OperationDispatcherService {
           });
           return;
         case 'waiting_dependency':
+          controls.signal.throwIfAborted();
           await this.compositeCoordinator.waitForChild({
             parent: run,
             child: result.child,
           });
           return;
         case 'attention_required':
+          controls.signal.throwIfAborted();
           await this.repository.transition({
             organizationId: run.organizationId,
             runId: run.id,
@@ -110,6 +133,7 @@ export class OperationDispatcherService {
           });
           return;
         case 'failed':
+          controls.signal.throwIfAborted();
           await this.repository.transition({
             organizationId: run.organizationId,
             runId: run.id,
@@ -127,6 +151,13 @@ export class OperationDispatcherService {
           return;
       }
     } catch (error) {
+      if (controls.signal.aborted) return;
+      try {
+        await controls.checkpoint();
+      } catch {
+        if (controls.signal.aborted) return;
+      }
+      if (controls.signal.aborted) return;
       await this.fail(run, error);
     }
   }

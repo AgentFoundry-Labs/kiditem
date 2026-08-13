@@ -153,6 +153,55 @@ describe('OperationRepositoryAdapter creation boundaries', () => {
 });
 
 describe('OperationRepositoryAdapter stage and count mapping', () => {
+  it('heartbeats a server attempt through the exact token, lease, deadline, stage, and count fence', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+
+    await repository.heartbeatRun({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      stage: 'collecting_keyword',
+      progressCurrent: 3,
+      progressTotal: 12,
+    });
+
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: RUN_ID,
+        organizationId: ORG_ID,
+        status: 'running',
+        attemptToken: ATTEMPT_TOKEN,
+        leaseExpiresAt: { gt: NOW },
+        deadlineAt: { gt: NOW },
+      }),
+      data: expect.objectContaining({
+        stage: 'collecting_keyword',
+        stageUpdatedAt: NOW,
+        progressCurrent: 3,
+        progressTotal: 12,
+        progress: 0.25,
+      }),
+    }));
+  });
+
+  it('rejects an invalid server checkpoint stage before touching the run', async () => {
+    const updateMany = vi.fn();
+    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+
+    await expect(repository.heartbeatRun({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      stage: 'Collecting Keyword' as never,
+    })).rejects.toThrow('operation_stage_invalid');
+    expect(updateMany).not.toHaveBeenCalled();
+  });
+
   it('timestamps a changed heartbeat stage and derives normalized progress', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
@@ -172,6 +221,7 @@ describe('OperationRepositoryAdapter stage and count mapping', () => {
       where: expect.objectContaining({
         organizationId: ORG_ID,
         attemptToken: ATTEMPT_TOKEN,
+        deadlineAt: { gt: NOW },
       }),
       data: expect.objectContaining({
         stage: 'collecting_keyword',
@@ -397,5 +447,185 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
       leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
     })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter server claim fencing', () => {
+  it('binds the requested resource class and initializes the first absolute deadline', async () => {
+    const update = vi.fn().mockResolvedValue({ id: RUN_ID });
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+        deadline_at: null,
+        execution_timeout_ms: 900_000,
+      }]),
+      operationRun: { update },
+    };
+    const prisma = {
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: {
+        findFirst: vi.fn().mockResolvedValue(makeRunRow()),
+      },
+    };
+    const repository = new OperationRepositoryAdapter(prisma as never);
+
+    await repository.claimNextRun({
+      resourceClass: 'playwright_1688',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    });
+
+    const rawQueryArguments = transaction.$queryRaw.mock.calls[0] ?? [];
+    expect(rawQueryArguments).toContain('playwright_1688');
+    expect(String(rawQueryArguments[0])).toContain('resource_class =');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      where: {
+        id_organizationId: { id: RUN_ID, organizationId: ORG_ID },
+      },
+      data: expect.objectContaining({
+        deadlineAt: new Date('2026-08-13T01:17:03.000Z'),
+      }),
+    }));
+  });
+
+  it('preserves the original absolute deadline when reclaiming a server run', async () => {
+    const originalDeadline = new Date('2026-08-13T01:09:00.000Z');
+    const update = vi.fn().mockResolvedValue({ id: RUN_ID });
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+        deadline_at: originalDeadline,
+        execution_timeout_ms: 900_000,
+      }]),
+      operationRun: { update },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn().mockResolvedValue(makeRunRow()) },
+    } as never);
+
+    await repository.claimNextRun({
+      resourceClass: 'playwright_1688',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    });
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ deadlineAt: originalDeadline }),
+    }));
+  });
+
+  it('rejects malformed raw timeout metadata before a server claim update', async () => {
+    const update = vi.fn();
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+        deadline_at: null,
+        execution_timeout_ms: MAX_OPERATION_PERSISTED_INT + 1,
+      }]),
+      operationRun: { update },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    } as never);
+
+    await expect(repository.claimNextRun({
+      resourceClass: 'naver_api',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
+    expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter deadline sweep', () => {
+  it('bounds active cross-organization expiry and clears the attempt fence', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+      }]),
+      operationRun: { updateMany },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.expirePastDeadlineRuns({
+      now: NOW,
+      limit: 7,
+    })).resolves.toBe(1);
+
+    const rawQueryArguments = transaction.$queryRaw.mock.calls[0] ?? [];
+    expect(rawQueryArguments).toContain(NOW);
+    expect(rawQueryArguments).toContain(7);
+    expect(String(rawQueryArguments[0])).toContain(
+      "status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')",
+    );
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        id: RUN_ID,
+        organizationId: ORG_ID,
+        status: {
+          in: ['queued', 'waiting_runtime', 'waiting_dependency', 'running'],
+        },
+        deadlineAt: { lte: NOW },
+      },
+      data: {
+        status: 'failed',
+        errorCode: 'operation_deadline_exceeded',
+        errorMessage: 'Operation execution deadline exceeded',
+        finishedAt: NOW,
+        claimedBy: null,
+        attemptToken: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+      },
+    });
+  });
+
+  it('returns null to a late heartbeat after the sweep clears its token', async () => {
+    const sweptUpdate = vi.fn().mockResolvedValue({ count: 1 });
+    const lateHeartbeatUpdate = vi.fn().mockResolvedValue({ count: 0 });
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+      }]),
+      operationRun: { updateMany: sweptUpdate },
+    };
+    const findFirst = vi.fn();
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: {
+        updateMany: lateHeartbeatUpdate,
+        findFirst,
+      },
+    } as never);
+
+    await repository.expirePastDeadlineRuns({ now: NOW, limit: 1 });
+    await expect(repository.heartbeatRun({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    })).resolves.toBeNull();
+
+    expect(lateHeartbeatUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: ORG_ID,
+        attemptToken: ATTEMPT_TOKEN,
+      }),
+    }));
+    expect(findFirst).not.toHaveBeenCalled();
   });
 });

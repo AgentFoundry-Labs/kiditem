@@ -153,10 +153,25 @@ export interface OperationRunRepositoryPort {
   }): Promise<OperationRunRecord[]>;
   transition(input: OperationRunTransition): Promise<OperationRunRecord | null>;
   claimNextRun(input: {
+    resourceClass: OperationResourceClass;
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null>;
+  heartbeatRun(input: {
+    organizationId: string;
+    runId: string;
+    attemptToken: string;
+    now: Date;
+    leaseExpiresAt: Date;
+    stage?: OperationStage | null;
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
+  }): Promise<OperationRunRecord | null>;
+  expirePastDeadlineRuns(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number>;
   listSchedules(input: {
     organizationId: string;
   }): Promise<OperationScheduleRecord[]>;

@@ -155,6 +155,123 @@ describe('TrendCollectService', () => {
     ports = buildPorts();
   });
 
+  it('stops before loading seeds when the operation signal is already aborted', async () => {
+    const controller = new AbortController();
+    controller.abort(new Error('operation_attempt_fence_lost'));
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+    expect(ports.repository.listSeeds).not.toHaveBeenCalled();
+  });
+
+  it('passes the signal to a Naver batch and stops before the next chunk after abort', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () =>
+      Array.from({ length: 6 }, (_, index) =>
+        seed({ keyword: `키워드-${index}`, sources: ['naver'] }),
+      ),
+    );
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: [],
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(1);
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('does not swallow an abort at the DataLab enrichment boundary', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () => [
+      seed({ keyword: '슬라임', sources: ['naver'] }),
+    ]);
+    ports.datalabTrend.compareSearchTrends = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'naver-datalab-search-trend' as const,
+        keywords: ['슬라임'],
+        startDate: '2026-06-13',
+        endDate: '2026-07-13',
+        timeUnit: 'date' as const,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['naver'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+  });
+
+  it('passes the signal to 1688 and stops before the next seed after abort', async () => {
+    const controller = new AbortController();
+    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return { keyword: input.keyword, page: 1, items: [] };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['1688'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledTimes(1);
+    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
+  it('passes the signal to the Shorts batch and stops after provider abort', async () => {
+    const controller = new AbortController();
+    ports.shortstrend.fetchTrending = vi.fn(async () => {
+      controller.abort(new Error('operation_attempt_fence_lost'));
+      return {
+        source: 'shortstrend' as const,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    await expect(ports.service.collect(
+      ORGANIZATION_ID,
+      ['shorts'],
+      null,
+      'operation-run-1',
+      controller.signal,
+    )).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
+      expect.objectContaining({ signal: controller.signal }),
+    );
+  });
+
   it('returns default and enabled custom 1688 targets with Chinese query keywords', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
       seed({ keyword: '키링', keywordCn: '儿童挂件', sources: ['1688'] }),

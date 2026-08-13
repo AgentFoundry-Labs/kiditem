@@ -29,6 +29,12 @@ export interface OperationHandlerContext {
   scheduleId: string | null;
   parentRunId: string | null;
   attemptToken: string;
+  signal: AbortSignal;
+  checkpoint(update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }): Promise<void>;
 }
 
 export interface OperationCancelContext {

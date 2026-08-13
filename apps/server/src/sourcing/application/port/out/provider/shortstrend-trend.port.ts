@@ -18,6 +18,7 @@ export interface FetchShortstrendTrendingInput {
   keywords?: string[];
   limit?: number;
   publishedWithinDays?: number;
+  signal?: AbortSignal;
 }
 
 export interface FetchShortstrendTrendingResult {
