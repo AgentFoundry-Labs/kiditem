@@ -30,6 +30,14 @@ const forbiddenProductionValues = Object.freeze([
     'const key = process.env.COPILOTKIT_PUBLIC_API_KEY;',
   ],
   ['useThreads', 'const threads = useThreads();'],
+  [
+    'CopilotKitIntelligence',
+    'const runtime = new CopilotKitIntelligence({ apiKey: "forbidden" });',
+  ],
+  [
+    'CopilotKit Enterprise configuration',
+    'const key = process.env.COPILOTKIT_ENTERPRISE_API_KEY;',
+  ],
   ['Kubernetes', 'const runtimeRequirement = "Kubernetes >=1.28";'],
   ['Helm', 'const deploymentRequirement = "Helm >=3.12";'],
   [
