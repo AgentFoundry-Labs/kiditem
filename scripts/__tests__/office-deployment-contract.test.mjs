@@ -154,9 +154,13 @@ test('destructive schema boundary failure stops writers without runtime restorat
   const failureHandler = install.slice(
     install.indexOf('catch {\n    $deploymentError'),
   );
+  assert.match(
+    failureHandler,
+    /if \(\$destructiveBoundaryEntered\)[\s\S]*?\$postBoundaryFailureTransition/,
+  );
   const destructiveFailure = blockBody(
     failureHandler,
-    'if ($destructiveBoundaryEntered)',
+    "if ($failureTransition.runtimeAction -eq 'stop-writers')",
   );
 
   assert.match(destructiveFailure.body, /Stop-ApplicationWriters/);
@@ -199,11 +203,14 @@ test('application-only Office deploy failures retain automatic runtime restorati
   const failureHandler = install.slice(
     install.indexOf('catch {\n    $deploymentError'),
   );
-  const destructiveFailure = blockBody(
+  assert.match(
     failureHandler,
-    'if ($destructiveBoundaryEntered)',
+    /else[\s\S]*?\$preBoundaryFailureTransition/,
   );
-  const applicationFailure = blockBody(destructiveFailure.remainder, 'else');
+  const applicationFailure = blockBody(
+    failureHandler,
+    "elseif ($failureTransition.runtimeAction -eq 'restore-transaction')",
+  );
 
   assert.match(applicationFailure.body, /Restore-Transaction \$backupRoot/);
 });

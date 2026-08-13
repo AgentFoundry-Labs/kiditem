@@ -99,6 +99,7 @@ named `office-deployment-<full SHA>` and contains:
 - `compose.office.yml`
 - `nginx.conf`
 - `apply-deployment.ps1`
+- `recovery-operation-policy.json`
 
 The manifest records the workflow URL, root app version, Git SHA, and exact API
 and web digest refs. Convenience tags such as `office-candidate` are never used
@@ -158,8 +159,9 @@ This one command owns the destructive cutover ordering:
    `pg_restore --list`, compute its SHA-256, copy it to the selected NAS
    directory, and require the copy SHA-256 to match.
 4. Persist `deployments\recovery-required.json` with the dump SHA, local and
-   recovery-copy paths, candidate Git SHA, prior Git SHA, and exact prior
-   manifest SHA. The marker contains no credentials.
+   recovery-copy paths, candidate Git SHA, stable candidate-manifest identity
+   SHA-256, prior Git SHA, and exact prior manifest SHA. The marker contains no
+   credentials.
 5. Run Prisma schema push while writers remain stopped, then start and health
    check the candidate. Keep the marker after success so runtime-only rollback
    remains blocked across later operator sessions.
@@ -318,9 +320,22 @@ Rollback is valid for application regressions only. It does not undo Prisma sche
 data migrations, marketplace writes, object-storage changes,
 or queued jobs. While `deployments\recovery-required.json` records a destructive
 schema boundary, runtime-only `Rollback` is blocked even after a successful
-candidate deploy. A successful later forward application deploy archives the
-marker because the destructive candidate is then the compatible rollback
-target.
+candidate deploy. Every later `-ApplySchema` deployment is also blocked, whether
+or not it requests `-AcceptDataLoss`. The only permitted forward deployment is
+application-only, and its pre-deploy `current.json` must have both the candidate
+Git SHA and stable manifest-identity SHA-256 recorded by the marker. The script
+archives and removes the marker only after that forward deployment completes
+its runtime health/smoke checks and deployment-record finalization. A mismatch
+blocks before any deployment mutation; an application-only failure restores the
+compatible candidate runtime and preserves the marker.
+
+The operation and marker-transition rules live in
+`recovery-operation-policy.json`, which is shipped in the immutable operator
+bundle and consumed directly by the PowerShell script. Unknown combinations are
+denied. Recovery marker schema v2 requires the candidate manifest identity. An
+older or incomplete marker is invalid; never delete or hand-edit it to bypass
+this guard. Destructive artifact capture atomically fails when a marker already
+exists and never archives or replaces the active boundary.
 
 If a destructive schema push or subsequent candidate health/smoke check fails,
 the script stops API, worker, web, and nginx, retains PostgreSQL and MinIO, marks

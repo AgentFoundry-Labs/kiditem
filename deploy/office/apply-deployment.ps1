@@ -34,6 +34,7 @@ $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:RecoveryRoot = Join-Path $OfficeRoot 'recovery'
 $script:RecoveryStatePath = Join-Path $script:DeploymentsRoot 'recovery-required.json'
 $script:RecoveryHistoryRoot = Join-Path $script:DeploymentsRoot 'recovery-history'
+$script:RecoveryPolicyPath = Join-Path $PSScriptRoot 'recovery-operation-policy.json'
 $script:ComposeArgs = @()
 
 function Invoke-Checked {
@@ -70,6 +71,42 @@ function Get-FileSha256 {
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
 }
 
+function Get-TextSha256 {
+  param([Parameter(Mandatory = $true)][string]$Text)
+
+  $encoding = New-Object System.Text.UTF8Encoding($false)
+  $sha256 = [System.Security.Cryptography.SHA256]::Create()
+  try {
+    $hashBytes = $sha256.ComputeHash($encoding.GetBytes($Text))
+    return ([System.BitConverter]::ToString($hashBytes)).Replace('-', '').ToLowerInvariant()
+  }
+  finally {
+    $sha256.Dispose()
+  }
+}
+
+function Get-DeploymentManifestIdentitySha256 {
+  param([Parameter(Mandatory = $true)][object]$Manifest)
+
+  $identityValues = @(
+    [string]$Manifest.schemaVersion
+    [string]$Manifest.environment
+    [string]$Manifest.sourceRef
+    [string]$Manifest.gitSha
+    [string]$Manifest.appVersion
+    [string]$Manifest.apiImage
+    [string]$Manifest.apiDigest
+    [string]$Manifest.webImage
+    [string]$Manifest.webDigest
+    [string]$Manifest.createdAt
+    [string]$Manifest.workflowRunUrl
+  )
+  $canonicalIdentity = ($identityValues | ForEach-Object {
+    '{0}:{1}' -f $_.Length, $_
+  }) -join '|'
+  return Get-TextSha256 $canonicalIdentity
+}
+
 function Read-RecoveryState {
   if (-not (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf)) {
     return $null
@@ -77,9 +114,10 @@ function Read-RecoveryState {
 
   $state = Get-Content -LiteralPath $script:RecoveryStatePath -Raw | ConvertFrom-Json
   if (
-    $state.schemaVersion -ne 1 -or
+    $state.schemaVersion -ne 2 -or
     $state.status -notin @('prepared', 'schema-push-completed', 'recovery-required', 'deployed') -or
     $state.candidateGitSha -notmatch '^[0-9a-f]{40}$' -or
+    $state.candidateManifestSha256 -notmatch '^[0-9a-f]{64}$' -or
     $state.priorGitSha -notmatch '^[0-9a-f]{40}$' -or
     $state.priorManifestSha256 -notmatch '^[0-9a-f]{64}$' -or
     $state.dumpSha256 -notmatch '^[0-9a-f]{64}$'
@@ -89,6 +127,105 @@ function Read-RecoveryState {
   return $state
 }
 
+function Read-RecoveryOperationPolicy {
+  if (-not (Test-Path -LiteralPath $script:RecoveryPolicyPath -PathType Leaf)) {
+    throw "Office recovery policy is missing: $script:RecoveryPolicyPath"
+  }
+
+  $policy = Get-Content -LiteralPath $script:RecoveryPolicyPath -Raw | ConvertFrom-Json
+  if (
+    $policy.schemaVersion -ne 1 -or
+    @($policy.operationRules).Count -eq 0 -or
+    @($policy.deploymentTransitions).Count -eq 0
+  ) {
+    throw "Office recovery policy is invalid: $script:RecoveryPolicyPath"
+  }
+
+  foreach ($rule in @($policy.operationRules)) {
+    if (
+      $rule.markerStatus -notin @('prepared', 'schema-push-completed', 'recovery-required', 'deployed', 'any') -or
+      $rule.operation -notin @('Deploy', 'Status', 'Rollback', 'CompleteRecovery', 'any') -or
+      $rule.currentManifestIdentity -notin @('candidate', 'not-candidate', 'none', 'any') -or
+      $rule.decision -ne 'allow' -or
+      ($rule.applySchema -ne 'any' -and $rule.applySchema -isnot [bool])
+    ) {
+      throw "Office recovery operation rule is invalid: $($rule | ConvertTo-Json -Compress)"
+    }
+  }
+
+  foreach ($transition in @($policy.deploymentTransitions)) {
+    if (
+      $transition.markerStatusAtStart -notin @('none', 'prepared', 'schema-push-completed', 'recovery-required', 'deployed', 'any') -or
+      $transition.deploymentKind -notin @('application-only', 'schema', 'any') -or
+      $transition.currentManifestIdentity -notin @('candidate', 'not-candidate', 'none', 'any') -or
+      ($transition.destructiveBoundaryEntered -ne 'any' -and $transition.destructiveBoundaryEntered -isnot [bool]) -or
+      $transition.outcome -notin @('failure', 'full-success') -or
+      $transition.runtimeAction -notin @('restore-transaction', 'stop-writers', 'keep-runtime') -or
+      $transition.markerAction -notin @('preserve', 'require-recovery', 'archive-remove')
+    ) {
+      throw "Office recovery transition is invalid: $($transition | ConvertTo-Json -Compress)"
+    }
+  }
+
+  return $policy
+}
+
+function Test-RecoveryPolicyValueMatch {
+  param(
+    [Parameter(Mandatory = $true)][object]$Expected,
+    [Parameter(Mandatory = $true)][object]$Actual
+  )
+
+  return ($Expected -eq 'any' -or $Expected -eq $Actual)
+}
+
+function Test-RecoveryOperationAllowed {
+  param(
+    [Parameter(Mandatory = $true)][object]$Policy,
+    [Parameter(Mandatory = $true)][string]$MarkerStatus,
+    [Parameter(Mandatory = $true)][string]$RequestedOperation,
+    [Parameter(Mandatory = $true)][bool]$ApplySchema,
+    [Parameter(Mandatory = $true)][string]$CurrentManifestIdentity
+  )
+
+  foreach ($rule in @($Policy.operationRules)) {
+    if (
+      (Test-RecoveryPolicyValueMatch $rule.markerStatus $MarkerStatus) -and
+      (Test-RecoveryPolicyValueMatch $rule.operation $RequestedOperation) -and
+      (Test-RecoveryPolicyValueMatch $rule.applySchema $ApplySchema) -and
+      (Test-RecoveryPolicyValueMatch $rule.currentManifestIdentity $CurrentManifestIdentity)
+    ) {
+      return $rule.decision -eq 'allow'
+    }
+  }
+  return $false
+}
+
+function Get-RecoveryDeploymentTransition {
+  param(
+    [Parameter(Mandatory = $true)][object]$Policy,
+    [Parameter(Mandatory = $true)][string]$MarkerStatusAtStart,
+    [Parameter(Mandatory = $true)][string]$DeploymentKind,
+    [Parameter(Mandatory = $true)][string]$CurrentManifestIdentity,
+    [Parameter(Mandatory = $true)][bool]$DestructiveBoundaryEntered,
+    [Parameter(Mandatory = $true)][string]$Outcome
+  )
+
+  foreach ($transition in @($Policy.deploymentTransitions)) {
+    if (
+      (Test-RecoveryPolicyValueMatch $transition.markerStatusAtStart $MarkerStatusAtStart) -and
+      (Test-RecoveryPolicyValueMatch $transition.deploymentKind $DeploymentKind) -and
+      (Test-RecoveryPolicyValueMatch $transition.currentManifestIdentity $CurrentManifestIdentity) -and
+      (Test-RecoveryPolicyValueMatch $transition.destructiveBoundaryEntered $DestructiveBoundaryEntered) -and
+      (Test-RecoveryPolicyValueMatch $transition.outcome $Outcome)
+    ) {
+      return $transition
+    }
+  }
+
+  throw "Office recovery policy has no deployment transition for marker=$MarkerStatusAtStart kind=$DeploymentKind identity=$CurrentManifestIdentity boundary=$DestructiveBoundaryEntered outcome=$Outcome."
+}
+
 function Save-RecoveryState {
   param([Parameter(Mandatory = $true)][object]$State)
 
@@ -96,6 +233,22 @@ function Save-RecoveryState {
   $candidatePath = "$($script:RecoveryStatePath).candidate"
   $State | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
   Move-Item -LiteralPath $candidatePath -Destination $script:RecoveryStatePath -Force
+}
+
+function Save-NewRecoveryState {
+  param([Parameter(Mandatory = $true)][object]$State)
+
+  New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
+  $candidatePath = '{0}.{1}.candidate' -f $script:RecoveryStatePath, ([guid]::NewGuid().ToString('N'))
+  try {
+    $State | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+    [System.IO.File]::Move($candidatePath, $script:RecoveryStatePath)
+  }
+  finally {
+    if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+      Remove-Item -LiteralPath $candidatePath
+    }
+  }
 }
 
 function Archive-RecoveryState {
@@ -248,6 +401,24 @@ function Read-DeploymentManifest {
   return [pscustomobject]@{ Manifest = $manifest; Raw = $raw }
 }
 
+function Get-CurrentManifestIdentityForRecoveryState {
+  param([Parameter(Mandatory = $true)][object]$RecoveryState)
+
+  if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+    return 'not-candidate'
+  }
+
+  $currentBundle = Read-DeploymentManifest $script:CurrentManifestPath
+  $currentManifestHash = Get-DeploymentManifestIdentitySha256 $currentBundle.Manifest
+  if (
+    $currentBundle.Manifest.gitSha -eq $RecoveryState.candidateGitSha -and
+    $currentManifestHash -eq $RecoveryState.candidateManifestSha256
+  ) {
+    return 'candidate'
+  }
+  return 'not-candidate'
+}
+
 function Assert-ImageRevision {
   param(
     [Parameter(Mandatory = $true)][string]$Image,
@@ -294,17 +465,37 @@ function Stop-ApplicationWriters {
 }
 
 function Assert-OperationAllowedByRecoveryState {
-  param([Parameter(Mandatory = $true)][string]$RequestedOperation)
+  param(
+    [Parameter(Mandatory = $true)][string]$RequestedOperation,
+    [switch]$ApplySchema
+  )
 
   $state = Read-RecoveryState
-  if ($null -eq $state -or $RequestedOperation -in @('Status', 'CompleteRecovery')) {
+  if ($null -eq $state) {
     return
   }
 
+  $currentManifestIdentity = 'none'
   if ($state.status -eq 'deployed' -and $RequestedOperation -eq 'Deploy') {
+    $currentManifestIdentity = Get-CurrentManifestIdentityForRecoveryState $state
+  }
+  $policy = Read-RecoveryOperationPolicy
+  $operationAllowed = Test-RecoveryOperationAllowed `
+    -Policy $policy `
+    -MarkerStatus $state.status `
+    -RequestedOperation $RequestedOperation `
+    -ApplySchema ([bool]$ApplySchema) `
+    -CurrentManifestIdentity $currentManifestIdentity
+  if ($operationAllowed) {
     return
   }
 
+  if ($state.status -eq 'deployed' -and $RequestedOperation -eq 'Deploy' -and $ApplySchema) {
+    throw "Schema deployment is blocked by destructive schema boundary $($state.candidateGitSha). Only an application-only Deploy from the exact recorded candidate manifest is allowed until CompleteRecovery."
+  }
+  if ($state.status -eq 'deployed' -and $RequestedOperation -eq 'Deploy') {
+    throw "Application-only Deploy is blocked because current.json does not match destructive candidate Git SHA $($state.candidateGitSha) and manifest SHA256 $($state.candidateManifestSha256). Complete identity-bound recovery before any deployment."
+  }
   if ($state.status -eq 'deployed') {
     throw "Runtime-only Rollback is blocked by destructive schema boundary $($state.candidateGitSha). Restore dump SHA256 $($state.dumpSha256) and complete identity-bound recovery instead."
   }
@@ -318,6 +509,9 @@ function New-DestructiveRecoveryArtifact {
     [Parameter(Mandatory = $true)][string]$RecoveryCopyDirectory
   )
 
+  if (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf) {
+    throw 'A destructive schema recovery marker already exists; complete the recorded recovery boundary before another destructive deployment.'
+  }
   if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
     throw 'A destructive schema deploy requires a recorded current manifest for coupled database/runtime recovery.'
   }
@@ -328,6 +522,7 @@ function New-DestructiveRecoveryArtifact {
   $priorBundle = Read-DeploymentManifest $script:CurrentManifestPath
   $priorManifestSha256 = Get-FileSha256 $script:CurrentManifestPath
   $priorGitSha = $priorBundle.Manifest.gitSha
+  $candidateManifestSha256 = Get-DeploymentManifestIdentitySha256 $CandidateManifest
   $resolvedCopyDirectory = (Resolve-Path -LiteralPath $RecoveryCopyDirectory).Path
 
   New-Item -ItemType Directory -Path $script:RecoveryRoot -Force | Out-Null
@@ -370,9 +565,10 @@ function New-DestructiveRecoveryArtifact {
   }
 
   $state = [ordered]@{
-    schemaVersion = 1
+    schemaVersion = 2
     status = 'prepared'
     candidateGitSha = $CandidateManifest.gitSha
+    candidateManifestSha256 = $candidateManifestSha256
     priorGitSha = $priorGitSha
     priorManifestSha256 = $priorManifestSha256
     dumpSha256 = $localHash
@@ -384,10 +580,7 @@ function New-DestructiveRecoveryArtifact {
     recoveryRequiredAtUtc = $null
   }
 
-  if (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf) {
-    Archive-RecoveryState 'superseded-by-new-quiesced-dump'
-  }
-  Save-RecoveryState $state
+  Save-NewRecoveryState $state
   Write-Host "Quiesced recovery dump verified: SHA256 $localHash"
   Write-Host "Recovery copy verified: $copyDumpPath"
   return $state
@@ -628,6 +821,46 @@ function Install-Deployment {
     }
   }
 
+  $requestedOperation = if ($AllowAncestor) { 'Rollback' } else { 'Deploy' }
+  Assert-OperationAllowedByRecoveryState $requestedOperation -ApplySchema:$ApplySchema
+  $recoveryPolicy = Read-RecoveryOperationPolicy
+  $recoveryStateAtStart = Read-RecoveryState
+  $markerStatusAtStart = 'none'
+  $currentManifestIdentityAtStart = 'none'
+  if ($null -ne $recoveryStateAtStart) {
+    $markerStatusAtStart = $recoveryStateAtStart.status
+    $currentManifestIdentityAtStart = Get-CurrentManifestIdentityForRecoveryState $recoveryStateAtStart
+  }
+  $deploymentKind = if ($ApplySchema) { 'schema' } else { 'application-only' }
+  $preBoundaryFailureTransition = Get-RecoveryDeploymentTransition `
+    -Policy $recoveryPolicy `
+    -MarkerStatusAtStart $markerStatusAtStart `
+    -DeploymentKind $deploymentKind `
+    -CurrentManifestIdentity $currentManifestIdentityAtStart `
+    -DestructiveBoundaryEntered $false `
+    -Outcome 'failure'
+  $postBoundaryFailureTransition = Get-RecoveryDeploymentTransition `
+    -Policy $recoveryPolicy `
+    -MarkerStatusAtStart $markerStatusAtStart `
+    -DeploymentKind $deploymentKind `
+    -CurrentManifestIdentity $currentManifestIdentityAtStart `
+    -DestructiveBoundaryEntered $true `
+    -Outcome 'failure'
+  $preBoundaryFullSuccessTransition = Get-RecoveryDeploymentTransition `
+    -Policy $recoveryPolicy `
+    -MarkerStatusAtStart $markerStatusAtStart `
+    -DeploymentKind $deploymentKind `
+    -CurrentManifestIdentity $currentManifestIdentityAtStart `
+    -DestructiveBoundaryEntered $false `
+    -Outcome 'full-success'
+  $postBoundaryFullSuccessTransition = Get-RecoveryDeploymentTransition `
+    -Policy $recoveryPolicy `
+    -MarkerStatusAtStart $markerStatusAtStart `
+    -DeploymentKind $deploymentKind `
+    -CurrentManifestIdentity $currentManifestIdentityAtStart `
+    -DestructiveBoundaryEntered $true `
+    -Outcome 'full-success'
+
   Assert-DiskCapacity
   Assert-RuntimePrerequisites
   Assert-ImageRevision $manifest.apiImage $manifest.gitSha
@@ -716,12 +949,18 @@ function Install-Deployment {
       Copy-Item -LiteralPath $sourceNginx -Destination $archivedNginx -Force
     }
 
-    if (-not $destructiveBoundaryEntered) {
-      $activeBoundary = Read-RecoveryState
-      if ($null -ne $activeBoundary -and $activeBoundary.status -eq 'deployed') {
-        Archive-RecoveryState 'superseded-by-forward-deploy'
-        Remove-Item -LiteralPath $script:RecoveryStatePath -Force
-      }
+    $fullSuccessTransition = if ($destructiveBoundaryEntered) {
+      $postBoundaryFullSuccessTransition
+    }
+    else {
+      $preBoundaryFullSuccessTransition
+    }
+    if ($fullSuccessTransition.markerAction -eq 'archive-remove') {
+      Archive-RecoveryState 'superseded-by-compatible-forward-deploy'
+      Remove-Item -LiteralPath $script:RecoveryStatePath -Force
+    }
+    elseif ($fullSuccessTransition.markerAction -ne 'preserve') {
+      throw "Unsupported successful deployment marker action: $($fullSuccessTransition.markerAction)"
     }
 
     Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
@@ -730,13 +969,39 @@ function Install-Deployment {
   }
   catch {
     $deploymentError = $_
-    if ($destructiveBoundaryEntered) {
+    $failureTransition = if ($destructiveBoundaryEntered) {
+      $postBoundaryFailureTransition
+    }
+    else {
+      $preBoundaryFailureTransition
+    }
+    if ($failureTransition.runtimeAction -eq 'stop-writers') {
       try {
         Stop-ApplicationWriters
       }
       catch {
         Write-Warning "Could not confirm application writers are stopped after destructive schema deployment failure: $($_.Exception.Message)"
       }
+    }
+    elseif ($failureTransition.runtimeAction -eq 'restore-transaction') {
+      try {
+        Restore-Transaction $backupRoot
+      }
+      catch {
+        Write-Warning "Automatic runtime restore also failed: $($_.Exception.Message)"
+      }
+    }
+    else {
+      try {
+        Stop-ApplicationWriters
+      }
+      catch {
+        Write-Warning "Unsupported recovery runtime action also failed to stop writers: $($_.Exception.Message)"
+      }
+      Write-Warning "Unsupported recovery runtime action was rejected: $($failureTransition.runtimeAction)"
+    }
+
+    if ($failureTransition.markerAction -eq 'require-recovery') {
       try {
         Set-RecoveryStateStatus 'recovery-required'
       }
@@ -745,13 +1010,8 @@ function Install-Deployment {
       }
       Write-Warning "Destructive schema recovery is required. Application writers remain stopped; do not start prior or candidate runtime. Recovery state: $script:RecoveryStatePath"
     }
-    else {
-      try {
-        Restore-Transaction $backupRoot
-      }
-      catch {
-        Write-Warning "Automatic runtime restore also failed: $($_.Exception.Message)"
-      }
+    elseif ($failureTransition.markerAction -ne 'preserve') {
+      Write-Warning "Unsupported recovery marker action was rejected: $($failureTransition.markerAction)"
     }
     throw $deploymentError
   }
@@ -804,7 +1064,7 @@ if ($Operation -eq 'CompleteRecovery' -and (-not $RecoveryArtifactPath -or -not 
 }
 
 $head = Assert-LiveCheckout
-Assert-OperationAllowedByRecoveryState $Operation
+Assert-OperationAllowedByRecoveryState $Operation -ApplySchema:$ApplySchema
 
 switch ($Operation) {
   'Status' {

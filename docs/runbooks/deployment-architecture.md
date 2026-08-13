@@ -89,16 +89,28 @@ Application writers stay stopped throughout this sequence.
 
 The marker survives a successful destructive deployment because a runtime-only
 rollback is still incompatible with the contracted database. A later successful
-forward application deployment makes the destructive candidate the safe runtime
-rollback target and archives the marker. If schema push or candidate health is
-failed or indeterminate, the marker changes to `recovery-required`; automatic
-runtime restoration is disabled and application writers remain stopped.
+application-only deployment may make the destructive candidate the safe runtime
+rollback target and archive the marker, but only when the pre-deploy
+`current.json` Git SHA and stable manifest-identity SHA-256 exactly match the
+candidate identity recorded in the marker. A mismatch blocks deployment. Every
+`-ApplySchema` deployment remains blocked while the marker exists, with or
+without `-AcceptDataLoss`. If schema push or candidate health is failed or
+indeterminate, the marker changes to `recovery-required`; automatic runtime
+restoration is disabled and application writers remain stopped.
 `Deploy` and `Rollback` are then blocked. `CompleteRecovery` can clear the
 marker only after the operator restores the recorded dump manually and supplies
 the same dump SHA-256 plus the exact prior manifest. The script re-hashes and
 catalog-checks the artifact, verifies the prior manifest SHA and Git SHA, starts
 the prior runtime, and clears the marker only after health and smoke checks pass.
 It never claims to restore the database itself.
+
+The operator bundle includes `recovery-operation-policy.json`. It is the shared,
+fail-closed operation/transition table consumed by PowerShell and exercised by
+cross-platform Node tests. Unknown combinations are denied. Recovery marker
+schema v2 requires the candidate Git SHA and stable candidate-manifest identity
+SHA-256; an older or incomplete marker is invalid and must not be removed or
+edited to bypass recovery. Artifact capture atomically creates a new marker and
+fails if one already exists; it never archives or replaces an active boundary.
 
 ## Security Boundary
 
