@@ -19,6 +19,24 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function sqlText(value: unknown): string {
+  if (
+    typeof value !== 'object' ||
+    value === null ||
+    !Array.isArray((value as { strings?: unknown }).strings)
+  ) {
+    return String(value);
+  }
+  const sql = value as { strings: string[]; values?: unknown[] };
+  return sql.strings.reduce(
+    (rendered, part, index) =>
+      rendered + part + (index < sql.strings.length - 1
+        ? sqlText(sql.values?.[index])
+        : ''),
+    '',
+  );
+}
+
 function makeRunRow(overrides: Record<string, unknown> = {}) {
   return {
     id: RUN_ID,
@@ -657,6 +675,30 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
 });
 
 describe('OperationRepositoryAdapter server claim fencing', () => {
+  it('selects only queued work and never reclaims an expired running lease', async () => {
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      operationRun: { update: vi.fn() },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    } as never);
+
+    await repository.claimNextRun({
+      resourceClass: 'default',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date(NOW.getTime() + 60_000),
+      signal: new AbortController().signal,
+    });
+
+    const queryText = String(transaction.$queryRaw.mock.calls[0]?.[0]);
+    expect(queryText).toContain("status = 'queued'");
+    expect(queryText).not.toContain("status = 'running'");
+    expect(queryText).not.toContain('lease_expires_at <=');
+  });
+
   it('cancels after candidate selection without mutating the selected run', async () => {
     const selection = deferred<Array<{
       id: string;
@@ -824,6 +866,328 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
       signal: new AbortController().signal,
     })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
     expect(update).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter lifecycle database boundary', () => {
+  it('reads the lifecycle cutoff from PostgreSQL', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ database_time: NOW }]);
+    const repository = new OperationRepositoryAdapter({ $queryRaw: queryRaw } as never);
+
+    await expect(repository.readLifecycleDatabaseTime()).resolves.toEqual(NOW);
+    expect(sqlText(queryRaw.mock.calls[0]?.[0])).toContain(
+      'clock_timestamp() AS database_time',
+    );
+  });
+
+  it('cancels every owner domain in the four active statuses through one bounded transaction', async () => {
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ set_config: '250' }])
+        .mockResolvedValueOnce([{ id: RUN_ID, organization_id: ORG_ID }])
+        .mockResolvedValueOnce([{ remaining: true }]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+    const errorMessage = 'API process lifecycle expired';
+
+    await expect(repository.cancelRunsForLifecycle({
+      cutoff: NOW,
+      errorCode: 'operation_server_lifecycle_expired',
+      errorMessage,
+      finishedAt: NOW,
+      limit: 100,
+      statementTimeoutMs: 250,
+    })).resolves.toEqual({ updated: 1, remaining: true });
+
+    expect(transaction.$queryRaw).toHaveBeenCalledTimes(3);
+    const timeoutCall = transaction.$queryRaw.mock.calls[0] ?? [];
+    expect(sqlText(timeoutCall[0])).toContain("set_config('statement_timeout'");
+    expect(timeoutCall).toContain('250');
+
+    const selectCall = transaction.$queryRaw.mock.calls[1] ?? [];
+    const selectSql = sqlText(selectCall[0]);
+    expect(selectSql).toContain(
+      "status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')",
+    );
+    expect(selectSql).toContain('created_at <=');
+    expect(selectSql).not.toContain('owner_domain');
+    expect(selectSql).toContain('FOR UPDATE SKIP LOCKED');
+    expect(selectSql).toContain('LIMIT');
+    expect(selectCall).toContain(NOW);
+    expect(selectCall).toContain(100);
+
+    const updateCall = transaction.$executeRaw.mock.calls[0] ?? [];
+    const updateSql = sqlText(updateCall[0]);
+    expect(updateSql).toContain("SET status = 'cancelled'");
+    expect(updateSql).toContain('error_code =');
+    expect(updateSql).toContain('error_message =');
+    expect(updateSql).toContain('finished_at =');
+    expect(updateSql).toContain('claimed_by = NULL');
+    expect(updateSql).toContain('attempt_token = NULL');
+    expect(updateSql).toContain('claimed_at = NULL');
+    expect(updateSql).toContain('lease_expires_at = NULL');
+    expect(updateSql).toContain('id =');
+    expect(updateSql).toContain('organization_id =');
+    expect(updateSql).not.toContain('attempts =');
+    expect(updateSql).not.toContain('started_at =');
+    expect(updateSql).not.toContain('progress =');
+    expect(updateSql).not.toContain('stage =');
+    expect(updateSql).not.toContain('deadline_at =');
+    expect(updateSql).not.toContain('schedule_id =');
+    expect(updateSql).not.toContain('idempotency_key =');
+    expect(updateSql).not.toContain('parent_run_id =');
+    expect(updateSql).not.toContain('result =');
+    expect(updateCall).toEqual(expect.arrayContaining([
+      'operation_server_lifecycle_expired',
+      errorMessage,
+      NOW,
+      RUN_ID,
+      ORG_ID,
+    ]));
+
+    const remainingSql = sqlText(transaction.$queryRaw.mock.calls[2]?.[0]);
+    expect(remainingSql).toContain('SELECT EXISTS');
+    expect(remainingSql).toContain('created_at <=');
+    expect(remainingSql).not.toContain('FOR UPDATE');
+  });
+
+  it('uses no cutoff predicate for graceful all-current cancellation', async () => {
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ set_config: '100' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ remaining: false }]),
+      $executeRaw: vi.fn(),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.cancelRunsForLifecycle({
+      cutoff: null,
+      errorCode: 'operation_server_shutdown',
+      errorMessage: 'API server shutdown',
+      finishedAt: NOW,
+      limit: 100,
+      statementTimeoutMs: 100,
+    })).resolves.toEqual({ updated: 0, remaining: false });
+
+    expect(sqlText(transaction.$queryRaw.mock.calls[1]?.[0])).not.toContain(
+      'created_at <=',
+    );
+    expect(transaction.$executeRaw).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when PostgreSQL does not return the remaining predicate', async () => {
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ set_config: '100' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      $executeRaw: vi.fn(),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.cancelRunsForLifecycle({
+      cutoff: NOW,
+      errorCode: 'operation_server_lifecycle_expired',
+      errorMessage: 'Expired lifecycle',
+      finishedAt: NOW,
+      limit: 100,
+      statementTimeoutMs: 100,
+    })).rejects.toThrow('operation_lifecycle_remaining_invalid');
+  });
+
+  it.each([
+    ['zero limit', { limit: 0, statementTimeoutMs: 100 }],
+    ['overlarge limit', { limit: 101, statementTimeoutMs: 100 }],
+    ['zero timeout', { limit: 100, statementTimeoutMs: 0 }],
+    ['fractional timeout', { limit: 100, statementTimeoutMs: 1.5 }],
+  ])('rejects %s before starting a transaction', async (_case, invalid) => {
+    const transaction = vi.fn();
+    const repository = new OperationRepositoryAdapter({
+      $transaction: transaction,
+    } as never);
+
+    await expect(repository.cancelRunsForLifecycle({
+      cutoff: NOW,
+      errorCode: 'operation_server_shutdown',
+      errorMessage: 'API server shutdown',
+      finishedAt: NOW,
+      ...invalid,
+    })).rejects.toThrow('operation_lifecycle_batch_options_invalid');
+    expect(transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter lifecycle schedule boundary', () => {
+  it('advances both policies strictly past cutoff without dispatch or lastScheduledFor writes', async () => {
+    const firstScheduleId = 'c4e779aa-f5bf-42c2-91f2-dc10be211c71';
+    const secondScheduleId = 'c5e779aa-f5bf-42c2-91f2-dc10be211c71';
+    const dueAt = new Date('2026-08-13T01:00:00.000Z');
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ set_config: '250' }])
+        .mockResolvedValueOnce([
+          {
+            id: firstScheduleId,
+            organization_id: ORG_ID,
+            cron_expression: '0 * * * *',
+            time_zone: 'UTC',
+            next_run_at: dueAt,
+            misfire_policy: 'skip',
+          },
+          {
+            id: secondScheduleId,
+            organization_id: ORG_ID,
+            cron_expression: '0 * * * *',
+            time_zone: 'UTC',
+            next_run_at: dueAt,
+            misfire_policy: 'catch_up_once',
+          },
+        ])
+        .mockResolvedValueOnce([{ remaining: false }]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.advanceSchedulesPastLifecycleCutoff({
+      cutoff: NOW,
+      limit: 100,
+      statementTimeoutMs: 250,
+    })).resolves.toEqual({ updated: 2, remaining: false });
+
+    expect(transaction.$executeRaw).toHaveBeenCalledTimes(2);
+    for (const updateCall of transaction.$executeRaw.mock.calls) {
+      const updateSql = sqlText(updateCall[0]);
+      expect(updateSql).toContain('UPDATE operation_schedules');
+      expect(updateSql).toContain('SET next_run_at =');
+      expect(updateSql).toContain('id =');
+      expect(updateSql).toContain('organization_id =');
+      expect(updateSql).toContain('enabled = TRUE');
+      expect(updateSql).toContain('next_run_at =');
+      expect(updateSql).not.toContain('last_scheduled_for');
+      expect(updateCall.some(
+        (value) => value instanceof Date &&
+          value.getTime() === new Date('2026-08-13T02:00:00.000Z').getTime(),
+      )).toBe(true);
+      expect(updateCall).toContain(dueAt);
+    }
+    expect(sqlText(transaction.$queryRaw.mock.calls[1]?.[0])).toContain(
+      'next_run_at <=',
+    );
+    expect(sqlText(transaction.$queryRaw.mock.calls[2]?.[0])).toContain(
+      'SELECT EXISTS',
+    );
+  });
+
+  it('fails closed when PostgreSQL omits schedule remaining state', async () => {
+    const transaction = {
+      $queryRaw: vi.fn()
+        .mockResolvedValueOnce([{ set_config: '100' }])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]),
+      $executeRaw: vi.fn(),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.advanceSchedulesPastLifecycleCutoff({
+      cutoff: NOW,
+      limit: 100,
+      statementTimeoutMs: 100,
+    })).rejects.toThrow('operation_lifecycle_remaining_invalid');
+  });
+});
+
+describe('OperationRepositoryAdapter exact lifecycle attempt cancellation', () => {
+  it('terminal-cancels only the exact claimed server attempt without decrementing it', async () => {
+    const executeRaw = vi.fn().mockResolvedValue(1);
+    const repository = new OperationRepositoryAdapter({ $executeRaw: executeRaw } as never);
+
+    await expect(repository.cancelClaimedAttemptForLifecycle({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      claimedBy: 'operations:test',
+      errorCode: 'operation_server_shutdown',
+      finishedAt: NOW,
+    })).resolves.toBe(true);
+
+    const rawCall = executeRaw.mock.calls[0] ?? [];
+    const queryText = sqlText(rawCall[0]);
+    expect(queryText).toContain("SET status = 'cancelled'");
+    expect(queryText).toContain("status = 'running'");
+    expect(queryText).toContain('attempt_token =');
+    expect(queryText).toContain('claimed_by =');
+    expect(queryText).toContain('claimed_by = NULL');
+    expect(queryText).toContain('attempt_token = NULL');
+    expect(queryText).toContain('claimed_at = NULL');
+    expect(queryText).toContain('lease_expires_at = NULL');
+    expect(queryText).not.toContain('attempts =');
+    expect(rawCall).toEqual(expect.arrayContaining([
+      ORG_ID,
+      RUN_ID,
+      ATTEMPT_TOKEN,
+      'operations:test',
+      'operation_server_shutdown',
+      NOW,
+    ]));
+  });
+});
+
+describe('OperationRepositoryAdapter lost worker attempt sweep', () => {
+  it('boundedly terminal-cancels only exact expired running worker attempts', async () => {
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        organization_id: ORG_ID,
+        attempt_token: ATTEMPT_TOKEN,
+        claimed_by: 'operations-1234',
+      }]),
+      $executeRaw: vi.fn().mockResolvedValue(1),
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.cancelExpiredWorkerAttempts({
+      now: NOW,
+      limit: 7,
+    })).resolves.toBe(1);
+
+    const selectCall = transaction.$queryRaw.mock.calls[0] ?? [];
+    const selectSql = sqlText(selectCall[0]);
+    expect(selectSql).toContain("status = 'running'");
+    expect(selectSql).toContain("claimed_by LIKE 'operations-%'");
+    expect(selectSql).toContain('lease_expires_at <=');
+    expect(selectSql).toContain('FOR UPDATE SKIP LOCKED');
+    expect(selectSql).not.toContain("status = 'queued'");
+    expect(selectCall).toContain(NOW);
+    expect(selectCall).toContain(7);
+
+    const updateCall = transaction.$executeRaw.mock.calls[0] ?? [];
+    const updateSql = sqlText(updateCall[0]);
+    expect(updateSql).toContain("error_code = 'operation_worker_lost'");
+    expect(updateSql).toContain('organization_id =');
+    expect(updateSql).toContain('attempt_token =');
+    expect(updateSql).toContain('claimed_by =');
+    expect(updateSql).not.toContain('attempts =');
+    expect(updateCall).toEqual(expect.arrayContaining([
+      RUN_ID,
+      ORG_ID,
+      ATTEMPT_TOKEN,
+      'operations-1234',
+      NOW,
+    ]));
   });
 });
 

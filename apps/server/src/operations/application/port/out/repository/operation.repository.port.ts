@@ -150,6 +150,11 @@ export interface UpsertOperationScheduleRecord {
   createdByUserId: string;
 }
 
+export interface OperationLifecycleBatchResult {
+  updated: number;
+  remaining: boolean;
+}
+
 export interface OperationRunRepositoryPort {
   findRunById(input: {
     organizationId: string;
@@ -190,6 +195,34 @@ export interface OperationRunRepositoryPort {
     leaseExpiresAt: Date;
     signal: AbortSignal;
   }): Promise<OperationRunRecord | null>;
+  readLifecycleDatabaseTime(): Promise<Date>;
+  cancelRunsForLifecycle(input: {
+    cutoff: Date | null;
+    errorCode:
+      | 'operation_server_shutdown'
+      | 'operation_server_lifecycle_expired';
+    errorMessage: string;
+    finishedAt: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult>;
+  advanceSchedulesPastLifecycleCutoff(input: {
+    cutoff: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult>;
+  cancelClaimedAttemptForLifecycle(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    claimedBy: string;
+    errorCode: 'operation_server_shutdown';
+    finishedAt: Date;
+  }): Promise<boolean>;
+  cancelExpiredWorkerAttempts(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number>;
   heartbeatRun(input: {
     organizationId: string;
     runId: string;

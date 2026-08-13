@@ -276,6 +276,292 @@ describe('operation execution repository PostgreSQL fencing', () => {
       attemptToken: null,
     });
   });
+
+  it('terminal-cancels a committed claim while preserving its attempt and metadata', async () => {
+    const runId = randomUUID();
+    const now = new Date();
+    const deadlineAt = new Date(now.getTime() + 60_000);
+    const scheduledFor = new Date(now.getTime() - 1_000);
+    const workerId = 'operations-integration-shutdown';
+    await locker.operationRun.create({
+      data: {
+        id: runId,
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'test.committed_claim_shutdown',
+        definitionVersion: 1,
+        ownerDomain: 'operations',
+        title: 'Committed claim shutdown test',
+        engineType: 'server',
+        resourceClass: 'default',
+        executionTimeoutMs: 10_000,
+        status: 'queued',
+        triggerSource: 'dashboard',
+        input: {},
+        attempts: 0,
+        maxAttempts: 3,
+        deadlineAt,
+        scheduledFor,
+      },
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const claimed = await repository.claimNextRun({
+      resourceClass: 'default',
+      workerId,
+      now,
+      leaseExpiresAt: new Date(now.getTime() + 10_000),
+      signal: new AbortController().signal,
+    });
+    expect(claimed).toMatchObject({
+      id: runId,
+      status: 'running',
+      attempts: 1,
+      claimedBy: workerId,
+    });
+
+    const finishedAt = new Date(now.getTime() + 500);
+    await expect(repository.cancelClaimedAttemptForLifecycle({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId,
+      expectedAttemptToken: claimed?.attemptToken as string,
+      claimedBy: workerId,
+      errorCode: 'operation_server_shutdown',
+      finishedAt,
+    })).resolves.toBe(true);
+
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: {
+        status: true,
+        attempts: true,
+        claimedBy: true,
+        attemptToken: true,
+        claimedAt: true,
+        leaseExpiresAt: true,
+        startedAt: true,
+        deadlineAt: true,
+        scheduledFor: true,
+        errorCode: true,
+        errorMessage: true,
+        finishedAt: true,
+      },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      attempts: 1,
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+      startedAt: now,
+      deadlineAt,
+      scheduledFor,
+      errorCode: 'operation_server_shutdown',
+      errorMessage: 'Operation cancelled because the API server is shutting down',
+      finishedAt,
+    });
+  });
+
+  it('does not shutdown-cancel a different tenant, token, worker, or status', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    const workerId = 'operations-integration-shutdown';
+    await locker.operationRun.create({
+      data: {
+        id: runId,
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'test.committed_claim_shutdown_fence',
+        definitionVersion: 1,
+        ownerDomain: 'operations',
+        title: 'Committed claim shutdown fence test',
+        engineType: 'server',
+        resourceClass: 'default',
+        executionTimeoutMs: 10_000,
+        status: 'running',
+        triggerSource: 'dashboard',
+        input: {},
+        attempts: 1,
+        maxAttempts: 3,
+        claimedBy: workerId,
+        attemptToken,
+        claimedAt: new Date(),
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+        deadlineAt: new Date(Date.now() + 60_000),
+        startedAt: new Date(),
+      },
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const cancel = (input: {
+      organizationId?: string;
+      expectedAttemptToken?: string;
+      claimedBy?: string;
+    }) => repository.cancelClaimedAttemptForLifecycle({
+      organizationId: input.organizationId ?? TEST_ORGANIZATION_ID,
+      runId,
+      expectedAttemptToken: input.expectedAttemptToken ?? attemptToken,
+      claimedBy: input.claimedBy ?? workerId,
+      errorCode: 'operation_server_shutdown',
+      finishedAt: new Date(),
+    });
+
+    await expect(cancel({ organizationId: OTHER_ORGANIZATION_ID }))
+      .resolves.toBe(false);
+    await expect(cancel({ expectedAttemptToken: randomUUID() }))
+      .resolves.toBe(false);
+    await expect(cancel({ claimedBy: 'operations-other-worker' }))
+      .resolves.toBe(false);
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true, attempts: true, attemptToken: true, claimedBy: true },
+    })).resolves.toEqual({
+      status: 'running',
+      attempts: 1,
+      attemptToken,
+      claimedBy: workerId,
+    });
+
+    await locker.operationRun.update({
+      where: { id: runId },
+      data: { status: 'succeeded' },
+    });
+    await expect(cancel({})).resolves.toBe(false);
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true, attempts: true, attemptToken: true, claimedBy: true },
+    })).resolves.toEqual({
+      status: 'succeeded',
+      attempts: 1,
+      attemptToken,
+      claimedBy: workerId,
+    });
+  });
+
+  it('terminal-cancels expired server leases, preserves queued work, and never reclaims the lost attempt', async () => {
+    const expiredRunId = randomUUID();
+    const queuedRunId = randomUUID();
+    const liveRunId = randomUUID();
+    const expiredAttemptToken = randomUUID();
+    const now = new Date();
+    const deadlineAt = new Date(now.getTime() + 60_000);
+    const scheduledFor = new Date(now.getTime() - 1_000);
+    await locker.operationRun.createMany({
+      data: [
+        {
+          id: expiredRunId,
+          organizationId: TEST_ORGANIZATION_ID,
+          operationKey: 'test.lost_server_worker',
+          definitionVersion: 1,
+          ownerDomain: 'operations',
+          title: 'Lost server worker test',
+          engineType: 'server',
+          resourceClass: 'default',
+          executionTimeoutMs: 10_000,
+          status: 'running',
+          triggerSource: 'dashboard',
+          input: {},
+          attempts: 1,
+          maxAttempts: 3,
+          claimedBy: 'operations-9999',
+          attemptToken: expiredAttemptToken,
+          claimedAt: new Date(now.getTime() - 20_000),
+          leaseExpiresAt: new Date(now.getTime() - 1_000),
+          deadlineAt,
+          scheduledFor,
+          startedAt: new Date(now.getTime() - 20_000),
+        },
+        {
+          id: queuedRunId,
+          organizationId: TEST_ORGANIZATION_ID,
+          operationKey: 'test.unclaimed_queued_survives',
+          definitionVersion: 1,
+          ownerDomain: 'operations',
+          title: 'Unclaimed queued work survives',
+          engineType: 'server',
+          resourceClass: 'naver_api',
+          executionTimeoutMs: 10_000,
+          status: 'queued',
+          triggerSource: 'dashboard',
+          input: {},
+          attempts: 0,
+          maxAttempts: 3,
+          scheduledFor,
+        },
+        {
+          id: liveRunId,
+          organizationId: TEST_ORGANIZATION_ID,
+          operationKey: 'test.live_server_worker',
+          definitionVersion: 1,
+          ownerDomain: 'operations',
+          title: 'Live server worker test',
+          engineType: 'server',
+          resourceClass: 'snapshot_compute',
+          executionTimeoutMs: 10_000,
+          status: 'running',
+          triggerSource: 'dashboard',
+          input: {},
+          attempts: 1,
+          maxAttempts: 3,
+          claimedBy: 'operations-8888',
+          attemptToken: randomUUID(),
+          claimedAt: now,
+          leaseExpiresAt: new Date(now.getTime() + 60_000),
+          deadlineAt,
+          startedAt: now,
+        },
+      ],
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+
+    await expect(repository.cancelExpiredWorkerAttempts({ now, limit: 10 }))
+      .resolves.toBe(1);
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: expiredRunId },
+      select: {
+        status: true,
+        attempts: true,
+        attemptToken: true,
+        claimedBy: true,
+        leaseExpiresAt: true,
+        deadlineAt: true,
+        scheduledFor: true,
+        errorCode: true,
+      },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      attempts: 1,
+      attemptToken: null,
+      claimedBy: null,
+      leaseExpiresAt: null,
+      deadlineAt,
+      scheduledFor,
+      errorCode: 'operation_worker_lost',
+    });
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: queuedRunId },
+      select: { status: true, attempts: true },
+    })).resolves.toEqual({ status: 'queued', attempts: 0 });
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: liveRunId },
+      select: { status: true, attempts: true },
+    })).resolves.toEqual({ status: 'running', attempts: 1 });
+
+    const claimed = await repository.claimNextRun({
+      resourceClass: 'default',
+      workerId: 'operations-new-worker',
+      now,
+      leaseExpiresAt: new Date(now.getTime() + 60_000),
+      signal: new AbortController().signal,
+    });
+    expect(claimed).toBeNull();
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: expiredRunId },
+      select: { status: true, attempts: true },
+    })).resolves.toEqual({ status: 'cancelled', attempts: 1 });
+  });
 });
 
 async function createBrowserRun(

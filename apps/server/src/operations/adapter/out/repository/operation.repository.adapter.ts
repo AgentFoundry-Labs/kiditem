@@ -11,6 +11,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateOperationRunRecord,
   OperationActiveAttemptTransition,
+  OperationLifecycleBatchResult,
   OperationRunRecord,
   OperationRunRepositoryPort,
   OperationRunTransition,
@@ -18,8 +19,13 @@ import type {
   UpsertOperationScheduleRecord,
 } from '../../../application/port/out/repository/operation.repository.port';
 import {
+  advanceOperationSchedulesPastLifecycleCutoff,
+  cancelClaimedOperationAttemptForLifecycle,
+  cancelExpiredServerWorkerAttempts,
+  cancelOperationRunsForLifecycle,
   claimNextServerRun,
   expireServerRunsPastDeadline,
+  readOperationLifecycleDatabaseTime,
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
 import { createFencedCompositeChild } from './operation-composite.repository';
@@ -448,6 +454,49 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       organizationId: claimed.organizationId,
       runId: claimed.runId,
     });
+  }
+
+  readLifecycleDatabaseTime(): Promise<Date> {
+    return readOperationLifecycleDatabaseTime(this.prisma);
+  }
+
+  cancelRunsForLifecycle(input: {
+    cutoff: Date | null;
+    errorCode:
+      | 'operation_server_shutdown'
+      | 'operation_server_lifecycle_expired';
+    errorMessage: string;
+    finishedAt: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult> {
+    return cancelOperationRunsForLifecycle(this.prisma, input);
+  }
+
+  advanceSchedulesPastLifecycleCutoff(input: {
+    cutoff: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult> {
+    return advanceOperationSchedulesPastLifecycleCutoff(this.prisma, input);
+  }
+
+  cancelClaimedAttemptForLifecycle(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    claimedBy: string;
+    errorCode: 'operation_server_shutdown';
+    finishedAt: Date;
+  }): Promise<boolean> {
+    return cancelClaimedOperationAttemptForLifecycle(this.prisma, input);
+  }
+
+  cancelExpiredWorkerAttempts(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number> {
+    return cancelExpiredServerWorkerAttempts(this.prisma, input);
   }
 
   async heartbeatRun(input: {
