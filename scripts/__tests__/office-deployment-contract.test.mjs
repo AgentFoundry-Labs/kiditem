@@ -7,41 +7,6 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const read = (path) => readFileSync(`${root}/${path}`, 'utf8');
 
-const functionBody = (source, name) => {
-  const start = source.indexOf(`function ${name} {`);
-  assert.notEqual(start, -1, `missing PowerShell function ${name}`);
-
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) return source.slice(bodyStart + 1, index);
-  }
-
-  assert.fail(`unterminated PowerShell function ${name}`);
-};
-
-const blockBody = (source, marker) => {
-  const start = source.indexOf(marker);
-  assert.notEqual(start, -1, `missing PowerShell block ${marker}`);
-
-  const bodyStart = source.indexOf('{', start);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === '{') depth += 1;
-    if (source[index] === '}') depth -= 1;
-    if (depth === 0) {
-      return {
-        body: source.slice(bodyStart + 1, index),
-        remainder: source.slice(index + 1),
-      };
-    }
-  }
-
-  assert.fail(`unterminated PowerShell block ${marker}`);
-};
-
 test('office workflow builds both images and publishes digest refs', () => {
   const workflow = read('.github/workflows/office-images.yml');
 
@@ -93,7 +58,7 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.match(script, /Docker\\wsl\\disk\\docker_data\.vhdx/);
   assert.equal(
     script.match(/up --detach --no-build api worker web nginx/g)?.length,
-    3,
+    2,
   );
   assert.doesNotMatch(script, /up -d --no-build/);
   assert.match(script, /'Rollback'/);
@@ -108,113 +73,6 @@ test('office operator guards identity, disk, revision, health, and rollback', ()
   assert.match(script, /stop api worker web nginx/);
   assert.doesNotMatch(script, /docker system prune/);
   assert.doesNotMatch(script, /docker volume prune/);
-});
-
-test('destructive Office deploy quiesces writers before recovery capture and schema push', () => {
-  const install = functionBody(
-    read('deploy/office/apply-deployment.ps1'),
-    'Install-Deployment',
-  );
-
-  const writerStop = install.indexOf('Stop-ApplicationWriters');
-  const recoveryCapture = install.indexOf('New-DestructiveRecoveryArtifact');
-  const schemaPush = install.indexOf('npx prisma db push');
-
-  assert.ok(writerStop >= 0, 'destructive deploy must stop application writers');
-  assert.ok(
-    recoveryCapture > writerStop,
-    'recovery capture must occur after application writers stop',
-  );
-  assert.ok(
-    schemaPush > recoveryCapture,
-    'schema push must occur after quiesced recovery capture',
-  );
-});
-
-test('destructive Office recovery artifact is catalog-verified and identity-bound', () => {
-  const script = read('deploy/office/apply-deployment.ps1');
-  const capture = functionBody(script, 'New-DestructiveRecoveryArtifact');
-
-  assert.match(capture, /pg_dump/);
-  assert.match(capture, /--format=custom/);
-  assert.match(capture, /pg_restore/);
-  assert.match(capture, /--list/);
-  assert.match(capture, /Get-FileHash[^\n]+SHA256/);
-  assert.match(capture, /RecoveryCopyDirectory/);
-  assert.match(capture, /copyHash[^\n]+localHash/i);
-  assert.match(capture, /priorManifestSha256/);
-  assert.match(capture, /priorGitSha/);
-  assert.match(capture, /dumpSha256/);
-  assert.doesNotMatch(capture, /POSTGRES_PASSWORD|DATABASE_URL/);
-});
-
-test('destructive schema boundary failure stops writers without runtime restoration', () => {
-  const script = read('deploy/office/apply-deployment.ps1');
-  const install = functionBody(script, 'Install-Deployment');
-  const failureHandler = install.slice(
-    install.indexOf('catch {\n    $deploymentError'),
-  );
-  assert.match(
-    failureHandler,
-    /if \(\$destructiveBoundaryEntered\)[\s\S]*?\$postBoundaryFailureTransition/,
-  );
-  const destructiveFailure = blockBody(
-    failureHandler,
-    "if ($failureTransition.runtimeAction -eq 'stop-writers')",
-  );
-
-  assert.match(destructiveFailure.body, /Stop-ApplicationWriters/);
-  assert.doesNotMatch(destructiveFailure.body, /Restore-Transaction/);
-  assert.match(destructiveFailure.remainder, /throw \$deploymentError/);
-});
-
-test('deployment records are finalized inside the destructive failure boundary', () => {
-  const install = functionBody(
-    read('deploy/office/apply-deployment.ps1'),
-    'Install-Deployment',
-  );
-  const guardedTransaction = blockBody(install, 'try');
-
-  assert.match(guardedTransaction.body, /CurrentManifestPath/);
-  assert.match(guardedTransaction.body, /bundles\\\{0\}/);
-  assert.match(guardedTransaction.body, /Set-RecoveryStateStatus 'deployed'/);
-  assert.doesNotMatch(guardedTransaction.body, /Office deployment complete/);
-  assert.match(install, /catch[\s\S]+Office deployment complete/);
-});
-
-test('destructive Office boundary blocks runtime-only rollback and requires identity-bound recovery', () => {
-  const script = read('deploy/office/apply-deployment.ps1');
-  const completeRecovery = functionBody(script, 'Complete-DatabaseRecovery');
-
-  assert.match(script, /Assert-OperationAllowedByRecoveryState[^\n]+\$Operation/);
-  assert.match(script, /'CompleteRecovery'/);
-  assert.match(completeRecovery, /RecoveryArtifactPath/);
-  assert.match(completeRecovery, /RecoveredDatabaseDumpSha256/);
-  assert.match(completeRecovery, /RecoveredPriorManifestPath/);
-  assert.match(completeRecovery, /dumpSha256/);
-  assert.match(completeRecovery, /priorManifestSha256/);
-  assert.match(completeRecovery, /priorGitSha/);
-  assert.match(completeRecovery, /Remove-Item[^\n]+RecoveryStatePath/);
-});
-
-test('application-only Office deploy failures retain automatic runtime restoration', () => {
-  const install = functionBody(
-    read('deploy/office/apply-deployment.ps1'),
-    'Install-Deployment',
-  );
-  const failureHandler = install.slice(
-    install.indexOf('catch {\n    $deploymentError'),
-  );
-  assert.match(
-    failureHandler,
-    /else[\s\S]*?\$preBoundaryFailureTransition/,
-  );
-  const applicationFailure = blockBody(
-    failureHandler,
-    "elseif ($failureTransition.runtimeAction -eq 'restore-transaction')",
-  );
-
-  assert.match(applicationFailure.body, /Restore-Transaction \$backupRoot/);
 });
 
 test('office API runtime includes the Prisma CLI used by explicit schema apply', () => {

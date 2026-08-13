@@ -51,12 +51,9 @@ whose provisioning must be reproducible.
 
 The office lane is deliberately not blue-green because the host has tight disk
 capacity and retains local state. It uses a controlled recreate with automatic
-runtime-file restoration on an application-only failed health check. An
-approved schema change is applied explicitly with `-ApplySchema`; database
-changes remain outside runtime rollback and must be assessed separately for
-every release. An accepted-data-loss push uses the recovery state machine below
-and never automatically starts either runtime after a failed or indeterminate
-schema boundary.
+runtime-file restoration on a failed health check. An approved schema change is
+applied explicitly with `-ApplySchema`; database changes remain outside runtime
+rollback and must be assessed separately for every release.
 
 ## Promote The Office Branch
 
@@ -99,7 +96,6 @@ named `office-deployment-<full SHA>` and contains:
 - `compose.office.yml`
 - `nginx.conf`
 - `apply-deployment.ps1`
-- `recovery-operation-policy.json`
 
 The manifest records the workflow URL, root app version, Git SHA, and exact API
 and web digest refs. Convenience tags such as `office-candidate` are never used
@@ -134,55 +130,42 @@ When a reviewed Prisma change is intentionally guarded by Prisma's generic data
 loss warning, add `-AcceptDataLoss` to the same deploy command and record the
 reason in the PR body and final report. This only appends
 `--accept-data-loss` to `npx prisma db push`; it never performs
-`--force-reset`. Also pass an existing, operator-approved NAS recovery
-directory. The script rejects a destructive deploy without it:
+`--force-reset`.
 
-```powershell
-$recoveryCopyDirectory = '\\<nas-host>\<backup-share>\kiditem\<full-sha>'
-New-Item -ItemType Directory -Force -Path $recoveryCopyDirectory | Out-Null
-& "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
-  -Operation Deploy `
-  -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
-  -ApplySchema `
-  -AcceptDataLoss `
-  -RecoveryCopyDirectory $recoveryCopyDirectory
-```
+### Destructive Maintenance Window
 
-This one command owns the destructive cutover ordering:
+An incompatible schema contraction is a planned full-stop maintenance action,
+not a normal runtime rollout. Before taking the final row counts or dump, stop
+API, worker, web, and nginx with the current Office Compose configuration. Keep
+PostgreSQL and MinIO running, and do not restart any application container until
+the schema operation and post-push relation checks are complete.
 
-1. Validate arguments and the live checkout, then acquire the exclusive
-   OS-backed deployment mutation lock before reading recovery state or policy.
-   Hold it through guard decisions, runtime/file work, failure handling, and
-   final marker state. Validate image, volume, disk, Compose, prior-manifest,
-   and recovery-directory prerequisites under that lock.
-2. Stop API, worker, web, and nginx. Keep PostgreSQL and MinIO running and
-   healthy.
-3. With writers still stopped, create a custom-format PostgreSQL dump under
-   `C:\ProgramData\Kiditem\recovery`, require a non-empty
-   `pg_restore --list`, compute its SHA-256, copy it to the selected NAS
-   directory, and require the copy SHA-256 to match.
-4. Persist `deployments\recovery-required.json` with the dump SHA, local and
-   recovery-copy paths, candidate Git SHA, stable candidate-manifest identity
-   SHA-256, prior Git SHA, and exact prior manifest SHA. The marker contains no
-   credentials.
-5. Run Prisma schema push while writers remain stopped, then start and health
-   check the candidate. Persist `schema-push-completed` atomically after push;
-   retain it throughout candidate health/smoke and every current, previous,
-   history, and bundle write. Persist `deployed` only as the last durable
-   transaction action. Keep the marker after success so runtime-only rollback
-   remains blocked across later operator sessions.
+While application writers remain stopped:
 
-`Deploy`, `Rollback`, and `CompleteRecovery` share this lock. Another mutating
-operator fails before any stop, dump, restore, container start, or marker
-transition. The handle is released on success and failure; a leftover lock file
-is harmless because ownership is the open OS handle, not file presence.
-`Status` remains lock-free and reads only atomically replaced state files.
-Both the recovery marker and `current.json` use atomic replace-or-create writes.
+1. Record the reviewed release SHA, image manifest, accepted-data-loss approval,
+   and pre-drop row counts.
+2. Create a fresh custom-format PostgreSQL dump, verify `pg_restore --list`,
+   record its SHA-256, confirm the NAS copy has the same hash, and name the
+   restore owner.
+3. Stage the exact reviewed API/web digest refs and Compose/nginx files from the
+   downloaded bundle. Validate the Compose configuration, but do not start the
+   application services.
+4. Run `npx prisma db push --accept-data-loss` once from the candidate API image
+   with `docker compose run --rm --no-deps api`.
+5. Verify the retired and retained relations, then start and smoke-test the new
+   runtime with the reviewed Compose configuration.
 
-Do not take manual row counts or a dump before invoking the command and treat
-them as cutover evidence: writes could occur afterward. The verified dump is
-the pre-drop recovery record for the destructive cutover. Record its SHA and
-recovery-copy path as reported by the operator command.
+Do not use the normal `apply-deployment.ps1 -Operation Deploy` wrapper for this
+one incompatible cutover. Its runtime-file rollback is designed for application
+failures and is not a database rollback. The operator owns the full-stop
+sequence above and starts an application runtime only after the database shape
+has been accepted.
+
+If schema application or the new runtime fails, keep every application service
+stopped. Runtime-only `-Operation Rollback` is incompatible with the contracted
+database. Restore the verified pre-push database dump first, then start the
+previous manifest so the database and runtime are rolled back as one pair.
+Record the dump SHA, previous image digests, restore result, and smoke evidence.
 
 If the release includes durable data migrations, run the approved phase order
 against the Office database with a fresh backup in place:
@@ -195,8 +178,7 @@ npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --targ
   -Operation Deploy `
   -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
   -ApplySchema `
-  -AcceptDataLoss `
-  -RecoveryCopyDirectory $recoveryCopyDirectory
+  -AcceptDataLoss
 
 npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
@@ -329,84 +311,12 @@ guards, and swaps the current/previous manifest records:
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback
 ```
 
-Rollback is valid for application regressions only. It does not undo Prisma schema changes,
-data migrations, marketplace writes, object-storage changes,
-or queued jobs. While `deployments\recovery-required.json` records a destructive
-schema boundary, runtime-only `Rollback` is blocked even after a successful
-candidate deploy. Every later `-ApplySchema` deployment is also blocked, whether
-or not it requests `-AcceptDataLoss`. The only permitted forward deployment is
-application-only, and its pre-deploy `current.json` must have both the candidate
-Git SHA and stable manifest-identity SHA-256 recorded by the marker. The script
-archives and removes the marker only after that forward deployment completes
-its runtime health/smoke checks and deployment-record finalization. A mismatch
-blocks before any deployment mutation; an application-only failure restores the
-compatible candidate runtime and preserves the marker.
-
-If post-push finalization fails, application writers remain stopped. A failed
-attempt to atomically persist `recovery-required` cannot corrupt or remove the
-existing `schema-push-completed` marker, so the next mutating operation remains
-blocked. Failure to win atomic marker creation also keeps writers stopped; it
-never enters automatic runtime restoration.
-
-The operation and marker-transition rules live in
-`recovery-operation-policy.json`, which is shipped in the immutable operator
-bundle and consumed directly by the PowerShell script. Unknown combinations are
-denied. Recovery marker schema v2 requires the candidate manifest identity. An
-older or incomplete marker is invalid; never delete or hand-edit it to bypass
-this guard. Destructive artifact capture atomically fails when a marker already
-exists and never archives or replaces the active boundary.
-
-If a destructive schema push or subsequent candidate health/smoke check fails,
-the script stops API, worker, web, and nginx, retains PostgreSQL and MinIO, marks
-the state `recovery-required`, and does not invoke automatic runtime restoration.
-Do not use raw Compose commands to start either prior or candidate application
-containers. Restore the recorded database and prior runtime together using this
-procedure:
-
-```powershell
-# Read only the credential-free recovery identity and select its recorded dump.
-$state = Get-Content `
-  'C:\ProgramData\Kiditem\deployments\recovery-required.json' -Raw |
-  ConvertFrom-Json
-$dump = $state.recoveryCopyPath
-$priorManifest =
-  "C:\ProgramData\Kiditem\deployments\bundles\$($state.priorGitSha)\office-deployment.json"
-
-# Verify the exact recorded artifact before any database mutation.
-$actualSha = (Get-FileHash -LiteralPath $dump -Algorithm SHA256).Hash.ToLowerInvariant()
-if ($actualSha -ne $state.dumpSha256) { throw 'Recovery dump SHA256 mismatch.' }
-docker cp $dump kiditem-postgres:/tmp/kiditem-recovery.dump
-docker exec kiditem-postgres pg_restore --list /tmp/kiditem-recovery.dump
-if ($LASTEXITCODE -ne 0) { throw 'Recovery dump catalog verification failed.' }
-
-# With application writers still stopped, perform the reviewed full restore.
-docker exec kiditem-postgres psql --username=kiditem --dbname=postgres `
-  --set ON_ERROR_STOP=1 `
-  --command "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'kiditem' AND pid <> pg_backend_pid();"
-if ($LASTEXITCODE -ne 0) { throw 'Connection termination failed.' }
-docker exec kiditem-postgres dropdb --username=kiditem --if-exists kiditem
-if ($LASTEXITCODE -ne 0) { throw 'Database drop failed.' }
-docker exec kiditem-postgres createdb --username=kiditem --owner=kiditem kiditem
-if ($LASTEXITCODE -ne 0) { throw 'Database create failed.' }
-docker exec kiditem-postgres pg_restore --exit-on-error --no-owner `
-  --username=kiditem --dbname=kiditem /tmp/kiditem-recovery.dump
-if ($LASTEXITCODE -ne 0) { throw 'Database restore failed; keep writers stopped.' }
-
-# This identity-bound acknowledgement verifies the artifact and prior manifest,
-# starts the prior runtime, and clears the marker only after health/smoke pass.
-& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
-  -Operation CompleteRecovery `
-  -RecoveryArtifactPath $dump `
-  -RecoveredDatabaseDumpSha256 $state.dumpSha256 `
-  -RecoveredPriorManifestPath $priorManifest
-```
-
-`CompleteRecovery` does not restore the database. Its dump SHA parameter is the
-explicit assertion that the preceding restore used that exact artifact, not a
-generic override. It independently hashes and catalog-checks the artifact and
-verifies both the prior manifest file hash and prior Git SHA before starting the
-prior runtime. Any validation, health, or smoke failure leaves writers stopped
-and preserves the marker.
+Rollback is valid for application regressions only.
+Runtime-only rollback does not undo Prisma schema changes. It also does not
+undo data migrations, marketplace writes, object-storage changes, or queued
+jobs. After an incompatible schema change, never start the previous runtime
+against the changed database. Keep application services stopped and restore the
+verified database dump before starting the previous manifest.
 
 ## Blockers
 
@@ -417,8 +327,6 @@ Stop without rebuilding, resetting, switching branches, or pruning volumes if:
 - a required env file, external volume, image, or OCI revision is missing;
 - disk remains below threshold after optional BuildKit cache pruning;
 - health, smoke, or automatic runtime restoration fails;
-- `deployments\recovery-required.json` exists and the requested operation is
-  not the documented identity-bound recovery or an allowed forward deploy;
 - the release requires a schema/data action that has not been explicitly
   approved.
 

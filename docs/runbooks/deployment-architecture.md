@@ -74,58 +74,18 @@ it on the Office/home-server runtime itself.
 
 Office uses controlled recreate instead of blue-green deployment because the
 host has tight disk capacity and owns local state. The operator script restores
-the prior runtime files when an application-only candidate health check fails.
-Runtime rollback does not undo Prisma schema changes, data migrations,
-marketplace writes, object-storage changes, or queued jobs.
+the prior runtime files when candidate health fails. Runtime rollback does not
+undo Prisma schema changes, data migrations, marketplace writes, object-storage
+changes, or queued jobs.
 
-An accepted-data-loss schema deploy has a stricter state machine. The operator
-script stops API, worker, web, and nginx first while leaving PostgreSQL and
-MinIO running. In that quiesced state it creates a PostgreSQL custom-format
-dump, verifies its `pg_restore --list` catalog, hashes it with SHA-256, copies
-it to the operator-selected recovery directory, verifies the copy hash, and
-records the dump plus candidate/prior manifest identities in
-`deployments/recovery-required.json`. Only then may Prisma push the schema.
-Application writers stay stopped throughout this sequence.
-
-`Deploy`, `Rollback`, and `CompleteRecovery` acquire one exclusive OS-backed
-mutation lock under `deployments` before reading recovery policy/state or
-changing files or runtime. The lock handle remains open through success and
-failure handling, then is disposed in an outer `finally`; the lock file may
-remain and is not treated as ownership. A contender fails before any stop,
-dump, restore, or container start. `Status` stays lock-free and read-only.
-The recovery marker and `current.json` are both replaced atomically so the
-lock-free status path never observes a partially written state file.
-
-The marker survives a successful destructive deployment because a runtime-only
-rollback is still incompatible with the contracted database. A later successful
-application-only deployment may make the destructive candidate the safe runtime
-rollback target and archive the marker, but only when the pre-deploy
-`current.json` Git SHA and stable manifest-identity SHA-256 exactly match the
-candidate identity recorded in the marker. A mismatch blocks deployment. Every
-`-ApplySchema` deployment remains blocked while the marker exists, with or
-without `-AcceptDataLoss`. If schema push or candidate health is failed or
-indeterminate, the marker changes to `recovery-required`; automatic runtime
-restoration is disabled and application writers remain stopped.
-`Deploy` and `Rollback` are then blocked. `CompleteRecovery` can clear the
-marker only after the operator restores the recorded dump manually and supplies
-the same dump SHA-256 plus the exact prior manifest. The script re-hashes and
-catalog-checks the artifact, verifies the prior manifest SHA and Git SHA, starts
-the prior runtime, and clears the marker only after health and smoke checks pass.
-It never claims to restore the database itself. Marker status replacement is
-atomic. After schema push, `schema-push-completed` remains durable across all
-candidate health/smoke and manifest/history/bundle finalization. `deployed` is
-the last durable transaction action, so a finalization failure cannot expose a
-successful destructive state. If persisting `recovery-required` also fails,
-the prior atomic `schema-push-completed` marker remains intact and blocks the
-next mutation.
-
-The operator bundle includes `recovery-operation-policy.json`. It is the shared,
-fail-closed operation/transition/action-order table consumed by PowerShell and
-exercised by cross-platform Node tests. Unknown combinations are denied. Recovery marker
-schema v2 requires the candidate Git SHA and stable candidate-manifest identity
-SHA-256; an older or incomplete marker is invalid and must not be removed or
-edited to bypass recovery. Artifact capture atomically creates a new marker and
-fails if one already exists; it never archives or replaces an active boundary.
+An incompatible schema contraction uses a full-stop maintenance window instead
+of the normal runtime rollback path. Stop API, worker, web, and nginx before the
+final database dump; keep them stopped through the destructive schema push and
+relation verification. If the cutover fails, restore the verified pre-push dump
+before starting the previous manifest. The database backup and prior runtime
+are one recovery unit. The normal deployment wrapper is not used for this
+cutover because its application-only runtime restore cannot roll back the
+database.
 
 ## Security Boundary
 

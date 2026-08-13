@@ -149,7 +149,6 @@ jobs:
           cp deploy/office/compose.office.yml office-bundle/
           cp deploy/office/nginx.conf office-bundle/
           cp deploy/office/apply-deployment.ps1 office-bundle/
-          cp deploy/office/recovery-operation-policy.json office-bundle/
 
       - name: Upload office deployment bundle
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
