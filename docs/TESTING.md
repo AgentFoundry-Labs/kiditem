@@ -123,7 +123,7 @@ Postgres integration 으로 더 정확히 검증할 수 있으면 추가하지 �
 # 전체
 npx vitest run --workspace=apps/server
 # 특정
-npx vitest run src/inventory/picking
+npm exec --workspace=apps/server vitest -- run src/inventory/application/service/__tests__/inventory-availability.service.spec.ts
 ```
 
 **한계**: race / lock / 트랜잭션 isolation 검증 불가. `updateMany({ count: 0 })` 반환을 강제할 순 있지만, 실제 두 트랜잭션 경쟁에서 count 가 어떻게 나오는지는 **mock 으로 재현 불가** (mock Prisma 는 synchronous).
