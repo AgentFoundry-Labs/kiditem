@@ -9,6 +9,11 @@ vi.mock('@/components/panel/hooks/usePanelStream', () => ({
   usePanelStream: vi.fn(),
 }));
 
+vi.mock('../components/AgentOsInteractionWorkspace', () => ({
+  AgentOsInteractionWorkspace: ({ open }: { open: boolean }) =>
+    open ? <section aria-label="AgentOS conversation workspace">thread-from-shared-store</section> : null,
+}));
+
 vi.mock('@/lib/api-client', async () => {
   const actual = await vi.importActual<typeof import('@/lib/api-client')>(
     '@/lib/api-client',
@@ -388,31 +393,19 @@ describe('Agent OS network page', () => {
     expect(screen.queryByText('Operator Chat')).not.toBeInTheDocument();
   });
 
-  it('opens the Operator workspace over the network page', async () => {
+  it('opens the shared session workspace without legacy conversation reads', async () => {
     renderPage();
 
     await screen.findAllByText('Manager Agent');
     fireEvent.click(screen.getByRole('button', { name: 'Operator 대화' }));
 
-    expect(await screen.findByText('Operator Chat')).toBeInTheDocument();
-    expect(screen.getByText('Execution Canvas')).toBeInTheDocument();
-    expect(screen.getByText('Node Detail')).toBeInTheDocument();
-    expect(await screen.findByText('Sourcing Agent')).toBeInTheDocument();
-    expect(await screen.findByText('Listing Agent')).toBeInTheDocument();
-    expect(await screen.findByText('Scrape Url')).toBeInTheDocument();
-    expect(await screen.findByText('Create Generation Package')).toBeInTheDocument();
-    expect(
-      (await screen.findAllByText('User approval required')).length,
-    ).toBeGreaterThan(0);
-    expect(await screen.findByRole('button', { name: '승인' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '거절' })).toBeInTheDocument();
-    expect(await screen.findByText('실리콘 식판 시장 기회')).toBeInTheDocument();
-    expect(
-      await screen.findByText('실리콘 식판 반응 오는 신제품 찾아줘'),
-    ).toBeInTheDocument();
-    expect(
-      (await screen.findAllByText('실리콘 흡착 식판 테스트 발주 후보')).length,
-    ).toBeGreaterThan(0);
+    expect(await screen.findByRole('region', { name: 'AgentOS conversation workspace' })).toBeVisible();
+    expect(screen.getByText('thread-from-shared-store')).toBeVisible();
+    expect(screen.queryByText('Operator Chat')).not.toBeInTheDocument();
+    expect(getMock).not.toHaveBeenCalledWith('/api/agent-os/conversations');
+    expect(getMock).not.toHaveBeenCalledWith(
+      '/api/agent-os/conversations/conversation-1/messages',
+    );
     expect(screen.getByText('Agent Network')).toBeInTheDocument();
   });
 

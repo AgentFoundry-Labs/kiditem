@@ -37,6 +37,7 @@ import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository
 import { AgentInteractionBootstrapController } from '../adapter/in/http/agent-interaction-bootstrap.controller';
 import { AgentInteractionControlController } from '../adapter/in/http/agent-interaction-control.controller';
 import { AgentAguiController } from '../adapter/in/http/agent-agui.controller';
+import { AgentInteractionActionsController } from '../adapter/in/http/agent-interaction-actions.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from '../adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event/agent-conversation-live-publisher.port';
@@ -80,6 +81,7 @@ describe('AgentOsModule wiring', () => {
       AgentInteractionBootstrapController,
       AgentInteractionControlController,
       AgentAguiController,
+      AgentInteractionActionsController,
     ]);
   });
 

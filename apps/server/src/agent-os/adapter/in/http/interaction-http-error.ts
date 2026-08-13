@@ -45,6 +45,7 @@ function mapInteractionHttpError(error: unknown): Error {
   }
   if (
     error.code === 'INTERACTION_CONNECTION_NOT_AUTHORIZED' ||
+    error.code === 'INTERACTION_NAVIGATION_NOT_AUTHORIZED' ||
     error.code === 'INTERACTION_PRINCIPAL_NOT_ALLOWED' ||
     error.code === 'INTERACTION_REPLAY_CURSOR_MISMATCH'
   ) {

@@ -11,6 +11,7 @@ import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.con
 import { AgentInteractionBootstrapController } from './adapter/in/http/agent-interaction-bootstrap.controller';
 import { AgentInteractionControlController } from './adapter/in/http/agent-interaction-control.controller';
 import { AgentAguiController } from './adapter/in/http/agent-agui.controller';
+import { AgentInteractionActionsController } from './adapter/in/http/agent-interaction-actions.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from './adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
@@ -64,6 +65,7 @@ import { AgentInteractionIdentityService } from './application/service/agent-int
 import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
 import { AgentAguiRunService } from './application/service/agent-agui-run.service';
 import { AgentAguiRuntimeRegistry } from './application/service/agent-agui-runtime-registry.service';
+import { AgentInteractionPresentationService } from './application/service/agent-interaction-presentation.service';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -86,6 +88,7 @@ const agentInteractionProviders = [
     AgentInteractionBootstrapController,
     AgentInteractionControlController,
     AgentAguiController,
+    AgentInteractionActionsController,
   ],
   providers: [
     ...agentInteractionProviders,
@@ -93,6 +96,11 @@ const agentInteractionProviders = [
     AgentInteractionIdentityService,
     AgentAguiRunService,
     AgentAguiRuntimeRegistry,
+    {
+      // Provisional wiring: KID-24 will relocate this HTTP composition boundary.
+      provide: AgentInteractionPresentationService,
+      useFactory: () => new AgentInteractionPresentationService(),
+    },
     InteractionGatewayGuard,
     AgentApprovalService,
     AgentCatalogService,

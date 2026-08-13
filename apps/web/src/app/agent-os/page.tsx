@@ -36,7 +36,7 @@ import { AgentNetworkCanvas } from './components/AgentNetworkCanvas';
 import { AgentOsBottomDashboard } from './components/AgentOsBottomDashboard';
 import { AgentOsHeader } from './components/AgentOsHeader';
 import { AgentOsObservabilityOverlay } from './components/AgentOsObservabilityOverlay';
-import { AgentOsOperatorWorkspace } from './components/AgentOsOperatorWorkspace';
+import { AgentOsInteractionWorkspace } from './components/AgentOsInteractionWorkspace';
 import { AgentOsPolicyOverlay } from './components/AgentOsPolicyOverlay';
 import { AgentsListPanel } from './components/AgentsListPanel';
 import { LiveActivityPanel, type RecentLog } from './components/LiveActivityPanel';
@@ -636,7 +636,7 @@ export default function AgentOsPage() {
           });
         }}
       />
-      <AgentOsOperatorWorkspace
+      <AgentOsInteractionWorkspace
         open={operatorWorkspaceOpen}
         onClose={() => setOperatorWorkspaceOpen(false)}
       />

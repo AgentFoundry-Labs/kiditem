@@ -34,7 +34,7 @@ the nearest scoped guide owns route-specific composition.
 `AuthProvider.tsx` owns lifecycle, cross-tab propagation, expiry, extension
 sync, and redirect. `apiClient` attaches the bearer token and clears the
 session on `auth_required`; there is no refresh or 401 retry path. CopilotKit
-uses same-origin `/api/chat/copilot`; do not add a Next.js proxy for
+uses same-origin `/api/copilotkit`; do not add a Next.js route handler for
 Nest-owned APIs.
 
 ## Change Boundaries

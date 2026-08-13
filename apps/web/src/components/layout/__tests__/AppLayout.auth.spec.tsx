@@ -8,9 +8,12 @@ const usePathnameMock = vi.hoisted(() => vi.fn());
 const usePanelStreamMock = vi.hoisted(() => vi.fn());
 const readinessMock = vi.hoisted(() => vi.fn(() => null));
 const generationWatcherMock = vi.hoisted(() => vi.fn(() => null));
+const interactionSetOpenMock = vi.hoisted(() => vi.fn());
 
 vi.mock('next/dynamic', () => ({
-  default: () => () => null,
+  default: () => ({ children }: { children?: React.ReactNode }) => (
+    <div data-testid="lazy-interaction">{children}</div>
+  ),
 }));
 
 vi.mock('next/navigation', () => ({
@@ -69,7 +72,14 @@ vi.mock('@/components/GlobalConfirmDialog', () => ({
 }));
 
 vi.mock('@/components/QuickActionFab', () => ({
-  default: () => <div data-testid="quick-action" />,
+  default: ({ onAgentInteractionOpen }: { onAgentInteractionOpen?: () => void }) => (
+    <button data-testid="quick-action" onClick={onAgentInteractionOpen}>AgentOS 대화 열기</button>
+  ),
+}));
+
+vi.mock('@/components/agent-interaction/interaction-store', () => ({
+  useInteractionStore: (selector: (state: { setOpen: (open: boolean) => void }) => unknown) =>
+    selector({ setOpen: interactionSetOpenMock }),
 }));
 
 function renderLayout() {
@@ -88,6 +98,7 @@ describe('AppLayout auth gate', () => {
     usePanelStreamMock.mockReset();
     readinessMock.mockClear();
     generationWatcherMock.mockClear();
+    interactionSetOpenMock.mockReset();
     usePathnameMock.mockReturnValue('/dashboard');
     window.history.pushState({}, '', '/dashboard');
   });
@@ -145,6 +156,9 @@ describe('AppLayout auth gate', () => {
     expect(usePanelStreamMock).toHaveBeenCalledTimes(1);
     expect(readinessMock).toHaveBeenCalledTimes(1);
     expect(generationWatcherMock).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId('lazy-interaction')).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'AgentOS 대화 열기' }));
+    expect(interactionSetOpenMock).toHaveBeenCalledWith(true);
   });
 
   it.each([

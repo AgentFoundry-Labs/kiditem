@@ -13,7 +13,22 @@ const backendBase = stripTrailingSlash(
 const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
-const nextConfig = {
+function resolveInteractionGatewayBase(phase) {
+  if (process.env.INTERACTION_GATEWAY_URL) {
+    return stripTrailingSlash(process.env.INTERACTION_GATEWAY_URL);
+  }
+  if (phase === 'phase-production-server') {
+    throw new Error('INTERACTION_GATEWAY_URL is required in production');
+  }
+  if (phase === 'phase-development-server') return 'http://localhost:4100';
+  // Build-only placeholder keeps environment-agnostic CI builds finite. A
+  // production server cannot start without the real server-only value.
+  return 'http://interaction-gateway.invalid';
+}
+
+function createNextConfig(phase) {
+  const interactionGatewayBase = resolveInteractionGatewayBase(phase);
+  return {
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
   images: {
@@ -42,21 +57,20 @@ const nextConfig = {
     optimizePackageImports: ['lucide-react', 'recharts'],
     turbopackFileSystemCacheForDev: false,
   },
-  // CopilotKit browser runtime calls only same-origin `/api/chat/copilot`.
-  // Next forwards both the exact path (CopilotKit POST entry) and any
-  // sub-path (Hono router `/info`, etc.) to the Nest chat runtime. No API
+  // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
+  // Next forwards the runtime entry and sub-paths to the OSS interaction gateway. No API
   // Route/Route Handler is added — `apps/web/AGENTS.md` keeps the No API
   // Routes rule; AI chat is the bounded transport exception, implemented
   // purely as a rewrite.
   async rewrites() {
     return [
       {
-        source: '/api/chat/copilot',
-        destination: `${backendBase}/api/chat/copilot`,
+        source: '/api/copilotkit',
+        destination: `${interactionGatewayBase}/api/copilotkit`,
       },
       {
-        source: '/api/chat/copilot/:path*',
-        destination: `${backendBase}/api/chat/copilot/:path*`,
+        source: '/api/copilotkit/:path*',
+        destination: `${interactionGatewayBase}/api/copilotkit/:path*`,
       },
       ...(proxyAllApi
         ? [
@@ -68,6 +82,7 @@ const nextConfig = {
         : []),
     ];
   },
-};
+  };
+}
 
-export default nextConfig;
+export default createNextConfig;

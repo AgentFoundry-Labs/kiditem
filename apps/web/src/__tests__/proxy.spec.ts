@@ -58,7 +58,7 @@ describe('proxy local session gate', () => {
     expect(response.status).toBe(200);
   });
 
-  it.each(['/api/chat/copilot', '/api/chat/copilot/info'])(
+  it.each(['/api/copilotkit', '/api/copilotkit/info'])(
     'passes chat transport %s through without an early cookie check',
     async (path) => {
       const response = await proxy(makeRequest(path));

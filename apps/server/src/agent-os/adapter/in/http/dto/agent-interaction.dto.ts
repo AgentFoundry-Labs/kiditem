@@ -3,9 +3,15 @@ import {
   IsObject,
   IsOptional,
   IsString,
+  IsUUID,
   MaxLength,
   MinLength,
 } from 'class-validator';
+
+export class AuthorizeInteractionNavigationDto {
+  @IsUUID()
+  actionId!: string;
+}
 
 class InteractionRunEchoDto {
   @IsString()

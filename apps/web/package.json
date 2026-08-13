@@ -13,7 +13,6 @@
   },
   "dependencies": {
     "@copilotkit/react-core": "1.67.1",
-    "@copilotkit/react-ui": "1.67.1",
     "@grapesjs/react": "^2.0.0",
     "@kiditem/shared": "*",
     "@kiditem/templates": "*",

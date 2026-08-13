@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { usePathname, useRouter } from 'next/navigation';
 import { useStore } from '@/store/useStore';
@@ -15,9 +15,17 @@ import GenerationCompletionWatcher from '@/components/GenerationCompletionWatche
 import QuickActionFab from '@/components/QuickActionFab';
 import { useAuth } from '@/hooks/useAuth';
 import RebuildReadinessBanner from '@/components/RebuildReadinessBanner';
+import { useInteractionStore } from '@/components/agent-interaction/interaction-store';
 import Sidebar from './Sidebar';
 
-const CopilotChat = dynamic(() => import('./CopilotChat'), { ssr: false });
+const AgentInteractionProvider = dynamic(
+  () => import('@/components/agent-interaction/AgentInteractionProvider').then((module) => module.AgentInteractionProvider),
+  { ssr: false },
+);
+const AgentInteractionPanel = dynamic(
+  () => import('@/components/agent-interaction/AgentInteractionPanel').then((module) => module.AgentInteractionPanel),
+  { ssr: false },
+);
 
 function PanelMount() {
   usePanelStream();
@@ -29,18 +37,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
   const auth = useAuth();
   const pathname = usePathname();
   const router = useRouter();
-  const [chatMounted, setChatMounted] = useState(false);
-  const [chatOpen, setChatOpen] = useState(false);
-
-  const toggleChat = useCallback(() => {
-    if (!chatMounted) {
-      setChatMounted(true);
-      setChatOpen(true);
-      return;
-    }
-    const btn = document.querySelector('.copilotKitButton') as HTMLButtonElement | null;
-    if (btn) btn.click();
-  }, [chatMounted]);
+  const setInteractionOpen = useInteractionStore((state) => state.setOpen);
 
   // 풀스크린 surface — sidebar/panel/copilot 없이 children 만 렌더.
   // - `/` (launcher) 와 `/agent-os` 는 자체 레이아웃 (main).
@@ -117,7 +114,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
 
   const content = (
     <div className="min-h-screen bg-[var(--background)]">
-      <Sidebar onChatToggle={toggleChat} chatOpen={chatOpen} lockCollapsed={isEditorRoute} />
+      <Sidebar lockCollapsed={isEditorRoute} />
       <div
         className={cn(
           'transition-all duration-300',
@@ -139,16 +136,18 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
       {showAutoReadinessModal && <ReadinessModal autoOpenWhen="collectionIssue" />}
       <GlobalConfirmDialog />
       <GenerationCompletionWatcher />
-      {isEditorRoute ? null : <QuickActionFab />}
+      {isEditorRoute ? null : (
+        <QuickActionFab onAgentInteractionOpen={() => setInteractionOpen(true)} />
+      )}
     </div>
   );
 
-  if (isEditorRoute || !chatMounted) return content;
+  if (isEditorRoute) return content;
 
   return (
-    <>
+    <AgentInteractionProvider>
       {content}
-      <CopilotChat defaultOpen onChatOpenChange={setChatOpen} />
-    </>
+      <AgentInteractionPanel />
+    </AgentInteractionProvider>
   );
 }
