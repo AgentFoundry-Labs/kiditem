@@ -183,43 +183,14 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     id: string;
     isActive: boolean;
     currentStock: number;
-    activeCommitmentQuantity: number;
   }>> {
-    return this.findInventorySkusWithCommitments(sellpiaInventorySkuIds);
-  }
-
-  private async findInventorySkusWithCommitments(
-    sellpiaInventorySkuIds: string[],
-  ) {
-    const inventorySkus = await this.tx.sellpiaInventorySku.findMany({
+    return this.tx.sellpiaInventorySku.findMany({
       where: {
         organizationId: this.organizationId,
         id: { in: sellpiaInventorySkuIds },
       },
       select: { id: true, isActive: true, currentStock: true },
     });
-    const commitmentTotals = await this.tx.inventoryCommitmentAllocation.groupBy({
-      by: ['sellpiaInventorySkuId'],
-      where: {
-        organizationId: this.organizationId,
-        sellpiaInventorySkuId: { in: sellpiaInventorySkuIds },
-        commitment: {
-          is: {
-            status: 'active',
-            organizationId: this.organizationId,
-          },
-        },
-      },
-      _sum: { quantity: true },
-    });
-    const activeBySkuId = new Map(commitmentTotals.map((total) => [
-      total.sellpiaInventorySkuId,
-      total._sum.quantity ?? 0,
-    ]));
-    return inventorySkus.map((sku) => ({
-      ...sku,
-      activeCommitmentQuantity: activeBySkuId.get(sku.id) ?? 0,
-    }));
   }
 }
 

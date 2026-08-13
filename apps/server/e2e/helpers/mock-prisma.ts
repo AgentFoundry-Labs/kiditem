@@ -23,7 +23,7 @@ const models = [
   // Legacy `product` kept for any test harness references; real Prisma schema no longer has it.
   'product', 'masterProduct',
   'order', 'coupangOrderItem', 'inventory', 'review',
-  'organization', 'supplier', 'warehouse', 'ad', 'profitLoss',
+  'organization', 'supplier', 'warehouse', 'ad',
   'workflowTemplate', 'workflowRun', 'activityEvent', 'alert',
   // Agent OS
   'agentInstance', 'agentRuntimeState',
@@ -33,11 +33,10 @@ const models = [
   'marketplace', 'businessRule', 'featureGate', 'thumbnailAnalysis',
   'thumbnailGeneration', 'thumbnail', 'category', 'optionMaster',
   'purchaseOrder', 'purchaseOrderItem', 'stockTransfer', 'stockTransaction',
-  'stockAudit', 'shipment', 'coupangReturn', 'unshippedItem',
-  'pickingList', 'pickingItem', 'returnTransfer', 'bundleProduct',
-  'productMemo', 'processingCost', 'settlement', 'manualLedger',
+  'coupangReturn', 'returnTransfer', 'bundleProduct',
+  'productMemo', 'settlement',
   'supplierProduct', 'supplierPayment', 'salesPlan', 'trafficStats',
-  'gradeHistory', 'actionTask', 'systemSetting', 'csRecord',
+  'actionTask', 'systemSetting',
   'adSnapshot', 'adCampaignSnapshot', 'scrapeTarget', 'contentGeneration',
   'itemWinner',
 ] as const;

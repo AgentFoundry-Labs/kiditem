@@ -12,23 +12,25 @@ description: >
 ### 1. 상품 성과 진단
 
 ```sql
--- 상품별 종합 성과 (매출 + 광고 + 재고 + 리뷰)
-SELECT p.id, p.name, p.abc_grade, p.health_score,
-       pl.revenue, pl.net_profit, pl.profit_rate,
-       pl.ad_cost,
-       CASE WHEN pl.revenue > 0 THEN ROUND(pl.ad_cost::decimal / pl.revenue * 100, 1) ELSE 0 END as ad_rate,
-       i.current_stock, i.daily_sales_avg,
-       CASE WHEN i.daily_sales_avg > 0 THEN ROUND(i.current_stock / i.daily_sales_avg) ELSE 999 END as days_of_stock,
-       (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id) as review_count,
-       (SELECT ROUND(AVG(r.rating), 1) FROM reviews r WHERE r.product_id = p.id) as avg_rating
-FROM products p
-LEFT JOIN profit_loss pl ON pl.product_id = p.id
-  AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)::int
-  AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)::int
-LEFT JOIN inventory i ON i.product_id = p.id
-WHERE p.organization_id = '{{organization_id}}' AND p.is_deleted = false
-ORDER BY pl.revenue DESC NULLS LAST
+-- 상품별 현재 ABC/기여이익과 물리 재고
+SELECT mp.id, mp.name, mp.abc_grade, mp.health_score,
+       ev.weighted_contribution_profit,
+       sis.current_stock AS available_stock
+FROM master_products mp
+LEFT JOIN master_product_abc_evaluations ev
+  ON ev.master_product_id = mp.id
+ AND ev.organization_id = mp.organization_id
+LEFT JOIN sellpia_inventory_skus sis
+  ON sis.master_product_id = mp.id
+ AND sis.organization_id = mp.organization_id
+WHERE mp.organization_id = '{{organization_id}}'
+  AND mp.is_active = true
+ORDER BY ev.weighted_contribution_profit DESC NULLS LAST
 ```
+
+전체 회사 손익은 저장 테이블이 아니라 `GET /api/profit-loss`의 실시간 집계를
+사용한다. 리뷰와 광고 지표도 해당 organization-scoped API/read model 결과를
+결합하며, 없는 물리 테이블을 가정하지 않는다.
 
 ### 2. 핵심 지표 해석
 

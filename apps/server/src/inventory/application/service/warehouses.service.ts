@@ -7,7 +7,6 @@ import {
 } from '../port/in/warehouse/warehouses.port';
 import {
   WAREHOUSES_REPOSITORY_PORT,
-  type WarehouseListItem,
   type WarehouseRow,
   type WarehousesRepositoryPort,
 } from '../port/out/repository/warehouses.repository.port';
@@ -21,7 +20,7 @@ export class WarehousesService implements WarehousesPort {
     private readonly repository: WarehousesRepositoryPort,
   ) {}
 
-  findAll(organizationId: string): Promise<WarehouseListItem[]> {
+  findAll(organizationId: string): Promise<WarehouseRow[]> {
     return this.repository.listWarehouses(organizationId);
   }
 

@@ -326,6 +326,38 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     expect(query.include.options).not.toHaveProperty('where');
   });
 
+  it('returns recipe identity and descriptive metadata without claiming availability', async () => {
+    const repository = new ChannelProductMatchingRepositoryAdapter({
+      channelListing: {
+        findMany: vi.fn().mockResolvedValue([
+          listing({
+            masterProductId: 'product-1',
+            masterProduct: {
+              id: 'product-1',
+              code: 'KI-1',
+              name: 'Linked product',
+              imageUrls: [],
+            },
+            options: [linkedOption([component({ currentStock: 8, quantity: 2 })])],
+          }),
+        ]),
+      },
+    } as never);
+
+    const queue = await repository.listQueue(organizationId, {});
+    const option = queue.options[0]!;
+    const recipeComponent = option.option.inventoryComponents[0]!;
+
+    expect(option).not.toHaveProperty('capacity');
+    expect(recipeComponent).toMatchObject({
+      sellpiaInventorySkuId: 'inventory-1',
+      quantity: 2,
+    });
+    expect(recipeComponent).not.toHaveProperty('currentStock');
+    expect(recipeComponent).not.toHaveProperty('availableStock');
+    expect(recipeComponent).not.toHaveProperty('isActive');
+  });
+
   it('counts product links independently from direct option recipe readiness', async () => {
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: {

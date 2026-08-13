@@ -26,14 +26,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Advertising](erd/advertising.md) | 5 |
 | [AgentOS](erd/agentos.md) | 17 |
 | [AI](erd/ai.md) | 22 |
-| [Channels](erd/channels.md) | 23 |
+| [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
-| [Finance](erd/finance.md) | 5 |
-| [Inventory](erd/inventory.md) | 12 |
-| [Orders](erd/orders.md) | 13 |
+| [Finance](erd/finance.md) | 1 |
+| [Inventory](erd/inventory.md) | 6 |
+| [Orders](erd/orders.md) | 9 |
 | [Sourcing](erd/sourcing.md) | 30 |
 | [Supply](erd/supply.md) | 13 |
-| [System](erd/system.md) | 11 |
+| [System](erd/system.md) | 10 |
 
 ## Model Index
 
@@ -100,8 +100,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | CoupangWingTrackedProductDailySnapshot | Channels | `coupang_wing_tracked_product_daily_snapshots` | 쿠팡 Wing 추적상품 일별 지표 스냅샷(상품×일자당 최신본 upsert). Wing 카탈로그 28일 지표(클릭 pv·판매·매출·전환) + 판매가·리뷰. |
 | RocketPoCatalogLine | Channels | `rocket_po_catalog_lines` | Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot. |
 | RocketPoCatalogSnapshot | Channels | `rocket_po_catalog_snapshots` | Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here. |
-| RocketPurchaseOrder | Channels | `rocket_purchase_orders` | 쿠팡 로켓 발주 단건(per-PO) 상세 — 매출분석 드릴다운(일자→발주→품목)용. items 는 발주서 품목(SKU) 라인 JSON(표시 전용). |
-| RocketSupplyDailySnapshot | Channels | `rocket_supply_daily_snapshots` | 쿠팡 로켓(공급사 발주) 일별 매출 fact. po-web 발주리스트의 발주금액(공급가)을 입고예정일(KST) 기준으로 집계한 값으로, 윙 매출과 분리된 로켓 매출 소스. |
 | SellpiaManualMatchAlias | Channels | `sellpia_manual_match_aliases` | Exact normalized marketplace-title evidence linking one historical Sellpia manual match to an active physical SKU and positive unit quantity. |
 | SellpiaManualMatchSnapshot | Channels | `sellpia_manual_match_snapshots` | Current organization-scoped, read-only Sellpia manual-match evidence restricted to exact aliases used by current channel listings. |
 | SellpiaProductMonthlySales | Channels | `sellpia_product_monthly_sales` | Sellpia 상품별 이익현황(stat_prd_profit) 월별 판매수량(재고 소진) fact. stat_action.ajax.html(mode=stat_prd_profit)의 graph(월별 매입액/판매액/판매수량)에서 상품×옵션×연월로 수집. 재고관리용 1개월/2개월 평균 소진량 산정 소스. 메이크샵 주문 데이터 기준. |
@@ -122,25 +120,14 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | OrganizationMembership | Core | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
 | SourceImportRun | Core | `source_import_runs` | Durable provenance and publication fence for Sellpia and channel full-snapshot imports. |
 | User | Core | `users` | human(직원) / agent(AI, agentInstanceId 연결) / system(챗봇). 조직 소속은 OrganizationMembership 이 source of truth. |
-| GradeHistory | Finance | `grade_histories` | ABC 등급 변경 추적. |
-| ManualLedger | Finance | `manual_ledgers` | 자동 집계 외 수기 수입/지출. |
-| ProcessingCost | Finance | `processing_costs` | - |
-| ProfitLoss | Finance | `profit_loss` | 월간 손익. organizationId+listingId+year+month unique. |
 | SalesPlan | Finance | `sales_plans` | - |
 | CoupangShipmentDateSummary | Inventory | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
-| InventoryCommitment | Inventory | `inventory_commitments` | Physical-stock-independent commitment that reduces common available Sellpia capacity. |
-| InventoryCommitmentAllocation | Inventory | `inventory_commitment_allocations` | Component-level Sellpia SKU quantity held by one inventory commitment. |
-| PickingItem | Inventory | `picking_items` | - |
-| PickingList | Inventory | `picking_lists` | - |
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | SellpiaInventorySku | Inventory | `sellpia_inventory_skus` | One physical Sellpia source SKU owned by at most one canonical MasterProduct, with its latest imported current stock. |
 | SellpiaInventoryState | Inventory | `sellpia_inventory_states` | Organization-scoped Sellpia inventory trust state, source binding, generation fence, and active collection lease. |
-| SellpiaReceiptUploadBatch | Inventory | `sellpia_receipt_upload_batches` | Record of an operator-confirmed receipt file upload to Sellpia. |
-| StockAudit | Inventory | `stock_audits` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates SellpiaInventorySku.currentStock. |
 | Warehouse | Inventory | `warehouses` | - |
 | CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
-| CSRecord | Orders | `cs_records` | - |
 | Order | Orders | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | Orders | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
@@ -149,9 +136,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
 | SellpiaOrderTransmissionIntentReconciliation | Orders | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | Orders | `settlements` | 월별 정산 (예상 vs 실제 비교). |
-| Shipment | Orders | `shipments` | - |
-| ShipmentItem | Orders | `shipment_items` | Order-line shipment detail. |
-| UnshippedItem | Orders | `unshipped_items` | - |
 | CandidateImage | Sourcing | `sourcing_candidate_images` | 소싱 후보가 소유하는 이미지 갤러리. 소싱 콘텐츠와 썸네일 생성 입력으로 사용한다. |
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
@@ -202,7 +186,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | DataMigrationRun | System | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | System | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
-| MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | System | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
 | OperationSchedule | System | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
 | SystemSetting | System | `system_settings` | - |
@@ -1218,21 +1201,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  CSRecord {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String listingId FK
-    String csType
-    String csStatus
-    String priority
-    String assignee
-    String content
-    String resolution
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
   DataMigrationRun {
     String migrationId PK
     String releaseVersion
@@ -1364,48 +1332,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  GradeHistory {
-    String id PK
-    String organizationId FK
-    String listingId FK
-    String oldGrade
-    String newGrade
-    Decimal score
-    Decimal revenueScore
-    Decimal marginScore
-    Decimal velocityScore
-    String reason
-    DateTime calculatedAt
-  }
-  InventoryCommitment {
-    String id PK
-    String organizationId FK
-    String kind
-    String sourceId
-    String businessKey
-    Int unitQuantity
-    String status
-    BigInt inventoryGeneration
-    String predecessorCommitmentId FK
-    String createdBy FK
-    String releasedBy FK
-    DateTime releasedAt
-    String releaseReason
-    String settledBy FK
-    DateTime settledAt
-    String settlementReason
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  InventoryCommitmentAllocation {
-    String id PK
-    String organizationId FK
-    String commitmentId FK
-    String sellpiaInventorySkuId FK
-    Int unitsPerItem
-    Int quantity
-    DateTime createdAt
-  }
   LegalEntity {
     String id PK
     String organizationId FK
@@ -1455,20 +1381,6 @@ erDiagram
     DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
-  }
-  ManualLedger {
-    String id PK
-    String organizationId FK
-    DateTime date
-    String type
-    String category
-    String counterpart
-    String description
-    Int amount
-    Int tax
-    String memo
-    String createdBy
-    DateTime createdAt
   }
   Marketplace {
     String id PK
@@ -1594,17 +1506,6 @@ erDiagram
     DateTime sourceCutoffDate
     String reason
     DateTime calculatedAt
-  }
-  MigrationCheckpoint {
-    String id PK
-    String scriptName
-    String stepName
-    String entityKey
-    String status
-    String error
-    Json payload
-    DateTime createdAt
-    DateTime updatedAt
   }
   NaverKeywordDailySnapshot {
     String id PK
@@ -1781,50 +1682,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  PickingItem {
-    String id PK
-    String organizationId FK
-    String pickingListId FK
-    String orderId
-    String sellpiaInventorySkuId FK
-    String productName
-    String sku
-    Int quantity
-    String location
-    Boolean isPicked
-    Boolean isVerified
-    DateTime pickedAt
-    DateTime verifiedAt
-    DateTime createdAt
-  }
-  PickingList {
-    String id PK
-    String organizationId FK
-    String listNumber
-    String status
-    Int totalItems
-    Int pickedItems
-    String assignedTo
-    DateTime startedAt
-    DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ProcessingCost {
-    String id PK
-    String organizationId FK
-    String masterId FK
-    String productName
-    String vendor
-    String processType
-    Int unitCost
-    Int quantity
-    Int totalCost
-    DateTime date
-    String status
-    String notes
-    DateTime createdAt
-  }
   ProcurementTestIntent {
     String id PK
     String organizationId FK
@@ -1910,25 +1767,6 @@ erDiagram
     String requestedByUserId FK
     DateTime startedAt
     DateTime completedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ProfitLoss {
-    String id PK
-    String organizationId FK
-    String listingId FK
-    Int year
-    Int month
-    Int revenue
-    Int cogs
-    Int commission
-    Int shippingCost
-    Int adCost
-    Int otherCost
-    Int netProfit
-    Decimal profitRate
-    Int orderCount
-    Int returnCount
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2129,35 +1967,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  RocketPurchaseOrder {
-    String id PK
-    String organizationId FK
-    Int poSeq
-    DateTime businessDate
-    DateTime orderedAt
-    String status
-    String vendorName
-    String centerName
-    String firstSkuName
-    Int skuCount
-    Int orderQty
-    Int orderAmount
-    Json items
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  RocketSupplyDailySnapshot {
-    String id PK
-    String organizationId FK
-    DateTime businessDate
-    Int revenueKrw
-    Int poCount
-    Int itemQty
-    String source
-    Json rawJson
-    DateTime createdAt
-    DateTime updatedAt
-  }
   SalesPlan {
     String id PK
     String organizationId FK
@@ -2299,21 +2108,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SellpiaReceiptUploadBatch {
-    String id PK
-    String organizationId FK
-    String status
-    String sourceType
-    String sourceRef
-    String templateVersion
-    String uploadedBy
-    DateTime uploadedAt
-    String note
-    Json metaJson
-    String createdBy
-    DateTime createdAt
-    DateTime updatedAt
-  }
   SellpiaSalesDailySnapshot {
     String id PK
     String organizationId FK
@@ -2345,29 +2139,6 @@ erDiagram
     String notes
     DateTime createdAt
     DateTime updatedAt
-  }
-  Shipment {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String trackingNo
-    String courierCode
-    String courierName
-    String status
-    DateTime shippedAt
-    DateTime deliveredAt
-    Int deliveryDays
-    String warehouseId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ShipmentItem {
-    String id PK
-    String organizationId FK
-    String shipmentId FK
-    String orderLineItemId FK
-    Int quantity
-    DateTime createdAt
   }
   ShortsTrendDailySnapshot {
     String id PK
@@ -2812,20 +2583,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  StockAudit {
-    String id PK
-    String organizationId FK
-    String auditNumber
-    String status
-    Int totalProducts
-    Int matchedCount
-    Int diffCount
-    String auditedBy
-    DateTime completedAt
-    String notes
-    Json items
-    DateTime createdAt
-  }
   StockTransfer {
     String id PK
     String organizationId FK
@@ -3124,22 +2881,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  UnshippedItem {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String orderLineItemId FK
-    String productName
-    String optionName
-    String externalSku
-    Int quantity
-    DateTime orderDate
-    Int delayDays
-    String reason
-    Boolean isNotified
-    DateTime notifiedAt
-    DateTime createdAt
-  }
   User {
     String id PK
     String email UK
@@ -3270,12 +3011,9 @@ erDiagram
   ChannelListing ||--o{ ChannelListingOptionDailySnapshot : "listing"
   ChannelListing o|--o{ ChannelScrapeSnapshot : "listing"
   ChannelListing o|--o{ ContentWorkspace : "channelListing"
-  ChannelListing o|--o{ CSRecord : "listing"
-  ChannelListing ||--o{ GradeHistory : "listing"
   ChannelListing o|--o| MasterProduct : "originChannelListing"
   ChannelListing o|--o{ ProductPreparation : "channelListing"
   ChannelListing o|--o{ ProductRegistrationExecution : "channelListing"
-  ChannelListing ||--o{ ProfitLoss : "listing"
   ChannelListing o|--o{ Review : "listing"
   ChannelListing ||--o{ Thumbnail : "listing"
   ChannelListing ||--o{ ThumbnailTracking : "listing"
@@ -3328,13 +3066,10 @@ erDiagram
   DetailPageRevision o|--o{ ProductPreparation : "selectedDetailPageRevision"
   ExecutionTask ||--o{ ExecutionLog : "task"
   ExecutionWorker o|--o{ ExecutionTask : "worker"
-  InventoryCommitment o|--o{ InventoryCommitment : "predecessor"
-  InventoryCommitment ||--o{ InventoryCommitmentAllocation : "commitment"
   Marketplace o|--o{ WorkflowTemplate : "marketplace"
   MasterProduct o|--o{ ChannelListing : "masterProduct"
   MasterProduct ||--|| MasterProductAbcEvaluation : "masterProduct"
   MasterProduct ||--o{ MasterProductAbcGradeHistory : "masterProduct"
-  MasterProduct ||--o{ ProcessingCost : "master"
   MasterProduct o|--o{ SellpiaInventorySku : "masterProduct"
   MasterProduct o|--o| SourcingCandidate : "provenanceMasterProduct"
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
@@ -3342,14 +3077,9 @@ erDiagram
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   OperationRun o|--o{ OperationRun : "parentRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
-  Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
-  Order ||--o{ Shipment : "order"
-  Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
-  OrderLineItem ||--o{ ShipmentItem : "orderLineItem"
-  OrderLineItem ||--o{ UnshippedItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
   Organization ||--o{ ActionTask : "organization"
   Organization ||--o{ ActivityEvent : "organization"
@@ -3401,19 +3131,14 @@ erDiagram
   Organization ||--o{ CoupangWingSalesRankDailySnapshot : "organization"
   Organization ||--o{ CoupangWingTrackedProduct : "organization"
   Organization ||--o{ CoupangWingTrackedProductDailySnapshot : "organization"
-  Organization ||--o{ CSRecord : "organization"
   Organization ||--o{ DetailPageArtifact : "organization"
   Organization ||--o{ DetailPageImageArtifact : "organization"
   Organization ||--o{ DetailPageImageRenderIntent : "organization"
   Organization ||--o{ DetailPageRevision : "organization"
   Organization ||--o{ ExecutionWorker : "organization"
-  Organization ||--o{ GradeHistory : "organization"
-  Organization ||--o{ InventoryCommitment : "organization"
-  Organization ||--o{ InventoryCommitmentAllocation : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ LiveCommerceBroadcastDailySnapshot : "organization"
   Organization ||--o{ LiveCommerceProductDailySnapshot : "organization"
-  Organization ||--o{ ManualLedger : "organization"
   Organization ||--o{ MasterProduct : "organization"
   Organization ||--o{ MasterProductAbcEvaluation : "organization"
   Organization ||--o{ MasterProductAbcFormulaState : "organization"
@@ -3428,13 +3153,9 @@ erDiagram
   Organization ||--o{ OrderReturn : "organization"
   Organization ||--o{ OrderReturnLineItem : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
-  Organization ||--o{ PickingItem : "organization"
-  Organization ||--o{ PickingList : "organization"
-  Organization ||--o{ ProcessingCost : "organization"
   Organization ||--o{ ProcurementTestIntent : "organization"
   Organization ||--o{ ProductPreparation : "organization"
   Organization ||--o{ ProductRegistrationExecution : "organization"
-  Organization ||--o{ ProfitLoss : "organization"
   Organization ||--o{ PurchaseOrder : "organization"
   Organization ||--o{ PurchaseOrderItem : "organization"
   Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
@@ -3446,8 +3167,6 @@ erDiagram
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
   Organization ||--o{ RocketPurchaseConfirmationTransmission : "organization"
-  Organization ||--o{ RocketPurchaseOrder : "organization"
-  Organization ||--o{ RocketSupplyDailySnapshot : "organization"
   Organization ||--o{ SalesPlan : "organization"
   Organization ||--o{ ScrapeTarget : "organization"
   Organization ||--o{ SellpiaInventorySku : "organization"
@@ -3457,11 +3176,8 @@ erDiagram
   Organization ||--o{ SellpiaOrderTransmissionIntent : "organization"
   Organization ||--o{ SellpiaOrderTransmissionIntentReconciliation : "organization"
   Organization ||--o{ SellpiaProductMonthlySales : "organization"
-  Organization ||--o{ SellpiaReceiptUploadBatch : "organization"
   Organization ||--o{ SellpiaSalesDailySnapshot : "organization"
   Organization ||--o{ Settlement : "organization"
-  Organization ||--o{ Shipment : "organization"
-  Organization ||--o{ ShipmentItem : "organization"
   Organization ||--o{ ShortsTrendDailySnapshot : "organization"
   Organization ||--o{ SourceImportRun : "organization"
   Organization ||--o{ Sourcing1688OfferKeywordObservation : "organization"
@@ -3485,7 +3201,6 @@ erDiagram
   Organization ||--o{ SourcingValidationCheckEvidence : "organization"
   Organization ||--o{ SourcingValidationEpisode : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
-  Organization ||--o{ StockAudit : "organization"
   Organization ||--o{ StockTransfer : "organization"
   Organization ||--o{ Supplier : "organization"
   Organization ||--o{ SupplierOfferPriceTier : "organization"
@@ -3504,10 +3219,8 @@ erDiagram
   Organization ||--o{ ThumbnailTrackingDailySnapshot : "organization"
   Organization ||--o{ TiktokCreativeTrendDailySnapshot : "organization"
   Organization ||--o{ TrendSeedKeyword : "organization"
-  Organization ||--o{ UnshippedItem : "organization"
   Organization ||--o{ Warehouse : "organization"
   Organization ||--o{ WorkflowTemplate : "organization"
-  PickingList ||--o{ PickingItem : "pickingList"
   ProductPreparation ||--o{ ProductRegistrationExecution : "productPreparation"
   PurchaseOrder ||--o{ PurchaseOrderItem : "order"
   PurchaseOrder ||--o{ PurchaseOrderSubmissionAttempt : "purchaseOrder"
@@ -3517,8 +3230,6 @@ erDiagram
   RocketPurchaseConfirmation ||--o{ RocketPurchaseConfirmationTransmission : "confirmation"
   RocketPurchaseConfirmationLine ||--o{ RocketPurchaseConfirmationAllocation : "confirmationLine"
   SellpiaInventorySku ||--o{ ChannelListingOptionInventoryComponent : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ InventoryCommitmentAllocation : "sellpiaInventorySku"
-  SellpiaInventorySku ||--o{ PickingItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ PurchaseOrderItem : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ ReturnTransfer : "sellpiaInventorySku"
   SellpiaInventorySku ||--o{ RocketPurchaseConfirmationAllocation : "sellpiaInventorySku"
@@ -3527,7 +3238,6 @@ erDiagram
   SellpiaInventorySku ||--o{ SupplierProduct : "sellpiaInventorySku"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
-  Shipment ||--o{ ShipmentItem : "shipment"
   SourceImportRun o|--o{ ChannelListing : "lastImportRun"
   SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   SourceImportRun o|--o{ ChannelScrapeRun : "sourceImportRun"
@@ -3612,9 +3322,6 @@ erDiagram
   User o|--o{ DetailPageImageRenderIntent : "claimedBy"
   User o|--o{ DetailPageImageRenderIntent : "requestedBy"
   User o|--o{ DetailPageRevision : "createdByUser"
-  User ||--o{ InventoryCommitment : "creator"
-  User o|--o{ InventoryCommitment : "releaser"
-  User o|--o{ InventoryCommitment : "settler"
   User o|--o{ OperationRun : "requestedBy"
   User o|--o{ OperationSchedule : "createdBy"
   User o|--o{ OrganizationMembership : "invitedBy"
@@ -3640,7 +3347,6 @@ erDiagram
   User o|--o{ ThumbnailGeneration : "triggeredByUser"
   User o|--o{ ThumbnailGenerationEvent : "actor"
   User o|--o{ WorkflowRun : "triggeredByUser"
-  Warehouse o|--o{ Shipment : "warehouse"
   Warehouse ||--o{ StockTransfer : "fromWarehouse"
   Warehouse ||--o{ StockTransfer : "toWarehouse"
   WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"

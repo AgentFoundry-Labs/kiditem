@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   DashboardInventorySummarySchema,
+  DashboardSalesSummarySchema,
+  SellpiaProductInventoryResolutionSchema,
   SellpiaProductSalesIngestPayloadSchema,
   SellpiaSalesIngestPayloadSchema,
   SellpiaSalesSummarySchema,
@@ -15,6 +17,57 @@ describe('dashboard schemas', () => {
     responseShape: 'empty_object' as const,
     explicitEmpty: true as const,
   };
+
+  it('strips the retired Rocket monthly projection and rejects Rocket revenue sources', () => {
+    const parsed = DashboardSalesSummarySchema.parse({
+      today: { revenue: 0, orders: 0 },
+      monthly: {
+        revenue: 10_000,
+        wingRevenue: 10_000,
+        rocketRevenue: 99_000,
+        profit: 1_000,
+        adRate: 0,
+        prevRevenue: 0,
+        prevProfit: 0,
+        revenueChange: 0,
+        profitChange: 0,
+        prevAdRate: 0,
+      },
+      topProducts: [],
+      monthlyTrend: [],
+    });
+
+    expect(parsed.monthly).not.toHaveProperty('rocketRevenue');
+    expect(() => DashboardSalesSummarySchema.parse({
+      ...parsed,
+      effectivePeriod: {
+        year: 2026,
+        month: 7,
+        label: '2026-07',
+        shifted: false,
+        latestDataDate: null,
+        revenueSource: 'rocket',
+      },
+    })).toThrow();
+  });
+
+  it('requires matched Sellpia availability to equal physical current stock', () => {
+    const resolution = {
+      status: 'matched' as const,
+      sellpiaInventorySkuId: '11111111-1111-4111-8111-111111111111',
+      currentStock: 30,
+      availableStock: 30,
+      salesRowCount: 1,
+      inventoryProduct: null,
+      destinations: [],
+    };
+
+    expect(SellpiaProductInventoryResolutionSchema.parse(resolution)).toEqual(resolution);
+    expect(() => SellpiaProductInventoryResolutionSchema.parse({
+      ...resolution,
+      availableStock: 29,
+    })).toThrow(/availableStock/i);
+  });
 
   it('uses stored profitability status, contribution profit, and formula context', () => {
     expect(DashboardInventorySummarySchema.parse({

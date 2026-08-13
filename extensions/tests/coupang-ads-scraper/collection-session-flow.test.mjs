@@ -128,7 +128,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   const producerSources = `${worker}\n${collectionRunsSource}`;
   for (const producer of [
     'dashboard.wing_sales',
-    'dashboard.rocket_sales',
     'dashboard.coupang_ads',
     'dashboard.coupang_products',
     'dashboard.wing_kpi',

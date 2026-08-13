@@ -36,4 +36,11 @@ describe('dashboard monthly sales card preservation', () => {
     expect(pageSource).not.toContain('showChannelDetail');
     expect(pageSource).not.toContain('<DashboardChannelSales');
   });
+
+  it('uses only Sellpia channel facts for the Rocket split card', () => {
+    expect(pageSource).not.toContain('rocketRevenue');
+    expect(pageSource).toContain('const displayRocket = sellpiaHasData ? spRocket : 0;');
+    expect(pageSource).toContain('const displayOthers = sellpiaHasData ? spOthers : wingRevenue;');
+    expect(pageSource).toContain('{sellpiaHasData && (');
+  });
 });

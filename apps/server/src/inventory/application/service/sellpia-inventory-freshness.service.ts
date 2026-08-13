@@ -30,7 +30,6 @@ import {
   toFreshnessView,
   type SellpiaInventoryFreshnessState,
 } from '../../domain/policy/sellpia-inventory-freshness.policy';
-import { calculateAvailableStock } from '../../domain/policy/inventory-commitment-state';
 import {
   INVENTORY_OPERATION_ALERT_PORT,
   type InventoryOperationAlertPort,
@@ -380,7 +379,6 @@ implements
       id: string;
       isActive: boolean;
       currentStock: number;
-      activeCommitmentQuantity: number;
     }>;
   }> {
     validateInventorySkuIds(input.sellpiaInventorySkuIds);
@@ -442,7 +440,6 @@ type FreshCapacitySnapshot = {
     id: string;
     isActive: boolean;
     currentStock: number;
-    activeCommitmentQuantity: number;
   }>;
 };
 
@@ -466,11 +463,7 @@ function toFreshCapacity(snapshot: FreshCapacitySnapshot): SellpiaFreshCapacity 
       return {
         sellpiaInventorySkuId,
         currentStock: sku.currentStock,
-        activeCommitmentQuantity: sku.activeCommitmentQuantity,
-        availableStock: calculateAvailableStock(
-          sku.currentStock,
-          sku.activeCommitmentQuantity,
-        ),
+        availableStock: sku.currentStock,
         isActive: sku.isActive,
       };
     }),

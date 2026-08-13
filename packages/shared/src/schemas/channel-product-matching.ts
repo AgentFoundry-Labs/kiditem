@@ -153,11 +153,11 @@ export const ChannelOptionInventoryComponentSchema = z.object({
   isActive: z.boolean(),
   quantity: z.number().int().positive(),
 }).strict().superRefine((component, ctx) => {
-  if (component.availableStock > component.currentStock) {
+  if (component.availableStock !== component.currentStock) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['availableStock'],
-      message: 'availableStock cannot exceed currentStock',
+      message: 'availableStock must equal currentStock',
     });
   }
 });

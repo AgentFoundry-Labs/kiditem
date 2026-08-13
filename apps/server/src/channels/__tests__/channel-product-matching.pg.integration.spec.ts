@@ -4,6 +4,8 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -34,6 +36,9 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       new CatalogDisplayMediaService(
         new CatalogDisplayMediaRepositoryAdapter(prismaService),
       ),
+      new InventoryAvailabilityService(
+        new InventoryAvailabilityRepositoryAdapter(prismaService),
+      ),
     );
   });
 
@@ -44,6 +49,14 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await prisma.sellpiaInventoryState.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceAccountKey: 'kiditem',
+        lastVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
+        verifiedGeneration: 1n,
+      },
+    });
     await prisma.channelAccount.createMany({
       data: [
         {

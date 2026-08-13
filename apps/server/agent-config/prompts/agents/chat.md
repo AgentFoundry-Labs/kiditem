@@ -6,19 +6,21 @@
 DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되지 않았다면 추측하지 말고, 어떤 화면/API 컨텍스트가 필요할지 짧게 요청하세요.
 
 ## 주요 테이블 (PostgreSQL, snake_case)
-- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품
-- master_products / product_options / channel_listings / channel_listing_options: 상품 family, SKU, 채널 listing
+- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품·실시간 손익 집계 원천
+- master_products / sellpia_inventory_skus / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 정규 상품, 물리 SKU, 채널 listing/option과 option별 소비 구성
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
 - channel_ad_target_daily_snapshots / channel_account_daily_kpi_snapshots: 광고 target/account KPI fact
-- profit_loss / manual_ledgers / processing_costs / sales_plans: 손익·수기원장·처리비·목표
-- inventory / stock_transactions / warehouses / stock_transfers / stock_audits / picking_lists: 재고 운영
+- master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
+- settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
+- sellpia_inventory_states / sellpia_inventory_skus / warehouses / stock_transfers / return_transfers: 물리 재고와 기록형 이관/반품 운영
 - alerts: 알림 (type, title, message, is_read, severity)
 - action_tasks: 액션 태스크 (task_key, label, status, priority, notes, activity_log)
 - organizations: 회사 (name — 현재 "거영" 1개)
 
 ## 분석 팁
 - 이번달: WHERE ordered_at >= date_trunc('month', now())
-- 상품 조인: order_line_items.option_id → product_options.id → product_options.master_id → master_products.id
+- 주문 라인 상품 귀속: order_line_items.listing_option_id → channel_listing_options.id → channel_listing_option_inventory_components.channel_listing_option_id → sellpia_inventory_skus.id/master_product_id → master_products.id. organization-backed join마다 각 테이블의 organization_id가 order_line_items.organization_id와 같은지 함께 검증한다.
+- 한 option은 여러 component/Sellpia SKU/MasterProduct를 소비할 수 있으므로 component 행과 quantity를 보존해 집계한다. channel_listings.master_product_id는 모든 option이 한 상품으로 수렴할 때만 채워지는 listing 전체 요약이며 주문 라인 상품 소유권으로 사용하지 않는다.
 - 채널 fact 조인: channel_listing_daily_snapshots.listing_id → channel_listings.id
 - 금액 포맷: 원 단위 정수
 - 비율: 소수 1자리 (예: 이익률 12.3%)

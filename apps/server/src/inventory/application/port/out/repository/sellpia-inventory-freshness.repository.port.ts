@@ -50,7 +50,6 @@ export interface SellpiaInventoryFreshnessRepositoryTransaction {
     id: string;
     isActive: boolean;
     currentStock: number;
-    activeCommitmentQuantity: number;
   }>>;
 }
 
