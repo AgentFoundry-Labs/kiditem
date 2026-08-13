@@ -137,7 +137,7 @@ of Coupang acceptance and does not call a marketplace provider.
 | `/rocket-orders` | Preserved `c9e7caf8` calendar/list/file-history UI with the stale capacity-decision placeholder replaced by authenticated collection, completeness evidence, editable deterministic preview, confirmation/workbook, and release. |
 | `/purchase-orders` | General supplier purchase-order operations only. |
 | `/product-hub/matching` | Baseline Coupang/Rocket listing queue and exact Sellpia option-component confirmation workspace. |
-| `/inventory-hub?tab=sellpia-sync` | Shared Sellpia freshness status, current basis, attempts, warnings, and manual fallback. |
+| `/inventory-hub?tab=status` | Current physical Sellpia basis and the manual sync action; no Rocket-specific inventory workspace. |
 | `/stock-ops?tab=product-outflow` | Direct Sellpia SKU sales/depletion with current stock, mapping state, and operating-product destinations. |
 
 On `/rocket-orders`, integrate the Supply-owned contract only at the existing

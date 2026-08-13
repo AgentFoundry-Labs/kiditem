@@ -63,8 +63,10 @@
 `tab=sellpia-inventory`를 보존한다.
 
 `/product-hub/options`는 리다이렉트 없이 폐기한다. 중앙 retired-route scanner가
-사이드바 링크와 App Router entrypoint가 모두 사라졌음을 보장한다. 코드 내부의 모든
-활성 소비자는 새 canonical URL인 `/inventory-hub?tab=sellpia-inventory`로 이동한다.
+사이드바 링크와 전용 정적 App Router entrypoint가 모두 사라졌음을 보장한다. 일반
+`/product-hub/[id]`의 존재하지 않는 상품 오류는 별도 재고 화면이나 호환 리다이렉트가
+아니다. 코드 내부의 모든 활성 소비자는 새 canonical URL인
+`/inventory-hub?tab=sellpia-inventory`로 이동한다.
 
 삭제된 `sellpia-sync`, `rocket-events`와 그 화면으로 향하던 과거 탭 값은 새 화면을
 복원하지 않는다. 저장된 `/inventory-hub` 링크가 빈 화면에 머물지 않도록

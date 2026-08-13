@@ -2,18 +2,18 @@
 
 import Link from 'next/link';
 import { formatKRW, formatNumber } from '@/lib/utils';
-import { operatorProductReference } from '../../lib/operator-product-reference';
+import { operatorProductReference } from '@/lib/operator-product-reference';
 import type { InventorySkuSnapshotItem } from '@kiditem/shared/inventory';
 
-interface SellpiaOptionTableProps {
+interface SellpiaInventoryTableProps {
   items: InventorySkuSnapshotItem[];
   isLoading: boolean;
 }
 
-export default function SellpiaOptionTable({
+export default function SellpiaInventoryTable({
   items,
   isLoading,
-}: SellpiaOptionTableProps) {
+}: SellpiaInventoryTableProps) {
   return (
     <div className="overflow-hidden rounded-xl border border-slate-200 bg-white">
       <div className="overflow-x-auto">

@@ -16,13 +16,13 @@ import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { formatDateTime } from '@/lib/utils';
-import SellpiaOptionFilters from '../options/components/SellpiaOptionFilters';
-import SellpiaOptionTable from '../options/components/SellpiaOptionTable';
+import SellpiaInventoryFilters from './SellpiaInventoryFilters';
+import SellpiaInventoryTable from './SellpiaInventoryTable';
 
 export const SELLPIA_PAGE_SIZE = 50;
 type LinkStatusFilter = SellpiaInventorySkuLinkStatus | 'all';
 
-export function ProductOptionsWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
+export function SellpiaInventoryWorkspace({ headingLevel = 2 }: { headingLevel?: 1 | 2 }) {
   const state = useSellpiaInventorySkuPageState();
   const Heading = headingLevel === 1 ? 'h1' : 'h2';
 
@@ -53,7 +53,7 @@ export function ProductOptionsWorkspace({ headingLevel = 2 }: { headingLevel?: 1
         </button>
       </header>
 
-      <SellpiaOptionFilters
+      <SellpiaInventoryFilters
         activeStatus={state.activeStatus}
         linkStatus={state.linkStatus}
         search={state.search}
@@ -106,7 +106,7 @@ export function ProductOptionsWorkspace({ headingLevel = 2 }: { headingLevel?: 1
           Sellpia 재고를 불러오지 못했어요. {state.errorMessage}
         </div>
       ) : (
-        <SellpiaOptionTable items={state.data?.items ?? []} isLoading={state.isLoading && !state.data} />
+        <SellpiaInventoryTable items={state.data?.items ?? []} isLoading={state.isLoading && !state.data} />
       )}
 
       {state.data ? (

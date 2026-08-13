@@ -2,14 +2,14 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { formatDateTime } from '@/lib/utils';
-import { ProductOptionsWorkspace } from './ProductOptionsWorkspace';
+import { SellpiaInventoryWorkspace } from './SellpiaInventoryWorkspace';
 
 const pushMock = vi.hoisted(() => vi.fn());
 const refetchMock = vi.hoisted(() => vi.fn());
 const navigation = vi.hoisted(() => ({ params: new URLSearchParams() }));
 
 vi.mock('next/navigation', () => ({
-  usePathname: () => '/product-hub/options',
+  usePathname: () => '/inventory-hub',
   useRouter: () => ({ push: pushMock }),
   useSearchParams: () => navigation.params,
 }));
@@ -35,27 +35,17 @@ const data = {
       linkedProductCount: 1,
       linkedProducts: [{
         id: '10000000-0000-4000-8000-000000000001',
-        code: 'CP-10000000-0000-4000-8000-000000000001',
+        code: 'INV-SELLPIA-100',
         name: '키즈 반팔 티셔츠',
       }],
-      linkedChannelOptions: [
-        {
-          id: '20000000-0000-4000-8000-000000000001',
-          masterProductId: '10000000-0000-4000-8000-000000000001',
-          channelListingId: '30000000-0000-4000-8000-000000000001',
-          channel: 'coupang',
-          externalOptionId: '13712531060-120',
-          itemName: '보라 / 120',
-        },
-        {
-          id: '20000000-0000-4000-8000-000000000002',
-          masterProductId: '10000000-0000-4000-8000-000000000001',
-          channelListingId: '30000000-0000-4000-8000-000000000001',
-          channel: 'coupang',
-          externalOptionId: '13712531060-130',
-          itemName: '보라 / 130',
-        },
-      ],
+      linkedChannelOptions: [{
+        id: '20000000-0000-4000-8000-000000000001',
+        masterProductId: '10000000-0000-4000-8000-000000000001',
+        channelListingId: '30000000-0000-4000-8000-000000000001',
+        channel: 'coupang',
+        externalOptionId: '13712531060-120',
+        itemName: '보라 / 120',
+      }],
       linkStatus: 'linked' as const,
     },
     {
@@ -112,7 +102,7 @@ const data = {
   },
 };
 
-describe('<ProductOptionsWorkspace>', () => {
+describe('<SellpiaInventoryWorkspace>', () => {
   beforeEach(() => {
     vi.mocked(useQuery).mockClear();
     pushMock.mockReset();
@@ -127,52 +117,38 @@ describe('<ProductOptionsWorkspace>', () => {
     } as unknown as ReturnType<typeof useQuery>);
   });
 
-  it('renders every linked and unlinked Sellpia SKU in a dedicated read-only table', () => {
-    render(<ProductOptionsWorkspace headingLevel={1} />);
+  it('renders the complete read-only Sellpia SKU table in the inventory domain', () => {
+    render(<SellpiaInventoryWorkspace headingLevel={2} />);
 
-    expect(screen.getByRole('heading', { name: '셀피아 재고', level: 1 })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: '셀피아 재고', level: 2 })).toBeInTheDocument();
     expect(screen.getAllByRole('columnheader').map((cell) => cell.textContent)).toEqual([
       'Sellpia SKU ID', 'Sellpia 코드', '상품명', '옵션명', '바코드', '매입가', '판매가', '현재고', '상태', '연결 대상',
     ]);
     expect(screen.getByText('00000000-0000-4000-8000-000000000001')).toBeInTheDocument();
-    expect(screen.getByText('SP-1001')).toBeInTheDocument();
-    expect(screen.getByText('SP-1002')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: '키즈 반팔 티셔츠' })).toHaveAttribute(
       'href',
       '/product-hub/10000000-0000-4000-8000-000000000001',
     );
-    expect(screen.getByRole('link', { name: 'coupang · 보라 / 120' })).toHaveAttribute(
-      'href',
-      '/product-hub/10000000-0000-4000-8000-000000000001',
-    );
+    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
     expect(within(screen.getByRole('table')).getByText('상품 1 · 채널 옵션 2')).toBeInTheDocument();
-    expect(screen.queryByText(/CP-(?:SKU-)?/)).not.toBeInTheDocument();
     expect(screen.getAllByText('미연결').length).toBeGreaterThan(0);
     expect(screen.getByText('읽기 전용')).toBeInTheDocument();
     expect(screen.getByText('현재 상태 범위 Sellpia SKU 8개')).toBeInTheDocument();
-    expect(screen.getByText('레시피 연결 3개')).toBeInTheDocument();
-    expect(screen.getByText('연결 필요 5개')).toBeInTheDocument();
     expect(screen.getByText(
       `최근 성공 가져오기: ${formatDateTime(data.latestImport.importedAt, { dateStyle: 'medium', timeStyle: 'short' })} · 완료`,
     )).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: '레시피 구성 안내' })).toHaveAttribute(
-      'href',
-      '/product-hub/matching?level=options',
-    );
     expect(screen.queryAllByRole('spinbutton')).toHaveLength(0);
     expect(screen.queryByRole('button', { name: /수정|삭제|복원/ })).not.toBeInTheDocument();
-    expect(vi.mocked(useQuery).mock.calls[0]?.[0].queryKey).toEqual([
-      'inventory', 'sellpia-skus',
-      { page: '1', limit: '50', stockStatus: 'in_stock', activeStatus: 'all' },
-    ]);
-    expect(screen.getByRole('checkbox', { name: '품절상품 포함' })).not.toBeChecked();
   });
 
-  it('queries only the Sellpia inventory owner with URL-authoritative link filters', () => {
-    navigation.params = new URLSearchParams('search=SP-1001&stockStatus=in_stock&activeStatus=all&linkStatus=linked&page=2');
-    render(<ProductOptionsWorkspace />);
+  it('queries only the inventory owner with URL-authoritative filters', () => {
+    navigation.params = new URLSearchParams('tab=sellpia-inventory&search=SP-1001&stockStatus=in_stock&activeStatus=all&linkStatus=linked&page=2');
+    render(<SellpiaInventoryWorkspace />);
 
-    const options = vi.mocked(useQuery).mock.calls[0]?.[0] as { queryKey: readonly unknown[]; queryFn: () => Promise<unknown> };
+    const options = vi.mocked(useQuery).mock.calls[0]?.[0] as {
+      queryKey: readonly unknown[];
+      queryFn: () => Promise<unknown>;
+    };
     expect(options.queryKey).toEqual(['inventory', 'sellpia-skus', {
       page: '2', limit: '50', stockStatus: 'in_stock', activeStatus: 'all', query: 'SP-1001', linkStatus: 'linked',
     }]);
@@ -180,14 +156,18 @@ describe('<ProductOptionsWorkspace>', () => {
     expect(options.queryFn.toString()).not.toContain('/api/products/masters');
   });
 
-  it('keeps filters, refresh, and server paging interactive', () => {
-    navigation.params = new URLSearchParams('campaign=summer');
-    render(<ProductOptionsWorkspace />);
+  it('keeps the active Sellpia tab while filters and refresh remain interactive', () => {
+    navigation.params = new URLSearchParams('tab=sellpia-inventory&campaign=summer');
+    render(<SellpiaInventoryWorkspace />);
 
     fireEvent.click(screen.getByRole('button', { name: '미연결' }));
-    expect(pushMock).toHaveBeenCalledWith('/product-hub/options?campaign=summer&linkStatus=unlinked&page=1');
+    expect(pushMock).toHaveBeenCalledWith(
+      '/inventory-hub?tab=sellpia-inventory&campaign=summer&linkStatus=unlinked&page=1',
+    );
     fireEvent.click(screen.getByRole('checkbox', { name: '품절상품 포함' }));
-    expect(pushMock).toHaveBeenCalledWith('/product-hub/options?campaign=summer&stockStatus=all&page=1');
+    expect(pushMock).toHaveBeenCalledWith(
+      '/inventory-hub?tab=sellpia-inventory&campaign=summer&stockStatus=all&page=1',
+    );
     fireEvent.click(screen.getByRole('button', { name: '새로고침' }));
     expect(refetchMock).toHaveBeenCalledTimes(1);
   });

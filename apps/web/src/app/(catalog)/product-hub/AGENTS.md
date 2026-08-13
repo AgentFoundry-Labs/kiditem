@@ -1,11 +1,10 @@
 # product-hub — Product Operations Center
 
-This folder owns four surfaces:
+This folder owns three surfaces:
 
 - `/product-hub`: canonical product operations;
 - `/product-hub/[id]`: product metadata, channel options, recipes, and
   capacity;
-- `/product-hub/options`: read-only Sellpia inventory;
 - `/product-hub/matching`: channel option recipe review.
 
 ## State Contract
@@ -25,8 +24,6 @@ This folder owns four surfaces:
   confirmed option recipes and does not create channel-origin MasterProducts.
 - Product display uses calculated reference/image projections. Edit forms
   submit only operator-owned product media and never promote channel fallbacks.
-- The options page owns independent URL state and read-only provider facts.
-
 Product operations tests under this directory are the executable authority for
 layout, filter/count parity, route state, and mutation invalidation. Run:
 

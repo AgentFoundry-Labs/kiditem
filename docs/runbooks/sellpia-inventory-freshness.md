@@ -63,10 +63,11 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 ## One-Time Source Binding
 
-1. Open an authenticated KidItem operations screen and use a compact Sellpia
-   freshness status to open the shared drawer. Matching views display the same
-   shared state without replacing the active matching-center UI. The
-   dedicated sync entry is `/inventory-hub?tab=sellpia-sync`.
+1. Open an authenticated KidItem operations screen and use the `재고 현황`
+   sync action. Matching views display the same shared state without replacing
+   the active matching-center UI. The physical stock entry is
+   `/inventory-hub?tab=status`; the complete read-only SKU collection is
+   `/inventory-hub?tab=sellpia-inventory`.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.

@@ -99,7 +99,6 @@ export const menuSections: MenuSection[] = [
       { href: '/product-hub', label: '상품 관리', icon: Package },
       { href: '/product-hub/matching', label: '상품 매칭', icon: Link2 },
       { href: '/reviews', label: '리뷰 관리', icon: MessageSquare },
-      { href: '/product-hub/options', label: '셀피아 재고', icon: Layers },
     ],
   },
   {

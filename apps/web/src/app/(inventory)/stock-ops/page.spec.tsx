@@ -32,7 +32,7 @@ describe('StockOpsPage', () => {
     ['sellpia-zero', '/inventory-hub?tab=status'],
     ['mapping-attention', '/inventory-hub?tab=status'],
     ['inventory-value', '/inventory-hub?tab=status'],
-    ['freshness', '/inventory-hub?tab=sellpia-sync'],
+    ['freshness', '/inventory-hub?tab=status'],
     ['transfer', '/inventory-hub?tab=status'],
     ['return-transfer', '/inventory-hub?tab=status'],
   ])('sends the moved ?tab=%s deep link to its new home', (legacyTab, destination) => {

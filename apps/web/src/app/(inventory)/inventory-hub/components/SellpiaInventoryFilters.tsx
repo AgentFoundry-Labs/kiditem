@@ -10,7 +10,7 @@ import type {
   SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 
-interface SellpiaOptionFiltersProps {
+interface SellpiaInventoryFiltersProps {
   activeStatus: SellpiaInventorySkuActiveStatus;
   linkStatus: SellpiaInventorySkuLinkStatus | 'all';
   search: string;
@@ -51,7 +51,7 @@ const LINK_FILTERS: Array<{
   { label: '미연결', value: 'unlinked' },
 ];
 
-export default function SellpiaOptionFilters({
+export default function SellpiaInventoryFilters({
   activeStatus,
   linkStatus,
   search,
@@ -63,7 +63,7 @@ export default function SellpiaOptionFilters({
   onSearchSubmit,
   onStockStatusChange,
   onIncludeOutOfStockChange,
-}: SellpiaOptionFiltersProps) {
+}: SellpiaInventoryFiltersProps) {
   return (
     <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
       <form role="search" onSubmit={onSearchSubmit} className="relative">

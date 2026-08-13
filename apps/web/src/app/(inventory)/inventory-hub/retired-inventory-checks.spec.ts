@@ -8,16 +8,20 @@ const repoRoot = path.resolve(webSrc, '../../..');
 const retiredFiles = [
   'app/(inventory)/inventory-hub/components/InventoryHubWorkspace.tsx',
   'app/(inventory)/inventory-hub/components/InventoryHubWorkspace.spec.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.spec.tsx',
+  'app/(inventory)/inventory-hub/components/ChannelAvailability.tsx',
   'app/(inventory)/stock-ops/components/ZeroItems.tsx',
   'app/(inventory)/stock-ops/components/MappingAttention.tsx',
+  'app/(inventory)/stock-ops/components/ImportFreshness.tsx',
+  'app/(inventory)/stock-ops/components/ImportFreshness.spec.tsx',
 ];
 
 const survivingConsumers = [
   'app/(inventory)/inventory-hub/page.tsx',
   'app/(inventory)/inventory-hub/page.spec.tsx',
-  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.tsx',
-  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.spec.tsx',
-  'app/(inventory)/stock-ops/components/ImportFreshness.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryWorkspace.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryWorkspace.spec.tsx',
   'app/(inventory)/stock-ops/components/OutOfStock.tsx',
   'app/(inventory)/stock-ops/components/StockProjectionPagination.spec.tsx',
 ];
@@ -39,7 +43,7 @@ describe('retired inventory checks workspace', () => {
     for (const relativePath of survivingConsumers) {
       const source = readFileSync(path.join(webSrc, relativePath), 'utf8');
       expect(source, relativePath).not.toMatch(
-        /ZeroItems|MappingAttention|InventoryAttentionWorkspace|InventoryHubWorkspace/,
+        /ZeroItems|MappingAttention|InventoryAttentionWorkspace|InventoryHubWorkspace|SellpiaSyncWorkspace|RocketInventoryWorkspace|ImportFreshness|ChannelAvailability/,
       );
     }
   });
