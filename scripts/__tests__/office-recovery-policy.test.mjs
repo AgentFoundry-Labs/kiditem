@@ -27,6 +27,21 @@ const matches = (expected, actual) =>
   expected === 'any' || expected === actual;
 
 const operationAllowed = (policy, scenario) => {
+  if (scenario.markerStatus === 'invalid' || scenario.markerStatus === 'v1') {
+    return false;
+  }
+  if (scenario.applySchema && scenario.operation !== 'Deploy') {
+    return false;
+  }
+  if (
+    scenario.acceptDataLoss &&
+    (scenario.operation !== 'Deploy' || !scenario.applySchema)
+  ) {
+    return false;
+  }
+  if (scenario.markerStatus === 'none') {
+    return true;
+  }
   const rule = policy.operationRules.find(
     (candidate) =>
       matches(candidate.markerStatus, scenario.markerStatus) &&
@@ -58,6 +73,20 @@ const deploymentTransition = (policy, scenario) => {
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
 
+const deploymentKindByPlan = Object.freeze({
+  'application-only': 'application-only',
+  'compatible-application-only': 'application-only',
+  schema: 'schema',
+  'destructive-schema': 'schema',
+});
+
+const destructiveBoundaryByPlan = Object.freeze({
+  'application-only': false,
+  'compatible-application-only': false,
+  schema: false,
+  'destructive-schema': true,
+});
+
 const executeDeploymentPlan = (
   policy,
   {
@@ -74,9 +103,13 @@ const executeDeploymentPlan = (
   let markerOnDisk = clone(marker);
   let destructiveBoundaryEntered = false;
   const trace = [];
-  const deploymentKind = planName.startsWith('destructive')
-    ? 'schema'
-    : 'application-only';
+  const deploymentKind = deploymentKindByPlan[planName];
+  assert.ok(deploymentKind, `missing deployment kind for ${planName}`);
+  assert.equal(
+    typeof destructiveBoundaryByPlan[planName],
+    'boolean',
+    `missing destructive classification for ${planName}`,
+  );
 
   const fail = (failedAction) => {
     const failureKind =
@@ -88,21 +121,28 @@ const executeDeploymentPlan = (
       destructiveBoundaryEntered,
       outcome: 'failure',
     });
+    const failureTrace = [transition.runtimeAction];
     trace.push(transition.runtimeAction);
     if (transition.markerAction === 'require-recovery') {
       trace.push('recovery-required-status');
+      failureTrace.push('recovery-required-status');
       if (failRecoveryRequiredWrite) {
         trace.push('recovery-required-status-failed');
+        failureTrace.push('recovery-required-status-failed');
       } else if (markerOnDisk) {
         markerOnDisk.status = 'recovery-required';
+        markerOnDisk.bytes = 'recovery-required-marker';
       }
     }
-    return { trace, markerOnDisk, transition };
+    return { trace, failureTrace, markerOnDisk, transition };
   };
 
   for (const action of plan) {
     trace.push(action);
-    if (action === 'schema-push') {
+    if (
+      action === 'schema-push' &&
+      destructiveBoundaryByPlan[planName]
+    ) {
       // A failed non-transactional push is conservatively inside the boundary.
       destructiveBoundaryEntered = true;
     }
@@ -122,7 +162,7 @@ const executeDeploymentPlan = (
     }
   }
 
-  return { trace, markerOnDisk, transition: null };
+  return { trace, failureTrace: [], markerOnDisk, transition: null };
 };
 
 const waitForExit = (child) =>
@@ -290,47 +330,80 @@ test('destructive marker clears only after full application-only success', () =>
   );
 });
 
-test('shared action plans deny every recovery-bound mutation before its first action', () => {
+test('operation contract covers the full recovery-state Cartesian matrix', () => {
   const policy = loadPolicy();
-  const statuses = ['prepared', 'schema-push-completed', 'recovery-required'];
-  const operations = ['Deploy', 'Rollback'];
+  const states = [
+    'none',
+    'prepared',
+    'schema-push-completed',
+    'recovery-required',
+    'deployed',
+    'invalid',
+    'v1',
+  ];
+  const operations = ['Status', 'Deploy', 'Rollback', 'CompleteRecovery'];
+  const identities = ['none', 'candidate', 'not-candidate'];
+  const scenarios = [];
 
-  for (const markerStatus of statuses) {
+  for (const markerStatus of states) {
     for (const operation of operations) {
       for (const applySchema of [false, true]) {
-        for (const currentManifestIdentity of [
-          'none',
-          'candidate',
-          'not-candidate',
-        ]) {
-          assert.equal(
-            operationAllowed(policy, {
+        for (const currentManifestIdentity of identities) {
+          const dataLossVariants =
+            operation === 'Deploy' && applySchema ? [false, true] : [false];
+          for (const acceptDataLoss of dataLossVariants) {
+            scenarios.push({
               markerStatus,
               operation,
               applySchema,
+              acceptDataLoss,
               currentManifestIdentity,
-            }),
-            false,
-            `${markerStatus}/${operation}/${applySchema}/${currentManifestIdentity}`,
-          );
+            });
+          }
         }
       }
     }
   }
 
-  for (const applySchema of [false, true]) {
-    for (const currentManifestIdentity of ['none', 'not-candidate']) {
-      assert.equal(
-        operationAllowed(policy, {
-          markerStatus: 'deployed',
-          operation: 'Deploy',
-          applySchema,
-          currentManifestIdentity,
-        }),
-        false,
-      );
+  assert.equal(scenarios.length, 189, 'Cartesian matrix coverage drifted');
+  const expectedAllowed = (scenario) => {
+    if (scenario.markerStatus === 'invalid' || scenario.markerStatus === 'v1') {
+      return false;
     }
+    if (scenario.applySchema && scenario.operation !== 'Deploy') {
+      return false;
+    }
+    if (scenario.markerStatus === 'none') {
+      return true;
+    }
+    if (
+      (scenario.operation === 'Status' ||
+        scenario.operation === 'CompleteRecovery') &&
+      !scenario.applySchema
+    ) {
+      return true;
+    }
+    return (
+      scenario.markerStatus === 'deployed' &&
+      scenario.operation === 'Deploy' &&
+      !scenario.applySchema &&
+      scenario.currentManifestIdentity === 'candidate'
+    );
+  };
+
+  for (const scenario of scenarios) {
+    assert.equal(
+      operationAllowed(policy, scenario),
+      expectedAllowed(scenario),
+      JSON.stringify(scenario),
+    );
   }
+});
+
+test('fault harness uses an explicit policy-plan classification', () => {
+  const source = readFileSync(fileURLToPath(import.meta.url), 'utf8');
+  assert.doesNotMatch(source, /planName\.startsWith\(/);
+  assert.match(source, /const deploymentKindByPlan = Object\.freeze/);
 });
 
 test('destructive action plan keeps schema-push-completed until final deployed status', () => {
@@ -361,88 +434,150 @@ test('destructive action plan keeps schema-push-completed until final deployed s
   assert.equal(plan.at(-1), 'deployed-status');
 });
 
-test('fault plan preserves the last atomic marker across every destructive boundary failure', () => {
+test('fault harness executes every action in every shared deployment plan', () => {
   const policy = loadPolicy();
-  const dumpFailure = executeDeploymentPlan(policy, {
-    planName: 'destructive-schema',
-    faultAt: 'dump',
-  });
-  assert.equal(dumpFailure.transition.runtimeAction, 'restore-transaction');
-
-  const markerCreateLoss = executeDeploymentPlan(policy, {
-    planName: 'destructive-schema',
-    faultAt: 'marker-create',
-  });
-  assert.deepEqual(markerCreateLoss.transition, {
-    runtimeAction: 'stop-writers',
-    markerAction: 'preserve',
-  });
-
-  const boundaryFaults = [
-    'schema-push',
-    'schema-push-completed-status',
-    'candidate-health',
-    'smoke',
-    'previous-manifest',
-    'current-manifest',
-    'history-manifest',
-    'bundle',
-    'deployed-status',
-  ];
-  for (const faultAt of boundaryFaults) {
-    const result = executeDeploymentPlan(policy, {
-      planName: 'destructive-schema',
-      faultAt,
-    });
-    assert.equal(result.transition.runtimeAction, 'stop-writers', faultAt);
-    assert.ok(!result.trace.includes('restore-transaction'), faultAt);
-  }
-
-  const failedRecoveryWrite = executeDeploymentPlan(policy, {
-    planName: 'destructive-schema',
-    faultAt: 'current-manifest',
-    failRecoveryRequiredWrite: true,
-  });
-  assert.deepEqual(failedRecoveryWrite.markerOnDisk, {
-    status: 'schema-push-completed',
-    bytes: 'schema-push-completed-marker',
-  });
-});
-
-test('application-only fault plan restores compatible runtime and preserves marker bytes', () => {
-  const policy = loadPolicy();
-  const marker = {
+  const compatibleMarker = {
     status: 'deployed',
     bytes: 'exact-deployed-marker-bytes',
   };
+  const fixtures = {
+    'application-only': {
+      marker: null,
+      identity: 'none',
+    },
+    'compatible-application-only': {
+      marker: compatibleMarker,
+      identity: 'candidate',
+    },
+    schema: {
+      marker: null,
+      identity: 'none',
+    },
+    'destructive-schema': {
+      marker: null,
+      identity: 'none',
+    },
+  };
+  const exercised = [];
 
-  for (const faultAt of [
-    'candidate-health',
-    'smoke',
-    'previous-manifest',
-    'current-manifest',
-    'history-manifest',
-    'bundle',
-    'marker-archive',
-    'marker-remove',
-  ]) {
-    const result = executeDeploymentPlan(policy, {
-      planName: 'compatible-application-only',
-      marker,
-      currentManifestIdentity: 'candidate',
-      faultAt,
-    });
-    assert.equal(result.transition.runtimeAction, 'restore-transaction', faultAt);
-    assert.deepEqual(result.markerOnDisk, marker, faultAt);
+  assert.deepEqual(Object.keys(policy.deploymentActionPlans).sort(), [
+    'application-only',
+    'compatible-application-only',
+    'destructive-schema',
+    'schema',
+  ]);
+
+  for (const [planName, plan] of Object.entries(policy.deploymentActionPlans)) {
+    const fixture = fixtures[planName];
+    assert.ok(fixture, `missing fault fixture for ${planName}`);
+    for (const faultAt of plan) {
+      exercised.push(`${planName}:${faultAt}`);
+      const result = executeDeploymentPlan(policy, {
+        planName,
+        marker: fixture.marker,
+        currentManifestIdentity: fixture.identity,
+        faultAt,
+      });
+      assert.ok(result.trace.includes(faultAt), `${planName}:${faultAt}`);
+
+      if (planName === 'destructive-schema' && faultAt === 'marker-create') {
+        assert.deepEqual(
+          result.transition,
+          { runtimeAction: 'stop-writers', markerAction: 'preserve' },
+          `${planName}:${faultAt}`,
+        );
+      } else if (
+        planName === 'destructive-schema' &&
+        plan.indexOf(faultAt) > plan.indexOf('marker-create')
+      ) {
+        assert.deepEqual(
+          result.transition,
+          { runtimeAction: 'stop-writers', markerAction: 'require-recovery' },
+          `${planName}:${faultAt}`,
+        );
+      } else {
+        assert.deepEqual(
+          result.transition,
+          { runtimeAction: 'restore-transaction', markerAction: 'preserve' },
+          `${planName}:${faultAt}`,
+        );
+      }
+
+      if (planName === 'compatible-application-only') {
+        assert.deepEqual(
+          result.markerOnDisk,
+          compatibleMarker,
+          `${planName}:${faultAt}`,
+        );
+      }
+    }
   }
 
-  const success = executeDeploymentPlan(policy, {
+  assert.equal(exercised.length, 56, 'shared action-plan coverage drifted');
+  assert.deepEqual(
+    new Set(exercised).size,
+    exercised.length,
+    'every plan/action fault case must be unique',
+  );
+
+  const compatibleSuccess = executeDeploymentPlan(policy, {
     planName: 'compatible-application-only',
-    marker,
+    marker: compatibleMarker,
     currentManifestIdentity: 'candidate',
   });
-  assert.equal(success.markerOnDisk, null);
-  assert.deepEqual(success.trace.slice(-2), ['marker-archive', 'marker-remove']);
+  assert.equal(compatibleSuccess.markerOnDisk, null);
+  assert.deepEqual(
+    compatibleSuccess.trace.slice(-2),
+    ['marker-archive', 'marker-remove'],
+  );
+});
+
+test('every post-marker destructive fault models successful and failed recovery persistence', () => {
+  const policy = loadPolicy();
+  const plan = policy.deploymentActionPlans['destructive-schema'];
+  const markerCreateIndex = plan.indexOf('marker-create');
+  const schemaStatusIndex = plan.indexOf('schema-push-completed-status');
+  assert.ok(markerCreateIndex >= 0 && schemaStatusIndex > markerCreateIndex);
+
+  for (const faultAt of plan.slice(markerCreateIndex + 1)) {
+    const faultIndex = plan.indexOf(faultAt);
+    const priorMarker =
+      faultIndex <= schemaStatusIndex
+        ? { status: 'prepared', bytes: 'prepared-marker' }
+        : {
+            status: 'schema-push-completed',
+            bytes: 'schema-push-completed-marker',
+          };
+    const persisted = executeDeploymentPlan(policy, {
+      planName: 'destructive-schema',
+      faultAt,
+      failRecoveryRequiredWrite: false,
+    });
+    assert.equal(persisted.markerOnDisk.status, 'recovery-required', faultAt);
+    assert.deepEqual(
+      persisted.failureTrace,
+      ['stop-writers', 'recovery-required-status'],
+      faultAt,
+    );
+
+    const writeFailed = executeDeploymentPlan(policy, {
+      planName: 'destructive-schema',
+      faultAt,
+      failRecoveryRequiredWrite: true,
+    });
+    assert.deepEqual(writeFailed.markerOnDisk, priorMarker, faultAt);
+    assert.deepEqual(
+      writeFailed.failureTrace,
+      [
+        'stop-writers',
+        'recovery-required-status',
+        'recovery-required-status-failed',
+      ],
+      faultAt,
+    );
+    assert.ok(!writeFailed.failureTrace.includes('restore-transaction'), faultAt);
+    assert.ok(!writeFailed.failureTrace.includes('start-application'), faultAt);
+  }
 });
 
 test(
@@ -535,7 +670,7 @@ test('PowerShell applies recovery policy before mutation and clears marker only 
   const firstMutationGuard = install.indexOf('Assert-DiskCapacity');
   const smokeSuccess = install.indexOf('Assert-SmokeTests');
   const currentManifestWrite = install.indexOf(
-    '$bundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath',
+    'Set-AtomicTextFile -Path $script:CurrentManifestPath -Text $bundle.Raw',
   );
   const markerArchive = install.indexOf(
     "Archive-RecoveryState 'superseded-by-compatible-forward-deploy'",
@@ -545,6 +680,7 @@ test('PowerShell applies recovery policy before mutation and clears marker only 
   );
 
   assert.ok(operationGuard >= 0 && operationGuard < firstMutationGuard);
+  assert.ok(currentManifestWrite >= 0, 'current manifest write must be located');
   assert.ok(markerArchive > smokeSuccess);
   assert.ok(markerArchive > currentManifestWrite);
   assert.ok(markerRemove > markerArchive);
@@ -579,6 +715,15 @@ test('PowerShell atomically preserves schema-push-completed until deployed is th
     assert.ok(index >= 0 && index < deployed, `${token} must precede deployed`);
   }
   assert.ok(deployed >= 0 && deployed < catchStart);
+  const deployedSuffix = install.slice(
+    deployed + "Set-RecoveryStateStatus 'deployed'".length,
+    catchStart,
+  );
+  assert.match(deployedSuffix, /^\s*\}\s*\}\s*$/);
+  assert.doesNotMatch(
+    deployedSuffix,
+    /Set-|Copy-|Move-|Remove-|New-|Invoke-|Wait-|Assert-|Archive-|docker|Write-DeployEnv|Restore-Transaction|Stop-ApplicationWriters/,
+  );
   assert.ok(successLog > catchStart, 'success logging must be outside deployment catch');
 });
 
