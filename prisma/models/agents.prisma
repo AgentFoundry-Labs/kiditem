@@ -22,9 +22,10 @@ model AgentVersion {
   retiredAt          DateTime? @map("retired_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  threadBindings  AgentInteractionThreadBinding[]
-  policySnapshots AgentPolicySnapshot[]
-  executions      AgentExecution[]
+  primarySessions AgentSession[]        @relation("AgentSessionPrimaryVersion")
+  assignedTasks   AgentSessionTask[]    @relation("AgentSessionTaskAssignedVersion")
+  policySnapshots AgentPolicySnapshot[] @relation("AgentPolicySnapshotAgentVersion")
+  executions      AgentExecution[]      @relation("AgentExecutionAgentVersion")
 
   @@unique([agentDefinitionKey, version], map: "agent_versions_definition_version_key")
   @@index([agentDefinitionKey, activatedAt])
@@ -32,110 +33,199 @@ model AgentVersion {
 }
 
 /// @namespace AgentOS
-/// @describe Transcript-free binding between an opaque CopilotKit thread and its organization, principal, agent version, class, and lifecycle.
-model AgentInteractionThreadBinding {
-  id               String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  copilotThreadId  String    @unique(map: "agent_interaction_thread_bindings_copilot_thread_key") @map("copilot_thread_id")
-  agentVersionId   String    @map("agent_version_id") @db.Uuid
-  interactionClass String    @map("interaction_class")
-  lifecycle        String    @default("active")
-  contextEpoch     Int       @default(1) @map("context_epoch")
-  idleExpiresAt    DateTime? @map("idle_expires_at") @db.Timestamptz
-  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
-  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
-  legalHoldAt      DateTime? @map("legal_hold_at") @db.Timestamptz
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @describe Organization-scoped canonical interaction session rooted at the first submitted user message.
+model AgentSession {
+  id                        String    @id @default(uuid()) @db.Uuid
+  organizationId            String    @map("organization_id") @db.Uuid
+  createdByUserId           String    @map("created_by_user_id") @db.Uuid
+  copilotThreadId           String    @map("copilot_thread_id")
+  primaryAgentVersionId     String    @map("primary_agent_version_id") @db.Uuid
+  authorityProfileVersionId String    @map("authority_profile_version_id")
+  contextEpoch              Int       @default(1) @map("context_epoch")
+  title                     String?
+  lastEventSequence         BigInt    @default(0) @map("last_event_sequence") @db.BigInt
+  lifecycle                 String    @default("active")
+  completedAt               DateTime? @map("completed_at") @db.Timestamptz
+  cancelledAt               DateTime? @map("cancelled_at") @db.Timestamptz
+  archivedAt                DateTime? @map("archived_at") @db.Timestamptz
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
-  agentVersion AgentVersion        @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  epochs       AgentContextEpoch[]
-  executions   AgentExecution[]
+  organization        Organization             @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  creator             User                     @relation("AgentSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  primaryAgentVersion AgentVersion             @relation("AgentSessionPrimaryVersion", fields: [primaryAgentVersionId], references: [id], onDelete: Restrict)
+  tasks               AgentSessionTask[]       @relation("AgentSessionTasks")
+  epochs              AgentContextEpoch[]      @relation("AgentSessionEpochs")
+  policySnapshots     AgentPolicySnapshot[]    @relation("AgentSessionPolicySnapshots")
+  executions          AgentExecution[]         @relation("AgentSessionExecutions")
+  events              AgentConversationEvent[] @relation("AgentSessionEvents")
 
-  @@unique([id, organizationId], map: "agent_interaction_thread_bindings_id_org_key")
-  @@unique([organizationId, userId, agentVersionId], map: "agent_interaction_thread_bindings_active_quick_ask_scope_key", where: raw("interaction_class = 'quick_ask' AND lifecycle = 'active'"))
-  @@index([organizationId, userId, agentVersionId, interactionClass, lifecycle])
-  @@index([organizationId, copilotThreadId])
-  @@index([userId])
-  @@index([agentVersionId])
-  @@map("agent_interaction_thread_bindings")
+  @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
+  @@unique([id, organizationId], map: "agent_sessions_id_org_key")
+  @@index([organizationId, createdByUserId, lifecycle, updatedAt])
+  @@index([createdByUserId])
+  @@index([primaryAgentVersionId])
+  @@map("agent_sessions")
 }
 
 /// @namespace AgentOS
-/// @describe Immutable context-boundary marker for a transcript-free interaction thread.
+/// @describe Root or delegated task control state owned by one canonical interaction session.
+model AgentSessionTask {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  sessionId              String    @map("session_id") @db.Uuid
+  parentTaskId           String?   @map("parent_task_id") @db.Uuid
+  assignedAgentVersionId String    @map("assigned_agent_version_id") @db.Uuid
+  objective              String?   @db.Text
+  isRoot                 Boolean   @default(false) @map("is_root")
+  status                 String
+  idempotencyKey         String    @map("idempotency_key")
+  createdAt              DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  finishedAt             DateTime? @map("finished_at") @db.Timestamptz
+
+  session              AgentSession       @relation("AgentSessionTasks", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  parent               AgentSessionTask?  @relation("AgentSessionTaskHierarchy", fields: [parentTaskId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  children             AgentSessionTask[] @relation("AgentSessionTaskHierarchy")
+  assignedAgentVersion AgentVersion       @relation("AgentSessionTaskAssignedVersion", fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
+  executions           AgentExecution[]   @relation("AgentSessionTaskExecutions")
+
+  @@unique([sessionId, idempotencyKey], map: "agent_session_tasks_session_idempotency_key")
+  @@unique([sessionId], map: "agent_session_tasks_one_root_key", where: raw("is_root = true"))
+  @@unique([id, organizationId], map: "agent_session_tasks_id_org_key")
+  @@index([organizationId, sessionId, status])
+  @@index([sessionId, organizationId])
+  @@index([parentTaskId, organizationId])
+  @@index([assignedAgentVersionId])
+  @@map("agent_session_tasks")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable context-boundary marker owned by one canonical interaction session.
 model AgentContextEpoch {
   id                  String   @id @default(uuid()) @db.Uuid
-  threadBindingId     String   @map("thread_binding_id") @db.Uuid
+  organizationId      String   @map("organization_id") @db.Uuid
+  sessionId           String   @map("session_id") @db.Uuid
   epoch               Int
-  interactionClass    String   @map("interaction_class")
   boundaryAguiRunId   String?  @map("boundary_agui_run_id")
   validatedHandoffRef String?  @map("validated_handoff_ref")
   createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  threadBinding AgentInteractionThreadBinding @relation(fields: [threadBindingId], references: [id], onDelete: Cascade)
+  session AgentSession @relation("AgentSessionEpochs", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([threadBindingId, epoch], map: "agent_context_epochs_binding_epoch_key")
+  @@unique([sessionId, epoch], map: "agent_context_epochs_session_epoch_key")
+  @@unique([id, organizationId], map: "agent_context_epochs_id_org_key")
+  @@index([organizationId, sessionId])
+  @@index([sessionId, organizationId])
   @@map("agent_context_epochs")
 }
 
 /// @namespace AgentOS
-/// @describe Immutable organization-scoped policy decision used to authorize one or more AgentOS interaction executions.
+/// @describe Immutable session-scoped authority and capability decision used to authorize AgentOS executions.
 model AgentPolicySnapshot {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  agentVersionId String   @map("agent_version_id") @db.Uuid
-  authorityClass String   @map("authority_class")
-  capabilityKeys Json     @map("capability_keys") @db.JsonB
-  policyHash     String   @map("policy_hash")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  sessionId                 String   @map("session_id") @db.Uuid
+  agentVersionId            String   @map("agent_version_id") @db.Uuid
+  authorityProfileVersionId String   @map("authority_profile_version_id")
+  capabilityKeys            Json     @map("capability_keys") @db.JsonB
+  policyHash                String   @map("policy_hash")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  agentVersion AgentVersion     @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  executions   AgentExecution[]
+  organization Organization     @relation("AgentPolicySnapshotOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  session      AgentSession     @relation("AgentSessionPolicySnapshots", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  agentVersion AgentVersion     @relation("AgentPolicySnapshotAgentVersion", fields: [agentVersionId], references: [id], onDelete: Restrict)
+  executions   AgentExecution[] @relation("AgentExecutionPolicySnapshot")
 
   @@unique([id, organizationId], map: "agent_policy_snapshots_id_org_key")
+  @@unique([organizationId, sessionId, agentVersionId, authorityProfileVersionId, policyHash], map: "agent_policy_snapshots_deterministic_key")
   @@index([organizationId, agentVersionId, createdAt])
+  @@index([sessionId, organizationId])
   @@index([agentVersionId])
   @@map("agent_policy_snapshots")
 }
 
 /// @namespace AgentOS
-/// @describe Transcript-free interaction execution correlation and terminal control state. CopilotKit/Enterprise Intelligence owns transcript and event authority.
+/// @describe Required session/task-owned interaction execution and terminal control state.
 model AgentExecution {
   id               String    @id @default(uuid()) @db.Uuid
   organizationId   String    @map("organization_id") @db.Uuid
-  threadBindingId  String    @map("thread_binding_id") @db.Uuid
+  sessionId        String    @map("session_id") @db.Uuid
+  sessionTaskId    String    @map("session_task_id") @db.Uuid
   copilotThreadId  String    @map("copilot_thread_id")
   aguiRunId        String    @map("agui_run_id")
-  sessionId        String?   @map("session_id") @db.Uuid
-  sessionTaskId    String?   @map("session_task_id") @db.Uuid
-  interactionClass String    @map("interaction_class")
   agentVersionId   String    @map("agent_version_id") @db.Uuid
   runtimeType      String    @map("runtime_type")
   modelIdentity    String    @map("model_identity")
   policySnapshotId String    @map("policy_snapshot_id") @db.Uuid
+  inputHash        String    @map("input_hash")
   attempt          Int       @default(1)
   status           String
   startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt       DateTime? @map("finished_at") @db.Timestamptz
   errorCode        String?   @map("error_code")
 
-  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  threadBinding  AgentInteractionThreadBinding @relation(fields: [threadBindingId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  agentVersion   AgentVersion                  @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  policySnapshot AgentPolicySnapshot           @relation(fields: [policySnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  usage          AgentExecutionUsage[]
+  organization   Organization             @relation("AgentExecutionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  session        AgentSession             @relation("AgentSessionExecutions", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sessionTask    AgentSessionTask         @relation("AgentSessionTaskExecutions", fields: [sessionTaskId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  agentVersion   AgentVersion             @relation("AgentExecutionAgentVersion", fields: [agentVersionId], references: [id], onDelete: Restrict)
+  policySnapshot AgentPolicySnapshot      @relation("AgentExecutionPolicySnapshot", fields: [policySnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  events         AgentConversationEvent[] @relation("AgentExecutionEvents")
+  usage          AgentExecutionUsage[]    @relation("AgentExecutionUsages")
 
   @@unique([id, organizationId], map: "agent_executions_id_org_key")
   @@unique([organizationId, copilotThreadId, aguiRunId], map: "agent_executions_org_thread_agui_run_key")
   @@index([organizationId, sessionId, status])
-  @@index([threadBindingId, organizationId])
+  @@index([sessionId, organizationId])
+  @@index([sessionTaskId, organizationId])
   @@index([agentVersionId])
   @@index([policySnapshotId, organizationId])
   @@map("agent_executions")
+}
+
+/// @namespace AgentOS
+/// @describe Canonical append-only conversation event with organization-fenced session and execution ownership.
+model AgentConversationEvent {
+  id              String   @id @default(uuid()) @db.Uuid
+  organizationId  String   @map("organization_id") @db.Uuid
+  sessionId       String   @map("session_id") @db.Uuid
+  executionId     String?  @map("execution_id") @db.Uuid
+  externalEventId String   @map("external_event_id")
+  sequence        BigInt   @db.BigInt
+  eventType       String   @map("event_type")
+  schemaVersion   Int      @map("schema_version")
+  payload         Json     @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session   AgentSession             @relation("AgentSessionEvents", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  execution AgentExecution?          @relation("AgentExecutionEvents", fields: [executionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  outbox    AgentConversationOutbox? @relation("AgentConversationEventOutbox")
+
+  @@unique([sessionId, sequence], map: "agent_conversation_events_session_sequence_key")
+  @@unique([organizationId, externalEventId], map: "agent_conversation_events_org_external_event_key")
+  @@unique([id, organizationId], map: "agent_conversation_events_id_org_key")
+  @@index([organizationId, sessionId, createdAt])
+  @@index([sessionId, organizationId])
+  @@index([executionId, organizationId])
+  @@map("agent_conversation_events")
+}
+
+/// @namespace AgentOS
+/// @describe Transactional publication marker referencing canonical conversation content without copying its payload.
+model AgentConversationOutbox {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  eventId        String    @unique(map: "agent_conversation_outboxes_event_key") @map("event_id") @db.Uuid
+  attemptCount   Int       @default(0) @map("attempt_count")
+  publishedAt    DateTime? @map("published_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  event AgentConversationEvent @relation("AgentConversationEventOutbox", fields: [eventId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([id, organizationId], map: "agent_conversation_outboxes_id_org_key")
+  @@unique([eventId, organizationId], map: "agent_conversation_outboxes_event_org_key")
+  @@index([publishedAt, createdAt])
+  @@map("agent_conversation_outboxes")
 }
 
 /// @namespace AgentOS
@@ -152,8 +242,8 @@ model AgentExecutionUsage {
   currency       String   @default("USD")
   recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz
 
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  execution    AgentExecution @relation(fields: [executionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  organization Organization   @relation("AgentExecutionUsageOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  execution    AgentExecution @relation("AgentExecutionUsages", fields: [executionId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@index([organizationId, executionId, recordedAt])
   @@index([executionId, organizationId])

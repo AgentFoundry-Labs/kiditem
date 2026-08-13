@@ -1,4 +1,3 @@
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -9,19 +8,13 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
-import type { AgentInteractionRepositoryPort } from '../../../../application/port/out/repository/agent-interaction-repository.port';
-import { AgentOsBoundaryError } from '../../../../domain/agent-os.errors';
 import { PrismaAgentInteractionRepository } from '../prisma-agent-interaction.repository';
+import type { PrismaClient } from '@prisma/client';
+import type { AgentInteractionRepositoryPort } from '../../../../application/port/out/repository/agent-interaction-repository.port';
 
 const SAME_ORGANIZATION_USER_ID = 'c3d4e5f6-a7b8-4c9d-8e0f-1a2b3c4d5e6f';
 const AGENT_VERSION_ID = '10000000-0000-4000-8000-000000000001';
 const OTHER_AGENT_VERSION_ID = '10000000-0000-4000-8000-000000000002';
-const TEST_POLICY_SNAPSHOT_ID = '20000000-0000-4000-8000-000000000001';
-const OTHER_POLICY_SNAPSHOT_ID = '20000000-0000-4000-8000-000000000002';
-const BINDING_ID = '30000000-0000-4000-8000-000000000001';
-const OTHER_BINDING_ID = '30000000-0000-4000-8000-000000000002';
-const REPLACEMENT_BINDING_ID = '30000000-0000-4000-8000-000000000003';
-const IDLE_EXPIRES_AT = new Date('2026-08-13T08:00:00.000Z');
 
 let prisma: PrismaClient | null = null;
 let repository: PrismaAgentInteractionRepository;
@@ -43,480 +36,513 @@ beforeEach(async () => {
   await seedInteractionFixture(prisma);
 });
 
-describe('PrismaAgentInteractionRepository transcript-free control persistence', () => {
-  it('finds an active Quick Ask only in the complete organization, user, and agent-version scope', async () => {
-    const created = await repository.createQuickAskBinding({
-      id: BINDING_ID,
-      copilotThreadId: 'copilot-thread-active-scope',
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      agentVersionId: AGENT_VERSION_ID,
-      idleExpiresAt: IDLE_EXPIRES_AT,
-    });
-
-    expect(created).toEqual({
-      id: BINDING_ID,
-      copilotThreadId: 'copilot-thread-active-scope',
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      agentVersionId: AGENT_VERSION_ID,
-      interactionClass: 'quick_ask',
-      lifecycle: 'active',
-      idleExpiresAt: IDLE_EXPIRES_AT.toISOString(),
-      contextEpoch: 1,
-    });
-    await expect(repository.findActiveQuickAsk({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      agentVersionId: AGENT_VERSION_ID,
-    })).resolves.toEqual(created);
-
-    for (const wrongScope of [
-      {
-        organizationId: OTHER_ORGANIZATION_ID,
-        userId: TEST_USER_ID,
-        agentVersionId: AGENT_VERSION_ID,
-      },
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        userId: SAME_ORGANIZATION_USER_ID,
-        agentVersionId: AGENT_VERSION_ID,
-      },
-      {
-        organizationId: TEST_ORGANIZATION_ID,
-        userId: TEST_USER_ID,
-        agentVersionId: OTHER_AGENT_VERSION_ID,
-      },
-    ]) {
-      await expect(repository.findActiveQuickAsk(wrongScope)).resolves.toBeNull();
-    }
-  });
-
-  it('does not expose transcript or event writer methods', () => {
-    const publicSurface = repository as unknown as Record<string, unknown>;
-
-    expect(publicSurface).not.toHaveProperty('createMessage');
-    expect(publicSurface).not.toHaveProperty('appendEvent');
-  });
-
-  it('uses the partial unique race guard and permits replacement only after archival', async () => {
-    const outcomes = await Promise.allSettled([
-      repository.createQuickAskBinding({
-        id: BINDING_ID,
-        copilotThreadId: 'copilot-thread-race-a',
-        organizationId: TEST_ORGANIZATION_ID,
-        userId: TEST_USER_ID,
-        agentVersionId: AGENT_VERSION_ID,
-        idleExpiresAt: IDLE_EXPIRES_AT,
-      }),
-      repository.createQuickAskBinding({
-        id: OTHER_BINDING_ID,
-        copilotThreadId: 'copilot-thread-race-b',
-        organizationId: TEST_ORGANIZATION_ID,
-        userId: TEST_USER_ID,
-        agentVersionId: AGENT_VERSION_ID,
-        idleExpiresAt: IDLE_EXPIRES_AT,
-      }),
-    ]);
-    const fulfilled = outcomes.filter(
-      (outcome): outcome is PromiseFulfilledResult<Awaited<ReturnType<typeof repository.createQuickAskBinding>>> =>
-        outcome.status === 'fulfilled',
-    );
-    const rejected = outcomes.filter(
-      (outcome): outcome is PromiseRejectedResult => outcome.status === 'rejected',
-    );
-
-    expect(fulfilled).toHaveLength(1);
-    expect(rejected).toHaveLength(1);
-    expect(rejected[0]!.reason).toMatchObject({ code: 'P2002' });
-
-    await repository.archiveBinding({
-      organizationId: TEST_ORGANIZATION_ID,
-      id: fulfilled[0]!.value.id,
-      archivedAt: new Date('2026-08-13T08:30:00.000Z'),
-    });
-
-    await expect(repository.createQuickAskBinding({
-      id: REPLACEMENT_BINDING_ID,
-      copilotThreadId: 'copilot-thread-race-replacement',
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      agentVersionId: AGENT_VERSION_ID,
-      idleExpiresAt: new Date('2026-08-13T09:00:00.000Z'),
-    })).resolves.toMatchObject({
-      id: REPLACEMENT_BINDING_ID,
-      lifecycle: 'active',
-    });
-  });
-
-  it('never leaves a running execution attached to an archived binding during archive-create contention', async () => {
+describe('PrismaAgentInteractionRepository canonical session persistence', () => {
+  it('lists only active immutable agent versions and probes without writing', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-archive-create-contention',
-    });
-    const policyLocked = deferred<void>();
-    const releasePolicy = deferred<void>();
-    const policyBlocker = prisma.$transaction(async (tx) => {
-      await tx.$queryRaw`
-        SELECT id
-        FROM agent_policy_snapshots
-        WHERE id = ${TEST_POLICY_SNAPSHOT_ID}::uuid
-          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
-        FOR UPDATE
-      `;
-      policyLocked.resolve();
-      await releasePolicy.promise;
-    });
+    const before = await tableCounts(prisma);
 
-    await policyLocked.promise;
-    const creation = repository.createExecution(executionInput({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-archive-create-contention',
+    const active = await repository.listActiveAgentVersions();
+
+    expect(active.map((row) => row.id)).toEqual([
+      AGENT_VERSION_ID,
+      OTHER_AGENT_VERSION_ID,
+    ]);
+    expect(active[0]).toEqual({
+      id: AGENT_VERSION_ID,
+      agentDefinitionKey: 'operator',
+      version: 1,
+      displayName: 'Operator',
+      description: 'Synthetic operator version',
+      runtimeType: 'copilotkit_agui',
+      modelIdentity: 'gpt-5.4',
+      capabilityKeys: ['catalog.read'],
+      policyDocument: { authorityClass: 'read_only' },
+      activatedAt: new Date('2026-08-13T00:00:00.000Z'),
+      retiredAt: null,
+    });
+    await expect(repository.findActiveAgentVersion({
+      agentDefinitionKey: 'operator',
+      agentVersionId: AGENT_VERSION_ID,
+    })).resolves.toEqual(active[0]);
+    await expect(repository.findActiveAgentVersion({
+      agentDefinitionKey: 'wrong-definition',
+      agentVersionId: AGENT_VERSION_ID,
+    })).resolves.toBeNull();
+    await expect(repository.probeHealth()).resolves.toBeUndefined();
+    expect(await tableCounts(prisma)).toEqual(before);
+    expect(repository).not.toHaveProperty('createPolicySnapshot');
+    expect(repository).not.toHaveProperty('withQuickAskLock');
+    expect(repository).not.toHaveProperty('createQuickAskBinding');
+  });
+
+  it('atomically creates the canonical graph for the first run', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-1',
+      aguiRunId: 'run-1',
+      externalEventId: 'message-1',
     }));
 
-    try {
-      await waitForLockWaiters(prisma, 1);
-      const archival = repository.archiveBinding({
+    expect(first).toMatchObject({
+      createdSession: true,
+      session: {
         organizationId: TEST_ORGANIZATION_ID,
-        id: binding.id,
-        archivedAt: new Date('2026-08-13T08:45:00.000Z'),
-      });
-      releasePolicy.resolve();
-      await policyBlocker;
-
-      const outcomes = await Promise.allSettled([creation, archival]);
-      expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
-      expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
-    } finally {
-      releasePolicy.resolve();
-      await policyBlocker;
-    }
-
-    const persisted = await prisma.agentInteractionThreadBinding.findUniqueOrThrow({
-      where: { id: binding.id },
-      select: { lifecycle: true },
-    });
-    const runningExecutions = await prisma.agentExecution.count({
-      where: {
+        createdByUserId: TEST_USER_ID,
+        copilotThreadId: 'thread-1',
+        primaryAgentVersionId: AGENT_VERSION_ID,
+        authorityProfileVersionId: 'authority-profile-v1',
+        contextEpoch: 1,
+        lastEventSequence: 1n,
+        lifecycle: 'active',
+      },
+      rootTask: {
         organizationId: TEST_ORGANIZATION_ID,
-        threadBindingId: binding.id,
+        status: 'interpreting',
+        objective: null,
+        isRoot: true,
+      },
+      contextEpoch: 1,
+      policy: {
+        organizationId: TEST_ORGANIZATION_ID,
+        agentVersionId: AGENT_VERSION_ID,
+        authorityProfileVersionId: 'authority-profile-v1',
+        capabilityKeys: ['catalog.read'],
+        policyHash: 'policy-hash-v1',
+      },
+      execution: {
+        organizationId: TEST_ORGANIZATION_ID,
+        copilotThreadId: 'thread-1',
+        aguiRunId: 'run-1',
+        inputHash: 'input-hash-thread-1-run-1',
         status: 'running',
       },
+      userEvent: {
+        organizationId: TEST_ORGANIZATION_ID,
+        externalEventId: 'message-1',
+        sequence: 1n,
+        eventType: 'user_message',
+        schemaVersion: 1,
+        payload: { messageId: 'message-1', content: '재고 현황 알려줘' },
+      },
     });
-    expect({ lifecycle: persisted.lifecycle, runningExecutions }).toEqual({
-      lifecycle: 'active',
-      runningExecutions: 1,
+    expect(first.rootTask.sessionId).toBe(first.session.id);
+    expect(first.execution.sessionId).toBe(first.session.id);
+    expect(first.execution.sessionTaskId).toBe(first.rootTask.id);
+    expect(first.policy.sessionId).toBe(first.session.id);
+    expect(first.userEvent.sessionId).toBe(first.session.id);
+    expect(first.userEvent.executionId).toBe(first.execution.id);
+    await expect(prisma.agentContextEpoch.count({
+      where: { sessionId: first.session.id, epoch: 1 },
+    })).resolves.toBe(1);
+    await expect(prisma.agentConversationOutbox.count({
+      where: { eventId: first.userEvent.id },
+    })).resolves.toBe(1);
+  });
+
+  it('returns the unchanged winner for an exact first-run retry', async () => {
+    const input = firstRunInput({
+      copilotThreadId: 'thread-retry',
+      aguiRunId: 'run-retry',
+    });
+    const first = await repository.authorizeExecution(input);
+    const retry = await repository.authorizeExecution(input);
+
+    expect(retry.createdSession).toBe(false);
+    expect(retry.session.id).toBe(first.session.id);
+    expect(retry.rootTask.id).toBe(first.rootTask.id);
+    expect(retry.execution.id).toBe(first.execution.id);
+    expect(retry.policy.id).toBe(first.policy.id);
+    expect(retry.userEvent.id).toBe(first.userEvent.id);
+  });
+
+  it('creates one graph when the exact first request races', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const input = firstRunInput({
+      copilotThreadId: 'thread-race',
+      aguiRunId: 'run-race',
+    });
+
+    const [first, second] = await Promise.all([
+      repository.authorizeExecution(input),
+      repository.authorizeExecution(input),
+    ]);
+
+    expect(second.session.id).toBe(first.session.id);
+    expect(second.rootTask.id).toBe(first.rootTask.id);
+    expect(second.execution.id).toBe(first.execution.id);
+    expect(second.userEvent.id).toBe(first.userEvent.id);
+    await expect(prisma.agentSession.count({
+      where: { copilotThreadId: 'thread-race' },
+    })).resolves.toBe(1);
+    await expect(prisma.agentSessionTask.count({
+      where: { session: { copilotThreadId: 'thread-race' }, isRoot: true },
+    })).resolves.toBe(1);
+    await expect(prisma.agentConversationEvent.count({
+      where: { session: { copilotThreadId: 'thread-race' } },
+    })).resolves.toBe(1);
+    await expect(prisma.agentConversationOutbox.count({
+      where: { event: { session: { copilotThreadId: 'thread-race' } } },
+    })).resolves.toBe(1);
+  });
+
+  it('reuses the session and root task for later runs and separates another thread', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-many-runs',
+      aguiRunId: 'run-1',
+    }));
+    const second = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-many-runs',
+      aguiRunId: 'run-2',
+    }));
+    const other = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-other',
+      aguiRunId: 'run-1',
+    }));
+
+    expect(second.createdSession).toBe(false);
+    expect(second.session.id).toBe(first.session.id);
+    expect(second.rootTask.id).toBe(first.rootTask.id);
+    expect(second.execution.id).not.toBe(first.execution.id);
+    expect(second.userEvent.sequence).toBe(2n);
+    expect(other.session.id).not.toBe(first.session.id);
+    await expect(prisma.agentSession.count()).resolves.toBe(2);
+    await expect(prisma.agentSessionTask.count()).resolves.toBe(2);
+    await expect(prisma.agentExecution.count()).resolves.toBe(3);
+    await expect(prisma.agentConversationEvent.count()).resolves.toBe(3);
+    await expect(prisma.agentConversationOutbox.count()).resolves.toBe(3);
+
+    const retry = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-many-runs',
+      aguiRunId: 'run-2',
+    }));
+    expect(retry.execution.id).toBe(second.execution.id);
+    expect(retry.userEvent.id).toBe(second.userEvent.id);
+    await expect(prisma.agentConversationEvent.count()).resolves.toBe(3);
+    await expect(prisma.agentConversationOutbox.count()).resolves.toBe(3);
+  });
+
+  it.each([
+    ['input hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, inputHash: 'changed' })],
+    ['external event id', (input: ReturnType<typeof firstRunInput>) => ({
+      ...input,
+      userEvent: { ...input.userEvent, externalEventId: 'changed-event-id' },
+    })],
+    ['schema version', (input: ReturnType<typeof firstRunInput>) => ({
+      ...input,
+      userEvent: { ...input.userEvent, schemaVersion: 2 },
+    })],
+    ['canonical payload', (input: ReturnType<typeof firstRunInput>) => ({
+      ...input,
+      userEvent: {
+        ...input.userEvent,
+        payload: { ...input.userEvent.payload, content: '변경된 요청' },
+      },
+    })],
+    ['runtime', (input: ReturnType<typeof firstRunInput>) => ({ ...input, runtimeType: 'changed' })],
+    ['model', (input: ReturnType<typeof firstRunInput>) => ({ ...input, modelIdentity: 'changed' })],
+    ['authority profile', (input: ReturnType<typeof firstRunInput>) => ({
+      ...input,
+      authorityProfileVersionId: 'changed',
+    })],
+    ['capabilities', (input: ReturnType<typeof firstRunInput>) => ({
+      ...input,
+      capabilityKeys: ['catalog.read', 'catalog.write'],
+    })],
+    ['policy hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, policyHash: 'changed' })],
+  ])('rejects exact run reuse with changed %s', async (_label, mutate) => {
+    const input = firstRunInput({
+      copilotThreadId: 'thread-run-conflict',
+      aguiRunId: 'run-conflict',
+    });
+    const first = await repository.authorizeExecution(input);
+
+    await expect(repository.authorizeExecution(mutate(input) as never)).rejects.toMatchObject({
+      code: 'INTERACTION_RUN_CONFLICT',
+    });
+    const exactWithReorderedPayload = {
+      ...input,
+      userEvent: {
+        ...input.userEvent,
+        payload: {
+          content: input.userEvent.payload.content,
+          messageId: input.userEvent.payload.messageId,
+        },
+      },
+    };
+    await expect(repository.authorizeExecution(exactWithReorderedPayload)).resolves.toMatchObject({
+      execution: { id: first.execution.id },
+      userEvent: { id: first.userEvent.id },
     });
   });
 
-  it('serializes the same full Quick Ask scope without conflating any distinct scope component', async () => {
+  it('serializes the full authorization scope while distinct scopes keep progressing', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const scope = {
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      agentVersionId: AGENT_VERSION_ID,
-    };
-    const firstEntered = deferred<void>();
-    const releaseFirst = deferred<void>();
-    const order: string[] = [];
-    let secondEntered = false;
-
-    const first = repository.withQuickAskLock(scope, async () => {
-      order.push('first-entered');
-      firstEntered.resolve();
-      await releaseFirst.promise;
-      order.push('first-released');
+    const blocked = firstRunInput({
+      copilotThreadId: 'thread-lock',
+      aguiRunId: 'run-lock',
     });
-    await firstEntered.promise;
-
-    const second = repository.withQuickAskLock(scope, async () => {
-      secondEntered = true;
-      order.push('second-entered');
+    const lockHeld = deferred<void>();
+    const releaseLock = deferred<void>();
+    const blocker = prisma.$transaction(async (tx) => {
+      const lockKey = authorizationLockKey(blocked);
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      `;
+      lockHeld.resolve();
+      await releaseLock.promise;
     });
+    await lockHeld.promise;
 
+    const waiter = repository.authorizeExecution(blocked);
     try {
       await waitForAdvisoryLockWaiters(prisma, 1);
-      expect(secondEntered).toBe(false);
-
-      const distinctScopes = [
-        { ...scope, organizationId: OTHER_ORGANIZATION_ID },
-        { ...scope, userId: SAME_ORGANIZATION_USER_ID },
-        { ...scope, agentVersionId: OTHER_AGENT_VERSION_ID },
-      ];
-      const enteredDistinctScopes = new Set<string>();
-      const distinct = distinctScopes.map((distinctScope, index) =>
-        repository.withQuickAskLock(distinctScope, async () => {
-          enteredDistinctScopes.add(String(index));
-        }),
-      );
-
-      await waitForCondition(
-        () => enteredDistinctScopes.size === distinctScopes.length,
-        'distinct Quick Ask lock scopes to enter while the original scope is held',
-      );
-      await Promise.all(distinct);
-      expect(enteredDistinctScopes).toEqual(new Set(['0', '1', '2']));
+      await Promise.all([
+        repository.authorizeExecution(firstRunInput({
+          copilotThreadId: 'thread-lock-distinct-thread',
+          aguiRunId: 'run-distinct-thread',
+        })),
+        repository.authorizeExecution(firstRunInput({
+          organizationId: TEST_ORGANIZATION_ID,
+          userId: SAME_ORGANIZATION_USER_ID,
+          copilotThreadId: 'thread-lock-distinct-user',
+          aguiRunId: 'run-distinct-user',
+        })),
+        repository.authorizeExecution(firstRunInput({
+          organizationId: OTHER_ORGANIZATION_ID,
+          userId: OTHER_USER_ID,
+          copilotThreadId: 'thread-lock',
+          aguiRunId: 'run-distinct-org',
+        })),
+      ]);
     } finally {
-      releaseFirst.resolve();
+      releaseLock.resolve();
+      await blocker;
     }
-
-    await Promise.all([first, second]);
-    expect(order).toEqual(['first-entered', 'first-released', 'second-entered']);
+    await expect(waiter).resolves.toMatchObject({
+      session: { copilotThreadId: 'thread-lock' },
+    });
   });
 
-  it('organization-fences archive and terminal execution mutations', async () => {
+  it('allocates unique monotonic sequences and one outbox per concurrent event', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: OTHER_BINDING_ID,
-      organizationId: OTHER_ORGANIZATION_ID,
-      userId: OTHER_USER_ID,
-      copilotThreadId: 'copilot-thread-other-tenant',
-    });
-    const execution = await createExecution({
-      organizationId: OTHER_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: OTHER_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-other-tenant',
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-events',
+      aguiRunId: 'run-events',
+    }));
+
+    const appended = await Promise.all(Array.from({ length: 12 }, (_, index) =>
+      repository.appendExecutionEvent({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
+        executionId: first.execution.id,
+        externalEventId: `assistant-${index}`,
+        eventType: 'assistant_message',
+        schemaVersion: 1,
+        payload: { messageId: `assistant-${index}`, content: `answer-${index}` },
+      })));
+
+    expect(appended.map((event) => event.sequence).sort(compareBigInt)).toEqual(
+      Array.from({ length: 12 }, (_, index) => BigInt(index + 2)),
+    );
+    expect(new Set(appended.map((event) => event.sequence)).size).toBe(12);
+    await expect(prisma.agentConversationEvent.count({
+      where: { sessionId: first.session.id },
+    })).resolves.toBe(13);
+    await expect(prisma.agentConversationOutbox.count({
+      where: { event: { sessionId: first.session.id } },
+    })).resolves.toBe(13);
+    await expect(prisma.agentSession.findUniqueOrThrow({
+      where: { id: first.session.id },
+      select: { lastEventSequence: true },
+    })).resolves.toEqual({ lastEventSequence: 13n });
+  });
+
+  it('returns the event winner for canonical exact retry and conflicts on mismatched reuse', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-event-retry',
+      aguiRunId: 'run-event-retry',
+    }));
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'assistant-retry',
+      eventType: 'assistant_message' as const,
+      schemaVersion: 1 as const,
+      payload: { messageId: 'assistant-retry', content: 'answer' },
+    };
+    const event = await repository.appendExecutionEvent(input);
+    const retry = await repository.appendExecutionEvent({
+      ...input,
+      payload: { content: 'answer', messageId: 'assistant-retry' },
     });
 
-    await expect(repository.archiveBinding({
+    expect(retry.id).toBe(event.id);
+    expect(retry.sequence).toBe(event.sequence);
+    for (const mismatch of [
+      { ...input, executionId: null },
+      { ...input, eventType: 'system_notice' as const, payload: { code: 'changed', content: 'answer' } },
+      { ...input, schemaVersion: 2 },
+      { ...input, payload: { messageId: 'assistant-retry', content: 'changed' } },
+    ]) {
+      await expect(repository.appendExecutionEvent(mismatch as never)).rejects.toMatchObject({
+        code: 'INTERACTION_EVENT_CONFLICT',
+      });
+    }
+    await expect(prisma.agentConversationEvent.count({
+      where: { externalEventId: 'assistant-retry' },
+    })).resolves.toBe(1);
+    await expect(prisma.agentConversationOutbox.count({
+      where: { eventId: event.id },
+    })).resolves.toBe(1);
+  });
+
+  it('reconciles a terminal event atomically and refuses contradictory or second transitions', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-terminal-event',
+      aguiRunId: 'run-terminal-event',
+    }));
+    const terminal = {
+      status: 'failed' as const,
+      errorCode: 'model_failed',
+      finishedAt: new Date('2026-08-13T03:00:00.000Z'),
+    };
+    const event = await repository.appendExecutionEvent({
       organizationId: TEST_ORGANIZATION_ID,
-      id: binding.id,
-      archivedAt: new Date('2026-08-13T10:00:00.000Z'),
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'terminal-event',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { status: 'failed', errorCode: 'model_failed' },
+      terminal,
+    });
+
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'terminal-event',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { errorCode: 'model_failed', status: 'failed' },
+      terminal,
+    })).resolves.toMatchObject({ id: event.id });
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'terminal-event',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { status: 'failed', errorCode: 'model_failed' },
+    })).rejects.toMatchObject({
+      code: 'INTERACTION_EXECUTION_TERMINAL_INVALID',
+    });
+    await expect(prisma.agentExecution.findUniqueOrThrow({
+      where: { id: first.execution.id },
+      select: { status: true, errorCode: true, finishedAt: true },
+    })).resolves.toEqual(terminal);
+
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'contradictory-terminal',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { status: 'completed', errorCode: null },
+      terminal: {
+        status: 'failed',
+        errorCode: 'model_failed',
+        finishedAt: new Date('2026-08-13T03:01:00.000Z'),
+      },
+    })).rejects.toMatchObject({ code: 'INTERACTION_EXECUTION_TERMINAL_INVALID' });
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'second-terminal',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { status: 'completed', errorCode: null },
+      terminal: {
+        status: 'completed',
+        errorCode: null,
+        finishedAt: new Date('2026-08-13T03:02:00.000Z'),
+      },
+    })).rejects.toMatchObject({ code: 'INTERACTION_EXECUTION_NOT_RUNNING' });
+    await expect(prisma.agentConversationEvent.count({
+      where: { sessionId: first.session.id },
+    })).resolves.toBe(2);
+  });
+
+  it('enforces terminal invariants and permits one running-to-terminal transition', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-terminal',
+      aguiRunId: 'run-terminal',
+    }));
+    const unsafeRepository = repository as unknown as {
+      markExecutionTerminal(input: Record<string, unknown>): Promise<void>;
+    };
+
+    await expect(unsafeRepository.markExecutionTerminal({
+      organizationId: TEST_ORGANIZATION_ID,
+      id: first.execution.id,
+      status: 'completed',
+      errorCode: 'invalid',
+      finishedAt: new Date('2026-08-13T04:00:00.000Z'),
+    })).rejects.toMatchObject({ code: 'INTERACTION_EXECUTION_TERMINAL_INVALID' });
+    await expect(prisma.agentExecution.findUniqueOrThrow({
+      where: { id: first.execution.id },
+      select: { status: true, errorCode: true, finishedAt: true },
+    })).resolves.toEqual({ status: 'running', errorCode: null, finishedAt: null });
+
+    const finishedAt = new Date('2026-08-13T04:01:00.000Z');
+    await repository.markExecutionTerminal({
+      organizationId: TEST_ORGANIZATION_ID,
+      id: first.execution.id,
+      status: 'cancelled',
+      errorCode: 'user_cancelled',
+      finishedAt,
+    });
     await expect(repository.markExecutionTerminal({
       organizationId: TEST_ORGANIZATION_ID,
-      id: execution.id,
+      id: first.execution.id,
       status: 'completed',
       errorCode: null,
-      finishedAt: new Date('2026-08-13T10:01:00.000Z'),
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
-
-    await expect(prisma.agentInteractionThreadBinding.findUniqueOrThrow({
-      where: { id: binding.id },
-      select: { lifecycle: true, archivedAt: true },
-    })).resolves.toEqual({ lifecycle: 'active', archivedAt: null });
+      finishedAt: new Date('2026-08-13T04:02:00.000Z'),
+    })).rejects.toMatchObject({ code: 'INTERACTION_EXECUTION_NOT_RUNNING' });
     await expect(prisma.agentExecution.findUniqueOrThrow({
-      where: { id: execution.id },
-      select: { status: true, finishedAt: true },
-    })).resolves.toEqual({ status: 'running', finishedAt: null });
+      where: { id: first.execution.id },
+      select: { status: true, errorCode: true, finishedAt: true },
+    })).resolves.toEqual({ status: 'cancelled', errorCode: 'user_cancelled', finishedAt });
   });
 
-  it('rejects cross-scope binding, version, and policy references before execution creation', async () => {
+  it('records usage with the canonical execution model and rejects caller model mismatch', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const ownBinding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-own-binding',
-    });
-    const otherBinding = await createBinding({
-      id: OTHER_BINDING_ID,
-      organizationId: OTHER_ORGANIZATION_ID,
-      userId: OTHER_USER_ID,
-      copilotThreadId: 'copilot-thread-other-binding',
-    });
-
-    await expect(repository.createExecution(executionInput({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding: otherBinding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-foreign-binding',
-    }))).rejects.toBeInstanceOf(AgentOsBoundaryError);
-    await expect(repository.createExecution({
-      ...executionInput({
-        organizationId: TEST_ORGANIZATION_ID,
-        binding: ownBinding,
-        policySnapshotId: OTHER_POLICY_SNAPSHOT_ID,
-        aguiRunId: 'agui-run-foreign-policy',
-      }),
-      policySnapshotId: OTHER_POLICY_SNAPSHOT_ID,
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
-    await expect(repository.createExecution({
-      ...executionInput({
-        organizationId: TEST_ORGANIZATION_ID,
-        binding: ownBinding,
-        policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-        aguiRunId: 'agui-run-mismatched-version',
-      }),
-      agentVersionId: OTHER_AGENT_VERSION_ID,
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
-
-    await expect(prisma.agentExecution.count()).resolves.toBe(0);
-  });
-
-  it('rejects direct cross-organization execution-to-binding inserts at the database boundary', async () => {
-    if (!prisma) throw new Error('Prisma test client was not initialized');
-    const otherBinding = await createBinding({
-      id: OTHER_BINDING_ID,
-      organizationId: OTHER_ORGANIZATION_ID,
-      userId: OTHER_USER_ID,
-      copilotThreadId: 'copilot-thread-direct-foreign-binding',
-    });
-
-    await expect(prisma.agentExecution.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        threadBindingId: otherBinding.id,
-        copilotThreadId: otherBinding.copilotThreadId,
-        aguiRunId: 'agui-run-direct-foreign-binding',
-        interactionClass: 'quick_ask',
-        agentVersionId: AGENT_VERSION_ID,
-        runtimeType: 'copilotkit_agui',
-        modelIdentity: 'gpt-5.4',
-        policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-        status: 'running',
-      },
-    })).rejects.toMatchObject({ code: 'P2003' });
-  });
-
-  it('rejects direct cross-organization execution-to-policy inserts at the database boundary', async () => {
-    if (!prisma) throw new Error('Prisma test client was not initialized');
-    const ownBinding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-direct-foreign-policy',
-    });
-
-    await expect(prisma.agentExecution.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        threadBindingId: ownBinding.id,
-        copilotThreadId: ownBinding.copilotThreadId,
-        aguiRunId: 'agui-run-direct-foreign-policy',
-        interactionClass: 'quick_ask',
-        agentVersionId: AGENT_VERSION_ID,
-        runtimeType: 'copilotkit_agui',
-        modelIdentity: 'gpt-5.4',
-        policySnapshotId: OTHER_POLICY_SNAPSHOT_ID,
-        status: 'running',
-      },
-    })).rejects.toMatchObject({ code: 'P2003' });
-  });
-
-  it('rejects direct cross-organization usage-to-execution inserts at the database boundary', async () => {
-    if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-direct-foreign-usage',
-    });
-    const execution = await createExecution({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-direct-foreign-usage',
-    });
-
-    await expect(prisma.agentExecutionUsage.create({
-      data: {
-        organizationId: OTHER_ORGANIZATION_ID,
-        executionId: execution.id,
-        modelIdentity: 'gpt-5.4',
-        provider: 'openai',
-        inputTokens: 1,
-        outputTokens: 1,
-        costMicros: 1n,
-        currency: 'USD',
-      },
-    })).rejects.toMatchObject({ code: 'P2003' });
-  });
-
-  it('rejects an idempotency-key replay with different immutable execution fields', async () => {
-    const binding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-idempotency-conflict',
-    });
-    const input = executionInput({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-idempotency-conflict',
-    });
-    await repository.createExecution(input);
-
-    await expect(repository.createExecution({
-      ...input,
-      sessionId: '40000000-0000-4000-8000-000000000001',
-    })).rejects.toMatchObject({
-      code: 'interaction_execution_idempotency_conflict',
-    });
-  });
-
-  it('rejects usage with a caller model differing from the canonical execution model', async () => {
-    if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-usage-model-mismatch',
-    });
-    const execution = await createExecution({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-usage-model-mismatch',
-    });
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-usage',
+      aguiRunId: 'run-usage',
+    }));
 
     await expect(repository.recordExecutionUsage({
       organizationId: TEST_ORGANIZATION_ID,
-      executionId: execution.id,
+      executionId: first.execution.id,
       modelIdentity: 'different-model',
       provider: 'openai',
       inputTokens: 40,
       outputTokens: 12,
       costMicros: 345n,
       currency: 'USD',
-    })).rejects.toMatchObject({ code: 'interaction_usage_model_mismatch' });
-    await expect(prisma.agentExecutionUsage.count({
-      where: { executionId: execution.id },
-    })).resolves.toBe(0);
-  });
-
-  it('keys executions by organization, Copilot thread, and AG-UI run while scoping usage to its execution', async () => {
-    if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-execution',
-    });
-    const input = executionInput({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-1',
-    });
-    const execution = await repository.createExecution(input);
-
-    await expect(repository.createExecution(input)).resolves.toEqual(execution);
-    await expect(repository.createExecution({
-      ...input,
-      aguiRunId: 'agui-run-2',
-    })).resolves.toEqual({ id: expect.any(String) });
-
-    await expect(repository.recordExecutionUsage({
-      organizationId: OTHER_ORGANIZATION_ID,
-      executionId: execution.id,
-      modelIdentity: 'gpt-5.4',
-      provider: 'openai',
-      inputTokens: 40,
-      outputTokens: 12,
-      costMicros: 345n,
-      currency: 'USD',
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
+    })).rejects.toMatchObject({ code: 'INTERACTION_USAGE_MODEL_MISMATCH' });
     await repository.recordExecutionUsage({
       organizationId: TEST_ORGANIZATION_ID,
-      executionId: execution.id,
+      executionId: first.execution.id,
       modelIdentity: 'gpt-5.4',
       provider: 'openai',
       inputTokens: 40,
@@ -526,111 +552,247 @@ describe('PrismaAgentInteractionRepository transcript-free control persistence',
     });
 
     await expect(prisma.agentExecutionUsage.findMany({
-      where: { executionId: execution.id },
-      select: {
-        organizationId: true,
-        executionId: true,
-        modelIdentity: true,
-        provider: true,
-        inputTokens: true,
-        outputTokens: true,
-        costMicros: true,
-        currency: true,
-      },
+      where: { executionId: first.execution.id },
+      select: { modelIdentity: true, provider: true, inputTokens: true, outputTokens: true },
     })).resolves.toEqual([{
-      organizationId: TEST_ORGANIZATION_ID,
-      executionId: execution.id,
-      modelIdentity: 'gpt-5.4',
+      modelIdentity: first.execution.modelIdentity,
       provider: 'openai',
       inputTokens: 40,
       outputTokens: 12,
-      costMicros: 345n,
-      currency: 'USD',
     }]);
   });
 
-  it('rejects completed executions with an error code without mutating the running execution', async () => {
+  it('fences compact bounded session lists and direct access by organization and creator', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
+    const sessionA = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-list-a',
+      aguiRunId: 'run-list-a',
+    }));
+    const sessionB = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-list-b',
+      aguiRunId: 'run-list-b',
+    }));
+    const sessionC = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-list-c',
+      aguiRunId: 'run-list-c',
+    }));
+    await repository.authorizeExecution(firstRunInput({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      copilotThreadId: 'thread-list-other',
+      aguiRunId: 'run-list-other',
+    }));
+    await prisma.agentSession.update({
+      where: { id: sessionA.session.id },
+      data: { updatedAt: new Date('2026-08-13T01:00:00.000Z') },
+    });
+    await prisma.agentSession.update({
+      where: { id: sessionB.session.id },
+      data: { updatedAt: new Date('2026-08-13T02:00:00.000Z') },
+    });
+    await prisma.agentSession.update({
+      where: { id: sessionC.session.id },
+      data: { updatedAt: new Date('2026-08-13T03:00:00.000Z') },
+    });
+
+    const listed = await repository.listSessions({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-invalid-completed-error',
+      limit: 2,
     });
-    const execution = await createExecution({
+    expect(listed.map((session) => session.copilotThreadId)).toEqual([
+      'thread-list-c',
+      'thread-list-b',
+    ]);
+    expect(Object.keys(listed[0]!).sort()).toEqual([
+      'copilotThreadId',
+      'lifecycle',
+      'primaryAgentDefinitionKey',
+      'primaryAgentVersionId',
+      'sessionId',
+      'updatedAt',
+    ]);
+    await expect(repository.listSessions({
       organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-invalid-completed-error',
-    });
-    const unsafeRepository = repository as unknown as {
-      markExecutionTerminal(input: {
-        organizationId: string;
-        id: string;
-        status: 'completed';
-        errorCode: string;
-        finishedAt: Date;
-      }): Promise<void>;
-    };
-
-    await expect(unsafeRepository.markExecutionTerminal({
+      userId: SAME_ORGANIZATION_USER_ID,
+      limit: 1000,
+    })).resolves.toEqual([]);
+    await expect(repository.findAccessibleSession({
       organizationId: TEST_ORGANIZATION_ID,
-      id: execution.id,
-      status: 'completed',
-      errorCode: 'must-not-be-persisted',
-      finishedAt: new Date('2026-08-13T10:30:00.000Z'),
-    })).rejects.toMatchObject({
-      code: 'interaction_execution_terminal_error_invalid',
-    });
-    await expect(prisma.agentExecution.findUniqueOrThrow({
-      where: { id: execution.id },
-      select: { status: true, errorCode: true, finishedAt: true },
-    })).resolves.toEqual({
-      status: 'running',
-      errorCode: null,
-      finishedAt: null,
-    });
+      userId: TEST_USER_ID,
+      copilotThreadId: 'thread-list-a',
+    })).resolves.toMatchObject({ id: sessionA.session.id });
+    for (const wrongScope of [
+      { organizationId: OTHER_ORGANIZATION_ID, userId: TEST_USER_ID },
+      { organizationId: TEST_ORGANIZATION_ID, userId: SAME_ORGANIZATION_USER_ID },
+    ]) {
+      await expect(repository.findAccessibleSession({
+        ...wrongScope,
+        copilotThreadId: 'thread-list-a',
+      })).resolves.toBeNull();
+    }
   });
 
-  it('allows a running execution to reach one terminal state only', async () => {
+  it('reads a bounded replay strictly after the decoded boundary without writing', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
-    const binding = await createBinding({
-      id: BINDING_ID,
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-replay',
+      aguiRunId: 'run-replay',
+    }));
+    for (let index = 0; index < 3; index += 1) {
+      await repository.appendExecutionEvent({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
+        executionId: first.execution.id,
+        externalEventId: `replay-${index}`,
+        eventType: 'assistant_message',
+        schemaVersion: 1,
+        payload: { messageId: `replay-${index}`, content: `answer-${index}` },
+      });
+    }
+    const before = await tableCounts(prisma);
+
+    const page = await repository.readConversationEvents({
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
-      copilotThreadId: 'copilot-thread-terminal',
+      sessionId: first.session.id,
+      afterSequence: 1n,
+      limit: 2,
     });
-    const execution = await createExecution({
-      organizationId: TEST_ORGANIZATION_ID,
-      binding,
-      policySnapshotId: TEST_POLICY_SNAPSHOT_ID,
-      aguiRunId: 'agui-run-terminal',
-    });
-    const finishedAt = new Date('2026-08-13T11:00:00.000Z');
 
-    await repository.markExecutionTerminal({
+    expect(page.events.map((event) => event.sequence)).toEqual([2n, 3n]);
+    expect(page.lastSequence).toBe(4n);
+    expect(page.hasMore).toBe(true);
+    expect(await tableCounts(prisma)).toEqual(before);
+    await expect(repository.readConversationEvents({
       organizationId: TEST_ORGANIZATION_ID,
-      id: execution.id,
-      status: 'failed',
-      errorCode: 'model_failed',
-      finishedAt,
-    });
-    await expect(repository.markExecutionTerminal({
-      organizationId: TEST_ORGANIZATION_ID,
-      id: execution.id,
-      status: 'completed',
-      errorCode: null,
-      finishedAt: new Date('2026-08-13T11:01:00.000Z'),
-    })).rejects.toBeInstanceOf(AgentOsBoundaryError);
+      userId: SAME_ORGANIZATION_USER_ID,
+      sessionId: first.session.id,
+      afterSequence: 0n,
+      limit: 5000,
+    })).resolves.toEqual({ events: [], lastSequence: 0n, hasMore: false });
+    expect(await tableCounts(prisma)).toEqual(before);
+  });
 
-    await expect(prisma.agentExecution.findUniqueOrThrow({
-      where: { id: execution.id },
-      select: { status: true, errorCode: true, finishedAt: true },
-    })).resolves.toEqual({
-      status: 'failed',
-      errorCode: 'model_failed',
-      finishedAt,
+  it('enforces every organization-composite conversation graph FK at the database boundary', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const own = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-fk-own',
+      aguiRunId: 'run-fk-own',
+    }));
+    const other = await repository.authorizeExecution(firstRunInput({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      copilotThreadId: 'thread-fk-other',
+      aguiRunId: 'run-fk-other',
+    }));
+    const eventWithoutOutbox = await prisma.agentConversationEvent.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: own.session.id,
+        executionId: own.execution.id,
+        externalEventId: 'event-without-outbox',
+        sequence: 101n,
+        eventType: 'system_notice',
+        schemaVersion: 1,
+        payload: { code: 'notice', content: 'notice' },
+      },
     });
+
+    const crossOrganizationWrites = [
+      () => prisma!.agentSessionTask.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: other.session.id,
+          assignedAgentVersionId: AGENT_VERSION_ID,
+          objective: null,
+          isRoot: false,
+          status: 'interpreting',
+          idempotencyKey: 'foreign-session-task',
+        },
+      }),
+      () => prisma!.agentContextEpoch.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: other.session.id,
+          epoch: 2,
+        },
+      }),
+      () => prisma!.agentPolicySnapshot.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: other.session.id,
+          agentVersionId: AGENT_VERSION_ID,
+          authorityProfileVersionId: 'authority-profile-v1',
+          capabilityKeys: ['catalog.read'],
+          policyHash: 'foreign-session-policy',
+        },
+      }),
+      () => prisma!.agentExecution.create({
+        data: directExecutionData({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: other.session.id,
+          sessionTaskId: own.rootTask.id,
+          policySnapshotId: own.policy.id,
+          suffix: 'foreign-session',
+        }),
+      }),
+      () => prisma!.agentExecution.create({
+        data: directExecutionData({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          sessionTaskId: other.rootTask.id,
+          policySnapshotId: own.policy.id,
+          suffix: 'foreign-task',
+        }),
+      }),
+      () => prisma!.agentConversationEvent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: other.session.id,
+          executionId: null,
+          externalEventId: 'foreign-session-event',
+          sequence: 100n,
+          eventType: 'system_notice',
+          schemaVersion: 1,
+          payload: { code: 'notice', content: 'notice' },
+        },
+      }),
+      () => prisma!.agentConversationEvent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          executionId: other.execution.id,
+          externalEventId: 'foreign-execution-event',
+          sequence: 100n,
+          eventType: 'system_notice',
+          schemaVersion: 1,
+          payload: { code: 'notice', content: 'notice' },
+        },
+      }),
+      () => prisma!.agentConversationOutbox.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          eventId: eventWithoutOutbox.id,
+        },
+      }),
+      () => prisma!.agentExecutionUsage.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          executionId: own.execution.id,
+          modelIdentity: own.execution.modelIdentity,
+          provider: 'openai',
+          inputTokens: 1,
+          outputTokens: 1,
+          costMicros: 1n,
+          currency: 'USD',
+        },
+      }),
+    ];
+
+    for (const write of crossOrganizationWrites) {
+      await expect(write()).rejects.toMatchObject({ code: 'P2003' });
+    }
   });
 });
 
@@ -677,66 +839,95 @@ async function seedInteractionFixture(client: PrismaClient): Promise<void> {
         policyDocument: { authorityClass: 'read_only' },
         activatedAt: new Date('2026-08-13T00:00:00.000Z'),
       },
-    ],
-  });
-  await client.agentPolicySnapshot.createMany({
-    data: [
       {
-        id: TEST_POLICY_SNAPSHOT_ID,
-        organizationId: TEST_ORGANIZATION_ID,
-        agentVersionId: AGENT_VERSION_ID,
-        authorityClass: 'read_only',
-        capabilityKeys: ['catalog.read'],
-        policyHash: 'test-policy-hash',
+        agentDefinitionKey: 'inactive',
+        version: 1,
+        displayName: 'Inactive',
+        description: 'Not activated',
+        runtimeType: 'ignored',
+        modelIdentity: 'ignored',
+        capabilityKeys: [],
+        policyDocument: {},
       },
       {
-        id: OTHER_POLICY_SNAPSHOT_ID,
-        organizationId: OTHER_ORGANIZATION_ID,
-        agentVersionId: AGENT_VERSION_ID,
-        authorityClass: 'read_only',
-        capabilityKeys: ['catalog.read'],
-        policyHash: 'other-policy-hash',
+        agentDefinitionKey: 'retired',
+        version: 1,
+        displayName: 'Retired',
+        description: 'Retired row',
+        runtimeType: 'ignored',
+        modelIdentity: 'ignored',
+        capabilityKeys: [],
+        policyDocument: {},
+        activatedAt: new Date('2026-08-13T00:00:00.000Z'),
+        retiredAt: new Date('2026-08-13T01:00:00.000Z'),
       },
     ],
   });
 }
 
-function createBinding(input: {
-  id: string;
-  organizationId: string;
-  userId: string;
+function firstRunInput(overrides: {
+  organizationId?: string;
+  userId?: string;
   copilotThreadId: string;
-}) {
-  return repository.createQuickAskBinding({
-    ...input,
-    agentVersionId: AGENT_VERSION_ID,
-    idleExpiresAt: IDLE_EXPIRES_AT,
-  });
-}
-
-function executionInput(input: {
-  organizationId: string;
-  binding: Awaited<ReturnType<typeof createBinding>>;
-  policySnapshotId: string;
   aguiRunId: string;
+  externalEventId?: string;
 }) {
+  const externalEventId = overrides.externalEventId ??
+    `message-${overrides.copilotThreadId}-${overrides.aguiRunId}`;
   return {
-    organizationId: input.organizationId,
-    threadBindingId: input.binding.id,
-    copilotThreadId: input.binding.copilotThreadId,
-    aguiRunId: input.aguiRunId,
-    interactionClass: 'quick_ask' as const,
-    agentVersionId: input.binding.agentVersionId,
+    organizationId: overrides.organizationId ?? TEST_ORGANIZATION_ID,
+    userId: overrides.userId ?? TEST_USER_ID,
+    copilotThreadId: overrides.copilotThreadId,
+    aguiRunId: overrides.aguiRunId,
+    agentVersionId: AGENT_VERSION_ID,
     runtimeType: 'copilotkit_agui',
     modelIdentity: 'gpt-5.4',
-    policySnapshotId: input.policySnapshotId,
-    sessionId: null,
-    sessionTaskId: null,
+    authorityProfileVersionId: 'authority-profile-v1',
+    capabilityKeys: ['catalog.read'],
+    policyHash: 'policy-hash-v1',
+    inputHash: `input-hash-${overrides.copilotThreadId}-${overrides.aguiRunId}`,
+    userEvent: {
+      externalEventId,
+      schemaVersion: 1 as const,
+      payload: { messageId: externalEventId, content: '재고 현황 알려줘' },
+    },
   };
 }
 
-function createExecution(input: Parameters<typeof executionInput>[0]) {
-  return repository.createExecution(executionInput(input));
+function directExecutionData(input: {
+  organizationId: string;
+  sessionId: string;
+  sessionTaskId: string;
+  policySnapshotId: string;
+  suffix: string;
+}) {
+  return {
+    organizationId: input.organizationId,
+    sessionId: input.sessionId,
+    sessionTaskId: input.sessionTaskId,
+    copilotThreadId: `direct-thread-${input.suffix}`,
+    aguiRunId: `direct-run-${input.suffix}`,
+    agentVersionId: AGENT_VERSION_ID,
+    runtimeType: 'copilotkit_agui',
+    modelIdentity: 'gpt-5.4',
+    policySnapshotId: input.policySnapshotId,
+    inputHash: `direct-input-${input.suffix}`,
+    status: 'running',
+  };
+}
+
+function authorizationLockKey(input: {
+  organizationId: string;
+  userId: string;
+  copilotThreadId: string;
+}): string {
+  return JSON.stringify([
+    'agent-interaction',
+    'authorize-execution',
+    input.organizationId,
+    input.userId,
+    input.copilotThreadId,
+  ]);
 }
 
 function deferred<T>() {
@@ -766,31 +957,42 @@ async function waitForAdvisoryLockWaiters(
   }, `${minimum} PostgreSQL advisory-lock waiter(s)`);
 }
 
-async function waitForLockWaiters(
-  client: PrismaClient,
-  minimum: number,
-): Promise<void> {
-  await waitForCondition(async () => {
-    const [row] = await client.$queryRaw<Array<{ count: number }>>`
-      SELECT COUNT(*)::int AS "count"
-      FROM pg_stat_activity
-      WHERE datname = current_database()
-        AND pid <> pg_backend_pid()
-        AND wait_event_type = 'Lock'
-    `;
-    return (row?.count ?? 0) >= minimum;
-  }, `${minimum} PostgreSQL lock waiter(s)`);
-}
-
 async function waitForCondition(
   condition: () => boolean | Promise<boolean>,
   description: string,
 ): Promise<void> {
-  for (let attempt = 0; attempt < 200; attempt += 1) {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
     if (await condition()) return;
     await new Promise((resolve) => setTimeout(resolve, 10));
   }
   throw new Error(`Timed out waiting for ${description}`);
+}
+
+function compareBigInt(left: bigint, right: bigint): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+async function tableCounts(client: PrismaClient) {
+  const [
+    sessions,
+    tasks,
+    epochs,
+    policies,
+    executions,
+    events,
+    outboxes,
+    usages,
+  ] = await Promise.all([
+    client.agentSession.count(),
+    client.agentSessionTask.count(),
+    client.agentContextEpoch.count(),
+    client.agentPolicySnapshot.count(),
+    client.agentExecution.count(),
+    client.agentConversationEvent.count(),
+    client.agentConversationOutbox.count(),
+    client.agentExecutionUsage.count(),
+  ]);
+  return { sessions, tasks, epochs, policies, executions, events, outboxes, usages };
 }
 
 const _repositoryContract: AgentInteractionRepositoryPort = repository!;

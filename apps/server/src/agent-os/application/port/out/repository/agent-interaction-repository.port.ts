@@ -1,50 +1,168 @@
 import type {
-  InteractionClass,
-  ThreadBinding,
+  AgentConversationEventEnvelope,
+  AgentConversationEventType,
+  AgentSessionSummary,
+  MessageEventPayload,
 } from '@kiditem/shared/agent-interaction';
 
 export const AGENT_INTERACTION_REPOSITORY = Symbol(
   'AGENT_INTERACTION_REPOSITORY',
 );
 
-export interface QuickAskScope {
-  organizationId: string;
-  userId: string;
+export type AgentUserMessageEventPayload = MessageEventPayload;
+export type AgentConversationEventPayload =
+  AgentConversationEventEnvelope['payload'];
+
+export interface ActiveAgentVersionRecord {
+  id: string;
+  agentDefinitionKey: string;
+  version: number;
+  displayName: string;
+  description: string;
+  runtimeType: string;
+  modelIdentity: string;
+  capabilityKeys: unknown;
+  policyDocument: unknown;
+  activatedAt: Date;
+  retiredAt: Date | null;
+}
+
+export interface FindActiveAgentVersionInput {
+  agentDefinitionKey: string;
   agentVersionId: string;
 }
 
-export interface CreateQuickAskBindingInput extends QuickAskScope {
-  id?: string;
-  copilotThreadId: string;
-  idleExpiresAt: Date;
-}
+export type AgentSessionSummaryRecord = AgentSessionSummary;
 
-export interface ArchiveInteractionBindingInput {
-  organizationId: string;
+export interface AgentSessionRecord {
   id: string;
-  archivedAt: Date;
-}
-
-export interface AgentInteractionTransactionPort {
-  findActiveQuickAsk(scope: QuickAskScope): Promise<ThreadBinding | null>;
-  createQuickAskBinding(
-    input: CreateQuickAskBindingInput,
-  ): Promise<ThreadBinding>;
-  archiveBinding(input: ArchiveInteractionBindingInput): Promise<void>;
-}
-
-export interface CreateAgentExecutionInput {
   organizationId: string;
-  threadBindingId: string;
+  createdByUserId: string;
+  copilotThreadId: string;
+  primaryAgentVersionId: string;
+  authorityProfileVersionId: string;
+  contextEpoch: number;
+  title: string | null;
+  lastEventSequence: bigint;
+  lifecycle: AgentSessionSummary['lifecycle'];
+  completedAt: Date | null;
+  cancelledAt: Date | null;
+  archivedAt: Date | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface AgentSessionTaskRecord {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  parentTaskId: string | null;
+  assignedAgentVersionId: string;
+  objective: string | null;
+  isRoot: boolean;
+  status: string;
+  idempotencyKey: string;
+  createdAt: Date;
+  updatedAt: Date;
+  finishedAt: Date | null;
+}
+
+export interface AgentPolicySnapshotRecord {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  agentVersionId: string;
+  authorityProfileVersionId: string;
+  capabilityKeys: unknown;
+  policyHash: string;
+  createdAt: Date;
+}
+
+export interface AgentExecutionRecord {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  sessionTaskId: string;
   copilotThreadId: string;
   aguiRunId: string;
-  interactionClass: InteractionClass;
   agentVersionId: string;
   runtimeType: string;
   modelIdentity: string;
   policySnapshotId: string;
-  sessionId: string | null;
-  sessionTaskId: string | null;
+  inputHash: string;
+  attempt: number;
+  status: string;
+  startedAt: Date;
+  finishedAt: Date | null;
+  errorCode: string | null;
+}
+
+export interface AgentConversationEventRecord {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  executionId: string | null;
+  externalEventId: string;
+  sequence: bigint;
+  eventType: AgentConversationEventType;
+  schemaVersion: number;
+  payload: AgentConversationEventPayload;
+  createdAt: Date;
+}
+
+export interface AuthorizeAgentExecutionInput {
+  organizationId: string;
+  userId: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  agentVersionId: string;
+  runtimeType: string;
+  modelIdentity: string;
+  authorityProfileVersionId: string;
+  capabilityKeys: string[];
+  policyHash: string;
+  inputHash: string;
+  userEvent: {
+    externalEventId: string;
+    schemaVersion: 1;
+    payload: AgentUserMessageEventPayload;
+  };
+}
+
+export interface AuthorizedExecutionRecord {
+  createdSession: boolean;
+  session: AgentSessionRecord;
+  rootTask: AgentSessionTaskRecord;
+  contextEpoch: number;
+  policy: AgentPolicySnapshotRecord;
+  execution: AgentExecutionRecord;
+  userEvent: AgentConversationEventRecord;
+}
+
+export interface ListAgentSessionsInput {
+  organizationId: string;
+  userId: string;
+  limit: number;
+}
+
+export interface FindAccessibleAgentSessionInput {
+  organizationId: string;
+  userId: string;
+  copilotThreadId: string;
+}
+
+export interface ReadConversationEventsInput {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  afterSequence: bigint;
+  limit: number;
+}
+
+export interface ConversationEventPage {
+  events: AgentConversationEventRecord[];
+  lastSequence: bigint;
+  hasMore: boolean;
 }
 
 interface AgentExecutionTerminalInputBase {
@@ -63,6 +181,22 @@ export type MarkAgentExecutionTerminalInput =
       errorCode: string | null;
     });
 
+export type AppendExecutionTerminalInput = Omit<
+  MarkAgentExecutionTerminalInput,
+  'organizationId' | 'id'
+>;
+
+export interface AppendExecutionEventInput {
+  organizationId: string;
+  sessionId: string;
+  executionId: string | null;
+  externalEventId: string;
+  eventType: AgentConversationEventType;
+  schemaVersion: number;
+  payload: AgentConversationEventPayload;
+  terminal?: AppendExecutionTerminalInput;
+}
+
 export interface RecordAgentExecutionUsageInput {
   organizationId: string;
   executionId: string;
@@ -74,15 +208,29 @@ export interface RecordAgentExecutionUsageInput {
   currency: 'USD';
 }
 
-export interface AgentInteractionRepositoryPort
-  extends AgentInteractionTransactionPort {
-  withQuickAskLock<T>(
-    scope: QuickAskScope,
-    work: (transaction: AgentInteractionTransactionPort) => Promise<T>,
-  ): Promise<T>;
-  createExecution(input: CreateAgentExecutionInput): Promise<{ id: string }>;
+export interface AgentInteractionRepositoryPort {
+  listActiveAgentVersions(): Promise<ActiveAgentVersionRecord[]>;
+  findActiveAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null>;
+  listSessions(
+    input: ListAgentSessionsInput,
+  ): Promise<AgentSessionSummaryRecord[]>;
+  findAccessibleSession(
+    input: FindAccessibleAgentSessionInput,
+  ): Promise<AgentSessionRecord | null>;
+  readConversationEvents(
+    input: ReadConversationEventsInput,
+  ): Promise<ConversationEventPage>;
+  authorizeExecution(
+    input: AuthorizeAgentExecutionInput,
+  ): Promise<AuthorizedExecutionRecord>;
+  appendExecutionEvent(
+    input: AppendExecutionEventInput,
+  ): Promise<AgentConversationEventRecord>;
   markExecutionTerminal(
     input: MarkAgentExecutionTerminalInput,
   ): Promise<void>;
   recordExecutionUsage(input: RecordAgentExecutionUsageInput): Promise<void>;
+  probeHealth(): Promise<void>;
 }

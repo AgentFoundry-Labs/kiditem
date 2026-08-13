@@ -382,13 +382,13 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentExecutionUsage |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
-| Organization | organization | referenced by external | AgentOS | AgentInteractionThreadBinding |
 | Organization | organization | referenced by external | AgentOS | AgentMessage |
 | Organization | organization | referenced by external | AgentOS | AgentPolicySnapshot |
 | Organization | organization | referenced by external | AgentOS | AgentRun |
 | Organization | organization | referenced by external | AgentOS | AgentRunEvent |
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
+| Organization | organization | referenced by external | AgentOS | AgentSession |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
 | Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
@@ -543,6 +543,7 @@ erDiagram
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
+| User | creator | referenced by external | AgentOS | AgentSession |
 | User | creator | referenced by external | Inventory | InventoryCommitment |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
@@ -569,4 +570,3 @@ erDiagram
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
-| User | user | referenced by external | AgentOS | AgentInteractionThreadBinding |
