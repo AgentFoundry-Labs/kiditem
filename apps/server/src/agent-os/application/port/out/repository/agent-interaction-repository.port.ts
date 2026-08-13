@@ -47,13 +47,21 @@ export interface CreateAgentExecutionInput {
   sessionTaskId: string | null;
 }
 
-export interface MarkAgentExecutionTerminalInput {
+interface AgentExecutionTerminalInputBase {
   organizationId: string;
   id: string;
-  status: 'completed' | 'failed' | 'cancelled';
-  errorCode: string | null;
   finishedAt: Date;
 }
+
+export type MarkAgentExecutionTerminalInput =
+  | (AgentExecutionTerminalInputBase & {
+      status: 'completed';
+      errorCode: null;
+    })
+  | (AgentExecutionTerminalInputBase & {
+      status: 'failed' | 'cancelled';
+      errorCode: string | null;
+    });
 
 export interface RecordAgentExecutionUsageInput {
   organizationId: string;

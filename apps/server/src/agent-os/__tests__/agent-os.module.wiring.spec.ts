@@ -31,6 +31,8 @@ import { AgentInlineRunReconciler } from '../application/service/agent-inline-ru
 import { AgentInteractionService } from '../application/service/agent-interaction.service';
 import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction.port';
 import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
+import { PrismaAgentInteractionRepository } from '../adapter/out/repository/prisma-agent-interaction.repository';
+import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository/agent-interaction-repository.port';
 
 const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
@@ -80,6 +82,10 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContainEqual({
       provide: AGENT_OS_LIVE_READINESS_PORT,
       useExisting: AgentOsLiveReadinessAdapter,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_INTERACTION_REPOSITORY,
+      useClass: PrismaAgentInteractionRepository,
     });
   });
 

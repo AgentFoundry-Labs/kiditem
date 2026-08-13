@@ -55,6 +55,7 @@ model AgentInteractionThreadBinding {
   epochs       AgentContextEpoch[]
   executions   AgentExecution[]
 
+  @@unique([id, organizationId], map: "agent_interaction_thread_bindings_id_org_key")
   @@unique([organizationId, userId, agentVersionId], map: "agent_interaction_thread_bindings_active_quick_ask_scope_key", where: raw("interaction_class = 'quick_ask' AND lifecycle = 'active'"))
   @@index([organizationId, userId, agentVersionId, interactionClass, lifecycle])
   @@index([organizationId, copilotThreadId])
@@ -95,6 +96,7 @@ model AgentPolicySnapshot {
   agentVersion AgentVersion     @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
   executions   AgentExecution[]
 
+  @@unique([id, organizationId], map: "agent_policy_snapshots_id_org_key")
   @@index([organizationId, agentVersionId, createdAt])
   @@index([agentVersionId])
   @@map("agent_policy_snapshots")
@@ -122,16 +124,17 @@ model AgentExecution {
   errorCode        String?   @map("error_code")
 
   organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  threadBinding  AgentInteractionThreadBinding @relation(fields: [threadBindingId], references: [id], onDelete: Restrict)
+  threadBinding  AgentInteractionThreadBinding @relation(fields: [threadBindingId, organizationId], references: [id, organizationId], onDelete: Restrict)
   agentVersion   AgentVersion                  @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
-  policySnapshot AgentPolicySnapshot           @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  policySnapshot AgentPolicySnapshot           @relation(fields: [policySnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
   usage          AgentExecutionUsage[]
 
+  @@unique([id, organizationId], map: "agent_executions_id_org_key")
   @@unique([organizationId, copilotThreadId, aguiRunId], map: "agent_executions_org_thread_agui_run_key")
   @@index([organizationId, sessionId, status])
-  @@index([threadBindingId])
+  @@index([threadBindingId, organizationId])
   @@index([agentVersionId])
-  @@index([policySnapshotId])
+  @@index([policySnapshotId, organizationId])
   @@map("agent_executions")
 }
 
@@ -150,10 +153,10 @@ model AgentExecutionUsage {
   recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz
 
   organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  execution    AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+  execution    AgentExecution @relation(fields: [executionId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@index([organizationId, executionId, recordedAt])
-  @@index([executionId])
+  @@index([executionId, organizationId])
   @@map("agent_execution_usages")
 }
 
