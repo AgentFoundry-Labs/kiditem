@@ -1,9 +1,8 @@
 import { createHash } from 'crypto';
 import { existsSync } from 'node:fs';
-import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { BadGatewayException, Injectable } from '@nestjs/common';
-import { chromium, type Page } from 'playwright';
+import type { Page } from 'playwright';
 import {
   type Search1688KeywordInput,
   type Search1688KeywordItem,
@@ -12,6 +11,11 @@ import {
   type Sourcing1688KeywordSearchPort,
 } from '../../../application/port/out/provider/1688-keyword-search.port';
 import type { Response as PlaywrightResponse } from 'playwright';
+import {
+  abortableBrowserStep,
+  openAbortableBrowserSession,
+  type AbortableBrowserSession,
+} from './abortable-browser-session';
 
 const DEFAULT_1688_MTOP_BASE_URL = 'https://h5api.m.1688.com';
 const MTOP_API = 'mtop.relationrecommend.WirelessRecommend.recommend';
@@ -159,6 +163,7 @@ export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearch
       assertMtopSuccess(payload);
       items = normalizeItems(payload, input.keyword).slice(0, maxResults);
     } catch (error) {
+      input.signal?.throwIfAborted();
       if (!is1688UserValidateError(error)) throw error;
       items = await searchByKeywordWithBrowserFallback({
         keyword: input.keyword,
@@ -206,41 +211,71 @@ async function searchByKeywordWithBrowserFallback(input: {
   );
 }
 
-interface BrowserSearchSession {
-  page: Page;
-  close: () => Promise<void>;
-}
-
 async function searchByKeywordWithBrowserSession(
   input: {
     keyword: string;
     page: number;
     maxResults: number;
+    signal?: AbortSignal;
   },
   cdpEndpoint: string | null,
 ): Promise<Search1688KeywordItem[]> {
-  let session: BrowserSearchSession;
+  let session: AbortableBrowserSession;
   try {
-    session = await openBrowserSearchSession(cdpEndpoint);
+    session = await openAbortableBrowserSession({
+      cdpEndpoint,
+      cdpConnectTimeoutMs: CDP_CONNECT_TIMEOUT_MS,
+      userDataDir: resolveSourcingSearchUserDataDir(),
+      executablePath: resolveBrowserExecutablePath(),
+      headless: resolveSourcingSearchHeadless(),
+      signal: input.signal,
+    });
   } catch (error) {
+    input.signal?.throwIfAborted();
     const mode = cdpEndpoint ? 'CDP browser connection' : 'browser launch';
     throw new BadGatewayException(`1688 ${mode} failed: ${cleanBrowserError(error)}`);
   }
 
+  let closePromise: Promise<void> | null = null;
+  const closeSession = (): Promise<void> => {
+    closePromise ??= session.close();
+    return closePromise;
+  };
+  const closeOnAbort = () => {
+    void closeSession().catch(() => undefined);
+  };
+  input.signal?.addEventListener('abort', closeOnAbort, { once: true });
   const verificationMonitor = monitor1688VerificationResponses(session.page);
   try {
     const { page } = session;
-    await navigateTo1688SearchPage(page, buildSearchPageUrl(input.keyword, input.page));
-    await page.waitForTimeout(SEARCH_RENDER_WAIT_MS);
+    input.signal?.throwIfAborted();
+    await navigateTo1688SearchPage(
+      page,
+      buildSearchPageUrl(input.keyword, input.page),
+      input.signal,
+    );
+    await abortableBrowserStep(
+      page.waitForTimeout(SEARCH_RENDER_WAIT_MS),
+      input.signal,
+    );
 
-    if (verificationMonitor.detected() || await is1688VerificationPage(page)) {
+    if (
+      verificationMonitor.detected() ||
+      await abortableBrowserStep(is1688VerificationPage(page), input.signal)
+    ) {
       throw new BadGatewayException(verificationRequiredMessage(cdpEndpoint != null));
     }
 
-    await page.evaluate('window.scrollTo(0, Math.min(document.documentElement.scrollHeight, 1800))');
-    await page.waitForTimeout(800);
+    await abortableBrowserStep(
+      page.evaluate('window.scrollTo(0, Math.min(document.documentElement.scrollHeight, 1800))'),
+      input.signal,
+    );
+    await abortableBrowserStep(page.waitForTimeout(800), input.signal);
 
-    const extracted = await page.evaluate(`(${EXTRACT_1688_SEARCH_ITEMS})(${JSON.stringify(input.keyword)})`);
+    const extracted = await abortableBrowserStep(
+      page.evaluate(`(${EXTRACT_1688_SEARCH_ITEMS})(${JSON.stringify(input.keyword)})`),
+      input.signal,
+    );
     const items = Array.isArray(extracted) ? extracted : [];
 
     return items
@@ -249,69 +284,49 @@ async function searchByKeywordWithBrowserSession(
       .sort((a, b) => b.score - a.score)
       .slice(0, input.maxResults);
   } catch (error) {
+    input.signal?.throwIfAborted();
     if (error instanceof BadGatewayException) throw error;
     throw new BadGatewayException(`1688 browser search failed: ${cleanBrowserError(error)}`);
   } finally {
+    input.signal?.removeEventListener('abort', closeOnAbort);
     verificationMonitor.stop();
-    await session.close();
+    await closeSession();
   }
 }
 
-async function openBrowserSearchSession(cdpEndpoint: string | null): Promise<BrowserSearchSession> {
-  if (cdpEndpoint) {
-    const browser = await chromium.connectOverCDP(cdpEndpoint, {
-      timeout: CDP_CONNECT_TIMEOUT_MS,
-    });
-    const context = browser.contexts()[0] ?? await browser.newContext();
-    const page = await context.newPage();
-    await page.setViewportSize({ width: 1440, height: 1000 }).catch(() => undefined);
-    return {
-      page,
-      close: async () => {
-        await page.close().catch(() => undefined);
-        await browser.close().catch(() => undefined);
-      },
-    };
-  }
-
-  const userDataDir = resolveSourcingSearchUserDataDir();
-  await mkdir(userDataDir, { recursive: true });
-  const executablePath = resolveBrowserExecutablePath();
-  const context = await chromium.launchPersistentContext(userDataDir, {
-    ...(executablePath ? { executablePath } : {}),
-    headless: resolveSourcingSearchHeadless(),
-    viewport: { width: 1440, height: 1000 },
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
-  });
-
-  return {
-    page: context.pages()[0] ?? await context.newPage(),
-    close: () => context.close(),
-  };
-}
-
-async function navigateTo1688SearchPage(page: Page, url: string): Promise<void> {
+async function navigateTo1688SearchPage(
+  page: Page,
+  url: string,
+  signal?: AbortSignal,
+): Promise<void> {
   try {
-    await page.goto(url, {
-      // 1688/CDN subresources can keep DOMContentLoaded pending even after the
-      // search document is usable. Wait for the main response here, then treat
-      // DOM readiness as best-effort below.
-      waitUntil: 'commit',
-      timeout: SEARCH_NAVIGATE_TIMEOUT_MS,
-    });
+    await abortableBrowserStep(
+      page.goto(url, {
+        // 1688/CDN subresources can keep DOMContentLoaded pending even after the
+        // search document is usable. Wait for the main response here, then treat
+        // DOM readiness as best-effort below.
+        waitUntil: 'commit',
+        timeout: SEARCH_NAVIGATE_TIMEOUT_MS,
+      }),
+      signal,
+    );
   } catch (error) {
+    signal?.throwIfAborted();
     if (!isNavigationTimeout(error) || !is1688NavigationUrl(page.url())) {
       throw error;
     }
   }
 
-  await page.waitForLoadState('domcontentloaded', {
-    timeout: SEARCH_DOM_READY_TIMEOUT_MS,
-  }).catch(() => undefined);
-  await page.locator('body').waitFor({
-    state: 'attached',
-    timeout: 5_000,
-  });
+  await abortableBrowserStep(
+    page.waitForLoadState('domcontentloaded', {
+      timeout: SEARCH_DOM_READY_TIMEOUT_MS,
+    }).catch(() => undefined),
+    signal,
+  );
+  await abortableBrowserStep(
+    page.locator('body').waitFor({ state: 'attached', timeout: 5_000 }),
+    signal,
+  );
 }
 
 function verificationRequiredMessage(usingCdp: boolean): string {
@@ -471,6 +486,7 @@ async function fetchMtopResponse(
         : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
+    signal?.throwIfAborted();
     throw new BadGatewayException(`1688 keyword search request failed: ${errorMessage(error)}`);
   }
 

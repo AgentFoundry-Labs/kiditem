@@ -99,6 +99,7 @@ export class OperationAttemptExecutorService {
       } finally {
         clearInterval(heartbeatInterval);
         clearTimeout(deadlineTimer);
+        await heartbeatQueue;
       }
 
       if (deadlineExceeded) {

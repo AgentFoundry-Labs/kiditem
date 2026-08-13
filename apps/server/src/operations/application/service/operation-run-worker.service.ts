@@ -65,11 +65,19 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     this.intervalHandle.unref?.();
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     this.stopping = true;
     if (this.intervalHandle) clearInterval(this.intervalHandle);
     this.intervalHandle = null;
     this.attemptExecutor.abortAll(new Error('operation_worker_shutdown'));
+    const pending = [
+      this.tickInFlight,
+      this.compositeResumeInFlight,
+      ...[...this.activeAttempts.values()].flatMap((attempts) => [
+        ...attempts,
+      ]),
+    ].filter((promise): promise is Promise<void> => promise !== null);
+    await Promise.allSettled(pending);
   }
 
   async tick(): Promise<void> {
@@ -134,6 +142,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
         leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
       });
       if (!claimed) return;
+      if (this.stopping) return;
 
       let attempt!: Promise<void>;
       attempt = this.attemptExecutor

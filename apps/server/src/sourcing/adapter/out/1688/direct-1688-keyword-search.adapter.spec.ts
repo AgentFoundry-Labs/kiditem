@@ -14,6 +14,14 @@ vi.mock('playwright', () => ({
 const ORIGINAL_ENV = { ...process.env };
 const ORIGINAL_FETCH = globalThis.fetch;
 
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe('Direct1688KeywordSearchAdapter', () => {
   beforeEach(() => {
     process.env = { ...ORIGINAL_ENV };
@@ -127,6 +135,22 @@ describe('Direct1688KeywordSearchAdapter', () => {
     });
   });
 
+  it('preserves an already-aborted reason without starting provider or browser work', async () => {
+    const fetchMock = vi.fn();
+    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    const controller = new AbortController();
+    const reason = new Error('operation_worker_shutdown');
+    controller.abort(reason);
+
+    await expect(new Direct1688KeywordSearchAdapter().searchByKeyword({
+      keyword: '儿童笔袋',
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(playwrightMocks.connectOverCDP).not.toHaveBeenCalled();
+    expect(playwrightMocks.launchPersistentContext).not.toHaveBeenCalled();
+  });
+
   it('wraps mtop error responses', async () => {
     globalThis.fetch = vi
       .fn()
@@ -238,6 +262,93 @@ describe('Direct1688KeywordSearchAdapter', () => {
       .rejects.toThrow('SOURCING_PLAYWRIGHT_CDP_ENDPOINT로 연결된 Chrome에서 열린 검색 검증');
 
     expect(page.off).toHaveBeenCalledWith('response', expect.any(Function));
+  });
+
+  it('closes an active browser session and preserves the abort reason during a blocked navigation', async () => {
+    process.env.SOURCING_PLAYWRIGHT_CDP_ENDPOINT = 'http://127.0.0.1:9222';
+    mockMtopUserValidationFailure();
+    const blockedNavigation = deferred<null>();
+    const blockedCleanup = deferred<void>();
+    const page = buildSearchPageMock();
+    page.goto.mockReturnValueOnce(blockedNavigation.promise);
+    page.close.mockReturnValueOnce(blockedCleanup.promise);
+    const { browser } = mockCdpBrowserSession(page);
+    const controller = new AbortController();
+    const reason = new Error('operation_attempt_fence_lost');
+
+    const outcome = new Direct1688KeywordSearchAdapter().searchByKeyword({
+      keyword: '文具',
+      signal: controller.signal,
+    }).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    await vi.waitFor(() => expect(page.goto).toHaveBeenCalledOnce());
+    controller.abort(reason);
+
+    await vi.waitFor(() => expect(page.close).toHaveBeenCalledOnce());
+    let settled = false;
+    void outcome.then(() => {
+      settled = true;
+    });
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    blockedCleanup.resolve();
+    expect(await outcome).toBe(reason);
+    expect(browser.close).toHaveBeenCalledOnce();
+
+    blockedNavigation.resolve(null);
+  });
+
+  it('closes a connected browser when abort interrupts session setup', async () => {
+    process.env.SOURCING_PLAYWRIGHT_CDP_ENDPOINT = 'http://127.0.0.1:9222';
+    mockMtopUserValidationFailure();
+    const blockedPage = deferred<ReturnType<typeof buildSearchPageMock>>();
+    const { browser, context } = mockCdpBrowserSession();
+    context.newPage.mockReturnValueOnce(blockedPage.promise);
+    const controller = new AbortController();
+    const reason = new Error('operation_worker_shutdown');
+
+    const outcome = new Direct1688KeywordSearchAdapter().searchByKeyword({
+      keyword: '文具',
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(context.newPage).toHaveBeenCalledOnce());
+    controller.abort(reason);
+
+    expect(await outcome).toBe(reason);
+    expect(browser.close).toHaveBeenCalledOnce();
+
+    blockedPage.resolve(buildSearchPageMock());
+  });
+
+  it('preserves the abort reason when persistent-context cleanup rejects', async () => {
+    process.env.SOURCING_PLAYWRIGHT_USER_DATA_DIR = '/tmp/kiditem-1688-keyword-abort-profile';
+    mockMtopUserValidationFailure();
+    const blockedNavigation = deferred<null>();
+    const page = buildSearchPageMock();
+    page.goto.mockReturnValueOnce(blockedNavigation.promise);
+    const context = {
+      pages: vi.fn(() => [page]),
+      newPage: vi.fn(async () => page),
+      close: vi.fn().mockRejectedValue(new Error('context cleanup failed')),
+    };
+    playwrightMocks.launchPersistentContext.mockResolvedValue(context);
+    const controller = new AbortController();
+    const reason = new Error('operation_attempt_fence_lost');
+
+    const outcome = new Direct1688KeywordSearchAdapter().searchByKeyword({
+      keyword: '文具',
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(page.goto).toHaveBeenCalledOnce());
+    controller.abort(reason);
+
+    expect(await outcome).toBe(reason);
+    expect(context.close).toHaveBeenCalledOnce();
+
+    blockedNavigation.resolve(null);
   });
 });
 

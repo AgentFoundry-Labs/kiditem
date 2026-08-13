@@ -84,7 +84,9 @@ describe('CompositeOperationCoordinatorService', () => {
     const repository = {
       findByIdempotencyKey: vi.fn().mockResolvedValue(null),
       createRun: vi.fn().mockResolvedValue(child),
-      transition: vi.fn().mockResolvedValue(run({ status: 'waiting_dependency' })),
+      transitionActiveAttempt: vi.fn().mockResolvedValue(
+        run({ status: 'waiting_dependency' }),
+      ),
     };
     const registry = {
       getDefinition: vi.fn().mockReturnValue(definition),
@@ -111,7 +113,7 @@ describe('CompositeOperationCoordinatorService', () => {
       resourceClass: definition.resourceClass,
       executionTimeoutMs: definition.executionTimeoutMs,
     }));
-    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.transitionActiveAttempt).toHaveBeenCalledWith(expect.objectContaining({
       runId: PARENT_ID,
       status: 'waiting_dependency',
       expectedAttemptToken: parent.attemptToken,

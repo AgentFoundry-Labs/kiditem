@@ -246,12 +246,86 @@ describe('OperationRunWorkerService', () => {
       { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
     );
 
-    worker.onModuleDestroy();
+    await worker.onModuleDestroy();
     await worker.tick();
 
     expect(executor.abortAll).toHaveBeenCalledWith(expect.objectContaining({
       message: 'operation_worker_shutdown',
     }));
     expect(repository.claimNextRun).not.toHaveBeenCalled();
+  });
+
+  it('waits for active attempts and composite resume to settle during shutdown', async () => {
+    const attempt = deferred<void>();
+    const resume = deferred<void>();
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
+        resourceClass === 'naver_api'
+          ? Promise.resolve(run('naver_api', 'naver-active'))
+          : Promise.resolve(null)),
+    };
+    const executor = {
+      execute: vi.fn().mockReturnValue(attempt.promise),
+      abortAll: vi.fn(),
+    };
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      { resumeTerminalChildren: vi.fn().mockReturnValue(resume.promise) } as never,
+    );
+    await worker.tick();
+
+    let destroyed = false;
+    const shutdown = Promise.resolve(worker.onModuleDestroy()).finally(() => {
+      destroyed = true;
+    });
+    await Promise.resolve();
+    expect(destroyed).toBe(false);
+
+    attempt.resolve();
+    await Promise.resolve();
+    expect(destroyed).toBe(false);
+
+    resume.resolve();
+    await shutdown;
+    expect(destroyed).toBe(true);
+  });
+
+  it('waits for an in-flight claim and does not start its attempt after shutdown', async () => {
+    const claim = deferred<OperationRunRecord | null>();
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
+        resourceClass === 'naver_api' ? claim.promise : Promise.resolve(null)),
+    };
+    const executor = {
+      execute: vi.fn(),
+      abortAll: vi.fn(),
+    };
+    const compositeCoordinator = {
+      resumeTerminalChildren: vi.fn().mockResolvedValue(undefined),
+    };
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      compositeCoordinator as never,
+    );
+    const tick = worker.tick();
+    await vi.waitFor(() => expect(repository.claimNextRun).toHaveBeenCalled());
+
+    let destroyed = false;
+    const shutdown = Promise.resolve(worker.onModuleDestroy()).finally(() => {
+      destroyed = true;
+    });
+    await Promise.resolve();
+    expect(destroyed).toBe(false);
+
+    claim.resolve(run('naver_api', 'claimed-during-shutdown'));
+    await Promise.all([tick, shutdown]);
+
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(compositeCoordinator.resumeTerminalChildren).toHaveBeenCalledOnce();
+    expect(destroyed).toBe(true);
   });
 });

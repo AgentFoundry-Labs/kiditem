@@ -4,7 +4,9 @@ import {
   OperationExecutionTimeoutMsSchema,
   type OperationResourceClass,
 } from '@kiditem/shared/operations';
+import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
+import type { OperationActiveAttemptTransition } from '../../../application/port/out/repository/operation.repository.port';
 
 interface ClaimedRunIdentity {
   runId: string;
@@ -17,6 +19,14 @@ function parseExecutionTimeoutMs(value: unknown): number {
     throw new Error('operation_run_persisted_execution_metadata_invalid');
   }
   return parsed.data;
+}
+
+function parseDeadlineAt(value: unknown): Date | null {
+  if (value === null) return null;
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+    throw new Error('operation_run_persisted_execution_metadata_invalid');
+  }
+  return value;
 }
 
 export async function claimNextServerRun(
@@ -62,6 +72,10 @@ export async function claimNextServerRun(
     `;
     const candidate = candidates[0];
     if (!candidate) return null;
+    if (!Object.prototype.hasOwnProperty.call(candidate, 'deadline_at')) {
+      throw new Error('operation_run_persisted_execution_metadata_invalid');
+    }
+    const deadlineAt = parseDeadlineAt(candidate.deadline_at);
     const executionTimeoutMs = parseExecutionTimeoutMs(
       candidate.execution_timeout_ms,
     );
@@ -81,7 +95,7 @@ export async function claimNextServerRun(
         claimedAt: input.now,
         leaseExpiresAt: input.leaseExpiresAt,
         deadlineAt:
-          candidate.deadline_at ??
+          deadlineAt ??
           new Date(input.now.getTime() + executionTimeoutMs),
         startedAt: input.now,
       },
@@ -150,4 +164,53 @@ export async function expireServerRunsPastDeadline(
     }
     return expired;
   });
+}
+
+export async function transitionActiveServerAttempt(
+  prisma: PrismaService,
+  input: OperationActiveAttemptTransition,
+): Promise<boolean> {
+  const assignments: Prisma.Sql[] = [
+    Prisma.sql`status = ${input.status}`,
+    Prisma.sql`updated_at = CURRENT_TIMESTAMP`,
+  ];
+  const add = (column: Prisma.Sql, value: unknown) => {
+    assignments.push(Prisma.sql`${column} = ${value}`);
+  };
+  if (input.progress !== undefined) add(Prisma.sql`progress`, input.progress);
+  if (input.result !== undefined) {
+    assignments.push(
+      Prisma.sql`result = ${input.result === null ? null : JSON.stringify(input.result)}::jsonb`,
+    );
+  }
+  if (input.nativeRunType !== undefined) {
+    add(Prisma.sql`native_run_type`, input.nativeRunType);
+  }
+  if (input.nativeRunId !== undefined) add(Prisma.sql`native_run_id`, input.nativeRunId);
+  if (input.errorCode !== undefined) add(Prisma.sql`error_code`, input.errorCode);
+  if (input.errorMessage !== undefined) add(Prisma.sql`error_message`, input.errorMessage);
+  if (input.finishedAt !== undefined) add(Prisma.sql`finished_at`, input.finishedAt);
+  if (input.claimedBy !== undefined) add(Prisma.sql`claimed_by`, input.claimedBy);
+  if (input.attemptToken !== undefined) {
+    assignments.push(Prisma.sql`attempt_token = ${input.attemptToken}::uuid`);
+  }
+  if (input.claimedAt !== undefined) add(Prisma.sql`claimed_at`, input.claimedAt);
+  if (input.leaseExpiresAt !== undefined) {
+    add(Prisma.sql`lease_expires_at`, input.leaseExpiresAt);
+  }
+
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    UPDATE operation_runs
+    SET ${Prisma.join(assignments)}
+    WHERE id = ${input.runId}::uuid
+      AND organization_id = ${input.organizationId}::uuid
+      AND status IN (${Prisma.join(input.expectedStatuses)})
+      AND attempt_token = ${input.expectedAttemptToken}::uuid
+      AND lease_expires_at IS NOT NULL
+      AND lease_expires_at > CURRENT_TIMESTAMP
+      AND deadline_at IS NOT NULL
+      AND deadline_at > CURRENT_TIMESTAMP
+    RETURNING id
+  `;
+  return rows.length === 1;
 }

@@ -34,6 +34,10 @@ export class CompositeOperationCoordinatorService
     parent: OperationRunRecord;
     child: StartChildOperation;
   }): Promise<void> {
+    if (!input.parent.attemptToken) {
+      throw new Error('operation_attempt_token_missing');
+    }
+    const attemptToken = input.parent.attemptToken;
     const definition = this.registry.getDefinition(input.child.operationKey);
     const childInput = this.registry.parseInput(
       input.child.operationKey,
@@ -66,11 +70,11 @@ export class CompositeOperationCoordinatorService
       });
     }
 
-    await this.repository.transition({
+    await this.repository.transitionActiveAttempt({
       organizationId: input.parent.organizationId,
       runId: input.parent.id,
       expectedStatuses: ['running'],
-      expectedAttemptToken: input.parent.attemptToken,
+      expectedAttemptToken: attemptToken,
       status: 'waiting_dependency',
       claimedBy: null,
       attemptToken: null,

@@ -543,6 +543,39 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
     })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
     expect(update).not.toHaveBeenCalled();
   });
+
+  it.each([
+    ['missing', undefined],
+    ['non-Date', '2026-08-13T01:09:00.000Z'],
+    ['invalid Date', new Date(Number.NaN)],
+  ])('rejects %s raw deadline metadata before a server claim update', async (
+    _case,
+    deadlineAt,
+  ) => {
+    const update = vi.fn();
+    const candidate: Record<string, unknown> = {
+      id: RUN_ID,
+      organization_id: ORG_ID,
+      execution_timeout_ms: 900_000,
+    };
+    if (_case !== 'missing') candidate.deadline_at = deadlineAt;
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([candidate]),
+      operationRun: { update },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    } as never);
+
+    await expect(repository.claimNextRun({
+      resourceClass: 'naver_api',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
+    expect(update).not.toHaveBeenCalled();
+  });
 });
 
 describe('OperationRepositoryAdapter deadline sweep', () => {
@@ -626,6 +659,65 @@ describe('OperationRepositoryAdapter deadline sweep', () => {
         attemptToken: ATTEMPT_TOKEN,
       }),
     }));
+    expect(findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter active-attempt transition fence', () => {
+  it('atomically requires the exact token and database-current lease and deadline', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ id: RUN_ID }]);
+    const findFirst = vi.fn().mockResolvedValue(makeRunRow({ status: 'succeeded' }));
+    const repository = new OperationRepositoryAdapter({
+      $queryRaw: queryRaw,
+      operationRun: { findFirst },
+    } as never);
+
+    await repository.transitionActiveAttempt({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedStatuses: ['running'],
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      status: 'succeeded',
+      result: { collected: 3 },
+      progress: 1,
+      finishedAt: NOW,
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    });
+
+    const rawQueryArguments = queryRaw.mock.calls[0] ?? [];
+    const queryText = String(rawQueryArguments[0]);
+    expect(queryText).toContain('attempt_token =');
+    expect(queryText).toContain('lease_expires_at > CURRENT_TIMESTAMP');
+    expect(queryText).toContain('deadline_at > CURRENT_TIMESTAMP');
+    expect(rawQueryArguments).toContain(ORG_ID);
+    expect(rawQueryArguments).toContain(RUN_ID);
+    expect(rawQueryArguments).toContain(ATTEMPT_TOKEN);
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: RUN_ID, organizationId: ORG_ID },
+    }));
+  });
+
+  it('returns null without reading when the atomic active-attempt update loses its fence', async () => {
+    const findFirst = vi.fn();
+    const repository = new OperationRepositoryAdapter({
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      operationRun: { findFirst },
+    } as never);
+
+    await expect(repository.transitionActiveAttempt({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedStatuses: ['running'],
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      status: 'queued',
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    })).resolves.toBeNull();
     expect(findFirst).not.toHaveBeenCalled();
   });
 });

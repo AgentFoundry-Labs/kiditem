@@ -56,7 +56,7 @@ describe('OperationDispatcherService', () => {
       result: { collected: 3 },
     });
     const repository = {
-      transition: vi.fn().mockResolvedValue(run({ status: 'succeeded' })),
+      transitionActiveAttempt: vi.fn().mockResolvedValue(run({ status: 'succeeded' })),
     };
     const dispatcher = new OperationDispatcherService(
       { getHandler: vi.fn().mockReturnValue({ execute }) } as never,
@@ -76,7 +76,7 @@ describe('OperationDispatcherService', () => {
       checkpoint,
     }));
     expect(checkpoint).toHaveBeenCalledOnce();
-    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.transitionActiveAttempt).toHaveBeenCalledWith(expect.objectContaining({
       expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
       status: 'succeeded',
     }));
@@ -93,7 +93,7 @@ describe('OperationDispatcherService', () => {
     }>((resolve) => {
       resolveHandler = resolve;
     });
-    const repository = { transition: vi.fn() };
+    const repository = { transitionActiveAttempt: vi.fn() };
     const dispatcher = new OperationDispatcherService(
       {
         getHandler: vi.fn().mockReturnValue({
@@ -113,11 +113,11 @@ describe('OperationDispatcherService', () => {
     resolveHandler({ kind: 'completed', result: { collected: 3 } });
     await dispatch;
 
-    expect(repository.transition).not.toHaveBeenCalled();
+    expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
   });
 
   it('rechecks the heartbeat fence before recording a handler failure', async () => {
-    const repository = { transition: vi.fn() };
+    const repository = { transitionActiveAttempt: vi.fn() };
     const dispatcher = new OperationDispatcherService(
       {
         getHandler: vi.fn().mockReturnValue({
@@ -140,6 +140,118 @@ describe('OperationDispatcherService', () => {
     });
 
     expect(checkpoint).toHaveBeenCalledOnce();
-    expect(repository.transition).not.toHaveBeenCalled();
+    expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['delegated', {
+      kind: 'delegated',
+      nativeRunType: 'agent_os',
+      nativeRunId: 'native-1',
+    }],
+    ['waiting_runtime', { kind: 'waiting_runtime' }],
+    ['attention_required', {
+      kind: 'attention_required',
+      reason: 'operator input required',
+      result: { prompt: true },
+    }],
+    ['failed', {
+      kind: 'failed',
+      code: 'provider_failed',
+      message: 'provider failed',
+    }],
+  ])('does not commit an aborted %s handler result', async (_kind, result) => {
+    const handlerResult = deferredResult(result);
+    const repository = { transitionActiveAttempt: vi.fn() };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockReturnValue(handlerResult.promise),
+        }),
+      } as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+    const controller = new AbortController();
+    const dispatch = dispatcher.dispatch(run(), {
+      signal: controller.signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+    });
+
+    controller.abort(new Error('operation_attempt_fence_lost'));
+    handlerResult.resolve(result);
+    await dispatch;
+
+    expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
+  });
+
+  it('does not start waiting for a child after its attempt aborts', async () => {
+    const result = {
+      kind: 'waiting_dependency' as const,
+      child: {
+        operationKey: 'sourcing.child',
+        input: {},
+        idempotencyKey: 'child-1',
+      },
+    };
+    const handlerResult = deferredResult(result);
+    const compositeCoordinator = { waitForChild: vi.fn() };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockReturnValue(handlerResult.promise),
+        }),
+      } as never,
+      { transitionActiveAttempt: vi.fn() } as never,
+      compositeCoordinator as never,
+    );
+    const controller = new AbortController();
+    const dispatch = dispatcher.dispatch(run(), {
+      signal: controller.signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+    });
+
+    controller.abort(new Error('operation_attempt_fence_lost'));
+    handlerResult.resolve(result);
+    await dispatch;
+
+    expect(compositeCoordinator.waitForChild).not.toHaveBeenCalled();
+  });
+
+  it('preserves normal retry semantics behind the active-attempt fence', async () => {
+    const repository = {
+      transitionActiveAttempt: vi.fn().mockResolvedValue(run({ status: 'queued' })),
+    };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockRejectedValue(new Error('provider failed')),
+        }),
+      } as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+
+    await dispatcher.dispatch(run({ attempts: 1, maxAttempts: 3 }), {
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(repository.transitionActiveAttempt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        status: 'queued',
+        errorCode: 'operation_execution_failed',
+        finishedAt: null,
+      }),
+    );
   });
 });
+
+function deferredResult<T>(value: T) {
+  let resolve!: (result: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve, value };
+}

@@ -100,6 +100,25 @@ export interface OperationRunTransition {
   attemptDelta?: number;
 }
 
+export type OperationActiveAttemptTransition = Pick<
+  OperationRunTransition,
+  | 'organizationId'
+  | 'runId'
+  | 'expectedStatuses'
+  | 'status'
+  | 'progress'
+  | 'result'
+  | 'nativeRunType'
+  | 'nativeRunId'
+  | 'errorCode'
+  | 'errorMessage'
+  | 'finishedAt'
+  | 'claimedBy'
+  | 'attemptToken'
+  | 'claimedAt'
+  | 'leaseExpiresAt'
+> & { expectedAttemptToken: string };
+
 export interface OperationScheduleRecord {
   id: string;
   organizationId: string;
@@ -152,6 +171,9 @@ export interface OperationRunRepositoryPort {
     limit: number;
   }): Promise<OperationRunRecord[]>;
   transition(input: OperationRunTransition): Promise<OperationRunRecord | null>;
+  transitionActiveAttempt(
+    input: OperationActiveAttemptTransition,
+  ): Promise<OperationRunRecord | null>;
   claimNextRun(input: {
     resourceClass: OperationResourceClass;
     workerId: string;

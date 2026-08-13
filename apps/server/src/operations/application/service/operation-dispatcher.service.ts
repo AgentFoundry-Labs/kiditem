@@ -38,6 +38,7 @@ export class OperationDispatcherService {
     if (!run.attemptToken) {
       throw new Error('operation_attempt_token_missing');
     }
+    const attemptToken = run.attemptToken;
 
     try {
       controls.signal.throwIfAborted();
@@ -51,7 +52,7 @@ export class OperationDispatcherService {
         requestedByUserId: run.requestedByUserId,
         scheduleId: run.scheduleId,
         parentRunId: run.parentRunId,
-        attemptToken: run.attemptToken,
+        attemptToken,
         signal: controls.signal,
         checkpoint: controls.checkpoint,
       });
@@ -62,11 +63,11 @@ export class OperationDispatcherService {
       switch (result.kind) {
         case 'completed':
           controls.signal.throwIfAborted();
-          await this.repository.transition({
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'succeeded',
             result: result.result,
             progress: 1,
@@ -79,11 +80,11 @@ export class OperationDispatcherService {
           return;
         case 'delegated':
           controls.signal.throwIfAborted();
-          await this.repository.transition({
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'running',
             nativeRunType: result.nativeRunType,
             nativeRunId: result.nativeRunId,
@@ -95,11 +96,11 @@ export class OperationDispatcherService {
           return;
         case 'waiting_runtime':
           controls.signal.throwIfAborted();
-          await this.repository.transition({
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'waiting_runtime',
             claimedBy: null,
             attemptToken: null,
@@ -116,11 +117,11 @@ export class OperationDispatcherService {
           return;
         case 'attention_required':
           controls.signal.throwIfAborted();
-          await this.repository.transition({
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'attention_required',
             result: result.result,
             errorCode: 'operation_attention_required',
@@ -134,11 +135,11 @@ export class OperationDispatcherService {
           return;
         case 'failed':
           controls.signal.throwIfAborted();
-          await this.repository.transition({
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'failed',
             errorCode: result.code,
             errorMessage: result.message,
@@ -158,17 +159,21 @@ export class OperationDispatcherService {
         if (controls.signal.aborted) return;
       }
       if (controls.signal.aborted) return;
-      await this.fail(run, error);
+      await this.fail(run, attemptToken, error);
     }
   }
 
-  private async fail(run: OperationRunRecord, _error: unknown): Promise<void> {
+  private async fail(
+    run: OperationRunRecord,
+    attemptToken: string,
+    _error: unknown,
+  ): Promise<void> {
     const terminal = run.attempts >= run.maxAttempts;
-    await this.repository.transition({
+    await this.repository.transitionActiveAttempt({
       organizationId: run.organizationId,
       runId: run.id,
       expectedStatuses: ['running'],
-      expectedAttemptToken: run.attemptToken,
+      expectedAttemptToken: attemptToken,
       status: terminal ? 'failed' : 'queued',
       errorCode: 'operation_execution_failed',
       errorMessage: 'Operation execution failed',

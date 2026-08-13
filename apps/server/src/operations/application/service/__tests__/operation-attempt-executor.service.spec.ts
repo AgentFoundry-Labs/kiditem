@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { OperationAttemptExecutorService } from '../operation-attempt-executor.service';
+import { OperationDispatcherService } from '../operation-dispatcher.service';
 
 const NOW = new Date('2026-08-13T01:02:03.000Z');
 const originalLeaseMs = process.env.OPERATION_RUN_LEASE_MS;
@@ -308,5 +309,110 @@ describe('OperationAttemptExecutorService', () => {
 
     dispatch.resolve();
     await execution;
+  });
+
+  it('does not return from shutdown until an in-flight heartbeat is settled', async () => {
+    const heartbeat = deferred<OperationRunRecord | null>();
+    const executor = new OperationAttemptExecutorService(
+      {
+        dispatch: vi.fn((_run, controls: { signal: AbortSignal }) =>
+          new Promise<void>((resolve) => {
+            controls.signal.addEventListener('abort', () => resolve(), { once: true });
+          })),
+      } as never,
+      {
+        heartbeatRun: vi.fn().mockReturnValue(heartbeat.promise),
+        transition: vi.fn(),
+      } as never,
+    );
+
+    let settled = false;
+    const execution = executor.execute(run()).finally(() => {
+      settled = true;
+    });
+    await vi.advanceTimersByTimeAsync(300);
+    executor.abortAll(new Error('operation_worker_shutdown'));
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(settled).toBe(false);
+
+    heartbeat.resolve(null);
+    await execution;
+    expect(settled).toBe(true);
+  });
+
+  it('drains an in-flight heartbeat before finalizing an expired deadline', async () => {
+    const heartbeat = deferred<OperationRunRecord | null>();
+    const repository = {
+      heartbeatRun: vi.fn().mockReturnValue(heartbeat.promise),
+      transition: vi.fn().mockResolvedValue(run({ status: 'failed' })),
+    };
+    const executor = new OperationAttemptExecutorService(
+      {
+        dispatch: vi.fn((_run, controls: { signal: AbortSignal }) =>
+          new Promise<void>((resolve) => {
+            controls.signal.addEventListener('abort', () => resolve(), { once: true });
+          })),
+      } as never,
+      repository as never,
+    );
+
+    const execution = executor.execute(run({
+      deadlineAt: new Date(NOW.getTime() + 1_000),
+    }));
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(repository.transition).not.toHaveBeenCalled();
+
+    heartbeat.resolve(null);
+    await execution;
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      errorCode: 'operation_deadline_exceeded',
+    }));
+  });
+
+  it('lets deadline failure win when completion is waiting on the atomic attempt fence', async () => {
+    const completionFence = deferred<OperationRunRecord | null>();
+    const repository = {
+      heartbeatRun: vi.fn().mockResolvedValue(run()),
+      transitionActiveAttempt: vi.fn().mockReturnValue(completionFence.promise),
+      transition: vi.fn().mockResolvedValue(run({ status: 'failed' })),
+    };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockResolvedValue({
+            kind: 'completed',
+            result: { collected: 3 },
+          }),
+        }),
+      } as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+    const executor = new OperationAttemptExecutorService(
+      dispatcher,
+      repository as never,
+    );
+
+    const execution = executor.execute(run({
+      deadlineAt: new Date(NOW.getTime() + 1_000),
+    }));
+    await vi.waitFor(() => {
+      expect(repository.transitionActiveAttempt).toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'succeeded' }),
+      );
+    });
+    await vi.advanceTimersByTimeAsync(1_000);
+    completionFence.resolve(null);
+    await execution;
+
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      status: 'failed',
+      errorCode: 'operation_deadline_exceeded',
+      expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+    }));
   });
 });

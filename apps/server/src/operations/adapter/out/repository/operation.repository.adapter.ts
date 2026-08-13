@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateOperationRunRecord,
+  OperationActiveAttemptTransition,
   OperationRunRecord,
   OperationRunRepositoryPort,
   OperationRunTransition,
@@ -19,6 +20,7 @@ import type {
 import {
   claimNextServerRun,
   expireServerRunsPastDeadline,
+  transitionActiveServerAttempt,
 } from './operation-execution.repository';
 
 const runInclude = {
@@ -373,6 +375,17 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       stageUpdatedAt: new Date(),
     });
     if (updatedCount === 0) return null;
+    return this.findRunById({
+      organizationId: input.organizationId,
+      runId: input.runId,
+    });
+  }
+
+  async transitionActiveAttempt(
+    input: OperationActiveAttemptTransition,
+  ): Promise<OperationRunRecord | null> {
+    const updated = await transitionActiveServerAttempt(this.prisma, input);
+    if (!updated) return null;
     return this.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,
