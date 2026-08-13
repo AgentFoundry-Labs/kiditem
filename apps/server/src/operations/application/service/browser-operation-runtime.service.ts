@@ -96,6 +96,7 @@ export class BrowserOperationRuntimeService {
     request: BrowserOperationHeartbeatRequest;
   }): Promise<void> {
     const now = new Date();
+    this.lifecycleGate.assertAccepting();
     const result = await this.repository.heartbeatBrowserRun({
       organizationId: input.organizationId,
       runId: input.runId,
@@ -181,6 +182,7 @@ export class BrowserOperationRuntimeService {
 
     switch (input.status) {
       case 'running':
+        this.lifecycleGate.assertAccepting();
         return this.repository.heartbeatBrowserRun({
           organizationId: input.organizationId,
           runId: input.runId,

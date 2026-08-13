@@ -23,6 +23,13 @@ function acceptingGate(): OperationLifecycleGateService {
   return gate;
 }
 
+function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
+  const gate = new OperationLifecycleGateService();
+  if (state !== 'BOOTSTRAPPING') gate.beginStopping();
+  if (state === 'STOPPED') gate.finishStopping();
+  return gate;
+}
+
 function makeService(
   repository: OperationRunRepositoryPort,
   gate = acceptingGate(),
@@ -98,6 +105,79 @@ describe('BrowserOperationRuntimeService', () => {
       progressTotal: 12,
     }));
   });
+
+  it.each(['BOOTSTRAPPING', 'STOPPING', 'STOPPED'] as const)(
+    'rejects heartbeat and running report in %s with zero repository writes',
+    async (state) => {
+      const repository = {
+        heartbeatBrowserRun: vi.fn().mockResolvedValue({ id: RUN_ID }),
+      } as unknown as OperationRunRepositoryPort;
+      const service = makeService(repository, gateIn(state));
+
+      await expect(service.heartbeat({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        request: { attemptToken: OLD_TOKEN, progress: 0.5 },
+      })).rejects.toMatchObject({
+        status: 503,
+        message: 'operation_server_lifecycle_unavailable',
+      });
+      await expect(service.report({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        attemptToken: OLD_TOKEN,
+        status: 'running',
+        progress: 0.5,
+      })).rejects.toMatchObject({
+        status: 503,
+        message: 'operation_server_lifecycle_unavailable',
+      });
+      expect(repository.heartbeatBrowserRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['BOOTSTRAPPING', 'STOPPING', 'STOPPED'] as const)(
+    'keeps exact-fenced terminal reports available in %s',
+    async (state) => {
+      const repository = {
+        heartbeatBrowserRun: vi.fn(),
+        transitionActiveAttempt: vi.fn().mockResolvedValue({ id: RUN_ID }),
+      } as unknown as OperationRunRepositoryPort;
+      const service = makeService(repository, gateIn(state));
+
+      await service.report({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        attemptToken: OLD_TOKEN,
+        status: 'attention_required',
+        attentionReason: 'manual_check',
+      });
+      await service.report({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        attemptToken: OLD_TOKEN,
+        status: 'succeeded',
+        result: { imported: 1 },
+      });
+      await service.report({
+        organizationId: ORG_ID,
+        runId: RUN_ID,
+        attemptToken: OLD_TOKEN,
+        status: 'failed',
+        errorCode: 'browser_step_failed',
+      });
+
+      expect(repository.heartbeatBrowserRun).not.toHaveBeenCalled();
+      expect(repository.transitionActiveAttempt).toHaveBeenCalledTimes(3);
+      for (const [transition] of vi.mocked(
+        repository.transitionActiveAttempt,
+      ).mock.calls) {
+        expect(transition).toEqual(expect.objectContaining({
+          expectedAttemptToken: OLD_TOKEN,
+        }));
+      }
+    },
+  );
 
   it('routes every valid report outcome through its active lease and deadline fence', async () => {
     const repository = {

@@ -1,6 +1,5 @@
-import type { INestApplication } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import type { PrismaClient } from '@prisma/client';
 import {
   afterAll,
   beforeAll,
@@ -10,7 +9,7 @@ import {
   it,
   vi,
 } from 'vitest';
-import type { PrismaService } from '../../../../prisma/prisma.service';
+import { ApiApplicationModule } from '../../../../api-application.module';
 import {
   makeTestPrisma,
   resetDb,
@@ -21,12 +20,71 @@ import {
 import { OperationRepositoryAdapter } from '../../../adapter/out/repository/operation.repository.adapter';
 import { OPERATION_REPOSITORY_PORT } from '../../port/out/repository/operation.repository.port';
 import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
+import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
 import { OperationRunWorkerService } from '../operation-run-worker.service';
 import { OperationSchedulerService } from '../operation-scheduler.service';
 import {
   OPERATION_LIFECYCLE_OPTIONS,
   OperationServerLifecycleService,
 } from '../operation-server-lifecycle.service';
+import type {
+  INestApplication,
+  INestApplicationContext,
+} from '@nestjs/common';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaService } from '../../../../prisma/prisma.service';
+
+const EXPECTED_CANONICAL_OPERATION_OWNER_DOMAINS = [
+  'advertising',
+  'channels',
+  'inventory',
+  'orders',
+  'products',
+  'sourcing',
+] as const;
+const LIFECYCLE_ACTIVE_STATUSES = [
+  'queued',
+  'waiting_runtime',
+  'waiting_dependency',
+  'running',
+] as const;
+
+let canonicalOperationOwnerDomains: string[] = [];
+
+async function readRegisteredOperationOwnerDomains(): Promise<string[]> {
+  const disabledRuntimeEnvironment = {
+    AGENT_RUNTIME_WORKER_ENABLED: '0',
+    AI_DIRECT_JOB_WORKER_ENABLED: '0',
+    OPERATION_RUNTIME_WORKER_ENABLED: '0',
+    OPERATION_SCHEDULER_ENABLED: '0',
+  } as const;
+  const priorEnvironment = Object.fromEntries(
+    Object.keys(disabledRuntimeEnvironment).map((key) => [key, process.env[key]]),
+  );
+  Object.assign(process.env, disabledRuntimeEnvironment);
+
+  let context: INestApplicationContext | null = null;
+  try {
+    context = await NestFactory.createApplicationContext(
+      ApiApplicationModule,
+      { logger: false },
+    );
+    const definitions = context
+      .get(OperationHandlerRegistryService)
+      .listDefinitions();
+    return [...new Set(definitions.map(({ ownerDomain }) => ownerDomain))].sort();
+  } finally {
+    try {
+      await context?.close();
+    } finally {
+      for (const key of Object.keys(disabledRuntimeEnvironment)) {
+        const prior = priorEnvironment[key];
+        if (prior === undefined) delete process.env[key];
+        else process.env[key] = prior;
+      }
+    }
+  }
+}
 
 function deferred() {
   let resolve!: () => void;
@@ -80,6 +138,9 @@ describe('operation server lifecycle PostgreSQL integration', () => {
       updater as unknown as PrismaService,
     );
     await Promise.all([locker.$connect(), updater.$connect()]);
+    await resetDb(locker);
+    await seedBaseFixture(locker);
+    canonicalOperationOwnerDomains = await readRegisteredOperationOwnerDomains();
   });
 
   afterAll(async () => {
@@ -92,37 +153,37 @@ describe('operation server lifecycle PostgreSQL integration', () => {
   });
 
   it('cleans every active owner and missed schedule before opening intake', async () => {
+    expect(canonicalOperationOwnerDomains).toEqual(
+      EXPECTED_CANONICAL_OPERATION_OWNER_DOMAINS,
+    );
     const startedAt = new Date('2026-08-13T00:00:00.000Z');
-    const statuses = [
-      ['queued', 'sourcing'],
-      ['waiting_runtime', 'supply'],
-      ['waiting_dependency', 'ai'],
-      ['running', 'orders'],
-    ] as const;
-    for (const [status, ownerDomain] of statuses) {
-      await locker.operationRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          operationKey: `test.bootstrap.${status}`,
-          definitionVersion: 1,
-          ownerDomain,
-          title: `${ownerDomain} lifecycle run`,
-          engineType: 'server',
-          resourceClass: 'default',
-          executionTimeoutMs: 60_000,
-          status,
-          triggerSource: 'dashboard',
-          input: { status },
-          attempts: 2,
-          maxAttempts: 4,
-          startedAt,
-          claimedBy: 'first-api',
-          attemptToken: crypto.randomUUID(),
-          claimedAt: startedAt,
-          leaseExpiresAt: new Date(startedAt.getTime() + 60_000),
-          createdAt: startedAt,
-        },
-      });
+    for (const ownerDomain of canonicalOperationOwnerDomains) {
+      for (const status of LIFECYCLE_ACTIVE_STATUSES) {
+        await locker.operationRun.create({
+          data: {
+            organizationId: TEST_ORGANIZATION_ID,
+            operationKey: `test.bootstrap.${ownerDomain}.${status}`,
+            definitionVersion: 1,
+            ownerDomain,
+            title: `${ownerDomain} lifecycle run`,
+            engineType: 'server',
+            resourceClass: 'default',
+            executionTimeoutMs: 60_000,
+            status,
+            triggerSource: 'dashboard',
+            input: { ownerDomain, status },
+            result: { preserved: `${ownerDomain}:${status}` },
+            attempts: 2,
+            maxAttempts: 4,
+            startedAt,
+            claimedBy: 'first-api',
+            attemptToken: crypto.randomUUID(),
+            claimedAt: startedAt,
+            leaseExpiresAt: new Date(startedAt.getTime() + 60_000),
+            createdAt: startedAt,
+          },
+        });
+      }
     }
     const lastScheduledFor = new Date('2026-08-12T22:00:00.000Z');
     const schedules = await Promise.all(
@@ -159,8 +220,24 @@ describe('operation server lifecycle PostgreSQL integration', () => {
       where: { operationKey: { startsWith: 'test.bootstrap.' } },
       orderBy: { operationKey: 'asc' },
     });
-    expect(runs).toHaveLength(4);
+    expect(runs).toHaveLength(
+      canonicalOperationOwnerDomains.length *
+        LIFECYCLE_ACTIVE_STATUSES.length,
+    );
+    expect(
+      runs.map((run) => {
+        const input = run.input as { status: string };
+        return `${run.ownerDomain}:${input.status}`;
+      }),
+    ).toEqual(
+      canonicalOperationOwnerDomains.flatMap((ownerDomain) =>
+        LIFECYCLE_ACTIVE_STATUSES.map(
+          (status) => `${ownerDomain}:${status}`,
+        ),
+      ).sort(),
+    );
     for (const run of runs) {
+      const input = run.input as { ownerDomain: string; status: string };
       expect(run).toMatchObject({
         status: 'cancelled',
         errorCode: 'operation_server_lifecycle_expired',
@@ -171,6 +248,8 @@ describe('operation server lifecycle PostgreSQL integration', () => {
         attemptToken: null,
         claimedAt: null,
         leaseExpiresAt: null,
+        input,
+        result: { preserved: `${run.ownerDomain}:${input.status}` },
       });
     }
     const advanced = await locker.operationSchedule.findMany({
@@ -181,7 +260,10 @@ describe('operation server lifecycle PostgreSQL integration', () => {
       expect(schedule.nextRunAt.getTime()).toBeGreaterThan(cutoff.getTime());
       expect(schedule.lastScheduledFor).toEqual(lastScheduledFor);
     }
-    expect(await locker.operationRun.count()).toBe(4);
+    expect(await locker.operationRun.count()).toBe(
+      canonicalOperationOwnerDomains.length *
+        LIFECYCLE_ACTIVE_STATUSES.length,
+    );
   });
 
   it('never requeues, resumes, or reclaims a first-context run in a second context', async () => {
