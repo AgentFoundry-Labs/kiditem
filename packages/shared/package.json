@@ -190,6 +190,11 @@
       "import": "./dist/agent-os.js",
       "require": "./dist/agent-os.cjs"
     },
+    "./agent-interaction": {
+      "types": "./dist/agent-interaction/index.d.ts",
+      "import": "./dist/agent-interaction/index.js",
+      "require": "./dist/agent-interaction/index.cjs"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",
@@ -372,6 +377,9 @@
       ],
       "agent-os": [
         "dist/agent-os.d.ts"
+      ],
+      "agent-interaction": [
+        "dist/agent-interaction/index.d.ts"
       ],
       "workflow": [
         "dist/workflow.d.ts"
