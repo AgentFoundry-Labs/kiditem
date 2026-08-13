@@ -33,6 +33,11 @@ export const InteractionThreadTargetSchema = z
   })
   .strict();
 
+const agentIdentity = (value: {
+  agentDefinitionKey: string;
+  agentVersionId: string;
+}) => JSON.stringify([value.agentDefinitionKey, value.agentVersionId]);
+
 export const InteractionBootstrapSchema = z
   .object({
     defaultAgentDefinitionKey: z.string().min(1),
@@ -52,13 +57,16 @@ export const InteractionBootstrapSchema = z
       });
     }
 
-    const targetKeys = new Set(
-      value.threadTargets.map((target) => target.agentDefinitionKey),
-    );
+    const agentIdentities = value.agents.map(agentIdentity);
+    const targetIdentities = value.threadTargets.map(agentIdentity);
+    const allowedIdentitySet = new Set(agentIdentities);
+    const targetIdentitySet = new Set(targetIdentities);
     if (
+      allowedIdentitySet.size !== value.agents.length ||
       value.threadTargets.length !== value.agents.length ||
-      targetKeys.size !== value.agents.length ||
-      value.agents.some((agent) => !targetKeys.has(agent.agentDefinitionKey))
+      targetIdentitySet.size !== value.threadTargets.length ||
+      agentIdentities.some((identity) => !targetIdentitySet.has(identity)) ||
+      targetIdentities.some((identity) => !allowedIdentitySet.has(identity))
     ) {
       context.addIssue({
         code: 'custom',

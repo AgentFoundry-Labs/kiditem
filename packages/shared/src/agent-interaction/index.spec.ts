@@ -74,6 +74,28 @@ const dashboardContext = {
   timezone: 'Asia/Seoul',
 } as const;
 
+const validRunAuthorization = {
+  binding,
+  interactionClass: 'quick_ask',
+  modelIdentity: 'gpt-5',
+  runtimeType: 'ag-ui',
+  policySnapshotId: 'policy-1',
+  dashboardContext,
+} as const;
+
+const validRunPreparation = {
+  preparationToken: 'preparation-token-that-is-long-enough',
+  expiresAt: '2026-08-13T08:00:00.000Z',
+  copilotThreadId: '550e8400-e29b-41d4-a716-446655440000',
+  archive: null,
+} as const;
+
+const validConnectionAuthorization = {
+  binding,
+  interactionClass: 'quick_ask',
+  contextEpoch: 2,
+} as const;
+
 describe('agent interaction contracts', () => {
   it('strips untrusted browser authority while accepting canonical dashboard context', () => {
     const context = DashboardContextSchema.parse({
@@ -87,7 +109,7 @@ describe('agent interaction contracts', () => {
     expect(context).not.toHaveProperty('permissions');
   });
 
-  it('requires a complete server principal and explicit runtime, model, and control context', () => {
+  it('requires every server-derived principal field', () => {
     expect(
       InteractionPrincipalSchema.parse({
         principalKey: 'principal-1',
@@ -107,15 +129,42 @@ describe('agent interaction contracts', () => {
     ]) {
       expect(() => InteractionPrincipalSchema.parse(incompletePrincipal)).toThrow();
     }
+  });
 
-    expect(() => AguiRunAuthorizationSchema.parse({ interactionClass: 'quick_ask' })).toThrow();
-    expect(() => AguiRunPreparationSchema.parse({ copilotThreadId: 'forged' })).toThrow();
+  it('requires explicit model and runtime identity on otherwise-valid run authorization', () => {
+    const { modelIdentity: _modelIdentity, ...missingModelIdentity } =
+      validRunAuthorization;
+    const { runtimeType: _runtimeType, ...missingRuntimeType } = validRunAuthorization;
+
+    expect(() => AguiRunAuthorizationSchema.parse(missingModelIdentity)).toThrow(
+      /modelIdentity/,
+    );
+    expect(() => AguiRunAuthorizationSchema.parse(missingRuntimeType)).toThrow(
+      /runtimeType/,
+    );
+  });
+
+  it('rejects an invalid preparation thread UUID and serialized expiry datetime', () => {
     expect(() =>
-      AguiConnectionAuthorizationSchema.parse({
-        interactionClass: 'quick_ask',
-        contextEpoch: 1,
+      AguiRunPreparationSchema.parse({
+        ...validRunPreparation,
+        copilotThreadId: 'forged',
       }),
-    ).toThrow();
+    ).toThrow(/uuid/i);
+    expect(() =>
+      AguiRunPreparationSchema.parse({
+        ...validRunPreparation,
+        expiresAt: 'tomorrow',
+      }),
+    ).toThrow(/datetime/i);
+  });
+
+  it('requires binding control context on otherwise-valid connection authorization', () => {
+    const { binding: _binding, ...missingBinding } = validConnectionAuthorization;
+
+    expect(() => AguiConnectionAuthorizationSchema.parse(missingBinding)).toThrow(
+      /binding/,
+    );
   });
 
   it('rejects unknown authority fields on strict server contracts', () => {
@@ -185,14 +234,33 @@ describe('agent interaction contracts', () => {
     }
   });
 
+  it('rejects thread targets with wrong or swapped agent versions', () => {
+    expect(() =>
+      InteractionBootstrapSchema.parse({
+        ...validBootstrap,
+        threadTargets: [
+          { ...threadTargets[0], agentVersionId: 'analyst-v1' },
+          { ...threadTargets[1], agentVersionId: 'operator-v1' },
+        ],
+      }),
+    ).toThrow('bootstrap requires exactly one target per allowed agent');
+  });
+
+  it('rejects duplicate allowed-agent identities even with extra unrelated targets', () => {
+    expect(() =>
+      InteractionBootstrapSchema.parse({
+        ...validBootstrap,
+        agents: [agents[0], { ...agents[0], isDefault: false }],
+      }),
+    ).toThrow('bootstrap requires exactly one target per allowed agent');
+  });
+
   it('requires connection authorization to match binding class and epoch', () => {
     expect(
       AguiConnectionAuthorizationSchema.parse({
-        binding,
-        interactionClass: 'quick_ask',
-        contextEpoch: 2,
+        ...validConnectionAuthorization,
       }),
-    ).toEqual({ binding, interactionClass: 'quick_ask', contextEpoch: 2 });
+    ).toEqual(validConnectionAuthorization);
 
     for (const authorization of [
       { binding, interactionClass: 'official_task', contextEpoch: 2 },
