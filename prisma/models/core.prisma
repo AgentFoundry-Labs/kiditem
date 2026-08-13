@@ -75,6 +75,7 @@ model Organization {
   agentPolicySnapshots      AgentPolicySnapshot[]     @relation("AgentPolicySnapshotOrganization")
   agentExecutions           AgentExecution[]          @relation("AgentExecutionOrganization")
   agentExecutionUsages      AgentExecutionUsage[]     @relation("AgentExecutionUsageOrganization")
+  agentAuthorityProfileVersions AgentAuthorityProfileVersion[] @relation("AgentAuthorityProfileVersionOrganization")
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]

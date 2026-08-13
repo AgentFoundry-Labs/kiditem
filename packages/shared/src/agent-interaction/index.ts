@@ -2,6 +2,29 @@ import { z } from 'zod';
 import { CanonicalResourceRefSchema } from './resource-ref';
 import { InteractionUiResultSchema } from './ui';
 
+export {
+  AgentApprovalCardSchema,
+  AgentApprovalDecisionSchema,
+  AgentArtifactCardSchema,
+  AgentDelegationEventSchema,
+  AgentProgressEventSchema,
+  AgentTaskStatusSchema,
+  CancelAgentTaskSchema,
+  ResumeAgentTaskSchema,
+  RetryAgentTaskSchema,
+} from './durable-runtime';
+export type {
+  AgentApprovalCard,
+  AgentApprovalDecision,
+  AgentArtifactCard,
+  AgentDelegationEvent,
+  AgentProgressEvent,
+  AgentTaskStatus,
+  CancelAgentTask,
+  ResumeAgentTask,
+  RetryAgentTask,
+} from './durable-runtime';
+
 export { CanonicalResourceRefSchema } from './resource-ref';
 export type { CanonicalResourceRef } from './resource-ref';
 

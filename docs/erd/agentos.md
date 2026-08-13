@@ -11,6 +11,7 @@
 |---|---|---|
 | AgentApprovalRequest | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
 | AgentArtifact | `agent_artifacts` | User-visible output card linked to task, tool, or domain record. |
+| AgentAuthorityProfileVersion | `agent_authority_profile_versions` | Immutable organization-scoped authority profile selected before a durable Agent session begins. |
 | AgentAuthorizationEvent | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
 | AgentContextEpoch | `agent_context_epochs` | Immutable context-boundary marker owned by one canonical interaction session. |
 | AgentConversation | `agent_conversations` | User-facing Agent OS conversation thread. |
@@ -18,6 +19,7 @@
 | AgentConversationOutbox | `agent_conversation_outboxes` | Transactional publication marker referencing canonical conversation content without copying its payload. |
 | AgentCostEvent | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
 | AgentExecution | `agent_executions` | Required session/task-owned interaction execution and terminal control state. |
+| AgentExecutionAttempt | `agent_execution_attempts` | One immutable numbered runtime attempt and its opaque reconnect handle identity. |
 | AgentExecutionUsage | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
@@ -28,7 +30,10 @@
 | AgentRunRequest | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
 | AgentRuntimeState | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
 | AgentSession | `agent_sessions` | Organization-scoped canonical interaction session rooted at the first submitted user message. |
+| AgentSessionApproval | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity. |
+| AgentSessionArtifact | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
 | AgentSessionTask | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
+| AgentSessionTaskDelegation | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
 | AgentTaskSession | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
 | AgentToolDefinition | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
 | AgentToolInvocation | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
@@ -81,6 +86,16 @@ erDiagram
     String status
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentAuthorityProfileVersion {
+    String id
+    String organizationId FK
+    String profileKey
+    Int version
+    Json capabilityKeys
+    Json policyDocument
+    String policyHash
+    DateTime createdAt
   }
   AgentAuthorizationEvent {
     String id PK
@@ -179,6 +194,22 @@ erDiagram
     DateTime finishedAt
     String errorCode
   }
+  AgentExecutionAttempt {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String executionId FK
+    Int attemptNumber
+    String idempotencyKey
+    String runtimeType
+    String externalRunId
+    String encryptedHandleRef
+    String state
+    DateTime startedAt
+    DateTime finishedAt
+    String errorCode
+    String errorMessage
+  }
   AgentExecutionUsage {
     String id PK
     String organizationId FK
@@ -241,7 +272,7 @@ erDiagram
     String organizationId FK
     String sessionId FK
     String agentVersionId FK
-    String authorityProfileVersionId
+    String authorityProfileVersionId FK
     Json capabilityKeys
     String policyHash
     DateTime createdAt
@@ -361,7 +392,7 @@ erDiagram
     String createdByUserId FK
     String copilotThreadId
     String primaryAgentVersionId FK
-    String authorityProfileVersionId
+    String authorityProfileVersionId FK
     Int contextEpoch
     String title
     BigInt lastEventSequence
@@ -371,6 +402,40 @@ erDiagram
     DateTime archivedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentSessionApproval {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String taskId FK
+    String executionId FK
+    String attemptId FK
+    String capabilityKey
+    String argumentsHash
+    Json resourceSnapshot
+    String state
+    DateTime expiresAt
+    String idempotencyKey
+    String decisionIdempotencyKey
+    String decidedByActorType
+    String decidedByActorId
+    DateTime requestedAt
+    DateTime decidedAt
+  }
+  AgentSessionArtifact {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String taskId FK
+    String executionId FK
+    String artifactType
+    String storageReference
+    String sha256
+    Json metadata
+    String lifecycle
+    String idempotencyKey
+    DateTime createdAt
+    DateTime supersededAt
   }
   AgentSessionTask {
     String id PK
@@ -384,6 +449,22 @@ erDiagram
     String idempotencyKey
     DateTime createdAt
     DateTime updatedAt
+    DateTime finishedAt
+  }
+  AgentSessionTaskDelegation {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String parentTaskId FK
+    String childTaskId FK
+    String fromAgentVersionId FK
+    String toAgentVersionId FK
+    String authorityProfileVersionId FK
+    Json authoritySubset
+    Int depth
+    String idempotencyKey
+    String state
+    DateTime createdAt
     DateTime finishedAt
   }
   AgentTaskSession {
@@ -440,7 +521,7 @@ erDiagram
   }
   AgentVersion {
     String id PK
-    String agentDefinitionKey
+    String agentDefinitionKey UK
     Int version
     String displayName
     String description
@@ -448,6 +529,8 @@ erDiagram
     String modelIdentity
     Json capabilityKeys
     Json policyDocument
+    String manifestHash
+    Json runtimeManifest
     DateTime activatedAt
     DateTime retiredAt
     DateTime createdAt
@@ -484,13 +567,20 @@ erDiagram
     String marketplaceId FK
   }
   AgentApprovalRequest o|--o{ AgentToolInvocation : "approvalRequest"
+  AgentAuthorityProfileVersion ||--o{ AgentPolicySnapshot : "authorityProfileVersion"
+  AgentAuthorityProfileVersion ||--o{ AgentSession : "authorityProfileVersion"
+  AgentAuthorityProfileVersion ||--o{ AgentSessionTaskDelegation : "authorityProfileVersion"
   AgentConversation o|--o{ AgentArtifact : "conversation"
   AgentConversation ||--o{ AgentMessage : "conversation"
   AgentConversation o|--o{ AgentRunRequest : "conversation"
   AgentConversation o|--o{ AgentToolInvocation : "conversation"
   AgentConversationEvent ||--|| AgentConversationOutbox : "event"
   AgentExecution o|--o{ AgentConversationEvent : "execution"
+  AgentExecution ||--o{ AgentExecutionAttempt : "execution"
   AgentExecution ||--o{ AgentExecutionUsage : "execution"
+  AgentExecution ||--o{ AgentSessionApproval : "execution"
+  AgentExecution ||--o{ AgentSessionArtifact : "execution"
+  AgentExecutionAttempt ||--o{ AgentSessionApproval : "attempt"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
@@ -531,9 +621,16 @@ erDiagram
   AgentSession ||--o{ AgentConversationEvent : "session"
   AgentSession ||--o{ AgentExecution : "session"
   AgentSession ||--o{ AgentPolicySnapshot : "session"
+  AgentSession ||--o{ AgentSessionApproval : "session"
+  AgentSession ||--o{ AgentSessionArtifact : "session"
   AgentSession ||--o{ AgentSessionTask : "session"
+  AgentSession ||--o{ AgentSessionTaskDelegation : "session"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
+  AgentSessionTask ||--o{ AgentSessionApproval : "task"
+  AgentSessionTask ||--o{ AgentSessionArtifact : "task"
   AgentSessionTask o|--o{ AgentSessionTask : "parent"
+  AgentSessionTask ||--|| AgentSessionTaskDelegation : "childTask"
+  AgentSessionTask ||--o{ AgentSessionTaskDelegation : "parentTask"
   AgentTaskSession ||--o{ AgentRun : "taskSession"
   AgentTaskSession ||--o{ AgentRunRequest : "taskSession"
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
@@ -543,6 +640,8 @@ erDiagram
   AgentVersion ||--o{ AgentPolicySnapshot : "agentVersion"
   AgentVersion ||--o{ AgentSession : "primaryAgentVersion"
   AgentVersion ||--o{ AgentSessionTask : "assignedAgentVersion"
+  AgentVersion ||--o{ AgentSessionTaskDelegation : "fromAgentVersion"
+  AgentVersion ||--o{ AgentSessionTaskDelegation : "toAgentVersion"
   WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"
   WorkflowTemplate ||--o{ WorkflowRun : "template"
 ```
@@ -556,6 +655,7 @@ erDiagram
 | AgentApprovalRequest | organization | references external | Core | Organization |
 | AgentApprovalRequest | requestedBy | references external | Core | User |
 | AgentArtifact | organization | references external | Core | Organization |
+| AgentAuthorityProfileVersion | organization | references external | Core | Organization |
 | AgentAuthorizationEvent | decidedBy | references external | Core | User |
 | AgentAuthorizationEvent | organization | references external | Core | Organization |
 | AgentAuthorizationEvent | requestedBy | references external | Core | User |

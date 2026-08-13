@@ -375,6 +375,7 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | ScrapeTarget |
 | Organization | organization | referenced by external | AgentOS | AgentApprovalRequest |
 | Organization | organization | referenced by external | AgentOS | AgentArtifact |
+| Organization | organization | referenced by external | AgentOS | AgentAuthorityProfileVersion |
 | Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
 | Organization | organization | referenced by external | AgentOS | AgentConversation |
 | Organization | organization | referenced by external | AgentOS | AgentCostEvent |

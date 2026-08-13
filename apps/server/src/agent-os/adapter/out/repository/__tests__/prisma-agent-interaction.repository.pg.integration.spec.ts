@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { createHash } from 'node:crypto';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -43,10 +44,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
 
     const active = await repository.listActiveAgentVersions();
 
-    expect(active.map((row) => row.id)).toEqual([
-      AGENT_VERSION_ID,
-      OTHER_AGENT_VERSION_ID,
-    ]);
+    expect(active.map((row) => row.id)).toEqual([AGENT_VERSION_ID]);
     expect(active[0]).toEqual({
       id: AGENT_VERSION_ID,
       agentDefinitionKey: 'operator',
@@ -1101,6 +1099,7 @@ async function seedInteractionFixture(client: PrismaClient): Promise<void> {
         capabilityKeys: ['catalog.read'],
         policyDocument: { authorityClass: 'read_only' },
         activatedAt: new Date('2026-08-13T00:00:00.000Z'),
+        retiredAt: new Date('2026-08-13T00:30:00.000Z'),
       },
       {
         agentDefinitionKey: 'inactive',
@@ -1124,7 +1123,59 @@ async function seedInteractionFixture(client: PrismaClient): Promise<void> {
         activatedAt: new Date('2026-08-13T00:00:00.000Z'),
         retiredAt: new Date('2026-08-13T01:00:00.000Z'),
       },
-    ],
+    ].map((version, index) => ({
+      ...version,
+      manifestHash: String(index + 1).repeat(64),
+      runtimeManifest: {
+        schemaVersion: 1,
+        agentDefinitionKey: version.agentDefinitionKey,
+        runtimeKind: 'agent',
+        runtimeType: version.runtimeType,
+        modelIdentity: version.modelIdentity,
+        capabilityKeys: version.capabilityKeys,
+        policyDocument: version.policyDocument,
+        delegation: {
+          role: 'leaf',
+          allowedAgentDefinitionKeys: [],
+          maxDepth: 0,
+          maxChildrenPerTask: 0,
+        },
+        limits: {
+          maxTurns: 20,
+          maxContextTokens: 8_192,
+          summaryTargetTokens: 512,
+        },
+        assets: {
+          prompt: {
+            path: 'agent-config/prompts/agents/sourcing.md',
+            sha256: 'a'.repeat(64),
+          },
+          summaryPrompt: {
+            path: 'agent-config/prompts/system/session-summary.md',
+            sha256: 'b'.repeat(64),
+          },
+          skills: [],
+          outputSchema: null,
+        },
+      },
+    })),
+  });
+  const authorityProfilePolicyDocument = {
+    authorityClass: 'authority-profile-v1',
+    capabilityKeys: ['catalog.read'],
+  };
+  await client.agentAuthorityProfileVersion.createMany({
+    data: [TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID].map(
+      (organizationId) => ({
+        id: 'authority-profile-v1',
+        organizationId,
+        profileKey: 'authority-profile-v1',
+        version: 1,
+        capabilityKeys: ['catalog.read'],
+        policyDocument: authorityProfilePolicyDocument,
+        policyHash: hashCanonical(authorityProfilePolicyDocument),
+      }),
+    ),
   });
 }
 
@@ -1146,6 +1197,14 @@ function firstRunInput(overrides: {
     runtimeType: 'copilotkit_agui',
     modelIdentity: 'gpt-5.4',
     authorityProfileVersionId: 'authority-profile-v1',
+    authorityProfilePolicyDocument: {
+      authorityClass: 'authority-profile-v1',
+      capabilityKeys: ['catalog.read'],
+    },
+    authorityProfilePolicyHash: hashCanonical({
+      authorityClass: 'authority-profile-v1',
+      capabilityKeys: ['catalog.read'],
+    }),
     capabilityKeys: ['catalog.read'],
     policyHash: 'policy-hash-v1',
     inputHash: `input-hash-${overrides.copilotThreadId}-${overrides.aguiRunId}`,
@@ -1191,6 +1250,12 @@ function authorizationLockKey(input: {
     input.userId,
     input.copilotThreadId,
   ]);
+}
+
+function hashCanonical(value: unknown): string {
+  return createHash('sha256')
+    .update(JSON.stringify(value))
+    .digest('hex');
 }
 
 function deferred<T>() {

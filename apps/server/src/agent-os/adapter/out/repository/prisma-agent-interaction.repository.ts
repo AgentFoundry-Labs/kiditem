@@ -331,6 +331,7 @@ implements AgentInteractionRepositoryPort {
           await validateAuthorizationAgent(tx, input);
         } else {
           await validateAuthorizationAgent(tx, input);
+          await validateAuthorityProfile(tx, input);
           session = await tx.agentSession.create({
             data: {
               organizationId: input.organizationId,
@@ -941,6 +942,29 @@ async function findOrCreatePolicySnapshot(
     },
     select: policySelect,
   });
+}
+
+async function validateAuthorityProfile(
+  tx: Prisma.TransactionClient,
+  input: AuthorizeAgentExecutionInput,
+): Promise<void> {
+  const existing = await tx.agentAuthorityProfileVersion.findFirst({
+    where: {
+      id: input.authorityProfileVersionId,
+      organizationId: input.organizationId,
+    },
+  });
+  if (!existing) throw interactionScopeInvalid();
+  if (
+    !canonicalEqual(existing.capabilityKeys, input.capabilityKeys) ||
+    !canonicalEqual(
+      existing.policyDocument,
+      input.authorityProfilePolicyDocument,
+    ) ||
+    existing.policyHash !== input.authorityProfilePolicyHash
+  ) {
+    throw interactionRunConflict();
+  }
 }
 
 function incrementSessionSequence(

@@ -18,18 +18,48 @@ model AgentVersion {
   modelIdentity      String    @map("model_identity")
   capabilityKeys     Json      @map("capability_keys") @db.JsonB
   policyDocument     Json      @map("policy_document") @db.JsonB
+  manifestHash       String    @map("manifest_hash")
+  runtimeManifest    Json      @map("runtime_manifest") @db.JsonB
   activatedAt        DateTime? @map("activated_at") @db.Timestamptz
   retiredAt          DateTime? @map("retired_at") @db.Timestamptz
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  primarySessions AgentSession[]        @relation("AgentSessionPrimaryVersion")
-  assignedTasks   AgentSessionTask[]    @relation("AgentSessionTaskAssignedVersion")
-  policySnapshots AgentPolicySnapshot[] @relation("AgentPolicySnapshotAgentVersion")
-  executions      AgentExecution[]      @relation("AgentExecutionAgentVersion")
+  primarySessions AgentSession[]               @relation("AgentSessionPrimaryVersion")
+  assignedTasks   AgentSessionTask[]           @relation("AgentSessionTaskAssignedVersion")
+  policySnapshots AgentPolicySnapshot[]        @relation("AgentPolicySnapshotAgentVersion")
+  executions      AgentExecution[]             @relation("AgentExecutionAgentVersion")
+  delegationsFrom AgentSessionTaskDelegation[] @relation("AgentTaskDelegationFromVersion")
+  delegationsTo   AgentSessionTaskDelegation[] @relation("AgentTaskDelegationToVersion")
 
   @@unique([agentDefinitionKey, version], map: "agent_versions_definition_version_key")
+  @@unique([agentDefinitionKey, manifestHash], map: "agent_versions_definition_manifest_hash_key")
+  @@unique([agentDefinitionKey], map: "agent_versions_one_active_key", where: raw("activated_at IS NOT NULL AND retired_at IS NULL"))
   @@index([agentDefinitionKey, activatedAt])
   @@map("agent_versions")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable organization-scoped authority profile selected before a durable Agent session begins.
+model AgentAuthorityProfileVersion {
+  id             String
+  organizationId String   @map("organization_id") @db.Uuid
+  profileKey     String   @map("profile_key")
+  version        Int
+  capabilityKeys Json     @map("capability_keys") @db.JsonB
+  policyDocument Json     @map("policy_document") @db.JsonB
+  policyHash     String   @map("policy_hash")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization    Organization                 @relation("AgentAuthorityProfileVersionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  sessions        AgentSession[]               @relation("AgentSessionAuthorityProfileVersion")
+  policySnapshots AgentPolicySnapshot[]        @relation("AgentPolicySnapshotAuthorityProfileVersion")
+  delegations     AgentSessionTaskDelegation[] @relation("AgentTaskDelegationAuthorityProfileVersion")
+
+  @@id([id, organizationId], map: "agent_authority_profile_versions_pkey")
+  @@unique([organizationId, profileKey, version], map: "agent_authority_profile_versions_org_profile_version_key")
+  @@unique([organizationId, profileKey, policyHash], map: "agent_authority_profile_versions_org_profile_hash_key")
+  @@index([organizationId, profileKey, createdAt])
+  @@map("agent_authority_profile_versions")
 }
 
 /// @namespace AgentOS
@@ -51,14 +81,18 @@ model AgentSession {
   createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization        Organization             @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
-  creator             User                     @relation("AgentSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  primaryAgentVersion AgentVersion             @relation("AgentSessionPrimaryVersion", fields: [primaryAgentVersionId], references: [id], onDelete: Restrict)
-  tasks               AgentSessionTask[]       @relation("AgentSessionTasks")
-  epochs              AgentContextEpoch[]      @relation("AgentSessionEpochs")
-  policySnapshots     AgentPolicySnapshot[]    @relation("AgentSessionPolicySnapshots")
-  executions          AgentExecution[]         @relation("AgentSessionExecutions")
-  events              AgentConversationEvent[] @relation("AgentSessionEvents")
+  organization            Organization                 @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  creator                 User                         @relation("AgentSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  primaryAgentVersion     AgentVersion                 @relation("AgentSessionPrimaryVersion", fields: [primaryAgentVersionId], references: [id], onDelete: Restrict)
+  authorityProfileVersion AgentAuthorityProfileVersion @relation("AgentSessionAuthorityProfileVersion", fields: [authorityProfileVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  tasks                   AgentSessionTask[]           @relation("AgentSessionTasks")
+  epochs                  AgentContextEpoch[]          @relation("AgentSessionEpochs")
+  policySnapshots         AgentPolicySnapshot[]        @relation("AgentSessionPolicySnapshots")
+  executions              AgentExecution[]             @relation("AgentSessionExecutions")
+  events                  AgentConversationEvent[]     @relation("AgentSessionEvents")
+  delegations             AgentSessionTaskDelegation[] @relation("AgentSessionTaskDelegations")
+  approvals               AgentSessionApproval[]       @relation("AgentSessionApprovals")
+  artifacts               AgentSessionArtifact[]       @relation("AgentSessionArtifacts")
 
   @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
   @@unique([id, organizationId], map: "agent_sessions_id_org_key")
@@ -84,11 +118,15 @@ model AgentSessionTask {
   updatedAt              DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   finishedAt             DateTime? @map("finished_at") @db.Timestamptz
 
-  session              AgentSession       @relation("AgentSessionTasks", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  parent               AgentSessionTask?  @relation("AgentSessionTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
-  children             AgentSessionTask[] @relation("AgentSessionTaskHierarchy")
-  assignedAgentVersion AgentVersion       @relation("AgentSessionTaskAssignedVersion", fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
-  executions           AgentExecution[]   @relation("AgentSessionTaskExecutions")
+  session              AgentSession                 @relation("AgentSessionTasks", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  parent               AgentSessionTask?            @relation("AgentSessionTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  children             AgentSessionTask[]           @relation("AgentSessionTaskHierarchy")
+  assignedAgentVersion AgentVersion                 @relation("AgentSessionTaskAssignedVersion", fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
+  executions           AgentExecution[]             @relation("AgentSessionTaskExecutions")
+  outgoingDelegations  AgentSessionTaskDelegation[] @relation("AgentSessionTaskOutgoingDelegations")
+  incomingDelegation   AgentSessionTaskDelegation?  @relation("AgentSessionTaskIncomingDelegation")
+  approvals            AgentSessionApproval[]       @relation("AgentSessionTaskApprovals")
+  artifacts            AgentSessionArtifact[]       @relation("AgentSessionTaskArtifacts")
 
   @@unique([sessionId, idempotencyKey], map: "agent_session_tasks_session_idempotency_key")
   @@unique([sessionId], map: "agent_session_tasks_one_root_key", where: raw("is_root = true"))
@@ -133,10 +171,11 @@ model AgentPolicySnapshot {
   policyHash                String   @map("policy_hash")
   createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization     @relation("AgentPolicySnapshotOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
-  session      AgentSession     @relation("AgentSessionPolicySnapshots", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  agentVersion AgentVersion     @relation("AgentPolicySnapshotAgentVersion", fields: [agentVersionId], references: [id], onDelete: Restrict)
-  executions   AgentExecution[] @relation("AgentExecutionPolicySnapshot")
+  organization            Organization                 @relation("AgentPolicySnapshotOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  session                 AgentSession                 @relation("AgentSessionPolicySnapshots", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  agentVersion            AgentVersion                 @relation("AgentPolicySnapshotAgentVersion", fields: [agentVersionId], references: [id], onDelete: Restrict)
+  authorityProfileVersion AgentAuthorityProfileVersion @relation("AgentPolicySnapshotAuthorityProfileVersion", fields: [authorityProfileVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  executions              AgentExecution[]             @relation("AgentExecutionPolicySnapshot")
 
   @@unique([id, organizationId], map: "agent_policy_snapshots_id_org_key")
   @@unique([id, sessionId, organizationId], map: "agent_policy_snapshots_id_session_org_key")
@@ -174,9 +213,13 @@ model AgentExecution {
   policySnapshot AgentPolicySnapshot      @relation("AgentExecutionPolicySnapshot", fields: [policySnapshotId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   events         AgentConversationEvent[] @relation("AgentExecutionEvents")
   usage          AgentExecutionUsage[]    @relation("AgentExecutionUsages")
+  attempts       AgentExecutionAttempt[]  @relation("AgentExecutionAttempts")
+  approvals      AgentSessionApproval[]   @relation("AgentExecutionApprovals")
+  artifacts      AgentSessionArtifact[]   @relation("AgentExecutionArtifacts")
 
   @@unique([id, organizationId], map: "agent_executions_id_org_key")
   @@unique([id, sessionId, organizationId], map: "agent_executions_id_session_org_key")
+  @@unique([id, sessionTaskId, sessionId, organizationId], map: "agent_executions_id_task_session_org_key")
   @@unique([organizationId, copilotThreadId, aguiRunId], map: "agent_executions_org_thread_agui_run_key")
   @@index([organizationId, sessionId, status])
   @@index([sessionId, organizationId])
@@ -251,6 +294,141 @@ model AgentExecutionUsage {
   @@index([organizationId, executionId, recordedAt])
   @@index([executionId, organizationId])
   @@map("agent_execution_usages")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity.
+model AgentSessionTaskDelegation {
+  id                        String    @id @default(uuid()) @db.Uuid
+  organizationId            String    @map("organization_id") @db.Uuid
+  sessionId                 String    @map("session_id") @db.Uuid
+  parentTaskId              String    @map("parent_task_id") @db.Uuid
+  childTaskId               String    @map("child_task_id") @db.Uuid
+  fromAgentVersionId        String    @map("from_agent_version_id") @db.Uuid
+  toAgentVersionId          String    @map("to_agent_version_id") @db.Uuid
+  authorityProfileVersionId String    @map("authority_profile_version_id")
+  authoritySubset           Json      @map("authority_subset") @db.JsonB
+  depth                     Int
+  idempotencyKey            String    @map("idempotency_key")
+  state                     String
+  createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  finishedAt                DateTime? @map("finished_at") @db.Timestamptz
+
+  session                 AgentSession                 @relation("AgentSessionTaskDelegations", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  parentTask              AgentSessionTask             @relation("AgentSessionTaskOutgoingDelegations", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  childTask               AgentSessionTask             @relation("AgentSessionTaskIncomingDelegation", fields: [childTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  fromAgentVersion        AgentVersion                 @relation("AgentTaskDelegationFromVersion", fields: [fromAgentVersionId], references: [id], onDelete: Restrict)
+  toAgentVersion          AgentVersion                 @relation("AgentTaskDelegationToVersion", fields: [toAgentVersionId], references: [id], onDelete: Restrict)
+  authorityProfileVersion AgentAuthorityProfileVersion @relation("AgentTaskDelegationAuthorityProfileVersion", fields: [authorityProfileVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([sessionId, parentTaskId, idempotencyKey], map: "agent_session_task_delegations_parent_idempotency_key")
+  @@unique([childTaskId, sessionId, organizationId], map: "agent_session_task_delegations_child_session_org_key")
+  @@unique([id, organizationId], map: "agent_session_task_delegations_id_org_key")
+  @@index([organizationId, sessionId, state])
+  @@index([sessionId, organizationId])
+  @@index([parentTaskId, sessionId, organizationId])
+  @@index([childTaskId, sessionId, organizationId])
+  @@index([fromAgentVersionId])
+  @@index([toAgentVersionId])
+  @@index([authorityProfileVersionId, organizationId])
+  @@map("agent_session_task_delegations")
+}
+
+/// @namespace AgentOS
+/// @describe One immutable numbered runtime attempt and its opaque reconnect handle identity.
+model AgentExecutionAttempt {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  sessionId          String    @map("session_id") @db.Uuid
+  executionId        String    @map("execution_id") @db.Uuid
+  attemptNumber      Int       @map("attempt_number")
+  idempotencyKey     String    @map("idempotency_key")
+  runtimeType        String    @map("runtime_type")
+  externalRunId      String?   @map("external_run_id")
+  encryptedHandleRef String?   @map("encrypted_handle_ref")
+  state              String
+  startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt         DateTime? @map("finished_at") @db.Timestamptz
+  errorCode          String?   @map("error_code")
+  errorMessage       String?   @map("error_message") @db.Text
+
+  execution AgentExecution         @relation("AgentExecutionAttempts", fields: [executionId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
+  approvals AgentSessionApproval[] @relation("AgentSessionApprovalAttempt")
+
+  @@unique([executionId, attemptNumber], map: "agent_execution_attempts_execution_number_key")
+  @@unique([executionId, idempotencyKey], map: "agent_execution_attempts_execution_idempotency_key")
+  @@unique([id, executionId, sessionId, organizationId], map: "agent_execution_attempts_id_execution_session_org_key")
+  @@index([organizationId, state, startedAt])
+  @@index([executionId, sessionId, organizationId])
+  @@index([externalRunId])
+  @@map("agent_execution_attempts")
+}
+
+/// @namespace AgentOS
+/// @describe Invocation-scoped human approval request and immutable terminal decision identity.
+model AgentSessionApproval {
+  id                     String    @id @default(uuid()) @db.Uuid
+  organizationId         String    @map("organization_id") @db.Uuid
+  sessionId              String    @map("session_id") @db.Uuid
+  taskId                 String    @map("task_id") @db.Uuid
+  executionId            String    @map("execution_id") @db.Uuid
+  attemptId              String    @map("attempt_id") @db.Uuid
+  capabilityKey          String    @map("capability_key")
+  argumentsHash          String    @map("arguments_hash")
+  resourceSnapshot       Json      @map("resource_snapshot") @db.JsonB
+  state                  String
+  expiresAt              DateTime  @map("expires_at") @db.Timestamptz
+  idempotencyKey         String    @map("idempotency_key")
+  decisionIdempotencyKey String?   @map("decision_idempotency_key")
+  decidedByActorType     String?   @map("decided_by_actor_type")
+  decidedByActorId       String?   @map("decided_by_actor_id")
+  requestedAt            DateTime  @default(now()) @map("requested_at") @db.Timestamptz
+  decidedAt              DateTime? @map("decided_at") @db.Timestamptz
+
+  session   AgentSession          @relation("AgentSessionApprovals", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  task      AgentSessionTask      @relation("AgentSessionTaskApprovals", fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  execution AgentExecution        @relation("AgentExecutionApprovals", fields: [executionId, taskId, sessionId, organizationId], references: [id, sessionTaskId, sessionId, organizationId], onDelete: Restrict)
+  attempt   AgentExecutionAttempt @relation("AgentSessionApprovalAttempt", fields: [attemptId, executionId, sessionId, organizationId], references: [id, executionId, sessionId, organizationId], onDelete: Restrict)
+
+  @@unique([executionId, idempotencyKey], map: "agent_session_approvals_execution_idempotency_key")
+  @@unique([organizationId, decisionIdempotencyKey], map: "agent_session_approvals_org_decision_idempotency_key")
+  @@unique([id, organizationId], map: "agent_session_approvals_id_org_key")
+  @@index([organizationId, sessionId, state, expiresAt])
+  @@index([sessionId, organizationId])
+  @@index([taskId, sessionId, organizationId])
+  @@index([executionId, taskId, sessionId, organizationId])
+  @@index([attemptId, executionId, sessionId, organizationId])
+  @@map("agent_session_approvals")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable content-addressed artifact reference owned by one durable session task and execution.
+model AgentSessionArtifact {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  sessionId        String    @map("session_id") @db.Uuid
+  taskId           String    @map("task_id") @db.Uuid
+  executionId      String    @map("execution_id") @db.Uuid
+  artifactType     String    @map("artifact_type")
+  storageReference String    @map("storage_reference")
+  sha256           String
+  metadata         Json      @default("{}") @db.JsonB
+  lifecycle        String    @default("active")
+  idempotencyKey   String    @map("idempotency_key")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  supersededAt     DateTime? @map("superseded_at") @db.Timestamptz
+
+  session   AgentSession     @relation("AgentSessionArtifacts", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  task      AgentSessionTask @relation("AgentSessionTaskArtifacts", fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  execution AgentExecution   @relation("AgentExecutionArtifacts", fields: [executionId, taskId, sessionId, organizationId], references: [id, sessionTaskId, sessionId, organizationId], onDelete: Restrict)
+
+  @@unique([executionId, idempotencyKey], map: "agent_session_artifacts_execution_idempotency_key")
+  @@unique([id, organizationId], map: "agent_session_artifacts_id_org_key")
+  @@index([organizationId, sha256])
+  @@index([sessionId, organizationId])
+  @@index([taskId, sessionId, organizationId])
+  @@index([executionId, taskId, sessionId, organizationId])
+  @@map("agent_session_artifacts")
 }
 
 /// @namespace AgentOS

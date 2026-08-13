@@ -36,6 +36,10 @@ import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction
 import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
 import { PrismaAgentInteractionRepository } from '../adapter/out/repository/prisma-agent-interaction.repository';
 import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository/agent-interaction-repository.port';
+import { AGENT_VERSION_REPOSITORY } from '../application/port/out/repository/agent-version.repository.port';
+import { AGENT_SESSION_CONTROL_REPOSITORY } from '../application/port/out/repository/agent-session-control.repository.port';
+import { PrismaAgentVersionRepository } from '../adapter/out/repository/prisma-agent-version.repository';
+import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
 import { AgentInteractionBootstrapController } from '../adapter/in/http/agent-interaction-bootstrap.controller';
 import { AgentInteractionControlController } from '../adapter/in/http/agent-interaction-control.controller';
 import { AgentAguiController } from '../adapter/in/http/agent-agui.controller';
@@ -51,6 +55,7 @@ import { AgentAguiRunService } from '../application/service/agent-agui-run.servi
 import { AgentAguiRuntimeRegistry } from '../application/service/agent-agui-runtime-registry.service';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
 import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
+import { AgentVersionPublisher } from '../application/service/agent-version-publisher.service';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -165,6 +170,19 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContainEqual({
       provide: AGENT_INTERACTION_REPOSITORY,
       useClass: PrismaAgentInteractionRepository,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_VERSION_REPOSITORY,
+      useClass: PrismaAgentVersionRepository,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_SESSION_CONTROL_REPOSITORY,
+      useClass: PrismaAgentSessionControlRepository,
+    });
+    expect(providers).toContainEqual({
+      provide: AgentVersionPublisher,
+      inject: [AGENT_VERSION_REPOSITORY],
+      useFactory: expect.any(Function),
     });
   });
 

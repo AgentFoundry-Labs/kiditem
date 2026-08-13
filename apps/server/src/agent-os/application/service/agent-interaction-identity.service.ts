@@ -40,7 +40,7 @@ const RUN_INTENT_TTL_MS = 30_000;
 const LIVE_JOIN_TTL_MS = 15_000;
 const REPLAY_CURSOR_TTL_MS = 15 * 60_000;
 const REPLAY_LIMIT = 500;
-const AUTHORITY_PROFILE_VERSION_ID = 'foundation_read_only_probe:v1';
+export const AUTHORITY_PROFILE_VERSION_ID = 'foundation_read_only_probe:v1';
 export const FOUNDATION_CAPABILITY_KEYS = [
   'agent_os.platform_probe',
   'analytics.readOverview',
@@ -272,6 +272,9 @@ export class AgentInteractionIdentityService {
       runtimeType: current.runtimeType,
       modelIdentity: current.modelIdentity,
       authorityProfileVersionId: AUTHORITY_PROFILE_VERSION_ID,
+      authorityProfilePolicyDocument:
+        foundationAuthorityProfilePolicyDocument(),
+      authorityProfilePolicyHash: foundationAuthorityProfilePolicyHash(),
       capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
       policyHash: claims.policyHash,
       inputHash: claims.inputHash,
@@ -747,6 +750,17 @@ function foundationPolicyHash(version: ActiveAgentVersionRecord): string {
     policyDocument: version.policyDocument,
     versionCapabilityKeys: version.capabilityKeys,
   });
+}
+
+function foundationAuthorityProfilePolicyDocument(): Record<string, unknown> {
+  return {
+    authorityClass: AUTHORITY_PROFILE_VERSION_ID,
+    capabilityKeys: FOUNDATION_CAPABILITY_KEYS,
+  };
+}
+
+function foundationAuthorityProfilePolicyHash(): string {
+  return hashCanonical(foundationAuthorityProfilePolicyDocument());
 }
 
 function hasExactFoundationCapabilities(value: unknown): boolean {

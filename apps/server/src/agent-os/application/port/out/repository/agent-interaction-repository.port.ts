@@ -121,6 +121,8 @@ export interface AuthorizeAgentExecutionInput {
   runtimeType: string;
   modelIdentity: string;
   authorityProfileVersionId: string;
+  authorityProfilePolicyDocument: Record<string, unknown>;
+  authorityProfilePolicyHash: string;
   capabilityKeys: string[];
   policyHash: string;
   inputHash: string;

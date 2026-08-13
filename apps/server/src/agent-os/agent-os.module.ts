@@ -19,6 +19,8 @@ import { AnalyticsOverviewAgentCapabilityAdapter } from './adapter/in/agent/anal
 import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
+import { PrismaAgentVersionRepository } from './adapter/out/repository/prisma-agent-version.repository';
+import { PrismaAgentSessionControlRepository } from './adapter/out/repository/prisma-agent-session-control.repository';
 import { InProcessAgentConversationLivePublisher } from './adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { InteractionProductAnalyticsAdapter } from './adapter/out/event/interaction-product-analytics.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
@@ -32,10 +34,13 @@ import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/files
 import { AgentLocalCliRuntimeAdapter } from './adapter/out/runtime/agent-local-cli-runtime.adapter';
 import { AgentLocalProcessRegistry } from './adapter/out/runtime/agent-local-process-registry';
 import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-session.adapter';
+import { FilesystemAgentRuntimeManifestCatalog } from './adapter/out/runtime/filesystem-agent-runtime-manifest-catalog';
 import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
 import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_INTERACTION_REPOSITORY } from './application/port/out/repository/agent-interaction-repository.port';
+import { AGENT_VERSION_REPOSITORY } from './application/port/out/repository/agent-version.repository.port';
+import { AGENT_SESSION_CONTROL_REPOSITORY } from './application/port/out/repository/agent-session-control.repository.port';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from './application/port/out/event/agent-conversation-live-publisher.port';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from './application/port/out/event/interaction-product-analytics.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
@@ -72,6 +77,12 @@ import { AgentAguiRunService } from './application/service/agent-agui-run.servic
 import { AgentAguiProducerCoordinator } from './application/service/agent-agui-producer-coordinator.service';
 import { AgentAguiRuntimeRegistry } from './application/service/agent-agui-runtime-registry.service';
 import { AgentInteractionPresentationService } from './application/service/agent-interaction-presentation.service';
+import {
+  AGENT_RUNTIME_MANIFEST_CATALOG,
+  AgentRuntimeCatalogStartupValidator,
+} from './application/service/agent-runtime-catalog-startup-validator.service';
+import { AgentVersionPublisher } from './application/service/agent-version-publisher.service';
+import { resolveAgentOsRepositoryRoot } from './seed-agent-os';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -125,6 +136,13 @@ const agentInteractionProviders = [
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAssetsStartupValidator,
+    AgentRuntimeCatalogStartupValidator,
+    {
+      provide: AgentVersionPublisher,
+      inject: [AGENT_VERSION_REPOSITORY],
+      useFactory: (repository: PrismaAgentVersionRepository) =>
+        new AgentVersionPublisher(repository),
+    },
     AgentTaskDelegationService,
     AgentToolRouter,
     AgentOsMcpToolExecutor,
@@ -140,6 +158,11 @@ const agentInteractionProviders = [
     KidItemMcpSessionAdapter,
     AgentInlineRunReconciler,
     FilesystemAgentRuntimeAssetsAdapter,
+    {
+      provide: AGENT_RUNTIME_MANIFEST_CATALOG,
+      useFactory: () =>
+        new FilesystemAgentRuntimeManifestCatalog(resolveAgentOsRepositoryRoot()),
+    },
     AgentRunOperationAlertBridge,
     AgentOsLiveReadinessAdapter,
     { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
@@ -151,6 +174,14 @@ const agentInteractionProviders = [
     {
       provide: AGENT_INTERACTION_REPOSITORY,
       useClass: PrismaAgentInteractionRepository,
+    },
+    {
+      provide: AGENT_VERSION_REPOSITORY,
+      useClass: PrismaAgentVersionRepository,
+    },
+    {
+      provide: AGENT_SESSION_CONTROL_REPOSITORY,
+      useClass: PrismaAgentSessionControlRepository,
     },
     InProcessAgentConversationLivePublisher,
     {
