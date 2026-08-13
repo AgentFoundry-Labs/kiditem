@@ -206,7 +206,7 @@ async function searchByKeywordWithBrowserFallback(input: {
   }
 
   const userDataDir = resolveSourcingSearchUserDataDir();
-  return withSourcingSearchProfileQueue(userDataDir, () =>
+  return withSourcingSearchProfileQueue(userDataDir, input.signal, () =>
     searchByKeywordWithBrowserSession(input, null),
   );
 }
@@ -360,6 +360,7 @@ function cleanBrowserError(error: unknown): string {
 
 async function withSourcingSearchProfileQueue<T>(
   userDataDir: string,
+  signal: AbortSignal | undefined,
   task: () => Promise<T>,
 ): Promise<T> {
   const previous = sourcingSearchProfileQueues.get(userDataDir) ?? Promise.resolve();
@@ -370,7 +371,17 @@ async function withSourcingSearchProfileQueue<T>(
   const queued = previous.catch(() => undefined).then(() => current);
   sourcingSearchProfileQueues.set(userDataDir, queued);
 
-  await previous.catch(() => undefined);
+  try {
+    await abortableBrowserStep(previous.catch(() => undefined), signal);
+  } catch (error) {
+    releaseCurrent();
+    void queued.then(() => {
+      if (sourcingSearchProfileQueues.get(userDataDir) === queued) {
+        sourcingSearchProfileQueues.delete(userDataDir);
+      }
+    });
+    throw error;
+  }
   try {
     return await task();
   } finally {

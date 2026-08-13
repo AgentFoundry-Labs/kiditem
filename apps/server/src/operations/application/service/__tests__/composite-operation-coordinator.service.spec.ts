@@ -69,7 +69,7 @@ function run(input: Partial<OperationRunRecord> = {}): OperationRunRecord {
 }
 
 describe('CompositeOperationCoordinatorService', () => {
-  it('creates one fenced child before moving its parent to waiting_dependency', async () => {
+  it('atomically fences its parent, creates one child, and waits for dependency', async () => {
     const parent = run();
     const child = run({
       id: CHILD_ID,
@@ -82,11 +82,10 @@ describe('CompositeOperationCoordinatorService', () => {
       status: 'queued',
     });
     const repository = {
-      findByIdempotencyKey: vi.fn().mockResolvedValue(null),
-      createRun: vi.fn().mockResolvedValue(child),
-      transitionActiveAttempt: vi.fn().mockResolvedValue(
-        run({ status: 'waiting_dependency' }),
-      ),
+      createChildAndWaitForDependency: vi.fn().mockResolvedValue(child),
+      findByIdempotencyKey: vi.fn(),
+      createRun: vi.fn(),
+      transitionActiveAttempt: vi.fn(),
     };
     const registry = {
       getDefinition: vi.fn().mockReturnValue(definition),
@@ -106,18 +105,47 @@ describe('CompositeOperationCoordinatorService', () => {
       },
     });
 
-    expect(repository.createRun).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORG_ID,
+    expect(repository.createChildAndWaitForDependency).toHaveBeenCalledWith({
+      parentOrganizationId: ORG_ID,
       parentRunId: PARENT_ID,
-      operationKey: definition.key,
-      resourceClass: definition.resourceClass,
-      executionTimeoutMs: definition.executionTimeoutMs,
-    }));
-    expect(repository.transitionActiveAttempt).toHaveBeenCalledWith(expect.objectContaining({
-      runId: PARENT_ID,
-      status: 'waiting_dependency',
       expectedAttemptToken: parent.attemptToken,
-    }));
+      child: expect.objectContaining({
+        organizationId: ORG_ID,
+        parentRunId: PARENT_ID,
+        operationKey: definition.key,
+        resourceClass: definition.resourceClass,
+        executionTimeoutMs: definition.executionTimeoutMs,
+      }),
+    });
+    expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
+    expect(repository.createRun).not.toHaveBeenCalled();
+    expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
+  });
+
+  it('rejects a lost parent fence without falling back to child creation', async () => {
+    const parent = run();
+    const repository = {
+      createChildAndWaitForDependency: vi.fn().mockResolvedValue(null),
+      findByIdempotencyKey: vi.fn(),
+      createRun: vi.fn(),
+      transitionActiveAttempt: vi.fn(),
+    };
+    const service = new CompositeOperationCoordinatorService({
+      getDefinition: vi.fn().mockReturnValue(definition),
+      parseInput: vi.fn().mockReturnValue({ scope: 'full' }),
+    } as never, repository as never);
+
+    await expect(service.waitForChild({
+      parent,
+      child: {
+        operationKey: definition.key,
+        input: { scope: 'full' },
+        idempotencyKey: `profitability:${parent.id}:${definition.key}`,
+      },
+    })).rejects.toThrow('operation_attempt_fence_lost');
+    expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
+    expect(repository.createRun).not.toHaveBeenCalled();
+    expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
   });
 
   it('requeues a parent after a succeeded child without consuming another attempt', async () => {

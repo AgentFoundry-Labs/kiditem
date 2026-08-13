@@ -40,6 +40,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
   private readonly workerId = `operations-${process.pid}`;
   private intervalHandle: ReturnType<typeof setInterval> | null = null;
   private stopping = false;
+  private readonly shutdownController = new AbortController();
   private tickInFlight: Promise<void> | null = null;
   private compositeResumeInFlight: Promise<void> | null = null;
   private readonly activeAttempts = new Map<
@@ -70,7 +71,9 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     this.stopping = true;
     if (this.intervalHandle) clearInterval(this.intervalHandle);
     this.intervalHandle = null;
-    this.attemptExecutor.abortAll(new Error('operation_worker_shutdown'));
+    const reason = new Error('operation_worker_shutdown');
+    this.shutdownController.abort(reason);
+    this.attemptExecutor.abortAll(reason);
     const pending = [
       this.tickInFlight,
       this.compositeResumeInFlight,
@@ -101,9 +104,11 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
     try {
       await tick;
     } catch (error) {
-      this.logger.warn(
-        `Operation run worker tick failed: ${error instanceof Error ? error.message : String(error)}`,
-      );
+      if (!this.isShutdownAbort(error)) {
+        this.logger.warn(
+          `Operation run worker tick failed: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
     } finally {
       if (this.tickInFlight === tick) this.tickInFlight = null;
     }
@@ -153,6 +158,7 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
         workerId: this.workerId,
         now,
         leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
+        signal: this.shutdownController.signal,
       });
       if (!claimed) return;
       if (this.stopping) return;
@@ -170,5 +176,11 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
         });
       active.add(attempt);
     }
+  }
+
+  private isShutdownAbort(error: unknown): boolean {
+    return this.stopping &&
+      this.shutdownController.signal.aborted &&
+      error === this.shutdownController.signal.reason;
   }
 }

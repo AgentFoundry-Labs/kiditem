@@ -43,14 +43,11 @@ export class CompositeOperationCoordinatorService
       input.child.operationKey,
       input.child.input,
     );
-    const existing = await this.repository.findByIdempotencyKey({
-      organizationId: input.parent.organizationId,
-      operationKey: input.child.operationKey,
-      idempotencyKey: input.child.idempotencyKey,
-    });
-
-    if (!existing) {
-      await this.repository.createRun({
+    const child = await this.repository.createChildAndWaitForDependency({
+      parentOrganizationId: input.parent.organizationId,
+      parentRunId: input.parent.id,
+      expectedAttemptToken: attemptToken,
+      child: {
         organizationId: input.parent.organizationId,
         operationKey: definition.key,
         definitionVersion: definition.version,
@@ -67,20 +64,12 @@ export class CompositeOperationCoordinatorService
         input: childInput,
         maxAttempts: definition.maxAttempts,
         scheduledFor: null,
-      });
-    }
-
-    await this.repository.transitionActiveAttempt({
-      organizationId: input.parent.organizationId,
-      runId: input.parent.id,
-      expectedStatuses: ['running'],
-      expectedAttemptToken: attemptToken,
-      status: 'waiting_dependency',
-      claimedBy: null,
-      attemptToken: null,
-      claimedAt: null,
-      leaseExpiresAt: null,
+      },
     });
+
+    if (!child) {
+      throw new Error('operation_attempt_fence_lost');
+    }
   }
 
   listChildren(input: {

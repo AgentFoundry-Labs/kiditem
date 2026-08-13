@@ -161,6 +161,12 @@ export interface OperationRunRepositoryPort {
     idempotencyKey: string;
   }): Promise<OperationRunRecord | null>;
   createRun(input: CreateOperationRunRecord): Promise<OperationRunRecord>;
+  createChildAndWaitForDependency(input: {
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    child: CreateOperationRunRecord;
+  }): Promise<OperationRunRecord | null>;
   listRuns(input: {
     organizationId: string;
     status?: OperationStatus;
@@ -182,6 +188,7 @@ export interface OperationRunRepositoryPort {
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
+    signal: AbortSignal;
   }): Promise<OperationRunRecord | null>;
   heartbeatRun(input: {
     organizationId: string;

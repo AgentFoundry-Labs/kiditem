@@ -36,8 +36,10 @@ export async function claimNextServerRun(
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
+    signal: AbortSignal;
   },
 ): Promise<ClaimedRunIdentity | null> {
+  input.signal.throwIfAborted();
   return prisma.$transaction(async (transaction) => {
     // This internal queue consumer intentionally spans organizations. The
     // selected organizationId is carried into the composite-scoped update and
@@ -70,6 +72,7 @@ export async function claimNextServerRun(
       FOR UPDATE SKIP LOCKED
       LIMIT 1
     `;
+    input.signal.throwIfAborted();
     const candidate = candidates[0];
     if (!candidate) return null;
     if (!Object.prototype.hasOwnProperty.call(candidate, 'deadline_at')) {
@@ -80,6 +83,9 @@ export async function claimNextServerRun(
       candidate.execution_timeout_ms,
     );
 
+    // No awaited boundary exists between this check and issuing the mutation,
+    // so shutdown observed after selection cannot claim the row.
+    input.signal.throwIfAborted();
     await transaction.operationRun.update({
       where: {
         id_organizationId: {
@@ -100,6 +106,9 @@ export async function claimNextServerRun(
         startedAt: input.now,
       },
     });
+    // If cancellation arrived while PostgreSQL was applying the update,
+    // throwing here keeps it inside this transaction's rollback boundary.
+    input.signal.throwIfAborted();
     return {
       runId: candidate.id,
       organizationId: candidate.organization_id,

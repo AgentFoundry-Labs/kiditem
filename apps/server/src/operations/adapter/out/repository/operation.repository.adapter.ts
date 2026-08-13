@@ -22,6 +22,7 @@ import {
   expireServerRunsPastDeadline,
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
+import { createFencedCompositeChild } from './operation-composite.repository';
 
 const runInclude = {
   requestedBy: {
@@ -297,6 +298,20 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     }
   }
 
+  async createChildAndWaitForDependency(input: {
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    child: CreateOperationRunRecord;
+  }): Promise<OperationRunRecord | null> {
+    const child = await createFencedCompositeChild(this.prisma, input);
+    if (!child) return null;
+    return this.findRunById({
+      organizationId: child.organizationId,
+      runId: child.runId,
+    });
+  }
+
   async listRuns(input: {
     organizationId: string;
     status?: OperationRunRecord['status'];
@@ -424,6 +439,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
+    signal: AbortSignal;
   }): Promise<OperationRunRecord | null> {
     const claimed = await claimNextServerRun(this.prisma, input);
 

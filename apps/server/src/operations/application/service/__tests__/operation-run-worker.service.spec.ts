@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationResourceClass } from '@kiditem/shared/operations';
+import { Logger } from '@nestjs/common';
 import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { OperationRunWorkerService } from '../operation-run-worker.service';
 
@@ -329,6 +330,43 @@ describe('OperationRunWorkerService', () => {
     expect(executor.execute).not.toHaveBeenCalled();
     expect(compositeCoordinator.resumeTerminalChildren).toHaveBeenCalledOnce();
     expect(destroyed).toBe(true);
+  });
+
+  it('aborts a selected in-flight repository claim and treats it as quiet shutdown', async () => {
+    const selected = deferred<void>();
+    let claimSignal: AbortSignal | undefined;
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(async (input: {
+        resourceClass: OperationResourceClass;
+        signal: AbortSignal;
+      }) => {
+        if (input.resourceClass !== 'naver_api') return null;
+        claimSignal = input.signal;
+        await selected.promise;
+        input.signal.throwIfAborted();
+        return run('naver_api', 'selected-during-shutdown');
+      }),
+    };
+    const executor = { execute: vi.fn(), abortAll: vi.fn() };
+    const warn = vi.spyOn(Logger.prototype, 'warn');
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+    );
+    const tick = worker.tick();
+    await vi.waitFor(() => expect(claimSignal).toBeDefined());
+
+    const shutdown = worker.onModuleDestroy();
+    expect(claimSignal?.aborted).toBe(true);
+    selected.resolve();
+    await Promise.all([tick, shutdown]);
+
+    expect(executor.execute).not.toHaveBeenCalled();
+    expect(warn).not.toHaveBeenCalledWith(
+      expect.stringContaining('Operation run worker tick failed'),
+    );
   });
 
   it('bounds shutdown while an active attempt never settles', async () => {

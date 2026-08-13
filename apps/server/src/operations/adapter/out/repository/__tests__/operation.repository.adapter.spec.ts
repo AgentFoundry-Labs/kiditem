@@ -7,8 +7,17 @@ import {
 
 const ORG_ID = 'df3b198e-5b31-4f86-b054-bbf4852536a5';
 const RUN_ID = 'c2e779aa-f5bf-42c2-91f2-dc10be211c71';
+const CHILD_ID = 'c3e779aa-f5bf-42c2-91f2-dc10be211c71';
 const ATTEMPT_TOKEN = 'ced54820-ab09-4f4b-864c-2a3f873bb24d';
 const NOW = new Date('2026-08-13T01:02:03.000Z');
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function makeRunRow(overrides: Record<string, unknown> = {}) {
   return {
@@ -149,6 +158,148 @@ describe('OperationRepositoryAdapter creation boundaries', () => {
       executionTimeoutMs: MAX_OPERATION_PERSISTED_INT + 1,
     }) as never)).rejects.toThrow('operation_execution_timeout_ms_invalid');
     expect(create).not.toHaveBeenCalled();
+  });
+});
+
+describe('OperationRepositoryAdapter composite child fencing', () => {
+  it('does not read or create a child when the parent active-attempt fence is lost', async () => {
+    const findFirst = vi.fn();
+    const create = vi.fn();
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      operationRun: { findFirst, create },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    } as never);
+
+    await expect(repository.createChildAndWaitForDependency({
+      parentOrganizationId: ORG_ID,
+      parentRunId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      child: makeCreateRunInput({
+        parentRunId: RUN_ID,
+        idempotencyKey: `child:${RUN_ID}`,
+      }) as never,
+    })).resolves.toBeNull();
+
+    expect(findFirst).not.toHaveBeenCalled();
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('creates the child only inside a valid parent fence and atomically waits', async () => {
+    const findChild = vi.fn().mockResolvedValue(null);
+    const create = vi.fn().mockResolvedValue({
+      id: CHILD_ID,
+      organizationId: ORG_ID,
+    });
+    const queryRaw = vi.fn()
+      .mockResolvedValueOnce([{ id: RUN_ID }])
+      .mockResolvedValueOnce([{ id: RUN_ID }]);
+    const findRun = vi.fn().mockResolvedValue(makeRunRow({
+      id: CHILD_ID,
+      parentRunId: RUN_ID,
+      idempotencyKey: `child:${RUN_ID}`,
+      status: 'queued',
+    }));
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback({
+        $queryRaw: queryRaw,
+        operationRun: { findFirst: findChild, create },
+      })),
+      operationRun: { findFirst: findRun },
+    } as never);
+
+    await expect(repository.createChildAndWaitForDependency({
+      parentOrganizationId: ORG_ID,
+      parentRunId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      child: makeCreateRunInput({
+        parentRunId: RUN_ID,
+        idempotencyKey: `child:${RUN_ID}`,
+      }) as never,
+    })).resolves.toMatchObject({ id: CHILD_ID, parentRunId: RUN_ID });
+
+    const lockArguments = queryRaw.mock.calls[0] ?? [];
+    expect(String(lockArguments[0])).toContain('WITH locked_parent AS MATERIALIZED');
+    expect(String(lockArguments[0])).toContain('FOR UPDATE');
+    expect(String(lockArguments[0])).toContain('clock_timestamp() AS locked_at');
+    expect(lockArguments).toContain(ORG_ID);
+    expect(lockArguments).toContain(RUN_ID);
+    expect(lockArguments).toContain(ATTEMPT_TOKEN);
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        organizationId: ORG_ID,
+        parentRunId: RUN_ID,
+        idempotencyKey: `child:${RUN_ID}`,
+      }),
+    }));
+    expect(String(queryRaw.mock.calls[1]?.[0])).toContain(
+      "SET status = 'waiting_dependency'",
+    );
+  });
+
+  it('reuses an existing idempotent child without creating a duplicate', async () => {
+    const create = vi.fn();
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback({
+        $queryRaw: vi.fn()
+          .mockResolvedValueOnce([{ id: RUN_ID }])
+          .mockResolvedValueOnce([{ id: RUN_ID }]),
+        operationRun: {
+          findFirst: vi.fn().mockResolvedValue({
+            id: CHILD_ID,
+            organizationId: ORG_ID,
+          }),
+          create,
+        },
+      })),
+      operationRun: {
+        findFirst: vi.fn().mockResolvedValue(makeRunRow({ id: CHILD_ID })),
+      },
+    } as never);
+
+    await expect(repository.createChildAndWaitForDependency({
+      parentOrganizationId: ORG_ID,
+      parentRunId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      child: makeCreateRunInput({
+        parentRunId: RUN_ID,
+        idempotencyKey: `child:${RUN_ID}`,
+      }) as never,
+    })).resolves.toMatchObject({ id: CHILD_ID });
+    expect(create).not.toHaveBeenCalled();
+  });
+
+  it('returns null and skips the child read when the final parent fence is lost', async () => {
+    const findRun = vi.fn();
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback({
+        $queryRaw: vi.fn()
+          .mockResolvedValueOnce([{ id: RUN_ID }])
+          .mockResolvedValueOnce([]),
+        operationRun: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue({
+            id: CHILD_ID,
+            organizationId: ORG_ID,
+          }),
+        },
+      })),
+      operationRun: { findFirst: findRun },
+    } as never);
+
+    await expect(repository.createChildAndWaitForDependency({
+      parentOrganizationId: ORG_ID,
+      parentRunId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      child: makeCreateRunInput({
+        parentRunId: RUN_ID,
+        idempotencyKey: `child:${RUN_ID}`,
+      }) as never,
+    })).resolves.toBeNull();
+    expect(findRun).not.toHaveBeenCalled();
   });
 });
 
@@ -506,6 +657,45 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
 });
 
 describe('OperationRepositoryAdapter server claim fencing', () => {
+  it('cancels after candidate selection without mutating the selected run', async () => {
+    const selection = deferred<Array<{
+      id: string;
+      organization_id: string;
+      deadline_at: Date | null;
+      execution_timeout_ms: number;
+    }>>();
+    const update = vi.fn();
+    const transaction = {
+      $queryRaw: vi.fn().mockReturnValue(selection.promise),
+      operationRun: { update },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+      operationRun: { findFirst: vi.fn() },
+    } as never);
+    const controller = new AbortController();
+    const reason = new Error('operation_worker_shutdown');
+
+    const claim = repository.claimNextRun({
+      resourceClass: 'naver_api',
+      workerId: 'operations:test',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      signal: controller.signal,
+    });
+    await vi.waitFor(() => expect(transaction.$queryRaw).toHaveBeenCalledOnce());
+    controller.abort(reason);
+    selection.resolve([{
+      id: RUN_ID,
+      organization_id: ORG_ID,
+      deadline_at: null,
+      execution_timeout_ms: 900_000,
+    }]);
+
+    await expect(claim).rejects.toBe(reason);
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('binds the requested resource class and initializes the first absolute deadline', async () => {
     const update = vi.fn().mockResolvedValue({ id: RUN_ID });
     const transaction = {
@@ -530,6 +720,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
       workerId: 'operations:test',
       now: NOW,
       leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      signal: new AbortController().signal,
     });
 
     const rawQueryArguments = transaction.$queryRaw.mock.calls[0] ?? [];
@@ -567,6 +758,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
       workerId: 'operations:test',
       now: NOW,
       leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      signal: new AbortController().signal,
     });
 
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
@@ -595,6 +787,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
       workerId: 'operations:test',
       now: NOW,
       leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      signal: new AbortController().signal,
     })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
     expect(update).not.toHaveBeenCalled();
   });
@@ -628,6 +821,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
       workerId: 'operations:test',
       now: NOW,
       leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      signal: new AbortController().signal,
     })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
     expect(update).not.toHaveBeenCalled();
   });

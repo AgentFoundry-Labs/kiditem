@@ -350,6 +350,55 @@ describe('Direct1688KeywordSearchAdapter', () => {
 
     blockedNavigation.resolve(null);
   });
+
+  it('aborts only a queued profile waiter and preserves ordering for the next search', async () => {
+    process.env.SOURCING_PLAYWRIGHT_USER_DATA_DIR =
+      '/tmp/kiditem-1688-keyword-queue-abort-profile';
+    mockMtopUserValidationFailures(3);
+    const ownerNavigation = deferred<null>();
+    const ownerPage = buildSearchPageMock();
+    ownerPage.goto.mockReturnValueOnce(ownerNavigation.promise);
+    const ownerContext = buildPersistentContextMock(ownerPage);
+    const thirdContext = buildPersistentContextMock(buildSearchPageMock());
+    playwrightMocks.launchPersistentContext
+      .mockResolvedValueOnce(ownerContext)
+      .mockResolvedValueOnce(thirdContext);
+    const adapter = new Direct1688KeywordSearchAdapter();
+    const waiterController = new AbortController();
+    const reason = new Error('operation_worker_shutdown');
+
+    const owner = adapter.searchByKeyword({ keyword: 'owner' });
+    await vi.waitFor(() => expect(ownerPage.goto).toHaveBeenCalledOnce());
+    const waiterOutcome = adapter.searchByKeyword({
+      keyword: 'waiter',
+      signal: waiterController.signal,
+    }).catch((error: unknown) => error);
+    const third = adapter.searchByKeyword({ keyword: 'third' });
+    await vi.waitFor(() => expect(globalThis.fetch).toHaveBeenCalledTimes(6));
+
+    let waiterSettled = false;
+    void waiterOutcome.then(() => {
+      waiterSettled = true;
+    });
+    waiterController.abort(reason);
+    await new Promise<void>((resolveImmediate) => setImmediate(resolveImmediate));
+    const settledBeforeOwnerRelease = waiterSettled;
+
+    ownerNavigation.resolve(null);
+    const [ownerResult, rejectedReason, thirdResult] = await Promise.all([
+      owner,
+      waiterOutcome,
+      third,
+    ]);
+
+    expect(settledBeforeOwnerRelease).toBe(true);
+    expect(rejectedReason).toBe(reason);
+    expect(ownerResult.items).toHaveLength(1);
+    expect(thirdResult.items).toHaveLength(1);
+    expect(playwrightMocks.launchPersistentContext).toHaveBeenCalledTimes(2);
+    expect(ownerContext.close).toHaveBeenCalledOnce();
+    expect(thirdContext.close).toHaveBeenCalledOnce();
+  });
 });
 
 function mockMtopUserValidationFailure(): void {
@@ -368,6 +417,37 @@ function mockMtopUserValidationFailure(): void {
       status: 200,
       headers: { 'Content-Type': 'application/json' },
     })) as unknown as typeof fetch;
+}
+
+function mockMtopUserValidationFailures(searchCount: number): void {
+  globalThis.fetch = vi.fn(async (input: string | URL | Request) => {
+    const url = new URL(String(input));
+    const isBootstrap = url.searchParams.get('data') === '{}';
+    if (isBootstrap) {
+      return new Response('{}', {
+        status: 200,
+        headers: {
+          'Set-Cookie': '_m_h5_tk=abc123_1779830239226; Path=/; Domain=1688.com, _m_h5_tk_enc=encoded; Path=/; Domain=1688.com',
+        },
+      });
+    }
+    return new Response(JSON.stringify({
+      ret: ['FAIL_SYS_USER_VALIDATE::用户校验失败'],
+      data: {},
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }) as unknown as typeof fetch;
+  if (searchCount <= 0) throw new Error('searchCount must be positive');
+}
+
+function buildPersistentContextMock(page = buildSearchPageMock()) {
+  return {
+    pages: vi.fn(() => [page]),
+    newPage: vi.fn(async () => page),
+    close: vi.fn(async () => undefined),
+  };
 }
 
 function mockCdpBrowserSession(page = buildSearchPageMock()) {
