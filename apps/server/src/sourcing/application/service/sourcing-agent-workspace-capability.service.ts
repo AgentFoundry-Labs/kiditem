@@ -4,10 +4,6 @@ import type {
   SourcingWorkspaceEvidenceResult,
 } from '../port/in/capability/sourcing-agent-workspace-capability.port';
 import {
-  SOURCING_COLLECTION_OPERATION_PORT,
-  type SourcingCollectionOperationPort,
-} from '../port/out/cross-domain/sourcing-collection-operation.port';
-import {
   SOURCING_RECOMMENDATION_REPOSITORY_PORT,
   type SourcingRecommendationRepositoryPort,
 } from '../port/out/repository/sourcing-recommendation.repository.port';
@@ -29,8 +25,6 @@ export class SourcingAgentWorkspaceCapabilityService
     private readonly recommendations: SourcingRecommendationRepositoryPort,
     @Inject(SOURCING_VALIDATION_REPOSITORY_PORT)
     private readonly validationRows: SourcingValidationRepositoryPort,
-    @Inject(SOURCING_COLLECTION_OPERATION_PORT)
-    private readonly collections: SourcingCollectionOperationPort,
     private readonly validations: SourcingValidationService,
     private readonly reviews: SourcingReviewService,
   ) {}
@@ -85,15 +79,6 @@ export class SourcingAgentWorkspaceCapabilityService
         missingCount,
       },
     };
-  }
-
-  refreshCollection(input: {
-    organizationId: string;
-    requestedByUserId: string | null;
-    sources: Array<'naver' | '1688' | 'shorts'>;
-    idempotencyKey: string;
-  }) {
-    return this.collections.startCollection(input);
   }
 
   async refreshValidation(input: {

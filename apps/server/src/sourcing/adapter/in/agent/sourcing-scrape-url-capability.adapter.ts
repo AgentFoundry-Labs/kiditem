@@ -7,7 +7,7 @@ import type {
   SourcingScrapeUrlWorkflowPort,
   SourcingScrapeUrlWorkflowResult,
 } from '../../../application/port/in/capability/sourcing-capability.ports';
-import { SourcingService } from '../../../application/service/sourcing.service';
+import { SourcingAgentCommandService } from '../../../application/service/sourcing-agent-command.service';
 import { SourcingPlaywrightRuntimeHandler } from '../../out/runtime/sourcing-playwright-runtime.handler';
 
 const SCRAPE_URL_WORKFLOW_KEY = 'sourcing.scrapeUrlWorkflow';
@@ -129,7 +129,7 @@ export class SourcingScrapeUrlCapabilityAdapter
 {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    private readonly sourcing: SourcingService,
+    private readonly sourcing: SourcingAgentCommandService,
     private readonly playwright: SourcingPlaywrightRuntimeHandler,
   ) {}
 

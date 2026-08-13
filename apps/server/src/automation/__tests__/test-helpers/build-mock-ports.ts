@@ -127,5 +127,6 @@ export function buildMockOperationAlertPort(): MockOperationAlertPort {
     cancel: vi.fn(),
     closeBySource: vi.fn(),
     closeStaleOperations: vi.fn(),
+    dismissExtensionMissingBrowserCollections: vi.fn(),
   };
 }

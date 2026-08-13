@@ -104,6 +104,7 @@ AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
 AGENT_RUNTIME_WORKER_ENABLED
+AGENT_API_CAPABILITY_GRANT_SECRET
 AGENT_DEFAULT_MODEL
 ```
 
@@ -147,7 +148,8 @@ same-origin `/api/*` routing.
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in Office | Nest CORS | Comma-separated trusted Office origins. Same-origin `/api/*` still works through nginx. |
-| `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
+| `API_SELF_URL` | API and Agent worker runtime | Required for Agent sourcing collection commands | Action board and MCP HTTP command adapters | Use the container-local API base (`http://api:4000` in Office). It is passed to the bounded MCP descriptor; it is not a browser secret. |
+| `AGENT_API_CAPABILITY_GRANT_SECRET` | Protected API/worker env | Required for Agent sourcing collection commands | API verifier and trusted parent MCP-session adapter | At least 32 random UTF-8 bytes with no fallback key. Never expose it to web code, model CLI/MCP child env, descriptors, logs, or artifacts; the MCP entrypoint deletes any dotenv-loaded copy before Nest context creation. |
 
 ## Web Runtime And Build
 

@@ -3,6 +3,7 @@ import {
   Body,
   Controller,
   HttpCode,
+  Inject,
   NotFoundException,
   Param,
   Patch,
@@ -12,8 +13,11 @@ import type { AlertItem } from '@kiditem/shared/alerts';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
-import { OperationAlertService } from '../../../application/service/operation-alert.service';
-import type { OperationLifecyclePatch } from '../../../application/port/in/operation-alert.port';
+import {
+  OPERATION_ALERT_PORT,
+  type OperationAlertPort,
+  type OperationLifecyclePatch,
+} from '../../../application/port/in/operation-alert.port';
 import { mapAlertRowToItem } from '../../../mapper/alert-item.mapper';
 import {
   isBrowserOperationProducer,
@@ -69,7 +73,10 @@ function assertBrowserCollectionOrdering(
  */
 @Controller('operation-alerts')
 export class OperationAlertLifecycleController {
-  constructor(private readonly operationAlerts: OperationAlertService) {}
+  constructor(
+    @Inject(OPERATION_ALERT_PORT)
+    private readonly operationAlerts: OperationAlertPort,
+  ) {}
 
   @Post('start')
   @HttpCode(200)

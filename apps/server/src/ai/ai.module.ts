@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
 import { AgentOsModule } from '../agent-os/agent-os.module';
-import { AutomationModule } from '../automation/automation.module';
+import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 
 // adapter/in/http
 import { ImageAiController } from './adapter/in/http/image-ai.controller';
@@ -178,27 +178,7 @@ import {
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
-  imports: [AutomationModule, AgentOsModule, StorageModule],
-  controllers: [
-    ContentArchiveController,
-    ContentArchiveLinkageController,
-    ContentAssetController,
-    ContentGenerationRerunController,
-    DetailPageCandidateImageController,
-    DetailPageEditorController,
-    DetailPageGenerationController,
-    ImageAiController,
-    ContentWorkspaceController,
-    RenderImageController,
-    TextAiController,
-    ThumbnailAnalysisController,
-    ThumbnailAnalysisEditJobsController,
-    ThumbnailAnalysisGenerationReviewController,
-    ThumbnailAnalysisWingController,
-    ThumbnailAutoController,
-    ThumbnailEditorController,
-    ThumbnailTrackingController,
-  ],
+  imports: [OperationAlertRuntimeModule, AgentOsModule, StorageModule],
   providers: [
     // application services
     ImageAiService,
@@ -420,6 +400,24 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     { provide: CATALOG_DISPLAY_MEDIA_PORT, useExisting: CatalogDisplayMediaService },
   ],
   exports: [
+    ContentArchiveService,
+    ContentAssetService,
+    ContentGenerationRerunService,
+    ContentWorkspaceService,
+    ContentWorkspaceThumbnailSelectionService,
+    DetailPageAiService,
+    DetailPageClientRenderService,
+    DetailPageRasterizationService,
+    ImageAiService,
+    ImageAssetOperationService,
+    TextAiService,
+    ThumbnailAnalysisService,
+    ThumbnailAutoService,
+    ThumbnailEditorAiService,
+    ThumbnailGenerationService,
+    ThumbnailRecomposeService,
+    ThumbnailTrackingService,
+    ThumbnailWingService,
     TEXT_JUDGEMENT_PORT,
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
     AI_WORKSPACE_ARCHIVE_PORT,
@@ -429,5 +427,31 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     CATALOG_MEDIA_PUBLICATION_PORT,
     CATALOG_DISPLAY_MEDIA_PORT,
   ],
+})
+export class AiAgentRuntimeModule {}
+
+@Module({
+  imports: [AiAgentRuntimeModule],
+  controllers: [
+    ContentArchiveController,
+    ContentArchiveLinkageController,
+    ContentAssetController,
+    ContentGenerationRerunController,
+    DetailPageCandidateImageController,
+    DetailPageEditorController,
+    DetailPageGenerationController,
+    ImageAiController,
+    ContentWorkspaceController,
+    RenderImageController,
+    TextAiController,
+    ThumbnailAnalysisController,
+    ThumbnailAnalysisEditJobsController,
+    ThumbnailAnalysisGenerationReviewController,
+    ThumbnailAnalysisWingController,
+    ThumbnailAutoController,
+    ThumbnailEditorController,
+    ThumbnailTrackingController,
+  ],
+  exports: [AiAgentRuntimeModule],
 })
 export class AiModule {}

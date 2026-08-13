@@ -7,10 +7,10 @@ config({ path: resolve(__dirname, '..', '.env') });
 config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from './app.module';
+import { AgentWorkerApplicationModule } from './agent-worker-application.module';
 
 async function bootstrapWorker() {
-  const app = await NestFactory.createApplicationContext(AppModule);
+  const app = await NestFactory.createApplicationContext(AgentWorkerApplicationModule);
   app.enableShutdownHooks();
 
   const keepAlive = setInterval(() => undefined, 60 * 60 * 1000);

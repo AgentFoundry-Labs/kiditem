@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { SourcingService } from '../application/service/sourcing.service';
+import { SourcingAgentCommandService } from '../application/service/sourcing-agent-command.service';
 
 function makeCandidateRepo() {
   return {
@@ -74,13 +75,18 @@ describe('SourcingService — candidate ingest', () => {
       findCurrentThumbnail: vi.fn().mockResolvedValue(null),
       findCurrentThumbnails: vi.fn().mockResolvedValue(new Map()),
     };
-    service = new SourcingService(
+    const agentCommands = new SourcingAgentCommandService(
       repo as any,
       gateway as any,
       alerts as any,
+    );
+    service = new SourcingService(
+      repo as any,
+      gateway as any,
       candidateContentAssets as any,
       sellpiaSalePrices as any,
       registrationContentWorkspaces as any,
+      agentCommands,
     );
   });
 

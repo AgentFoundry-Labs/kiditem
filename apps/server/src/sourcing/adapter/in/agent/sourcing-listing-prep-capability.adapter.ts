@@ -8,7 +8,7 @@ import {
   type SourcingListingPrepCapabilityPort,
   type SourcingListingPrepCapabilityResult,
 } from '../../../application/port/in/capability/sourcing-capability.ports';
-import { SourcingService } from '../../../application/service/sourcing.service';
+import { SourcingAgentCommandService } from '../../../application/service/sourcing-agent-command.service';
 
 const PRODUCT_LISTING_PREP_KEY = 'product_listing.create_generation_package';
 
@@ -78,7 +78,7 @@ export class SourcingListingPrepCapabilityAdapter
 {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    private readonly sourcing: SourcingService,
+    private readonly sourcing: SourcingAgentCommandService,
   ) {}
 
   onModuleInit(): void {

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
+import { OperationAlertRuntimeModule } from './operation-alert-runtime.module';
 
 // adapter/in/http
 import { ActionTaskController } from './adapter/in/http/action-task.controller';
@@ -21,7 +22,6 @@ import { ActionBoardRepositoryAdapter } from './adapter/out/repository/action-bo
 import { AlertsRepositoryAdapter } from './adapter/out/repository/alerts.repository.adapter';
 import { MarketplaceCatalogRepositoryAdapter } from './adapter/out/repository/marketplace-catalog.repository.adapter';
 import { MarketplaceInstallStoreRepositoryAdapter } from './adapter/out/repository/marketplace-install-store.repository.adapter';
-import { OperationAlertRepositoryAdapter } from './adapter/out/repository/operation-alert.repository.adapter';
 import { WorkflowOrchestrationRepositoryAdapter } from './adapter/out/repository/workflow-orchestration.repository.adapter';
 
 // adapter/out/panel-event
@@ -34,7 +34,6 @@ import { AlertsService } from './application/service/alerts.service';
 import { BrowserCollectionRunIdService } from './application/service/browser-collection-run-id.service';
 import { MarketplaceCatalogService } from './application/service/marketplace-catalog.service';
 import { MarketplaceInstallService } from './application/service/marketplace-install.service';
-import { OperationAlertService } from './application/service/operation-alert.service';
 import { WorkflowOrchestrationService } from './application/service/workflow-orchestration.service';
 import { WorkflowRunnerService } from './application/service/workflow-runner.service';
 
@@ -48,7 +47,6 @@ import { ACTION_BOARD_REPOSITORY_PORT } from './application/port/out/repository/
 import { ALERTS_REPOSITORY_PORT } from './application/port/out/repository/alerts.repository.port';
 import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from './application/port/out/repository/marketplace-catalog.repository.port';
 import { MARKETPLACE_INSTALL_STORE_PORT } from './application/port/out/repository/marketplace-install-store.port';
-import { OPERATION_ALERT_REPOSITORY_PORT } from './application/port/out/repository/operation-alert.repository.port';
 import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from './application/port/out/repository/workflow-orchestration.repository.port';
 
 /**
@@ -82,19 +80,17 @@ const OUT_PORT_BINDINGS = [
   { provide: ALERTS_REPOSITORY_PORT, useExisting: AlertsRepositoryAdapter },
   { provide: MARKETPLACE_CATALOG_REPOSITORY_PORT, useExisting: MarketplaceCatalogRepositoryAdapter },
   { provide: MARKETPLACE_INSTALL_STORE_PORT, useExisting: MarketplaceInstallStoreRepositoryAdapter },
-  { provide: OPERATION_ALERT_REPOSITORY_PORT, useExisting: OperationAlertRepositoryAdapter },
   { provide: WORKFLOW_ORCHESTRATION_REPOSITORY_PORT, useExisting: WorkflowOrchestrationRepositoryAdapter },
 ];
 
 // `application/port/in/*` published for cross-owner-domain consumers.
 const IN_PORT_BINDINGS = [
-  { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
   { provide: DETERMINISTIC_WORKFLOW_EXECUTION_PORT, useExisting: WorkflowOrchestrationService },
   { provide: WORKFLOW_RUN_CANCELLATION_PORT, useExisting: WorkflowRunnerService },
 ];
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, OperationAlertRuntimeModule],
   controllers: [
     MarketplaceWorkflowsController,
     MarketplaceAgentsController,
@@ -114,7 +110,6 @@ const IN_PORT_BINDINGS = [
     AlertsRepositoryAdapter,
     MarketplaceCatalogRepositoryAdapter,
     MarketplaceInstallStoreRepositoryAdapter,
-    OperationAlertRepositoryAdapter,
     WorkflowOrchestrationRepositoryAdapter,
     // adapter/out/panel-event
     PanelService,
@@ -123,7 +118,6 @@ const IN_PORT_BINDINGS = [
     ActionBoardService,
     AlertsService,
     BrowserCollectionRunIdService,
-    OperationAlertService,
     MarketplaceCatalogService,
     MarketplaceInstallService,
     WorkflowOrchestrationService,
@@ -134,7 +128,7 @@ const IN_PORT_BINDINGS = [
   ],
   exports: [
     // Owner-side incoming port for cross-domain consumers
-    OPERATION_ALERT_PORT,
+    OperationAlertRuntimeModule,
     DETERMINISTIC_WORKFLOW_EXECUTION_PORT,
     WORKFLOW_RUN_CANCELLATION_PORT,
     // Legacy class exports — kept while non-reconstructed consumers

@@ -2,8 +2,11 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { AgentOsModule } from '../agent-os.module';
-import { AutomationModule } from '../../automation/automation.module';
-import { ReadinessModule } from '../../readiness/readiness.module';
+import { AgentOsHttpModule } from '../agent-os-http.module';
+import { AgentOsWorkerModule } from '../agent-os-worker.module';
+import { OperationAlertRuntimeModule } from '../../automation/operation-alert-runtime.module';
+import { ReadinessStateModule } from '../../readiness/readiness-state.module';
+import { PrismaModule } from '../../prisma/prisma.module';
 import { AgentCatalogController } from '../adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from '../adapter/in/http/agent-approvals.controller';
 import { AgentConversationsController } from '../adapter/in/http/agent-conversations.controller';
@@ -28,6 +31,7 @@ import { AgentLocalCliRuntimeAdapter } from '../adapter/out/runtime/agent-local-
 import { AgentLocalProcessRegistry } from '../adapter/out/runtime/agent-local-process-registry';
 import { KidItemMcpSessionAdapter } from '../adapter/out/runtime/kiditem-mcp-session.adapter';
 import { AgentInlineRunReconciler } from '../application/service/agent-inline-run-reconciler.service';
+import { AgentRunWorker } from '../application/service/agent-run-worker.service';
 import { AgentInteractionService } from '../application/service/agent-interaction.service';
 import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction.port';
 import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
@@ -38,15 +42,21 @@ const PROVIDERS_KEY = MODULE_METADATA.PROVIDERS;
 const EXPORTS_KEY = MODULE_METADATA.EXPORTS;
 
 describe('AgentOsModule wiring', () => {
-  it('imports owner modules for automation and live-readiness ports', () => {
+  it('imports only controller-free owner runtime modules', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? [];
-    expect(imports).toContain(AutomationModule);
-    expect(imports).toContain(ReadinessModule);
+    expect(imports).toEqual([
+      PrismaModule,
+      OperationAlertRuntimeModule,
+      ReadinessStateModule,
+    ]);
   });
 
-  it('registers the Agent OS HTTP route-family controllers', () => {
-    const controllers: unknown[] =
-      Reflect.getMetadata(CONTROLLERS_KEY, AgentOsModule) ?? [];
+  it('keeps core controller-free and gives the HTTP wrapper the exact seven controllers', () => {
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsModule) ?? []).toEqual([]);
+    const controllers: unknown[] = Reflect.getMetadata(
+      CONTROLLERS_KEY,
+      AgentOsHttpModule,
+    ) ?? [];
 
     expect(controllers).toEqual([
       AgentCatalogController,
@@ -57,6 +67,21 @@ describe('AgentOsModule wiring', () => {
       AgentApprovalsController,
       AgentConversationsController,
     ]);
+    const providers: unknown[] = Reflect.getMetadata(
+      PROVIDERS_KEY,
+      AgentOsHttpModule,
+    ) ?? [];
+    expect(providers).toEqual([AgentInlineRunReconciler]);
+  });
+
+  it('gives only AgentRunWorker to the worker wrapper', () => {
+    const coreProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+    const workerProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsWorkerModule) ?? [];
+    expect(coreProviders).not.toContain(AgentRunWorker);
+    expect(coreProviders).not.toContain(AgentInlineRunReconciler);
+    expect(workerProviders).toEqual([AgentRunWorker]);
   });
 
   it('registers the operation-alert bridge in Agent OS, not automation', () => {
@@ -99,7 +124,7 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(AgentLocalCliRuntimeAdapter);
     expect(providers).toContain(AgentLocalProcessRegistry);
     expect(providers).toContain(KidItemMcpSessionAdapter);
-    expect(providers).toContain(AgentInlineRunReconciler);
+    expect(providers).not.toContain(AgentInlineRunReconciler);
     expect(providers).toContainEqual({
       provide: AGENT_INTERACTION_PORT,
       useExisting: AgentInteractionService,

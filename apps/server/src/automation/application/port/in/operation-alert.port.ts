@@ -129,4 +129,10 @@ export interface OperationAlertPort {
   closeStaleOperations(
     input: CloseStaleOperationAlertsInput,
   ): Promise<AlertRecord[]>;
+
+  /** Dismiss actor-scoped legacy browser-discovery failures. */
+  dismissExtensionMissingBrowserCollections(
+    organizationId: string,
+    actorUserId: string,
+  ): Promise<AlertRecord[]>;
 }

@@ -6,6 +6,7 @@ import type {
   AgentMcpSessionDescriptor,
   AgentMcpSessionPort,
 } from '../../../application/port/out/runtime/agent-mcp-session.port';
+import { AgentApiCapabilityGrantService } from '../../../application/service/agent-api-capability-grant.service';
 
 const COMPILED_ENTRY =
   'apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js';
@@ -34,6 +35,7 @@ async function exists(path: string): Promise<boolean> {
 @Injectable()
 export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
   constructor(
+    private readonly grants: AgentApiCapabilityGrantService,
     @Optional()
     private readonly repositoryRoot = resolve(__dirname, '../../../../../../..'),
     @Optional()
@@ -52,6 +54,7 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
     requestedByUserId: string | null;
     homeDirectory: string;
   }): Promise<AgentMcpSessionDescriptor> {
+    const apiUrl = resolveApiUrl(this.hostEnvironment.API_SELF_URL);
     const compiled = resolve(this.repositoryRoot, COMPILED_ENTRY);
     const typescript = resolve(this.repositoryRoot, TYPESCRIPT_ENTRY);
     let command = process.execPath;
@@ -71,6 +74,12 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
       );
     }
 
+    const grant = this.grants.issue({
+      organizationId: input.organizationId,
+      requestId: input.requestId,
+      runId: input.runId,
+      agentInstanceId: input.agentInstanceId,
+    });
     return {
       name: 'kiditem',
       command,
@@ -92,8 +101,26 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
         KIDITEM_AGENT_OS_PLAYBOOK_KEY: input.playbookKey ?? '',
         KIDITEM_AGENT_OS_PLAN_STEP_KEY: input.planStepKey ?? '',
         KIDITEM_AGENT_OS_REQUESTED_BY_USER_ID: input.requestedByUserId ?? '',
+        KIDITEM_AGENT_OS_API_URL: apiUrl,
+        KIDITEM_AGENT_OS_API_CAPABILITY_GRANT: grant,
         ...kidItemAgentOsMcpChildEnvironment(),
       },
     };
+  }
+}
+
+function resolveApiUrl(value: string | undefined): string {
+  try {
+    if (!value?.trim()) throw new Error('missing');
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('unsupported');
+    }
+    return url.origin;
+  } catch {
+    throw new AgentOsRuntimeError(
+      'agent_api_url_invalid',
+      'Agent API URL is missing or invalid.',
+    );
   }
 }

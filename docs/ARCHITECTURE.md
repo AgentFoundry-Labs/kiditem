@@ -25,6 +25,26 @@ Company Chrome extension
   -> authenticated Coupang Wing form automation
 ```
 
+The Nest backend has static process roots; an environment flag never decides
+whether a process owns Operations:
+
+```text
+main.ts   -> ApiApplicationModule         -> HTTP + owner domains + Operations
+worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
+MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+```
+
+`AgentRuntimeApplicationModule` is the shared controller-free runtime beneath
+the worker and MCP roots. `AgentOsHttpModule` owns the seven Agent OS HTTP
+controllers, while `AgentOsWorkerModule` owns only `AgentRunWorker`. Sourcing,
+Supply, and AI publish controller-free Agent runtime modules; only the API-side
+Sourcing collection binding imports Operations. The MCP-side binding sends a
+strict bounded command back to the API with a two-minute HMAC grant.
+
+Production supports exactly one API instance. API replicas, rolling overlap,
+and overlapping lifecycle ownership are unsupported. The Agent worker is a
+separate process and cannot query or mutate `OperationRun` rows.
+
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 

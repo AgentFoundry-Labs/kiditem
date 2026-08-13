@@ -26,6 +26,25 @@ Office operator boundary. The repository contains no EC2 bootstrap, Terraform
 host stack, public DNS contract, hosted Compose file, or hosted environment
 secret contract.
 
+### Nest process ownership
+
+```text
+main.ts   -> ApiApplicationModule         -> HTTP + domains + Operations
+worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
+MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+```
+
+Office runs exactly one API container. Replicas and rolling API overlap are
+unsupported because every OperationRun is bound to that one API process
+lifecycle. The API root does not contain the Agent run worker; the separate
+worker container enables it with `AGENT_RUNTIME_WORKER_ENABLED=1`. The API has
+a 10-second stop grace period, and its health check allows a 60-second startup
+period for fail-closed lifecycle cleanup before it is considered unhealthy.
+
+The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
+proxying. Container-local access to an internal Agent command still requires a
+valid bounded capability grant.
+
 ## Release Boundary
 
 - Normal work merges to `develop`.

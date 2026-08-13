@@ -4,6 +4,7 @@ import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import type { AgentOsMcpToolExecutor } from '../../../../application/service/agent-os-mcp-tool-executor.service';
 import {
   createKidItemAgentOsMcpServer,
+  createKidItemAgentOsMcpApplicationContext,
   readKidItemAgentOsMcpContext,
   toMcpText,
 } from '../kiditem-agent-os-mcp-server';
@@ -68,6 +69,21 @@ function parseTextResult(result: unknown) {
 }
 
 describe('KidItem Agent OS MCP server', () => {
+  it('deletes a dotenv-loaded raw grant secret before creating the Nest context', async () => {
+    process.env.AGENT_API_CAPABILITY_GRANT_SECRET = 'x'.repeat(32);
+    const applicationContext = { close: vi.fn() };
+    const createApplicationContext = vi.fn().mockImplementation(() => {
+      expect(process.env.AGENT_API_CAPABILITY_GRANT_SECRET).toBeUndefined();
+      return applicationContext;
+    });
+
+    await expect(createKidItemAgentOsMcpApplicationContext({
+      repositoryRoot: '/missing/repository/root',
+      createApplicationContext,
+      loadApplicationModule: async () => ({ AgentMcpApplicationModule: class TestModule {} }),
+    })).resolves.toBe(applicationContext);
+  });
+
   it('pins every background worker and scheduler off in the MCP child', () => {
     expect(kidItemAgentOsMcpChildEnvironment()).toMatchObject({
       AGENT_RUNTIME_WORKER_ENABLED: '0',

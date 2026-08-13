@@ -1,6 +1,8 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
+import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
+import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
@@ -109,7 +111,6 @@ import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
 import { TREND_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/trend-collection.repository.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "../application/port/out/repository/live-commerce.repository.port";
-import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
 import { SupplyModule } from "../../supply/supply.module";
 import { ProductRegistrationService } from "../application/service/product-registration.service";
@@ -130,6 +131,14 @@ const CONTROLLERS_KEY = "controllers";
 const PROVIDERS_KEY = "providers";
 const PATH_KEY = "path";
 const SELF_DECLARED_DEPS_KEY = "self:paramtypes";
+
+function sourcingProviders(): unknown[] {
+  return [
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentApiCollectionModule) ?? []),
+  ];
+}
 
 // Sourcing owner module — Chinese new-product discovery. Suppliers and
 // procurement were extracted to SupplyModule during issue #192 follow-up
@@ -170,8 +179,7 @@ describe("SourcingModule canonical owner wiring", () => {
   });
 
   it("declares every application service as a provider", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const providers = sourcingProviders();
     expect(providers).toContain(SourcingService);
     expect(providers).toContain(SourcingExtensionIngestService);
     expect(providers).toContain(NaverKeywordResearchService);
@@ -219,8 +227,7 @@ describe("SourcingModule canonical owner wiring", () => {
   });
 
   it("binds outgoing ports to their adapters", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const providers = sourcingProviders();
     expect(providers).toContain(NaverDatalabPopularKeywordAdapter);
     expect(providers).toContain(NaverDatalabTrendAdapter);
     expect(providers).toContain(NaverAutocompleteKeywordAdapter);
@@ -573,12 +580,32 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(imports.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("imports AutomationModule so its operation-alert adapter can resolve the owner-side port", () => {
+  it("imports controller-free Agent runtime and retains API owner dependencies", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    expect(imports).toContain(AutomationModule);
+    expect(imports).toContain(SourcingAgentRuntimeModule);
+    expect(imports).toContain(SourcingAgentApiCollectionModule);
     expect(imports).toContain(ChannelsModule);
     expect(imports).toContain(SupplyModule);
+  });
+
+  it("owns Agent providers only in the controller-free runtime", () => {
+    const ownerProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const runtimeProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? [];
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, SourcingAgentRuntimeModule) ?? [])
+      .toEqual([]);
+    for (const provider of [
+      SourcingAgentGatewayAdapter,
+      SourcingListingPrepCapabilityAdapter,
+      SourcingScrapeUrlCapabilityAdapter,
+      SourcingWorkspaceCapabilityAdapter,
+      SourcingRuntimeHandler,
+    ]) {
+      expect(runtimeProviders).toContain(provider);
+      expect(ownerProviders).not.toContain(provider);
+    }
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {

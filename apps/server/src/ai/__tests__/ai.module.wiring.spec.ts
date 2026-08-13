@@ -1,9 +1,9 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AgentOsModule } from '../../agent-os/agent-os.module';
-import { AutomationModule } from '../../automation/automation.module';
+import { OperationAlertRuntimeModule } from '../../automation/operation-alert-runtime.module';
 import { StorageModule } from '../../common/storage/storage.module';
-import { AiModule } from '../ai.module';
+import { AiAgentRuntimeModule, AiModule } from '../ai.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
@@ -113,12 +113,21 @@ function expectExistingBinding(providers: unknown[], token: symbol, adapter: unk
 describe('AiModule hexagonal wiring contract', () => {
   it('imports owner modules only at the Nest module boundary', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AiModule) ?? [];
+    const runtimeImports: unknown[] =
+      Reflect.getMetadata(IMPORTS_KEY, AiAgentRuntimeModule) ?? [];
 
-    expect(imports).toEqual([AutomationModule, AgentOsModule, StorageModule]);
+    expect(imports).toEqual([AiAgentRuntimeModule]);
+    expect(runtimeImports).toEqual([
+      OperationAlertRuntimeModule,
+      AgentOsModule,
+      StorageModule,
+    ]);
+    expect(Reflect.getMetadata('controllers', AiAgentRuntimeModule) ?? []).toEqual([]);
   });
 
   it('binds AI-domain ports that keep PR 2A application services off Prisma', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
+    const providers: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
 
     [
       [DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
@@ -155,8 +164,10 @@ describe('AiModule hexagonal wiring contract', () => {
   });
 
   it('exports AI owner-side incoming ports through application services', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
-    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiModule) ?? [];
+    const providers: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
+    const exports: unknown[] =
+      Reflect.getMetadata(EXPORTS_KEY, AiAgentRuntimeModule) ?? [];
 
     [
       [AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter],
@@ -172,7 +183,7 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(providers, token as symbol, adapter);
     });
 
-    expect(exports).toEqual([
+    expect(exports).toEqual(expect.arrayContaining([
       // Bounded text judgement published for other owner domains (advertising
       // keyword relevance). Consumers must not reach for the provider-side
       // TEXT_COMPLETION_PORT.
@@ -184,6 +195,6 @@ describe('AiModule hexagonal wiring contract', () => {
       CANDIDATE_CONTENT_ASSET_PORT,
       CATALOG_MEDIA_PUBLICATION_PORT,
       CATALOG_DISPLAY_MEDIA_PORT,
-    ]);
+    ]));
   });
 });

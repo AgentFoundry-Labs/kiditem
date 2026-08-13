@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
-import { AppModule } from '../../../../app.module';
+import { AgentMcpApplicationModule } from '../../../../agent-mcp-application.module';
 import { AgentRunCoordinator } from '../../../application/service/agent-run-coordinator.service';
 import {
   AGENT_OS_REPOSITORY_PORT,
@@ -128,7 +128,7 @@ export async function runOpenAiOperatorCli(
 
   const args = parseRunOpenAiOperatorArgs(argv);
   const model = envString(process.env, 'AGENT_OS_OPENAI_RESPONSES_MODEL')!;
-  const app = await NestFactory.createApplicationContext(AppModule, {
+  const app = await NestFactory.createApplicationContext(AgentMcpApplicationModule, {
     logger: ['error', 'warn', 'log'],
   });
 

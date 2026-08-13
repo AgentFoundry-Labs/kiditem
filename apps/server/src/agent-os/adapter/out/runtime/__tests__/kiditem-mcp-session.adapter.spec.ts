@@ -1,7 +1,7 @@
 import { mkdtemp, mkdir, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { KidItemMcpSessionAdapter } from '../kiditem-mcp-session.adapter';
 
 const roots: string[] = [];
@@ -26,7 +26,18 @@ describe('KidItemMcpSessionAdapter', () => {
 
   it('prepares one compiled MCP child with only scoped context and disabled workers', async () => {
     const { root, entry } = await repositoryRoot();
-    const adapter = new KidItemMcpSessionAdapter(root, { NODE_ENV: 'production' });
+    const grants = {
+      issue: vi.fn().mockReturnValue('bounded-grant'),
+    };
+    const adapter = new KidItemMcpSessionAdapter(
+      grants as never,
+      root,
+      {
+        NODE_ENV: 'production',
+        API_SELF_URL: 'http://api:4000/',
+        AGENT_API_CAPABILITY_GRANT_SECRET: 'raw-secret-must-not-leak',
+      },
+    );
 
     const descriptor = await adapter.prepare({
       organizationId: 'org-1',
@@ -62,6 +73,8 @@ describe('KidItemMcpSessionAdapter', () => {
         KIDITEM_AGENT_OS_PLAYBOOK_KEY: 'manual_product_intake_from_url_v2',
         KIDITEM_AGENT_OS_PLAN_STEP_KEY: 'sourcing_agent',
         KIDITEM_AGENT_OS_REQUESTED_BY_USER_ID: 'user-1',
+        KIDITEM_AGENT_OS_API_URL: 'http://api:4000',
+        KIDITEM_AGENT_OS_API_CAPABILITY_GRANT: 'bounded-grant',
         KIDITEM_AGENT_OS_MCP_CHILD: '1',
         AGENT_RUNTIME_WORKER_ENABLED: '0',
         OPERATION_RUNTIME_WORKER_ENABLED: '0',
@@ -69,13 +82,26 @@ describe('KidItemMcpSessionAdapter', () => {
         AI_DIRECT_JOB_WORKER_ENABLED: '0',
       },
     });
+    expect(grants.issue).toHaveBeenCalledWith({
+      organizationId: 'org-1',
+      requestId: 'request-1',
+      runId: 'run-1',
+      agentInstanceId: 'instance-1',
+    });
+    expect(descriptor.env).not.toHaveProperty(
+      'AGENT_API_CAPABILITY_GRANT_SECRET',
+    );
     expect(Object.values(descriptor.env)).not.toContain('/Users/operator');
   });
 
   it('does not use the TypeScript entrypoint outside development', async () => {
     const root = await mkdtemp(join(tmpdir(), 'kiditem-mcp-session-'));
     roots.push(root);
-    const adapter = new KidItemMcpSessionAdapter(root, { NODE_ENV: 'production' });
+    const adapter = new KidItemMcpSessionAdapter(
+      { issue: vi.fn().mockReturnValue('bounded-grant') } as never,
+      root,
+      { NODE_ENV: 'production', API_SELF_URL: 'http://api:4000' },
+    );
 
     await expect(
       adapter.prepare({
@@ -91,5 +117,30 @@ describe('KidItemMcpSessionAdapter', () => {
         homeDirectory: '/tmp/kiditem-run/mcp-home',
       }),
     ).rejects.toMatchObject({ code: 'mcp_entrypoint_missing' });
+  });
+
+  it('fails explicitly when API_SELF_URL is absent or invalid', async () => {
+    const { root } = await repositoryRoot();
+    const grants = { issue: vi.fn() };
+    const adapter = new KidItemMcpSessionAdapter(
+      grants as never,
+      root,
+      { NODE_ENV: 'production' },
+    );
+    await expect(
+      adapter.prepare({
+        organizationId: 'org-1',
+        conversationId: 'conversation-1',
+        requestId: 'request-1',
+        runId: 'run-1',
+        agentInstanceId: 'instance-1',
+        agentType: 'sourcing',
+        playbookKey: null,
+        planStepKey: null,
+        requestedByUserId: null,
+        homeDirectory: '/tmp/kiditem-run/mcp-home',
+      }),
+    ).rejects.toMatchObject({ code: 'agent_api_url_invalid' });
+    expect(grants.issue).not.toHaveBeenCalled();
   });
 });
