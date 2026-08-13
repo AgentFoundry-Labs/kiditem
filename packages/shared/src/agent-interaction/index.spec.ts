@@ -75,7 +75,7 @@ const replay = {
 const connectionAuthorization = {
   session,
   contextEpoch: 1,
-  replay,
+  replay: { ...replay, nextCursor: null },
   liveJoinToken: 'live-join-token-that-is-at-least-32-bytes',
   liveJoinExpiresAt: '2026-08-13T00:00:15.000Z',
 } as const;
@@ -383,6 +383,36 @@ describe('agent interaction contracts', () => {
     ).toThrow();
   });
 
+  it('validates versioned event content independently before persistence assigns envelope fields', () => {
+    const schema = exportedSchema('AgentConversationEventContentSchema');
+
+    expect(
+      schema.parse({
+        eventType: 'assistant_message',
+        schemaVersion: 1,
+        payload: { messageId: 'message-2', content: '재고는 10개입니다.' },
+      }),
+    ).toEqual({
+      eventType: 'assistant_message',
+      schemaVersion: 1,
+      payload: { messageId: 'message-2', content: '재고는 10개입니다.' },
+    });
+    expect(() =>
+      schema.parse({
+        eventType: 'assistant_message',
+        schemaVersion: 1,
+        payload: { code: 'wrong_payload', content: 'not a message' },
+      }),
+    ).toThrow();
+    expect(() =>
+      schema.parse({
+        eventType: 'assistant_message',
+        schemaVersion: 2,
+        payload: { messageId: 'message-2', content: 'unsupported' },
+      }),
+    ).toThrow();
+  });
+
   it('returns bounded replay with opaque cursors and lossless decimal sequences', () => {
     const schema = exportedSchema('AgentConversationReplaySchema');
 
@@ -439,6 +469,14 @@ describe('agent interaction contracts', () => {
     const schema = AgentInteraction.AguiConnectionAuthorizationSchema;
 
     expect(schema.parse(connectionAuthorization)).toEqual(connectionAuthorization);
+    expect(
+      schema.parse({
+        ...connectionAuthorization,
+        replay: { ...replay, nextCursor: 'opaque-replay-cursor' },
+        liveJoinToken: null,
+        liveJoinExpiresAt: null,
+      }),
+    ).toBeTruthy();
 
     for (const invalidAuthorization of [
       { ...connectionAuthorization, contextEpoch: 0 },

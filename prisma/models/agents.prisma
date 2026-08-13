@@ -85,7 +85,7 @@ model AgentSessionTask {
   finishedAt             DateTime? @map("finished_at") @db.Timestamptz
 
   session              AgentSession       @relation("AgentSessionTasks", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  parent               AgentSessionTask?  @relation("AgentSessionTaskHierarchy", fields: [parentTaskId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  parent               AgentSessionTask?  @relation("AgentSessionTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   children             AgentSessionTask[] @relation("AgentSessionTaskHierarchy")
   assignedAgentVersion AgentVersion       @relation("AgentSessionTaskAssignedVersion", fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
   executions           AgentExecution[]   @relation("AgentSessionTaskExecutions")
@@ -93,9 +93,10 @@ model AgentSessionTask {
   @@unique([sessionId, idempotencyKey], map: "agent_session_tasks_session_idempotency_key")
   @@unique([sessionId], map: "agent_session_tasks_one_root_key", where: raw("is_root = true"))
   @@unique([id, organizationId], map: "agent_session_tasks_id_org_key")
+  @@unique([id, sessionId, organizationId], map: "agent_session_tasks_id_session_org_key")
   @@index([organizationId, sessionId, status])
   @@index([sessionId, organizationId])
-  @@index([parentTaskId, organizationId])
+  @@index([parentTaskId, sessionId, organizationId])
   @@index([assignedAgentVersionId])
   @@map("agent_session_tasks")
 }
@@ -138,6 +139,7 @@ model AgentPolicySnapshot {
   executions   AgentExecution[] @relation("AgentExecutionPolicySnapshot")
 
   @@unique([id, organizationId], map: "agent_policy_snapshots_id_org_key")
+  @@unique([id, sessionId, organizationId], map: "agent_policy_snapshots_id_session_org_key")
   @@unique([organizationId, sessionId, agentVersionId, authorityProfileVersionId, policyHash], map: "agent_policy_snapshots_deterministic_key")
   @@index([organizationId, agentVersionId, createdAt])
   @@index([sessionId, organizationId])
@@ -167,19 +169,20 @@ model AgentExecution {
 
   organization   Organization             @relation("AgentExecutionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
   session        AgentSession             @relation("AgentSessionExecutions", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  sessionTask    AgentSessionTask         @relation("AgentSessionTaskExecutions", fields: [sessionTaskId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sessionTask    AgentSessionTask         @relation("AgentSessionTaskExecutions", fields: [sessionTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   agentVersion   AgentVersion             @relation("AgentExecutionAgentVersion", fields: [agentVersionId], references: [id], onDelete: Restrict)
-  policySnapshot AgentPolicySnapshot      @relation("AgentExecutionPolicySnapshot", fields: [policySnapshotId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  policySnapshot AgentPolicySnapshot      @relation("AgentExecutionPolicySnapshot", fields: [policySnapshotId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   events         AgentConversationEvent[] @relation("AgentExecutionEvents")
   usage          AgentExecutionUsage[]    @relation("AgentExecutionUsages")
 
   @@unique([id, organizationId], map: "agent_executions_id_org_key")
+  @@unique([id, sessionId, organizationId], map: "agent_executions_id_session_org_key")
   @@unique([organizationId, copilotThreadId, aguiRunId], map: "agent_executions_org_thread_agui_run_key")
   @@index([organizationId, sessionId, status])
   @@index([sessionId, organizationId])
-  @@index([sessionTaskId, organizationId])
+  @@index([sessionTaskId, sessionId, organizationId])
   @@index([agentVersionId])
-  @@index([policySnapshotId, organizationId])
+  @@index([policySnapshotId, sessionId, organizationId])
   @@map("agent_executions")
 }
 
@@ -198,7 +201,7 @@ model AgentConversationEvent {
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   session   AgentSession             @relation("AgentSessionEvents", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  execution AgentExecution?          @relation("AgentExecutionEvents", fields: [executionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  execution AgentExecution?          @relation("AgentExecutionEvents", fields: [executionId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   outbox    AgentConversationOutbox? @relation("AgentConversationEventOutbox")
 
   @@unique([sessionId, sequence], map: "agent_conversation_events_session_sequence_key")
@@ -206,7 +209,7 @@ model AgentConversationEvent {
   @@unique([id, organizationId], map: "agent_conversation_events_id_org_key")
   @@index([organizationId, sessionId, createdAt])
   @@index([sessionId, organizationId])
-  @@index([executionId, organizationId])
+  @@index([executionId, sessionId, organizationId])
   @@map("agent_conversation_events")
 }
 

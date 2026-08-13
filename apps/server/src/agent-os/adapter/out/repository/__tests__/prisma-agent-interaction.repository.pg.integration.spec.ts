@@ -223,34 +223,34 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
   });
 
   it.each([
-    ['input hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, inputHash: 'changed' })],
+    ['input hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, inputHash: 'changed' }), 'INTERACTION_RUN_CONFLICT'],
     ['external event id', (input: ReturnType<typeof firstRunInput>) => ({
       ...input,
       userEvent: { ...input.userEvent, externalEventId: 'changed-event-id' },
-    })],
+    }), 'INTERACTION_RUN_CONFLICT'],
     ['schema version', (input: ReturnType<typeof firstRunInput>) => ({
       ...input,
       userEvent: { ...input.userEvent, schemaVersion: 2 },
-    })],
+    }), 'INTERACTION_EVENT_ENVELOPE_INVALID'],
     ['canonical payload', (input: ReturnType<typeof firstRunInput>) => ({
       ...input,
       userEvent: {
         ...input.userEvent,
         payload: { ...input.userEvent.payload, content: '변경된 요청' },
       },
-    })],
-    ['runtime', (input: ReturnType<typeof firstRunInput>) => ({ ...input, runtimeType: 'changed' })],
-    ['model', (input: ReturnType<typeof firstRunInput>) => ({ ...input, modelIdentity: 'changed' })],
+    }), 'INTERACTION_RUN_CONFLICT'],
+    ['runtime', (input: ReturnType<typeof firstRunInput>) => ({ ...input, runtimeType: 'changed' }), 'INTERACTION_RUN_CONFLICT'],
+    ['model', (input: ReturnType<typeof firstRunInput>) => ({ ...input, modelIdentity: 'changed' }), 'INTERACTION_RUN_CONFLICT'],
     ['authority profile', (input: ReturnType<typeof firstRunInput>) => ({
       ...input,
       authorityProfileVersionId: 'changed',
-    })],
+    }), 'INTERACTION_RUN_CONFLICT'],
     ['capabilities', (input: ReturnType<typeof firstRunInput>) => ({
       ...input,
       capabilityKeys: ['catalog.read', 'catalog.write'],
-    })],
-    ['policy hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, policyHash: 'changed' })],
-  ])('rejects exact run reuse with changed %s', async (_label, mutate) => {
+    }), 'INTERACTION_RUN_CONFLICT'],
+    ['policy hash', (input: ReturnType<typeof firstRunInput>) => ({ ...input, policyHash: 'changed' }), 'INTERACTION_RUN_CONFLICT'],
+  ])('rejects exact run reuse with changed %s', async (_label, mutate, expectedCode) => {
     const input = firstRunInput({
       copilotThreadId: 'thread-run-conflict',
       aguiRunId: 'run-conflict',
@@ -258,7 +258,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     const first = await repository.authorizeExecution(input);
 
     await expect(repository.authorizeExecution(mutate(input) as never)).rejects.toMatchObject({
-      code: 'INTERACTION_RUN_CONFLICT',
+      code: expectedCode,
     });
     const exactWithReorderedPayload = {
       ...input,
@@ -381,14 +381,14 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
 
     expect(retry.id).toBe(event.id);
     expect(retry.sequence).toBe(event.sequence);
-    for (const mismatch of [
-      { ...input, executionId: null },
-      { ...input, eventType: 'system_notice' as const, payload: { code: 'changed', content: 'answer' } },
-      { ...input, schemaVersion: 2 },
-      { ...input, payload: { messageId: 'assistant-retry', content: 'changed' } },
+    for (const [mismatch, expectedCode] of [
+      [{ ...input, executionId: null }, 'INTERACTION_EVENT_CONFLICT'],
+      [{ ...input, eventType: 'system_notice' as const, payload: { code: 'changed', content: 'answer' } }, 'INTERACTION_EVENT_CONFLICT'],
+      [{ ...input, schemaVersion: 2 }, 'INTERACTION_EVENT_ENVELOPE_INVALID'],
+      [{ ...input, payload: { messageId: 'assistant-retry', content: 'changed' } }, 'INTERACTION_EVENT_CONFLICT'],
     ]) {
       await expect(repository.appendExecutionEvent(mismatch as never)).rejects.toMatchObject({
-        code: 'INTERACTION_EVENT_CONFLICT',
+        code: expectedCode,
       });
     }
     await expect(prisma.agentConversationEvent.count({
@@ -397,6 +397,47 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     await expect(prisma.agentConversationOutbox.count({
       where: { eventId: event.id },
     })).resolves.toBe(1);
+  });
+
+  it.each([
+    {
+      label: 'event and payload discriminant mismatch',
+      eventType: 'assistant_message',
+      schemaVersion: 1,
+      payload: { code: 'wrong_payload', content: 'not an assistant message' },
+    },
+    {
+      label: 'unsupported event schema version',
+      eventType: 'assistant_message',
+      schemaVersion: 2,
+      payload: { messageId: 'unsupported-version', content: 'unsupported' },
+    },
+  ])('rejects $label before sequence allocation or storage', async (invalid) => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: `thread-${invalid.schemaVersion}-${invalid.label}`,
+      aguiRunId: `run-${invalid.schemaVersion}-${invalid.label}`,
+    }));
+    const before = await tableCounts(prisma);
+    const beforeHead = first.session.lastEventSequence;
+
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: `invalid-${invalid.schemaVersion}-${invalid.label}`,
+      eventType: invalid.eventType,
+      schemaVersion: invalid.schemaVersion,
+      payload: invalid.payload,
+    } as never)).rejects.toMatchObject({
+      code: 'INTERACTION_EVENT_ENVELOPE_INVALID',
+    });
+
+    expect(await tableCounts(prisma)).toEqual(before);
+    await expect(prisma.agentSession.findUniqueOrThrow({
+      where: { id: first.session.id },
+      select: { lastEventSequence: true },
+    })).resolves.toEqual({ lastEventSequence: beforeHead });
   });
 
   it('reconciles a terminal event atomically and refuses contradictory or second transitions', async () => {
@@ -661,7 +702,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     });
 
     expect(page.events.map((event) => event.sequence)).toEqual([2n, 3n]);
-    expect(page.lastSequence).toBe(4n);
+    expect(page.lastSequence).toBe(3n);
     expect(page.hasMore).toBe(true);
     expect(await tableCounts(prisma)).toEqual(before);
     await expect(repository.readConversationEvents({
@@ -791,6 +832,67 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     ];
 
     for (const write of crossOrganizationWrites) {
+      await expect(write()).rejects.toMatchObject({ code: 'P2003' });
+    }
+  });
+
+  it('rejects same-organization references across canonical sessions', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const own = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-same-org-fk-own',
+      aguiRunId: 'run-same-org-fk-own',
+    }));
+    const other = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-same-org-fk-other',
+      aguiRunId: 'run-same-org-fk-other',
+    }));
+
+    const crossSessionWrites = [
+      () => prisma!.agentSessionTask.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          parentTaskId: other.rootTask.id,
+          assignedAgentVersionId: AGENT_VERSION_ID,
+          objective: 'must remain in one session',
+          isRoot: false,
+          status: 'interpreting',
+          idempotencyKey: 'cross-session-parent',
+        },
+      }),
+      () => prisma!.agentExecution.create({
+        data: directExecutionData({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          sessionTaskId: other.rootTask.id,
+          policySnapshotId: own.policy.id,
+          suffix: 'same-org-foreign-task',
+        }),
+      }),
+      () => prisma!.agentExecution.create({
+        data: directExecutionData({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          sessionTaskId: own.rootTask.id,
+          policySnapshotId: other.policy.id,
+          suffix: 'same-org-foreign-policy',
+        }),
+      }),
+      () => prisma!.agentConversationEvent.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: own.session.id,
+          executionId: other.execution.id,
+          externalEventId: 'same-org-foreign-execution',
+          sequence: 100n,
+          eventType: 'system_notice',
+          schemaVersion: 1,
+          payload: { code: 'notice', content: 'notice' },
+        },
+      }),
+    ];
+
+    for (const write of crossSessionWrites) {
       await expect(write()).rejects.toMatchObject({ code: 'P2003' });
     }
   });

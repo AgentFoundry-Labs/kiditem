@@ -380,21 +380,67 @@ describe('AgentInteractionIdentityService connection authorization', () => {
     });
     const repeated = await service.authorizeConnection({ ...identity, copilotThreadId: THREAD_ID, cursor: null });
     expect(repeated.liveJoinToken).toBe(result.liveJoinToken);
+    expect(decodeClaims(result.liveJoinToken!)).toMatchObject({
+      afterSequence: '1',
+    });
     expectNoWrites(repository);
   });
 
-  it('returns a scoped 15-minute cursor only when more events exist', async () => {
-    const first = buildService({ page: { events: [], lastSequence: 9n, hasMore: true } });
+  it('paginates actual events at the last delivered sequence and withholds live join until history is exhausted', async () => {
+    const secondEvent = {
+      ...authorization.userEvent,
+      id: 'event-2',
+      sequence: 2n,
+      eventType: 'assistant_message' as const,
+      payload: { messageId: 'message-2', content: 'answer-2' },
+    };
+    const thirdEvent = {
+      ...secondEvent,
+      id: 'event-3',
+      sequence: 3n,
+      payload: { messageId: 'message-3', content: 'answer-3' },
+    };
+    const first = buildService({
+      page: {
+        events: [authorization.userEvent, secondEvent],
+        lastSequence: 2n,
+        hasMore: true,
+      },
+    });
     const result = await first.service.authorizeConnection({ ...identity, copilotThreadId: THREAD_ID });
+    expect(result.replay.events.map((event) => event.sequence)).toEqual(['1', '2']);
     expect(result.replay.nextCursor).toEqual(expect.any(String));
     expect(decodeClaims(result.replay.nextCursor!)).toMatchObject({
       organizationId: ORGANIZATION_ID, userId: USER_ID, sessionId: session.id,
-      copilotThreadId: THREAD_ID, afterSequence: '9',
+      copilotThreadId: THREAD_ID, afterSequence: '2',
       expiresAtMs: NOW.getTime() + 15 * 60_000,
     });
-    const second = buildService({ page: { events: [], lastSequence: 9n, hasMore: false } });
-    await expect(second.service.authorizeConnection({ ...identity, copilotThreadId: THREAD_ID }))
-      .resolves.toMatchObject({ replay: { nextCursor: null } });
+    expect(result.liveJoinToken).toBeNull();
+    expect(result.liveJoinExpiresAt).toBeNull();
+
+    const second = buildService({
+      page: { events: [thirdEvent], lastSequence: 3n, hasMore: false },
+    });
+    const final = await second.service.authorizeConnection({
+      ...identity,
+      copilotThreadId: THREAD_ID,
+      cursor: result.replay.nextCursor,
+    });
+    expect(final.replay).toMatchObject({
+      events: [expect.objectContaining({ sequence: '3' })],
+      nextCursor: null,
+      lastSequence: '3',
+    });
+    expect(final.liveJoinToken).toEqual(expect.any(String));
+    expect(final.liveJoinExpiresAt).toBe('2026-08-13T00:00:15.000Z');
+    expect(decodeClaims(final.liveJoinToken!)).toMatchObject({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      sessionId: session.id,
+      copilotThreadId: THREAD_ID,
+      contextEpoch: 1,
+      afterSequence: '3',
+    });
   });
 
   it.each(['completed', 'cancelled', 'archived'] as const)(

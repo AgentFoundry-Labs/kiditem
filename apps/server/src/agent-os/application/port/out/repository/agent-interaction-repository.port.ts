@@ -1,5 +1,6 @@
 import type {
   AgentConversationEventEnvelope,
+  AgentConversationEventContent,
   AgentConversationEventType,
   AgentSessionSummary,
   MessageEventPayload,
@@ -186,16 +187,16 @@ export type AppendExecutionTerminalInput = Omit<
   'organizationId' | 'id'
 >;
 
-export interface AppendExecutionEventInput {
+interface AppendExecutionEventInputBase {
   organizationId: string;
   sessionId: string;
   executionId: string | null;
   externalEventId: string;
-  eventType: AgentConversationEventType;
-  schemaVersion: number;
-  payload: AgentConversationEventPayload;
   terminal?: AppendExecutionTerminalInput;
 }
+
+export type AppendExecutionEventInput = AppendExecutionEventInputBase &
+  AgentConversationEventContent;
 
 export interface RecordAgentExecutionUsageInput {
   organizationId: string;

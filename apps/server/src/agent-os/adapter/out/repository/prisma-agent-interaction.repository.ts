@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AgentConversationEventContentSchema } from '@kiditem/shared/agent-interaction';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import type {
   ActiveAgentVersionRecord,
@@ -236,9 +237,10 @@ implements AgentInteractionRepositoryPort {
       orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
       take: limit + 1,
     });
+    const pageRows = rows.slice(0, limit);
     return {
-      events: rows.slice(0, limit).map(mapEvent),
-      lastSequence: session.lastEventSequence,
+      events: pageRows.map(mapEvent),
+      lastSequence: pageRows.at(-1)?.sequence ?? input.afterSequence,
       hasMore: rows.length > limit,
     };
   }
@@ -246,6 +248,11 @@ implements AgentInteractionRepositoryPort {
   async authorizeExecution(
     input: AuthorizeAgentExecutionInput,
   ): Promise<AuthorizedExecutionRecord> {
+    validateConversationEventContent({
+      eventType: 'user_message',
+      schemaVersion: input.userEvent.schemaVersion,
+      payload: input.userEvent.payload,
+    });
     try {
       return await this.prisma.$transaction(async (tx) => {
         await acquireAuthorizationLock(tx, input);
@@ -367,6 +374,7 @@ implements AgentInteractionRepositoryPort {
   async appendExecutionEvent(
     input: AppendExecutionEventInput,
   ): Promise<AgentConversationEventRecord> {
+    validateConversationEventContent(input);
     try {
       return await this.prisma.$transaction(async (tx) => {
         let session = await lockSessionById(
@@ -795,6 +803,24 @@ function validateTerminalEnvelope(input: AppendExecutionEventInput): void {
     payload.errorCode !== input.terminal.errorCode
   ) {
     throw interactionTerminalInvalid();
+  }
+}
+
+function validateConversationEventContent(input: {
+  eventType: unknown;
+  schemaVersion: unknown;
+  payload: unknown;
+}): void {
+  const parsed = AgentConversationEventContentSchema.safeParse({
+    eventType: input.eventType,
+    schemaVersion: input.schemaVersion,
+    payload: input.payload,
+  });
+  if (!parsed.success) {
+    throw new AgentOsBoundaryError(
+      'INTERACTION_EVENT_ENVELOPE_INVALID',
+      'Interaction event type, schema version, and payload must match.',
+    );
   }
 }
 

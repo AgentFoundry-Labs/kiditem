@@ -212,74 +212,84 @@ export const RunTerminalEventPayloadSchema = z
   })
   .strict();
 
-const conversationEventBaseShape = {
+const conversationEventEnvelopeShape = {
   eventId: z.string().min(1),
   sessionId: z.string().min(1),
   executionId: z.string().min(1).nullable(),
   sequence: positiveDecimalStringSchema,
-  schemaVersion: z.literal(1),
   createdAt: z.string().datetime(),
 };
+
+const eventContentSchema = <
+  const EventType extends z.infer<typeof AgentConversationEventTypeSchema>,
+  Payload extends z.ZodTypeAny,
+>(eventType: EventType, payload: Payload) =>
+  z
+    .object({
+      eventType: z.literal(eventType),
+      schemaVersion: z.literal(1),
+      payload,
+    })
+    .strict();
+
+const userMessageEventContentSchema = eventContentSchema(
+  'user_message',
+  MessageEventPayloadSchema,
+);
+const assistantMessageEventContentSchema = eventContentSchema(
+  'assistant_message',
+  MessageEventPayloadSchema,
+);
+const systemNoticeEventContentSchema = eventContentSchema(
+  'system_notice',
+  SystemNoticeEventPayloadSchema,
+);
+const toolActivityEventContentSchema = eventContentSchema(
+  'tool_activity',
+  ToolActivityEventPayloadSchema,
+);
+const stateSnapshotEventContentSchema = eventContentSchema(
+  'state_snapshot',
+  StateSnapshotEventPayloadSchema,
+);
+const hitlRequestEventContentSchema = eventContentSchema(
+  'hitl_request',
+  HitlRequestEventPayloadSchema,
+);
+const hitlDecisionEventContentSchema = eventContentSchema(
+  'hitl_decision',
+  HitlDecisionEventPayloadSchema,
+);
+const runTerminalEventContentSchema = eventContentSchema(
+  'run_terminal',
+  RunTerminalEventPayloadSchema,
+);
+
+export const AgentConversationEventContentSchema = z.discriminatedUnion(
+  'eventType',
+  [
+    userMessageEventContentSchema,
+    assistantMessageEventContentSchema,
+    systemNoticeEventContentSchema,
+    toolActivityEventContentSchema,
+    stateSnapshotEventContentSchema,
+    hitlRequestEventContentSchema,
+    hitlDecisionEventContentSchema,
+    runTerminalEventContentSchema,
+  ],
+);
 
 export const AgentConversationEventEnvelopeSchema = z.discriminatedUnion(
   'eventType',
   [
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('user_message'),
-        payload: MessageEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('assistant_message'),
-        payload: MessageEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('system_notice'),
-        payload: SystemNoticeEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('tool_activity'),
-        payload: ToolActivityEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('state_snapshot'),
-        payload: StateSnapshotEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('hitl_request'),
-        payload: HitlRequestEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('hitl_decision'),
-        payload: HitlDecisionEventPayloadSchema,
-      })
-      .strict(),
-    z
-      .object({
-        ...conversationEventBaseShape,
-        eventType: z.literal('run_terminal'),
-        payload: RunTerminalEventPayloadSchema,
-      })
-      .strict(),
+    userMessageEventContentSchema.extend(conversationEventEnvelopeShape),
+    assistantMessageEventContentSchema.extend(conversationEventEnvelopeShape),
+    systemNoticeEventContentSchema.extend(conversationEventEnvelopeShape),
+    toolActivityEventContentSchema.extend(conversationEventEnvelopeShape),
+    stateSnapshotEventContentSchema.extend(conversationEventEnvelopeShape),
+    hitlRequestEventContentSchema.extend(conversationEventEnvelopeShape),
+    hitlDecisionEventContentSchema.extend(conversationEventEnvelopeShape),
+    runTerminalEventContentSchema.extend(conversationEventEnvelopeShape),
   ],
 );
 
@@ -304,10 +314,22 @@ export const AguiConnectionAuthorizationSchema = z
     session: AgentSessionSummarySchema,
     contextEpoch: z.number().int().positive(),
     replay: AgentConversationReplaySchema,
-    liveJoinToken: z.string().min(32).max(4096),
-    liveJoinExpiresAt: z.string().datetime(),
+    liveJoinToken: z.string().min(32).max(4096).nullable(),
+    liveJoinExpiresAt: z.string().datetime().nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const historyComplete = value.replay.nextCursor === null;
+    const hasLiveJoin =
+      value.liveJoinToken !== null && value.liveJoinExpiresAt !== null;
+    if (historyComplete !== hasLiveJoin) {
+      context.addIssue({
+        code: 'custom',
+        message: 'live join is available only after replay history is complete',
+        path: ['liveJoinToken'],
+      });
+    }
+  });
 
 export type InteractionPrincipal = z.infer<typeof InteractionPrincipalSchema>;
 export type AllowedAgent = z.infer<typeof AllowedAgentSchema>;
@@ -342,6 +364,9 @@ export type RunTerminalEventPayload = z.infer<
 >;
 export type AgentConversationEventEnvelope = z.infer<
   typeof AgentConversationEventEnvelopeSchema
+>;
+export type AgentConversationEventContent = z.infer<
+  typeof AgentConversationEventContentSchema
 >;
 export type AgentConversationReplay = z.infer<
   typeof AgentConversationReplaySchema

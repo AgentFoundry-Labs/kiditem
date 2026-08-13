@@ -97,6 +97,7 @@ const LiveJoinClaimsSchema = z
     sessionId: z.string().min(1),
     copilotThreadId: z.string().min(1),
     contextEpoch: z.number().int().positive(),
+    afterSequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
     expiresAtMs: z.number().int().positive(),
   })
   .strict();
@@ -327,31 +328,28 @@ export class AgentInteractionIdentityService {
           REPLAY_CURSOR_DOMAIN,
         )
       : null;
-    const liveJoinExpiresAt = new Date(
-      this.now().getTime() + LIVE_JOIN_TTL_MS,
-    );
-    const liveJoinToken = signClaims(
-      {
-        version: 1 as const,
-        organizationId: input.organizationId,
-        userId: input.userId,
-        sessionId: session.id,
-        copilotThreadId: input.copilotThreadId,
-        contextEpoch: session.contextEpoch,
-        expiresAtMs: liveJoinExpiresAt.getTime(),
-      },
-      this.replayCursorHmacKey,
-      LIVE_JOIN_DOMAIN,
-    );
-    verifyLocalClaims(LiveJoinClaimsSchema, {
-      version: 1,
-      organizationId: input.organizationId,
-      userId: input.userId,
-      sessionId: session.id,
-      copilotThreadId: input.copilotThreadId,
-      contextEpoch: session.contextEpoch,
-      expiresAtMs: liveJoinExpiresAt.getTime(),
-    });
+    const liveJoinExpiresAt = page.hasMore
+      ? null
+      : new Date(this.now().getTime() + LIVE_JOIN_TTL_MS);
+    const liveJoinClaims = liveJoinExpiresAt
+      ? verifyLocalClaims(LiveJoinClaimsSchema, {
+          version: 1,
+          organizationId: input.organizationId,
+          userId: input.userId,
+          sessionId: session.id,
+          copilotThreadId: input.copilotThreadId,
+          contextEpoch: session.contextEpoch,
+          afterSequence: page.lastSequence.toString(),
+          expiresAtMs: liveJoinExpiresAt.getTime(),
+        })
+      : null;
+    const liveJoinToken = liveJoinClaims
+      ? signClaims(
+          liveJoinClaims,
+          this.replayCursorHmacKey,
+          LIVE_JOIN_DOMAIN,
+        )
+      : null;
 
     return parseShared(AguiConnectionAuthorizationSchema, {
       session: sessionSummary(session, version.agentDefinitionKey),
@@ -374,7 +372,7 @@ export class AgentInteractionIdentityService {
         lastSequence: page.lastSequence.toString(),
       },
       liveJoinToken,
-      liveJoinExpiresAt: liveJoinExpiresAt.toISOString(),
+      liveJoinExpiresAt: liveJoinExpiresAt?.toISOString() ?? null,
     });
   }
 
