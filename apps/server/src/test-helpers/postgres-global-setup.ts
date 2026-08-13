@@ -59,7 +59,7 @@ const setup = createPostgresGlobalSetup({
     .withPassword('kiditem_test')
     .start(),
   pushSchema: (databaseUrl) => {
-    const prismaArgs = ['db', 'push', '--accept-data-loss'];
+    const prismaArgs = ['db', 'push'];
 
     execFileSync(process.platform === 'win32' ? 'npx.cmd' : 'npx', ['prisma', ...prismaArgs], {
       cwd: repoRoot,

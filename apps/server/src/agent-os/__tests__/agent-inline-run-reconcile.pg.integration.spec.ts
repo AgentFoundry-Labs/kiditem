@@ -135,11 +135,12 @@ describe('Agent OS inline dashboard interruption lifecycle', () => {
       label: 'unrelated',
       source: 'test.generic',
     });
+    const startupCutoff = new Date(Date.now() + 1_000);
 
     const interrupted = await repository.failInterruptedInlineRuns({
       source: 'sourcing_dashboard',
       requestStatuses: ['pending', 'claimed', 'requires_approval'],
-      createdBefore: new Date('2026-08-11T00:00:00.000Z'),
+      createdBefore: startupCutoff,
       errorCode: 'process_interrupted',
       errorMessage: 'Inline process interrupted.',
       limit: 100,
