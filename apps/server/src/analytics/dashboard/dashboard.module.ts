@@ -1,8 +1,9 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
-
+import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { DashboardController } from './adapter/in/http/dashboard.controller';
-
+import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
+import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 // adapter/out/repository
 import { ProfitCalculationRepositoryAdapter } from './adapter/out/repository/profit-calculation.repository.adapter';
 import { AdAggregationRepositoryAdapter } from './adapter/out/repository/ad-aggregation.repository.adapter';
@@ -13,14 +14,12 @@ import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashbo
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
 import { RocketRevenueRepositoryAdapter } from './adapter/out/repository/rocket-revenue.repository.adapter';
-
 // application/service
 import { DashboardContextService } from './application/service/dashboard-context.service';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
 import { DashboardInventoryService } from './application/service/dashboard-inventory.service';
 import { DashboardTrendService } from './application/service/dashboard-trend.service';
-
 // application/port/out tokens
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
 import { AD_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/ad-aggregation.repository.port';
@@ -48,7 +47,7 @@ const REPOSITORY_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, AgentOsModule],
   controllers: [DashboardController],
   providers: [
     // adapter/out/repository
@@ -67,6 +66,11 @@ const REPOSITORY_PORT_BINDINGS = [
     DashboardAdService,
     DashboardInventoryService,
     DashboardTrendService,
+    AnalyticsOverviewCapabilityAdapter,
+    {
+      provide: ANALYTICS_OVERVIEW_CAPABILITY_PORT,
+      useExisting: AnalyticsOverviewCapabilityAdapter,
+    },
     // port bindings
     ...REPOSITORY_PORT_BINDINGS,
   ],

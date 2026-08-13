@@ -166,6 +166,41 @@ export interface ConversationEventPage {
   hasMore: boolean;
 }
 
+export interface AgentExecutionRuntimeContext {
+  organizationId: string;
+  userId: string;
+  agentDefinitionKey: string;
+  sessionId: string;
+  sessionTaskId: string;
+  executionId: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  agentVersionId: string;
+  runtimeType: string;
+  modelIdentity: string;
+  policySnapshotId: string;
+  contextEpoch: number;
+  lifecycle: AgentSessionSummary['lifecycle'];
+  capabilityKeys: string[];
+  initialUserEvent: AgentConversationEventRecord;
+}
+
+export interface ModelConversationPage {
+  events: AgentConversationEventRecord[];
+  hasMore: boolean;
+}
+
+export interface CurrentAgentExecution {
+  organizationId: string;
+  agentDefinitionKey: string;
+  sessionId: string;
+  executionId: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  runtimeType: string;
+  status: string;
+}
+
 interface AgentExecutionTerminalInputBase {
   organizationId: string;
   id: string;
@@ -226,6 +261,18 @@ export interface AgentInteractionRepositoryPort {
   authorizeExecution(
     input: AuthorizeAgentExecutionInput,
   ): Promise<AuthorizedExecutionRecord>;
+  loadExecutionRuntimeContext(input: {
+    executionId: string;
+  }): Promise<AgentExecutionRuntimeContext | null>;
+  readModelConversation(input: {
+    organizationId: string;
+    sessionId: string;
+    throughSequence: bigint;
+    limit: number;
+  }): Promise<ModelConversationPage>;
+  findCurrentExecution(input: {
+    executionId: string;
+  }): Promise<CurrentAgentExecution | null>;
   appendExecutionEvent(
     input: AppendExecutionEventInput,
   ): Promise<AgentConversationEventRecord>;

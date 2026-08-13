@@ -51,7 +51,12 @@ const agentVersion: ActiveAgentVersionRecord = {
   description: 'KidItem operator',
   runtimeType: 'copilotkit_agui',
   modelIdentity: 'gpt-5.4',
-  capabilityKeys: ['agent_os.platform_probe'],
+  capabilityKeys: [
+    'agent_os.platform_probe',
+    'analytics.readOverview',
+    'sourcing.retrieveWorkspaceEvidence',
+    'sourcing.inspectRecommendationRun',
+  ],
   policyDocument: { mode: 'read_only' },
   activatedAt: NOW,
   retiredAt: null,
@@ -89,7 +94,12 @@ const authorization: AuthorizedExecutionRecord = {
     id: 'policy-1', organizationId: ORGANIZATION_ID, sessionId: session.id,
     agentVersionId: VERSION_ID,
     authorityProfileVersionId: 'foundation_read_only_probe:v1',
-    capabilityKeys: ['agent_os.platform_probe'], policyHash: 'policy-hash',
+    capabilityKeys: [
+      'agent_os.platform_probe',
+      'analytics.readOverview',
+      'sourcing.retrieveWorkspaceEvidence',
+      'sourcing.inspectRecommendationRun',
+    ], policyHash: 'policy-hash',
     createdAt: NOW,
   },
   execution: {
@@ -336,11 +346,27 @@ describe('AgentInteractionIdentityService run intent', () => {
       agentVersionId: VERSION_ID, runtimeType: agentVersion.runtimeType,
       modelIdentity: agentVersion.modelIdentity,
       authorityProfileVersionId: 'foundation_read_only_probe:v1',
-      capabilityKeys: ['agent_os.platform_probe'],
+      capabilityKeys: [
+        'agent_os.platform_probe',
+        'analytics.readOverview',
+        'sourcing.retrieveWorkspaceEvidence',
+        'sourcing.inspectRecommendationRun',
+      ],
       policyHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       inputHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       userEvent,
     }));
+  });
+
+  it('rejects an active Operator version that does not declare the exact immutable profile', async () => {
+    const { repository, service } = buildService({
+      versions: [{ ...agentVersion, capabilityKeys: ['agent_os.platform_probe'] }],
+    });
+
+    await expect(service.prepareRunIntent(prepareInput())).rejects.toMatchObject({
+      code: 'AGENT_POLICY_NOT_CONFIGURED',
+    });
+    expectNoWrites(repository);
   });
 
   it('propagates a repository idempotency conflict', async () => {

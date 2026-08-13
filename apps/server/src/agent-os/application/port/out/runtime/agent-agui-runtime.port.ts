@@ -1,0 +1,47 @@
+import type { BaseEvent } from '@ag-ui/core';
+import type { AgentCapabilityExecutionResult } from '../capability/agent-capability-handler.port';
+
+export interface AgentAguiRuntimeMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'tool';
+  content: string;
+}
+
+export interface AgentAguiRuntimeInput {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  sessionTaskId: string;
+  executionId: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  agentDefinitionKey: string;
+  runtimeType: string;
+  modelIdentity: string;
+  capabilityKeys: string[];
+  messages: AgentAguiRuntimeMessage[];
+  dashboardContext: unknown;
+  invokeCapability(
+    key: string,
+    input: Record<string, unknown>,
+  ): Promise<AgentCapabilityExecutionResult>;
+  recordUsage(input: {
+    provider: string;
+    inputTokens: number;
+    outputTokens: number;
+    costMicros: bigint;
+  }): Promise<void>;
+}
+
+export interface AgentAguiRuntimeStopInput {
+  organizationId: string;
+  sessionId: string;
+  executionId: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+}
+
+export interface AgentAguiRuntimeAdapter {
+  run(input: AgentAguiRuntimeInput): AsyncIterable<BaseEvent>;
+  stop?(input: AgentAguiRuntimeStopInput): Promise<boolean>;
+}

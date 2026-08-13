@@ -13,6 +13,9 @@ import type {
   AgentConversationEventRecord,
   AgentExecutionRecord,
   AgentInteractionRepositoryPort,
+  AgentExecutionRuntimeContext,
+  CurrentAgentExecution,
+  ModelConversationPage,
   AgentPolicySnapshotRecord,
   AgentSessionRecord,
   AgentSessionSummaryRecord,
@@ -459,6 +462,118 @@ implements AgentInteractionRepositoryPort {
     }
   }
 
+  async loadExecutionRuntimeContext(input: {
+    executionId: string;
+  }): Promise<AgentExecutionRuntimeContext | null> {
+    const execution = await this.prisma.agentExecution.findUnique({
+      where: { id: input.executionId },
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        sessionTaskId: true,
+        copilotThreadId: true,
+        aguiRunId: true,
+        agentVersionId: true,
+        runtimeType: true,
+        modelIdentity: true,
+        policySnapshotId: true,
+        session: {
+          select: {
+            createdByUserId: true,
+            contextEpoch: true,
+            lifecycle: true,
+          },
+        },
+        policySnapshot: { select: { capabilityKeys: true } },
+        agentVersion: { select: { agentDefinitionKey: true } },
+      },
+    });
+    if (!execution) return null;
+    const initialUserEvent = await this.prisma.agentConversationEvent.findFirst({
+      where: {
+        organizationId: execution.organizationId,
+        sessionId: execution.sessionId,
+        executionId: execution.id,
+        eventType: 'user_message',
+      },
+      select: eventSelect,
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+    });
+    if (!initialUserEvent) return null;
+    return {
+      organizationId: execution.organizationId,
+      userId: execution.session.createdByUserId,
+      agentDefinitionKey: execution.agentVersion.agentDefinitionKey,
+      sessionId: execution.sessionId,
+      sessionTaskId: execution.sessionTaskId,
+      executionId: execution.id,
+      copilotThreadId: execution.copilotThreadId,
+      aguiRunId: execution.aguiRunId,
+      agentVersionId: execution.agentVersionId,
+      runtimeType: execution.runtimeType,
+      modelIdentity: execution.modelIdentity,
+      policySnapshotId: execution.policySnapshotId,
+      contextEpoch: execution.session.contextEpoch,
+      lifecycle: sessionLifecycle(execution.session.lifecycle),
+      capabilityKeys: parseCapabilityKeys(execution.policySnapshot.capabilityKeys),
+      initialUserEvent: mapEvent(initialUserEvent),
+    };
+  }
+
+  async readModelConversation(input: {
+    organizationId: string;
+    sessionId: string;
+    throughSequence: bigint;
+    limit: number;
+  }): Promise<ModelConversationPage> {
+    const limit = boundedLimit(input.limit, MAX_REPLAY_LIMIT);
+    const rows = await this.prisma.agentConversationEvent.findMany({
+      where: {
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        sequence: { lte: input.throughSequence },
+      },
+      select: eventSelect,
+      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+      take: limit + 1,
+    });
+    return {
+      events: rows.slice(0, limit).map(mapEvent),
+      hasMore: rows.length > limit,
+    };
+  }
+
+  async findCurrentExecution(input: {
+    executionId: string;
+  }): Promise<CurrentAgentExecution | null> {
+    const execution = await this.prisma.agentExecution.findUnique({
+      where: { id: input.executionId },
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        copilotThreadId: true,
+        aguiRunId: true,
+        runtimeType: true,
+        status: true,
+        agentVersion: { select: { agentDefinitionKey: true } },
+      },
+    });
+    return execution
+      ? {
+          organizationId: execution.organizationId,
+          agentDefinitionKey: execution.agentVersion.agentDefinitionKey,
+          sessionId: execution.sessionId,
+          executionId: execution.id,
+          copilotThreadId: execution.copilotThreadId,
+          aguiRunId: execution.aguiRunId,
+          runtimeType: execution.runtimeType,
+          status: execution.status,
+        }
+      : null;
+  }
+
   async markExecutionTerminal(
     input: MarkAgentExecutionTerminalInput,
   ): Promise<void> {
@@ -511,6 +626,20 @@ implements AgentInteractionRepositoryPort {
       where: { activatedAt: { not: null }, retiredAt: null },
     });
   }
+}
+
+function parseCapabilityKeys(value: Prisma.JsonValue): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== 'string' || item.length === 0) ||
+    new Set(value).size !== value.length
+  ) {
+    throw new AgentOsBoundaryError(
+      'INTERACTION_POLICY_SNAPSHOT_INVALID',
+      'The interaction policy snapshot has invalid capability keys.',
+    );
+  }
+  return [...value] as string[];
 }
 
 async function acquireAuthorizationLock(

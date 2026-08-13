@@ -1,0 +1,503 @@
+import { Inject, Injectable } from '@nestjs/common';
+import {
+  EventSchemas,
+  EventType,
+  RunAgentInputSchema,
+  type BaseEvent,
+} from '@ag-ui/core';
+import {
+  AguiRunAuthorizationSchema,
+  AgentConversationEventContentSchema,
+  type AgentConversationEventContent,
+} from '@kiditem/shared/agent-interaction';
+import {
+  AGENT_AGUI_RUNNER_PORT,
+  type AgentAguiRunnerPort,
+  type AuthorizedAguiRunInput,
+  type StopAuthorizedAguiRunInput,
+} from '../port/in/agent-agui-runner.port';
+import {
+  AGENT_CONVERSATION_LIVE_PUBLISHER,
+  type AgentConversationLivePublisherPort,
+} from '../port/out/event/agent-conversation-live-publisher.port';
+import {
+  AGENT_INTERACTION_REPOSITORY,
+  type AgentExecutionRuntimeContext,
+  type AgentInteractionRepositoryPort,
+} from '../port/out/repository/agent-interaction-repository.port';
+import { AgentOsBoundaryError, AgentOsError } from '../../domain/agent-os.errors';
+import { AgentCapabilityRegistry } from './agent-capability-registry.service';
+import { AgentAguiRuntimeRegistry } from './agent-agui-runtime-registry.service';
+import type { AgentAguiRuntimeMessage } from '../port/out/runtime/agent-agui-runtime.port';
+
+const MODEL_CONTEXT_EVENT_LIMIT = 200;
+
+@Injectable()
+export class AgentAguiRunService implements AgentAguiRunnerPort {
+  constructor(
+    @Inject(AGENT_INTERACTION_REPOSITORY)
+    private readonly repository: AgentInteractionRepositoryPort,
+    @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
+    private readonly publisher: AgentConversationLivePublisherPort,
+    private readonly runtimes: AgentAguiRuntimeRegistry,
+    private readonly capabilities: AgentCapabilityRegistry,
+  ) {}
+
+  async *run(request: AuthorizedAguiRunInput): AsyncIterable<BaseEvent> {
+    const input = RunAgentInputSchema.parse(request.input);
+    const forwarded = record(input.forwardedProps);
+    const authorization = AguiRunAuthorizationSchema.parse(
+      forwarded.kiditemAuthorization,
+    );
+    if (input.tools.length > 0) {
+      throw boundary(
+        'INTERACTION_BROWSER_AUTHORITY_REJECTED',
+        'Browser-supplied tools cannot grant Agent OS authority.',
+      );
+    }
+    const runtimeContext = await this.repository.loadExecutionRuntimeContext({
+      executionId: authorization.executionId,
+    });
+    if (!runtimeContext) {
+      throw boundary(
+        'INTERACTION_AUTHORIZATION_MISMATCH',
+        'The authorized execution cannot be resolved.',
+      );
+    }
+    assertCorrelation(request.agentDefinitionKey, input, authorization, runtimeContext);
+    const messages = await this.loadCanonicalMessages(input, runtimeContext);
+    const runtime = this.runtimes.resolve(runtimeContext.runtimeType);
+    if (!runtime) {
+      throw boundary(
+        'INTERACTION_RUNTIME_NOT_CONFIGURED',
+        'The selected AG-UI runtime is not registered.',
+      );
+    }
+
+    const state = new RuntimeEventState(runtimeContext);
+    try {
+      const stream = runtime.run({
+        organizationId: runtimeContext.organizationId,
+        userId: runtimeContext.userId,
+        sessionId: runtimeContext.sessionId,
+        sessionTaskId: runtimeContext.sessionTaskId,
+        executionId: runtimeContext.executionId,
+        copilotThreadId: runtimeContext.copilotThreadId,
+        aguiRunId: runtimeContext.aguiRunId,
+        agentDefinitionKey: runtimeContext.agentDefinitionKey,
+        runtimeType: runtimeContext.runtimeType,
+        modelIdentity: runtimeContext.modelIdentity,
+        capabilityKeys: [...runtimeContext.capabilityKeys],
+        messages,
+        dashboardContext: authorization.dashboardContext,
+        invokeCapability: (key, capabilityInput) =>
+          this.invokeCapability(runtimeContext, key, capabilityInput),
+        recordUsage: (usage) => {
+          if (
+            !usage.provider.trim() ||
+            !Number.isInteger(usage.inputTokens) || usage.inputTokens < 0 ||
+            !Number.isInteger(usage.outputTokens) || usage.outputTokens < 0 ||
+            usage.costMicros < 0n
+          ) {
+            throw boundary(
+              'INTERACTION_USAGE_INVALID',
+              'The runtime usage record is invalid.',
+            );
+          }
+          return this.repository.recordExecutionUsage({
+            organizationId: runtimeContext.organizationId,
+            executionId: runtimeContext.executionId,
+            modelIdentity: runtimeContext.modelIdentity,
+            provider: usage.provider,
+            inputTokens: usage.inputTokens,
+            outputTokens: usage.outputTokens,
+            costMicros: usage.costMicros,
+            currency: 'USD',
+          });
+        },
+      });
+      for await (const unsafeEvent of stream) {
+        const event = parseRuntimeEvent(unsafeEvent);
+        const content = state.accept(event);
+        const saved = await this.repository.appendExecutionEvent({
+          organizationId: runtimeContext.organizationId,
+          sessionId: runtimeContext.sessionId,
+          executionId: runtimeContext.executionId,
+          externalEventId: state.externalEventId(event),
+          ...content,
+          ...(content.eventType === 'run_terminal'
+            ? {
+                terminal: {
+                  status: content.payload.status,
+                  errorCode: content.payload.errorCode,
+                  finishedAt: new Date(),
+                },
+              }
+            : {}),
+        });
+        await this.publishAfterCommit(saved).catch(() => undefined);
+        yield event;
+      }
+      state.assertComplete();
+    } catch (error) {
+      if (state.terminal) throw error;
+      const code = stableErrorCode(error);
+      const event: BaseEvent = {
+        type: EventType.RUN_ERROR,
+        code: code.toUpperCase(),
+        message: 'The Agent OS runtime failed.',
+      };
+      const saved = await this.repository.appendExecutionEvent({
+        organizationId: runtimeContext.organizationId,
+        sessionId: runtimeContext.sessionId,
+        executionId: runtimeContext.executionId,
+        externalEventId: `${runtimeContext.executionId}:agui:error`,
+        eventType: 'run_terminal',
+        schemaVersion: 1,
+        payload: { status: 'failed', errorCode: code },
+        terminal: { status: 'failed', errorCode: code, finishedAt: new Date() },
+      });
+      await this.publishAfterCommit(saved).catch(() => undefined);
+      yield event;
+    }
+  }
+
+  async stop(input: StopAuthorizedAguiRunInput): Promise<boolean> {
+    const current = await this.repository.findCurrentExecution({
+      executionId: input.executionId,
+    });
+    if (
+      !current ||
+      current.status !== 'running' ||
+      current.agentDefinitionKey !== input.agentDefinitionKey ||
+      current.sessionId !== input.sessionId ||
+      current.executionId !== input.executionId ||
+      current.copilotThreadId !== input.copilotThreadId ||
+      current.aguiRunId !== input.aguiRunId
+    ) {
+      return false;
+    }
+    const runtime = this.runtimes.resolve(current.runtimeType);
+    if (!runtime?.stop) return false;
+    return runtime.stop({
+      organizationId: current.organizationId,
+      sessionId: current.sessionId,
+      executionId: current.executionId,
+      copilotThreadId: current.copilotThreadId,
+      aguiRunId: current.aguiRunId,
+    });
+  }
+
+  private async loadCanonicalMessages(
+    input: ReturnType<typeof RunAgentInputSchema.parse>,
+    context: AgentExecutionRuntimeContext,
+  ): Promise<AgentAguiRuntimeMessage[]> {
+    const submitted = input.messages.at(-1);
+    const initial = context.initialUserEvent;
+    const initialPayload = messageContent(initial);
+    if (
+      !submitted ||
+      submitted.role !== 'user' ||
+      typeof submitted.content !== 'string' ||
+      submitted.id !== initial.externalEventId ||
+      initial.eventType !== 'user_message' ||
+      initialPayload.messageId !== submitted.id ||
+      initialPayload.content !== submitted.content
+    ) {
+      throw boundary(
+        'INTERACTION_INITIAL_USER_EVENT_MISMATCH',
+        'The submitted user event does not match the persisted signed event.',
+      );
+    }
+    const page = await this.repository.readModelConversation({
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
+      throughSequence: initial.sequence,
+      limit: MODEL_CONTEXT_EVENT_LIMIT,
+    });
+    if (page.hasMore) {
+      throw boundary(
+        'INTERACTION_CONTEXT_LIMIT_EXCEEDED',
+        'The canonical conversation exceeds the active context bound.',
+      );
+    }
+    return page.events.flatMap((event): AgentAguiRuntimeMessage[] => {
+      if (event.eventType === 'user_message' || event.eventType === 'assistant_message') {
+        const payload = messageContent(event);
+        return [{
+          id: payload.messageId,
+          role: event.eventType === 'user_message' ? 'user' : 'assistant',
+          content: payload.content,
+        }];
+      }
+      if (event.eventType === 'state_snapshot') {
+        const content = AgentConversationEventContentSchema.parse({
+          eventType: event.eventType,
+          schemaVersion: event.schemaVersion,
+          payload: event.payload,
+        });
+        if (content.eventType !== 'state_snapshot') return [];
+        return [{
+          id: event.externalEventId,
+          role: 'tool',
+          content: content.payload.data.content,
+        }];
+      }
+      return [];
+    });
+  }
+
+  private async invokeCapability(
+    context: AgentExecutionRuntimeContext,
+    key: string,
+    unsafeInput: Record<string, unknown>,
+  ) {
+    if (!context.capabilityKeys.includes(key)) {
+      throw boundary(
+        'INTERACTION_CAPABILITY_NOT_ALLOWED',
+        'The capability is absent from the immutable policy snapshot.',
+      );
+    }
+    const handler = this.capabilities.resolve(key);
+    if (
+      !handler ||
+      handler.approvalRisk !== 'none' ||
+      handler.sideEffects.length !== 1 ||
+      handler.sideEffects[0] !== 'read'
+    ) {
+      throw boundary(
+        'INTERACTION_CAPABILITY_NOT_ALLOWED',
+        'Only registered zero-risk read capabilities are allowed.',
+      );
+    }
+    const capabilityInput = handler.inputSchema.parse(unsafeInput);
+    const result = await handler.execute({
+      organizationId: context.organizationId,
+      conversationId: context.sessionId,
+      agentInstanceId: context.sessionId,
+      agentType: context.agentDefinitionKey,
+      requestId: context.executionId,
+      runId: context.executionId,
+      requestedByUserId: context.userId,
+      input: capabilityInput,
+    });
+    if (result.outputSummary) handler.outputSchema.parse(result.outputSummary);
+    return result;
+  }
+
+  private async publishAfterCommit(saved: {
+    id: string;
+    organizationId: string;
+    sessionId: string;
+    sequence: bigint;
+  }): Promise<void> {
+    await this.publisher.publish({
+      organizationId: saved.organizationId,
+      sessionId: saved.sessionId,
+      eventId: saved.id,
+      sequence: saved.sequence,
+    });
+  }
+}
+
+class RuntimeEventState {
+  private ordinal = 0;
+  private started = false;
+  terminal = false;
+  private readonly openMessages = new Set<string>();
+  private readonly openTools = new Set<string>();
+
+  constructor(private readonly context: AgentExecutionRuntimeContext) {}
+
+  accept(event: ParsedAguiEvent): AgentConversationEventContent {
+    if (this.terminal) throw invalidEvent('Events cannot follow a terminal event.');
+    this.ordinal += 1;
+    switch (event.type) {
+      case EventType.RUN_STARTED:
+        if (this.started || event.threadId !== this.context.copilotThreadId || event.runId !== this.context.aguiRunId) {
+          throw invalidEvent('RUN_STARTED correlation is invalid.');
+        }
+        this.started = true;
+        return notice('agui.run_started', 'Agent run started.');
+      case EventType.TEXT_MESSAGE_START:
+        this.requireStarted();
+        if (event.role !== 'assistant' || this.openMessages.has(event.messageId)) throw invalidEvent('Assistant message start is invalid.');
+        this.openMessages.add(event.messageId);
+        return notice('agui.message_started', 'Assistant message started.');
+      case EventType.TEXT_MESSAGE_CONTENT:
+        this.requireStarted();
+        if (!this.openMessages.has(event.messageId) || event.delta.length === 0) throw invalidEvent('Assistant message content is out of order.');
+        return { eventType: 'assistant_message', schemaVersion: 1, payload: { messageId: event.messageId, content: event.delta } };
+      case EventType.TEXT_MESSAGE_END:
+        this.requireStarted();
+        if (!this.openMessages.delete(event.messageId)) throw invalidEvent('Assistant message end is out of order.');
+        return notice('agui.message_finished', 'Assistant message finished.');
+      case EventType.TOOL_CALL_START:
+        this.requireStarted();
+        if (this.openTools.has(event.toolCallId)) throw invalidEvent('Tool call is duplicated.');
+        this.openTools.add(event.toolCallId);
+        return tool(event.toolCallId, event.toolCallName, 'started');
+      case EventType.TOOL_CALL_ARGS:
+        this.requireStarted();
+        if (!this.openTools.has(event.toolCallId)) throw invalidEvent('Tool arguments are out of order.');
+        return notice('agui.tool_args_received', 'Tool arguments received.');
+      case EventType.TOOL_CALL_END:
+        this.requireStarted();
+        if (!this.openTools.delete(event.toolCallId)) throw invalidEvent('Tool call end is out of order.');
+        return tool(event.toolCallId, 'agent_capability', 'completed');
+      case EventType.TOOL_CALL_RESULT:
+        this.requireStarted();
+        return {
+          eventType: 'state_snapshot', schemaVersion: 1,
+          payload: { snapshotType: 'tool_result', snapshotVersion: 1, data: { content: event.content } },
+        };
+      case EventType.RUN_FINISHED:
+        this.assertTerminalCorrelation(event.threadId, event.runId);
+        this.terminal = true;
+        return { eventType: 'run_terminal', schemaVersion: 1, payload: { status: 'completed', errorCode: null } };
+      case EventType.RUN_ERROR:
+        this.requireStarted();
+        this.terminal = true;
+        return { eventType: 'run_terminal', schemaVersion: 1, payload: { status: 'failed', errorCode: stableCode(event.code ?? 'runtime_error') } };
+      default:
+        throw invalidEvent('The runtime emitted an unsupported AG-UI event.');
+    }
+  }
+
+  externalEventId(event: ParsedAguiEvent): string {
+    return `${this.context.executionId}:agui:${this.ordinal}:${event.type}`;
+  }
+
+  assertComplete(): void {
+    if (!this.terminal) throw invalidEvent('The runtime ended without a terminal event.');
+  }
+
+  private requireStarted(): void {
+    if (!this.started) throw invalidEvent('RUN_STARTED must be first.');
+  }
+
+  private assertTerminalCorrelation(threadId: string, runId: string): void {
+    this.requireStarted();
+    if (
+      threadId !== this.context.copilotThreadId ||
+      runId !== this.context.aguiRunId ||
+      this.openMessages.size > 0 ||
+      this.openTools.size > 0
+    ) {
+      throw invalidEvent('The terminal event is out of order or mismatched.');
+    }
+  }
+}
+
+function assertCorrelation(
+  routeAgentDefinitionKey: string,
+  input: ReturnType<typeof RunAgentInputSchema.parse>,
+  authorization: ReturnType<typeof AguiRunAuthorizationSchema.parse>,
+  context: AgentExecutionRuntimeContext,
+): void {
+  if (
+    routeAgentDefinitionKey !== context.agentDefinitionKey ||
+    authorization.session.primaryAgentDefinitionKey !== context.agentDefinitionKey ||
+    authorization.session.sessionId !== context.sessionId ||
+    authorization.session.copilotThreadId !== context.copilotThreadId ||
+    authorization.session.primaryAgentVersionId !== context.agentVersionId ||
+    authorization.session.lifecycle !== context.lifecycle ||
+    authorization.sessionTaskId !== context.sessionTaskId ||
+    authorization.executionId !== context.executionId ||
+    authorization.runtimeType !== context.runtimeType ||
+    authorization.modelIdentity !== context.modelIdentity ||
+    authorization.policySnapshotId !== context.policySnapshotId ||
+    authorization.contextEpoch !== context.contextEpoch ||
+    input.threadId !== context.copilotThreadId ||
+    input.runId !== context.aguiRunId
+  ) {
+    throw boundary(
+      'INTERACTION_AUTHORIZATION_MISMATCH',
+      'The AG-UI request does not match canonical execution authority.',
+    );
+  }
+}
+
+type ParsedAguiEvent = ReturnType<typeof EventSchemas.parse>;
+
+function parseRuntimeEvent(value: unknown): ParsedAguiEvent {
+  const event = EventSchemas.parse(value);
+  if (event.rawEvent !== undefined || event.type === EventType.RAW || event.type === EventType.CUSTOM) {
+    throw invalidEvent('Provider-specific runtime events are not accepted.');
+  }
+  const allowed = officialEventKeys(event.type);
+  if (Object.keys(event).some((key) => !allowed.has(key))) {
+    throw invalidEvent('Provider-specific runtime event fields are not accepted.');
+  }
+  return event;
+}
+
+function officialEventKeys(type: EventType): ReadonlySet<string> {
+  const common = ['type', 'timestamp'];
+  const keys: Partial<Record<EventType, string[]>> = {
+    [EventType.RUN_STARTED]: ['threadId', 'runId', 'parentRunId', 'input'],
+    [EventType.TEXT_MESSAGE_START]: ['messageId', 'role', 'name'],
+    [EventType.TEXT_MESSAGE_CONTENT]: ['messageId', 'delta'],
+    [EventType.TEXT_MESSAGE_END]: ['messageId'],
+    [EventType.TOOL_CALL_START]: ['toolCallId', 'toolCallName', 'parentMessageId'],
+    [EventType.TOOL_CALL_ARGS]: ['toolCallId', 'delta'],
+    [EventType.TOOL_CALL_END]: ['toolCallId'],
+    [EventType.TOOL_CALL_RESULT]: ['messageId', 'toolCallId', 'content', 'role'],
+    [EventType.RUN_FINISHED]: ['threadId', 'runId', 'result', 'outcome'],
+    [EventType.RUN_ERROR]: ['message', 'code'],
+  };
+  return new Set([...common, ...(keys[type] ?? [])]);
+}
+
+function messageContent(event: { eventType: string; schemaVersion: number; payload: unknown }) {
+  const content = AgentConversationEventContentSchema.parse({
+    eventType: event.eventType,
+    schemaVersion: event.schemaVersion,
+    payload: event.payload,
+  });
+  if (content.eventType !== 'user_message' && content.eventType !== 'assistant_message') {
+    throw invalidEvent('Expected a canonical message event.');
+  }
+  return content.payload;
+}
+
+function notice(code: string, content: string): AgentConversationEventContent {
+  return { eventType: 'system_notice', schemaVersion: 1, payload: { code, content } };
+}
+
+function tool(
+  toolCallId: string,
+  toolName: string,
+  status: 'started' | 'completed',
+): AgentConversationEventContent {
+  return { eventType: 'tool_activity', schemaVersion: 1, payload: { toolCallId, toolName, status } };
+}
+
+function record(value: unknown): Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+}
+
+function stableErrorCode(error: unknown): string {
+  return stableCode(
+    error instanceof AgentOsError ? error.code : 'INTERACTION_RUNTIME_EVENT_INVALID',
+  );
+}
+
+function stableCode(value: string): string {
+  const normalized = value.toLowerCase().replace(/[^a-z0-9._-]+/g, '_');
+  return /^[a-z]/.test(normalized) ? normalized.slice(0, 128) : `runtime_${normalized}`.slice(0, 128);
+}
+
+function invalidEvent(message: string): AgentOsBoundaryError {
+  return boundary('INTERACTION_RUNTIME_EVENT_INVALID', message);
+}
+
+function boundary(code: string, message: string): AgentOsBoundaryError {
+  return new AgentOsBoundaryError(code, message);
+}
+
+export const AGENT_AGUI_RUN_SERVICE_PROVIDER = {
+  provide: AGENT_AGUI_RUNNER_PORT,
+  useExisting: AgentAguiRunService,
+};

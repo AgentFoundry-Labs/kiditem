@@ -10,13 +10,17 @@ import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests
 import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
 import { AgentInteractionBootstrapController } from './adapter/in/http/agent-interaction-bootstrap.controller';
 import { AgentInteractionControlController } from './adapter/in/http/agent-interaction-control.controller';
+import { AgentAguiController } from './adapter/in/http/agent-agui.controller';
+import { AgentOsPlatformProbeCapabilityAdapter } from './adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
+import { InProcessAgentConversationLivePublisher } from './adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './adapter/out/runtime/openai-responses-operator-runtime.adapter';
+import { OpenAiResponsesAguiRuntimeAdapter } from './adapter/out/runtime/openai-responses-agui-runtime.adapter';
 import { OperatorRuntimeHandler } from './adapter/out/runtime/operator-runtime.handler';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
 import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
@@ -27,11 +31,13 @@ import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-s
 import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_INTERACTION_REPOSITORY } from './application/port/out/repository/agent-interaction-repository.port';
+import { AGENT_CONVERSATION_LIVE_PUBLISHER } from './application/port/out/event/agent-conversation-live-publisher.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
+import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
 import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { AgentApprovalService } from './application/service/agent-approval.service';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
@@ -56,6 +62,8 @@ import { AgentInteractionService } from './application/service/agent-interaction
 import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
 import { AgentInteractionIdentityService } from './application/service/agent-interaction-identity.service';
 import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
+import { AgentAguiRunService } from './application/service/agent-agui-run.service';
+import { AgentAguiRuntimeRegistry } from './application/service/agent-agui-runtime-registry.service';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -77,15 +85,19 @@ const agentInteractionProviders = [
     AgentConversationsController,
     AgentInteractionBootstrapController,
     AgentInteractionControlController,
+    AgentAguiController,
   ],
   providers: [
     ...agentInteractionProviders,
     ...interactionEnvironmentProviders,
     AgentInteractionIdentityService,
+    AgentAguiRunService,
+    AgentAguiRuntimeRegistry,
     InteractionGatewayGuard,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,
+    AgentOsPlatformProbeCapabilityAdapter,
     AgentConversationService,
     AgentObservabilityService,
     AgentPlanValidator,
@@ -102,6 +114,7 @@ const agentInteractionProviders = [
     AgentOsMcpToolExecutor,
     KidItemMcpToolRegistry,
     OpenAiResponsesOperatorRuntimeAdapter,
+    OpenAiResponsesAguiRuntimeAdapter,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
     OperatorRuntimeHandler,
@@ -123,6 +136,12 @@ const agentInteractionProviders = [
       provide: AGENT_INTERACTION_REPOSITORY,
       useClass: PrismaAgentInteractionRepository,
     },
+    InProcessAgentConversationLivePublisher,
+    {
+      provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
+      useExisting: InProcessAgentConversationLivePublisher,
+    },
+    { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
     { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
     {
       provide: AGENT_RUNTIME_ASSETS_PORT,
@@ -136,6 +155,7 @@ const agentInteractionProviders = [
   ],
   exports: [
     AGENT_INTERACTION_PORT,
+    AGENT_AGUI_RUNNER_PORT,
     AGENT_RUNNER_PORT,
     AgentRunCoordinator,
     AgentRunExecutor,

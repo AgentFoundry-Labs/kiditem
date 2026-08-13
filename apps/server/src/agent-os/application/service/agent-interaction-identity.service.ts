@@ -41,7 +41,12 @@ const LIVE_JOIN_TTL_MS = 15_000;
 const REPLAY_CURSOR_TTL_MS = 15 * 60_000;
 const REPLAY_LIMIT = 500;
 const AUTHORITY_PROFILE_VERSION_ID = 'foundation_read_only_probe:v1';
-const FOUNDATION_CAPABILITY_KEYS = ['agent_os.platform_probe'] as const;
+export const FOUNDATION_CAPABILITY_KEYS = [
+  'agent_os.platform_probe',
+  'analytics.readOverview',
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.inspectRecommendationRun',
+] as const;
 const RUN_INTENT_DOMAIN = 'kiditem.agent-os.run-intent.v1';
 const REPLAY_CURSOR_DOMAIN = 'kiditem.agent-os.replay-cursor.v1';
 const LIVE_JOIN_DOMAIN = 'kiditem.agent-os.live-join.v1';
@@ -65,7 +70,12 @@ const RunIntentClaimsSchema = z
     runtimeType: z.string().min(1),
     modelIdentity: z.string().min(1),
     authorityProfileVersionId: z.literal(AUTHORITY_PROFILE_VERSION_ID),
-    capabilityKeys: z.tuple([z.literal(FOUNDATION_CAPABILITY_KEYS[0])]),
+    capabilityKeys: z.tuple([
+      z.literal(FOUNDATION_CAPABILITY_KEYS[0]),
+      z.literal(FOUNDATION_CAPABILITY_KEYS[1]),
+      z.literal(FOUNDATION_CAPABILITY_KEYS[2]),
+      z.literal(FOUNDATION_CAPABILITY_KEYS[3]),
+    ]),
     policyDocumentHash: z.string().regex(/^[a-f0-9]{64}$/),
     policyHash: z.string().regex(/^[a-f0-9]{64}$/),
     inputHash: z.string().regex(/^[a-f0-9]{64}$/),
@@ -128,6 +138,15 @@ interface AuthorizeRunInput {
 interface AuthorizeConnectionInput extends IdentityInput {
   copilotThreadId: string;
   cursor?: string | null;
+}
+
+export interface AuthorizedLiveJoin {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  copilotThreadId: string;
+  contextEpoch: number;
+  afterSequence: bigint;
 }
 
 @Injectable()
@@ -376,6 +395,70 @@ export class AgentInteractionIdentityService {
     });
   }
 
+  async authorizeLiveJoin(input: {
+    agentDefinitionKey: string;
+    copilotThreadId: string;
+    afterSequence: bigint;
+    liveJoinToken: string;
+  }): Promise<AuthorizedLiveJoin> {
+    const claims = verifyClaims(
+      input.liveJoinToken,
+      this.replayCursorHmacKey,
+      LIVE_JOIN_DOMAIN,
+      LiveJoinClaimsSchema,
+      'INTERACTION_LIVE_JOIN_INVALID',
+    );
+    if (claims.expiresAtMs <= this.now().getTime()) {
+      throw boundary(
+        'INTERACTION_LIVE_JOIN_EXPIRED',
+        'The live join authorization has expired.',
+      );
+    }
+    if (
+      claims.copilotThreadId !== input.copilotThreadId ||
+      claims.afterSequence !== input.afterSequence.toString()
+    ) {
+      throw boundary(
+        'INTERACTION_LIVE_JOIN_MISMATCH',
+        'The live join authorization does not match the requested cursor.',
+      );
+    }
+    const session = await this.repository.findAccessibleSession({
+      organizationId: claims.organizationId,
+      userId: claims.userId,
+      copilotThreadId: claims.copilotThreadId,
+    });
+    if (
+      !session ||
+      session.id !== claims.sessionId ||
+      session.lifecycle !== 'active' ||
+      session.contextEpoch !== claims.contextEpoch
+    ) {
+      throw boundary(
+        'INTERACTION_LIVE_JOIN_MISMATCH',
+        'The live join session is no longer current.',
+      );
+    }
+    const version = await this.repository.findActiveAgentVersion({
+      agentDefinitionKey: input.agentDefinitionKey,
+      agentVersionId: session.primaryAgentVersionId,
+    });
+    if (!version || !this.isAllowedVersion(version)) {
+      throw boundary(
+        'INTERACTION_LIVE_JOIN_MISMATCH',
+        'The live join agent version is not active.',
+      );
+    }
+    return {
+      organizationId: claims.organizationId,
+      userId: claims.userId,
+      sessionId: claims.sessionId,
+      copilotThreadId: claims.copilotThreadId,
+      contextEpoch: claims.contextEpoch,
+      afterSequence: input.afterSequence,
+    };
+  }
+
   async health(): Promise<{ status: 'ok' }> {
     await this.allowedVersions();
     await this.repository.probeHealth();
@@ -535,6 +618,15 @@ export class AgentInteractionIdentityService {
         'The requested interaction agent is not server-approved.',
       );
     }
+    if (
+      match.agentDefinitionKey === 'operator' &&
+      !hasExactFoundationCapabilities(match.capabilityKeys)
+    ) {
+      throw boundary(
+        'AGENT_POLICY_NOT_CONFIGURED',
+        'The active Operator AgentVersion does not declare the immutable foundation capability profile.',
+      );
+    }
     return match;
   }
 
@@ -573,6 +665,15 @@ export class AgentInteractionIdentityService {
         throw boundary(
           'AGENT_RUNTIME_NOT_CONFIGURED',
           'An active AgentVersion has no explicit runtime type.',
+        );
+      }
+      if (
+        version.agentDefinitionKey === 'operator' &&
+        !hasExactFoundationCapabilities(version.capabilityKeys)
+      ) {
+        throw boundary(
+          'AGENT_POLICY_NOT_CONFIGURED',
+          'The active Operator AgentVersion does not declare the immutable foundation capability profile.',
         );
       }
     }
@@ -628,6 +729,14 @@ function foundationPolicyHash(version: ActiveAgentVersionRecord): string {
     policyDocument: version.policyDocument,
     versionCapabilityKeys: version.capabilityKeys,
   });
+}
+
+function hasExactFoundationCapabilities(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length === FOUNDATION_CAPABILITY_KEYS.length &&
+    value.every((key, index) => key === FOUNDATION_CAPABILITY_KEYS[index])
+  );
 }
 
 function hashCanonical(value: unknown): string {

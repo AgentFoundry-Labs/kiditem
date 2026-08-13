@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
+import { AgentOsModule } from '../../../agent-os/agent-os.module';
 
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 
@@ -22,6 +23,8 @@ import { DashboardSalesService } from '../application/service/dashboard-sales.se
 import { DashboardAdService } from '../application/service/dashboard-ad.service';
 import { DashboardInventoryService } from '../application/service/dashboard-inventory.service';
 import { DashboardTrendService } from '../application/service/dashboard-trend.service';
+import { AnalyticsOverviewCapabilityAdapter } from '../adapter/in/agent/analytics-overview-capability.adapter';
+import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../application/port/in/analytics-overview-capability.port';
 
 // application/port/out tokens
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../application/port/out/repository/profit-calculation.repository.port';
@@ -56,10 +59,10 @@ const EXPECTED_PORT_BINDINGS = [
 // stray legacy controller, or an accidental route rename fails at vitest
 // time before reaching dev:server boot.
 describe('DashboardModule capability wiring', () => {
-  it('imports exactly PrismaModule', () => {
+  it('imports Prisma and Agent OS for owner-published capability registration', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
-    expect(imports).toHaveLength(1);
-    expect(new Set(imports)).toEqual(new Set([PrismaModule]));
+    expect(imports).toHaveLength(2);
+    expect(new Set(imports)).toEqual(new Set([PrismaModule, AgentOsModule]));
   });
 
   it('mounts the dashboard controller from adapter/in/http', () => {
@@ -95,6 +98,7 @@ describe('DashboardModule capability wiring', () => {
       DashboardAdService,
       DashboardInventoryService,
       DashboardTrendService,
+      AnalyticsOverviewCapabilityAdapter,
     ]) {
       expect(providers).toContain(cls);
     }
@@ -111,13 +115,17 @@ describe('DashboardModule capability wiring', () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === 'object' && p !== null && 'provide' in p,
     );
-    expect(tokenProviders).toHaveLength(EXPECTED_PORT_BINDINGS.length);
+    expect(tokenProviders).toHaveLength(EXPECTED_PORT_BINDINGS.length + 1);
     for (const [token, adapterClass] of EXPECTED_PORT_BINDINGS) {
       expect(tokenProviders).toContainEqual({
         provide: token,
         useExisting: adapterClass,
       });
     }
+    expect(tokenProviders).toContainEqual({
+      provide: ANALYTICS_OVERVIEW_CAPABILITY_PORT,
+      useExisting: AnalyticsOverviewCapabilityAdapter,
+    });
   });
 
   it('keeps the /api/dashboard route prefix', () => {

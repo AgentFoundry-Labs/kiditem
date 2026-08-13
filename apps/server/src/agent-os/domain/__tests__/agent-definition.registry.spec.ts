@@ -64,7 +64,12 @@ describe('agent definition registry', () => {
       runtimeKind: 'coordinator',
       delegationRole: 'orchestrator',
     });
-    expect(manager?.defaultToolPolicies).toEqual([]);
+    expect(manager?.defaultToolPolicies).toEqual([
+      expect.objectContaining({ toolKey: 'agent_os.platform_probe', effect: 'allow' }),
+      expect.objectContaining({ toolKey: 'analytics.readOverview', effect: 'allow' }),
+      expect.objectContaining({ toolKey: 'sourcing.retrieveWorkspaceEvidence', effect: 'allow' }),
+      expect.objectContaining({ toolKey: 'sourcing.inspectRecommendationRun', effect: 'allow' }),
+    ]);
     const sourcing = findAgentDefinitionByType('sourcing');
     expect(sourcing?.defaultSkillKeys).toEqual([
       'sourcing.evidence-grounded-analysis',

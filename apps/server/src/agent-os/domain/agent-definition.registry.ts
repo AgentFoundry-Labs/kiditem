@@ -104,7 +104,18 @@ const CHANNEL_REGISTRATION_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
   },
 ];
 
-const MANAGER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [];
+const MANAGER_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
+  'agent_os.platform_probe',
+  'analytics.readOverview',
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.inspectRecommendationRun',
+].map((toolKey) => ({
+  toolKey,
+  effect: 'allow' as const,
+  approvalMode: 'none' as const,
+  dryRunMode: 'optional' as const,
+  constraints: {},
+}));
 
 const DEFINITIONS: readonly AgentDefinitionSeed[] = [
   {

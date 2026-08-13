@@ -139,6 +139,54 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     })).resolves.toBe(1);
   });
 
+  it('loads canonical runtime authority, bounded model history, and exact current execution', async () => {
+    const authorized = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-runtime-context',
+      aguiRunId: 'run-runtime-context',
+      externalEventId: 'message-runtime-context',
+    }));
+
+    await expect(repository.loadExecutionRuntimeContext({
+      executionId: authorized.execution.id,
+    })).resolves.toMatchObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      agentDefinitionKey: 'operator',
+      sessionId: authorized.session.id,
+      sessionTaskId: authorized.rootTask.id,
+      executionId: authorized.execution.id,
+      copilotThreadId: 'thread-runtime-context',
+      aguiRunId: 'run-runtime-context',
+      runtimeType: 'copilotkit_agui',
+      modelIdentity: 'gpt-5.4',
+      capabilityKeys: ['catalog.read'],
+      initialUserEvent: {
+        id: authorized.userEvent.id,
+        externalEventId: 'message-runtime-context',
+      },
+    });
+    await expect(repository.readModelConversation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: authorized.session.id,
+      throughSequence: authorized.userEvent.sequence,
+      limit: 1,
+    })).resolves.toMatchObject({
+      hasMore: false,
+      events: [{ id: authorized.userEvent.id }],
+    });
+    await expect(repository.findCurrentExecution({
+      executionId: authorized.execution.id,
+    })).resolves.toMatchObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      agentDefinitionKey: 'operator',
+      executionId: authorized.execution.id,
+      status: 'running',
+    });
+    await expect(repository.loadExecutionRuntimeContext({
+      executionId: '20000000-0000-4000-8000-000000000099',
+    })).resolves.toBeNull();
+  });
+
   it('returns the unchanged winner for an exact first-run retry', async () => {
     const input = firstRunInput({
       copilotThreadId: 'thread-retry',

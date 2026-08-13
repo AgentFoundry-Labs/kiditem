@@ -14,6 +14,7 @@ import { AgentRunsQueryController } from '../adapter/in/http/agent-runs-query.co
 import { AgentRunOperationAlertBridge } from '../adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from '../adapter/out/cross-domain/agent-os-live-readiness.adapter';
 import { OpenAiResponsesOperatorRuntimeAdapter } from '../adapter/out/runtime/openai-responses-operator-runtime.adapter';
+import { OpenAiResponsesAguiRuntimeAdapter } from '../adapter/out/runtime/openai-responses-agui-runtime.adapter';
 import { OperatorRuntimeHandler } from '../adapter/out/runtime/operator-runtime.handler';
 import { AgentPlanValidator } from '../application/service/agent-plan-validator.service';
 import { AgentApprovalService } from '../application/service/agent-approval.service';
@@ -35,6 +36,13 @@ import { PrismaAgentInteractionRepository } from '../adapter/out/repository/pris
 import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository/agent-interaction-repository.port';
 import { AgentInteractionBootstrapController } from '../adapter/in/http/agent-interaction-bootstrap.controller';
 import { AgentInteractionControlController } from '../adapter/in/http/agent-interaction-control.controller';
+import { AgentAguiController } from '../adapter/in/http/agent-agui.controller';
+import { AgentOsPlatformProbeCapabilityAdapter } from '../adapter/in/agent/agent-os-platform-probe-capability.adapter';
+import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
+import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event/agent-conversation-live-publisher.port';
+import { AGENT_AGUI_RUNNER_PORT } from '../application/port/in/agent-agui-runner.port';
+import { AgentAguiRunService } from '../application/service/agent-agui-run.service';
+import { AgentAguiRuntimeRegistry } from '../application/service/agent-agui-runtime-registry.service';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
 import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
 import {
@@ -71,6 +79,7 @@ describe('AgentOsModule wiring', () => {
       AgentConversationsController,
       AgentInteractionBootstrapController,
       AgentInteractionControlController,
+      AgentAguiController,
     ]);
   });
 
@@ -80,6 +89,18 @@ describe('AgentOsModule wiring', () => {
 
     expect(providers).toContain(AgentInteractionIdentityService);
     expect(providers).toContain(InteractionGatewayGuard);
+    expect(providers).toContain(AgentAguiRunService);
+    expect(providers).toContain(AgentAguiRuntimeRegistry);
+    expect(providers).toContain(AgentOsPlatformProbeCapabilityAdapter);
+    expect(providers).toContain(InProcessAgentConversationLivePublisher);
+    expect(providers).toContainEqual({
+      provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
+      useExisting: InProcessAgentConversationLivePublisher,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_AGUI_RUNNER_PORT,
+      useExisting: AgentAguiRunService,
+    });
     for (const token of [
       INTERACTION_CLOCK,
       INTERACTION_GATEWAY_SHARED_SECRET,
@@ -113,6 +134,7 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(OperatorDecisionExecutor);
     expect(providers).toContain(OperatorDecisionParser);
     expect(providers).toContain(OpenAiResponsesOperatorRuntimeAdapter);
+    expect(providers).toContain(OpenAiResponsesAguiRuntimeAdapter);
     expect(providers).toContain(AgentOsMcpToolExecutor);
     expect(providers).toContain(KidItemMcpToolRegistry);
     expect(providers).toContain(OperatorRuntimeHandler);

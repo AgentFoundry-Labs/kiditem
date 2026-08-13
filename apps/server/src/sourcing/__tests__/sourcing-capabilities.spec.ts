@@ -47,6 +47,19 @@ describe('sourcing capability manifest', () => {
     }
   });
 
+  it('exposes only the two registered Sourcing reads to the Operator foundation profile', () => {
+    const operatorReadKeys = SOURCING_CAPABILITIES.filter(
+      (capability) =>
+        capability.entrypoint.token === 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' &&
+        !capability.effects.includes('db_write'),
+    ).map((capability) => capability.key);
+
+    expect(operatorReadKeys).toEqual([
+      'sourcing.retrieveWorkspaceEvidence',
+      'sourcing.inspectRecommendationRun',
+    ]);
+  });
+
   it('keeps external market signals as a disabled-impact admin workflow', () => {
     expect(
       SOURCING_CAPABILITIES.find(
