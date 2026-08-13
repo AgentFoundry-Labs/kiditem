@@ -4,7 +4,6 @@ import type {
   ChannelSkuAvailabilityListResponse,
   ChannelSkuAvailabilityQuery,
 } from '@kiditem/shared/channel-sku-availability';
-import { projectChannelOptionCapacity } from '../../../products/domain/channel-option-capacity';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import {
@@ -16,6 +15,7 @@ import {
   type ChannelAvailabilityRepositoryRow,
   type ChannelProductMatchingRepositoryPort,
 } from '../port/out/repository/channel-product-matching.repository.port';
+import { projectChannelInventoryComponents } from './channel-inventory-availability.projection';
 
 @Injectable()
 export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort {
@@ -112,22 +112,10 @@ function toAvailabilityItem(
   row: ChannelAvailabilityRepositoryRow,
   inventoryBySkuId: ReadonlyMap<string, InventorySkuAvailability>,
 ): ChannelSkuAvailabilityItem {
-  const components = row.inventoryComponents.map((component) => {
-    const inventory = inventoryBySkuId.get(component.sellpiaInventorySkuId);
-    return {
-      ...component,
-      currentStock: inventory?.currentStock ?? 0,
-      availableStock: inventory?.availableStock ?? 0,
-      isActive: inventory?.isActive ?? false,
-    };
-  });
-  const projection = projectChannelOptionCapacity(components.map((component) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      currentStock: component.currentStock,
-      availableStock: component.availableStock,
-      quantity: component.quantity,
-      isActive: component.isActive,
-    })));
+  const { components, projection } = projectChannelInventoryComponents(
+    row.inventoryComponents,
+    inventoryBySkuId,
+  );
   const recipeStatus = components.length === 0
     ? row.listing.masterProductId
       ? 'configuration_required' as const
