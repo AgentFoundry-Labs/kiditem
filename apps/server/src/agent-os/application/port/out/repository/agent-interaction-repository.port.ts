@@ -103,6 +103,7 @@ export interface AgentConversationEventRecord {
   organizationId: string;
   sessionId: string;
   executionId: string | null;
+  aguiRunId: string | null;
   externalEventId: string;
   sequence: bigint;
   eventType: AgentConversationEventType;

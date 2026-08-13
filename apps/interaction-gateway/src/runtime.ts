@@ -97,7 +97,20 @@ export class KidItemAgentRunner extends AgentRunner {
   }
 
   async isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
-    return this.active.has(request.threadId);
+    const context = this.requireRequestContext();
+    const agentDefinitionKey = this.requireAgentDefinitionKey(context);
+    const ownership = AguiConnectionAuthorizationSchema.parse(
+      await this.control.authorizeConnection(context.request, {
+        copilotThreadId: request.threadId,
+        cursor: null,
+      }),
+    );
+    const canonical = ownership.currentExecution;
+    return Boolean(
+      canonical &&
+      canonical.agentDefinitionKey === agentDefinitionKey &&
+      canonical.copilotThreadId === request.threadId,
+    );
   }
 
   async stop(request: AgentRunnerStopRequest): Promise<boolean | undefined> {

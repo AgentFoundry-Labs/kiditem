@@ -142,6 +142,61 @@ describe('AgentAguiRunService', () => {
     }));
   });
 
+  it('records only deduplicated renderer kinds accepted from the strict persisted tool-result stream', async () => {
+    const suggestion = {
+      kind: 'suggested_replies', messageId: 'assistant-source-1',
+      replies: [{ id: 'reply-1', label: '후속', content: '후속 질문' }],
+      textFallback: '후속 질문이 있습니다.',
+    };
+    const navigation = {
+      kind: 'navigation', actionId: '11111111-1111-4111-8111-111111111111',
+      routeKey: 'agent_os', resourceRef: null, label: 'AgentOS', disabledReason: null,
+      expiresAt: '2099-08-14T00:00:00.000Z', textFallback: 'AgentOS로 이동합니다.',
+    };
+    const toolEvents = (toolCallId: string, messageId: string, result: unknown): BaseEvent[] => [
+      { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: 'server.projected' },
+      { type: EventType.TOOL_CALL_END, toolCallId },
+      { type: EventType.TOOL_CALL_RESULT, toolCallId, messageId, role: 'tool', content: JSON.stringify(result) },
+    ];
+    const { service, analytics } = setup([
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      ...toolEvents('tool-1', 'tool-message-1', suggestion),
+      ...toolEvents('tool-2', 'tool-message-2', suggestion),
+      ...toolEvents('tool-3', 'tool-message-3', navigation),
+      { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId: 'run-1' },
+    ]);
+
+    await collect(service.run({ agentDefinitionKey: 'operator', input: runInput() }));
+
+    expect(analytics.record).toHaveBeenCalledWith(expect.objectContaining({
+      rendererKinds: ['suggested_replies', 'navigation'],
+    }));
+  });
+
+  it('never records a renderer kind when its validated tool result was not persisted', async () => {
+    const result = {
+      kind: 'suggested_replies', messageId: 'assistant-source-1',
+      replies: [{ id: 'reply-1', label: '후속', content: '후속 질문' }],
+      textFallback: '후속 질문이 있습니다.',
+    };
+    const { service, repository, analytics } = setup([
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_START, toolCallId: 'tool-1', toolCallName: 'server.projected' },
+      { type: EventType.TOOL_CALL_END, toolCallId: 'tool-1' },
+      { type: EventType.TOOL_CALL_RESULT, toolCallId: 'tool-1', messageId: 'tool-message-1', role: 'tool', content: JSON.stringify(result) },
+    ]);
+    repository.appendExecutionEvent.mockImplementationOnce(repository.appendExecutionEvent.getMockImplementation()!);
+    repository.appendExecutionEvent.mockImplementationOnce(repository.appendExecutionEvent.getMockImplementation()!);
+    repository.appendExecutionEvent.mockImplementationOnce(repository.appendExecutionEvent.getMockImplementation()!);
+    repository.appendExecutionEvent.mockRejectedValueOnce(new Error('persist failed'));
+
+    await collect(service.run({ agentDefinitionKey: 'operator', input: runInput() }));
+
+    expect(analytics.record).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failed', rendererKinds: [],
+    }));
+  });
+
   it('persists every assistant stream phase before yield and folds ordered deltas into one model turn', async () => {
     const { service, repository, runtime } = setup([
       { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
@@ -259,6 +314,49 @@ describe('AgentAguiRunService', () => {
       payload: { status: 'failed', errorCode: 'interaction_runtime_event_invalid' },
       terminal: expect.objectContaining({ status: 'failed', errorCode: 'interaction_runtime_event_invalid' }),
     }));
+  });
+
+  it.each([
+    ['unknown result', 0, [
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tool-message-1', toolCallId: 'unknown', role: 'tool', content: JSON.stringify({ kind: 'notice', tone: 'info', title: '완료', body: '완료', textFallback: '완료' }) },
+    ]],
+    ['pre-end result', 0, [
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_START, toolCallId: 'tool-1', toolCallName: 'analytics.readOverview' },
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tool-message-1', toolCallId: 'tool-1', role: 'tool', content: JSON.stringify({ kind: 'notice', tone: 'info', title: '완료', body: '완료', textFallback: '완료' }) },
+    ]],
+    ['duplicate result', 1, [
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_START, toolCallId: 'tool-1', toolCallName: 'analytics.readOverview' },
+      { type: EventType.TOOL_CALL_END, toolCallId: 'tool-1' },
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tool-message-1', toolCallId: 'tool-1', role: 'tool', content: JSON.stringify({ kind: 'notice', tone: 'info', title: '완료', body: '완료', textFallback: '완료' }) },
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tool-message-2', toolCallId: 'tool-1', role: 'tool', content: JSON.stringify({ kind: 'notice', tone: 'info', title: '완료', body: '완료', textFallback: '완료' }) },
+    ]],
+    ['wrong result role', 0, [
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_START, toolCallId: 'tool-1', toolCallName: 'analytics.readOverview' },
+      { type: EventType.TOOL_CALL_END, toolCallId: 'tool-1' },
+      { type: EventType.TOOL_CALL_RESULT, messageId: 'tool-message-1', toolCallId: 'tool-1', role: 'assistant', content: JSON.stringify({ kind: 'notice', tone: 'info', title: '완료', body: '완료', textFallback: '완료' }) },
+    ]],
+    ['pending result at terminal', 0, [
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TOOL_CALL_START, toolCallId: 'tool-1', toolCallName: 'analytics.readOverview' },
+      { type: EventType.TOOL_CALL_END, toolCallId: 'tool-1' },
+      { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId: 'run-1' },
+    ]],
+  ] as const)('rejects invalid tool lifecycle: %s', async (_label, acceptedResultCount, events) => {
+    const { service, repository } = setup(events as unknown as BaseEvent[]);
+    const output = await collect(service.run({ agentDefinitionKey: 'operator', input: runInput() }));
+    expect(output.at(-1)).toMatchObject({
+      type: EventType.RUN_ERROR,
+      code: 'INTERACTION_RUNTIME_EVENT_INVALID',
+    });
+    expect(output.filter(({ type }) => type === EventType.TOOL_CALL_RESULT))
+      .toHaveLength(acceptedResultCount);
+    expect(repository.appendExecutionEvent.mock.calls.filter(([input]) => (
+      input.eventType === 'state_snapshot'
+    ))).toHaveLength(acceptedResultCount);
   });
 
   it('rejects provider-specific fields on an otherwise official event', async () => {

@@ -5,6 +5,7 @@ import { AgentOsModule } from '../agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ReadinessModule } from '../../readiness/readiness.module';
 import { DashboardModule } from '../../analytics/dashboard/dashboard.module';
+import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from '../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
 import { AgentCatalogController } from '../adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from '../adapter/in/http/agent-approvals.controller';
 import { AgentConversationsController } from '../adapter/in/http/agent-conversations.controller';
@@ -68,7 +69,13 @@ describe('AgentOsModule wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? [];
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ReadinessModule);
-    expect(imports).toContain(DashboardModule);
+    expect(imports).not.toContain(DashboardModule);
+    const capabilityModule = imports.find((imported) => {
+      const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, imported as object) ?? [];
+      return exports.includes(ANALYTICS_OVERVIEW_CAPABILITY_PORT);
+    });
+    expect(capabilityModule).toBeDefined();
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, capabilityModule as object) ?? []).toEqual([]);
   });
 
   it('registers the Agent OS HTTP route-family controllers', () => {

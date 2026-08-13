@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AutomationModule } from '../automation/automation.module';
 import { ReadinessModule } from '../readiness/readiness.module';
-import { DashboardModule } from '../analytics/dashboard/dashboard.module';
+import { DashboardCapabilityModule } from '../analytics/dashboard/dashboard-capability.module';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
 import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
@@ -82,7 +82,7 @@ const agentInteractionProviders = [
 ];
 
 @Module({
-  imports: [AutomationModule, ReadinessModule, DashboardModule],
+  imports: [AutomationModule, ReadinessModule, DashboardCapabilityModule],
   controllers: [
     AgentCatalogController,
     AgentRunRequestsController,

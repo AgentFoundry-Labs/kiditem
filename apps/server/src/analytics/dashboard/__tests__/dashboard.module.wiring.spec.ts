@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
+import { DashboardCapabilityModule } from '../dashboard-capability.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
 
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
@@ -60,7 +61,11 @@ const EXPECTED_PORT_BINDINGS = [
 describe('DashboardModule capability wiring', () => {
   it('does not import Agent OS from the analytics owner module', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
-    expect(imports).toEqual([PrismaModule]);
+    expect(imports).toEqual([DashboardCapabilityModule]);
+    expect(Reflect.getMetadata(IMPORTS_KEY, DashboardCapabilityModule) ?? [])
+      .toEqual([PrismaModule]);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [])
+      .toEqual([]);
   });
 
   it('mounts the dashboard controller from adapter/in/http', () => {
@@ -70,8 +75,8 @@ describe('DashboardModule capability wiring', () => {
   });
 
   it('declares every repository adapter as a provider', () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+    const capabilityProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       ProfitCalculationRepositoryAdapter,
       AdAggregationRepositoryAdapter,
@@ -83,13 +88,13 @@ describe('DashboardModule capability wiring', () => {
       DashboardInventoryRepositoryAdapter,
       RocketRevenueRepositoryAdapter,
     ]) {
-      expect(providers).toContain(cls);
+      expect(capabilityProviders).toContain(cls);
     }
   });
 
   it('declares every application service as a provider', () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     for (const cls of [
       DashboardContextService,
       DashboardSalesService,
@@ -104,7 +109,7 @@ describe('DashboardModule capability wiring', () => {
 
   it('binds every application/port/out/* token via a token-shaped provider', () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, DashboardModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, DashboardCapabilityModule) ?? [];
     // Token-shaped providers are objects with a `provide` field; everything
     // else is a class provider. The repository ports are bound via
     // useExisting so application services depend on tokens rather than

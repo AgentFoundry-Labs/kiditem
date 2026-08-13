@@ -859,6 +859,10 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     });
 
     expect(page.events.map((event) => event.sequence)).toEqual([2n, 3n]);
+    expect(page.events.map((event) => event.aguiRunId)).toEqual([
+      'run-replay',
+      'run-replay',
+    ]);
     expect(page.lastSequence).toBe(3n);
     expect(page.hasMore).toBe(true);
     expect(await tableCounts(prisma)).toEqual(before);

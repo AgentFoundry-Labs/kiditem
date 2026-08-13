@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { EventType } from '@ag-ui/core';
+import { EventType, type BaseEvent } from '@ag-ui/core';
 import { describe, expect, it, vi } from 'vitest';
 import { AgentAguiController } from '../agent-agui.controller';
 import { InteractionGatewayGuard } from '../interaction-gateway.guard';
@@ -60,6 +60,41 @@ describe('AgentAguiController', () => {
     expect(response.write).toHaveBeenCalledOnce();
   });
 
+  it('ends a silently disconnected response without cancelling the producer', async () => {
+    let close: (() => void) | undefined;
+    let releaseRuntime!: () => void;
+    const runtimeGate = new Promise<void>((resolve) => { releaseRuntime = resolve; });
+    const persisted: string[] = [];
+    const runner = {
+      run: vi.fn(() => ({
+        async *[Symbol.asyncIterator]() {
+          await runtimeGate;
+          persisted.push('terminal');
+          yield { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId: 'run-1' };
+        },
+      })),
+      stop: vi.fn(),
+    };
+    const controller = new AgentAguiController(runner as never, {} as never, {} as never);
+    const request = { once: vi.fn((name, callback) => { if (name === 'close') close = callback; }) };
+    const response = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), writableEnded: false };
+    const run = controller.run('operator', {
+      threadId: 'thread-1', runId: 'run-1', state: {}, messages: [], tools: [], context: [], forwardedProps: {},
+    }, request as never, response as never);
+
+    await vi.waitFor(() => expect(close).toBeTypeOf('function'));
+    close?.();
+    await expect(Promise.race([
+      run.then(() => 'detached'),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timeout'), 25)),
+    ])).resolves.toBe('detached');
+    expect(response.write).not.toHaveBeenCalled();
+    expect(response.end).toHaveBeenCalledOnce();
+    expect(persisted).toEqual([]);
+    releaseRuntime();
+    await vi.waitFor(() => expect(persisted).toEqual(['terminal']));
+  });
+
   it('subscribes before authoritative catch-up so live join has no replay race', async () => {
     const calls: string[] = [];
     const repository = {
@@ -106,5 +141,55 @@ describe('AgentAguiController', () => {
     expect(calls.slice(0, 2)).toEqual(['subscribe', 'read']);
     close?.();
     await iterator.return?.();
+  });
+
+  it.each([
+    ['completed', EventType.RUN_FINISHED, null],
+    ['failed', EventType.RUN_ERROR, 'model_failed'],
+    ['cancelled', EventType.RUN_ERROR, 'run_cancelled'],
+  ] as const)('emits an exact %s canonical terminal and immediately ends live polling', async (
+    status,
+    expectedType,
+    errorCode,
+  ) => {
+    const unsubscribe = vi.fn();
+    const repository = {
+      readConversationEvents: vi.fn().mockResolvedValue({
+        events: [{
+          id: 'terminal-event-1', organizationId: 'org-1', sessionId: 'session-1',
+          executionId: 'execution-database-id', aguiRunId: 'agui-run-exact',
+          externalEventId: 'terminal-1', sequence: 9n, eventType: 'run_terminal',
+          schemaVersion: 1, payload: { status, errorCode }, createdAt: new Date(),
+        }],
+        lastSequence: 9n,
+        hasMore: false,
+      }),
+    };
+    const publisher = { subscribe: vi.fn(() => unsubscribe) };
+    const request = { once: vi.fn() };
+    const controller = new AgentAguiController(
+      {} as never, {} as never, repository as never, publisher as never,
+    );
+    const iterator = (controller as never as {
+      liveEvents(authorization: unknown, request: unknown): AsyncIterable<BaseEvent>;
+    }).liveEvents({
+      organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1',
+      copilotThreadId: 'thread-1', afterSequence: 8n,
+    }, request)[Symbol.asyncIterator]();
+
+    await expect(iterator.next()).resolves.toMatchObject({
+      value: {
+        type: expectedType,
+        threadId: 'thread-1',
+        runId: 'agui-run-exact',
+      },
+    });
+    const ended = await Promise.race([
+      iterator.next(),
+      new Promise<'timeout'>((resolve) => setTimeout(() => resolve('timeout'), 25)),
+    ]);
+    expect(ended).toEqual({ done: true, value: undefined });
+    expect(repository.readConversationEvents).toHaveBeenCalledOnce();
+    expect(unsubscribe).toHaveBeenCalledOnce();
   });
 });

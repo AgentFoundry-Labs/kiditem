@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { HttpAgent, type BaseEvent, type RunAgentInput } from '@ag-ui/client';
 import { EventType } from '@ag-ui/core';
 import { lastValueFrom, of, toArray } from 'rxjs';
@@ -11,6 +12,7 @@ import {
 } from '../nest-control-client.js';
 import {
   createInteractionGateway,
+  KidItemAgentRunner,
   type InteractionGatewayDependencies,
 } from '../runtime.js';
 import { checkGatewayReadiness } from '../server.js';
@@ -472,6 +474,24 @@ describe('CopilotKit native runtime routes', () => {
     expect(control.connectLive).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
       agentDefinitionKey: 'operator', copilotThreadId: THREAD_ID,
     }));
+  });
+
+  it('derives isRunning from canonical authority after restart and returns false after terminal', async () => {
+    const control = controlHarness();
+    const requestContext = new AsyncLocalStorage<never>();
+    const runner = new KidItemAgentRunner(control, requestContext as never);
+    const context = {
+      request: request(), agentDefinitionKey: 'operator', replayCursor: null,
+    };
+    control.authorizeConnection
+      .mockResolvedValueOnce(connectionAuthorization([], null, runningExecution))
+      .mockResolvedValueOnce(connectionAuthorization([], null, null));
+
+    await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
+      .resolves.toBe(true);
+    await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
+      .resolves.toBe(false);
+    expect(control.authorizeConnection).toHaveBeenCalledTimes(2);
   });
 
   it('stops the canonical running execution after gateway restart without a local grant', async () => {

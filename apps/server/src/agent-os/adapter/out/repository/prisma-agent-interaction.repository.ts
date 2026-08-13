@@ -149,6 +149,7 @@ const eventSelect = {
   organizationId: true,
   sessionId: true,
   executionId: true,
+  execution: { select: { aguiRunId: true } },
   externalEventId: true,
   sequence: true,
   eventType: true,
@@ -1134,9 +1135,17 @@ function mapExecution(row: ExecutionRow): AgentExecutionRecord {
 
 function mapEvent(row: EventRow): AgentConversationEventRecord {
   return {
-    ...row,
+    id: row.id,
+    organizationId: row.organizationId,
+    sessionId: row.sessionId,
+    executionId: row.executionId,
+    aguiRunId: row.execution?.aguiRunId ?? null,
+    externalEventId: row.externalEventId,
+    sequence: row.sequence,
     eventType: conversationEventType(row.eventType),
+    schemaVersion: row.schemaVersion,
     payload: row.payload as AgentConversationEventPayload,
+    createdAt: row.createdAt,
   };
 }
 

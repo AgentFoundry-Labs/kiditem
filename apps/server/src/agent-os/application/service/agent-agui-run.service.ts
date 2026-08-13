@@ -22,6 +22,11 @@ import {
   type AgentConversationLivePublisherPort,
 } from '../port/out/event/agent-conversation-live-publisher.port';
 import {
+  INTERACTION_PRODUCT_ANALYTICS_PORT,
+  type InteractionProductAnalyticsPort,
+  type InteractionRendererKind,
+} from '../port/out/event/interaction-product-analytics.port';
+import {
   AGENT_INTERACTION_REPOSITORY,
   type AgentExecutionRuntimeContext,
   type AgentInteractionRepositoryPort,
@@ -30,11 +35,6 @@ import { AgentOsBoundaryError, AgentOsError } from '../../domain/agent-os.errors
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from './agent-agui-runtime-registry.service';
 import { AgentInteractionPresentationService } from './agent-interaction-presentation.service';
-import {
-  INTERACTION_PRODUCT_ANALYTICS_PORT,
-  type InteractionProductAnalyticsPort,
-  type InteractionRendererKind,
-} from '../port/out/event/interaction-product-analytics.port';
 import type { AgentAguiRuntimeMessage } from '../port/out/runtime/agent-agui-runtime.port';
 
 const MODEL_CONTEXT_EVENT_LIMIT = 200;
@@ -111,11 +111,8 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         capabilityKeys: [...runtimeContext.capabilityKeys],
         messages,
         dashboardContext: authorization.dashboardContext,
-        invokeCapability: async (key, capabilityInput) => {
-          const result = await this.invokeCapability(runtimeContext, key, capabilityInput);
-          if (result.interactionUiResult) rendererKinds.add(result.interactionUiResult.kind);
-          return result;
-        },
+        invokeCapability: (key, capabilityInput) =>
+          this.invokeCapability(runtimeContext, key, capabilityInput),
         recordUsage: (usage) => {
           if (
             !usage.provider.trim() ||
@@ -159,6 +156,13 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
               }
             : {}),
         });
+        if (
+          content.eventType === 'state_snapshot' &&
+          content.payload.snapshotType === 'tool_result' &&
+          'result' in content.payload.data
+        ) {
+          rendererKinds.add(content.payload.data.result.kind);
+        }
         await this.publishAfterCommit(saved).catch(() => undefined);
         if (content.eventType === 'run_terminal') {
           await this.recordAnalytics(runtimeContext, authorization.dashboardContext, startedAt,
@@ -402,7 +406,7 @@ class RuntimeEventState {
   private started = false;
   terminal = false;
   private readonly openMessages = new Set<string>();
-  private readonly openTools = new Set<string>();
+  private readonly tools = new Map<string, 'open' | 'endedAwaitingResult' | 'consumed'>();
 
   constructor(private readonly context: AgentExecutionRuntimeContext) {}
 
@@ -431,19 +435,25 @@ class RuntimeEventState {
         return { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'end', messageId: event.messageId } };
       case EventType.TOOL_CALL_START:
         this.requireStarted();
-        if (this.openTools.has(event.toolCallId)) throw invalidEvent('Tool call is duplicated.');
-        this.openTools.add(event.toolCallId);
+        if (this.tools.has(event.toolCallId)) throw invalidEvent('Tool call is duplicated.');
+        this.tools.set(event.toolCallId, 'open');
         return tool(event.toolCallId, event.toolCallName, 'started');
       case EventType.TOOL_CALL_ARGS:
         this.requireStarted();
-        if (!this.openTools.has(event.toolCallId)) throw invalidEvent('Tool arguments are out of order.');
+        if (this.tools.get(event.toolCallId) !== 'open') throw invalidEvent('Tool arguments are out of order.');
         return notice('agui.tool_args_received', 'Tool arguments received.');
       case EventType.TOOL_CALL_END:
         this.requireStarted();
-        if (!this.openTools.delete(event.toolCallId)) throw invalidEvent('Tool call end is out of order.');
+        if (this.tools.get(event.toolCallId) !== 'open') throw invalidEvent('Tool call end is out of order.');
+        this.tools.set(event.toolCallId, 'endedAwaitingResult');
         return tool(event.toolCallId, 'agent_capability', 'completed');
       case EventType.TOOL_CALL_RESULT:
         this.requireStarted();
+        if (
+          event.role !== 'tool' ||
+          this.tools.get(event.toolCallId) !== 'endedAwaitingResult'
+        ) throw invalidEvent('Tool result is out of order or mismatched.');
+        this.tools.set(event.toolCallId, 'consumed');
         return {
           eventType: 'state_snapshot', schemaVersion: 1,
           payload: {
@@ -487,7 +497,7 @@ class RuntimeEventState {
       threadId !== this.context.copilotThreadId ||
       runId !== this.context.aguiRunId ||
       this.openMessages.size > 0 ||
-      this.openTools.size > 0
+      [...this.tools.values()].some((state) => state !== 'consumed')
     ) {
       throw invalidEvent('The terminal event is out of order or mismatched.');
     }

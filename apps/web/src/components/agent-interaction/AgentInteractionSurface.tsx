@@ -21,6 +21,7 @@ import { useInteractionBootstrap } from './useInteractionBootstrap';
 import { useInteractionStore } from './interaction-store';
 import { useKidItemConversation } from './useKidItemConversation';
 import { InteractionRegistration } from './interaction-registration';
+import { findLatestEligibleSuggestion } from './suggestion-eligibility';
 
 const SubmissionContext = createContext<{
   markSubmitted: () => void;
@@ -117,14 +118,9 @@ function ReadyInteractionSurface({
       ? [[message.toolCallId, message.id]]
       : []
   )));
-  const latestSuggestionMessageId = [...toolResultMessages].reverse().find((message) => {
-    try {
-      const parsed = JSON.parse(message.content as string) as { kind?: unknown };
-      return parsed.kind === 'suggested_replies';
-    } catch {
-      return false;
-    }
-  })?.id ?? null;
+  const latestSuggestionMessageId = findLatestEligibleSuggestion(
+    (agent.messages ?? []) as Array<{ id: string; role: string; content?: unknown; toolCallId?: string }>,
+  )?.toolMessageId ?? null;
   const connectionLabel = errorMessage
     ? '연결 오류'
     : agent.isRunning

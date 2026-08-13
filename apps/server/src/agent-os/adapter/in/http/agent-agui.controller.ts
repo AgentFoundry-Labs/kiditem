@@ -136,12 +136,19 @@ export class AgentAguiController {
     response.setHeader('Connection', 'keep-alive');
     const iterator = iterable[Symbol.asyncIterator]();
     let closed = false;
-    request.once('close', () => { closed = true; });
+    let resolveClosed!: () => void;
+    const closePromise = new Promise<void>((resolve) => { resolveClosed = resolve; });
+    request.once('close', () => { closed = true; resolveClosed(); });
     try {
       while (!closed) {
-        const next = await iterator.next();
+        const outcome = await Promise.race([
+          iterator.next().then((next) => ({ kind: 'next' as const, next })),
+          closePromise.then(() => ({ kind: 'closed' as const })),
+        ]);
+        if (outcome.kind === 'closed') break;
+        const { next } = outcome;
         if (next.done) break;
-        response.write(`data: ${JSON.stringify(next.value)}\n\n`);
+        if (!closed) response.write(`data: ${JSON.stringify(next.value)}\n\n`);
       }
     } finally {
       await iterator.return?.();
@@ -177,7 +184,10 @@ export class AgentAguiController {
           afterSequence,
           limit: CATCH_UP_LIMIT,
         });
-        for (const event of page.events) yield replayEvent(event, authorization.copilotThreadId);
+        for (const event of page.events) {
+          yield replayEvent(event, authorization.copilotThreadId);
+          if (event.eventType === 'run_terminal') return;
+        }
         afterSequence = page.lastSequence;
         if (page.hasMore) continue;
         queue.splice(0, queue.length);
@@ -258,17 +268,22 @@ function replayEvent(
       if (content.eventType !== 'run_terminal') {
         throw new Error('Invalid canonical terminal event.');
       }
+      if (!event.aguiRunId) {
+        throw new Error('Canonical terminal event has no AG-UI run correlation.');
+      }
       return content.payload.status === 'completed'
         ? {
             type: EventType.RUN_FINISHED,
             threadId,
-            runId: event.executionId ?? event.id,
+            runId: event.aguiRunId,
           }
         : {
             type: EventType.RUN_ERROR,
             code: content.payload.errorCode ?? 'INTERACTION_RUNTIME_FAILED',
             message: 'The Agent OS runtime failed.',
-          };
+            threadId,
+            runId: event.aguiRunId,
+          } as BaseEvent;
     }
     default:
       return {
