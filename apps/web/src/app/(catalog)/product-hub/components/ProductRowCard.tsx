@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { ArrowUpRight } from 'lucide-react';
 import { formatKRW, formatNumber } from '@/lib/utils';
+import { isInternalProductCode } from '@/lib/operator-product-reference';
 import { MasterProductImage } from './MasterProductImage';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsListItem } from '@kiditem/shared/product-operations';
@@ -26,6 +27,11 @@ export function ProductRowCard({
     || product.inventoryStatus === 'review_required';
   const isOutOfStock = product.inventoryStatus === 'out_of_stock';
   const categoryLabel = categoryLabelForList(product.category);
+  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
+    || !isInternalProductCode(product.displayReference.value);
+  const secondaryLabel = hasVisibleDisplayReference
+    ? `${product.displayReference.label} ${product.displayReference.value} · ${product.brand ?? '브랜드 미등록'}`
+    : product.brand ?? null;
   const alertStyle = isWarning
     ? 'border-amber-300 bg-amber-50/70'
     : isOutOfStock
@@ -78,9 +84,7 @@ export function ProductRowCard({
             >
               {product.name}
             </Link>
-            <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">
-              {product.displayReference.label} {product.displayReference.value} · {product.brand ?? '브랜드 미등록'}
-            </p>
+            {secondaryLabel ? <p className="mt-1 truncate text-[11px] text-[var(--text-muted)]">{secondaryLabel}</p> : null}
             {product.activeChannels.length > 0 ? (
               <div aria-label="판매 채널" className="mt-1 flex flex-wrap items-center gap-1">
                 <span className="text-[11px] font-semibold text-[var(--text-muted)]">채널</span>

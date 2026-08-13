@@ -6,6 +6,8 @@ import {
   type InventorySkuSnapshotItem,
   type InventorySkuSnapshotListResponse,
   type InventorySkuStockStatus,
+  type SellpiaInventorySkuActiveStatus,
+  type SellpiaInventorySkuLinkStatus,
   type SellpiaImportRunListResponse,
   type SellpiaReceiptBatchCreateInput,
   type SellpiaReceiptBatchMarkUploadedInput,
@@ -25,6 +27,8 @@ export interface SellpiaInventorySkuListParams {
   limit?: number;
   query?: string;
   stockStatus?: InventorySkuStockStatus;
+  activeStatus?: SellpiaInventorySkuActiveStatus;
+  linkStatus?: SellpiaInventorySkuLinkStatus;
 }
 
 export interface SellpiaImportRunListParams {

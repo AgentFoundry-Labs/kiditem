@@ -53,10 +53,21 @@ export default function ProductHubDetailPage() {
     const suffix = next.toString();
     router.replace(suffix ? `${pathname}?${suffix}` : pathname);
   };
+  const returnToPreviousScreen = () => {
+    if (window.history.length > 1) {
+      router.back();
+      return;
+    }
+    router.replace('/product-hub');
+  };
 
   return (
     <div className="space-y-6">
-      <ProductHeader product={product} onEdit={() => setEditorOpen(true)} />
+      <ProductHeader
+        product={product}
+        onBack={returnToPreviousScreen}
+        onEdit={() => setEditorOpen(true)}
+      />
       <ProductInfoCards product={product} onOpenAbcDetail={() => setAbcDetailOpen(true)} />
       <ChannelOptionInventoryPanel
         channelListings={product.channelListings}

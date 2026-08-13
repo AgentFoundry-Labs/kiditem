@@ -282,7 +282,7 @@ describe('DashboardSidePanel', () => {
     expect(stored?.kind === 'alert' ? stored.isRead : false).toBe(true);
   });
 
-  it('routes stock-low alerts to the restored Sellpia zero-stock tab', () => {
+  it('routes stock-low alerts to the canonical inventory workspace', () => {
     render(
       <DashboardSidePanel
         alerts={[makeAlert({ type: 'stock_low', href: null })]}
@@ -292,7 +292,7 @@ describe('DashboardSidePanel', () => {
 
     expect(screen.getByRole('link')).toHaveAttribute(
       'href',
-      '/inventory-hub?tab=status',
+      '/inventory-hub',
     );
   });
 });

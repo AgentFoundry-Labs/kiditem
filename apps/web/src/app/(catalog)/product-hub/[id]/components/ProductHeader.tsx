@@ -1,23 +1,30 @@
-import Link from 'next/link';
 import { ArrowLeft, Pencil } from 'lucide-react';
 import { MasterProductImage } from '../../components/MasterProductImage';
+import { isInternalProductCode } from '@/lib/operator-product-reference';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
 export default function ProductHeader({
   product,
+  onBack,
   onEdit,
 }: {
   product: MasterProductOperationsDetail;
+  onBack: () => void;
   onEdit: () => void;
 }) {
+  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
+    || !isInternalProductCode(product.displayReference.value);
+
   return (
     <header className="space-y-4">
-      <Link
-        href="/product-hub"
+      <button
+        type="button"
+        onClick={onBack}
+        aria-label="이전 화면으로 돌아가기"
         className="inline-flex items-center gap-1 text-sm font-medium text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
       >
-        <ArrowLeft size={16} /> 상품 카탈로그
-      </Link>
+        <ArrowLeft size={16} /> 이전 화면
+      </button>
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-[var(--border-subtle)] bg-[var(--card-bg)] p-6">
         <div className="flex min-w-0 items-center gap-4">
           <div className="flex h-20 w-20 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--primary-soft)] text-[var(--primary)]">
@@ -30,9 +37,9 @@ export default function ProductHeader({
           </div>
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <span className="rounded bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-bold text-[var(--primary)]">
+              {hasVisibleDisplayReference ? <span className="rounded bg-[var(--primary-soft)] px-2 py-0.5 font-mono text-xs font-bold text-[var(--primary)]">
                 {product.displayReference.label} {product.displayReference.value}
-              </span>
+              </span> : null}
               <span className={`rounded px-2 py-0.5 text-[11px] font-bold ${product.isActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>
                 {product.isActive ? '활성' : '비활성'}
               </span>

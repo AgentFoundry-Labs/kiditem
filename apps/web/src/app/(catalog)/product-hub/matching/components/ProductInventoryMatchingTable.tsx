@@ -7,7 +7,7 @@ import type {
   ChannelProductMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
 import { cn, formatNumber } from '@/lib/utils';
-import { operatorProductReference } from '../../lib/operator-product-reference';
+import { operatorProductReference } from '@/lib/operator-product-reference';
 import { MasterProductImage } from '../../components/MasterProductImage';
 
 export type OperatorMatchingStatus = 'matched' | 'quantity_review' | 'unmatched';

@@ -6,6 +6,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
+import { isInternalProductCode } from '@/lib/operator-product-reference';
 import { queryKeys } from '@/lib/query-keys';
 import type {
   MasterProductOperationsMetadata,
@@ -37,6 +38,7 @@ type FormState = {
 export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Props) {
   const queryClient = useQueryClient();
   const [form, setForm] = useState<FormState>(() => toFormState(product));
+  const preserveInternalCode = product ? isInternalProductCode(product.code) : false;
 
   useEffect(() => {
     if (open) setForm(toFormState(product));
@@ -44,14 +46,20 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const payload = toPayload(form);
+      const editableFields = toEditableProductFields(form);
       if (product) {
+        const payload: UpdateMasterProductInput = preserveInternalCode
+          ? editableFields
+          : { code: form.code.trim(), ...editableFields };
         return apiClient.patch<{ id: string }>(
           `/api/products/masters/${product.id}`,
-          payload satisfies UpdateMasterProductInput,
+          payload,
         );
       }
-      return apiClient.post<{ id: string }>('/api/products/masters', payload);
+      return apiClient.post<{ id: string }>('/api/products/masters', {
+        code: form.code.trim(),
+        ...editableFields,
+      });
     },
     onSuccess: async (saved) => {
       await queryClient.invalidateQueries({ queryKey: queryKeys.products.operations.lists() });
@@ -103,7 +111,7 @@ export function ProductEditorDialog({ open, onOpenChange, onSaved, product }: Pr
                     {product.displayReference.value}
                   </p>
                 </div>
-              ) : (
+              ) : preserveInternalCode ? null : (
                 <Field label="상품 코드" required value={form.code} onChange={(code) => setForm((value) => ({ ...value, code }))} />
               )}
               <Field label="상품명" required value={form.name} onChange={(name) => setForm((value) => ({ ...value, name }))} />
@@ -230,9 +238,8 @@ function nullableNumber(value: string): number | null {
   return value === '' ? null : Number(value);
 }
 
-function toPayload(form: FormState) {
+function toEditableProductFields(form: FormState) {
   return {
-    code: form.code.trim(),
     name: form.name.trim(),
     description: nullable(form.description),
     category: nullable(form.category),
