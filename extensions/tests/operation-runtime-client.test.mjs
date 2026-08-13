@@ -474,6 +474,123 @@ test('does not loop a missing-handler attention report after deterministic rejec
   assert.equal(harness.sessionCancellations.length, 1);
 });
 
+test('cleans the exact owned session after reporting a missing handler', async () => {
+  const harness = createHarness({ handler: undefined });
+
+  await harness.client.tick('office');
+
+  const reports = harness.fetchCalls.filter((call) => call.path.endsWith('/report'));
+  assert.equal(reports.length, 1);
+  assert.deepEqual(reports[0].body, {
+    attemptToken: '22222222-2222-4222-8222-222222222222',
+    status: 'attention_required',
+    attentionReason: 'browser_operation_handler_missing',
+  });
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.sessionCancellations)), [{
+    runId: '11111111-1111-4111-8111-111111111111',
+    cancelOptions: { closeManagedTab: true },
+  }]);
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+});
+
+test('immediately drops an expired missing-handler checkpoint after transport failure', async () => {
+  const claim = {
+    runId: '11111111-1111-4111-8111-111111111111',
+    operationKey: 'inventory.refresh_sellpia_snapshot',
+    attemptToken: '22222222-2222-4222-8222-222222222222',
+    attempt: 1,
+    input: {},
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+  let harness;
+  harness = createHarness({
+    claim,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        office: {
+          claim,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: null,
+          resumeLeaseExpiresAt: claim.leaseExpiresAt,
+        },
+      },
+    },
+    handler: undefined,
+    fetchResponse: ({ pathName }) => {
+      if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+      harness.storage.kiditem_operation_runtime_active_v1.office.resumeLeaseExpiresAt =
+        new Date(Date.now() - 1).toISOString();
+      throw new TypeError('offline');
+    },
+  });
+
+  await harness.client.wake('office');
+
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    1,
+  );
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.sessionCancellations)), [{
+    runId: claim.runId,
+    cancelOptions: { closeManagedTab: true },
+  }]);
+});
+
+test('retains a live missing-handler checkpoint for heartbeat recovery', async () => {
+  const claim = {
+    runId: '11111111-1111-4111-8111-111111111111',
+    operationKey: 'inventory.refresh_sellpia_snapshot',
+    attemptToken: '22222222-2222-4222-8222-222222222222',
+    attempt: 1,
+    input: {},
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+  let reportAttempts = 0;
+  const harness = createHarness({
+    claim,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        office: {
+          claim,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: null,
+          resumeLeaseExpiresAt: claim.leaseExpiresAt,
+        },
+      },
+    },
+    handler: undefined,
+    fetchResponse: ({ pathName }) => {
+      if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+      reportAttempts += 1;
+      if (reportAttempts === 1) throw new TypeError('offline');
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  await harness.client.wake('office');
+
+  assert.ok(harness.storage.kiditem_operation_runtime_active_v1?.office);
+  assert.equal(harness.sessionCancellations.length, 0);
+
+  const beforeRecovery = harness.fetchCalls.length;
+  await harness.client.wake('office');
+  const recoveryCalls = harness.fetchCalls.slice(beforeRecovery);
+
+  assert.equal(recoveryCalls[0]?.path.endsWith('/heartbeat'), true);
+  assert.equal(recoveryCalls[1]?.path.endsWith('/report'), true);
+  assert.equal(reportAttempts, 2);
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.deepEqual(JSON.parse(JSON.stringify(harness.sessionCancellations)), [{
+    runId: claim.runId,
+    cancelOptions: { closeManagedTab: true },
+  }]);
+});
+
 test('terminates a malformed successful report response and structured auth failure', async () => {
   for (const failure of ['malformed_response', 'structured_auth']) {
     let handlerCalls = 0;

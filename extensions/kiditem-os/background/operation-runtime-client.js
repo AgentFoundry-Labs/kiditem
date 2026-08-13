@@ -65,6 +65,12 @@
       Number.isFinite(Date.parse(String(value.deadlineAt || "")));
   }
 
+  function isSameAttempt(active, claim) {
+    return isRecord(active) && validClaim(active.claim) &&
+      active.claim.runId === claim.runId &&
+      active.claim.attemptToken === claim.attemptToken;
+  }
+
   function isFutureTimestamp(value) {
     const timestamp = Date.parse(String(value || ""));
     return Number.isFinite(timestamp) && timestamp > Date.now();
@@ -371,10 +377,17 @@
             status: "attention_required",
             attentionReason: "browser_operation_handler_missing",
           });
+          await cancelOwnedSession(environmentId, claim);
           await clearActiveClaim(environmentId, claim);
         } catch (error) {
           const failure = classifyRuntimeRequestError(error);
-          if (failure.kind !== "transport") {
+          if (failure.kind === "transport") {
+            const stillPlausible = await activeClaimFor(environmentId);
+            if (!isSameAttempt(stillPlausible, claim)) {
+              await clearActiveClaim(environmentId, claim);
+              await cancelOwnedSession(environmentId, claim);
+            }
+          } else {
             await rememberTerminatedAttempt(environmentId, claim, failure);
             await clearActiveClaim(environmentId, claim);
             await cancelOwnedSession(environmentId, claim);
