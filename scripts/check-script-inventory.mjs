@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
+  'check-agent-interaction-lifecycle.mjs',
   'check-agents-hygiene.mjs',
   'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
