@@ -20,8 +20,7 @@ in Supply, but the backend capability owner is finance.
   spend.
 - Sales plans, settlements, and supplier payments back finance-owned
   operational views.
-- `ProfitLoss` may remain as legacy/cache data, but is not the live read source
-  of truth.
+- No persisted `ProfitLoss`, manual-ledger, or processing-cost CRUD exists.
 
 ## Aggregation Rules
 
@@ -48,10 +47,11 @@ in Supply, but the backend capability owner is finance.
 
 ## Boundary Rules
 
-- Do not use `prisma.profitLoss.*` in live read paths.
+- Keep `/api/profit-loss` as live aggregation; do not add persisted P&L writes.
 - Live channel-SKU pricing comes from `ChannelListingOption` and the shared
-  pricing resolver. Component purchase cost falls back to mapped
-  `MasterProduct.purchasePrice`; do not restore removed `ProductOption` reads.
+  pricing resolver. Component purchase cost comes from the mapped physical
+  `SellpiaInventorySku.purchasePrice`; do not restore removed `ProductOption`
+  reads.
 - Do not add date-range support without updating DTOs, services, tests, and
   this contract.
 - Do not inject automation's `OperationAlertService` directly.

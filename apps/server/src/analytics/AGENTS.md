@@ -57,7 +57,8 @@ Analytics may directly read:
 - Orders and line items for revenue and repurchase.
 - Channel listings/options/daily snapshots/account KPI/scrape audit rows.
 - Products/options for metadata, grade, category, and pricing inputs.
-- Inventory, alerts, grade history, and thumbnails for dashboard snapshots.
+- Inventory, alerts, current Products-owned ABC grade history, and thumbnails
+  for dashboard snapshots.
 - Supplier, supplier product, purchase order, and supplier payment tables for
   supplier reports.
 

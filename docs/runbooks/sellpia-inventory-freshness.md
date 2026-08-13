@@ -1,18 +1,17 @@
 # Sellpia Inventory Freshness Operations
 
-This is the authoritative operator runbook for Sellpia inventory freshness in
-release `0.1.21`. Sellpia is the stock source of truth. KidItem publishes only a
+This is the authoritative operator runbook for Sellpia inventory freshness.
+Sellpia is the stock source of truth. KidItem publishes only a
 validated full option-product export and never guesses, increments, or
 decrements `SellpiaInventorySku.currentStock` from an order or purchase action.
-Inventory may reserve derived component capacity in its common commitment
-ledger; that logical hold is not a physical stock write.
+Public availability is exactly the latest published physical stock.
 
 ## Prerequisites
 
-- Repository root `VERSION` is exactly `0.1.21`.
-- Prisma schema and durable data migration
-  `v0.1.19:001_sellpia_inventory_freshness` and the `v0.1.21` common
-  inventory-commitment migration are applied.
+- Prisma schema and the durable data migration
+  `v0.1.19:001_sellpia_inventory_freshness` are applied. The immutable
+  `v0.1.21` inventory-commitment implementation is historical evidence and is
+  not registered for execution.
 - NestJS and the web app are running, with exactly one backend listener on port
   4000 during local verification.
 - The operator is signed in to the intended KidItem organization and to
@@ -48,18 +47,9 @@ The previous completed snapshot remains the current stock basis during every
 refresh request, download, validation failure, quality block, lease loss, or
 provider ambiguity. A failed attempt does not publish partial rows.
 
-Availability uses three distinct values:
-
-- `currentStock`: the latest completed physical Sellpia full snapshot;
-- `activeCommitmentQuantity`: all active Inventory-owned logical holds;
-- `availableStock`: `max(currentStock - activeCommitmentQuantity, 0)`.
-
-A Rocket request confirmation creates `rocket_request`; PA order collection
-replaces it with `rocket_final_order` without double-counting. A final-order
-commitment may settle only after a strictly newer verified Sellpia generation
-contains the real movement. Settlement removes the hold while leaving the
-newer physical snapshot unchanged. Cancellation is an audited release. Never
-edit `currentStock` or release a final commitment merely to imitate shipment.
+`currentStock` is the latest completed physical Sellpia full snapshot, and
+`availableStock === currentStock`. Preview allocation is transient and never
+persists a hold. Never edit `currentStock` to imitate shipment.
 
 ## One-Time Source Binding
 
@@ -224,7 +214,7 @@ rtk npm run data:migrate -- status
 rtk npm run check:schema-artifact-sync
 
 rtk npm exec --workspace=apps/server vitest -- run src/inventory src/channels src/supply src/orders src/products src/analytics/sellpia-product-sales
-rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/inventory/__tests__/inventory-commitment.pg.integration.spec.ts src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
+rtk npm run test:integration --workspace=apps/server -- src/inventory/__tests__/sellpia-inventory-freshness.repository.pg.integration.spec.ts src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts
 rtk npm run check:idor
 rtk npm run check:tenant-scope
 rtk npm run build --workspace=apps/server
@@ -245,8 +235,7 @@ running.
 
 Stop and report the exact blocker when:
 
-- `VERSION` is not `0.1.21`, migration status is dirty, or generated schema
-  artifacts drift;
+- migration status is dirty or generated schema artifacts drift;
 - the source origin/account or active organization cannot be established;
 - extension/login recovery would require exposing credentials or session data;
 - an automatic or manual import cannot prove a complete current export;
@@ -263,7 +252,7 @@ Stop and report the exact blocker when:
 Report only observed identifiers/counts. Never paste raw workbook/provider data.
 
 ```text
-Release: 0.1.21
+Release: <root VERSION>
 Source binding: confirmed/unconfirmed (<fixed origin/account only>)
 Freshness: <fresh|refresh_required|syncing|failed>; requested <n>; verified <n>
 Collection: automatic/manual; <published|same_hash_verified|same_hash_confirmation_scheduled|failed>

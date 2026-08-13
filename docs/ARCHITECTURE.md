@@ -734,8 +734,8 @@ not estimate, reserve, increment, or decrement it.
 | Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable Supply audit snapshot for one confirmed line; not a second capacity ledger. |
 
 The commitment, Picking, Unshipped, and Sellpia receipt-batch application
-capabilities are retired. Their deferred Prisma-table cleanup is a separate
-schema change; remaining tables do not authorize runtime APIs or workflows.
+capabilities and persistence models are retired. Availability is physical:
+`availableStock === currentStock`.
 
 Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and
 `failed`. A verified snapshot is fresh for strictly less than 10 minutes;

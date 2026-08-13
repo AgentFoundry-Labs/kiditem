@@ -14,8 +14,7 @@ preview workflows. KidItem has no second mutable stock balance.
 - Transfer, return-transfer, and warehouse rows are operation records;
   completing them does not change `currentStock`.
 - Commitment, Picking, Unshipped, and Sellpia receipt-batch capabilities are
-  retired. Legacy persistence cleanup is a separate schema migration and does
-  not make those models active application capabilities.
+  retired and their persistence models are absent.
 
 The full schema is
 [prisma/models/inventory.prisma](../../../../prisma/models/inventory.prisma).
