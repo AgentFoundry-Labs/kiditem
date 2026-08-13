@@ -31,6 +31,7 @@ function createHarness(options = {}) {
     : claimOption;
   const environmentIds = options.environmentIds || ['office'];
   const storage = { ...(options.initialStorage || {}) };
+  let storageGetIndex = 0;
   let storageSetIndex = 0;
   const sessionCancellations = [];
   const chrome = {
@@ -49,6 +50,11 @@ function createHarness(options = {}) {
     storage: {
       local: {
         async get(key) {
+          const getIndex = storageGetIndex;
+          storageGetIndex += 1;
+          if (typeof options.beforeStorageGet === 'function') {
+            await options.beforeStorageGet({ getIndex, key });
+          }
           if (typeof key === 'string') return { [key]: storage[key] };
           return { ...storage };
         },
@@ -94,6 +100,9 @@ function createHarness(options = {}) {
         .map(claimFor)
         .find((candidate) => candidate?.operationKey === key);
       assert.ok(knownClaim);
+      if (typeof options.runOperation === 'function') {
+        return options.runOperation(key);
+      }
       return Object.hasOwn(options, 'handler')
         ? typeof options.handler === 'function'
           ? options.handler
@@ -140,6 +149,16 @@ function createHarness(options = {}) {
     sessionCancellations,
     storage,
   };
+}
+
+function deferred() {
+  let resolve;
+  let reject;
+  const promise = new Promise((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, reject, resolve };
 }
 
 function claimForEnvironment(environmentId) {
@@ -218,6 +237,202 @@ test('resumes a non-expired stored claim after the service worker restarts', asy
     fetchCalls.some((call) => call.path.endsWith('/claim')),
     false,
   );
+});
+
+test('coalesces concurrent install, alarm, and wake recovery for one stored attempt', async () => {
+  const claim = claimForEnvironment('office');
+  const heartbeatStarted = deferred();
+  const releaseHeartbeat = deferred();
+  const reportFinished = deferred();
+  let heartbeatCalls = 0;
+  let handlerCalls = 0;
+  let reportCalls = 0;
+  const harness = createHarness({
+    claim,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        office: {
+          claim,
+          progress: 0.25,
+          stage: 'collecting',
+          progressCurrent: 1,
+          progressTotal: 4,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: new Date().toISOString(),
+          resumeLeaseExpiresAt: claim.leaseExpiresAt,
+        },
+      },
+    },
+    beforeStorageGet: async ({ key }) => {
+      if (key === 'kiditem_operation_runtime_terminated_v1') {
+        await new Promise((resolve) => setTimeout(resolve, 15));
+      }
+    },
+    fetchResponse: ({ pathName }) => {
+      if (pathName.endsWith('/heartbeat')) {
+        heartbeatCalls += 1;
+        heartbeatStarted.resolve();
+        return releaseHeartbeat.promise.then(
+          () => new Response(null, { status: 204 }),
+        );
+      }
+      if (pathName.endsWith('/report')) {
+        reportCalls += 1;
+        reportFinished.resolve();
+      }
+      return new Response(null, { status: 204 });
+    },
+    handler: async () => {
+      handlerCalls += 1;
+      return { status: 'succeeded', result: { collected: 1 } };
+    },
+  });
+
+  harness.client.install();
+  harness.alarmListeners[0]({ name: 'kiditem-operation-runtime-claim:office' });
+  const wake = harness.client.wake('office');
+  await heartbeatStarted.promise;
+  await new Promise((resolve) => setImmediate(resolve));
+  releaseHeartbeat.resolve();
+  await Promise.all([wake, reportFinished.promise]);
+  await new Promise((resolve) => setTimeout(resolve, 25));
+
+  assert.equal(heartbeatCalls, 1);
+  assert.equal(handlerCalls, 1);
+  assert.equal(reportCalls, 1);
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/claim')).length,
+    0,
+  );
+});
+
+test('releases a recovery reservation after transport rejection', async () => {
+  const claim = claimForEnvironment('office');
+  let heartbeatCalls = 0;
+  let handlerCalls = 0;
+  const harness = createHarness({
+    claim,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        office: {
+          claim,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: new Date().toISOString(),
+          resumeLeaseExpiresAt: claim.leaseExpiresAt,
+        },
+      },
+    },
+    fetchResponse: ({ pathName }) => {
+      if (pathName.endsWith('/heartbeat')) {
+        heartbeatCalls += 1;
+        if (heartbeatCalls === 1) throw new TypeError('offline');
+      }
+      return new Response(null, { status: 204 });
+    },
+    handler: async () => {
+      handlerCalls += 1;
+      return { status: 'succeeded', result: { collected: 1 } };
+    },
+  });
+
+  await harness.client.wake('office');
+  await harness.client.wake('office');
+
+  assert.equal(heartbeatCalls, 2);
+  assert.equal(handlerCalls, 1);
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/heartbeat')).length,
+    2,
+  );
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    1,
+  );
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+});
+
+test('releases an exact-attempt execution reservation after registry rejection', async () => {
+  let handlerLookups = 0;
+  let handlerCalls = 0;
+  const harness = createHarness({
+    runOperation: () => {
+      handlerLookups += 1;
+      if (handlerLookups === 1) throw new Error('registry temporarily unavailable');
+      return async () => {
+        handlerCalls += 1;
+        return { status: 'succeeded', result: { collected: 1 } };
+      };
+    },
+  });
+
+  await harness.client.tick('office');
+  await harness.client.tick('office');
+
+  assert.equal(handlerLookups, 2);
+  assert.equal(handlerCalls, 1);
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    1,
+  );
+});
+
+test('recovers local and office attempts independently', async () => {
+  const local = claimForEnvironment('local');
+  const office = claimForEnvironment('office');
+  const officeHeartbeatStarted = deferred();
+  const releaseOfficeHeartbeat = deferred();
+  const handled = [];
+  const harness = createHarness({
+    environmentIds: ['local', 'office'],
+    claim: claimForEnvironment,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        local: {
+          claim: local,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: new Date().toISOString(),
+          resumeLeaseExpiresAt: local.leaseExpiresAt,
+        },
+        office: {
+          claim: office,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: new Date().toISOString(),
+          resumeLeaseExpiresAt: office.leaseExpiresAt,
+        },
+      },
+    },
+    fetchResponse: ({ environmentId, pathName }) => {
+      if (environmentId === 'office' && pathName.endsWith('/heartbeat')) {
+        officeHeartbeatStarted.resolve();
+        return releaseOfficeHeartbeat.promise.then(
+          () => new Response(null, { status: 204 }),
+        );
+      }
+      return new Response(null, { status: 204 });
+    },
+    handler: async ({ environmentId }) => {
+      handled.push(environmentId);
+      return { status: 'succeeded', result: { collected: 1 } };
+    },
+  });
+
+  const officeRecovery = harness.client.wake('office');
+  await officeHeartbeatStarted.promise;
+  await harness.client.wake('local');
+
+  assert.deepEqual(handled, ['local']);
+  assert.equal(
+    harness.fetchCalls.some(
+      (call) => call.environmentId === 'local' && call.path.endsWith('/report'),
+    ),
+    true,
+  );
+  releaseOfficeHeartbeat.resolve();
+  await officeRecovery;
+  assert.deepEqual(handled.sort(), ['local', 'office']);
 });
 
 test('aborts the exact handler on heartbeat fence loss and suppresses its stale terminal report', async () => {

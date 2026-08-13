@@ -218,7 +218,8 @@
       120,
     );
     const activeTicks = new Set();
-    const activeExecutions = new Set();
+    const activeExecutions = new Map();
+    const recoveryInFlight = new Map();
     const storageMutationTails = new Map();
     let installed = false;
 
@@ -475,8 +476,23 @@
       return Math.max(1_000, Math.floor(Math.max(3_000, remaining) / 3));
     }
 
-    async function executeClaim(environmentId, claim, initialState = {}) {
-      if (activeExecutions.has(environmentId)) return false;
+    function executeClaim(environmentId, claim, initialState = {}) {
+      if (activeExecutions.has(environmentId)) return Promise.resolve(false);
+      const executionKey = JSON.stringify([
+        environmentId,
+        claim.runId,
+        claim.attemptToken,
+      ]);
+      activeExecutions.set(environmentId, executionKey);
+      const execution = executeReservedClaim(environmentId, claim, initialState);
+      return execution.finally(() => {
+        if (activeExecutions.get(environmentId) === executionKey) {
+          activeExecutions.delete(environmentId);
+        }
+      });
+    }
+
+    async function executeReservedClaim(environmentId, claim, initialState = {}) {
       if (await isTerminatedAttempt(environmentId, claim)) return false;
       const handler = domains.runOperation(claim.operationKey);
       if (typeof handler !== "function") {
@@ -512,7 +528,6 @@
         return true;
       }
 
-      activeExecutions.add(environmentId);
       const progressState = {
         progress: typeof initialState.progress === "number" &&
           initialState.progress >= 0 && initialState.progress <= 1
@@ -693,7 +708,6 @@
         await stopHeartbeats();
         if (deadlineTimerId !== null) clearTimeout(deadlineTimerId);
         if (managedSessionCleanup) await managedSessionCleanup;
-        activeExecutions.delete(environmentId);
       }
       return true;
     }
@@ -724,7 +738,7 @@
       }
     }
 
-    async function resumeOrTick(environmentId) {
+    async function runRecoveryOrTick(environmentId) {
       if (activeTicks.has(environmentId) || activeExecutions.has(environmentId)) {
         return false;
       }
@@ -792,7 +806,7 @@
               return false;
             }
           }
-          return executeClaim(environmentId, active.claim, {
+          return await executeClaim(environmentId, active.claim, {
             ...progressState,
             renewedCheckpoint: true,
           });
@@ -821,6 +835,20 @@
         }
       }
       return tick(environmentId);
+    }
+
+    function resumeOrTick(environmentId) {
+      const existing = recoveryInFlight.get(environmentId);
+      if (existing) return existing;
+      const recovery = Promise.resolve()
+        .then(() => runRecoveryOrTick(environmentId))
+        .finally(() => {
+          if (recoveryInFlight.get(environmentId) === recovery) {
+            recoveryInFlight.delete(environmentId);
+          }
+        });
+      recoveryInFlight.set(environmentId, recovery);
+      return recovery;
     }
 
     function installAlarms() {
