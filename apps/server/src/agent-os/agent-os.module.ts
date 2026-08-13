@@ -8,6 +8,9 @@ import { AgentExecutorController } from './adapter/in/http/agent-executor.contro
 import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
 import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
 import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
+import { AgentInteractionBootstrapController } from './adapter/in/http/agent-interaction-bootstrap.controller';
+import { AgentInteractionControlController } from './adapter/in/http/agent-interaction-control.controller';
+import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
@@ -51,6 +54,8 @@ import { OperatorDecisionParser } from './application/service/operator-decision-
 import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-runtime-assets-startup-validator.service';
 import { AgentInteractionService } from './application/service/agent-interaction.service';
 import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
+import { AgentInteractionIdentityService } from './application/service/agent-interaction-identity.service';
+import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -70,9 +75,14 @@ const agentInteractionProviders = [
     AgentRunObservabilityController,
     AgentApprovalsController,
     AgentConversationsController,
+    AgentInteractionBootstrapController,
+    AgentInteractionControlController,
   ],
   providers: [
     ...agentInteractionProviders,
+    ...interactionEnvironmentProviders,
+    AgentInteractionIdentityService,
+    InteractionGatewayGuard,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,

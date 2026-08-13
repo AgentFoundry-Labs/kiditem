@@ -276,6 +276,10 @@ covered by an operator runbook.
 | `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
+| `INTERACTION_GATEWAY_SHARED_SECRET` | Every production API boot | Agent OS interaction gateway guard | Required server-only shared credential (minimum 32 bytes) for gateway control and health routes. It has no default. Rotate it in a coordinated gateway/server rollout; in-flight requests using the old value fail closed. |
+| `INTERACTION_PRINCIPAL_HMAC_KEY` | Every production API boot | Agent OS interaction identity service | Required server-only HMAC key (minimum 32 bytes) for opaque browser principal keys. It has no default. Rotation changes principal identities and requires an explicit identity/history migration plan. |
+| `INTERACTION_RUN_INTENT_HMAC_KEY` | Every production API boot | Agent OS interaction authorization service | Required server-only HMAC key (minimum 32 bytes) for 30-second run intents. It has no default. Rotation immediately invalidates outstanding intents; allow the window to drain or expect clients to prepare again. |
+| `INTERACTION_REPLAY_CURSOR_HMAC_KEY` | Every production API boot | Agent OS replay and live-join authorization | Required server-only HMAC key (minimum 32 bytes) for opaque replay cursors and short-lived live-join tokens. It has no default. Rotate only with a coordinated reconnect rollout; old cursors and join tokens fail closed. |
 | `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
 
@@ -283,6 +287,11 @@ The Nest service account owns the persistent local Claude/Codex login used by
 Agent OS. Existing CLI login files are discovered through that account's
 isolated child environment. Optional API-key variables remain restricted server
 secrets; they are never copied to the browser or KidItem MCP child process.
+The four `INTERACTION_*` secrets have deliberately separate purposes and must
+use independent random values. Never expose them through `NEXT_PUBLIC_*`, send
+them to the browser or gateway request bodies, include them in Agent OS prompts,
+or print their values in logs, deployment output, tests, issues, or pull
+requests.
 
 ## Channel Credentials
 

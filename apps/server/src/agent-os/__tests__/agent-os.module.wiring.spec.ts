@@ -33,6 +33,17 @@ import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction
 import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
 import { PrismaAgentInteractionRepository } from '../adapter/out/repository/prisma-agent-interaction.repository';
 import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository/agent-interaction-repository.port';
+import { AgentInteractionBootstrapController } from '../adapter/in/http/agent-interaction-bootstrap.controller';
+import { AgentInteractionControlController } from '../adapter/in/http/agent-interaction-control.controller';
+import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
+import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
+import {
+  INTERACTION_CLOCK,
+  INTERACTION_GATEWAY_SHARED_SECRET,
+  INTERACTION_PRINCIPAL_HMAC_KEY,
+  INTERACTION_REPLAY_CURSOR_HMAC_KEY,
+  INTERACTION_RUN_INTENT_HMAC_KEY,
+} from '../application/service/agent-interaction.tokens';
 
 const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
@@ -58,7 +69,34 @@ describe('AgentOsModule wiring', () => {
       AgentRunObservabilityController,
       AgentApprovalsController,
       AgentConversationsController,
+      AgentInteractionBootstrapController,
+      AgentInteractionControlController,
     ]);
+  });
+
+  it('wires the canonical interaction identity, guard, repository, and independent secrets', () => {
+    const providers: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+
+    expect(providers).toContain(AgentInteractionIdentityService);
+    expect(providers).toContain(InteractionGatewayGuard);
+    for (const token of [
+      INTERACTION_CLOCK,
+      INTERACTION_GATEWAY_SHARED_SECRET,
+      INTERACTION_PRINCIPAL_HMAC_KEY,
+      INTERACTION_RUN_INTENT_HMAC_KEY,
+      INTERACTION_REPLAY_CURSOR_HMAC_KEY,
+    ]) {
+      expect(providers).toContainEqual(
+        expect.objectContaining({ provide: token }),
+      );
+    }
+    expect(
+      providers.some(
+        (provider) =>
+          typeof provider === 'function' && provider.name === 'AgentThreadBindingService',
+      ),
+    ).toBe(false);
   });
 
   it('registers the operation-alert bridge in Agent OS, not automation', () => {
