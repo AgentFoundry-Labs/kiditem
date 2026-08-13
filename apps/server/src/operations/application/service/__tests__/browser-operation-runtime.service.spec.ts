@@ -106,7 +106,8 @@ describe('BrowserOperationRuntimeService', () => {
     ).rejects.toThrow('browser_runtime_fence_lost');
   });
 
-  it('grants one new browser claim when an operator retries after exhausting attempts', async () => {
+  it('grants one retry without clearing or extending the absolute deadline', async () => {
+    const deadlineAt = new Date('2026-08-13T01:17:03.000Z');
     const current = {
       id: RUN_ID,
       organizationId: ORG_ID,
@@ -114,6 +115,7 @@ describe('BrowserOperationRuntimeService', () => {
       status: 'attention_required',
       attempts: 3,
       maxAttempts: 3,
+      deadlineAt,
     };
     const repository = {
       findRunById: vi.fn().mockResolvedValue(current),
@@ -128,5 +130,9 @@ describe('BrowserOperationRuntimeService', () => {
       status: 'waiting_runtime',
       attemptDelta: -1,
     }));
+    expect(repository.transition).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(repository.transition).mock.calls[0]?.[0]).not.toHaveProperty(
+      'deadlineAt',
+    );
   });
 });

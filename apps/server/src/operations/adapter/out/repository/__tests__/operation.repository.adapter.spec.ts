@@ -107,6 +107,25 @@ describe('OperationRepositoryAdapter stage and count mapping', () => {
       }),
     }));
   });
+
+  it('normalizes zero of zero progress to a finite persisted zero', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+
+    await repository.heartbeatBrowserRun({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+      progressCurrent: 0,
+      progressTotal: 0,
+    });
+
+    const progress = updateMany.mock.calls[0]?.[0].data.progress;
+    expect(progress).toBe(0);
+    expect(Number.isFinite(progress)).toBe(true);
+  });
 });
 
 describe('OperationRepositoryAdapter browser claim deadline', () => {
@@ -147,7 +166,7 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     }));
   });
 
-  it('preserves the original deadline when a browser run is reclaimed', async () => {
+  it('uses the original absolute deadline instead of extending it on reclaim', async () => {
     const originalDeadline = new Date('2026-08-13T01:10:00.000Z');
     const update = vi.fn().mockResolvedValue({ id: RUN_ID });
     const transaction = {

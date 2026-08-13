@@ -34,6 +34,17 @@ const validRun = {
   updatedAt: '2026-08-01T00:00:00.000Z',
 } as const;
 
+const persistedRun = {
+  ...validRun,
+  resourceClass: 'playwright_1688',
+  executionTimeoutMs: 900_000,
+  stage: null,
+  stageUpdatedAt: null,
+  progressCurrent: null,
+  progressTotal: null,
+  deadlineAt: null,
+} as const;
+
 describe('Operation wire contracts', () => {
   it('rejects tenant input and requires browser fencing', () => {
     expect(() =>
@@ -83,13 +94,34 @@ describe('Operation wire contracts', () => {
     expect(OperationStatusSchema.options).toContain('waiting_dependency');
   });
 
-  it('requires stage-safe progress counts without changing status vocabulary', () => {
+  it('keeps the exact pre-KID-24 status vocabulary', () => {
+    expect(OperationStatusSchema.options).toEqual([
+      'queued',
+      'waiting_runtime',
+      'waiting_dependency',
+      'running',
+      'attention_required',
+      'succeeded',
+      'failed',
+      'cancelled',
+      'skipped',
+    ]);
+  });
+
+  it('rejects partial as an operation status', () => {
+    expect(OperationStatusSchema.safeParse('partial').success).toBe(false);
     expect(OperationStatusSchema.options).not.toContain('partial');
+  });
+
+  it('rejects no_change as an operation status', () => {
+    expect(OperationStatusSchema.safeParse('no_change').success).toBe(false);
+    expect(OperationStatusSchema.options).not.toContain('no_change');
+  });
+
+  it('parses resource, deadline, stage, and count metadata together', () => {
     expect(
       OperationRunSchema.parse({
-        ...validRun,
-        resourceClass: 'playwright_1688',
-        executionTimeoutMs: 900_000,
+        ...persistedRun,
         stage: 'collecting_keyword',
         stageUpdatedAt: '2026-08-13T01:02:03.000Z',
         progressCurrent: 11,
@@ -97,43 +129,65 @@ describe('Operation wire contracts', () => {
         deadlineAt: '2026-08-13T01:17:03.000Z',
       }).progressCurrent,
     ).toBe(11);
+  });
 
+  it('rejects an unknown operation resource class', () => {
     expect(() =>
       OperationRunSchema.parse({
-        ...validRun,
+        ...persistedRun,
         resourceClass: 'unknown',
-        executionTimeoutMs: 900_000,
-        stage: null,
-        stageUpdatedAt: null,
-        progressCurrent: null,
-        progressTotal: null,
-        deadlineAt: null,
       }),
     ).toThrow();
+  });
+
+  it('rejects a stage outside the safe code-value vocabulary', () => {
     expect(() =>
       OperationRunSchema.parse({
-        ...validRun,
-        resourceClass: 'playwright_1688',
-        executionTimeoutMs: 900_000,
+        ...persistedRun,
         stage: 'Collecting Keyword',
         stageUpdatedAt: '2026-08-13T01:02:03.000Z',
-        progressCurrent: 13,
-        progressTotal: 12,
-        deadlineAt: null,
       }),
     ).toThrow();
+  });
+
+  it('rejects progress current above total', () => {
     expect(() =>
       OperationRunSchema.parse({
-        ...validRun,
-        resourceClass: 'playwright_1688',
-        executionTimeoutMs: 900_000,
-        stage: null,
-        stageUpdatedAt: null,
-        progressCurrent: 1,
-        progressTotal: null,
-        deadlineAt: null,
+        ...persistedRun,
+        progressCurrent: 13,
+        progressTotal: 12,
       }),
     ).toThrow();
+  });
+
+  it('rejects negative progress current', () => {
+    expect(() =>
+      OperationRunSchema.parse({
+        ...persistedRun,
+        progressCurrent: -1,
+        progressTotal: 12,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects negative progress total', () => {
+    const parsed = OperationRunSchema.safeParse({
+      ...persistedRun,
+      progressCurrent: 0,
+      progressTotal: -1,
+    });
+
+    expect(parsed.success).toBe(false);
+    if (!parsed.success) {
+      expect(parsed.error.issues).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            code: 'too_small',
+            path: ['progressTotal'],
+          }),
+        ]),
+      );
+    }
   });
 
   it('publishes resource policy in the operation catalog', () => {
@@ -183,13 +237,6 @@ describe('Operation wire contracts', () => {
         progressTotal: null,
       }),
     ).toMatchObject({ progressCurrent: null, progressTotal: null });
-    expect(() =>
-      BrowserOperationHeartbeatRequestSchema.parse({
-        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
-        progressCurrent: 11,
-      }),
-    ).toThrow();
-
     expect(
       BrowserOperationReportRequestSchema.parse({
         attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
@@ -205,6 +252,24 @@ describe('Operation wire contracts', () => {
         attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
         status: 'succeeded',
         result: { raw_payload: 'unsafe' },
+      }),
+    ).toThrow();
+  });
+
+  it('rejects browser progress current without total', () => {
+    expect(() =>
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressCurrent: 11,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects browser progress total without current', () => {
+    expect(() =>
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressTotal: 12,
       }),
     ).toThrow();
   });
