@@ -18,7 +18,8 @@ import owner-domain services or take mutation authority from them.
   `GET /api/sellpia-product-sales`
   (확장이 Sellpia stat_prd_profit 을 상품×월별로 수집해 적재하는 monthly-fact
   ingest 레인 + Inventory가 소유하는 공통 가용재고 read + 상품별
-  1/2개월 평균 소진량·악성재고·시즌·현재고·약정·가용재고·발주 read)
+  1/2개월 평균 소진량·악성재고·시즌·현재고·가용재고
+  (`availableStock === currentStock`)·발주 read)
 
 ## Main Data Models
 
