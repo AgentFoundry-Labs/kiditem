@@ -79,7 +79,13 @@ export interface NaverPopularKeywordSnapshotRow {
   linkId: string | null;
 }
 
-export interface Sourcing1688HotProductSnapshotUpsert {
+/**
+ * A raw 1688 offer discovered through one exact search keyword.
+ *
+ * This is an immutable source observation input, not a daily projection: one
+ * offer may deliberately occur more than once when different keywords found it.
+ */
+export interface Sourcing1688OfferKeywordObservationInput {
   organizationId: string;
   businessDate: Date;
   offerId: string;
@@ -190,13 +196,6 @@ export interface TrendCollectionRepositoryPort {
   upsertSeedByKeyword(input: UpsertTrendSeedInput): Promise<TrendSeedRow>;
   updateSeed(input: UpdateTrendSeedInput): Promise<TrendSeedRow>;
   deleteSeed(input: { id: string; organizationId: string }): Promise<void>;
-
-  upsertNaverKeywordSnapshots(rows: NaverKeywordSnapshotUpsert[]): Promise<number>;
-  /** 보드×일자 스냅샷을 통째로 교체해 사라진 키워드 행도 함께 정리한다. */
-  replaceNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number>;
-  upsert1688HotProductSnapshots(rows: Sourcing1688HotProductSnapshotUpsert[]): Promise<number>;
-  upsertShortsSnapshots(rows: ShortsSnapshotUpsert[]): Promise<number>;
-  upsertTiktokCcSnapshots(rows: TiktokCcSnapshotUpsert[]): Promise<number>;
 
   findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]>;
   findPopularKeywordHistory(query: TrendHistoryQuery): Promise<NaverPopularKeywordSnapshotRow[]>;

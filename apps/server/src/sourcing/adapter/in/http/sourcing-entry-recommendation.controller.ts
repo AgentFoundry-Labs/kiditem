@@ -1,8 +1,11 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingAssistantService } from '../../../application/service/sourcing-assistant.service';
 import { SourcingEntryRecommendationService } from '../../../application/service/sourcing-entry-recommendation.service';
 import { AskSourcingAssistantDto, ListEntryRecommendationsQueryDto } from './dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 /**
  * 초기 진입 추천 표와 그 표를 근거로 답하는 어시스턴트.
@@ -29,11 +32,18 @@ export class SourcingEntryRecommendationController {
   }
 
   @Post('assistant-ask')
-  async ask(@Body() body: AskSourcingAssistantDto, @CurrentOrganization() organizationId: string) {
+  @Throttle({ default: { limit: 3, ttl: 60_000 } })
+  async ask(
+    @Body() body: AskSourcingAssistantDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
     return this.assistant.ask({
       organizationId,
+      userId: user.id,
       question: body.question,
       visibleContext: body.visibleContext,
+      conversationId: body.conversationId,
     });
   }
 }

@@ -32,9 +32,11 @@ import type {
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { resolveAgentLocalCliRuntimeConfig } from '../../../application/service/agent-runtime.config';
 import { assertAgentOsMcpExecutionActive } from '../../../application/service/agent-os-mcp-execution-fence';
-import { modelFacingMcpToolNamesForAgentType } from '../../../application/service/kiditem-mcp-tool-registry.service';
+import {
+  modelFacingCapabilityKeysForContext,
+  modelFacingMcpToolNamesForAgentType,
+} from '../../../application/service/kiditem-mcp-tool-registry.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
-import { findAgentDefinitionByType } from '../../../domain/agent-definition.registry';
 import {
   AgentLocalCliAnswerSchema,
   verifyAgentLocalCliAnswer,
@@ -355,17 +357,24 @@ export class AgentLocalCliRuntimeAdapter {
           runId: context.runId,
           agentInstanceId: context.agentInstanceId,
           agentType: context.agentType,
+          playbookKey: context.playbookKey,
+          planStepKey: context.planStepKey,
           requestedByUserId: context.requestedByUserId,
           homeDirectory: mcpHomeDirectory,
         }),
       ]);
       const allowedMcpToolNames = modelFacingMcpToolNamesForAgentType(
         context.agentType,
+        {
+          playbookKey: context.playbookKey,
+          planStepKey: context.planStepKey,
+        },
       );
-      const capabilityKeys =
-        findAgentDefinitionByType(context.agentType)?.defaultToolPolicies
-          .filter((policy) => policy.effect !== 'deny')
-          .map((policy) => policy.toolKey) ?? [];
+      const capabilityKeys = modelFacingCapabilityKeysForContext({
+        agentType: context.agentType,
+        playbookKey: context.playbookKey,
+        planStepKey: context.planStepKey,
+      });
       const prompt = buildPrompt(resolvedAssets, userMessage, allowedMcpToolNames);
       const schemaFile = join(runDirectory, 'output.schema.json');
       const outputFile = join(runDirectory, 'output.json');

@@ -7,7 +7,6 @@ import {
   PROCUREMENT_TEST_INTENT_STATUS,
   resolveProcurementQuantityConservation,
   supplierOfferEvidencePayloadMatches,
-  type SupplySourceEligibilityDenialReason,
   type SupplySourceIngestionRunPolicyRecord,
   type SupplySourceUsage,
   type ProcurementTestIntentStatus,
@@ -25,14 +24,15 @@ import type {
 } from '../../../application/port/out/repository/supply-sourcing-procurement.repository.port';
 
 const OFFER_INCLUDE = {
-  priceTiers: { orderBy: [{ minQuantity: 'asc' as const }, { id: 'asc' as const }] },
+  priceTiers: {
+    orderBy: [{ minQuantity: 'asc' as const }, { id: 'asc' as const }],
+  },
 } satisfies Prisma.SupplierOfferSkuSnapshotInclude;
 
 const SOURCE_CONTEXT_SELECT = {
   sourceKey: true,
   ingestionRun: {
     select: {
-      sourceEntitlementVersionId: true,
       targetKey: true,
       status: true,
       completedAt: true,
@@ -41,16 +41,6 @@ const SOURCE_CONTEXT_SELECT = {
     },
   },
 } satisfies Prisma.SourcingEvidenceObservationSelect;
-
-const CURRENT_SOURCE_ENTITLEMENT_SELECT = {
-  id: true,
-  sourceLifecycle: true,
-  decisionImpact: true,
-  killSwitch: true,
-  permissionStartsAt: true,
-  permissionExpiresAt: true,
-  minimumCoverageBps: true,
-} satisfies Prisma.SourcingSourceEntitlementVersionSelect;
 
 const PROCUREMENT_DECISION_CONTEXT_SELECT = {
   id: true,
@@ -78,17 +68,26 @@ type EvidenceSourceContext = Prisma.SourcingEvidenceObservationGetPayload<{
 }>;
 
 @Injectable()
-export class SupplySourcingProcurementRepositoryAdapter
-implements SupplySourcingProcurementRepositoryPort {
+export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcingProcurementRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  createOfferSnapshot(
+  async createOfferSnapshot(
     organizationId: string,
     record: CreateSupplierOfferSnapshotRecord,
   ) {
-    return this.prisma.$transaction((tx) =>
-      this.createOfferSnapshotInTransaction(tx, organizationId, record),
-    );
+    try {
+      return await this.prisma.$transaction((tx) =>
+        this.createOfferSnapshotInTransaction(tx, organizationId, record),
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const winner = await this.findOfferByHash(
+        organizationId,
+        record.snapshotHash,
+      );
+      if (!winner) throw error;
+      return { kind: 'duplicate' as const, snapshot: winner };
+    }
   }
 
   private async createOfferSnapshotInTransaction(
@@ -115,7 +114,6 @@ implements SupplySourcingProcurementRepositoryPort {
         payload: true,
         ingestionRun: {
           select: {
-            sourceEntitlementVersionId: true,
             targetKey: true,
             status: true,
             completedAt: true,
@@ -126,13 +124,7 @@ implements SupplySourcingProcurementRepositoryPort {
       },
     });
     if (!evidence) return { kind: 'evidence_observation_not_found' as const };
-    const cutoffAt = new Date();
-    await lockSourceScope(
-      tx,
-      organizationId,
-      evidence.sourceKey,
-      evidence.ingestionRun.targetKey,
-    );
+    const cutoffAt = await databaseClock(tx);
     const sourceGate = await this.evaluateCurrentSourceGate(
       tx,
       organizationId,
@@ -141,9 +133,7 @@ implements SupplySourcingProcurementRepositoryPort {
       cutoffAt,
     );
     if (
-      sourceGate === 'source_entitlement_not_found' ||
-      sourceGate === 'source_entitlement_version_mismatch' ||
-      sourceGate === 'source_entitlement_retain_denied'
+      sourceGate === 'evidence_observation_not_terminal'
     ) {
       return { kind: sourceGate };
     }
@@ -194,79 +184,67 @@ implements SupplySourcingProcurementRepositoryPort {
     if (!supplierOfferEvidencePayloadMatches(record, evidence.payload)) {
       return { kind: 'evidence_payload_mismatch' as const };
     }
-    const latestEvidence =
-      await tx.sourcingEvidenceObservation.findFirst({
-        where: {
-          organizationId,
-          observationKey: evidence.observationKey,
-          availableAt: { lte: cutoffAt },
-          ingestedAt: { lte: cutoffAt },
-        },
-        orderBy: [{ revision: 'desc' }, { id: 'desc' }],
-        select: { id: true },
-      });
+    const latestEvidence = await tx.sourcingEvidenceObservation.findFirst({
+      where: {
+        organizationId,
+        observationKey: evidence.observationKey,
+        availableAt: { lte: cutoffAt },
+        ingestedAt: { lte: cutoffAt },
+      },
+      orderBy: [{ revision: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
     if (latestEvidence?.id !== evidence.id) {
       return { kind: 'evidence_observation_not_latest' as const };
     }
 
-    try {
-      const row = await tx.supplierOfferSkuSnapshot.create({
-        data: {
-          organizationId,
-          evidenceObservationId: record.evidenceObservationId,
-          supplierId: record.supplierId,
-          supplierName: record.supplierName,
-          identityStatus: record.identityStatus,
-          sourcePlatform: record.sourcePlatform,
-          sourceUrl: record.sourceUrl,
-          externalSupplierKey: record.externalSupplierKey,
-          externalOfferId: record.externalOfferId,
-          externalSkuId: record.externalSkuId,
-          variantKey: record.variantKey,
-          productName: record.productName,
-          variantName: record.variantName,
-          currency: record.currency,
-          orderUnit: record.orderUnit,
-          unitsPerOrderUnit: record.unitsPerOrderUnit,
-          minOrderQuantity: record.minOrderQuantity,
-          sampleAvailable: record.sampleAvailable,
-          samplePriceCny: record.samplePriceCny,
-          domesticFreightCny: record.domesticFreightCny,
-          productionLeadTimeDaysMin: record.productionLeadTimeDaysMin,
-          productionLeadTimeDaysMax: record.productionLeadTimeDaysMax,
-          dispatchLeadTimeDaysMin: record.dispatchLeadTimeDaysMin,
-          dispatchLeadTimeDaysMax: record.dispatchLeadTimeDaysMax,
-          grossWeightGrams: record.grossWeightGrams,
-          lengthMm: record.lengthMm,
-          widthMm: record.widthMm,
-          heightMm: record.heightMm,
-          material: record.material,
-          packCount: record.packCount,
-          capturedAt: record.capturedAt,
-          validUntil: record.validUntil,
-          snapshotHash: record.snapshotHash,
-          priceTiers: {
-            create: record.priceTiers.map((tier) => ({
-              organizationId,
-              minQuantity: tier.minQuantity,
-              maxQuantity: tier.maxQuantity,
-              unitPriceCny: tier.unitPriceCny,
-            })),
-          },
-        },
-        include: OFFER_INCLUDE,
-      });
-      return { kind: 'created' as const, snapshot: mapOffer(row) };
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      const winner = await this.findOfferByHash(
+    const row = await tx.supplierOfferSkuSnapshot.create({
+      data: {
         organizationId,
-        record.snapshotHash,
-        tx,
-      );
-      if (!winner) throw error;
-      return { kind: 'duplicate' as const, snapshot: winner };
-    }
+        evidenceObservationId: record.evidenceObservationId,
+        supplierId: record.supplierId,
+        supplierName: record.supplierName,
+        identityStatus: record.identityStatus,
+        sourcePlatform: record.sourcePlatform,
+        sourceUrl: record.sourceUrl,
+        externalSupplierKey: record.externalSupplierKey,
+        externalOfferId: record.externalOfferId,
+        externalSkuId: record.externalSkuId,
+        variantKey: record.variantKey,
+        productName: record.productName,
+        variantName: record.variantName,
+        currency: record.currency,
+        orderUnit: record.orderUnit,
+        unitsPerOrderUnit: record.unitsPerOrderUnit,
+        minOrderQuantity: record.minOrderQuantity,
+        sampleAvailable: record.sampleAvailable,
+        samplePriceCny: record.samplePriceCny,
+        domesticFreightCny: record.domesticFreightCny,
+        productionLeadTimeDaysMin: record.productionLeadTimeDaysMin,
+        productionLeadTimeDaysMax: record.productionLeadTimeDaysMax,
+        dispatchLeadTimeDaysMin: record.dispatchLeadTimeDaysMin,
+        dispatchLeadTimeDaysMax: record.dispatchLeadTimeDaysMax,
+        grossWeightGrams: record.grossWeightGrams,
+        lengthMm: record.lengthMm,
+        widthMm: record.widthMm,
+        heightMm: record.heightMm,
+        material: record.material,
+        packCount: record.packCount,
+        capturedAt: record.capturedAt,
+        validUntil: record.validUntil,
+        snapshotHash: record.snapshotHash,
+        priceTiers: {
+          create: record.priceTiers.map((tier) => ({
+            organizationId,
+            minQuantity: tier.minQuantity,
+            maxQuantity: tier.maxQuantity,
+            unitPriceCny: tier.unitPriceCny,
+          })),
+        },
+      },
+      include: OFFER_INCLUDE,
+    });
+    return { kind: 'created' as const, snapshot: mapOffer(row) };
   }
 
   async findOfferSnapshot(
@@ -352,13 +330,27 @@ implements SupplySourcingProcurementRepositoryPort {
     };
   }
 
-  createTestIntent(
+  async createTestIntent(
     organizationId: string,
     record: CreateProcurementTestIntentRecord,
   ) {
-    return this.prisma.$transaction((tx) =>
-      this.createTestIntentInTransaction(tx, organizationId, record),
-    );
+    try {
+      return await this.prisma.$transaction((tx) =>
+        this.createTestIntentInTransaction(tx, organizationId, record),
+      );
+    } catch (error) {
+      if (!isUniqueViolation(error)) throw error;
+      const winner = await this.findIntentByKey(
+        organizationId,
+        record.idempotencyKey,
+      );
+      if (!winner) throw error;
+      return duplicateResult(
+        winner,
+        record.requestHash,
+        record.requestedByUserId,
+      );
+    }
   }
 
   private async createTestIntentInTransaction(
@@ -366,29 +358,22 @@ implements SupplySourcingProcurementRepositoryPort {
     organizationId: string,
     record: CreateProcurementTestIntentRecord,
   ) {
-    const sourceContext =
-      await tx.sourcingEvidenceObservation.findFirst({
-        where: {
-          organizationId,
-          supplierOfferSkuSnapshots: {
-            some: {
-              id: record.supplierOfferSkuSnapshotId,
-              organizationId,
-            },
+    const sourceContext = await tx.sourcingEvidenceObservation.findFirst({
+      where: {
+        organizationId,
+        supplierOfferSkuSnapshots: {
+          some: {
+            id: record.supplierOfferSkuSnapshotId,
+            organizationId,
           },
         },
-        select: SOURCE_CONTEXT_SELECT,
-      });
+      },
+      select: SOURCE_CONTEXT_SELECT,
+    });
     if (!sourceContext) {
-      return { kind: 'source_entitlement_not_found' as const };
+      return { kind: 'evidence_observation_not_found' as const };
     }
-    const now = new Date();
-    await lockSourceScope(
-      tx,
-      organizationId,
-      sourceContext.sourceKey,
-      sourceContext.ingestionRun.targetKey,
-    );
+    const now = await databaseClock(tx);
     const sourceGate = await this.evaluateCurrentSourceGate(
       tx,
       organizationId,
@@ -479,6 +464,13 @@ implements SupplySourcingProcurementRepositoryPort {
     if (!snapshot) {
       return { kind: 'decision_reference_mismatch' as const };
     }
+    if (
+      record.intentType === 'test_order' &&
+      snapshot.validUntil &&
+      snapshot.validUntil <= now
+    ) {
+      return { kind: 'offer_snapshot_expired' as const };
+    }
     let quantityConversion;
     try {
       quantityConversion = resolveProcurementQuantityConservation({
@@ -494,7 +486,8 @@ implements SupplySourcingProcurementRepositoryPort {
       quantityConversion.unitsPerPurchaseUnit !== record.unitsPerPurchaseUnit ||
       quantityConversion.unitsPerSellableBundle !==
         record.unitsPerSellableBundle ||
-      quantityConversion.requestedSellableUnits !== record.requestedSellableUnits
+      quantityConversion.requestedSellableUnits !==
+        record.requestedSellableUnits
     ) {
       return { kind: 'quantity_conservation_mismatch' as const };
     }
@@ -503,8 +496,7 @@ implements SupplySourcingProcurementRepositoryPort {
       supplierOfferSnapshotHash: snapshot.snapshotHash,
       selection: {
         intentType: record.intentType,
-        sourceRecommendationArtifactId:
-          record.sourceRecommendationArtifactId,
+        sourceRecommendationArtifactId: record.sourceRecommendationArtifactId,
         launchCandidateId: record.launchCandidateId,
         decisionBatchItemId: record.decisionBatchItemId,
         selectedPriceTierId: record.selectedPriceTierId,
@@ -520,49 +512,34 @@ implements SupplySourcingProcurementRepositoryPort {
       return { kind: 'quantity_conservation_mismatch' as const };
     }
 
-    try {
-      const row = await tx.procurementTestIntent.create({
-        data: {
-          organizationId,
-          decisionBatchItemId: record.decisionBatchItemId,
-          launchCandidateId: record.launchCandidateId,
-          supplierOfferSkuSnapshotId: record.supplierOfferSkuSnapshotId,
-          selectedPriceTierId: record.selectedPriceTierId,
-          sourceRecommendationArtifactId: record.sourceRecommendationArtifactId,
-          requestedByUserId: record.requestedByUserId,
-          reviewedByUserId: null,
-          kind: record.intentType,
-          status: PROCUREMENT_TEST_INTENT_STATUS,
-          idempotencyKey: record.idempotencyKey,
-          requestHash: record.requestHash,
-          requestedPurchaseUnits: record.requestedPurchaseUnits,
-          unitsPerPurchaseUnit: record.unitsPerPurchaseUnit,
-          unitsPerSellableBundle: record.unitsPerSellableBundle,
-          requestedSellableUnits: record.requestedSellableUnits,
-          selectedUnitPriceCny: record.selectedUnitPriceCny,
-          expectedGoodsTotalCny: record.expectedGoodsTotalCny,
-          currency: record.currency,
-          expiresAt: record.expiresAt,
-          reviewedAt: null,
-          reviewReason: null,
-        },
-        include: { supplierOfferSkuSnapshot: { include: OFFER_INCLUDE } },
-      });
-      return { kind: 'created' as const, intent: mapIntent(row) };
-    } catch (error) {
-      if (!isUniqueViolation(error)) throw error;
-      const winner = await this.findIntentByKey(
+    const row = await tx.procurementTestIntent.create({
+      data: {
         organizationId,
-        record.idempotencyKey,
-        tx,
-      );
-      if (!winner) throw error;
-      return duplicateResult(
-        winner,
-        record.requestHash,
-        record.requestedByUserId,
-      );
-    }
+        decisionBatchItemId: record.decisionBatchItemId,
+        launchCandidateId: record.launchCandidateId,
+        supplierOfferSkuSnapshotId: record.supplierOfferSkuSnapshotId,
+        selectedPriceTierId: record.selectedPriceTierId,
+        sourceRecommendationArtifactId: record.sourceRecommendationArtifactId,
+        requestedByUserId: record.requestedByUserId,
+        reviewedByUserId: null,
+        kind: record.intentType,
+        status: PROCUREMENT_TEST_INTENT_STATUS,
+        idempotencyKey: record.idempotencyKey,
+        requestHash: record.requestHash,
+        requestedPurchaseUnits: record.requestedPurchaseUnits,
+        unitsPerPurchaseUnit: record.unitsPerPurchaseUnit,
+        unitsPerSellableBundle: record.unitsPerSellableBundle,
+        requestedSellableUnits: record.requestedSellableUnits,
+        selectedUnitPriceCny: record.selectedUnitPriceCny,
+        expectedGoodsTotalCny: record.expectedGoodsTotalCny,
+        currency: record.currency,
+        expiresAt: record.expiresAt,
+        reviewedAt: null,
+        reviewReason: null,
+      },
+      include: { supplierOfferSkuSnapshot: { include: OFFER_INCLUDE } },
+    });
+    return { kind: 'created' as const, intent: mapIntent(row) };
   }
 
   async findTestIntent(organizationId: string, id: string) {
@@ -617,48 +594,16 @@ implements SupplySourcingProcurementRepositoryPort {
     usage: SupplySourceUsage,
     at: Date,
   ): Promise<
-    | 'source_entitlement_not_found'
-    | 'source_entitlement_version_mismatch'
-    | 'source_entitlement_retain_denied'
-    | 'source_entitlement_execution_denied'
-    | 'source_quality_not_execution_eligible'
+    | 'evidence_observation_not_terminal'
     | null
   > {
-    const entitlement =
-      await tx.sourcingSourceEntitlementVersion.findFirst({
-        where: {
-          organizationId,
-          sourceKey: sourceContext.sourceKey,
-          scopeKey: sourceContext.ingestionRun.targetKey,
-          isCurrent: true,
-          retiredAt: null,
-        },
-        select: CURRENT_SOURCE_ENTITLEMENT_SELECT,
-      });
-    if (!entitlement) return 'source_entitlement_not_found';
-    if (
-      entitlement.id !== sourceContext.ingestionRun.sourceEntitlementVersionId
-    ) {
-      return 'source_entitlement_version_mismatch';
-    }
-
     const eligibility = evaluateSupplySourceEligibility({
       usage,
-      entitlement,
       ingestionRun: sourceContext.ingestionRun,
       at,
     });
     if (eligibility.allowed) return null;
-    if (isRetentionDenial(eligibility.reason)) {
-      return 'source_entitlement_retain_denied';
-    }
-    if (
-      eligibility.reason === 'lifecycle_not_qualified' ||
-      eligibility.reason === 'decision_impact_disabled'
-    ) {
-      return 'source_entitlement_execution_denied';
-    }
-    return 'source_quality_not_execution_eligible';
+    return 'evidence_observation_not_terminal';
   }
 
   private async findOfferByHash(
@@ -688,30 +633,16 @@ implements SupplySourcingProcurementRepositoryPort {
   }
 }
 
-function isRetentionDenial(
-  reason: SupplySourceEligibilityDenialReason,
-): boolean {
-  return [
-    'kill_switch_enabled',
-    'permission_invalid',
-    'permission_not_started',
-    'permission_expired',
-    'lifecycle_not_retainable',
-  ].includes(reason);
-}
-
-async function lockSourceScope(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sourceKey: string,
-  scopeKey: string,
-): Promise<void> {
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`sourcing-source:${organizationId}:${sourceKey}:${scopeKey}`}, 0)
-    )::text AS "lock"
+async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
+  const rows = await tx.$queryRaw<Array<{ at: Date }>>`
+    SELECT clock_timestamp() AS "at"
   `;
+  // queryraw-tenancy-exempt: database clock only
+  const at = rows[0]?.at;
+  if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
+    throw new Error('Database clock query returned no timestamp.');
+  }
+  return at;
 }
 
 function mapOffer(row: OfferRow): SupplierOfferSnapshotView {
@@ -761,5 +692,8 @@ function duplicateResult(
 }
 
 function isUniqueViolation(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
+  );
 }

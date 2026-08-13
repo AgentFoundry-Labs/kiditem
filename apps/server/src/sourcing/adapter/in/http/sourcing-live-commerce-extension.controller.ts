@@ -1,4 +1,4 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Headers, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { LiveCommerceService } from '../../../application/service/live-commerce.service';
 import { IngestExtensionLiveCommerceDto } from './dto/live-commerce.dto';
@@ -11,7 +11,8 @@ export class SourcingLiveCommerceExtensionController {
   ingest(
     @Body() body: IngestExtensionLiveCommerceDto,
     @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey?: string,
   ) {
-    return this.liveCommerce.ingestExtension(organizationId, body);
+    return this.liveCommerce.ingestExtension(organizationId, body, idempotencyKey);
   }
 }

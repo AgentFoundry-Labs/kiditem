@@ -21,10 +21,6 @@ import {
   type CoupangKeywordSuggestion,
   type CoupangProductNameToken,
 } from '../lib/coupang-keyword-extension';
-import {
-  buildRankedKeywordPoolSnapshot,
-  writeRankedKeywordPool,
-} from '../../lib/ranked-keyword-pool';
 import { KeywordAnalysisWorkbench } from './KeywordAnalysisWorkbench';
 import { EmptyState, PopularKeywordCard } from './KeywordAnalysisPopularBoard';
 import { TrendComparePanel } from './KeywordAnalysisTrendPanel';
@@ -45,58 +41,20 @@ import {
   runTrendKeywordAgent,
   type TrendKeywordAgentResult,
 } from '../lib/trend-keyword-agent';
-import { writeTrendKeywordAgentResult } from '../lib/trend-keyword-agent-storage';
+import type { SourcingInterestSource } from '@kiditem/shared/sourcing';
+import { createKeywordInterestTarget } from '../../lib/sourcing-interest-target';
 import {
-  createManualSourcingWorkspaceSnapshotMeta,
-  getTodaySourcingWorkspaceSnapshot,
-  saveTodaySourcingWorkspaceSnapshot,
-  type SourcingWorkspaceSnapshotMeta,
-} from '../../lib/sourcing-workspace-snapshot-api';
-import {
-  addSourcingInterestTarget,
-  createKeywordInterestTargetId,
-  createKeywordInterestTarget,
-  loadLatestInterestTrackingPayload,
-  removeSourcingInterestTarget,
-  type SourcingInterestTrackingSnapshotPayload,
-  type SourcingInterestSource,
-} from '../../lib/sourcing-interest-tracking';
+  useRemoveSourcingInterestTarget,
+  useSaveSourcingInterestTarget,
+  useSaveSourcingKeywordPreference,
+  useSourcingInterestTargets,
+  useSourcingKeywordPreferences,
+} from '../../hooks/use-sourcing-workspace';
 
 interface CoupangPopularKeyword extends CoupangKeywordSuggestion {
   monthlyTotalSearchCount: number | null;
 }
 
-type KeywordAnalysisSnapshotPayload = {
-  version: 1;
-  input: {
-    filters: {
-      timeUnit: NaverDatalabTimeUnit;
-      gender: 'all' | NaverDatalabGender;
-      age: string;
-      device: 'all' | NaverDatalabDevice;
-      selectedBoardKey: BoardFilterKey;
-      rankLimit: string;
-      focusMode: FocusMode;
-    };
-    keywordQuery: string;
-    trendText: string;
-  };
-  result: {
-    boards: NaverDatalabPopularKeywordBoard[];
-    trendItems: NaverDatalabKeywordTrend[];
-    relatedSearchSeed: string | null;
-    searchAdRelatedItems: NaverRelatedKeyword[];
-    relatedSearchItems: NaverDatalabKeywordTrend[];
-    autocompleteItems: NaverAutocompleteKeyword[];
-    coupangKeywordItems: CoupangPopularKeyword[];
-    coupangProductNameTokens: CoupangProductNameToken[];
-    trendAgentResult: TrendKeywordAgentResult | null;
-  };
-  meta: SourcingWorkspaceSnapshotMeta;
-};
-
-const EXCLUDE_STORAGE_KEY = 'kiditem_keyword_exclude';
-const DEFAULT_EXCLUDED_KEYWORDS = ['물티슈', '포켓몬카드'];
 const DEFAULT_RANK_LIMIT = '20';
 const normalizeExclude = (value: string) => value.replace(/\s+/g, '').toLowerCase();
 
@@ -112,7 +70,6 @@ export function KeywordAnalysisPage() {
   const [focusMode, setFocusMode] = useState<FocusMode>('all');
   const [notice, setNotice] = useState<string | null>(null);
   const [loadingPopular, setLoadingPopular] = useState(false);
-  const [excludedKeywords, setExcludedKeywords] = useState<string[]>(DEFAULT_EXCLUDED_KEYWORDS);
   const [excludeInput, setExcludeInput] = useState('');
   const [trendText, setTrendText] = useState('포켓몬카드\n레고\n슬라임\n잔디인형');
   const [trendItems, setTrendItems] = useState<NaverDatalabKeywordTrend[]>([]);
@@ -135,14 +92,32 @@ export function KeywordAnalysisPage() {
   const [trendAgentResult, setTrendAgentResult] = useState<TrendKeywordAgentResult | null>(null);
   const [trendAgentNotice, setTrendAgentNotice] = useState<string | null>(null);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
-  const [interestPayload, setInterestPayload] = useState<SourcingInterestTrackingSnapshotPayload | null>(null);
-  const [loadingInterestKeywords, setLoadingInterestKeywords] = useState(false);
   const [loadingTrendAgent, setLoadingTrendAgent] = useState(false);
   const [showRecentKeywords, setShowRecentKeywords] = useState(true);
-  const [dailySnapshotHydrated, setDailySnapshotHydrated] = useState(false);
   const popularRequestIdRef = useRef(0);
   const relatedRequestIdRef = useRef(0);
   const didAutoLoadKeywordAnalysisRef = useRef(false);
+  const keywordPreferencesQuery = useSourcingKeywordPreferences();
+  const saveKeywordPreference = useSaveSourcingKeywordPreference();
+  const interestTargetsQuery = useSourcingInterestTargets();
+  const saveInterestTarget = useSaveSourcingInterestTarget();
+  const removeInterestTarget = useRemoveSourcingInterestTarget();
+
+  const excludedPreferences = useMemo(
+    () => (keywordPreferencesQuery.data ?? []).filter((preference) => preference.excluded),
+    [keywordPreferencesQuery.data],
+  );
+  const excludedKeywords = useMemo(
+    () => excludedPreferences.map((preference) => preference.keyword),
+    [excludedPreferences],
+  );
+  const preferenceByNormalizedKeyword = useMemo(
+    () => new Map((keywordPreferencesQuery.data ?? []).map((preference) => [
+      normalizeExclude(preference.keyword),
+      preference,
+    ])),
+    [keywordPreferencesQuery.data],
+  );
 
   const excludeSet = useMemo(
     () => new Set(excludedKeywords.map(normalizeExclude)),
@@ -157,49 +132,58 @@ export function KeywordAnalysisPage() {
   }, [boards, focusMode, rankLimit, selectedBoardKey, excludeSet]);
   const rows = useMemo(() => visibleBoards.flatMap((board) => board.ranks.map((rank) => ({ board, rank }))), [visibleBoards]);
   const interestKeywordTargets = useMemo(() => (
-    (interestPayload?.result.targets ?? []).filter((target) => target.type === 'keyword' && target.keyword)
-  ), [interestPayload]);
-  const interestKeywordIds = useMemo(() => new Set(interestKeywordTargets.map((target) => target.id)), [interestKeywordTargets]);
+    (interestTargetsQuery.data ?? []).filter((target) => target.targetType === 'keyword' && target.keyword)
+  ), [interestTargetsQuery.data]);
+  const interestKeywordSet = useMemo(
+    () => new Set(interestKeywordTargets.map((target) => normalizeExclude(target.keyword ?? target.label))),
+    [interestKeywordTargets],
+  );
+  const loadingInterestKeywords =
+    interestTargetsQuery.isLoading ||
+    interestTargetsQuery.isFetching ||
+    saveInterestTarget.isPending ||
+    removeInterestTarget.isPending;
 
   const recentKeywords = useMemo(() => {
     const fromBoards = boards.flatMap((board) => board.ranks.map((rank) => rank.keyword));
     return Array.from(new Set([...fromBoards, '포켓몬카드', '레고', '슬라임', '잔디인형'])).slice(0, 4);
   }, [boards]);
 
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem(EXCLUDE_STORAGE_KEY);
-      if (saved) setExcludedKeywords(JSON.parse(saved) as string[]);
-    } catch {
-      /* localStorage 접근 불가 시 기본값 유지 */
-    }
-  }, []);
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(EXCLUDE_STORAGE_KEY, JSON.stringify(excludedKeywords));
-    } catch {
-      /* noop */
-    }
-  }, [excludedKeywords]);
-
   const addExcludedKeyword = (raw: string) => {
     const keyword = raw.trim();
     if (!keyword) return;
-    let nextCount: number | null = null;
-    setExcludedKeywords((prev) => {
-      if (prev.some((item) => normalizeExclude(item) === normalizeExclude(keyword))) return prev;
-      const next = [...prev, keyword];
-      nextCount = new Set(next.map(normalizeExclude)).size;
-      return next;
-    });
+    const existing = preferenceByNormalizedKeyword.get(normalizeExclude(keyword));
+    if (existing?.excluded) return;
     setExcludeInput('');
-    // 제외 자리를 다음 순위로 다시 채우려면 여유분을 더 받아와야 한다.
-    if (nextCount != null && boards.length > 0) void loadPopularKeywords({ excludeCount: nextCount });
+    saveKeywordPreference.mutate(
+      {
+        keyword,
+        command: { excluded: true, expectedVersion: existing?.version ?? 0 },
+      },
+      {
+        onSuccess: () => {
+          // 제외 자리를 다음 순위로 다시 채우려면 여유분을 더 받아온다.
+          if (boards.length > 0) void loadPopularKeywords({ excludeCount: excludedKeywords.length + 1 });
+        },
+        onError: () => setNotice('제외 키워드 저장에 실패했습니다. 최신 목록을 다시 확인해주세요.'),
+      },
+    );
   };
   const removeExcludedKeyword = (keyword: string) => {
-    const next = excludedKeywords.filter((item) => item !== keyword);
-    setExcludedKeywords(next);
-    if (boards.length > 0) void loadPopularKeywords({ excludeCount: new Set(next.map(normalizeExclude)).size });
+    const existing = preferenceByNormalizedKeyword.get(normalizeExclude(keyword));
+    if (!existing) return;
+    saveKeywordPreference.mutate(
+      {
+        keyword,
+        command: { excluded: false, expectedVersion: existing.version },
+      },
+      {
+        onSuccess: () => {
+          if (boards.length > 0) void loadPopularKeywords({ excludeCount: Math.max(0, excludedKeywords.length - 1) });
+        },
+        onError: () => setNotice('제외 키워드 저장에 실패했습니다. 최신 목록을 다시 확인해주세요.'),
+      },
+    );
   };
 
   const loadPopularKeywords = async (overrides: Partial<{
@@ -443,41 +427,31 @@ export function KeywordAnalysisPage() {
   };
 
   const loadInterestKeywords = async () => {
-    setLoadingInterestKeywords(true);
+    setInterestNotice(null);
     try {
-      const payload = await loadLatestInterestTrackingPayload(3);
-      setInterestPayload(payload);
+      const result = await interestTargetsQuery.refetch();
+      if (result.error) throw result.error;
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      setLoadingInterestKeywords(false);
     }
   };
 
   const trackKeywordInterest = async (
     keyword: string,
     source: SourcingInterestSource,
-    metrics?: Record<string, number | string | null>,
+    _metrics?: Record<string, number | string | null>,
   ) => {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) return;
     setInterestNotice(null);
     try {
-      const payload = await addSourcingInterestTarget({
-        target: createKeywordInterestTarget({
-          keyword: normalizedKeyword,
-          source,
-        }),
-        observation: {
-          source,
-          metrics,
-          note: '키워드 분석 페이지에서 관심 키워드로 저장',
-        },
-        trackingWindowDays: 3,
-      });
-      setInterestPayload(payload);
+      await saveInterestTarget.mutateAsync(
+        createKeywordInterestTarget({ keyword: normalizedKeyword, source }),
+      );
+      const refreshed = await interestTargetsQuery.refetch();
+      const targets = refreshed.data ?? interestTargetsQuery.data ?? [];
       setInterestNotice(
-        `${normalizedKeyword} 관심 키워드 저장 완료 · 키워드 ${formatNumber(payload.result.targets.filter((target) => target.type === 'keyword').length)}개 관리 중`,
+        `${normalizedKeyword} 관심 키워드 저장 완료 · 키워드 ${formatNumber(targets.filter((target) => target.targetType === 'keyword').length)}개 관리 중`,
       );
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
@@ -487,18 +461,16 @@ export function KeywordAnalysisPage() {
   const removeKeywordInterest = async (targetId: string) => {
     setInterestNotice(null);
     try {
-      const payload = await removeSourcingInterestTarget({
-        targetId,
-        trackingWindowDays: 3,
-      });
-      setInterestPayload(payload);
-      setInterestNotice(`관심 키워드 삭제 완료 · 키워드 ${formatNumber(payload.result.targets.filter((target) => target.type === 'keyword').length)}개 관리 중`);
+      await removeInterestTarget.mutateAsync(targetId);
+      const refreshed = await interestTargetsQuery.refetch();
+      const targets = refreshed.data ?? interestTargetsQuery.data ?? [];
+      setInterestNotice(`관심 키워드 삭제 완료 · 키워드 ${formatNumber(targets.filter((target) => target.targetType === 'keyword').length)}개 관리 중`);
     } catch (error) {
       setInterestNotice(error instanceof Error ? error.message : String(error));
     }
   };
 
-  const isInterestKeyword = (keyword: string) => interestKeywordIds.has(createKeywordInterestTargetId(keyword));
+  const isInterestKeyword = (keyword: string) => interestKeywordSet.has(normalizeExclude(keyword));
 
   const runTrendAgent = async () => {
     setLoadingTrendAgent(true);
@@ -516,7 +488,6 @@ export function KeywordAnalysisPage() {
         finalLimit: 30,
       });
       setTrendAgentResult(result);
-      writeTrendKeywordAgentResult(result);
       const topKeywords = result.candidates.slice(0, 5).map((candidate) => candidate.keyword);
       if (topKeywords.length > 0) {
         setTrendText(topKeywords.join('\n'));
@@ -542,146 +513,11 @@ export function KeywordAnalysisPage() {
     void loadRelatedKeywordData(keyword);
   };
 
-  const applyKeywordAnalysisSnapshot = (payload: KeywordAnalysisSnapshotPayload) => {
-    setTimeUnit(payload.input.filters.timeUnit);
-    setGender(payload.input.filters.gender);
-    setAge(payload.input.filters.age);
-    setDevice(payload.input.filters.device);
-    setSelectedBoardKey(payload.input.filters.selectedBoardKey);
-    // rankLimit(표시 개수)은 스냅샷에서 복원하지 않는다. 항상 기본값(20)으로 시작하고
-    // 50/100은 그때그때 "더 보기"로만 쓴다. (매 로드 50 유지 = 30요청/느림 방지)
-    setFocusMode(payload.input.filters.focusMode);
-    setBoards(payload.result.boards);
-    setKeywordQuery(payload.input.keywordQuery);
-    setTrendText(payload.input.trendText);
-    setTrendItems(payload.result.trendItems);
-    setRelatedSearchSeed(payload.result.relatedSearchSeed);
-    setSearchAdRelatedItems(payload.result.searchAdRelatedItems);
-    setRelatedSearchItems(payload.result.relatedSearchItems);
-    setAutocompleteItems(payload.result.autocompleteItems);
-    setCoupangKeywordItems(payload.result.coupangKeywordItems);
-    setCoupangProductNameTokens(payload.result.coupangProductNameTokens);
-    setTrendAgentResult(payload.result.trendAgentResult);
-    if (payload.result.trendAgentResult) writeTrendKeywordAgentResult(payload.result.trendAgentResult);
-  };
-
   useEffect(() => {
-    let active = true;
-    void getTodaySourcingWorkspaceSnapshot<KeywordAnalysisSnapshotPayload>('keyword_analysis')
-      .then(({ snapshot }) => {
-        if (!active) return;
-        if (isKeywordAnalysisSnapshotPayload(snapshot?.payload)) {
-          applyKeywordAnalysisSnapshot(snapshot.payload);
-          setNotice(`오늘 ${snapshot.businessDate} 저장된 키워드 분석을 불러왔습니다.`);
-        }
-        setDailySnapshotHydrated(true);
-      })
-      .catch(() => {
-        if (active) setDailySnapshotHydrated(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    void loadInterestKeywords();
-  }, []);
-
-  useEffect(() => {
-    if (!dailySnapshotHydrated || didAutoLoadKeywordAnalysisRef.current) return;
+    if (didAutoLoadKeywordAnalysisRef.current) return;
     didAutoLoadKeywordAnalysisRef.current = true;
-    // 저장된 스냅샷의 보드가 현재 구성(boardKeys)과 다르거나(보드 추가/삭제 후 stale),
-    // 기본 표시개수보다 적게 담겨 있으면 옛 데이터 대신 기본 표시개수(20)로 새로 불러온다.
-    const configuredKeys = new Set<string>(boardKeys);
-    const maxBoardItems = boards.reduce((max, board) => Math.max(max, board.ranks.length), 0);
-    const snapshotUsable =
-      boards.length === configuredKeys.size &&
-      boards.every((board) => configuredKeys.has(board.key)) &&
-      maxBoardItems >= Number(DEFAULT_RANK_LIMIT);
-    if (!snapshotUsable) void loadPopularKeywords();
-  }, [dailySnapshotHydrated]);
-
-  useEffect(() => {
-    if (visibleBoards.length === 0 || rows.length === 0) return;
-
-    writeRankedKeywordPool(buildRankedKeywordPoolSnapshot({
-      boards: visibleBoards,
-      filters: {
-        timeUnit,
-        gender,
-        age,
-        device,
-        boardKey: selectedBoardKey,
-        rankLimit,
-        focusMode,
-      },
-      limit: 50,
-    }));
-  }, [age, device, focusMode, gender, rankLimit, rows.length, selectedBoardKey, timeUnit, visibleBoards]);
-
-  useEffect(() => {
-    if (!dailySnapshotHydrated) return;
-    if (!hasKeywordAnalysisSnapshotData({
-      boards,
-      trendItems,
-      relatedSearchSeed,
-      searchAdRelatedItems,
-      relatedSearchItems,
-      autocompleteItems,
-      coupangKeywordItems,
-      coupangProductNameTokens,
-      trendAgentResult,
-    })) return;
-
-    const handle = window.setTimeout(() => {
-      const payload = buildKeywordAnalysisSnapshotPayload({
-        boards,
-        timeUnit,
-        gender,
-        age,
-        device,
-        keywordQuery,
-        selectedBoardKey,
-        rankLimit,
-        focusMode,
-        trendText,
-        trendItems,
-        relatedSearchSeed,
-        searchAdRelatedItems,
-        relatedSearchItems,
-        autocompleteItems,
-        coupangKeywordItems,
-        coupangProductNameTokens,
-        trendAgentResult,
-      });
-      void saveTodaySourcingWorkspaceSnapshot('keyword_analysis', payload).catch(() => {
-        // The visible page state remains usable even if persistence is temporarily unavailable.
-      });
-    }, 500);
-
-    return () => window.clearTimeout(handle);
-  }, [
-    age,
-    autocompleteItems,
-    boards,
-    coupangKeywordItems,
-    coupangProductNameTokens,
-    dailySnapshotHydrated,
-    device,
-    focusMode,
-    gender,
-    keywordQuery,
-    rankLimit,
-    relatedSearchItems,
-    relatedSearchSeed,
-    searchAdRelatedItems,
-    selectedBoardKey,
-    timeUnit,
-    trendAgentResult,
-    trendItems,
-    trendText,
-  ]);
+    void loadPopularKeywords();
+  }, []);
 
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
@@ -760,11 +596,10 @@ export function KeywordAnalysisPage() {
           />
 
           <InterestKeywordManager
-            className="mt-4 max-w-[1600px]"
-            loading={loadingInterestKeywords}
-            notice={interestNotice}
-            observations={interestPayload?.result.observations ?? []}
-            targets={interestPayload?.result.targets ?? []}
+          className="mt-4 max-w-[1600px]"
+          loading={loadingInterestKeywords}
+          notice={interestNotice}
+          targets={interestTargetsQuery.data ?? []}
             onRefresh={() => void loadInterestKeywords()}
             onRemove={(targetId) => {
               void removeKeywordInterest(targetId);
@@ -962,122 +797,6 @@ export function KeywordAnalysisPage() {
       </div>
     </main>
   );
-}
-
-function buildKeywordAnalysisSnapshotPayload(input: {
-  boards: NaverDatalabPopularKeywordBoard[];
-  timeUnit: NaverDatalabTimeUnit;
-  gender: 'all' | NaverDatalabGender;
-  age: string;
-  device: 'all' | NaverDatalabDevice;
-  keywordQuery: string;
-  selectedBoardKey: BoardFilterKey;
-  rankLimit: string;
-  focusMode: FocusMode;
-  trendText: string;
-  trendItems: NaverDatalabKeywordTrend[];
-  relatedSearchSeed: string | null;
-  searchAdRelatedItems: NaverRelatedKeyword[];
-  relatedSearchItems: NaverDatalabKeywordTrend[];
-  autocompleteItems: NaverAutocompleteKeyword[];
-  coupangKeywordItems: CoupangPopularKeyword[];
-  coupangProductNameTokens: CoupangProductNameToken[];
-  trendAgentResult: TrendKeywordAgentResult | null;
-}): KeywordAnalysisSnapshotPayload {
-  return {
-    version: 1,
-    input: {
-      filters: {
-        timeUnit: input.timeUnit,
-        gender: input.gender,
-        age: input.age,
-        device: input.device,
-        selectedBoardKey: input.selectedBoardKey,
-        rankLimit: input.rankLimit,
-        focusMode: input.focusMode,
-      },
-      keywordQuery: input.keywordQuery,
-      trendText: input.trendText,
-    },
-    result: {
-      boards: input.boards,
-      trendItems: input.trendItems,
-      relatedSearchSeed: input.relatedSearchSeed,
-      searchAdRelatedItems: input.searchAdRelatedItems,
-      relatedSearchItems: input.relatedSearchItems,
-      autocompleteItems: input.autocompleteItems,
-      coupangKeywordItems: input.coupangKeywordItems,
-      coupangProductNameTokens: input.coupangProductNameTokens,
-      trendAgentResult: input.trendAgentResult,
-    },
-    meta: createManualSourcingWorkspaceSnapshotMeta(),
-  };
-}
-
-function hasKeywordAnalysisSnapshotData(input: {
-  boards: NaverDatalabPopularKeywordBoard[];
-  trendItems: NaverDatalabKeywordTrend[];
-  relatedSearchSeed: string | null;
-  searchAdRelatedItems: NaverRelatedKeyword[];
-  relatedSearchItems: NaverDatalabKeywordTrend[];
-  autocompleteItems: NaverAutocompleteKeyword[];
-  coupangKeywordItems: CoupangPopularKeyword[];
-  coupangProductNameTokens: CoupangProductNameToken[];
-  trendAgentResult: TrendKeywordAgentResult | null;
-}): boolean {
-  return input.boards.length > 0 ||
-    input.trendItems.length > 0 ||
-    input.relatedSearchSeed != null ||
-    input.searchAdRelatedItems.length > 0 ||
-    input.relatedSearchItems.length > 0 ||
-    input.autocompleteItems.length > 0 ||
-    input.coupangKeywordItems.length > 0 ||
-    input.coupangProductNameTokens.length > 0 ||
-    input.trendAgentResult != null;
-}
-
-function isKeywordAnalysisSnapshotPayload(value: unknown): value is KeywordAnalysisSnapshotPayload {
-  if (!value || typeof value !== 'object') return false;
-  const payload = value as Partial<KeywordAnalysisSnapshotPayload>;
-  const input = payload.input as Partial<KeywordAnalysisSnapshotPayload['input']> | undefined;
-  const result = payload.result as Partial<KeywordAnalysisSnapshotPayload['result']> | undefined;
-  const filters = input?.filters as Partial<KeywordAnalysisSnapshotPayload['input']['filters']> | undefined;
-  const meta = payload.meta as Partial<SourcingWorkspaceSnapshotMeta> | undefined;
-  return payload.version === 1 &&
-    Boolean(input) &&
-    Boolean(result) &&
-    Boolean(filters) &&
-    isTimeUnit(filters?.timeUnit) &&
-    isGenderFilter(filters?.gender) &&
-    typeof filters?.age === 'string' &&
-    isDeviceFilter(filters?.device) &&
-    typeof filters?.selectedBoardKey === 'string' &&
-    typeof filters?.rankLimit === 'string' &&
-    typeof filters?.focusMode === 'string' &&
-    typeof input?.keywordQuery === 'string' &&
-    typeof input?.trendText === 'string' &&
-    Array.isArray(result?.boards) &&
-    Array.isArray(result?.trendItems) &&
-    Array.isArray(result?.searchAdRelatedItems) &&
-    Array.isArray(result?.relatedSearchItems) &&
-    Array.isArray(result?.autocompleteItems) &&
-    Array.isArray(result?.coupangKeywordItems) &&
-    Array.isArray(result?.coupangProductNameTokens) &&
-    typeof meta?.generatedAt === 'string' &&
-    typeof meta?.generationSource === 'string' &&
-    typeof meta?.generatorVersion === 'string';
-}
-
-function isTimeUnit(value: unknown): value is NaverDatalabTimeUnit {
-  return value === 'date' || value === 'week' || value === 'month';
-}
-
-function isGenderFilter(value: unknown): value is 'all' | NaverDatalabGender {
-  return value === 'all' || value === 'm' || value === 'f';
-}
-
-function isDeviceFilter(value: unknown): value is 'all' | NaverDatalabDevice {
-  return value === 'all' || value === 'pc' || value === 'mo';
 }
 
 function RelatedKeywordOverview({

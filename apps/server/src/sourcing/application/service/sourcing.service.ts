@@ -32,7 +32,15 @@ import type {
 } from '../port/in/sourcing.commands';
 import type { ProductGenerationTask } from '../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
 import { detectSourcingScrapePlatform } from '../../domain/sourcing-url';
+import {
+  extractSupplierOfferId,
+  parseAllowedSupplierUrl,
+} from '../../domain/supplier-source-url-policy';
 import { sellpiaNameJoinKey } from '../../domain/sellpia-name-key';
+import {
+  normalizeSourcingVariantKey,
+  stableSourcingCandidateIdentity,
+} from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 
 const PLATFORM_MAP: Record<string, string> = {
@@ -93,11 +101,22 @@ export class SourcingService {
       const price = this.extractCostCny(data);
       const incomingImages = this.extractProductImageUrls(data as Record<string, unknown>);
       const platform = PLATFORM_MAP[String(data.source_platform || '').toLowerCase()] || (data.source_platform as string) || 'unknown';
+      const externalOfferId = this.externalOfferIdFrom(data, sourceUrl);
+      const variantKeyNormalized = this.variantKeyFrom(data);
 
       await this.candidates.upsertSourced({
         organizationId,
         sourceUrl,
         sourcePlatform: platform,
+        externalOfferId,
+        variantKeyNormalized,
+        sourceIdentityHash: externalOfferId
+          ? stableSourcingCandidateIdentity(
+              platform,
+              externalOfferId,
+              variantKeyNormalized,
+            )
+          : null,
         rawData: data as Record<string, unknown>,
         name: data.title as string,
         description: (data.description as string) || '',
@@ -546,6 +565,10 @@ export class SourcingService {
       const min = parseFloat(data.priceRange.split('-')[0]);
       if (!isNaN(min) && min > 0) return min;
     }
+    for (const value of [data.price_min, data.price_max]) {
+      const price = typeof value === 'number' ? value : parseFloat(String(value));
+      if (Number.isFinite(price) && price > 0) return price;
+    }
     const offer = data.offer as Record<string, unknown> | undefined;
     if (offer?.price != null) {
       const p = parseFloat(String(offer.price));
@@ -555,6 +578,19 @@ export class SourcingService {
       const prices = (data.skuProps as Array<Record<string, unknown>>)
         .map((s) => parseFloat(String(s?.price)))
         .filter((p) => !isNaN(p) && p > 0);
+      if (prices.length > 0) return Math.min(...prices);
+    }
+    for (const tiers of [data.price_tiers, data.priceRanges]) {
+      if (!Array.isArray(tiers)) continue;
+      const prices = tiers
+        .map((tier) => {
+          if (!tier || typeof tier !== 'object') return null;
+          const row = tier as Record<string, unknown>;
+          return parseFloat(String(row.price ?? row.priceCny ?? row.price_min));
+        })
+        .filter((price): price is number => (
+          price !== null && Number.isFinite(price) && price > 0
+        ));
       if (prices.length > 0) return Math.min(...prices);
     }
     return null;
@@ -613,7 +649,25 @@ export class SourcingService {
   }
 
   private sourceUrlFrom(data: FlatExtensionData): string | null {
-    return typeof data.source_url === 'string' && data.source_url.trim() ? data.source_url.trim() : null;
+    if (typeof data.source_url !== 'string' || !data.source_url.trim()) return null;
+    try {
+      return parseAllowedSupplierUrl(data.source_url).normalizedUrl;
+    } catch {
+      throw new BadRequestException('지원하지 않는 공급사 상품 URL입니다.');
+    }
+  }
+
+  private externalOfferIdFrom(data: FlatExtensionData, sourceUrl: string): string | null {
+    if (typeof data.product_id === 'string' && data.product_id.trim()) {
+      return data.product_id.trim();
+    }
+    return extractSupplierOfferId(parseAllowedSupplierUrl(sourceUrl));
+  }
+
+  private variantKeyFrom(data: FlatExtensionData): string {
+    return normalizeSourcingVariantKey(
+      (data as Record<string, unknown>).variant_key,
+    );
   }
 }
 

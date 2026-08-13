@@ -4,14 +4,14 @@ import {
   CONFIRMED_CHANNEL_LISTING_REGISTRATION_PLAYBOOK,
   MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK,
   PURCHASE_ORDER_SUBMISSION_PLAYBOOK,
-  SOURCING_MARKET_OPPORTUNITY_PLAYBOOK,
+  SOURCING_MARKET_RESEARCH_PLAYBOOK,
   findAgentPlaybook,
 } from '../agent-playbook.registry';
 
 describe('AgentPlanValidator', () => {
   it('accepts the sourcing market opportunity playbook', () => {
     const validator = new AgentPlanValidator();
-    const result = validator.validate(SOURCING_MARKET_OPPORTUNITY_PLAYBOOK);
+    const result = validator.validate(SOURCING_MARKET_RESEARCH_PLAYBOOK);
 
     expect(result.ok).toBe(true);
   });
@@ -21,7 +21,7 @@ describe('AgentPlanValidator', () => {
     const result = validator.validate(MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK);
 
     expect(result.ok).toBe(true);
-    expect(findAgentPlaybook('manual_product_intake_from_url_v1')).toBe(
+    expect(findAgentPlaybook('manual_product_intake_from_url_v2')).toBe(
       MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK,
     );
   });
@@ -54,7 +54,7 @@ describe('AgentPlanValidator', () => {
         {
           key: 'coupang-agent',
           agentType: 'coupang_agent',
-          capabilityKey: 'coupang.match_products',
+          capabilityKey: 'sourcing.internal_unknown',
           dependsOn: [],
         },
       ],

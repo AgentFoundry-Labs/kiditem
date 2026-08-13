@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveCommerceService } from '../live-commerce.service';
 import type { TaobaoLivePort } from '../../port/out/provider/taobao-live.port';
 import type { LiveCommerceRepositoryPort } from '../../port/out/repository/live-commerce.repository.port';
+import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -12,12 +13,55 @@ function buildService() {
     collect: vi.fn(async () => ({ rooms: [], products: [], warnings: [] })),
   };
   const repository: LiveCommerceRepositoryPort = {
-    upsertBroadcastSnapshots: vi.fn(async (rows) => rows.length),
-    upsertProductSnapshots: vi.fn(async (rows) => rows.length),
     findBroadcastSnapshots: vi.fn(async () => []),
     findProductSnapshots: vi.fn(async () => []),
   };
-  return { service: new LiveCommerceService(taobao, repository), taobao, repository };
+  const collectionOutputs: Array<{ typedRecords: Array<{ kind: string; row: unknown }> }> = [];
+  const collectionCoordinator = {
+    execute: vi.fn(async (input: any, collector: any) => {
+      const output = await collector({
+        permit: {
+          runId: '00000000-0000-4000-8000-000000000010',
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          leaseToken: '00000000-0000-4000-8000-000000000011',
+          generation: 1,
+          entitlementVersionId: '00000000-0000-4000-8000-000000000012',
+          entitlementVersionHash: 'a'.repeat(64),
+          leaseExpiresAt: new Date('2026-08-08T01:02:00.000Z'),
+        },
+        checkpoint: async () => undefined,
+      });
+      collectionOutputs.push(output);
+      return {
+        kind: 'committed' as const,
+        runId: input.idempotencyKey,
+        acceptedCount: output.discoveredCount,
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+  } as unknown as SourcingCollectionCoordinator;
+  return {
+    service: new LiveCommerceService(taobao, repository, collectionCoordinator),
+    taobao,
+    repository,
+    collectionCoordinator,
+    collectionOutputs,
+  };
+}
+
+function typedRows(
+  ports: ReturnType<typeof buildService>,
+  kind: string,
+): Array<Record<string, unknown>> {
+  return ports.collectionOutputs.flatMap((output) =>
+    output.typedRecords
+      .filter((record) => record.kind === kind)
+      .map((record) => record.row as Record<string, unknown>),
+  );
 }
 
 describe('LiveCommerceService', () => {
@@ -49,7 +93,7 @@ describe('LiveCommerceService', () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ source: 'douyin', broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         source: 'douyin',
@@ -57,12 +101,8 @@ describe('LiveCommerceService', () => {
         broadcasterName: '문구상점',
       }),
     ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
-      expect.objectContaining({
-        source: 'douyin',
-        productId: 'item-1',
-        rank: 1,
-      }),
+    expect(typedRows(ports, 'live_commerce_product')).toEqual([
+      expect.objectContaining({ source: 'douyin', productId: 'item-1', rank: 1 }),
     ]);
   });
 
@@ -73,7 +113,7 @@ describe('LiveCommerceService', () => {
       broadcast: { broadcastId: '123' },
       products: [],
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
   });
 
   it('rejects an insecure live page URL before persistence', async () => {
@@ -83,7 +123,7 @@ describe('LiveCommerceService', () => {
       broadcast: { broadcastId: '123' },
       products: [],
     })).rejects.toBeInstanceOf(BadRequestException);
-    expect(ports.repository.upsertBroadcastSnapshots).not.toHaveBeenCalled();
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
   });
 
   it('persists official Taobao rooms and products under the organization scope', async () => {
@@ -120,10 +160,10 @@ describe('LiveCommerceService', () => {
     });
 
     expect(result).toEqual(expect.objectContaining({ broadcastCount: 1, productCount: 1 }));
-    expect(ports.repository.upsertBroadcastSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', broadcastId: 'tb-live-1' }),
     ]);
-    expect(ports.repository.upsertProductSnapshots).toHaveBeenCalledWith([
+    expect(typedRows(ports, 'live_commerce_product')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', productId: 'tb-item-1' }),
     ]);
   });

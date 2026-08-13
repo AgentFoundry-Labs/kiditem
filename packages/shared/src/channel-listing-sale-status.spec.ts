@@ -28,4 +28,17 @@ describe('channel listing sale status', () => {
       isActive: true,
     })).toBe('active');
   });
+
+  it('ignores option lifecycle states while preserving explicit option sale states', () => {
+    expect(resolveChannelListingSaleStatus({
+      optionStatuses: ['NEW'],
+      listingStatus: '승인완료',
+      isActive: false,
+    })).toBeNull();
+    expect(resolveChannelListingSaleStatus({
+      optionStatuses: ['NEW', '판매중'],
+      listingStatus: '승인완료',
+      isActive: false,
+    })).toBe('판매중');
+  });
 });

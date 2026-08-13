@@ -15,7 +15,7 @@ describe('dashboard monthly sales card preservation', () => {
     expect(pageSource).not.toContain('(wingRevenue > 0 || rocketRevenue > 0) &&');
     expect(pageSource).not.toContain('(effectiveSales?.trafficKpi?.visitors ?? 0) > 0 &&');
     expect(pageSource).not.toContain('(effectiveSales?.trafficKpi?.views ?? 0) > 0 &&');
-    expect(pageSource).toContain("salesBaseline.lastSyncAt ? formatDateTime(salesBaseline.lastSyncAt) : '이력 없음'");
+    expect(pageSource).toContain("trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집'");
   });
 
   it('subtracts collected Coupang ad spend and renders receipt-style expenses', () => {

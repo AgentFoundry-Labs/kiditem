@@ -362,7 +362,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       },
     });
     expect(queue.products[1]).toMatchObject({
-      listing: { channelImageUrl: null, saleStatus: null },
+      listing: { channelImageUrl: null, saleStatus: 'active' },
       linkedProduct: { displayImageUrl: 'https://cdn.example.com/operator.jpg' },
     });
   });

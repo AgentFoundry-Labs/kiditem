@@ -4,15 +4,10 @@ import { kstInclusiveDaysStart } from '../../../../common/kst';
 import type { Prisma } from '@prisma/client';
 import type {
   NaverKeywordSnapshotRow,
-  NaverKeywordSnapshotUpsert,
   NaverPopularKeywordSnapshotRow,
-  NaverPopularKeywordSnapshotUpsert,
   Sourcing1688HotProductSnapshotRow,
-  Sourcing1688HotProductSnapshotUpsert,
   ShortsSnapshotRow,
-  ShortsSnapshotUpsert,
   TiktokCcSnapshotRow,
-  TiktokCcSnapshotUpsert,
   TrendCollectionRepositoryPort,
   TrendHistoryQuery,
   TrendSeedRow,
@@ -21,19 +16,6 @@ import type {
 } from '../../../application/port/out/repository/trend-collection.repository.port';
 
 const DEFAULT_TREND_SEED_SOURCES = ['naver', 'shorts', '1688'];
-const NAVER_KEYWORD_UPSERT_BATCH_SIZE = 10;
-const TREND_SNAPSHOT_TRANSACTION_OPTIONS = {
-  maxWait: 10_000,
-  timeout: 30_000,
-} as const;
-
-// PostgreSQL int4 상한. 유튜브 조회수는 21억을 넘을 수 있어 clamp 하지 않으면
-// 배치 $transaction 전체가 'value out of range for type integer' 로 롤백된다.
-const INT4_MAX = 2_147_483_647;
-function clampInt4(value: number | null | undefined): number | null {
-  if (value == null || !Number.isFinite(value)) return null;
-  return Math.min(Math.trunc(value), INT4_MAX);
-}
 
 @Injectable()
 export class TrendCollectionRepositoryAdapter implements TrendCollectionRepositoryPort {
@@ -103,266 +85,6 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     }
   }
 
-  async upsertNaverKeywordSnapshots(rows: NaverKeywordSnapshotUpsert[]): Promise<number> {
-    if (rows.length === 0) return 0;
-
-    // 최대 60개 키워드를 기본 5초 트랜잭션 하나에 넣으면 배포 DB의
-    // 왕복 지연만으로도 만료될 수 있다. upsert는 일자별 unique key 기준으로
-    // 멱등이므로 작은 배치로 나눠 재시도 가능한 상태를 유지한다.
-    for (let offset = 0; offset < rows.length; offset += NAVER_KEYWORD_UPSERT_BATCH_SIZE) {
-      const batch = rows.slice(offset, offset + NAVER_KEYWORD_UPSERT_BATCH_SIZE);
-      await this.prisma.$transaction(async (tx) => {
-        for (const row of batch) {
-          await tx.naverKeywordDailySnapshot.upsert({
-            where: {
-              organizationId_keyword_businessDate: {
-                organizationId: row.organizationId,
-                keyword: row.keyword,
-                businessDate: row.businessDate,
-              },
-            },
-            create: {
-              organizationId: row.organizationId,
-              keyword: row.keyword,
-              businessDate: row.businessDate,
-              monthlyTotalSearchCount: row.monthlyTotalSearchCount,
-              monthlyPcSearchCount: row.monthlyPcSearchCount,
-              monthlyMobileSearchCount: row.monthlyMobileSearchCount,
-              competitionIndex: row.competitionIndex,
-              averageAdRank: row.averageAdRank,
-              trendRatio: row.trendRatio,
-              trendDelta: row.trendDelta,
-              capturedAt: row.capturedAt,
-            },
-            // 같은 businessDate 재수집에서 검색광고/트렌드 응답이 이 키워드를 누락하면
-            // row 값이 null 로 초기화된다. 이미 저장된 실측 값을 null 로 덮지 않도록
-            // 들어온 값이 non-null 일 때만 갱신한다(coalesce). capturedAt 은 항상 갱신.
-            update: {
-              ...(row.monthlyTotalSearchCount != null
-                ? { monthlyTotalSearchCount: row.monthlyTotalSearchCount }
-                : {}),
-              ...(row.monthlyPcSearchCount != null
-                ? { monthlyPcSearchCount: row.monthlyPcSearchCount }
-                : {}),
-              ...(row.monthlyMobileSearchCount != null
-                ? { monthlyMobileSearchCount: row.monthlyMobileSearchCount }
-                : {}),
-              ...(row.competitionIndex != null ? { competitionIndex: row.competitionIndex } : {}),
-              ...(row.averageAdRank != null ? { averageAdRank: row.averageAdRank } : {}),
-              ...(row.trendRatio != null ? { trendRatio: row.trendRatio } : {}),
-              ...(row.trendDelta != null ? { trendDelta: row.trendDelta } : {}),
-              capturedAt: row.capturedAt,
-            },
-          });
-        }
-      }, TREND_SNAPSHOT_TRANSACTION_OPTIONS);
-    }
-
-    return rows.length;
-  }
-
-  async replaceNaverPopularKeywordSnapshots(rows: NaverPopularKeywordSnapshotUpsert[]): Promise<number> {
-    if (rows.length === 0) return 0;
-    const grouped = new Map<string, NaverPopularKeywordSnapshotUpsert[]>();
-    for (const row of rows) {
-      const key = [
-        row.organizationId,
-        row.boardKey,
-        row.businessDate.toISOString().slice(0, 10),
-      ].join(':');
-      const scopeRows = grouped.get(key) ?? [];
-      scopeRows.push(row);
-      grouped.set(key, scopeRows);
-    }
-
-    return this.prisma.$transaction(async (tx) => {
-      let count = 0;
-      for (const [scopeKey, scopeRows] of [...grouped.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-        const { organizationId, boardKey, businessDate } = scopeRows[0];
-        await tx.$queryRaw`
-          SELECT pg_advisory_xact_lock(hashtextextended(${`naver-popular:${scopeKey}`}, 0))::text AS "lock"
-          FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant
-          WHERE organization_id = ${organizationId}::uuid
-        `;
-        const latest = await tx.naverPopularKeywordDailySnapshot.findFirst({
-          where: { organizationId, boardKey, businessDate },
-          orderBy: { capturedAt: 'desc' },
-          select: { capturedAt: true },
-        });
-        const incomingCapturedAt = scopeRows.reduce(
-          (value, row) => (row.capturedAt > value ? row.capturedAt : value),
-          scopeRows[0].capturedAt,
-        );
-        if (latest && latest.capturedAt > incomingCapturedAt) continue;
-
-        await tx.naverPopularKeywordDailySnapshot.deleteMany({
-          where: { organizationId, boardKey, businessDate },
-        });
-        const created = await tx.naverPopularKeywordDailySnapshot.createMany({
-          data: scopeRows.map((row) => ({
-            organizationId: row.organizationId,
-            boardKey: row.boardKey,
-            boardLabel: row.boardLabel,
-            cid: row.cid,
-            businessDate: row.businessDate,
-            rank: row.rank,
-            keyword: row.keyword,
-            linkId: row.linkId,
-            capturedAt: row.capturedAt,
-          })),
-        });
-        count += created.count;
-      }
-      return count;
-    });
-  }
-
-  async upsert1688HotProductSnapshots(rows: Sourcing1688HotProductSnapshotUpsert[]): Promise<number> {
-    if (rows.length === 0) return 0;
-    await this.prisma.$transaction(
-      rows.map((row) =>
-        this.prisma.sourcing1688HotProductDailySnapshot.upsert({
-          where: {
-            organizationId_businessDate_offerId: {
-              organizationId: row.organizationId,
-              businessDate: row.businessDate,
-              offerId: row.offerId,
-            },
-          },
-          create: {
-            organizationId: row.organizationId,
-            businessDate: row.businessDate,
-            offerId: row.offerId,
-            sourceKeyword: row.sourceKeyword,
-            rank: row.rank,
-            title: row.title,
-            priceCny: row.priceCny,
-            monthlySales: row.monthlySales,
-            repurchaseRate: row.repurchaseRate,
-            tradeScore: row.tradeScore,
-            supplierName: row.supplierName,
-            imageUrl: row.imageUrl,
-            sourceUrl: row.sourceUrl,
-            capturedAt: row.capturedAt,
-          },
-          update: {
-            sourceKeyword: row.sourceKeyword,
-            rank: row.rank,
-            title: row.title,
-            priceCny: row.priceCny,
-            monthlySales: row.monthlySales,
-            repurchaseRate: row.repurchaseRate,
-            tradeScore: row.tradeScore,
-            supplierName: row.supplierName,
-            imageUrl: row.imageUrl,
-            sourceUrl: row.sourceUrl,
-            capturedAt: row.capturedAt,
-          },
-        }),
-      ),
-    );
-    return rows.length;
-  }
-
-  async upsertShortsSnapshots(rows: ShortsSnapshotUpsert[]): Promise<number> {
-    if (rows.length === 0) return 0;
-    await this.prisma.$transaction(
-      rows.map((row) => {
-        const viewCount = clampInt4(row.viewCount);
-        const likeCount = clampInt4(row.likeCount);
-        const commentCount = clampInt4(row.commentCount);
-        return this.prisma.shortsTrendDailySnapshot.upsert({
-          where: {
-            organizationId_businessDate_videoKey: {
-              organizationId: row.organizationId,
-              businessDate: row.businessDate,
-              videoKey: row.videoKey,
-            },
-          },
-          create: {
-            organizationId: row.organizationId,
-            businessDate: row.businessDate,
-            videoKey: row.videoKey,
-            rank: row.rank,
-            title: row.title,
-            channelName: row.channelName,
-            viewCount,
-            likeCount,
-            commentCount,
-            keyword: row.keyword,
-            publishedAt: row.publishedAt,
-            thumbnailUrl: row.thumbnailUrl,
-            videoUrl: row.videoUrl,
-            capturedAt: row.capturedAt,
-          },
-          update: {
-            rank: row.rank,
-            title: row.title,
-            channelName: row.channelName,
-            viewCount,
-            likeCount,
-            commentCount,
-            keyword: row.keyword,
-            publishedAt: row.publishedAt,
-            thumbnailUrl: row.thumbnailUrl,
-            videoUrl: row.videoUrl,
-            capturedAt: row.capturedAt,
-          },
-        });
-      }),
-    );
-    return rows.length;
-  }
-
-  async upsertTiktokCcSnapshots(rows: TiktokCcSnapshotUpsert[]): Promise<number> {
-    if (rows.length === 0) return 0;
-    await this.prisma.$transaction(
-      rows.map((row) =>
-        this.prisma.tiktokCreativeTrendDailySnapshot.upsert({
-          where: {
-            organizationId_businessDate_region_trendType_entityKey: {
-              organizationId: row.organizationId,
-              businessDate: row.businessDate,
-              region: row.region,
-              trendType: row.trendType,
-              entityKey: row.entityKey,
-            },
-          },
-          create: {
-            organizationId: row.organizationId,
-            businessDate: row.businessDate,
-            region: row.region,
-            trendType: row.trendType,
-            entityKey: row.entityKey,
-            rank: row.rank,
-            label: row.label,
-            industry: row.industry,
-            sourceKeyword: row.sourceKeyword,
-            postCount: clampInt4(row.postCount),
-            viewCount: row.viewCount == null ? null : BigInt(Math.trunc(row.viewCount)),
-            growthPct: row.growthPct,
-            thumbnailUrl: row.thumbnailUrl,
-            sourceUrl: row.sourceUrl,
-            capturedAt: row.capturedAt,
-          },
-          update: {
-            rank: row.rank,
-            label: row.label,
-            industry: row.industry,
-            sourceKeyword: row.sourceKeyword,
-            postCount: clampInt4(row.postCount),
-            viewCount: row.viewCount == null ? null : BigInt(Math.trunc(row.viewCount)),
-            growthPct: row.growthPct,
-            thumbnailUrl: row.thumbnailUrl,
-            sourceUrl: row.sourceUrl,
-            capturedAt: row.capturedAt,
-          },
-        }),
-      ),
-    );
-    return rows.length;
-  }
-
   async findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]> {
     const rows = await this.prisma.naverKeywordDailySnapshot.findMany({
       where: {
@@ -405,7 +127,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   }
 
   async find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]> {
-    const rows = await this.prisma.sourcing1688HotProductDailySnapshot.findMany({
+    const rows = await this.prisma.sourcing1688OfferKeywordObservation.findMany({
       where: {
         organizationId: query.organizationId,
         businessDate: { gte: kstInclusiveDaysStart(query.days) },
@@ -415,14 +137,14 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     return rows.map((row) => ({
       businessDate: row.businessDate,
       capturedAt: row.capturedAt,
-      offerId: row.offerId,
-      sourceKeyword: row.sourceKeyword,
+      offerId: row.externalOfferId,
+      sourceKeyword: row.sourceKeywordNormalized,
       rank: row.rank,
       title: row.title,
       priceCny: row.priceCny == null ? null : Number(row.priceCny),
       monthlySales: row.monthlySales,
-      repurchaseRate: row.repurchaseRate,
-      tradeScore: row.tradeScore,
+      repurchaseRate: stringFromRawOffer(row.rawOffer, 'repurchaseRate'),
+      tradeScore: stringFromRawOffer(row.rawOffer, 'tradeScore'),
       supplierName: row.supplierName,
       imageUrl: row.imageUrl,
       sourceUrl: row.sourceUrl,
@@ -479,6 +201,12 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
       sourceUrl: row.sourceUrl,
     }));
   }
+}
+
+function stringFromRawOffer(rawOffer: unknown, key: string): string | null {
+  if (!rawOffer || typeof rawOffer !== 'object' || Array.isArray(rawOffer)) return null;
+  const value = (rawOffer as Record<string, unknown>)[key];
+  return typeof value === 'string' ? value : value == null ? null : String(value);
 }
 
 function toSeedRow(row: {

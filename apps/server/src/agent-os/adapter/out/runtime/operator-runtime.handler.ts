@@ -40,6 +40,13 @@ function conversationIdRequired(provider: string): AgentRuntimeResult {
   };
 }
 
+function sourcingKeywordRequired(provider: string): AgentRuntimeResult {
+  return {
+    provider,
+    output: { status: 'blocked', reason: 'sourcing_keyword_required' },
+  };
+}
+
 function runtimeFailedData(
   provider: string,
   error: unknown,
@@ -53,10 +60,8 @@ function renderOperatorPrompt(context: unknown): string {
     'Decide the next orchestration step from the bounded context below.',
     'Return exactly one strict JSON object matching the OperatorDecision schema.',
     'Allowed decision shapes are only:',
-    '- delegate sourcing discovery: {"decisionType":"delegate","targetAgentType":"sourcing","playbookKey":"sourcing_market_opportunity_to_order_draft_v1","taskInput":{"keyword":"...","category":null},"userVisibleRationale":"..."}',
-    '- delegate manual URL intake: {"decisionType":"delegate","targetAgentType":"sourcing","playbookKey":"manual_product_intake_from_url_v1","taskInput":{"sourceUrl":"https://..."},"userVisibleRationale":"..."}',
-    '- delegate listing prep after sourcing artifact/user selection: {"decisionType":"delegate","targetAgentType":"listing","playbookKey":"manual_product_intake_from_url_v1","taskInput":{"productName":"...","imageUrls":["https://..."]},"userVisibleRationale":"..."}',
-    '- delegate order draft only after user selection: {"decisionType":"delegate","targetAgentType":"order","playbookKey":"sourcing_market_opportunity_to_order_draft_v1","taskInput":{...},"userVisibleRationale":"..."}',
+    '- delegate sourcing research: {"decisionType":"delegate","targetAgentType":"sourcing","playbookKey":"sourcing_market_research_v2","taskInput":{"keyword":"...","category":null},"userVisibleRationale":"..."}',
+    '- delegate manual URL intake: {"decisionType":"delegate","targetAgentType":"sourcing","playbookKey":"manual_product_intake_from_url_v2","taskInput":{"sourceUrl":"https://..."},"userVisibleRationale":"..."}',
     '- delegate confirmed channel listing registration: {"decisionType":"delegate","targetAgentType":"channel_registration","playbookKey":"confirmed_channel_listing_registration_v1","taskInput":{"masterId":"...","channelAccountId":"...","externalId":"...","productBarcode":"..."},"userVisibleRationale":"..."}',
     '- delegate Coupang seller-product submission: {"decisionType":"delegate","targetAgentType":"channel_registration","playbookKey":"coupang_listing_submission_v1","taskInput":{"masterId":"...","channelAccountId":"...","productBarcode":"...","listingPayloadJson":"{\\"vendorId\\":\\"...\\",\\"sellerProductName\\":\\"...\\",\\"items\\":[]}"},"userVisibleRationale":"..."}',
     '- delegate purchase order submission: {"decisionType":"delegate","targetAgentType":"order","playbookKey":"purchase_order_submission_v1","taskInput":{"purchaseOrderId":"...","externalOrderPlatform":"ALIBABA_1688","externalOrderId":"...","externalOrderUrl":"https://..."},"userVisibleRationale":"..."}',
@@ -150,7 +155,7 @@ export class OperatorRuntimeHandler
         parentRequestId: context.requestId,
         delegatedByRunId: context.runId,
         requestedByUserId: stringField(context.input.requestedByUserId),
-        playbookKey: 'manual_product_intake_from_url_v1',
+        playbookKey: 'manual_product_intake_from_url_v2',
         planStepKey: 'scrape_url',
         displayName: 'Sourcing Agent',
         payload: {
@@ -165,13 +170,16 @@ export class OperatorRuntimeHandler
         provider: 'kiditem-operator',
         output: {
           status: 'delegated',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           delegatedRequestId: delegated.requestId ?? null,
         },
       };
     }
 
-    const keyword = stringField(context.input.keyword) ?? '실리콘 식판';
+    const keyword = stringField(context.input.keyword);
+    if (!keyword) {
+      return sourcingKeywordRequired('kiditem-operator');
+    }
     const category = stringField(context.input.category);
     const delegated = await this.delegation.delegate({
       organizationId: context.organizationId,
@@ -181,11 +189,11 @@ export class OperatorRuntimeHandler
       parentRequestId: context.requestId,
       delegatedByRunId: context.runId,
       requestedByUserId: stringField(context.input.requestedByUserId),
-      playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+      playbookKey: 'sourcing_market_research_v2',
       planStepKey: 'sourcing_agent',
       displayName: 'Sourcing Agent',
       payload: {
-        action: 'market_opportunity_discovery',
+        action: 'market_research',
         conversationId,
         keyword,
         category,
@@ -196,7 +204,7 @@ export class OperatorRuntimeHandler
       provider: 'kiditem-operator',
       output: {
         status: 'delegated',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         delegatedRequestId: delegated.requestId ?? null,
       },
     };

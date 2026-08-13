@@ -43,6 +43,7 @@ describe("data migration registry", () => {
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:004_canonical_master_inventory_identity",
+      "v0.1.30:005_reset_sourcing_display_state",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -63,7 +64,9 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
     );
-    expect(migrationIds).toContain("v0.1.21:001_backfill_inventory_commitments");
+    expect(migrationIds).toContain(
+      "v0.1.21:001_backfill_inventory_commitments",
+    );
     expect(migrationIds).toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
     );
@@ -76,6 +79,7 @@ describe("data migration registry", () => {
     expect(migrationIds).toContain(
       "v0.1.30:004_canonical_master_inventory_identity",
     );
+    expect(migrationIds).toContain("v0.1.30:005_reset_sourcing_display_state");
   });
 
   it("keeps historical release 0.1.22 migration-free and never registers ahead of the root VERSION", () => {
@@ -86,7 +90,11 @@ describe("data migration registry", () => {
     const compare = (a: string, b: string) => {
       const left = toParts(a);
       const right = toParts(b);
-      for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      for (
+        let index = 0;
+        index < Math.max(left.length, right.length);
+        index++
+      ) {
         const diff = (left[index] ?? 0) - (right[index] ?? 0);
         if (diff !== 0) return diff;
       }
@@ -117,7 +125,11 @@ describe("data migration registry", () => {
   });
 
   it("runs artifact deduplication before schema constraints and other migrations after", () => {
-    expect(selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(({ id }) => id)).toEqual([
+    expect(
+      selectDataMigrationsForPhase(dataMigrations, "pre-schema").map(
+        ({ id }) => id,
+      ),
+    ).toEqual([
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.30:001_reset_legacy_product_abc_grades",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
@@ -144,6 +156,7 @@ describe("data migration registry", () => {
     expect(postSchema).toEqual([
       "v0.1.30:002_backfill_profitability_source_freshness",
       "v0.1.30:004_canonical_master_inventory_identity",
+      "v0.1.30:005_reset_sourcing_display_state",
     ]);
   });
 

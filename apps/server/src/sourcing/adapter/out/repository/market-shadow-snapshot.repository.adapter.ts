@@ -34,10 +34,12 @@ export class MarketShadowSnapshotRepositoryAdapter
 
       const existing = await tx.sourcingWorkspaceSnapshot.findUnique({
         where: {
-          organizationId_scope_businessDate: {
+          organizationId_scope_businessDate_projectionVersion_inputHash: {
             organizationId: input.organizationId,
             scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
             businessDate: input.businessDate,
+            projectionVersion: 'legacy',
+            inputHash: '',
           },
         },
       });
@@ -53,6 +55,8 @@ export class MarketShadowSnapshotRepositoryAdapter
           organizationId: input.organizationId,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: input.businessDate,
+          projectionVersion: 'legacy',
+          inputHash: '',
           payload: toInputJsonObject(input.payload),
         },
       });
@@ -70,10 +74,12 @@ export class MarketShadowSnapshotRepositoryAdapter
   }): Promise<MarketShadowSnapshotRow> {
     const existing = await this.prisma.sourcingWorkspaceSnapshot.findUnique({
       where: {
-        organizationId_scope_businessDate: {
-          organizationId: input.organizationId,
-          scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
-          businessDate: input.businessDate,
+          organizationId_scope_businessDate_projectionVersion_inputHash: {
+            organizationId: input.organizationId,
+            scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+            businessDate: input.businessDate,
+            projectionVersion: 'legacy',
+            inputHash: '',
         },
       },
       select: { id: true },
@@ -86,10 +92,12 @@ export class MarketShadowSnapshotRepositoryAdapter
 
     const updated = await this.prisma.sourcingWorkspaceSnapshot.update({
       where: {
-        organizationId_scope_businessDate: {
-          organizationId: input.organizationId,
-          scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
-          businessDate: input.businessDate,
+          organizationId_scope_businessDate_projectionVersion_inputHash: {
+            organizationId: input.organizationId,
+            scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+            businessDate: input.businessDate,
+            projectionVersion: 'legacy',
+            inputHash: '',
         },
       },
       data: {
@@ -109,6 +117,8 @@ export class MarketShadowSnapshotRepositoryAdapter
       where: {
         organizationId: input.organizationId,
         scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        projectionVersion: 'legacy',
+        inputHash: '',
         businessDate: {
           gte: input.fromBusinessDate,
           lte: input.toBusinessDate,

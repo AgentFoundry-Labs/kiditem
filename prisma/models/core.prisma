@@ -182,17 +182,28 @@ model Organization {
   sourcingCandidates         SourcingCandidate[]
   candidateImages            CandidateImage[]
   sourcingWorkspaceSnapshots SourcingWorkspaceSnapshot[]
+  sourcingInterestTargets                    SourcingInterestTarget[]
+  sourcingKeywordPreferences                 SourcingKeywordPreference[]
+  sourcing1688OfferKeywordObservations       Sourcing1688OfferKeywordObservation[]
+  sourcingRecommendationRuns                 SourcingRecommendationRun[]
+  sourcingRecommendationItems                SourcingRecommendationItem[]
+  sourcingRecommendationItemEvidence         SourcingRecommendationItemEvidence[]
+  sourcingValidationEpisodes                 SourcingValidationEpisode[]
+  sourcingValidationChecks                   SourcingValidationCheck[]
+  sourcingValidationCheckEvidence            SourcingValidationCheckEvidence[]
+  sourcingReviewSelections                   SourcingReviewSelection[]
+  sourcingReviewBatches                      SourcingReviewBatch[]
+  sourcingReviewBatchItems                   SourcingReviewBatchItem[]
 
   // Sourcing — market trend and live-commerce snapshots
   trendSeedKeywords                    TrendSeedKeyword[]
   naverKeywordDailySnapshots           NaverKeywordDailySnapshot[]
   naverPopularKeywordDailySnapshots    NaverPopularKeywordDailySnapshot[]
-  sourcing1688HotProductDailySnapshots Sourcing1688HotProductDailySnapshot[]
   shortsTrendDailySnapshots            ShortsTrendDailySnapshot[]
   liveCommerceBroadcastDailySnapshots  LiveCommerceBroadcastDailySnapshot[]
   liveCommerceProductDailySnapshots    LiveCommerceProductDailySnapshot[]
   tiktokCreativeTrendDailySnapshots    TiktokCreativeTrendDailySnapshot[]
-  sourcingSourceEntitlementVersions    SourcingSourceEntitlementVersion[]
+  sourcingCollectionSourceControls     SourcingCollectionSourceControl[]
   sourcingEvidenceIngestionRuns        SourcingEvidenceIngestionRun[]
   sourcingEvidenceObservations         SourcingEvidenceObservation[]
   sourcingLaunchCandidates             SourcingLaunchCandidate[]
@@ -235,9 +246,9 @@ model User {
   approvedProductPreparations                ProductPreparation[]                           @relation("ProductPreparationApprovedBy")
   requestedProductRegistrationExecutions     ProductRegistrationExecution[]                 @relation("ProductRegistrationExecutionRequestedBy")
   requestedChannelListingDeletionOperations  ChannelListingDeletionOperation[]              @relation("ChannelListingDeletionOperationRequestedBy")
-  reviewedSourcingSourceEntitlements         SourcingSourceEntitlementVersion[]             @relation("SourcingSourceEntitlementVersionReviewedBy")
   triggeredSourcingEvidenceIngestionRuns     SourcingEvidenceIngestionRun[]                 @relation("SourcingEvidenceIngestionRunTriggeredBy")
   requestedSourcingDecisionBatches           SourcingDecisionBatch[]                        @relation("SourcingDecisionBatchRequestedBy")
+  requestedSourcingReviewBatches             SourcingReviewBatch[]                          @relation("SourcingReviewBatchRequestedBy")
   createdSourcingLaunchCandidates            SourcingLaunchCandidate[]                      @relation("SourcingLaunchCandidateCreatedBy")
   requestedProcurementTestIntents            ProcurementTestIntent[]                        @relation("ProcurementTestIntentRequestedBy")
   reviewedProcurementTestIntents             ProcurementTestIntent[]                        @relation("ProcurementTestIntentReviewedBy")

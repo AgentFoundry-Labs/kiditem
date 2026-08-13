@@ -9,6 +9,7 @@ export interface EntryRecommendationTableProps {
   items: EntryRecommendation[];
   selectedIds: Set<string>;
   activeId: string | null;
+  isSaving?: boolean;
   onToggle: (id: string) => void;
   onToggleAll: () => void;
   onRemove: (id: string) => void;
@@ -26,6 +27,7 @@ export function EntryRecommendationTable({
   items,
   selectedIds,
   activeId,
+  isSaving = false,
   onToggle,
   onToggleAll,
   onRemove,
@@ -46,8 +48,9 @@ export function EntryRecommendationTable({
                 type="checkbox"
                 aria-label="전체 선택"
                 checked={allSelected}
+                disabled={isSaving}
                 onChange={onToggleAll}
-                className="h-3.5 w-3.5 cursor-pointer accent-[var(--primary)]"
+                className="h-3.5 w-3.5 cursor-pointer accent-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
               />
             </Th>
             <Th className="w-24">키워드</Th>
@@ -98,9 +101,10 @@ export function EntryRecommendationTable({
                     type="checkbox"
                     aria-label={`${item.title} 선택`}
                     checked={selectedIds.has(item.id)}
+                    disabled={isSaving}
                     onChange={() => onToggle(item.id)}
                     onClick={(event) => event.stopPropagation()}
-                    className="h-3.5 w-3.5 cursor-pointer accent-[var(--primary)]"
+                    className="h-3.5 w-3.5 cursor-pointer accent-[var(--primary)] disabled:cursor-not-allowed disabled:opacity-50"
                   />
                 </Td>
 
@@ -161,11 +165,12 @@ export function EntryRecommendationTable({
                   <button
                     type="button"
                     aria-label={`${item.title} 목록에서 제거`}
+                    disabled={isSaving}
                     onClick={(event) => {
                       event.stopPropagation();
                       onRemove(item.id);
                     }}
-                    className="rounded p-1 text-[var(--text-quaternary)] transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400"
+                    className="rounded p-1 text-[var(--text-quaternary)] transition-colors hover:bg-rose-50 hover:text-rose-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-rose-400 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     <Trash2 size={14} aria-hidden="true" />
                   </button>

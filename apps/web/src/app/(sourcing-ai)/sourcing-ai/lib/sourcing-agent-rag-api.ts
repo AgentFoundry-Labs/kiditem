@@ -5,7 +5,7 @@ export type SourcingAgentRagSuggestedFilter = 'all' | 'selected' | 'selling' | '
 export interface SourcingAgentRagContext {
   document: {
     id: string;
-    sourceScope: 'keyword_analysis' | 'today_recommendations' | 'interest_tracking';
+    sourceScope: 'recommendation_run' | 'interest_targets' | 'validation';
     sourceSnapshotId: string;
     sourceDate: string;
     kind: 'interest' | 'recommendation' | 'keyword' | 'trend' | 'agent';
@@ -26,12 +26,8 @@ export interface SourcingAgentRagQueryResponse {
     generatedAt: string;
     documentCount: number;
     sourceSnapshotCount: number;
-    sourceScopes: Array<'keyword_analysis' | 'today_recommendations' | 'interest_tracking'>;
+    sourceScopes: Array<'recommendation_run' | 'interest_targets' | 'validation'>;
   };
-}
-
-export interface SourcingAgentRagRebuildResponse {
-  index: SourcingAgentRagQueryResponse['index'];
 }
 
 export function querySourcingAgentRag(input: {
@@ -40,10 +36,4 @@ export function querySourcingAgentRag(input: {
   days?: number;
 }): Promise<SourcingAgentRagQueryResponse> {
   return apiClient.post<SourcingAgentRagQueryResponse>('/api/sourcing/agent-rag/query', input);
-}
-
-export function rebuildSourcingAgentRag(input: {
-  days?: number;
-} = {}): Promise<SourcingAgentRagRebuildResponse> {
-  return apiClient.post<SourcingAgentRagRebuildResponse>('/api/sourcing/agent-rag/rebuild', input);
 }

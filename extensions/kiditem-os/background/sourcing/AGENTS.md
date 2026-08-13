@@ -49,6 +49,11 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   background worker.
 - 1688 description fetching skips data URLs, icons, logos, and duplicate image
   URLs.
+- Page-world `_detail_url` is untrusted input. `url-policy.js` must be loaded
+  before `worker.js`; call only `KiditemSourcingUrlPolicy.parseAllowedSupplierUrl`
+  and use `fetch(..., { redirect: 'error', credentials: 'include' })`. Do not
+  fetch localhost, literal IPs, userinfo URLs, non-HTTPS URLs, non-default
+  ports, or hosts outside the reviewed 1688/Alibaba suffix allowlist.
 
 ## Boundary Rules
 
@@ -61,8 +66,9 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   hook (`tiktok-cc-hook.js`) that never receives KidItem tokens or backend URLs.
 - Do not add broad `*://*/*` permissions.
 - Add new marketplace hosts only with a matching extractor and backend contract.
-- Backend payload changes require checking `background.js` and the sourcing
-  extension DTO/controller together.
+- Backend payload changes require checking `worker.js`, the shared v1/v2
+  sourcing schema, and the server DTO/controller together. Deployed v1 keeps
+  snake_case commercial field names; new producers use the strict v2 endpoint.
 
 ## Verification
 

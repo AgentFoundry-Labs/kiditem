@@ -22,6 +22,9 @@ describe('FilesystemAgentRuntimeAssetsAdapter', () => {
 
     expect(assets.outputSchemaVersion).toBe('sourcing-agent-answer.v1');
     expect(assets.prompt).toContain('KidItem Sourcing Agent');
+    expect(assets.prompt).toContain(
+      'Do not conclude that evidence is absent before calling a relevant KidItem MCP capability.',
+    );
     expect(assets.skills.map((skill) => skill.key)).toEqual(
       definition.defaultSkillKeys,
     );

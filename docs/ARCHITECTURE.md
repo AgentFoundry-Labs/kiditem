@@ -186,7 +186,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/products` | Owner Domain | Canonical KidItem inventory-product (`MasterProduct`) operations and ABC ownership, direct ChannelListingOption-to-SellpiaInventorySku component replacement/capacity, automatic profitability ABC formula/evaluation/publication, and `/api/categories` compatibility CRUD. |
 | `apps/server/src/readiness` | Platform Capability | Readiness checks and health-style operational surface. |
 | `apps/server/src/rules` | Owner Domain | Business rules HTTP orchestration and Agent OS delegation. |
-| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, versioned source entitlements, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
+| `apps/server/src/sourcing` | Owner Domain | Chinese new-product discovery, allowlisted collection controls, append-only evidence ingestion, exact LaunchCandidate identity, immutable recommendation decisions, reviewed ProductPreparation input, and authoritative ProductRegistrationExecution lifecycle. |
 | `apps/server/src/supply` | Owner Domain | Supplier registry, immutable supplier-offer/price-tier snapshots, proposed procurement test intents, SellpiaInventorySku supplier policy, freshness-fenced purchase submission attempts/reconciliation, and read-only Rocket capacity preview. |
 | `apps/server/src/test-helpers` | Test Support | Test-only Prisma and seed helpers. |
 | `apps/server/src/types` | Platform Support | Ambient/server TypeScript types. |
@@ -260,7 +260,7 @@ Initial domain capability targets:
 
 | Owner | Resources | Tools | Workflows | Sinks |
 |---|---|---|---|---|
-| `sourcing` | Duplicate URL, source entitlement, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → entitled collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
+| `sourcing` | Duplicate URL, source control, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → fenced collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
 | `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
 | `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
@@ -567,7 +567,7 @@ is `SOURCING_SUPPLY_INTELLIGENCE_PORT` backed by Supply's exported
 `SUPPLY_SOURCING_PROCUREMENT_PORT`; Sourcing never writes Supply models.
 
 ```text
-reviewed SourcingSourceEntitlementVersion
+allowlisted source + optional organization enabled override
   -> SourcingEvidenceIngestionRun
   -> append-only SourcingEvidenceObservation
   -> immutable SupplierOfferSkuSnapshot + SupplierOfferPriceTier (Supply)
@@ -577,34 +577,42 @@ reviewed SourcingSourceEntitlementVersion
   -X-> PurchaseOrder or provider submission
 ```
 
-Source lifecycle is `proposed -> onboarding -> shadow -> qualified`, with
-`suspended` as an immediate stop. Onboarding and shadow evidence may be
-collected and retained, but only a current, unexpired, kill-switch-free
-`qualified + enabled` entitlement may affect scoring or later training.
-Credentials are references such as `env:` or `vault:` values; raw credentials
-are never persisted in entitlement rows.
+Collection control is deliberately small: source keys are an explicit server
+allowlist and an organization may write one `enabled` override. Absent override
+means enabled. The claim and commit transactions recheck that control, while
+lease, idempotency, cancellation, freshness and observation identity stay in
+the collection/evidence model. There are no source review versions, expiry
+dates, lifecycle states, or policy histories in this runtime.
 
-Each entitlement is exact to `(organizationId, sourceKey, scopeKey, version)`.
-An enabled source must also freeze its permitted fields, coverage numerator and
-denominator meaning, minimum run coverage, freshness, revision, and retention
-contracts. Collection, offer freezing, launch freezing, and procurement-intent
-creation recheck the current exact scope; switching version, suspension,
-permission expiry, or the kill switch closes the old lane instead of falling
-back to a default scope.
+Extension product ingest follows the same collection gate as provider IO. The
+deployed v1 KidItem OS payload remains a validated snake_case compatibility
+wire; v2 obtains its collection session before browser IO and carries the
+external offer identity, capture time, extractor version, and payload hash
+explicitly. Both flows claim an allowlisted, enabled lane before any durable write, recheck it
+at commit, append an immutable observation,
+then project a candidate using `(platform, externalOfferId, normalizedVariant)`
+rather than a title, URL tracking parameter, or result index. The assistant
+adjacent to Entry is retrieval-first: without explicit server configuration it
+returns only organization-scoped internal evidence. Its optional single
+generation port accepts server-selected `claude` or `codex`, never client
+provider/model input, and has bounded prompt/output/time/concurrency. Claude
+has an empty actual tool list; Codex uses ephemeral read-only non-interactive
+execution with every local execution, browser, plugin/app, image, and web
+search surface disabled. Either runtime failure remains a retrieval-only
+answer and neither may write sourcing or Supply records.
 
 `SourcingEvidenceObservation` is revision-aware and append-only. Every decision
 freezes the exact observation IDs that were available at its cutoff, while the
 repository preserves event, observation, availability, revision, ingestion,
-payload-hash, and source-contract provenance. A client cannot submit model
+payload-hash, and source provenance. A client cannot submit model
 versions, scores, canonical decisions, calibrated probabilities, or policy
 propensities. Those fields are server-derived.
 
 One observation series has sequential revisions and an immutable source,
 scope, platform, concept, entity, schema, granularity, and signal-role envelope.
-Only the absolute latest revision from a completed ingestion run that meets the
-current source's minimum coverage and freshness contract may support a positive
-decision. Partial, unknown-coverage, below-threshold, superseded, failed, or
-quarantined evidence remains context only. A positive recommendation requires
+Only the absolute latest revision from a completed, fresh ingestion run may
+support a positive decision. Partial, superseded, failed, or quarantined
+evidence remains context only. A positive recommendation requires
 the exact role pair `Coupang + demand` and `1688 + supply`, at least three
 evidence families, and at least two platforms; risk or compliance observations
 cannot be relabeled as positive demand or supply.
@@ -612,10 +620,9 @@ cannot be relabeled as positive demand or supply.
 Run coverage is server-derived from distinct first-revision observation series
 over the frozen expected denominator; correction revisions never increase it,
 and a conflicting collector-supplied percentage is rejected. Decision-batch
-commit acquires the same source-scope and observation-series advisory locks as
-source review and evidence append, then rechecks exact entitlement version,
-permission, quality contract, run coverage/freshness, and absolute latest
-revision before persisting any `support:*` evidence.
+commit locks each supporting observation series, then rechecks the completed
+run, freshness, and absolute latest revision before persisting any `support:*`
+evidence.
 
 `SourcingLaunchCandidate` requires an unexpired `exact_variant` supplier offer,
 known order-unit conversion, opaque product-concept and Korean sellable-bundle

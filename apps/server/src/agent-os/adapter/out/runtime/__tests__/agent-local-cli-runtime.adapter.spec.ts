@@ -79,6 +79,8 @@ function localContext(
     promptPath: 'agent-config/prompts/agents/sourcing.md',
     conversationId: 'conversation-1',
     requestedByUserId: 'user-1',
+    playbookKey: 'sourcing_workspace_question_v1',
+    planStepKey: 'sourcing_agent',
     skillKeys: [],
     outputSchemaPath: 'agent-config/schemas/sourcing-agent-answer.schema.json',
     input: { userMessage: 'Find products.' },

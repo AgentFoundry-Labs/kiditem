@@ -47,6 +47,8 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
     runId: string;
     agentInstanceId: string;
     agentType: string;
+    playbookKey: string | null;
+    planStepKey: string | null;
     requestedByUserId: string | null;
     homeDirectory: string;
   }): Promise<AgentMcpSessionDescriptor> {
@@ -87,6 +89,8 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
         KIDITEM_AGENT_OS_RUN_ID: input.runId,
         KIDITEM_AGENT_OS_AGENT_INSTANCE_ID: input.agentInstanceId,
         KIDITEM_AGENT_OS_AGENT_TYPE: input.agentType,
+        KIDITEM_AGENT_OS_PLAYBOOK_KEY: input.playbookKey ?? '',
+        KIDITEM_AGENT_OS_PLAN_STEP_KEY: input.planStepKey ?? '',
         KIDITEM_AGENT_OS_REQUESTED_BY_USER_ID: input.requestedByUserId ?? '',
         ...kidItemAgentOsMcpChildEnvironment(),
       },

@@ -249,6 +249,29 @@ export const queryKeys = {
   },
   sourcing: {
     all: ['sourcing'] as const,
+    workspace: {
+      root: (organizationId: string) =>
+        [...queryKeys.sourcing.all, 'workspace', organizationId] as const,
+      recommendations: (organizationId: string, surface: 'home' | 'today' | 'entry' | 'final') =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'recommendations', surface] as const,
+      validation: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'validation'] as const,
+      reviewSelections: (
+        organizationId: string,
+        workspaceKey: 'entry' | 'final',
+        recommendationRunId: string,
+      ) =>
+        [
+          ...queryKeys.sourcing.workspace.root(organizationId),
+          'review-selections',
+          workspaceKey,
+          recommendationRunId,
+        ] as const,
+      keywordPreferences: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'keyword-preferences'] as const,
+      interests: (organizationId: string) =>
+        [...queryKeys.sourcing.workspace.root(organizationId), 'interests'] as const,
+    },
     intelligence: () => [...queryKeys.sourcing.all, 'intelligence'] as const,
     intelligenceSources: () =>
       [...queryKeys.sourcing.intelligence(), 'sources'] as const,

@@ -486,7 +486,13 @@ async function injectTiktokCcContentScripts(tabId) {
 
 async function handleProductData(data, tabId, environmentId) {
   if (data._detail_url && data.source_platform === "1688") {
-    const desc = await fetchDescriptionContent(data._detail_url, data.source_url);
+    let detailUrl = null;
+    try {
+      detailUrl = KiditemSourcingUrlPolicy.parseAllowedSupplierUrl(data._detail_url);
+    } catch (error) {
+      console.warn("[bg] blocked untrusted 1688 detail URL:", error?.message || String(error));
+    }
+    const desc = detailUrl ? await fetchDescriptionContent(detailUrl, data.source_url) : null;
     if (desc) {
       data.description_images = desc.description_images;
       data.description_text = desc.description_text;
@@ -561,7 +567,10 @@ async function sendDescriptionToBackend(data, environmentId) {
 
 async function fetchDescriptionContent(detailUrl, sourceUrl) {
   try {
-    const resp = await fetch(detailUrl);
+    const resp = await fetch(detailUrl, {
+      redirect: "error",
+      credentials: "include",
+    });
     if (!resp.ok) return null;
     const html = await resp.text();
 

@@ -200,15 +200,15 @@ describe('OperatorContextBuilder', () => {
     ]);
     expect(context.allowedPlaybooks.map((playbook) => playbook.key)).toEqual(
       expect.arrayContaining([
-        'sourcing_market_opportunity_to_order_draft_v1',
-        'manual_product_intake_from_url_v1',
+        'sourcing_market_research_v2',
+        'manual_product_intake_from_url_v2',
         'confirmed_channel_listing_registration_v1',
       ]),
     );
     expect(context.recentMessages).toHaveLength(2);
     expect(context.runGraph.nodes).toHaveLength(2);
     expect(context.capabilitySummaries.map((item) => item.key)).toContain(
-      'coupang.match_products',
+      'sourcing.retrieveWorkspaceEvidence',
     );
     expect(context.liveReadiness.blockedCapabilities).toContain(
       'channels.submit_coupang_listing',

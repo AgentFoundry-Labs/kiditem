@@ -6,15 +6,21 @@ import {
   type EntryRisingCandidate,
   type EntrySupplyItem,
 } from '../sourcing-entry-recommendation';
+import { recommendationItemKey } from '../sourcing-recommendation-identity';
 
 const TODAY = new Date('2026-08-04T00:00:00.000Z');
 
 function supplyItem(overrides: Partial<EntrySupplyItem> = {}): EntrySupplyItem {
+  const sourceUrl = overrides.sourceUrl ?? 'https://detail.1688.com/offer/619235900570.html';
+  const externalOfferId =
+    overrides.externalOfferId ?? sourceUrl?.match(/offer\/(\d+)/)?.[1] ?? '619235900570';
+
   return {
     title: '여아 여름 원피스',
     keyword: '여아원피스',
     imageUrl: 'https://cbu01.alicdn.com/a.jpg',
-    sourceUrl: 'https://detail.1688.com/offer/619235900570.html',
+    sourceUrl,
+    externalOfferId,
     priceCny: 31,
     landedCostKrw: 7690,
     targetSalePriceKrw: 27780,
@@ -77,7 +83,14 @@ describe('buildEntryRecommendations', () => {
     expect(item.salePriceKrw).toBe(27780);
     expect(item.rating).toBe(4.5);
     expect(item.tags).toEqual(['선결제 후배송', '제품 시연 영상']);
-    expect(item.id).toBe('1688:619235900570#9436343850');
+    expect(item.id).toBe(
+      recommendationItemKey({
+        sourcePlatform: '1688',
+        externalOfferId: '619235900570',
+        variantKey: '',
+        matchedCoupangProductId: '9436343850',
+      }),
+    );
   });
 
   it('같은 오퍼가 다른 쿠팡 상품에 매칭되면 서로 다른 id 를 갖는다', () => {
@@ -93,7 +106,20 @@ describe('buildEntryRecommendations', () => {
 
   it('쿠팡 매칭이 없으면 오퍼 id 만으로 키를 만든다', () => {
     const result = build({ supplyItems: [supplyItem({ matchedCoupang: null })] });
-    expect(result.items[0].id).toBe('1688:619235900570');
+    expect(result.items[0].id).toBe(
+      recommendationItemKey({
+        sourcePlatform: '1688',
+        externalOfferId: '619235900570',
+        variantKey: '',
+        matchedCoupangProductId: null,
+      }),
+    );
+  });
+
+  it('외부 오퍼 식별자가 없으면 제목이나 행 번호로 추천을 만들지 않는다', () => {
+    const result = build({ supplyItems: [supplyItem({ externalOfferId: ' ' })] });
+
+    expect(result.items).toEqual([]);
   });
 
   it('제목이 없는 행은 버린다', () => {

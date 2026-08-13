@@ -2,36 +2,20 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, ShoppingCart } from 'lucide-react';
 import { formatKRW, formatNumber } from '@/lib/utils';
-import { getTodaySourcingWorkspaceSnapshot } from '../lib/sourcing-workspace-snapshot-api';
-import { useTodayRecommendationRows } from '../lib/use-today-recommendation-rows';
+import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
+import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
-
-type TodayRecommendationSnapshotPayload = {
-  result?: {
-    rows?: TodayRecommendationRow[];
-  };
-};
+import { SourcingReadState } from './SourcingReadState';
 
 /** 소싱 홈 · 오늘의 추천 실시간 후보 상품 — 한 줄 가로 스크롤 컴팩트 레일. */
 export function SourcingHomeRecommendationRail() {
-  const localRows = useTodayRecommendationRows();
-  // 히어로와 동일한 쿼리 키를 재사용해 스냅샷 요청을 한 번만 보낸다(실시간 폴링 포함).
-  const { data: snapshotRows = [] } = useQuery({
-    queryKey: ['sourcing', 'home', 'today-rec-snapshot'],
-    queryFn: async () => {
-      const { snapshot } =
-        await getTodaySourcingWorkspaceSnapshot<TodayRecommendationSnapshotPayload>('today_recommendations');
-      return snapshot?.payload?.result?.rows ?? [];
-    },
-    refetchInterval: 60_000,
-  });
+  const recommendationsQuery = useSourcingRecommendations('home', { limit: 40 });
 
   const recommendationRows = useMemo(() => {
-    const source = localRows.length > 0 ? localRows : snapshotRows;
+    const source = toTodayRecommendationRows(recommendationsQuery.data?.data?.items ?? []);
     const seen = new Set<string>();
 
     return [...source]
@@ -43,7 +27,7 @@ export function SourcingHomeRecommendationRail() {
       })
       .sort((a, b) => b.score - a.score)
       .slice(0, 40);
-  }, [localRows, snapshotRows]);
+  }, [recommendationsQuery.data]);
 
   return (
     <section className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -66,17 +50,26 @@ export function SourcingHomeRecommendationRail() {
         </div>
       </div>
 
-      {recommendationRows.length > 0 ? (
-        <div className="grid max-h-[30rem] grid-cols-4 gap-3 overflow-y-auto p-4 [scrollbar-width:thin] sm:grid-cols-6 xl:grid-cols-8">
-          {recommendationRows.map((row) => (
-            <RecommendationCard key={recommendationRowKey(row)} row={row} />
-          ))}
-        </div>
-      ) : (
-        <p className="m-4 rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-7 text-center text-xs font-medium text-slate-400">
-          오늘의 추천에서 Wing 검증을 실행하면 후보 상품이 레일로 표시됩니다.
-        </p>
-      )}
+      <div className="p-4">
+        <SourcingReadState
+          envelope={recommendationsQuery.data}
+          isLoading={recommendationsQuery.isLoading}
+          error={recommendationsQuery.error}
+          emptyLabel="오늘의 추천에서 Wing 검증을 실행하면 후보 상품이 레일로 표시됩니다."
+        >
+          {recommendationRows.length > 0 ? (
+            <div className="grid max-h-[30rem] grid-cols-4 gap-3 overflow-y-auto [scrollbar-width:thin] sm:grid-cols-6 xl:grid-cols-8">
+              {recommendationRows.map((row) => (
+                <RecommendationCard key={recommendationRowKey(row)} row={row} />
+              ))}
+            </div>
+          ) : (
+            <p className="rounded-lg border border-dashed border-slate-200 bg-slate-50/80 px-4 py-7 text-center text-xs font-medium text-slate-400">
+              오늘의 추천에서 Wing 검증을 실행하면 후보 상품이 레일로 표시됩니다.
+            </p>
+          )}
+        </SourcingReadState>
+      </div>
     </section>
   );
 }

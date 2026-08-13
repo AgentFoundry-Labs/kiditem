@@ -1,11 +1,9 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
-import { Sourcing1688NewProductModelService } from "../application/service/sourcing-1688-new-product-model.service";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
-import { SourcingMarketModelService } from "../application/service/sourcing-market-model.service";
 import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
 import { TrendCollectService } from "../application/service/trend-collect.service";
 import { TrendQueryService } from "../application/service/trend-query.service";
@@ -13,21 +11,34 @@ import { LiveCommerceService } from "../application/service/live-commerce.servic
 import { SourcingService } from "../application/service/sourcing.service";
 import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
-import { SourcingWorkspaceSnapshotService } from "../application/service/sourcing-workspace-snapshot.service";
+import { SourcingAssistantService } from "../application/service/sourcing-assistant.service";
+import { SourcingRecommendationService } from "../application/service/sourcing-recommendation.service";
+import { SourcingKeywordPreferenceService } from "../application/service/sourcing-keyword-preference.service";
+import { SourcingValidationService } from "../application/service/sourcing-validation.service";
+import { SourcingReviewService } from "../application/service/sourcing-review.service";
+import { SourcingWingCatalogIngestService } from "../application/service/sourcing-wing-catalog-ingest.service";
 import { SourcingShadowSignalService } from "../application/service/sourcing-shadow-signal.service";
 import { SourcingMarketDiscoveryService } from "../application/service/sourcing-market-discovery.service";
-import { SourcingSourceRegistryService } from "../application/service/sourcing-source-registry.service";
+import { SourcingCollectionSourceControlService } from "../application/service/sourcing-collection-source-control.service";
+import { SourcingInterestTargetService } from "../application/service/sourcing-interest-target.service";
 import { SourcingEvidenceLedgerService } from "../application/service/sourcing-evidence-ledger.service";
 import { SourcingLaunchCandidateService } from "../application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "../application/service/sourcing-decision-batch.service";
+import { SourcingCollectionCoordinator } from "../application/service/sourcing-collection-coordinator.service";
+import { SourcingScrapeResultService } from "../application/service/sourcing-scrape-result.service";
+import { SourcingAgentWorkspaceCapabilityService } from "../application/service/sourcing-agent-workspace-capability.service";
+import { SourcingExtensionIngestService } from "../application/service/sourcing-extension-ingest.service";
 import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
-import { SourcingDiscoveryCapabilityAdapter } from "../adapter/in/agent/sourcing-discovery-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
 import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing-scrape-url-capability.adapter";
+import { SourcingWorkspaceCapabilityAdapter } from "../adapter/in/agent/sourcing-workspace-capability.adapter";
 import { Sourcing1688TrendExtensionController } from "../adapter/in/http/sourcing-1688-trend-extension.controller";
 import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sourcing-live-commerce-extension.controller";
 import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
 import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
+import { SourcingInterestTargetController } from "../adapter/in/http/sourcing-interest-target.controller";
+import { SourcingWorkspaceController } from "../adapter/in/http/sourcing-workspace.controller";
+import { SourcingReviewController } from "../adapter/in/http/sourcing-review.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "../adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -36,11 +47,19 @@ import { SourcingAgentGatewayAdapter } from "../adapter/out/agent/sourcing-agent
 import { SourcingAiWorkspaceArchiveAdapter } from "../adapter/out/ai/workspace-archive.adapter";
 import { SourcingOperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
 import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-candidate.repository.adapter";
-import { SourcingSourceRegistryRepositoryAdapter } from "../adapter/out/repository/sourcing-source-registry.repository.adapter";
+import { SourcingCollectionSourceControlRepositoryAdapter } from "../adapter/out/repository/sourcing-collection-source-control.repository.adapter";
+import { SourcingInterestTargetRepositoryAdapter } from "../adapter/out/repository/sourcing-interest-target.repository.adapter";
+import { SourcingRecommendationRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation.repository.adapter";
+import { SourcingKeywordPreferenceRepositoryAdapter } from "../adapter/out/repository/sourcing-keyword-preference.repository.adapter";
+import { SourcingValidationRepositoryAdapter } from "../adapter/out/repository/sourcing-validation.repository.adapter";
+import { SourcingReviewRepositoryAdapter } from "../adapter/out/repository/sourcing-review.repository.adapter";
+import { SourcingRecommendationSourceRepositoryAdapter } from "../adapter/out/repository/sourcing-recommendation-source.repository.adapter";
 import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repository/sourcing-decision-batch.repository.adapter";
+import { SourcingCollectionRepositoryAdapter } from "../adapter/out/repository/sourcing-collection.repository.adapter";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
+import { SourcingCollectionOperationAdapter } from "../adapter/out/operations/sourcing-collection-operation.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
@@ -55,10 +74,11 @@ import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
 import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
 import {
-  SOURCING_DISCOVERY_CAPABILITY_PORT,
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from "../application/port/in/capability/sourcing-capability.ports";
+import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-agent-workspace-capability.port";
+import { SOURCING_COLLECTION_OPERATION_PORT } from "../application/port/out/cross-domain/sourcing-collection-operation.port";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "../application/port/out/provider/1688-image-search.port";
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "../application/port/out/provider/1688-keyword-search.port";
 import { SHORTSTREND_TREND_PORT } from "../application/port/out/provider/shortstrend-trend.port";
@@ -73,10 +93,17 @@ import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sou
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
 import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
-import { SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-source-registry.repository.port";
+import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection-source-control.repository.port";
+import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-interest-target.repository.port";
+import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation.repository.port";
+import { SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-keyword-preference.repository.port";
+import { SOURCING_VALIDATION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-validation.repository.port";
+import { SOURCING_REVIEW_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-review.repository.port";
+import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-recommendation-source.repository.port";
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-decision-batch.repository.port";
+import { SOURCING_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection.repository.port";
 import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "../application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
@@ -124,13 +151,13 @@ describe("SourcingModule canonical owner wiring", () => {
       "Sourcing1688ImageSearchController",
       "Sourcing1688KeywordSearchController",
       "SourcingAgentRagController",
-      "SourcingMarketModelController",
-      "Sourcing1688NewProductModelController",
       "SourcingRisingProductController",
       "SourcingIntelligenceController",
       "SourcingCandidateWorkspaceController",
       "MarketShadowSignalController",
-      "SourcingWorkspaceSnapshotController",
+      "SourcingInterestTargetController",
+      "SourcingWorkspaceController",
+      "SourcingReviewController",
       "SourcingEntryRecommendationController",
       "TrendCollectionController",
       "LiveCommerceController",
@@ -139,40 +166,56 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(controllers).toContain(SourcingLiveCommerceExtensionController);
     expect(controllers).toContain(MarketShadowSignalController);
     expect(controllers).toContain(SourcingIntelligenceController);
+    expect(controllers).toContain(SourcingInterestTargetController);
   });
 
   it("declares every application service as a provider", () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
     expect(providers).toContain(SourcingService);
+    expect(providers).toContain(SourcingExtensionIngestService);
     expect(providers).toContain(NaverKeywordResearchService);
     expect(providers).toContain(Sourcing1688ImageSearchService);
     expect(providers).toContain(Sourcing1688KeywordSearchService);
     expect(providers).toContain(SourcingAgentRagService);
-    expect(providers).toContain(SourcingMarketModelService);
-    expect(providers).toContain(Sourcing1688NewProductModelService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
-    expect(providers).toContain(SourcingWorkspaceSnapshotService);
+    expect(providers).toContain(SourcingAssistantService);
+    expect(providers).toContain(SourcingRecommendationService);
+    expect(providers).toContain(SourcingKeywordPreferenceService);
+    expect(providers).toContain(SourcingValidationService);
+    expect(providers).toContain(SourcingReviewService);
+    expect(providers).toContain(SourcingWingCatalogIngestService);
     expect(providers).toContain(SourcingShadowSignalService);
     expect(providers).toContain(SourcingMarketDiscoveryService);
-    expect(providers).toContain(SourcingSourceRegistryService);
+    expect(providers).toContain(SourcingCollectionSourceControlService);
+    expect(providers).toContain(SourcingInterestTargetService);
     expect(providers).toContain(SourcingEvidenceLedgerService);
     expect(providers).toContain(SourcingLaunchCandidateService);
     expect(providers).toContain(SourcingDecisionBatchService);
+    expect(providers).toContain(SourcingCollectionCoordinator);
+    expect(providers).toContain(SourcingScrapeResultService);
+    expect(
+      providers.map((provider) => (provider as { name?: string }).name),
+    ).not.toContain("SourcingScrapeFinalizedBridge");
     expect(providers).toContain(TrendCollectService);
     expect(providers).toContain(TrendQueryService);
     expect(providers).toContain(LiveCommerceService);
     expect(providers).toContain(ProductRegistrationService);
   });
 
-  it("injects both persisted evidence repositories into market discovery", () => {
+  it("injects typed trends and the canonical recommendation service into market discovery", () => {
     expect(
       Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, SourcingMarketDiscoveryService),
-    ).toEqual(expect.arrayContaining([
+    ).toEqual([
       { index: 0, param: TREND_COLLECTION_REPOSITORY_PORT },
-      { index: 1, param: SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT },
-    ]));
+    ]);
+    expect(
+      Reflect.getMetadata("design:paramtypes", SourcingMarketDiscoveryService),
+    ).toEqual([
+      expect.any(Function),
+      SourcingRecommendationService,
+    ]);
   });
 
   it("binds outgoing ports to their adapters", () => {
@@ -186,19 +229,28 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
     expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
-    expect(providers).toContain(SourcingSourceRegistryRepositoryAdapter);
+    expect(providers).toContain(SourcingCollectionSourceControlRepositoryAdapter);
+    expect(providers).toContain(SourcingInterestTargetRepositoryAdapter);
+    expect(providers).toContain(SourcingRecommendationRepositoryAdapter);
+    expect(providers).toContain(SourcingKeywordPreferenceRepositoryAdapter);
+    expect(providers).toContain(SourcingValidationRepositoryAdapter);
+    expect(providers).toContain(SourcingReviewRepositoryAdapter);
+    expect(providers).toContain(SourcingRecommendationSourceRepositoryAdapter);
     expect(providers).toContain(SourcingEvidenceLedgerRepositoryAdapter);
     expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingDecisionBatchRepositoryAdapter);
+    expect(providers).toContain(SourcingCollectionRepositoryAdapter);
     expect(providers).toContain(SourcingSupplyIntelligenceAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
     expect(providers).toContain(GoogleTrendsRssAdapter);
     expect(providers).toContain(LinkfoxEchotikShadowAdapter);
     expect(providers).toContain(MarketShadowSignalCapabilityAdapter);
-    expect(providers).toContain(SourcingDiscoveryCapabilityAdapter);
     expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
     expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
+    expect(providers).toContain(SourcingWorkspaceCapabilityAdapter);
+    expect(providers).toContain(SourcingAgentWorkspaceCapabilityService);
+    expect(providers).toContain(SourcingCollectionOperationAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(Direct1688ImageSearchAdapter);
     expect(providers).toContain(Direct1688KeywordSearchAdapter);
@@ -225,15 +277,24 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expect(gatewayBinding).toBeDefined();
     expect(gatewayBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
-    const discoveryBinding = providers.find(
+    const workspaceCapabilityBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
         p !== null &&
-        (p as any).provide === SOURCING_DISCOVERY_CAPABILITY_PORT,
+        (p as any).provide === SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT,
     );
-    expect(discoveryBinding).toBeDefined();
-    expect(discoveryBinding!.useExisting).toBe(
-      SourcingDiscoveryCapabilityAdapter,
+    expect(workspaceCapabilityBinding).toBeDefined();
+    expect(workspaceCapabilityBinding!.useExisting).toBe(
+      SourcingAgentWorkspaceCapabilityService,
+    );
+    const collectionOperationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === SOURCING_COLLECTION_OPERATION_PORT,
+    );
+    expect(collectionOperationBinding?.useExisting).toBe(
+      SourcingCollectionOperationAdapter,
     );
     const shadowCapabilityBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
@@ -294,8 +355,38 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expectBinding(
       providers,
-      SOURCING_SOURCE_REGISTRY_REPOSITORY_PORT,
-      SourcingSourceRegistryRepositoryAdapter,
+      SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT,
+      SourcingCollectionSourceControlRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
+      SourcingInterestTargetRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_RECOMMENDATION_REPOSITORY_PORT,
+      SourcingRecommendationRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT,
+      SourcingKeywordPreferenceRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_VALIDATION_REPOSITORY_PORT,
+      SourcingValidationRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_REVIEW_REPOSITORY_PORT,
+      SourcingReviewRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT,
+      SourcingRecommendationSourceRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -311,6 +402,11 @@ describe("SourcingModule canonical owner wiring", () => {
       providers,
       SOURCING_DECISION_BATCH_REPOSITORY_PORT,
       SourcingDecisionBatchRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_COLLECTION_REPOSITORY_PORT,
+      SourcingCollectionRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -501,13 +597,13 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/1688/image-search",
       "sourcing/1688/keyword-search",
       "sourcing/agent-rag",
-      "sourcing/market-model",
-      "sourcing/1688-new-product-model",
       "sourcing/rising-products",
       "sourcing/intelligence",
       "sourcing",
       "sourcing/trend/shadow",
-      "sourcing/workspace-snapshots",
+      "sourcing/workspace/interests",
+      "sourcing/workspace",
+      "sourcing/workspace",
       // 두 세그먼트여야 한다. `sourcing` (SourcingController) 이 `GET /:id` 로
       // 한 세그먼트를 잡으므로, `sourcing/entry-recommendations` 였다면 후보 ID 로
       // 해석돼 UUID 파싱 오류가 난다.

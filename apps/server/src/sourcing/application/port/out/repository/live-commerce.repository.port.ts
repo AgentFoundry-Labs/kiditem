@@ -47,8 +47,6 @@ export interface LiveCommerceSnapshotQuery {
 }
 
 export interface LiveCommerceRepositoryPort {
-  upsertBroadcastSnapshots(rows: LiveCommerceBroadcastSnapshotUpsert[]): Promise<number>;
-  upsertProductSnapshots(rows: LiveCommerceProductSnapshotUpsert[]): Promise<number>;
   findBroadcastSnapshots(query: LiveCommerceSnapshotQuery): Promise<LiveCommerceBroadcastSnapshotRow[]>;
   findProductSnapshots(query: LiveCommerceSnapshotQuery): Promise<LiveCommerceProductSnapshotRow[]>;
 }

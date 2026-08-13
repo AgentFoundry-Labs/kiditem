@@ -267,12 +267,22 @@ covered by an operator runbook.
 | `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Per-agent override. |
+| `AGENT_SOURCING_ADAPTER_TYPE` | Sourcing dashboard assistant enabled | Agent OS seed | Optional server-only override: `codex_cli` or `claude_cli`. The code-owned default is `codex_cli`; an unknown value fails seed instead of falling back. The browser cannot select it. |
+| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Explicit local CLI model. This computer's Codex QA uses `gpt-5.6-terra`. |
+| `AGENT_RUNTIME_EXECUTION_TIMEOUT_MS` | Local Agent OS CLI runtime enabled | Agent OS local CLI runtime | Defaults to `45000`. Timeout terminates the process and records a failed run; it is never resumed after restart. |
+| `AGENT_RUNTIME_CONCURRENCY` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `2`. Bounds Claude/Codex child processes per Nest process. |
+| `AGENT_RUNTIME_CAPACITY_WAIT_MS` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `5000`. Capacity expiry fails the request without spawning another process. |
+| `AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD` | `claude_cli` is explicitly selected | Agent OS local CLI runtime | Defaults to `0.25` per invocation. It does not apply to Codex. |
 | `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
 | `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
 | `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
+
+The Nest service account owns the persistent local Claude/Codex login used by
+Agent OS. Existing CLI login files are discovered through that account's
+isolated child environment. Optional API-key variables remain restricted server
+secrets; they are never copied to the browser or KidItem MCP child process.
 
 ## Channel Credentials
 
@@ -310,8 +320,6 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
-| `SOURCING_ASSISTANT_CLI_MODEL` | The decision-center sourcing assistant should generate answers, not just list retrieved evidence | `SourcingAssistantService` | **Required for generation.** No default — a missing value is reported to the operator as `model_not_configured` and the assistant returns retrieved evidence only, per the root rule that a missing model selection is an explicit error. Example: `claude-sonnet-4-5`. |
-| `SOURCING_ASSISTANT_CLI_BIN` | The `claude` CLI is not on the server `PATH`, or a stub is needed for testing | `ClaudeCliAssistantAdapter` | Defaults to `claude`. The subprocess runs with a minimal env allowlist (no `DATABASE_URL`/service keys) and with tools disabled, because scraped third-party text reaches its prompt. Authentication is the CLI's own session (`claude login` on the server host), not an API key. |
 
 ## Python Agents Runtime
 

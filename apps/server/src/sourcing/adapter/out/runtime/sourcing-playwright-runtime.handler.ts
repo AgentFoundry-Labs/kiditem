@@ -11,6 +11,10 @@ import type {
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { detectSourcingScrapePlatform } from '../../../domain/sourcing-url';
+import {
+  isAllowedSupplierUrl,
+  parseAllowedSupplierUrl,
+} from '../../../domain/supplier-source-url-policy';
 import { extract1688DetailModelSnapshot } from './extractor/supplier-1688-detail-model.extractor';
 
 const DEFAULT_USER_DATA_DIR = '.kiditem/playwright/sourcing';
@@ -183,17 +187,23 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
     url: string,
     runtimeConfig: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    const platform = detectSourcingPlatform(url);
+    let supplierUrl: string;
+    try {
+      supplierUrl = parseAllowedSupplierUrl(url).normalizedUrl;
+    } catch {
+      return { ok: false, error: 'Unsupported sourcing URL', source_url: url, platform: null };
+    }
+    const platform = detectSourcingPlatform(supplierUrl);
     if (!platform) {
       return { ok: false, error: 'Unsupported sourcing URL', source_url: url, platform: null };
     }
 
     const cdpEndpoint = resolveSourcingPlaywrightCdpEndpoint(runtimeConfig);
-    if (cdpEndpoint) return this.scrapeWithPageSession(url, platform, runtimeConfig);
+    if (cdpEndpoint) return this.scrapeWithPageSession(supplierUrl, platform, runtimeConfig);
 
     const userDataDir = resolveSourcingPlaywrightUserDataDir(runtimeConfig);
     return withSourcingProfileQueue(userDataDir, () =>
-      this.scrapeWithPageSession(url, platform, runtimeConfig),
+      this.scrapeWithPageSession(supplierUrl, platform, runtimeConfig),
     );
   }
 
@@ -220,6 +230,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
     }
 
     try {
+      await installSupplierNavigationPolicy(session.page);
       const extracted = await this.extract(session.page, url, platform);
       if (!extracted.data) {
         const output: Record<string, unknown> = {
@@ -356,7 +367,7 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
     }
 
     const detailUrl = stringField(extraction.data._detail_url);
-    if (detailUrl && platform === '1688' && detectSourcingPlatform(detailUrl) === '1688') {
+    if (detailUrl && platform === '1688' && isAllowedSupplierUrl(detailUrl) && detectSourcingPlatform(detailUrl) === '1688') {
       try {
         const description = await page.evaluate(DETAIL_DESCRIPTION_FETCH, detailUrl);
         if (isRecord(description)) {
@@ -428,6 +439,18 @@ export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler
       return undefined;
     }
   }
+}
+
+async function installSupplierNavigationPolicy(page: Page): Promise<void> {
+  const route = (page as unknown as { route?: unknown }).route;
+  if (typeof route !== 'function') return;
+  await page.route('**/*', (requestRoute) => {
+    const request = requestRoute.request();
+    if (!request.isNavigationRequest() || isAllowedSupplierUrl(request.url())) {
+      return requestRoute.continue();
+    }
+    return requestRoute.abort('blockedbyclient');
+  });
 }
 
 export function detectSourcingPlatform(url: string): '1688' | 'ALIBABA' | null {

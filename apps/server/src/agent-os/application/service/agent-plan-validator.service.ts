@@ -10,13 +10,11 @@ const ALLOWED_AGENT_TYPES = new Set([
 ]);
 const ALLOWED_CAPABILITIES = new Set([
   'market.collect_shadow_signals',
-  'market.collect_keyword_category_rankings',
-  'coupang.match_products',
-  'coupang.collect_tracking_snapshot',
-  'supplier1688.match_products',
-  'sourcing.score_opportunities',
-  'sourcing.create_recommendation_packet',
-  'sourcing.scrapeProductUrl',
+  'sourcing.retrieveWorkspaceEvidence',
+  'sourcing.inspectRecommendationRun',
+  'sourcing.refreshCollection',
+  'sourcing.refreshValidation',
+  'sourcing.createReviewBatch',
   'sourcing.scrapeUrlWorkflow',
   'product_listing.create_generation_package',
   'channels.register_confirmed_listing',

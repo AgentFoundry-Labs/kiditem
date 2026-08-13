@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import { IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min, MinLength } from 'class-validator';
 
 export class ListEntryRecommendationsQueryDto {
   @IsOptional()
@@ -13,12 +13,16 @@ export class ListEntryRecommendationsQueryDto {
 export class AskSourcingAssistantDto {
   @IsString()
   @MinLength(2)
-  @MaxLength(500)
+  @MaxLength(1000)
   question!: string;
 
   /** 화면이 지금 보고 있는 추천 행 요약. 프롬프트 근거로만 쓰인다. */
   @IsOptional()
   @IsString()
-  @MaxLength(4000)
+  @MaxLength(8000)
   visibleContext?: string;
+
+  @IsOptional()
+  @IsUUID()
+  conversationId?: string;
 }

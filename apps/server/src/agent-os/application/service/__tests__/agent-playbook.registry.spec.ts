@@ -3,11 +3,35 @@ import {
   COUPANG_LISTING_SUBMISSION_PLAYBOOK,
   CONFIRMED_CHANNEL_LISTING_REGISTRATION_PLAYBOOK,
   PURCHASE_ORDER_SUBMISSION_PLAYBOOK,
+  MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK,
+  SOURCING_MARKET_RESEARCH_PLAYBOOK,
+  SOURCING_REVIEW_HANDOFF_PLAYBOOK,
+  SOURCING_WORKSPACE_QUESTION_PLAYBOOK,
   findAgentPlaybook,
   listAgentPlaybooks,
 } from '../agent-playbook.registry';
 
 describe('agent playbook registry', () => {
+  it('defines artifact/run-oriented sourcing playbooks without purchase handoff', () => {
+    expect(findAgentPlaybook('sourcing_workspace_question_v1')).toBe(
+      SOURCING_WORKSPACE_QUESTION_PLAYBOOK,
+    );
+    expect(findAgentPlaybook('sourcing_market_research_v2')).toBe(
+      SOURCING_MARKET_RESEARCH_PLAYBOOK,
+    );
+    expect(findAgentPlaybook('manual_product_intake_from_url_v2')).toBe(
+      MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK,
+    );
+    expect(findAgentPlaybook('sourcing_review_handoff_v1')).toBe(
+      SOURCING_REVIEW_HANDOFF_PLAYBOOK,
+    );
+    expect(SOURCING_MARKET_RESEARCH_PLAYBOOK.steps).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ capabilityKey: 'supply.create_purchase_order_draft' }),
+      ]),
+    );
+  });
+
   it('lists confirmed channel listing registration as an Operator-visible playbook', () => {
     expect(listAgentPlaybooks()).toContain(
       CONFIRMED_CHANNEL_LISTING_REGISTRATION_PLAYBOOK,

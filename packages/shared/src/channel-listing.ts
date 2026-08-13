@@ -105,10 +105,19 @@ export function resolveChannelListingSaleStatus(
   const explicitStatuses = [
     input.latestSnapshotStatus,
     input.rawStatus,
-    ...(input.optionStatuses ?? []),
   ];
   for (const status of explicitStatuses) {
     if (typeof status === 'string' && status.trim()) return status.trim();
+  }
+
+  for (const status of input.optionStatuses ?? []) {
+    if (
+      typeof status === 'string'
+      && status.trim()
+      && isRecognizedChannelListingSaleStatus(status)
+    ) {
+      return status.trim();
+    }
   }
 
   if (

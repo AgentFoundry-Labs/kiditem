@@ -47,6 +47,17 @@ describe('SourcingPlaywrightRuntimeHandler', () => {
     vi.unstubAllGlobals();
   });
 
+  it('rejects a non-HTTPS supplier URL before launching a browser', async () => {
+    const handler = new SourcingPlaywrightRuntimeHandler();
+
+    await expect(handler.execute(context({
+      input: { action: 'scrape_url', url: 'http://detail.1688.com/offer/1.html' },
+    }))).resolves.toMatchObject({
+      output: { ok: false, platform: null },
+    });
+    expect(chromium.launchPersistentContext).not.toHaveBeenCalled();
+  });
+
   it('executes sourcing scrape_url with the Sourcing-owned 1688 model extractor before unified extension fallback scripts', async () => {
     const evaluate = vi.fn()
       .mockResolvedValueOnce(undefined)

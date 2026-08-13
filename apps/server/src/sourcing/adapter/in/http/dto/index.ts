@@ -1,4 +1,6 @@
 export { ReceiveExtensionDataDto } from './receive-extension-data.dto';
+export { ReceiveExtensionV2DataDto } from './receive-extension-v2-data.dto';
+export { CreateExtensionV2CollectionSessionDto } from './create-extension-v2-collection-session.dto';
 export { RegisterManualProductDto } from './register-manual-product.dto';
 export { CreateProductGenerationDto } from './product-generation.dto';
 export { ScrapeUrlBodyDto, ScrapeUrlStatusQueryDto } from './scrape-url.dto';
@@ -18,21 +20,29 @@ export { SelectPreparationThumbnailDto } from './select-preparation-thumbnail.dt
 export { SelectPreparationDetailDto } from './select-preparation-detail.dto';
 export { Search1688ImageDto } from './search-1688-image.dto';
 export { Search1688KeywordDto } from './search-1688-keyword.dto';
-export { QuerySourcingAgentRagDto, RebuildSourcingAgentRagDto } from './sourcing-agent-rag.dto';
-export { RunSourcing1688NewProductModelDto } from './sourcing-1688-new-product-model.dto';
+export { QuerySourcingAgentRagDto } from './sourcing-agent-rag.dto';
 export {
   AskSourcingAssistantDto,
   ListEntryRecommendationsQueryDto,
 } from './sourcing-entry-recommendation.dto';
-export { RunSourcingMarketModelDto } from './sourcing-market-model.dto';
+export { UpsertSourcingInterestTargetDto } from './sourcing-interest-target.dto';
+export {
+  SourcingCoupangObservationDto,
+  SourcingRecommendationQueryDto,
+  SourcingReviewBatchDto,
+  SourcingReviewBatchParamsDto,
+  SourcingReviewItemKeyParamsDto,
+  SourcingReviewSelectionDto,
+  SourcingReviewSelectionListQueryDto,
+  SourcingValidationQueryDto,
+  SourcingKeywordPreferenceDto,
+  SourcingKeywordPreferenceParamsDto,
+} from './sourcing-workspace.dto';
 export {
   CompareNaverDatalabSearchTrendsDto,
-  SaveSourcingWorkspaceSnapshotDto,
   SearchNaverAutocompleteKeywordsDto,
   SearchNaverDatalabPopularKeywordsDto,
   SearchNaverRelatedKeywordsDto,
-  SourcingWorkspaceSnapshotRecentQueryDto,
-  SourcingWorkspaceSnapshotParamsDto,
 } from './naver-keyword-research.dto';
 export {
   CollectTrendDto,

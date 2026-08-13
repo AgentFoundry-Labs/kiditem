@@ -5,7 +5,6 @@ import {
   IsArray,
   IsIn,
   IsInt,
-  IsObject,
   IsOptional,
   IsString,
   Matches,
@@ -155,40 +154,4 @@ export class SearchNaverDatalabPopularKeywordsDto {
   @Min(5)
   @Max(100)
   limit?: number;
-}
-
-export class SourcingWorkspaceSnapshotParamsDto {
-  @IsIn([
-    'keyword_analysis',
-    'today_recommendations',
-    'interest_tracking',
-    '1688_new_products',
-    'sourcing_agent_rag',
-    'sourcing_market_model',
-    'sourcing_1688_new_product_model',
-    'market_shadow_signals',
-  ])
-  scope!:
-    | 'keyword_analysis'
-    | 'today_recommendations'
-    | 'interest_tracking'
-    | '1688_new_products'
-    | 'sourcing_agent_rag'
-    | 'sourcing_market_model'
-    | 'sourcing_1688_new_product_model'
-    | 'market_shadow_signals';
-}
-
-export class SourcingWorkspaceSnapshotRecentQueryDto {
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(30)
-  days?: number;
-}
-
-export class SaveSourcingWorkspaceSnapshotDto {
-  @IsObject()
-  payload!: Record<string, unknown>;
 }

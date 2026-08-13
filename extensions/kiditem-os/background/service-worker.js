@@ -46,6 +46,7 @@ importScripts(
   "orders/coupang-po-session.js",
   "orders/rocket-po-collection.js",
   // 소싱 도메인 모듈
+  "sourcing/url-policy.js",
   "sourcing/1688-trend-collector.js",
   "sourcing/live-commerce-collector.js",
   "sourcing/tiktok-cc-collector.js",

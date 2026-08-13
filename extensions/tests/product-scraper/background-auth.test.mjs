@@ -271,7 +271,9 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
   assert.ok(at('collection-session.js') > at('environment-context.js'));
   assert.ok(at('interactive-tabs.js') > at('collection-session.js'));
   assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
+  assert.ok(at('sourcing/url-policy.js') > at('worker-globals.js'));
   assert.ok(at('sourcing/1688-trend-collector.js') > at('worker-globals.js'));
+  assert.ok(at('sourcing/1688-trend-collector.js') > at('sourcing/url-policy.js'));
   assert.ok(
     at('sourcing/live-commerce-collector.js') > at('sourcing/1688-trend-collector.js'),
   );

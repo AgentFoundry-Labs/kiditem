@@ -16,6 +16,8 @@ export interface AgentRuntimeExecutionContext {
   promptPath: string;
   conversationId: string | null;
   requestedByUserId: string | null;
+  playbookKey: string | null;
+  planStepKey: string | null;
   skillKeys: string[];
   outputSchemaPath: string | null;
   input: Record<string, unknown>;

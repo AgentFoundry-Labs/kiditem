@@ -1,0 +1,21 @@
+{
+  "page_type": "detail",
+  "source_url": "https://detail.1688.com/offer/607635921546.html",
+  "source_platform": "1688",
+  "product_id": "607635921546",
+  "title": "어린이 실리콘 식판",
+  "images": ["https://cbu01.alicdn.com/img/ibank/example.jpg"],
+  "price_min": 12.5,
+  "price_max": 18.75,
+  "currency": "CNY",
+  "moq": 2,
+  "unit": "개",
+  "sales_volume": 240,
+  "supplier_name": "샘플 공급사",
+  "seller_login_id": "sample-login",
+  "seller_user_id": "supplier-1",
+  "specs": [{ "key": "재질", "value": "실리콘" }],
+  "sku_attrs": [{ "name": "색상", "values": ["분홍", "파랑"] }],
+  "sku_list": [{ "sku_id": "sku-1", "price": 12.5, "stock": 100 }],
+  "price_tiers": [{ "beginAmount": 2, "price": 12.5 }]
+}

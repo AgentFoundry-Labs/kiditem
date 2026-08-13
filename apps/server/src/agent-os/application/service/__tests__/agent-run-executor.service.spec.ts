@@ -379,6 +379,8 @@ describe('AgentRunExecutor', () => {
         adapterType: 'codex_cli',
         conversationId: 'conversation-1',
         requestedByUserId: 'user-1',
+        playbookKey: 'sourcing_workspace_question_v1',
+        planStepKey: 'sourcing_agent',
         payload: { userMessage: '질문' },
       }),
     });
@@ -390,6 +392,8 @@ describe('AgentRunExecutor', () => {
       expect.objectContaining({
         conversationId: 'conversation-1',
         requestedByUserId: 'user-1',
+        playbookKey: 'sourcing_workspace_question_v1',
+        planStepKey: 'sourcing_agent',
         skillKeys: [
           'sourcing.evidence-grounded-analysis',
           'sourcing.collection-planning',

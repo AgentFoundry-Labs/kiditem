@@ -6,11 +6,11 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import {
-  SOURCING_1688_NEW_PRODUCT_MODEL_GENERATOR_VERSION,
-  SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-  SOURCING_1688_NEW_PRODUCT_MODEL_VERSION,
-  type Sourcing1688NewProductCandidate,
-} from '../../domain/sourcing-1688-new-product-model';
+  SOURCING_RECOMMENDATION_PROJECTION_GENERATOR_VERSION,
+  SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+  SOURCING_RECOMMENDATION_PROJECTION_VERSION,
+  type SourcingRecommendationProjectionSupplierCandidate,
+} from '../../domain/sourcing-recommendation-projection';
 import {
   decideSourcingRecommendation,
   type RecommendationGateStatus,
@@ -39,13 +39,13 @@ import {
   type SourcingLaunchCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-launch-candidate.repository.port';
 import { SourcingMarketDiscoveryService } from './sourcing-market-discovery.service';
-import { SourcingSourceRegistryService } from './sourcing-source-registry.service';
 
 const RECOMMENDATION_POLICY_VERSION = 'sourcing-recommendation-gate.phase0.v1';
 /** 모델 후보(1688 offerId)와 공급 오퍼·증거를 이어붙일 때 기준이 되는 플랫폼. */
 const DISCOVERY_SUPPLY_PLATFORM = '1688';
 const DEFAULT_EXPIRY_HOURS = 24;
 const MAX_EXPIRY_HOURS = 168;
+const MAX_EVIDENCE_AGE_MINUTES = 7 * 24 * 60;
 const INVESTIGATION_BATCH_STATUSES = new Set(['shadow', 'active']);
 
 export interface SourcingDecisionCandidateBindingInput {
@@ -69,7 +69,6 @@ export interface CreateSourcingDecisionBatchInput {
 export class SourcingDecisionBatchService {
   constructor(
     private readonly discovery: SourcingMarketDiscoveryService,
-    private readonly sourceRegistry: SourcingSourceRegistryService,
     @Inject(SOURCING_DECISION_BATCH_REPOSITORY_PORT)
     private readonly repository: SourcingDecisionBatchRepositoryPort,
     @Inject(SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT)
@@ -111,15 +110,7 @@ export class SourcingDecisionBatchService {
       sourceCutoffAt,
       bindings: effectiveBindings,
     });
-    const batchDataGaps = Array.from(new Set([
-      ...discovery.dataGaps,
-      'legacy_discovery_context_not_source_entitled',
-      'legacy_snapshot_point_in_time_not_guaranteed',
-      'calibrated_purchase_probability_missing',
-      'collector_semantics_server_validation_missing',
-      'assessment_provenance_server_validation_missing',
-      'exposure_outcome_ledger_missing',
-    ]));
+    const batchDataGaps = Array.from(new Set(discovery.dataGaps));
 
     const items = discovery.supplierMatches.map((candidate) =>
       this.toDecisionItem({
@@ -151,9 +142,9 @@ export class SourcingDecisionBatchService {
       keyword: request.keyword,
       category: request.category,
       policyVersion: RECOMMENDATION_POLICY_VERSION,
-      modelPipeline: SOURCING_1688_NEW_PRODUCT_MODEL_PIPELINE,
-      modelVersion: String(SOURCING_1688_NEW_PRODUCT_MODEL_VERSION),
-      modelGeneratorVersion: SOURCING_1688_NEW_PRODUCT_MODEL_GENERATOR_VERSION,
+      modelPipeline: SOURCING_RECOMMENDATION_PROJECTION_PIPELINE,
+      modelVersion: String(SOURCING_RECOMMENDATION_PROJECTION_VERSION),
+      modelGeneratorVersion: SOURCING_RECOMMENDATION_PROJECTION_GENERATOR_VERSION,
       decisionAt,
       sourceCutoffAt,
       expiresAt,
@@ -165,9 +156,9 @@ export class SourcingDecisionBatchService {
         'Decision batch idempotency key was reused with different input',
       );
     }
-    if (result.kind === 'source_entitlement_changed') {
+    if (result.kind === 'source_evidence_changed') {
       throw new ConflictException(
-        'A supporting evidence source changed or was revoked before the decision batch was committed',
+        'Supporting evidence changed before the decision batch was committed',
       );
     }
     if (result.kind === 'reference_not_found') {
@@ -281,31 +272,14 @@ export class SourcingDecisionBatchService {
     const latestByKey = new Map(
       latest.map((record) => [record.observationKey, record.observationId]),
     );
-    const sources = await Promise.all(
-      observations.map((observation) => this.sourceRegistry.authorize({
-        organizationId: input.organizationId,
-        sourceKey: observation.sourceKey,
-        scopeKey: observation.sourceScopeKey,
-        operation: 'score',
-        at: input.at,
-      })),
-    );
-    const revoked = observations.some((observation, index) =>
-      !evidenceRunSupportsDecision(
-        observation,
-        sources[index].entitlement?.minimumCoverageBps ?? null,
-        input.at,
-      ) ||
-      observation.decisionImpactAtIngest !== 'enabled' ||
-      sources[index].entitlement?.id !==
-        observation.sourceEntitlementVersionId ||
+    const revoked = observations.some((observation) =>
+      !evidenceRunSupportsDecision(observation, input.at) ||
       observation.availableAt.getTime() > input.at.getTime() ||
       observation.ingestedAt.getTime() > input.at.getTime() ||
       latestByKey.get(observation.observationKey) !== observation.id ||
-      !sources[index].allowed ||
       !evidenceIsFresh(
         observation,
-        effectiveEvidenceAgeMinutes(sources[index].entitlement),
+        MAX_EVIDENCE_AGE_MINUTES,
         input.at,
       ),
     );
@@ -328,17 +302,17 @@ export class SourcingDecisionBatchService {
    * 모델 후보(1688 offerId)를 공급 오퍼 스냅샷·출시 후보·증거 관측치와 이어붙인다.
    *
    * 이어붙이는 기준은 외부 오퍼 식별자 하나뿐이다. 여기서 만든 바인딩은 "이 후보에
-   * 딸린 것으로 보이는 것들"일 뿐이고, 실제 증거 채택은 최신 리비전·entitlement·
+   * 딸린 것으로 보이는 것들"일 뿐이고, 실제 증거 채택은 최신 리비전·
    * run 확정·개념키 일치·오퍼 대조를 모두 보는 `evidenceIsAdmissible` 이 결정한다.
    */
   private async deriveCandidateBindings(input: {
     organizationId: string;
-    candidates: Sourcing1688NewProductCandidate[];
+    candidates: SourcingRecommendationProjectionSupplierCandidate[];
     explicitCandidateIds: Set<string>;
     sourceCutoffAt: Date;
   }): Promise<NormalizedCandidateBinding[]> {
     const pending = input.candidates.filter(
-      (candidate): candidate is Sourcing1688NewProductCandidate & { offerId: string } =>
+      (candidate): candidate is SourcingRecommendationProjectionSupplierCandidate & { offerId: string } =>
         !input.explicitCandidateIds.has(candidate.id) && Boolean(candidate.offerId),
     );
     if (pending.length === 0) return [];
@@ -462,37 +436,6 @@ export class SourcingDecisionBatchService {
     );
     assertAllReferencesFound('supplierOfferSkuSnapshot', offerIds, offers.map(({ id }) => id));
 
-    const sourceEligibility = new Map<string, SourceEvidenceEligibility>();
-    const sourceScopes = new Map(
-      observations.map((observation) => [
-        sourceScopeMapKey(observation.sourceKey, observation.sourceScopeKey),
-        {
-          sourceKey: observation.sourceKey,
-          scopeKey: observation.sourceScopeKey,
-        },
-      ]),
-    );
-    await Promise.all(
-      [...sourceScopes.entries()].map(
-        async ([mapKey, source]) => {
-          const authorization = await this.sourceRegistry.authorize({
-            organizationId: input.organizationId,
-            sourceKey: source.sourceKey,
-            scopeKey: source.scopeKey,
-            operation: 'score',
-            at: input.sourceCutoffAt,
-          });
-          sourceEligibility.set(mapKey, {
-            allowed: authorization.allowed,
-            entitlementId: authorization.entitlement?.id ?? null,
-            maxStalenessMinutes:
-              effectiveEvidenceAgeMinutes(authorization.entitlement),
-            minimumCoverageBps:
-              authorization.entitlement?.minimumCoverageBps ?? null,
-          });
-        },
-      ),
-    );
     return {
       launches: new Map(launchRows.map((row) => [row.id, row])),
       offers: new Map(offers.map((row) => [row.id, row])),
@@ -500,12 +443,11 @@ export class SourcingDecisionBatchService {
       latestObservationIds: new Map(
         latestRevisions.map((row) => [row.observationKey, row.observationId]),
       ),
-      sourceEligibility,
     };
   }
 
   private toDecisionItem(input: {
-    candidate: Sourcing1688NewProductCandidate;
+    candidate: SourcingRecommendationProjectionSupplierCandidate;
     confidence: number;
     binding: NormalizedCandidateBinding | null;
     references: DecisionReferences;
@@ -548,26 +490,6 @@ export class SourcingDecisionBatchService {
           latestObservationId: input.references.latestObservationIds.get(
             observation.observationKey,
           ),
-          sourceCurrentlyEligible:
-            input.references.sourceEligibility.get(sourceScopeMapKey(
-              observation.sourceKey,
-              observation.sourceScopeKey,
-            ))?.allowed === true,
-          sourceCurrentEntitlementId:
-            input.references.sourceEligibility.get(sourceScopeMapKey(
-              observation.sourceKey,
-              observation.sourceScopeKey,
-            ))?.entitlementId ?? null,
-          sourceMaxStalenessMinutes:
-            input.references.sourceEligibility.get(sourceScopeMapKey(
-              observation.sourceKey,
-              observation.sourceScopeKey,
-            ))?.maxStalenessMinutes ?? null,
-          sourceMinimumCoverageBps:
-            input.references.sourceEligibility.get(sourceScopeMapKey(
-              observation.sourceKey,
-              observation.sourceScopeKey,
-            ))?.minimumCoverageBps ?? null,
           cutoffAt: input.sourceCutoffAt,
         }),
       ]),
@@ -706,17 +628,11 @@ export class SourcingDecisionBatchService {
           observation,
           evidenceAdmissibility.get(observation.id) === true,
         ),
-        ...(evidenceAdmissibility.get(observation.id) === true
-          ? {
-              sourceAuthorization: {
-                sourceKey: observation.sourceKey,
-                scopeKey: observation.sourceScopeKey,
-                entitlementVersionId:
-                  observation.sourceEntitlementVersionId,
-                observationKey: observation.observationKey,
-              },
-            }
-          : {}),
+        sourceObservation: {
+          sourceKey: observation.sourceKey,
+          scopeKey: observation.sourceScopeKey,
+          observationKey: observation.observationKey,
+        },
       })),
     };
   }
@@ -734,14 +650,6 @@ interface DecisionReferences {
   offers: Map<string, SourcingSupplierOfferSnapshot>;
   observations: Map<string, SourcingEvidenceObservationRecord>;
   latestObservationIds: Map<string, string>;
-  sourceEligibility: Map<string, SourceEvidenceEligibility>;
-}
-
-interface SourceEvidenceEligibility {
-  allowed: boolean;
-  entitlementId: string | null;
-  maxStalenessMinutes: number | null;
-  minimumCoverageBps: number | null;
 }
 
 function normalizeCreateRequest(input: CreateSourcingDecisionBatchInput) {
@@ -779,7 +687,7 @@ function normalizeBinding(
 
 function indexBindings(
   bindings: NormalizedCandidateBinding[],
-  candidates: Sourcing1688NewProductCandidate[],
+  candidates: SourcingRecommendationProjectionSupplierCandidate[],
 ): Map<string, NormalizedCandidateBinding> {
   const candidateIds = new Set(candidates.map(({ id }) => id));
   const indexed = new Map<string, NormalizedCandidateBinding>();
@@ -811,35 +719,23 @@ function evidenceRole(
 
 function evidenceIsAdmissible(input: {
   observation: SourcingEvidenceObservationRecord;
-  candidate: Sourcing1688NewProductCandidate;
+  candidate: SourcingRecommendationProjectionSupplierCandidate;
   launch: SourcingLaunchCandidateRecord | null;
   offer: SourcingSupplierOfferSnapshot | null;
   latestObservationId: string | undefined;
-  sourceCurrentlyEligible: boolean;
-  sourceCurrentEntitlementId: string | null;
-  sourceMaxStalenessMinutes: number | null;
-  sourceMinimumCoverageBps: number | null;
   cutoffAt: Date;
 }): boolean {
   const { observation, candidate, launch, offer } = input;
   if (
     !positiveEvidenceRole(observation.signalRole) ||
     !observation.supportsCandidate ||
-    observation.decisionImpactAtIngest !== 'enabled' ||
-    !input.sourceCurrentlyEligible ||
-    input.sourceCurrentEntitlementId !==
-      observation.sourceEntitlementVersionId ||
-    !evidenceRunSupportsDecision(
-      observation,
-      input.sourceMinimumCoverageBps,
-      input.cutoffAt,
-    ) ||
+    !evidenceRunSupportsDecision(observation, input.cutoffAt) ||
     input.latestObservationId !== observation.id ||
     !launch ||
     normalizeConceptKey(launch.productConceptVersionKey) !== observation.conceptKey ||
     !evidenceIsFresh(
       observation,
-      input.sourceMaxStalenessMinutes,
+      MAX_EVIDENCE_AGE_MINUTES,
       input.cutoffAt,
     )
   ) {
@@ -876,21 +772,6 @@ function evidenceIsFresh(
     maxStalenessMinutes * 60_000;
 }
 
-function effectiveEvidenceAgeMinutes(entitlement: {
-  maxStalenessMinutes: number | null;
-  retentionDays: number | null;
-} | null): number | null {
-  if (!entitlement) return null;
-  const maxStalenessMinutes = entitlement.maxStalenessMinutes ?? null;
-  const retentionDays = entitlement.retentionDays ?? null;
-  const retentionMinutes = retentionDays === null
-    ? null
-    : retentionDays * 24 * 60;
-  if (maxStalenessMinutes === null) return retentionMinutes;
-  if (retentionMinutes === null) return maxStalenessMinutes;
-  return Math.min(maxStalenessMinutes, retentionMinutes);
-}
-
 function evidenceRunIsTerminal(
   status: SourcingEvidenceObservationRecord['ingestionRunStatus'],
 ) {
@@ -902,15 +783,11 @@ function evidenceRunSupportsDecision(
     SourcingEvidenceObservationRecord,
     'ingestionRunStatus' | 'ingestionRunCoverageBps' | 'ingestionRunCompletedAt'
   >,
-  minimumCoverageBps: number | null,
   at: Date,
 ): boolean {
   return observation.ingestionRunStatus === 'complete' &&
     observation.ingestionRunCompletedAt !== null &&
-    observation.ingestionRunCompletedAt.getTime() <= at.getTime() &&
-    minimumCoverageBps !== null &&
-    observation.ingestionRunCoverageBps !== null &&
-    observation.ingestionRunCoverageBps >= minimumCoverageBps;
+    observation.ingestionRunCompletedAt.getTime() <= at.getTime();
 }
 
 function normalizeConceptKey(value: string): string {
@@ -918,10 +795,6 @@ function normalizeConceptKey(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/[^\p{L}\p{N}._:-]+/gu, '_');
-}
-
-function sourceScopeMapKey(sourceKey: string, scopeKey: string): string {
-  return `${sourceKey}\u0000${scopeKey}`;
 }
 
 function gateStatus(

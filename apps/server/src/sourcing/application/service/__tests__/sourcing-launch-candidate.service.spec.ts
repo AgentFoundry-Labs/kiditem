@@ -43,7 +43,6 @@ describe('SourcingLaunchCandidateService', () => {
     findObservationsByIds: vi.fn(),
     findLatestObservationRevisions: vi.fn(),
   };
-  const sources = { authorize: vi.fn() };
   let service: SourcingLaunchCandidateService;
 
   beforeEach(() => {
@@ -52,7 +51,6 @@ describe('SourcingLaunchCandidateService', () => {
       repository as never,
       supply as never,
       evidence as never,
-      sources as never,
     );
     evidence.findObservationsByIds.mockResolvedValue([offerEvidence()]);
     evidence.findLatestObservationRevisions.mockResolvedValue([{
@@ -60,11 +58,6 @@ describe('SourcingLaunchCandidateService', () => {
       observationId: 'evidence-1',
       revision: 1,
     }]);
-    sources.authorize.mockResolvedValue({
-      allowed: true,
-      reasonCode: null,
-      entitlement: { id: 'entitlement-1' },
-    });
   });
 
   it('rejects offer-only evidence because outcomes require an exact variant', async () => {
@@ -147,16 +140,23 @@ describe('SourcingLaunchCandidateService', () => {
     expect(repository.createVersion).not.toHaveBeenCalled();
   });
 
-  it('blocks a new launch when supplier evidence retention is revoked', async () => {
+  it('uses frozen immutable provenance without a source entitlement lifecycle', async () => {
     supply.findOfferSnapshot.mockResolvedValue(exactOffer());
-    sources.authorize.mockResolvedValue({
-      allowed: false,
-      reasonCode: 'kill_switch_enabled',
-      entitlement: null,
+    repository.createVersion.mockResolvedValue({
+      kind: 'created',
+      duplicate: false,
+      record: { id: 'launch-candidate-1' },
     });
 
-    await expect(service.create(INPUT)).rejects.toThrow(/no longer retainable/);
-    expect(repository.createVersion).not.toHaveBeenCalled();
+    await expect(service.create(INPUT)).resolves.toMatchObject({
+      kind: 'created',
+      duplicate: false,
+    });
+    expect(evidence.findObservationsByIds).toHaveBeenCalledWith({
+      organizationId: INPUT.organizationId,
+      observationIds: ['evidence-1'],
+    });
+    expect(repository.createVersion).toHaveBeenCalledOnce();
   });
 });
 

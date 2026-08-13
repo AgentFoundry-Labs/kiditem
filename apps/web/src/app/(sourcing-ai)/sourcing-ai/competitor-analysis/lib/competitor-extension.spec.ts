@@ -1,4 +1,5 @@
 import { sendToExtension } from "@/lib/extension-bridge";
+import { issueBrowserCollectionRunId } from "@/lib/browser-collection-session";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   COMPETITOR_EXTENSION_MIN_VERSION,
@@ -22,6 +23,10 @@ vi.mock('@/lib/browser-collection-session', () => ({
 describe("competitor extension version gate", () => {
   beforeEach(() => {
     vi.mocked(sendToExtension).mockReset();
+    vi.mocked(issueBrowserCollectionRunId).mockReset();
+    vi.mocked(issueBrowserCollectionRunId).mockImplementation(
+      async (runId?: string) => runId ?? "11111111-1111-4111-8111-111111111111",
+    );
   });
   it("requires the browser collection session extension version", () => {
     expect(COMPETITOR_EXTENSION_MIN_VERSION).toBe("1.0.0");
@@ -74,6 +79,33 @@ describe("competitor extension version gate", () => {
       "22222222-2222-4222-8222-222222222222",
     );
 
+    expect(sendToExtension).toHaveBeenNthCalledWith(1, "coupang-extension", {
+      action: "runCoupangKeywordRankCheck",
+      runId: "11111111-1111-4111-8111-111111111111",
+    });
+    expect(sendToExtension).toHaveBeenNthCalledWith(
+      2,
+      "coupang-extension",
+      {
+        action: "runCoupangCompetitorSellerCatalog",
+        sellerId: "seller-a",
+        runId: "22222222-2222-4222-8222-222222222222",
+      },
+      30_000,
+    );
+  });
+
+  it("issues server run ids before starting new all and seller collections", async () => {
+    vi.mocked(issueBrowserCollectionRunId)
+      .mockResolvedValueOnce("11111111-1111-4111-8111-111111111111")
+      .mockResolvedValueOnce("22222222-2222-4222-8222-222222222222");
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, started: true });
+
+    await runCompetitorCollection("coupang-extension");
+    await runCompetitorSellerCollection("coupang-extension", "seller-a");
+
+    expect(issueBrowserCollectionRunId).toHaveBeenNthCalledWith(1, undefined);
+    expect(issueBrowserCollectionRunId).toHaveBeenNthCalledWith(2, undefined);
     expect(sendToExtension).toHaveBeenNthCalledWith(1, "coupang-extension", {
       action: "runCoupangKeywordRankCheck",
       runId: "11111111-1111-4111-8111-111111111111",

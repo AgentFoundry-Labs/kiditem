@@ -1,13 +1,17 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
-import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
-import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
-import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
-import { SourcingPlaywrightRuntimeHandler } from './sourcing-playwright-runtime.handler';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
 } from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
 import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
+import { AgentRuntimeHandlerRegistry } from '../../../../agent-os/application/service/agent-runtime-handler-registry.service';
+import { AgentToolRouter } from '../../../../agent-os/application/service/agent-tool-router.service';
+import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
+import {
+  SourcingScrapeResultError,
+  SourcingScrapeResultService,
+} from '../../../application/service/sourcing-scrape-result.service';
+import { SourcingPlaywrightRuntimeHandler } from './sourcing-playwright-runtime.handler';
 
 function stringField(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value.trim() : null;
@@ -28,33 +32,6 @@ function listingPrepInput(input: Record<string, unknown>): Record<string, unknow
   return capabilityInput;
 }
 
-function manualUrlInput(input: Record<string, unknown>): Record<string, unknown> {
-  const sourceUrl = stringField(input.sourceUrl) ?? stringField(input.url);
-  return sourceUrl ? { sourceUrl } : {};
-}
-
-function wingRegistrationInput(input: Record<string, unknown>): Record<string, unknown> {
-  const generationId = stringField(input.generationId);
-  return generationId ? { generationId } : {};
-}
-
-function supplierUrlInput(input: Record<string, unknown>): Record<string, unknown> {
-  const sourceUrl = stringField(input.sourceUrl);
-  const supplierUrl = stringField(input.supplierUrl);
-  const url = stringField(input.url);
-  const supplierUrls = Array.isArray(input.supplierUrls)
-    ? input.supplierUrls.filter(
-        (value): value is string => typeof value === 'string' && Boolean(value.trim()),
-      )
-    : [];
-  return {
-    ...(sourceUrl ? { sourceUrl } : {}),
-    ...(supplierUrl ? { supplierUrl } : {}),
-    ...(url ? { url } : {}),
-    ...(supplierUrls.length > 0 ? { supplierUrls } : {}),
-  };
-}
-
 function assertToolInvocationDidNotFail(
   result: Awaited<ReturnType<AgentToolRouter['invoke']>>,
 ): void {
@@ -72,6 +49,7 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
     private readonly registry: AgentRuntimeHandlerRegistry,
     private readonly toolRouter: AgentToolRouter,
     private readonly playwright: SourcingPlaywrightRuntimeHandler,
+    private readonly scrapeResults: SourcingScrapeResultService,
   ) {}
 
   onModuleInit(): void {
@@ -79,147 +57,65 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
     this.registry.register('listing', this);
   }
 
+  supports(context: AgentRuntimeExecutionContext): boolean {
+    if (context.agentType === 'listing') return true;
+    return context.agentType === 'sourcing' && context.input.action === 'scrape_url';
+  }
+
   async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {
     if (context.agentType === 'listing') {
       return this.executeProductListingGenerationPackage(context);
     }
-
-    const action = stringField(context.input.action);
-    if (action === 'scrape_url') {
-      return this.playwright.execute(context);
-    }
-    if (action === 'market_opportunity_discovery') {
-      return this.executeMarketOpportunityDiscovery(context);
-    }
-    if (action === 'manual_url_intake') {
-      return this.executeManualUrlIntake(context);
-    }
-    if (action === 'product_listing_generation_package') {
-      return this.executeProductListingGenerationPackage(context);
-    }
-    if (action === 'wing_thumbnail_registration') {
-      return this.executeWingThumbnailRegistration(context);
+    if (context.agentType === 'sourcing' && context.input.action === 'scrape_url') {
+      return this.executeScrapeUrl(context);
     }
     throw new AgentOsRuntimeError(
       'sourcing_unknown_action',
-      `Unknown sourcing action: ${action ?? '(missing)'}`,
+      `Unknown sourcing action: ${stringField(context.input.action) ?? '(missing)'}`,
     );
   }
 
-  private async executeMarketOpportunityDiscovery(
+  private async executeScrapeUrl(
     context: AgentRuntimeExecutionContext,
   ): Promise<AgentRuntimeResult> {
-    const keyword = stringField(context.input.keyword) ?? '실리콘 식판';
-    const category = stringField(context.input.category);
-    const conversationId = stringField(context.input.conversationId);
-    const common = {
-      organizationId: context.organizationId,
-      conversationId,
-      agentInstanceId: context.agentInstanceId,
-      agentType: context.agentType,
-      requestId: context.requestId,
-      runId: context.runId,
-      input: { keyword, category, mode: 'replay', ...supplierUrlInput(context.input) },
-    };
-
-    const market = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'market.collect_keyword_category_rankings',
-    });
-    assertToolInvocationDidNotFail(market);
-    const coupang = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'coupang.match_products',
-    });
-    assertToolInvocationDidNotFail(coupang);
-    const tracking = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'coupang.collect_tracking_snapshot',
-    });
-    assertToolInvocationDidNotFail(tracking);
-    const supplier = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'supplier1688.match_products',
-    });
-    assertToolInvocationDidNotFail(supplier);
-    const score = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'sourcing.score_opportunities',
-    });
-    assertToolInvocationDidNotFail(score);
-    const recommendation = await this.toolRouter.invoke({
-      ...common,
-      capabilityKey: 'sourcing.create_recommendation_packet',
-    });
-    assertToolInvocationDidNotFail(recommendation);
-
-    return {
-      provider: 'kiditem-sourcing-replay',
-      output: {
-        action: 'market_opportunity_discovery',
-        keyword,
-        category: category ?? null,
-        toolInvocationIds: [
-          market.invocation.id,
-          coupang.invocation.id,
-          tracking.invocation.id,
-          supplier.invocation.id,
-          score.invocation.id,
-          recommendation.invocation.id,
-        ],
-        artifactIds: recommendation.artifacts.map((artifact) => artifact.id),
-        status: 'awaiting_selection',
-      },
-    };
-  }
-
-  private async executeManualUrlIntake(
-    context: AgentRuntimeExecutionContext,
-  ): Promise<AgentRuntimeResult> {
-    const conversationId = stringField(context.input.conversationId);
-    const requestedByUserId = stringField(context.input.requestedByUserId);
-    const result = await this.toolRouter.invoke({
-      organizationId: context.organizationId,
-      conversationId,
-      agentInstanceId: context.agentInstanceId,
-      agentType: context.agentType,
-      requestId: context.requestId,
-      runId: context.runId,
-      requestedByUserId,
-      capabilityKey: 'sourcing.scrapeUrlWorkflow',
-      input: manualUrlInput(context.input),
-    });
-    assertToolInvocationDidNotFail(result);
-
-    return {
-      provider: 'kiditem-sourcing-manual-url-intake',
-      output: {
-        action: 'manual_url_intake',
-        toolInvocationIds: [result.invocation.id],
-        artifactIds: result.artifacts.map((artifact) => artifact.id),
-        status: 'scrape_workflow_started',
-      },
-    };
+    const scraped = await this.playwright.execute(context);
+    try {
+      const persisted = await this.scrapeResults.persist({
+        organizationId: context.organizationId,
+        triggeredByUserId: context.requestedByUserId,
+        output: scraped.output,
+      });
+      return {
+        ...scraped,
+        output: {
+          ...scraped.output,
+          candidateId: persisted.candidateId,
+          href: persisted.href,
+        },
+      };
+    } catch (error) {
+      if (error instanceof SourcingScrapeResultError) {
+        throw new AgentOsRuntimeError(error.code, error.message);
+      }
+      throw error;
+    }
   }
 
   private async executeProductListingGenerationPackage(
     context: AgentRuntimeExecutionContext,
   ): Promise<AgentRuntimeResult> {
-    const conversationId = stringField(context.input.conversationId);
-    const requestedByUserId = stringField(context.input.requestedByUserId);
     const result = await this.toolRouter.invoke({
       organizationId: context.organizationId,
-      conversationId,
+      conversationId: context.conversationId,
       agentInstanceId: context.agentInstanceId,
       agentType: context.agentType,
       requestId: context.requestId,
       runId: context.runId,
-      requestedByUserId,
+      requestedByUserId: context.requestedByUserId,
       capabilityKey: 'product_listing.create_generation_package',
       input: listingPrepInput(context.input),
     });
     assertToolInvocationDidNotFail(result);
-
     return {
       provider: 'kiditem-sourcing-listing-prep',
       output: {
@@ -227,38 +123,6 @@ export class SourcingRuntimeHandler implements AgentTypeRuntimeHandler, OnModule
         toolInvocationIds: [result.invocation.id],
         artifactIds: result.artifacts.map((artifact) => artifact.id),
         status: 'listing_prep_started',
-      },
-    };
-  }
-
-  private async executeWingThumbnailRegistration(
-    context: AgentRuntimeExecutionContext,
-  ): Promise<AgentRuntimeResult> {
-    const conversationId = stringField(context.input.conversationId);
-    const requestedByUserId = stringField(context.input.requestedByUserId);
-    const result = await this.toolRouter.invoke({
-      organizationId: context.organizationId,
-      conversationId,
-      agentInstanceId: context.agentInstanceId,
-      agentType: context.agentType,
-      requestId: context.requestId,
-      runId: context.runId,
-      requestedByUserId,
-      capabilityKey: 'product_listing.submit_wing_thumbnail',
-      input: wingRegistrationInput(context.input),
-    });
-    assertToolInvocationDidNotFail(result);
-
-    return {
-      provider: 'kiditem-sourcing-wing-registration',
-      output: {
-        action: 'wing_thumbnail_registration',
-        toolInvocationIds: [result.invocation.id],
-        artifactIds: result.artifacts.map((artifact) => artifact.id),
-        status:
-          result.status === 'waiting_approval'
-            ? 'waiting_approval'
-            : 'wing_registration_submitted',
       },
     };
   }

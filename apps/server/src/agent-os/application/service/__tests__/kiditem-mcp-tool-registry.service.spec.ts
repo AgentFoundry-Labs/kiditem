@@ -5,6 +5,7 @@ import type { AgentCapabilityRegistry } from '../agent-capability-registry.servi
 import {
   KidItemMcpToolRegistry,
   mcpToolNameForCapability,
+  modelFacingMcpToolNamesForAgentType,
 } from '../kiditem-mcp-tool-registry.service';
 
 function handler(key: string): AgentCapabilityHandler {
@@ -22,12 +23,21 @@ function handler(key: string): AgentCapabilityHandler {
 }
 
 describe('KidItemMcpToolRegistry', () => {
+  it('keeps terminal control and raw Playwright outside the Sourcing model surface', () => {
+    const names = modelFacingMcpToolNamesForAgentType('sourcing');
+    expect(names).not.toContain('agent_os_finalize_task');
+    expect(names).not.toContain('sourcing_scrape_url');
+    expect(names).not.toContain('sourcing_scrape_url_workflow');
+  });
+
   it('exposes first-class MCP tools by Agent OS role and agent manifest allowlist', () => {
-    const sourcingScrape = handler('sourcing.scrapeProductUrl');
+    const sourcingEvidence = handler('sourcing.retrieveWorkspaceEvidence');
+    const sourcingScrapeWorkflow = handler('sourcing.scrapeUrlWorkflow');
     const listingPackage = handler('product_listing.create_generation_package');
     const purchaseSubmit = handler('supply.submit_purchase_order');
     const handlers = new Map([
-      [sourcingScrape.key, sourcingScrape],
+      [sourcingEvidence.key, sourcingEvidence],
+      [sourcingScrapeWorkflow.key, sourcingScrapeWorkflow],
       [listingPackage.key, listingPackage],
       [purchaseSubmit.key, purchaseSubmit],
     ]);
@@ -55,9 +65,33 @@ describe('KidItemMcpToolRegistry', () => {
       'agent_os_read_context',
       'agent_os_read_task_graph',
       'agent_os_read_artifacts',
-      'agent_os_finalize_task',
-      'sourcing_scrape_url',
+      'sourcing_retrieve_workspace_evidence',
     ]);
+    const manualIntakeContext = {
+      agentType: 'sourcing',
+      playbookKey: 'manual_product_intake_from_url_v2',
+      planStepKey: 'sourcing_agent',
+    } as const;
+    expect(
+      mcpRegistry.listToolsForContext(manualIntakeContext).map((tool) => tool.name),
+    ).toEqual([
+      'agent_os_read_context',
+      'agent_os_read_task_graph',
+      'agent_os_read_artifacts',
+      'sourcing_retrieve_workspace_evidence',
+      'sourcing_scrape_url_workflow',
+    ]);
+    expect(
+      mcpRegistry.resolveTool('sourcing_scrape_url_workflow', {
+        agentType: 'sourcing',
+      }),
+    ).toBeNull();
+    expect(
+      mcpRegistry.resolveTool(
+        'sourcing_scrape_url_workflow',
+        manualIntakeContext,
+      )?.handler,
+    ).toBe(sourcingScrapeWorkflow);
     expect(
       mcpRegistry.listToolsForContext({ agentType: 'listing' }).map((tool) => tool.name),
     ).toEqual([
@@ -72,7 +106,7 @@ describe('KidItemMcpToolRegistry', () => {
   it('exposes only curated KidItem domain capabilities to model-provider sessions', () => {
     const registry = {
       list: () => [
-        handler('supplier1688.match_products'),
+        handler('sourcing.refreshCollection'),
         handler('channels.submit_coupang_listing'),
         handler('delegate_task'),
         handler('memory.search'),
@@ -84,8 +118,8 @@ describe('KidItemMcpToolRegistry', () => {
 
     expect(mcpRegistry.listTools()).toEqual([
       expect.objectContaining({
-        name: 'kiditem__supplier1688_match_products',
-        capabilityKey: 'supplier1688.match_products',
+        name: 'kiditem__sourcing_refreshCollection',
+        capabilityKey: 'sourcing.refreshCollection',
       }),
       expect.objectContaining({
         name: 'kiditem__channels_submit_coupang_listing',
@@ -101,7 +135,7 @@ describe('KidItemMcpToolRegistry', () => {
   });
 
   it('resolves an MCP tool name back to the capability handler', () => {
-    const supplier = handler('supplier1688.match_products');
+    const supplier = handler('sourcing.refreshCollection');
     const registry = {
       list: () => [supplier],
       resolve: (key: string) => (key === supplier.key ? supplier : null),
@@ -110,13 +144,13 @@ describe('KidItemMcpToolRegistry', () => {
     const mcpRegistry = new KidItemMcpToolRegistry(registry);
 
     expect(
-      mcpRegistry.resolveTool('kiditem__supplier1688_match_products')?.handler,
+      mcpRegistry.resolveTool('kiditem__sourcing_refreshCollection')?.handler,
     ).toBe(supplier);
   });
 
   it('does not resolve ambiguous generated MCP tool names among exposed handlers', () => {
-    const exposed = handler('supplier1688.match_products');
-    const collision = handler('supplier1688_match.products');
+    const exposed = handler('sourcing.refreshCollection');
+    const collision = handler('sourcing_refreshCollection');
     const handlers = new Map([
       [exposed.key, exposed],
       [collision.key, collision],
@@ -137,13 +171,13 @@ describe('KidItemMcpToolRegistry', () => {
       mcpToolNameForCapability(exposed.key),
     );
     expect(
-      mcpRegistry.resolveTool('kiditem__supplier1688_match_products'),
+      mcpRegistry.resolveTool('kiditem__sourcing_refreshCollection'),
     ).toBeNull();
     expect(
-      mcpRegistry.resolveCapabilityKey('supplier1688.match_products')?.handler,
+      mcpRegistry.resolveCapabilityKey('sourcing.refreshCollection')?.handler,
     ).toBe(exposed);
     expect(
-      mcpRegistry.resolveCapabilityKey('supplier1688_match.products')?.handler,
+      mcpRegistry.resolveCapabilityKey('sourcing_refreshCollection')?.handler,
     ).toBe(collision);
   });
 
@@ -157,7 +191,7 @@ describe('KidItemMcpToolRegistry', () => {
   });
 
   it('resolves an exposed capability key through its MCP tool name', () => {
-    const supplier = handler('supplier1688.match_products');
+    const supplier = handler('sourcing.refreshCollection');
     const registry = {
       list: () => [supplier],
       resolve: (key: string) => (key === supplier.key ? supplier : null),
@@ -166,13 +200,13 @@ describe('KidItemMcpToolRegistry', () => {
     const mcpRegistry = new KidItemMcpToolRegistry(registry);
 
     expect(
-      mcpRegistry.resolveCapabilityKey('supplier1688.match_products')?.handler,
+      mcpRegistry.resolveCapabilityKey('sourcing.refreshCollection')?.handler,
     ).toBe(supplier);
   });
 
   it('does not resolve a registered non-allowlisted capability whose MCP tool name collides with an exposed key', () => {
-    const exposed = handler('supplier1688.match_products');
-    const collision = handler('supplier1688:match_products');
+    const exposed = handler('sourcing.refreshCollection');
+    const collision = handler('sourcing:refreshCollection');
     const handlers = new Map([
       [exposed.key, exposed],
       [collision.key, collision],

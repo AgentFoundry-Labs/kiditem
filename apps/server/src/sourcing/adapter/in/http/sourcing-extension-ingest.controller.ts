@@ -1,29 +1,65 @@
 import { Body, Controller, Get, Post, Query } from '@nestjs/common';
+import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { SourcingExtensionIngestService } from '../../../application/service/sourcing-extension-ingest.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import {
   CreateProductGenerationDto,
+  CreateExtensionV2CollectionSessionDto,
   ListExtensionProductsQueryDto,
   RegisterManualProductDto,
   ReceiveExtensionDataDto,
+  ReceiveExtensionV2DataDto,
   ScrapeUrlBodyDto,
   ScrapeUrlStatusQueryDto,
 } from './dto';
 
 @Controller('sourcing')
 export class SourcingExtensionIngestController {
-  constructor(private readonly sourcingService: SourcingService) {}
+  constructor(
+    private readonly sourcingService: SourcingService,
+    private readonly extensionIngest: SourcingExtensionIngestService,
+  ) {}
 
   @Post('extension/product-data')
+  @Throttle({ default: { limit: 60, ttl: 60_000 } })
   async receiveExtensionData(
     @Body() body: ReceiveExtensionDataDto,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
-    const flat = { ...body, ...(body.extra ?? {}) };
-    return this.sourcingService.receiveExtensionData(flat, organizationId, user.id ?? null);
+    return this.extensionIngest.ingestV1(
+      { organizationId, userId: user.id ?? null },
+      body,
+    );
+  }
+
+  @Post('extension/v2/product-data')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async receiveExtensionV2Data(
+    @Body() body: ReceiveExtensionV2DataDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.extensionIngest.ingestV2(
+      { organizationId, userId: user.id ?? null },
+      body,
+    );
+  }
+
+  @Post('extension/v2/sessions')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async createExtensionV2CollectionSession(
+    @Body() body: CreateExtensionV2CollectionSessionDto,
+    @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
+  ) {
+    return this.extensionIngest.issueV2CollectionSession(
+      { organizationId, userId: user.id ?? null },
+      body,
+    );
   }
 
   @Post('product-registration')

@@ -1,7 +1,7 @@
-import { describe, it, expect } from 'vitest';
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
@@ -92,10 +92,23 @@ describe('sourcing architecture contract', () => {
     const hits = rg(
       `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
     );
+    const assistantService = path.join(
+      sourcing,
+      'application/service/sourcing-assistant.service.ts',
+    );
+    const violators = hits.filter((file) => file !== assistantService);
     expect(
-      hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+      violators,
+      `application services must reach other owner domains through ports, not services:\n${violators.join('\n')}`,
     ).toEqual([]);
+    const assistantSource = readFileSync(
+      path.join(SOURCING_ROOT, 'application/service/sourcing-assistant.service.ts'),
+      'utf8',
+    );
+    expect(assistantSource).toContain(
+      'agent-os/application/port/in/agent-interaction.port',
+    );
+    expect(assistantSource).not.toContain('agent-os/application/service/');
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
@@ -138,5 +151,16 @@ describe('sourcing architecture contract', () => {
     expect(runtimeSource).not.toContain(
       'extensions/product-scraper/extractors',
     );
+  });
+
+  it('keeps local CLI subprocess execution out of the Sourcing owner domain', () => {
+    const sourcing = sourcingRel();
+    const hits = rg(
+      `--type ts --files-with-matches 'node:child_process' ${sourcing} --glob '!**/__tests__/**'`,
+    );
+    expect(
+      hits,
+      `Sourcing must use Agent OS for local CLI execution:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 });

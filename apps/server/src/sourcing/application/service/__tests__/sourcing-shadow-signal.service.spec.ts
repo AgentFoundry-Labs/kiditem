@@ -334,10 +334,6 @@ function trendRepository(): TrendCollectionRepositoryPort {
     upsertSeedByKeyword: vi.fn(),
     updateSeed: vi.fn(),
     deleteSeed: vi.fn(),
-    upsertNaverKeywordSnapshots: vi.fn(async () => 0),
-    replaceNaverPopularKeywordSnapshots: vi.fn(async () => 0),
-    upsert1688HotProductSnapshots: vi.fn(async () => 0),
-    upsertShortsSnapshots: vi.fn(async () => 0),
     findNaverKeywordHistory: vi.fn(async () => [{
       keyword: '캐릭터 필통',
       businessDate: BUSINESS_DATE,

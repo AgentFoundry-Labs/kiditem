@@ -15,6 +15,9 @@ export interface CandidateRow {
   organizationId: string;
   sourceUrl: string;
   sourcePlatform: string;
+  externalOfferId: string | null;
+  variantKeyNormalized: string;
+  sourceIdentityHash: string | null;
   rawData: JsonValue;
   name: string;
   description: string;
@@ -71,6 +74,9 @@ export interface UpsertCandidateInput {
   organizationId: string;
   sourceUrl: string;
   sourcePlatform: string;
+  externalOfferId?: string | null;
+  variantKeyNormalized?: string;
+  sourceIdentityHash?: string | null;
   rawData: object;
   name: string;
   description: string;

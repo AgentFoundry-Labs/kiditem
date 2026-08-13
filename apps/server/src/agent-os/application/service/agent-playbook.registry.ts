@@ -10,72 +10,63 @@ export interface AgentPlaybook {
   steps: AgentPlaybookStep[];
 }
 
-export const SOURCING_MARKET_OPPORTUNITY_PLAYBOOK: AgentPlaybook = {
-  key: 'sourcing_market_opportunity_to_order_draft_v1',
+export const SOURCING_WORKSPACE_QUESTION_PLAYBOOK: AgentPlaybook = {
+  key: 'sourcing_workspace_question_v1',
+  steps: [
+    { key: 'sourcing_agent', agentType: 'sourcing', dependsOn: [] },
+    {
+      key: 'workspace_evidence',
+      agentType: 'sourcing',
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+      dependsOn: ['sourcing_agent'],
+    },
+  ],
+};
+
+export const SOURCING_MARKET_RESEARCH_PLAYBOOK: AgentPlaybook = {
+  key: 'sourcing_market_research_v2',
   steps: [
     { key: 'operator', agentType: 'manager', dependsOn: [] },
     { key: 'sourcing_agent', agentType: 'sourcing', dependsOn: ['operator'] },
     {
-      key: 'market_signal',
+      key: 'workspace_evidence',
       agentType: 'sourcing',
-      capabilityKey: 'market.collect_keyword_category_rankings',
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
       dependsOn: ['sourcing_agent'],
     },
     {
-      key: 'coupang_match',
+      key: 'recommendation_run',
       agentType: 'sourcing',
-      capabilityKey: 'coupang.match_products',
-      dependsOn: ['market_signal'],
-    },
-    {
-      key: 'coupang_tracking',
-      agentType: 'sourcing',
-      capabilityKey: 'coupang.collect_tracking_snapshot',
-      dependsOn: ['coupang_match'],
-    },
-    {
-      key: 'supplier_match',
-      agentType: 'sourcing',
-      capabilityKey: 'supplier1688.match_products',
-      dependsOn: ['coupang_tracking'],
-    },
-    {
-      key: 'score',
-      agentType: 'sourcing',
-      capabilityKey: 'sourcing.score_opportunities',
-      dependsOn: ['supplier_match'],
-    },
-    {
-      key: 'recommendation',
-      agentType: 'sourcing',
-      capabilityKey: 'sourcing.create_recommendation_packet',
-      dependsOn: ['score'],
-    },
-    {
-      key: 'order_draft',
-      agentType: 'order',
-      capabilityKey: 'supply.create_purchase_order_draft',
-      dependsOn: ['recommendation', 'user_selection'],
+      capabilityKey: 'sourcing.inspectRecommendationRun',
+      dependsOn: ['workspace_evidence'],
     },
   ],
 };
 
 export const MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK: AgentPlaybook = {
-  key: 'manual_product_intake_from_url_v1',
+  key: 'manual_product_intake_from_url_v2',
   steps: [
     { key: 'operator', agentType: 'manager', dependsOn: [] },
     { key: 'sourcing_agent', agentType: 'sourcing', dependsOn: ['operator'] },
     {
       key: 'scrape_url',
       agentType: 'sourcing',
-      capabilityKey: 'sourcing.scrapeProductUrl',
+      capabilityKey: 'sourcing.scrapeUrlWorkflow',
       dependsOn: ['sourcing_agent'],
     },
+  ],
+};
+
+export const SOURCING_REVIEW_HANDOFF_PLAYBOOK: AgentPlaybook = {
+  key: 'sourcing_review_handoff_v1',
+  steps: [
+    { key: 'operator', agentType: 'manager', dependsOn: [] },
+    { key: 'sourcing_agent', agentType: 'sourcing', dependsOn: ['operator'] },
     {
-      key: 'listing_prep',
-      agentType: 'listing',
-      capabilityKey: 'product_listing.create_generation_package',
-      dependsOn: ['scrape_url', 'user_selection'],
+      key: 'review_batch',
+      agentType: 'sourcing',
+      capabilityKey: 'sourcing.createReviewBatch',
+      dependsOn: ['sourcing_agent', 'user_selection'],
     },
   ],
 };
@@ -120,8 +111,10 @@ export const PURCHASE_ORDER_SUBMISSION_PLAYBOOK: AgentPlaybook = {
 };
 
 const AGENT_PLAYBOOKS = [
-  SOURCING_MARKET_OPPORTUNITY_PLAYBOOK,
+  SOURCING_WORKSPACE_QUESTION_PLAYBOOK,
+  SOURCING_MARKET_RESEARCH_PLAYBOOK,
   MANUAL_PRODUCT_INTAKE_FROM_URL_PLAYBOOK,
+  SOURCING_REVIEW_HANDOFF_PLAYBOOK,
   CONFIRMED_CHANNEL_LISTING_REGISTRATION_PLAYBOOK,
   COUPANG_LISTING_SUBMISSION_PLAYBOOK,
   PURCHASE_ORDER_SUBMISSION_PLAYBOOK,

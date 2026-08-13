@@ -1,5 +1,3 @@
-import type { SourceEntitlementDecisionImpact } from '../../../../domain/source-entitlement-policy';
-
 export const SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT = Symbol(
   'SourcingEvidenceLedgerRepositoryPort',
 );
@@ -30,10 +28,13 @@ export type SourcingEvidenceSignalRole =
 
 export const SOURCING_EVIDENCE_RUN_STATUSES = [
   'collecting',
+  'cancel_requested',
   'complete',
   'partial',
   'failed',
   'quarantined',
+  'cancelled',
+  'superseded',
 ] as const;
 
 export type SourcingEvidenceRunStatus =
@@ -42,14 +43,12 @@ export type SourcingEvidenceRunStatus =
 export interface SourcingEvidenceIngestionRunRecord {
   id: string;
   organizationId: string;
-  sourceEntitlementVersionId: string;
   sourceKey: string;
   runKey: string;
   requestHash: string;
   scopeKey: string;
   collectorVersion: string;
   triggeredByUserId: string | null;
-  decisionImpactAtIngest: SourceEntitlementDecisionImpact;
   status: SourcingEvidenceRunStatus;
   windowStartAt: Date | null;
   windowEndAt: Date | null;
@@ -72,7 +71,6 @@ export interface SourcingEvidenceObservationRecord {
   ingestionRunStatus: SourcingEvidenceRunStatus;
   ingestionRunCoverageBps: number | null;
   ingestionRunCompletedAt: Date | null;
-  sourceEntitlementVersionId: string;
   sourceKey: string;
   sourceScopeKey: string;
   platform: string;
@@ -86,7 +84,6 @@ export interface SourcingEvidenceObservationRecord {
   observationKey: string;
   revision: number;
   supportsCandidate: boolean;
-  decisionImpactAtIngest: SourceEntitlementDecisionImpact;
   sourceUrl: string | null;
   eventAt: Date;
   observedAt: Date;
@@ -105,14 +102,12 @@ export interface SourcingLatestObservationRevisionRecord {
 
 export interface StartSourcingEvidenceRunCommand {
   organizationId: string;
-  sourceEntitlementVersionId: string;
   sourceKey: string;
   runKey: string;
   requestHash: string;
   scopeKey: string;
   collectorVersion: string;
   triggeredByUserId: string;
-  decisionImpactAtIngest: SourceEntitlementDecisionImpact;
   windowStartAt: Date | null;
   windowEndAt: Date | null;
   expectedCount: number | null;
@@ -127,7 +122,6 @@ export type StartSourcingEvidenceRunResult =
 export interface AppendSourcingEvidenceObservationCommand {
   organizationId: string;
   ingestionRunId: string;
-  sourceEntitlementVersionId: string;
   sourceKey: string;
   platform: string;
   evidenceFamily: string;
@@ -140,7 +134,6 @@ export interface AppendSourcingEvidenceObservationCommand {
   observationKey: string;
   revision: number;
   supportsCandidate: boolean;
-  decisionImpactAtIngest: SourceEntitlementDecisionImpact;
   sourceUrl: string | null;
   eventAt: Date;
   observedAt: Date;
@@ -159,7 +152,6 @@ export type AppendSourcingEvidenceObservationsResult =
     }
   | { kind: 'run_not_found' }
   | { kind: 'run_not_collecting'; status: SourcingEvidenceRunStatus }
-  | { kind: 'source_entitlement_changed' }
   | { kind: 'observation_revision_gap'; observationKey: string; revision: number }
   | { kind: 'observation_series_mismatch'; observationKey: string; revision: number }
   | { kind: 'observation_conflict'; observationKey: string; revision: number };
@@ -167,7 +159,7 @@ export type AppendSourcingEvidenceObservationsResult =
 export interface FinalizeSourcingEvidenceRunCommand {
   organizationId: string;
   runId: string;
-  status: Exclude<SourcingEvidenceRunStatus, 'collecting'>;
+  status: Exclude<SourcingEvidenceRunStatus, 'collecting' | 'cancel_requested'>;
   coverageBps: number | null;
   watermarkEventAt: Date | null;
   errorCode: string | null;
@@ -178,7 +170,6 @@ export interface FinalizeSourcingEvidenceRunCommand {
 export type FinalizeSourcingEvidenceRunResult =
   | { kind: 'finalized'; record: SourcingEvidenceIngestionRunRecord }
   | { kind: 'not_found' }
-  | { kind: 'source_entitlement_changed' }
   | { kind: 'coverage_mismatch'; derivedCoverageBps: number | null }
   | { kind: 'already_terminal'; record: SourcingEvidenceIngestionRunRecord };
 
@@ -221,7 +212,7 @@ export interface SourcingEvidenceLedgerRepositoryPort {
    * 증거를 서버에서 이어붙일 때 쓴다.
    *
    * 여기서 돌려주는 것은 "후보가 될 수 있는" 관측치일 뿐 채택된 증거가 아니다.
-   * 최신 리비전 여부·entitlement·run 확정·개념키 일치는 `evidenceIsAdmissible` 가
+   * 최신 리비전 여부·run 확정·개념키 일치는 `evidenceIsAdmissible` 가
    * 그대로 다시 판정한다.
    */
   findCandidateSupportingObservations(input: {

@@ -102,7 +102,13 @@ export class SourcingRisingProductService {
         payload: {
           version: SOURCING_RISING_PRODUCT_MODEL_VERSION,
           result: model as unknown as Record<string, unknown>,
-          meta: { generatedAt, windowDays },
+          meta: {
+            generatedAt,
+            windowDays,
+            coverage,
+            confidence: confidenceFromCoverage(coverage),
+            dataGaps: dataGaps(coverage),
+          },
         },
       });
     }
@@ -151,13 +157,18 @@ export class SourcingRisingProductService {
       businessDate: dateString(latest.businessDate),
       windowDays: metaNumber(meta, 'windowDays') ?? DEFAULT_WINDOW_DAYS,
       generatedAt: metaString(meta, 'generatedAt') ?? latest.updatedAt.toISOString(),
-      confidence: confidenceFromCoverage({
+      confidence: metaNumber(meta, 'confidence') ?? confidenceFromCoverage({
         serpSnapshotCount: model.stats.serpSnapshotCount,
         wingRowCount: model.stats.withWingSalesCount,
         trendCount: model.stats.keywordCount,
         candidateCount: model.stats.candidateCount,
       }),
-      dataGaps: [],
+      dataGaps: metaStringArray(meta, 'dataGaps') ?? dataGaps({
+        serpSnapshotCount: model.stats.serpSnapshotCount,
+        wingRowCount: model.stats.withWingSalesCount,
+        trendCount: model.stats.keywordCount,
+        candidateCount: model.stats.candidateCount,
+      }),
       model,
     };
   }
@@ -251,6 +262,14 @@ function metaString(meta: unknown, key: string): string | null {
   if (meta == null || typeof meta !== 'object') return null;
   const value = (meta as Record<string, unknown>)[key];
   return typeof value === 'string' && value.trim() ? value : null;
+}
+
+function metaStringArray(meta: unknown, key: string): string[] | null {
+  if (meta == null || typeof meta !== 'object') return null;
+  const value = (meta as Record<string, unknown>)[key];
+  return Array.isArray(value) && value.every((item) => typeof item === 'string')
+    ? value
+    : null;
 }
 
 function normalizeWindow(windowDays: number | undefined): number {

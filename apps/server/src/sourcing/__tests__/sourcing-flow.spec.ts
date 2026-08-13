@@ -113,6 +113,31 @@ describe('SourcingService — candidate ingest', () => {
     expect(result.product_count).toBe(1);
   });
 
+  it('preserves the deployed extractor price_min wire field as sourcing cost', async () => {
+    await service.receiveExtensionData(
+      {
+        page_type: 'detail',
+        title: '1688 추출 상품',
+        source_url: 'https://detail.1688.com/offer/12345.html',
+        source_platform: '1688',
+        price_min: 0.81,
+        price_max: 1.2,
+        supplier_name: '공급사',
+        sku_attrs: [{ name: '색상', values: ['빨강'] }],
+      },
+      'org-1',
+      'user-1',
+    );
+
+    expect(repo.upsertSourced).toHaveBeenCalledWith(
+      expect.objectContaining({ costCny: 0.81 }),
+    );
+    expect(repo.upsertSourced.mock.calls[0][0].rawData).toMatchObject({
+      supplier_name: '공급사',
+      sku_attrs: [{ name: '색상', values: ['빨강'] }],
+    });
+  });
+
   it('description page with no existing candidate → product_count 0', async () => {
     repo.mergeDescription.mockResolvedValueOnce(null);
     const result = await service.receiveExtensionData(

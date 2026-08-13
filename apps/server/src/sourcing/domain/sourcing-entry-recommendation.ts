@@ -17,8 +17,18 @@
  * 이 파일은 순수 함수만 둔다 — NestJS/Prisma/IO 없음.
  */
 
+import { recommendationItemKey } from './sourcing-recommendation-identity';
+
 /** 1688 신상품 스냅샷 한 건. 수집기가 주는 필드 중 판단에 쓰는 것만 좁혀서 받는다. */
 export interface EntrySupplyItem {
+  /** 공급처가 보장하는 외부 오퍼 식별자. 제목·배열 순서는 절대 식별자로 쓰지 않는다. */
+  externalOfferId?: string | null;
+  /** 옵션별로 가격/MOQ가 달라질 때의 정규화된 변형 식별자. */
+  variantKey?: string | null;
+  /** 원본 공급 관측 row. 추천 결과에서 provenance를 역추적하는 데 쓴다. */
+  offerObservationId?: string | null;
+  /** 원본 증거 관측 row. 없으면 아직 증거가 없는 수집값이라는 뜻이다. */
+  evidenceObservationId?: string | null;
   title?: string | null;
   keyword?: string | null;
   imageUrl?: string | null;
@@ -156,7 +166,14 @@ export interface EntryRecommendationComponents {
 export type EntryRecommendationGrade = 'A' | 'B' | 'C' | 'WATCH';
 
 export interface EntryRecommendation {
+  /** `sourcePlatform + externalOfferId + variantKey + matchedCoupangProductId`의 안정 키. */
+  itemKey: string;
+  /** 이전 UI 호환용 별칭. 새 코드에서는 `itemKey`를 쓴다. */
   id: string;
+  externalOfferId: string;
+  variantKey: string;
+  offerObservationId: string | null;
+  evidenceObservationId: string | null;
   rank: number;
   keyword: string | null;
   /** 최신 인기 보드에서 직전 일자 대비 새로 등장한 키워드. */
@@ -287,7 +304,7 @@ export function buildEntryRecommendations(
   const competitorCount = supplyItems.filter((item) => item.matchedCoupang != null).length;
 
   const scored = supplyItems
-    .map((item, index) => toRecommendation(item, index, keywordIndex, risingIndex, interest.match))
+    .map((item) => toRecommendation(item, keywordIndex, risingIndex, interest.match))
     .filter((item): item is EntryRecommendation => item !== null)
     .sort((a, b) => b.score - a.score || a.title.localeCompare(b.title));
 
@@ -329,13 +346,22 @@ function interestWeight(item: EntryRecommendation): number {
  */
 function toRecommendation(
   item: EntrySupplyItem,
-  index: number,
   keywordIndex: PopularKeywordIndex,
   risingIndex: Map<string, EntryRisingCandidate>,
   matchInterest: (keyword: string | null, title: string) => EntryInterestMatch | null,
 ): EntryRecommendation | null {
   const title = (item.title ?? '').trim();
-  if (!title) return null;
+  const externalOfferId = (item.externalOfferId ?? '').trim();
+  if (!title || !externalOfferId) return null;
+
+  const variantKey = (item.variantKey ?? '').trim();
+  const matchedCoupangProductId = nonEmpty(item.matchedCoupang?.productId);
+  const itemKey = recommendationItemKey({
+    sourcePlatform: '1688',
+    externalOfferId,
+    variantKey,
+    matchedCoupangProductId,
+  });
 
   const keyword = (item.keyword ?? item.matchedCoupang?.primaryKeyword ?? '').trim() || null;
   const rising = keyword ? risingIndex.get(normalizeKeyword(keyword)) : undefined;
@@ -363,7 +389,12 @@ function toRecommendation(
   if (rising) contributingSources.push('coupang_rising');
 
   return {
-    id: stableId(item, index),
+    itemKey,
+    id: itemKey,
+    externalOfferId,
+    variantKey,
+    offerObservationId: nonEmpty(item.offerObservationId),
+    evidenceObservationId: nonEmpty(item.evidenceObservationId),
     rank: 0,
     keyword,
     isNewKeyword: trend?.isNew ?? false,
@@ -383,7 +414,7 @@ function toRecommendation(
     supplierName: nonEmpty(item.supplierName),
     coupang: item.matchedCoupang
       ? {
-          productId: nonEmpty(item.matchedCoupang.productId),
+          productId: matchedCoupangProductId,
           productName: nonEmpty(item.matchedCoupang.productName),
           salePrice: numberOrNull(item.matchedCoupang.salePrice),
           reviews: numberOrNull(item.matchedCoupang.reviews),
@@ -860,22 +891,6 @@ function collectTags(item: EntrySupplyItem): string[] {
 function resolveShippingLabel(item: EntrySupplyItem): string {
   if (item.landedCostKrw != null && Number.isFinite(item.landedCostKrw)) return '통관가 포함';
   return '미확인';
-}
-
-/**
- * 표의 행 키.
- *
- * 오퍼 ID 만 쓰면 안 된다 — 같은 1688 오퍼가 서로 다른 쿠팡 상품에 매칭되면 스냅샷에
- * 두 행으로 남고(dedupe 키가 `쿠팡상품ID:오퍼`), 그 둘이 같은 id 를 갖게 된다.
- * React 의 key 가 겹치고 행 선택·삭제가 엉뚱한 행에 걸린다. 매칭된 쿠팡 상품까지
- * 키에 넣어 스냅샷의 dedupe 기준과 맞춘다.
- */
-function stableId(item: EntrySupplyItem, index: number): string {
-  const url = (item.sourceUrl ?? '').trim();
-  const offerId = url.match(/offer\/(\d+)/)?.[1];
-  const base = offerId ? `1688:${offerId}` : url ? `1688:${url}` : `1688:index:${index}`;
-  const coupangId = (item.matchedCoupang?.productId ?? '').toString().trim();
-  return coupangId ? `${base}#${coupangId}` : base;
 }
 
 function normalizeKeyword(keyword: string): string {

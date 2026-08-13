@@ -31,6 +31,7 @@ export const ORDERS_WORKER_MODULES = [
 
 export const SOURCING_WORKER_MODULES = [
   ...SHARED_MODULES,
+  'url-policy.js',
   '1688-trend-collector.js',
   'live-commerce-collector.js',
   'tiktok-cc-collector.js',

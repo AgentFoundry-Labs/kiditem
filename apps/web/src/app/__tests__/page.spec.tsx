@@ -152,8 +152,8 @@ describe('Dashboard page (RTL)', () => {
     renderPage();
     await waitFor(() => {
       expect(screen.getByText('Kiditem Foundry')).toBeTruthy();
-      expect(screen.getByText(/카탈로그 전체 5/)).toBeTruthy();
-      expect(screen.getByText(/채널 연결 3/)).toBeTruthy();
+      expect(screen.getByText(/운영 상품 5/)).toBeTruthy();
+      expect(screen.getByText(/판매중 채널 연결 재고상품 3/)).toBeTruthy();
     });
   });
 

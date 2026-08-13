@@ -46,6 +46,10 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
   async execute(
     context: AgentRuntimeExecutionContext,
   ): Promise<AgentRuntimeResult> {
+    const handler = this.registry.resolve(context.agentType);
+    if (handler && (!handler.supports || handler.supports(context))) {
+      return handler.execute(context);
+    }
     if (
       context.adapterType === 'claude_cli' ||
       context.adapterType === 'codex_cli'
@@ -57,10 +61,6 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
         );
       }
       return this.localCliRuntime.execute(context);
-    }
-    const handler = this.registry.resolve(context.agentType);
-    if (handler) {
-      return handler.execute(context);
     }
 
     if (this.allowNoop) {
@@ -89,7 +89,7 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
     }
 
     this.logger.warn(
-      `runtime_not_configured for ${context.agentType} run=${context.runId} — register a handler in AgentRuntimeHandlerRegistry or set AGENT_RUNTIME_ALLOW_NOOP=1 for explicit dev no-op mode.`,
+      `runtime_not_configured for ${context.agentType} run=${context.runId} — register a supporting handler or configure a local CLI adapter.`,
     );
     throw new AgentOsRuntimeError(
       'runtime_not_configured',

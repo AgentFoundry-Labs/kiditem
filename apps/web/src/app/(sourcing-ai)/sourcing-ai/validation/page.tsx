@@ -1,5 +1,5 @@
-import { SellochSourcingPage } from '../components/SellochSourcingPage';
+import { SellochValidationPage } from '../components/SellochValidationPage';
 
 export default function SourcingValidationPage() {
-  return <SellochSourcingPage kind="validation" />;
+  return <SellochValidationPage />;
 }

@@ -16,10 +16,6 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
-  SOURCE_ENTITLEMENT_DECISION_IMPACTS,
-  SOURCE_ENTITLEMENT_LIFECYCLES,
-} from '../../../../domain/source-entitlement-policy';
-import {
   SOURCING_EVIDENCE_GRANULARITIES,
   SOURCING_EVIDENCE_RUN_STATUSES,
   SOURCING_EVIDENCE_SIGNAL_ROLES,
@@ -31,153 +27,9 @@ import {
 
 const POSTGRES_INT_MIN = -2_147_483_648;
 const POSTGRES_INT_MAX = 2_147_483_647;
-const MAX_PERSISTED_MINUTES = Math.floor(POSTGRES_INT_MAX / 60);
-
-export class CreateSourceEntitlementVersionDto {
-  @IsString()
-  @MaxLength(80)
-  sourceKey!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  scopeKey?: string;
-
-  @IsIn(SOURCE_ENTITLEMENT_LIFECYCLES)
-  lifecycle!: (typeof SOURCE_ENTITLEMENT_LIFECYCLES)[number];
-
-  @IsIn(SOURCE_ENTITLEMENT_DECISION_IMPACTS)
-  decisionImpact!: (typeof SOURCE_ENTITLEMENT_DECISION_IMPACTS)[number];
-
-  @IsString()
-  @MaxLength(160)
-  ownerLabel!: string;
-
-  @IsString()
-  legalBasis!: string;
-
-  @IsString()
-  allowedMethod!: string;
-
-  @IsOptional()
-  @IsString()
-  @MaxLength(300)
-  credentialRef?: string | null;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(200)
-  @IsString({ each: true })
-  permittedFields?: string[];
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(100)
-  @IsString({ each: true })
-  prohibitedUses?: string[];
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(POSTGRES_INT_MAX)
-  rateLimitValue?: number | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(POSTGRES_INT_MAX)
-  rateLimitWindowSeconds?: number | null;
-
-  @IsOptional()
-  @IsArray()
-  @ArrayMaxSize(100)
-  @IsString({ each: true })
-  geographyCoverage?: string[];
-
-  @IsOptional()
-  @IsString()
-  coverageDefinition?: string | null;
-
-  @IsOptional()
-  @IsString()
-  accountCoverage?: string | null;
-
-  @IsOptional()
-  @IsString()
-  searchCoverage?: string | null;
-
-  @IsOptional()
-  @IsString()
-  categoryCoverage?: string | null;
-
-  @IsOptional()
-  @IsString()
-  denominatorDefinition?: string | null;
-
-  @IsOptional()
-  @IsString()
-  historyBackfill?: string | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(0)
-  @Max(MAX_PERSISTED_MINUTES)
-  expectedDelayMinutes?: number | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(MAX_PERSISTED_MINUTES)
-  maxStalenessMinutes?: number | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(10_000)
-  minimumCoverageBps?: number | null;
-
-  @IsOptional()
-  @IsString()
-  revisionPolicy?: string | null;
-
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(POSTGRES_INT_MAX)
-  retentionDays?: number | null;
-
-  @IsOptional()
-  @IsDateString()
-  permissionStartsAt?: string | null;
-
-  @IsOptional()
-  @IsDateString()
-  permissionExpiresAt?: string | null;
-
-  @IsOptional()
+export class SetSourcingCollectionSourceEnabledDto {
   @IsBoolean()
-  killSwitch?: boolean;
-
-  @IsOptional()
-  @IsString()
-  reviewNote?: string | null;
-}
-
-export class SuspendSourceEntitlementDto {
-  @IsOptional()
-  @IsString()
-  @MaxLength(160)
-  scopeKey?: string;
-
-  @IsString()
-  @MaxLength(500)
-  reason!: string;
+  enabled!: boolean;
 }
 
 export class StartEvidenceRunDto {
@@ -290,10 +142,14 @@ export class AppendEvidenceObservationsDto {
 }
 
 export class FinalizeEvidenceRunDto {
-  @IsIn(SOURCING_EVIDENCE_RUN_STATUSES.filter((status) => status !== 'collecting'))
+  @IsIn(
+    SOURCING_EVIDENCE_RUN_STATUSES.filter(
+      (status) => status !== 'collecting' && status !== 'cancel_requested',
+    ),
+  )
   status!: Exclude<
     (typeof SOURCING_EVIDENCE_RUN_STATUSES)[number],
-    'collecting'
+    'collecting' | 'cancel_requested'
   >;
 
   @IsOptional()

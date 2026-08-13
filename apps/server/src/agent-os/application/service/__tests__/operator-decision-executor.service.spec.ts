@@ -59,7 +59,7 @@ describe('OperatorDecisionExecutor', () => {
       decision: {
         decisionType: 'delegate',
         targetAgentType: 'sourcing',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         taskInput: { keyword: '실리콘 식판' },
         userVisibleRationale: '소싱 에이전트가 시장 신호를 확인해야 합니다.',
       },
@@ -79,14 +79,14 @@ describe('OperatorDecisionExecutor', () => {
         parentRequestId: 'request-operator-1',
         delegatedByRunId: 'run-operator-1',
         requestedByUserId: 'user-1',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         planStepKey: 'sourcing_agent',
         displayName: 'Sourcing Agent',
         idempotencyKey: expect.stringMatching(
           /^operator:request-operator-1:sourcing:sourcing_agent:/,
         ),
         payload: expect.objectContaining({
-          action: 'market_opportunity_discovery',
+          action: 'market_research',
           keyword: '실리콘 식판',
           conversationId: 'conversation-1',
           operatorRationale: '소싱 에이전트가 시장 신호를 확인해야 합니다.',
@@ -103,6 +103,25 @@ describe('OperatorDecisionExecutor', () => {
     );
   });
 
+  it('rejects a sourcing discovery decision without a keyword', async () => {
+    const { executor, delegation } = makeExecutor();
+
+    await expect(executor.execute({
+      ...baseInput,
+      decision: {
+        decisionType: 'delegate',
+        targetAgentType: 'sourcing',
+        playbookKey: 'sourcing_market_research_v2',
+        taskInput: {},
+        userVisibleRationale: '키워드 없이 소싱을 시작합니다.',
+      },
+    })).rejects.toMatchObject({
+      name: 'AgentOsRuntimeError',
+      code: 'operator_decision_invalid_task_input',
+    });
+    expect(delegation.delegate).not.toHaveBeenCalled();
+  });
+
   it('delegates manual URL intake to sourcing manual_url_intake runtime input', async () => {
     const { executor, delegation } = makeExecutor();
 
@@ -111,7 +130,7 @@ describe('OperatorDecisionExecutor', () => {
       decision: {
         decisionType: 'delegate',
         targetAgentType: 'sourcing',
-        playbookKey: 'manual_product_intake_from_url_v1',
+        playbookKey: 'manual_product_intake_from_url_v2',
         taskInput: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
         userVisibleRationale: '사용자가 제공한 상품 URL을 먼저 수집해야 합니다.',
       },
@@ -125,7 +144,7 @@ describe('OperatorDecisionExecutor', () => {
     });
     expect(delegation.delegate).toHaveBeenCalledWith(
       expect.objectContaining({
-        playbookKey: 'manual_product_intake_from_url_v1',
+        playbookKey: 'manual_product_intake_from_url_v2',
         planStepKey: 'sourcing_agent',
         payload: expect.objectContaining({
           action: 'manual_url_intake',
@@ -138,47 +157,25 @@ describe('OperatorDecisionExecutor', () => {
     );
   });
 
-  it('delegates listing prep to the Listing Agent instead of sourcing', async () => {
+  it('rejects listing prep through the sourcing-only manual intake playbook', async () => {
     const { executor, delegation } = makeExecutor();
 
-    const result = await executor.execute({
+    await expect(executor.execute({
       ...baseInput,
       decision: {
         decisionType: 'delegate',
         targetAgentType: 'listing',
-        playbookKey: 'manual_product_intake_from_url_v1',
+        playbookKey: 'manual_product_intake_from_url_v2',
         taskInput: {
           productName: '무선 RC카',
           imageUrls: ['https://cdn.example.com/car.jpg'],
         },
         userVisibleRationale: '소싱 후보를 등록 준비 패키지로 변환해야 합니다.',
       },
+    })).rejects.toMatchObject({
+      code: 'operator_decision_unauthorized',
     });
-
-    expect(result).toEqual({
-      status: 'delegated',
-      delegatedRequestId: 'request-sourcing-1',
-      targetAgentType: 'listing',
-      planStepKey: 'listing_prep',
-    });
-    expect(delegation.delegate).toHaveBeenCalledWith(
-      expect.objectContaining({
-        agentType: 'listing',
-        playbookKey: 'manual_product_intake_from_url_v1',
-        planStepKey: 'listing_prep',
-        displayName: 'Listing Agent',
-        idempotencyKey: expect.stringMatching(
-          /^operator:request-operator-1:listing:listing_prep:/,
-        ),
-        payload: expect.objectContaining({
-          action: 'product_listing_generation_package',
-          productName: '무선 RC카',
-          imageUrls: ['https://cdn.example.com/car.jpg'],
-          conversationId: 'conversation-1',
-          operatorRationale: '소싱 후보를 등록 준비 패키지로 변환해야 합니다.',
-        }),
-      }),
-    );
+    expect(delegation.delegate).not.toHaveBeenCalled();
   });
 
   it('delegates confirmed channel listing registration to the channel registration runtime input', async () => {
@@ -434,7 +431,7 @@ describe('OperatorDecisionExecutor', () => {
         decision: {
           decisionType: 'delegate',
           targetAgentType: 'sourcing',
-          playbookKey: 'manual_product_intake_from_url_v1',
+          playbookKey: 'manual_product_intake_from_url_v2',
           taskInput: { productName: '실리콘 흡착 식판' },
           userVisibleRationale: '수집 URL이 필요합니다.',
         },
@@ -442,7 +439,7 @@ describe('OperatorDecisionExecutor', () => {
     ).rejects.toEqual(
       new AgentOsRuntimeError(
         'operator_decision_invalid_task_input',
-        'manual_product_intake_from_url_v1 requires sourceUrl or url.',
+        'manual_product_intake_from_url_v2 requires sourceUrl or url.',
       ),
     );
     expect(delegation.delegate).not.toHaveBeenCalled();
@@ -516,7 +513,7 @@ describe('OperatorDecisionExecutor', () => {
       decision: {
         decisionType: 'delegate',
         targetAgentType: 'sourcing',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         taskInput: { keyword: '실리콘 식판', filters: { minMarginRate: 0.25 } },
         userVisibleRationale: '소싱 에이전트가 시장 신호를 확인해야 합니다.',
       },
@@ -526,7 +523,7 @@ describe('OperatorDecisionExecutor', () => {
       decision: {
         decisionType: 'delegate',
         targetAgentType: 'sourcing',
-        playbookKey: 'sourcing_market_opportunity_to_order_draft_v1',
+        playbookKey: 'sourcing_market_research_v2',
         taskInput: { filters: { minMarginRate: 0.25 }, keyword: '실리콘 식판' },
         userVisibleRationale: '소싱 에이전트가 시장 신호를 확인해야 합니다.',
       },

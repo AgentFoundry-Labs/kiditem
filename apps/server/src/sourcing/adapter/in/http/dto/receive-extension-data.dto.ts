@@ -86,6 +86,36 @@ export class ReceiveExtensionDataDto {
   @Min(0)
   price?: number;
 
+  /**
+   * The deployed 1688 extractor emits snake_case price bounds. Keep these
+   * explicit rather than relying on `extra`: ValidationPipe strips unknown
+   * top-level fields before the service can normalize the evidence.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price_min?: number;
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  price_max?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(8)
+  currency?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(60)
+  unit?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(0)
+  sales_volume?: number;
+
   @IsOptional()
   @IsString()
   @MaxLength(120)
@@ -102,6 +132,61 @@ export class ReceiveExtensionDataDto {
   @IsOptional()
   @IsArray()
   priceRanges?: unknown[];
+
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  moq?: number;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  supplier_name?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  seller_login_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  seller_user_id?: string;
+
+  @IsOptional()
+  @IsUrl({ require_protocol: true, protocols: ['https'] })
+  @MaxLength(2_000)
+  seller_store_url?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  product_id?: string;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  specs?: Array<{ key?: string; value?: string }>;
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  sku_attrs?: unknown[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  sku_list?: unknown[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(100)
+  price_tiers?: unknown[];
+
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(500)
+  pack_info?: unknown[];
 
   @IsOptional()
   @IsInt()
