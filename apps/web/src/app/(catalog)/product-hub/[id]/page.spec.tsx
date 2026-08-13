@@ -1,19 +1,33 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { useQuery } from '@tanstack/react-query';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductHubDetailPage from './page';
 
-const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), replace: vi.fn() }));
+const navigation = vi.hoisted(() => ({ params: new URLSearchParams(), back: vi.fn(), replace: vi.fn() }));
 const inventoryPanel = vi.hoisted(() => vi.fn());
 
 vi.mock('next/navigation', () => ({
   useParams: () => ({ id: '11111111-1111-4111-8111-111111111111' }),
-  useRouter: () => ({ replace: navigation.replace }),
+  useRouter: () => ({ back: navigation.back, replace: navigation.replace }),
   usePathname: () => '/product-hub/11111111-1111-4111-8111-111111111111',
   useSearchParams: () => navigation.params,
 }));
 
 vi.mock('@tanstack/react-query', () => ({ useQuery: vi.fn() }));
+
+vi.mock('./components/ProductHeader', () => ({
+  default: (props: {
+    product: { name: string };
+    onBack?: () => void;
+    onEdit: () => void;
+  }) => (
+    <header>
+      <button type="button" onClick={props.onBack}>이전 화면</button>
+      <h1>{props.product.name}</h1>
+      <button type="button" onClick={props.onEdit}>상품 정보 수정</button>
+    </header>
+  ),
+}));
 
 vi.mock('../components/ProductEditorDialog', () => ({
   ProductEditorDialog: ({ open }: { open: boolean }) => open ? <div role="dialog">상품 정보 수정</div> : null,
@@ -78,6 +92,8 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     vi.mocked(useQuery).mockReturnValue({ data: product, isLoading: false, error: null } as ReturnType<typeof useQuery>);
   });
 
+  afterEach(() => vi.restoreAllMocks());
+
   it('opens only an exact channel option deep link and preserves unrelated params when it closes', () => {
     navigation.params = new URLSearchParams(`inventoryOption=${channelOptionId}&recipeSearch=SP-77&tab=history`);
     render(<ProductHubDetailPage />);
@@ -98,6 +114,26 @@ describe('/product-hub/[id] MasterProduct detail', () => {
     render(<ProductHubDetailPage />);
 
     expect((inventoryPanel.mock.lastCall?.[0] as { inventoryOptionId?: string }).inventoryOptionId).toBeUndefined();
+  });
+
+  it('returns to the actual previous browser screen when history exists', () => {
+    vi.spyOn(window.history, 'length', 'get').mockReturnValue(2);
+    render(<ProductHubDetailPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '이전 화면' }));
+
+    expect(navigation.back).toHaveBeenCalledTimes(1);
+    expect(navigation.replace).not.toHaveBeenCalled();
+  });
+
+  it('uses the product catalog as a direct-entry return fallback', () => {
+    vi.spyOn(window.history, 'length', 'get').mockReturnValue(1);
+    render(<ProductHubDetailPage />);
+
+    fireEvent.click(screen.getByRole('button', { name: '이전 화면' }));
+
+    expect(navigation.back).not.toHaveBeenCalled();
+    expect(navigation.replace).toHaveBeenCalledWith('/product-hub');
   });
 
   it('reads the product owner and renders direct channel inventory composition', () => {

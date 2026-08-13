@@ -5,11 +5,10 @@ import { RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { isApiError } from '@/lib/api-error';
-import { InventoryFilterTabs } from '../../inventory/components/InventoryFilterTabs';
+import { InventoryFilters } from '../../inventory/components/InventoryFilters';
 import { InventorySummaryCards } from '../../inventory/components/InventorySummaryCards';
 import { InventoryTable } from '../../inventory/components/InventoryTable';
 import { InventoryToolbar } from '../../inventory/components/InventoryToolbar';
-import { useInventoryList } from '../../inventory/hooks/useInventory';
 import { printBarcodeWindow } from '../../inventory/lib/barcode-print';
 import {
   fetchAllInventoryForExport,
@@ -17,10 +16,9 @@ import {
 } from '../../inventory/lib/inventory-export';
 import type {
   InventorySkuSnapshotSummary,
-  InventorySkuStockStatus,
 } from '@kiditem/shared/inventory';
+import { useInventoryWorkspaceState } from '../hooks/useInventoryWorkspaceState';
 
-const PAGE_SIZE = 50;
 const EMPTY_SUMMARY = {
   totalSkus: 0,
   linkedSkus: 0,
@@ -33,18 +31,14 @@ const EMPTY_SUMMARY = {
 } satisfies InventorySkuSnapshotSummary;
 
 export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 }) {
-  const [page, setPage] = useState(1);
-  const [stockStatus, setStockStatus] = useState<InventorySkuStockStatus>('in_stock');
-  const [queryDraft, setQueryDraft] = useState('');
-  const [query, setQuery] = useState('');
+  const state = useInventoryWorkspaceState();
   const [exporting, setExporting] = useState(false);
-  const { data, isLoading, isFetching, error } = useInventoryList({
-    page,
-    limit: PAGE_SIZE,
-    stockStatus,
-    query: query || undefined,
+  const exportItems = async () => fetchAllInventoryForExport({
+    query: state.requestParams.query,
+    stockStatus: state.stockStatus,
+    activeStatus: state.activeStatus,
+    linkStatus: state.linkStatus === 'all' ? undefined : state.linkStatus,
   });
-  const exportItems = async () => fetchAllInventoryForExport(stockStatus, query || undefined);
 
   const handleBarcodePrint = async () => {
     setExporting(true);
@@ -74,47 +68,48 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
     }
   };
 
-  if (isLoading) return <PageSkeleton variant="table" />;
+  if (state.isLoading) return <PageSkeleton variant="table" />;
 
   return (
     <section className="space-y-5">
       <InventoryToolbar
         headingLevel={headingLevel}
-        query={queryDraft}
-        latestImportAt={data?.latestImport?.importedAt ?? null}
+        latestImportAt={state.data?.latestImport?.importedAt ?? null}
         busy={exporting}
-        includeOutOfStock={stockStatus !== 'in_stock'}
-        onQueryChange={setQueryDraft}
-        onIncludeOutOfStockChange={(include) => {
-          setStockStatus(include ? 'all' : 'in_stock');
-          setPage(1);
-        }}
-        onSearch={() => { setQuery(queryDraft.trim()); setPage(1); }}
         onBarcodePrint={handleBarcodePrint}
         onExcel={handleExcel}
       />
-      {error ? (
+      {state.error ? (
         <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {isApiError(error) ? error.detail : 'Sellpia 재고를 불러오지 못했습니다.'}
+          {isApiError(state.error) ? state.error.detail : 'Sellpia 재고를 불러오지 못했습니다.'}
         </div>
       ) : null}
-      {isFetching ? (
+      {state.isFetching ? (
         <div className="flex items-center gap-2 text-sm text-[var(--text-secondary)]" aria-live="polite">
           <RefreshCw className="h-4 w-4 animate-spin" aria-hidden="true" /> 최신 스냅샷 조회 중
         </div>
       ) : null}
-      <InventorySummaryCards summary={data?.summary ?? EMPTY_SUMMARY} />
-      <InventoryFilterTabs
-        filter={stockStatus}
-        summary={data?.summary ?? EMPTY_SUMMARY}
-        onFilterChange={(next) => { setStockStatus(next); setPage(1); }}
+      <InventorySummaryCards summary={state.data?.summary ?? EMPTY_SUMMARY} />
+      <InventoryFilters
+        activeStatus={state.activeStatus}
+        linkStatus={state.linkStatus}
+        search={state.search}
+        stockStatus={state.stockStatus}
+        onActiveStatusChange={state.setActiveStatus}
+        onLinkStatusChange={state.setLinkStatus}
+        onSearchChange={state.setSearch}
+        onSearchSubmit={(event) => {
+          event.preventDefault();
+          state.submitSearch();
+        }}
+        onStockStatusChange={state.setStockStatus}
       />
       <InventoryTable
-        items={data?.items ?? []}
-        page={data?.page ?? page}
-        pageSize={data?.limit ?? PAGE_SIZE}
-        total={data?.total ?? 0}
-        onPageChange={setPage}
+        items={state.data?.items ?? []}
+        page={state.data?.page ?? state.page}
+        pageSize={state.data?.limit ?? state.requestParams.limit ?? 50}
+        total={state.data?.total ?? 0}
+        onPageChange={state.setPage}
       />
     </section>
   );

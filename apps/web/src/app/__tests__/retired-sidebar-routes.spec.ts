@@ -109,6 +109,7 @@ const retiredSidebarRoutes = [
   '/finance-hub',
   '/supplier-hub',
   '/suppliers',
+  '/product-hub/options',
 ] as const;
 interface AppPageEntrypoint { href: string; relativePath: string; }
 
@@ -458,10 +459,10 @@ describe('App Router symlink discovery', () => {
 });
 
 describe('retired sidebar routes', () => {
-  it.each(retiredSidebarRoutes)('%s has no navigation or App Router entrypoint', (route) => {
+  it.each(retiredSidebarRoutes)('%s has no navigation or dedicated App Router entrypoint', (route) => {
     expect(sidebarPathnames.filter((pathname) => isRouteOrDescendant(pathname, route))).toEqual([]);
     expect(appPageEntrypoints
-      .filter(({ href }) => routePatternCanMatchRouteOrDescendant(href, route))
+      .filter(({ href }) => isRouteOrDescendant(href, route))
       .map(({ relativePath }) => relativePath)).toEqual([]);
   });
 });

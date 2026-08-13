@@ -387,7 +387,7 @@ Kinds:
 | `apps/web/src/app/(advertising)` | Route Group | `ad-ops`, `rank-tracking` |
 | `apps/web/src/app/(analytics)` | Route Group | `dashboard` |
 | `apps/web/src/app/(automation)` | Route Group | `_shared`, `action-board`, `agents`, `marketplace`, `workflows` |
-| `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; dedicated read-only `/product-hub/options`; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
+| `apps/web/src/app/(catalog)` | Route Group | Canonical inventory-product operations center at `/product-hub`; direct channel-option inventory configuration on product detail; option-to-Sellpia matching with automatic MasterProduct derivation at `/product-hub/matching`. |
 | `apps/web/src/app/(finance)` | Route Group | Active `/profit-loss`, `/reports`, and `/sales-analysis` surfaces; settlement remains a tab inside sales analysis. |
 | `apps/web/src/app/(inventory)` | Route Group | Active `/inventory-hub`, `/inventory`, `/stock-ops`, and `/coupang-shipments` surfaces; Warehouse reads remain reference data for `StockTransfers`, with no standalone warehouse-management route. |
 | `apps/web/src/app/(orders)` | Route Group | Active `/order-collection`, `/orders`, `/rocket-orders`, and `/reviews` surfaces; order collection and processing own their route-local workspaces, while the Rocket capacity placeholder consumes the shared preview contract. |
@@ -409,13 +409,13 @@ Notable route subtrees:
   intentionally retired route has no compatibility redirect unless product
   names a canonical replacement.
 
-- Product list, detail, matching, and options preserve their independent
-  compositions. `/product-hub` is the staged product operations center backed
-  by the read-only Sellpia snapshot, `/product-hub/[id]` is the read-only snapshot detail,
-  `/product-hub/matching` is the Coupang ChannelSku component-recipe workspace,
-  and `/product-hub/options` is the dedicated read-only Sellpia options table.
-  Post-baseline Sellpia features may be added without replacing or rearranging
-  those layouts.
+- Product list, detail, and matching preserve their independent compositions.
+  `/product-hub` is the staged product operations center backed by the
+  read-only Sellpia snapshot, `/product-hub/[id]` is the read-only snapshot
+  detail, and `/product-hub/matching` is the Coupang ChannelSku
+  component-recipe workspace. `/inventory-hub` owns the tabless, complete
+  read-only Sellpia SKU workspace with inventory actions, URL-authoritative
+  filters, connection destinations, and transfer/return records.
 
 - `/rocket-orders` remains the preserved Rocket operations screen and is not a
   compatibility redirect. Its existing `납품 수량 판단 추후 연동` placeholder
@@ -423,10 +423,10 @@ Notable route subtrees:
   is the only operator-facing Rocket review route. `/purchase-orders` remains
   the general supplier purchase-order screen.
 
-- Current tab ownership is exact: `/inventory-hub` has `status`,
-  `sellpia-sync`, `rocket-events`, and `checks`; `/stock-ops` has
-  `product-outflow` and `channel-zero`. Active Orders routes are independent
-  workspaces and do not inherit tabs from retired hub screens.
+- Current composition ownership is exact: `/inventory-hub` has no tabs and
+  owns one Sellpia inventory workspace; `/stock-ops` has `product-outflow` and
+  `channel-zero`. Active Orders routes are independent workspaces and do not
+  inherit tabs from retired hub screens.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual
@@ -862,7 +862,8 @@ The frontend preserves the active route ownership and compositions recorded in
 the Frontend Route Map and nearest route guides. One shared coordinator/drawer
 supplies Sellpia freshness, while active pages may expose compact status and
 sync controls without rearranging their documented layouts. Product list,
-detail, matching, and read-only options keep their exact ownership. The
+detail, and matching keep their exact ownership; Inventory owns the complete
+read-only Sellpia SKU table. The
 Supply-owned Rocket preview and confirmation workspace is wired only into the
 existing decision placeholder on `/rocket-orders`; `/purchase-orders` remains
 the general supplier purchase-order screen. Intentionally retired URLs remain

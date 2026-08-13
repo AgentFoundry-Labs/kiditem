@@ -8,21 +8,32 @@ const repoRoot = path.resolve(webSrc, '../../..');
 const retiredFiles = [
   'app/(inventory)/inventory-hub/components/InventoryHubWorkspace.tsx',
   'app/(inventory)/inventory-hub/components/InventoryHubWorkspace.spec.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.spec.tsx',
+  'app/(inventory)/inventory-hub/components/ChannelAvailability.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryWorkspace.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryWorkspace.spec.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryFilters.tsx',
+  'app/(inventory)/inventory-hub/components/SellpiaInventoryTable.tsx',
+  'app/(inventory)/inventory/components/InventoryFilterTabs.tsx',
   'app/(inventory)/stock-ops/components/ZeroItems.tsx',
   'app/(inventory)/stock-ops/components/MappingAttention.tsx',
+  'app/(inventory)/stock-ops/components/ImportFreshness.tsx',
+  'app/(inventory)/stock-ops/components/ImportFreshness.spec.tsx',
 ];
 
 const survivingConsumers = [
   'app/(inventory)/inventory-hub/page.tsx',
   'app/(inventory)/inventory-hub/page.spec.tsx',
-  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.tsx',
-  'app/(inventory)/inventory-hub/components/InventoryOperationWorkspaces.spec.tsx',
-  'app/(inventory)/stock-ops/components/ImportFreshness.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryWorkspace.tsx',
+  'app/(inventory)/inventory-hub/components/InventoryWorkspace.spec.tsx',
   'app/(inventory)/stock-ops/components/OutOfStock.tsx',
   'app/(inventory)/stock-ops/components/StockProjectionPagination.spec.tsx',
 ];
 
 const liveLinkConsumers = [
+  'apps/web/src/app/(inventory)/stock-ops/page.tsx',
+  'apps/web/src/components/RebuildReadinessBanner.tsx',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
   'apps/web/src/app/(analytics)/dashboard/components/DashboardSidePanel.tsx',
   'apps/server/src/automation/domain/policy/action-seeds.ts',
@@ -39,16 +50,17 @@ describe('retired inventory checks workspace', () => {
     for (const relativePath of survivingConsumers) {
       const source = readFileSync(path.join(webSrc, relativePath), 'utf8');
       expect(source, relativePath).not.toMatch(
-        /ZeroItems|MappingAttention|InventoryAttentionWorkspace|InventoryHubWorkspace/,
+        /ZeroItems|MappingAttention|InventoryAttentionWorkspace|InventoryHubWorkspace|SellpiaInventoryWorkspace|SellpiaSyncWorkspace|RocketInventoryWorkspace|ImportFreshness|ChannelAvailability/,
       );
     }
   });
 
-  it('stops publishing the retired Sellpia-zero deep link from live code', () => {
+  it('publishes only the canonical inventory workspace from live code', () => {
     for (const relativePath of liveLinkConsumers) {
       const source = readFileSync(path.join(repoRoot, relativePath), 'utf8');
       expect(source, relativePath).not.toContain('/stock-ops?tab=sellpia-zero');
-      expect(source, relativePath).toContain('/inventory-hub?tab=status');
+      expect(source, relativePath).not.toContain('/inventory-hub?tab=');
+      expect(source, relativePath).toContain('/inventory-hub');
     }
   });
 });

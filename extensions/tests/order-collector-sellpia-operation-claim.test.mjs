@@ -76,3 +76,8 @@ test('does not compete when another live Sellpia claim is already active', async
   assert.equal(calls.length, 1);
   assert.deepEqual(result.claim, joined);
 });
+
+test('publishes Sellpia operation alerts to the canonical inventory workspace', () => {
+  assert.match(worker, /sourceId: "inventory\.sellpia",\s+href: "\/inventory-hub"/);
+  assert.doesNotMatch(worker, /\/inventory-hub\?tab=/);
+});
