@@ -122,36 +122,42 @@ export class StatisticsService {
   }
 
   async delivery(organizationId: string, period?: string) {
-    const where: Record<string, unknown> = { organizationId };
+    const shippingWhere: Prisma.OrderWhereInput = {
+      organizationId,
+      shippedAt: period
+        ? (() => {
+            const { from, to } = this.resolveWindow(period);
+            return { gte: from, lt: to };
+          })()
+        : { not: null },
+    };
 
-    if (period) {
-      const [year, month] = period.split('-').map(Number);
-      where.shippedAt = {
-        gte: new Date(year, month - 1, 1),
-        lt: new Date(year, month, 1),
-      };
-    }
-
-    const shipments = await this.prisma.shipment.findMany({
-      where,
+    const shippedOrders = await this.prisma.order.findMany({
+      where: shippingWhere,
       select: {
-        deliveryDays: true,
-        courierName: true,
+        shippedAt: true,
+        deliveredAt: true,
+        shippingCompany: true,
       },
     });
 
-    // Average delivery days
-    const withDays = shipments.filter((s) => s.deliveryDays != null);
-    const avgDeliveryDays = withDays.length > 0
+    const completedDeliveryDays = shippedOrders.flatMap((order) => {
+      if (!order.shippedAt || !order.deliveredAt) return [];
+      return [Math.max(
+        0,
+        Math.ceil((order.deliveredAt.getTime() - order.shippedAt.getTime()) / 86_400_000),
+      )];
+    });
+    const avgDeliveryDays = completedDeliveryDays.length > 0
       ? Math.round(
-          (withDays.reduce((sum, s) => sum + s.deliveryDays!, 0) / withDays.length) * 10,
+          (completedDeliveryDays.reduce((sum, days) => sum + days, 0)
+            / completedDeliveryDays.length) * 10,
         ) / 10
       : 0;
 
-    // Courier distribution
     const courierMap = new Map<string, number>();
-    for (const s of shipments) {
-      const name = s.courierName ?? '미지정';
+    for (const order of shippedOrders) {
+      const name = order.shippingCompany ?? '미지정';
       courierMap.set(name, (courierMap.get(name) ?? 0) + 1);
     }
 
@@ -162,7 +168,7 @@ export class StatisticsService {
     // Daily shipment counts (last 30 days)
     const now = new Date();
     const thirtyDaysAgo = new Date(now.getTime() - 30 * 86400000);
-    const dailyShipments = await this.prisma.shipment.findMany({
+    const dailyShippedOrders = await this.prisma.order.findMany({
       where: {
         organizationId,
         shippedAt: { gte: thirtyDaysAgo, lte: now },
@@ -175,9 +181,9 @@ export class StatisticsService {
       const d = new Date(now.getTime() - (29 - i) * 86400000);
       dailyMap.set(d.toISOString().slice(0, 10), 0);
     }
-    for (const s of dailyShipments) {
-      if (s.shippedAt) {
-        const key = s.shippedAt.toISOString().slice(0, 10);
+    for (const order of dailyShippedOrders) {
+      if (order.shippedAt) {
+        const key = order.shippedAt.toISOString().slice(0, 10);
         if (dailyMap.has(key)) {
           dailyMap.set(key, (dailyMap.get(key) ?? 0) + 1);
         }
@@ -214,7 +220,7 @@ export class StatisticsService {
     });
 
     return {
-      totalShipments: shipments.length,
+      totalShipments: shippedOrders.length,
       avgDeliveryDays,
       courierDistribution,
       daily,

@@ -142,7 +142,15 @@ describe('Statistics flow (PG integration)', () => {
         { quantity: 1, totalPrice: 12_000, optionId: optM1b, listingOptionId: listingL1b.id },
       ],
     });
-    await prisma.order.update({ where: { id: o1 }, data: { receiverName: 'A' } });
+    await prisma.order.update({
+      where: { id: o1 },
+      data: {
+        receiverName: 'A',
+        shippedAt: new Date('2026-04-10T03:00:00.000Z'),
+        deliveredAt: new Date('2026-04-13T03:00:00.000Z'),
+        shippingCompany: 'CJ',
+      },
+    });
 
     const o2 = await seedOrderWithLineItems(prisma, {
       organizationId,
@@ -340,20 +348,20 @@ describe('Statistics flow (PG integration)', () => {
     ]);
   });
 
-  it('delivery still aggregates quantity from order line items and excludes cancelled orders', async () => {
+  it('delivery derives shipping facts from orders and excludes cancelled order metrics', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
     await seedStatisticsFixture();
 
     const result = await service.delivery(TEST_ORGANIZATION_ID, '2026-04');
 
-    expect(result.totalShipments).toBe(0);
-    expect(result.avgDeliveryDays).toBe(0);
-    expect(result.courierDistribution).toEqual([]);
+    expect(result.totalShipments).toBe(1);
+    expect(result.avgDeliveryDays).toBe(3);
+    expect(result.courierDistribution).toEqual([{ courier: 'CJ', count: 1 }]);
     expect(result.daily).toHaveLength(30);
     expect(result.daily.find((row) => row.date === '2026-04-10')).toEqual({
       date: '2026-04-10',
-      count: 0,
+      count: 1,
       orders: 1,
       revenue: 32_000,
       qty: 3,

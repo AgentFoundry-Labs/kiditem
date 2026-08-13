@@ -13,9 +13,6 @@ function makePrisma() {
     channelListing: {
       count: vi.fn(),
     },
-    shipment: {
-      findMany: vi.fn(),
-    },
     order: {
       count: vi.fn(),
       findMany: vi.fn(),
@@ -316,22 +313,61 @@ describe('StatisticsService', () => {
   });
 
   describe('delivery', () => {
+    it('derives shipment totals, delivery days, couriers, and daily counts from Order facts', async () => {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
+      prisma.order.findMany
+        .mockResolvedValueOnce([{
+          shippedAt: new Date('2026-04-15T00:00:00.000Z'),
+          deliveredAt: new Date('2026-04-18T00:00:00.000Z'),
+          shippingCompany: 'CJ',
+        }])
+        .mockResolvedValueOnce([{
+          shippedAt: new Date('2026-04-15T00:00:00.000Z'),
+        }])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.delivery('organization-1', '2026-04');
+
+      expect(prisma).not.toHaveProperty('shipment');
+      expect(prisma.order.findMany).toHaveBeenNthCalledWith(1, {
+        where: {
+          organizationId: 'organization-1',
+          shippedAt: {
+            gte: new Date('2026-03-31T15:00:00.000Z'),
+            lt: new Date('2026-04-30T15:00:00.000Z'),
+          },
+        },
+        select: {
+          shippedAt: true,
+          deliveredAt: true,
+          shippingCompany: true,
+        },
+      });
+      expect(result.totalShipments).toBe(1);
+      expect(result.avgDeliveryDays).toBe(3);
+      expect(result.courierDistribution).toEqual([{ courier: 'CJ', count: 1 }]);
+      expect(result.daily.find((row) => row.date === '2026-04-15')?.count).toBe(1);
+    });
+
     it('aggregates daily qty from Order.lineItems.quantity sum', async () => {
       vi.useFakeTimers();
       vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
-      prisma.shipment.findMany.mockResolvedValue([]);
-      prisma.order.findMany.mockResolvedValue([
-        {
-          orderedAt: new Date('2026-04-18T10:00:00.000Z'),
-          totalPrice: 10_000,
-          lineItems: [{ quantity: 2 }, { quantity: 3 }],
-        },
-        {
-          orderedAt: new Date('2026-04-18T11:00:00.000Z'),
-          totalPrice: 5_000,
-          lineItems: [{ quantity: 4 }],
-        },
-      ]);
+      prisma.order.findMany
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([
+          {
+            orderedAt: new Date('2026-04-18T10:00:00.000Z'),
+            totalPrice: 10_000,
+            lineItems: [{ quantity: 2 }, { quantity: 3 }],
+          },
+          {
+            orderedAt: new Date('2026-04-18T11:00:00.000Z'),
+            totalPrice: 5_000,
+            lineItems: [{ quantity: 4 }],
+          },
+        ]);
 
       const result = await service.delivery('organization-1', '2026-04');
 
