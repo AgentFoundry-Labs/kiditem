@@ -4,6 +4,7 @@ import {
   BrowserOperationHeartbeatRequestSchema,
   BrowserOperationReportRequestSchema,
   CreateOperationRunRequestSchema,
+  MAX_OPERATION_PERSISTED_INT,
   OperationCatalogResponseSchema,
   OperationRunSchema,
   OperationStatusSchema,
@@ -188,6 +189,86 @@ describe('Operation wire contracts', () => {
         ]),
       );
     }
+  });
+
+  it('accepts the persisted signed-32-bit maximum for timeout and counts', () => {
+    expect(
+      OperationRunSchema.parse({
+        ...persistedRun,
+        executionTimeoutMs: MAX_OPERATION_PERSISTED_INT,
+        progressCurrent: MAX_OPERATION_PERSISTED_INT,
+        progressTotal: MAX_OPERATION_PERSISTED_INT,
+      }),
+    ).toMatchObject({
+      executionTimeoutMs: MAX_OPERATION_PERSISTED_INT,
+      progressCurrent: MAX_OPERATION_PERSISTED_INT,
+      progressTotal: MAX_OPERATION_PERSISTED_INT,
+    });
+
+    expect(
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressCurrent: MAX_OPERATION_PERSISTED_INT,
+        progressTotal: MAX_OPERATION_PERSISTED_INT,
+      }),
+    ).toMatchObject({ progressTotal: MAX_OPERATION_PERSISTED_INT });
+  });
+
+  it('rejects a persisted timeout above the signed-32-bit maximum', () => {
+    expect(() =>
+      OperationRunSchema.parse({
+        ...persistedRun,
+        executionTimeoutMs: MAX_OPERATION_PERSISTED_INT + 1,
+      }),
+    ).toThrow();
+
+    expect(() =>
+      OperationCatalogResponseSchema.parse({
+        items: [
+          {
+            key: 'sourcing.collect_daily_trends',
+            version: 1,
+            title: '일일 트렌드 수집',
+            ownerDomain: 'sourcing',
+            engineType: 'composite',
+            scheduleSupported: true,
+            resourceClass: 'default',
+            executionTimeoutMs: MAX_OPERATION_PERSISTED_INT + 1,
+          },
+        ],
+      }),
+    ).toThrow();
+  });
+
+  it('rejects persisted counts above the signed-32-bit maximum', () => {
+    expect(() =>
+      OperationRunSchema.parse({
+        ...persistedRun,
+        progressCurrent: MAX_OPERATION_PERSISTED_INT + 1,
+        progressTotal: MAX_OPERATION_PERSISTED_INT + 1,
+      }),
+    ).toThrow();
+  });
+
+  it('rejects browser counts above the signed-32-bit maximum', () => {
+    const progressCurrent = MAX_OPERATION_PERSISTED_INT + 1;
+    const progressTotal = MAX_OPERATION_PERSISTED_INT + 1;
+
+    expect(() =>
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressCurrent,
+        progressTotal,
+      }),
+    ).toThrow();
+    expect(() =>
+      BrowserOperationReportRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        status: 'running',
+        progressCurrent,
+        progressTotal,
+      }),
+    ).toThrow();
   });
 
   it('publishes resource policy in the operation catalog', () => {

@@ -6,7 +6,21 @@ const OperationJsonSchema = z.record(z.string(), z.unknown());
 const OperationResultForbiddenKey =
   /(?:^|[_-])(file|base64|rows?|raw|payload|response|html|cookie|token|credential|secret)(?:$|[_-])/i;
 const BrowserRuntimeIdSchema = z.string().min(1).max(120);
-const OperationProgressCountSchema = z.number().int().nonnegative().nullable();
+
+export const MAX_OPERATION_PERSISTED_INT = 2_147_483_647;
+
+export const OperationProgressCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(MAX_OPERATION_PERSISTED_INT)
+  .nullable();
+
+export const OperationExecutionTimeoutMsSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(MAX_OPERATION_PERSISTED_INT);
 
 function validatePairedOperationProgressCounts(
   value: {
@@ -184,7 +198,7 @@ export const OperationRunSchema = z
     ownerDomain: z.string().min(1).max(120),
     engineType: OperationEngineTypeSchema,
     resourceClass: OperationResourceClassSchema,
-    executionTimeoutMs: z.number().int().positive(),
+    executionTimeoutMs: OperationExecutionTimeoutMsSchema,
     status: OperationStatusSchema,
     triggerSource: OperationTriggerSourceSchema,
     parentRunId: z.string().uuid().nullable(),
@@ -217,7 +231,7 @@ export const OperationDefinitionSchema = z
     ownerDomain: z.string().min(1).max(120),
     engineType: OperationEngineTypeSchema,
     resourceClass: OperationResourceClassSchema,
-    executionTimeoutMs: z.number().int().positive(),
+    executionTimeoutMs: OperationExecutionTimeoutMsSchema,
     scheduleSupported: z.boolean(),
   })
   .strict();

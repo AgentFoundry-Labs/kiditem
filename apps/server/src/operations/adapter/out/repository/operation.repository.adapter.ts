@@ -1,5 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
+import {
+  OperationExecutionTimeoutMsSchema,
+  OperationProgressCountSchema,
+  OperationResourceClassSchema,
+  OperationStageSchema,
+} from '@kiditem/shared/operations';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -44,8 +50,18 @@ function progressCountMutation(input: {
   }
   if (!hasCurrent) return {};
 
-  const current = input.progressCurrent;
-  const total = input.progressTotal;
+  const parsedCurrent = OperationProgressCountSchema.safeParse(
+    input.progressCurrent,
+  );
+  const parsedTotal = OperationProgressCountSchema.safeParse(
+    input.progressTotal,
+  );
+  if (!parsedCurrent.success || !parsedTotal.success) {
+    throw new Error('operation_progress_counts_invalid');
+  }
+
+  const current = parsedCurrent.data;
+  const total = parsedTotal.data;
   if ((current === null) !== (total === null)) {
     throw new Error('operation_progress_counts_must_be_paired');
   }
@@ -53,14 +69,8 @@ function progressCountMutation(input: {
     return { progressCurrent: null, progressTotal: null, progress: null };
   }
   if (
-    current === undefined ||
     current === null ||
-    total === undefined ||
     total === null ||
-    !Number.isInteger(current) ||
-    !Number.isInteger(total) ||
-    current < 0 ||
-    total < 0 ||
     current > total
   ) {
     throw new Error('operation_progress_counts_invalid');
@@ -72,7 +82,71 @@ function progressCountMutation(input: {
   };
 }
 
+function invalidPersistedExecutionMetadata(): Error {
+  return new Error('operation_run_persisted_execution_metadata_invalid');
+}
+
+function parsePersistedExecutionTimeoutMs(value: unknown): number {
+  const parsed = OperationExecutionTimeoutMsSchema.safeParse(value);
+  if (!parsed.success) throw invalidPersistedExecutionMetadata();
+  return parsed.data;
+}
+
+function parseExecutionTimeoutMsMutation(value: unknown): number {
+  const parsed = OperationExecutionTimeoutMsSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new Error('operation_execution_timeout_ms_invalid');
+  }
+  return parsed.data;
+}
+
+function parsePersistedExecutionMetadata(row: OperationRunRow): {
+  resourceClass: OperationRunRecord['resourceClass'];
+  executionTimeoutMs: number;
+  stage: OperationRunRecord['stage'];
+  progressCurrent: number | null;
+  progressTotal: number | null;
+} {
+  const resourceClass = OperationResourceClassSchema.safeParse(
+    row.resourceClass,
+  );
+  const stage = OperationStageSchema.nullable().safeParse(row.stage);
+  const progressCurrent = OperationProgressCountSchema.safeParse(
+    row.progressCurrent,
+  );
+  const progressTotal = OperationProgressCountSchema.safeParse(
+    row.progressTotal,
+  );
+  if (
+    !resourceClass.success ||
+    !stage.success ||
+    !progressCurrent.success ||
+    !progressTotal.success
+  ) {
+    throw invalidPersistedExecutionMetadata();
+  }
+  if (
+    (progressCurrent.data === null) !== (progressTotal.data === null) ||
+    (progressCurrent.data !== null &&
+      progressTotal.data !== null &&
+      progressCurrent.data > progressTotal.data)
+  ) {
+    throw invalidPersistedExecutionMetadata();
+  }
+
+  return {
+    resourceClass: resourceClass.data,
+    executionTimeoutMs: parsePersistedExecutionTimeoutMs(
+      row.executionTimeoutMs,
+    ),
+    stage: stage.data,
+    progressCurrent: progressCurrent.data,
+    progressTotal: progressTotal.data,
+  };
+}
+
 export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
+  const executionMetadata = parsePersistedExecutionMetadata(row);
   return {
     id: row.id,
     organizationId: row.organizationId,
@@ -81,8 +155,8 @@ export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
     ownerDomain: row.ownerDomain,
     title: row.title,
     engineType: row.engineType as OperationRunRecord['engineType'],
-    resourceClass: row.resourceClass as OperationRunRecord['resourceClass'],
-    executionTimeoutMs: row.executionTimeoutMs,
+    resourceClass: executionMetadata.resourceClass,
+    executionTimeoutMs: executionMetadata.executionTimeoutMs,
     status: row.status as OperationRunRecord['status'],
     triggerSource: row.triggerSource as OperationRunRecord['triggerSource'],
     requestedByUserId: row.requestedByUserId,
@@ -92,10 +166,10 @@ export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
     input: requiredRecord(row.input),
     result: asRecord(row.result),
     progress: row.progress,
-    stage: row.stage as OperationRunRecord['stage'],
+    stage: executionMetadata.stage,
     stageUpdatedAt: row.stageUpdatedAt,
-    progressCurrent: row.progressCurrent,
-    progressTotal: row.progressTotal,
+    progressCurrent: executionMetadata.progressCurrent,
+    progressTotal: executionMetadata.progressTotal,
     deadlineAt: row.deadlineAt,
     nativeRunType: row.nativeRunType,
     nativeRunId: row.nativeRunId,
@@ -166,6 +240,9 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async createRun(input: CreateOperationRunRecord): Promise<OperationRunRecord> {
+    const executionTimeoutMs = parseExecutionTimeoutMsMutation(
+      input.executionTimeoutMs,
+    );
     try {
       const row = await this.prisma.operationRun.create({
         data: {
@@ -176,7 +253,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           title: input.title,
           engineType: input.engineType,
           resourceClass: input.resourceClass,
-          executionTimeoutMs: input.executionTimeoutMs,
+          executionTimeoutMs,
           triggerSource: input.triggerSource,
           requestedByUserId: input.requestedByUserId,
           parentRunId: input.parentRunId,
@@ -486,6 +563,9 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       `;
       const candidate = candidates[0];
       if (!candidate) return null;
+      const executionTimeoutMs = parsePersistedExecutionTimeoutMs(
+        candidate.execution_timeout_ms,
+      );
 
       await transaction.operationRun.update({
         where: {
@@ -502,7 +582,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           claimedAt: input.now,
           leaseExpiresAt: input.leaseExpiresAt,
           deadlineAt: candidate.deadline_at
-            ?? new Date(input.now.getTime() + candidate.execution_timeout_ms),
+            ?? new Date(input.now.getTime() + executionTimeoutMs),
           startedAt: input.now,
         },
       });
