@@ -48,7 +48,7 @@ export class BrowserOperationRuntimeService {
     if (definition.engineType !== 'browser') {
       throw new BadRequestException('browser_operation_not_allowed');
     }
-    if (!run.attemptToken || !run.leaseExpiresAt) {
+    if (!run.attemptToken || !run.leaseExpiresAt || !run.deadlineAt) {
       throw new ConflictException('browser_runtime_fence_lost');
     }
     return {
@@ -58,6 +58,7 @@ export class BrowserOperationRuntimeService {
       attempt: run.attempts,
       input: run.input,
       leaseExpiresAt: run.leaseExpiresAt.toISOString(),
+      deadlineAt: run.deadlineAt.toISOString(),
     } satisfies BrowserOperationClaim;
   }
 
@@ -74,6 +75,9 @@ export class BrowserOperationRuntimeService {
       now,
       leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
       progress: input.request.progress,
+      stage: input.request.stage,
+      progressCurrent: input.request.progressCurrent,
+      progressTotal: input.request.progressTotal,
     });
     if (!result) throw new ConflictException('browser_runtime_fence_lost');
   }
@@ -84,6 +88,9 @@ export class BrowserOperationRuntimeService {
     attemptToken: string;
     status: BrowserOperationReportRequest['status'];
     progress?: number | null;
+    stage?: BrowserOperationReportRequest['stage'];
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
     result?: Record<string, unknown>;
     errorCode?: string;
     errorMessage?: string;
@@ -127,6 +134,9 @@ export class BrowserOperationRuntimeService {
     attemptToken: string;
     status: BrowserOperationReportRequest['status'];
     progress?: number | null;
+    stage?: BrowserOperationReportRequest['stage'];
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
     result?: Record<string, unknown>;
     errorCode?: string;
     errorMessage?: string;
@@ -139,6 +149,9 @@ export class BrowserOperationRuntimeService {
       expectedStatuses: ['running'] as const,
       expectedAttemptToken: input.attemptToken,
       progress: input.progress,
+      stage: input.stage,
+      progressCurrent: input.progressCurrent,
+      progressTotal: input.progressTotal,
     };
 
     switch (input.status) {

@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Post,
 } from '@nestjs/common';
+import type { OperationCatalogResponse } from '@kiditem/shared/operations';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -44,9 +45,11 @@ export class OperationsController {
         title: definition.title,
         ownerDomain: definition.ownerDomain,
         engineType: definition.engineType,
+        resourceClass: definition.resourceClass,
+        executionTimeoutMs: definition.executionTimeoutMs,
         scheduleSupported: definition.scheduleSupported,
       })),
-    };
+    } satisfies OperationCatalogResponse;
   }
 
   @Post(':operationKey/runs')

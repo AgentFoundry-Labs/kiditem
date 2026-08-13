@@ -5,7 +5,7 @@ import type {
   OperationHandler,
 } from '../../../../../common/operation-definition';
 import type {
-  CreateOperationRunRecord,
+  OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../../port/out/repository/operation.repository.port';
 import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
@@ -24,6 +24,8 @@ const definition: OperationDefinition = {
   allowedTriggers: ['dashboard', 'schedule'],
   scheduleSupported: true,
   maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 900_000,
   inputSchema: z.object({ source: z.string() }).strict(),
 };
 
@@ -40,7 +42,7 @@ const compositeCoordinator = {
   cancelChildren: vi.fn(),
 };
 
-function makeRecord(input: Partial<CreateOperationRunRecord> = {}) {
+function makeRecord(input: Partial<OperationRunRecord> = {}): OperationRunRecord {
   return {
     id: RUN_ID,
     organizationId: ORG_ID,
@@ -49,6 +51,8 @@ function makeRecord(input: Partial<CreateOperationRunRecord> = {}) {
     ownerDomain: definition.ownerDomain,
     title: definition.title,
     engineType: definition.engineType,
+    resourceClass: definition.resourceClass,
+    executionTimeoutMs: definition.executionTimeoutMs,
     status: 'queued',
     triggerSource: 'dashboard',
     requestedByUserId: USER_ID,
@@ -58,6 +62,11 @@ function makeRecord(input: Partial<CreateOperationRunRecord> = {}) {
     input: { source: 'naver' },
     result: null,
     progress: null,
+    stage: null,
+    stageUpdatedAt: null,
+    progressCurrent: null,
+    progressTotal: null,
+    deadlineAt: null,
     nativeRunType: null,
     nativeRunId: null,
     attempts: 0,
@@ -109,6 +118,47 @@ describe('OperationRunService', () => {
 
     expect(first.id).toBe(second.id);
     expect(repository.createRun).toHaveBeenCalledTimes(1);
+  });
+
+  it('copies definition policy into the run and returns persisted execution metadata', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.createRun = vi.fn().mockResolvedValue(
+      makeRecord({
+        resourceClass: 'playwright_1688',
+        executionTimeoutMs: 1_200_000,
+        stage: 'collecting_keyword',
+        stageUpdatedAt: new Date('2026-08-01T00:01:00Z'),
+        progressCurrent: 11,
+        progressTotal: 12,
+        progress: 11 / 12,
+        deadlineAt: new Date('2026-08-01T00:20:00Z'),
+      }),
+    );
+    const service = new OperationRunService(registry, repository, compositeCoordinator);
+
+    const run = await service.start({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      triggerSource: 'dashboard',
+      input: { source: 'naver' },
+      requestedByUserId: USER_ID,
+      idempotencyKey: null,
+    });
+
+    expect(repository.createRun).toHaveBeenCalledWith(expect.objectContaining({
+      resourceClass: 'default',
+      executionTimeoutMs: 900_000,
+    }));
+    expect(run).toMatchObject({
+      resourceClass: 'playwright_1688',
+      executionTimeoutMs: 1_200_000,
+      stage: 'collecting_keyword',
+      progressCurrent: 11,
+      progressTotal: 12,
+      deadlineAt: new Date('2026-08-01T00:20:00Z'),
+    });
   });
 
   it('rejects a trigger that the definition does not allow', async () => {

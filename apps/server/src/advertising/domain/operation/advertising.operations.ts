@@ -11,6 +11,8 @@ export const ADVERTISING_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen'],
     scheduleSupported: false,
     maxAttempts: 3,
+    resourceClass: 'extension_coupang',
+    executionTimeoutMs: 900_000,
     inputSchema: z.object({}).strict(),
   },
 ] as const satisfies readonly OperationDefinition[];

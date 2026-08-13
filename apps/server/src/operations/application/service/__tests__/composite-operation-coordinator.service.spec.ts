@@ -17,6 +17,8 @@ const definition: OperationDefinition = {
   allowedTriggers: ['domain_screen'],
   scheduleSupported: false,
   maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 900_000,
   inputSchema: z.object({ scope: z.literal('full') }).strict(),
 };
 
@@ -30,6 +32,8 @@ function run(input: Partial<OperationRunRecord> = {}): OperationRunRecord {
     ownerDomain: 'products',
     title: '수익성 데이터 갱신',
     engineType: 'composite',
+    resourceClass: 'default',
+    executionTimeoutMs: 900_000,
     status: 'running',
     triggerSource: 'domain_screen',
     requestedByUserId: null,
@@ -39,6 +43,11 @@ function run(input: Partial<OperationRunRecord> = {}): OperationRunRecord {
     input: {},
     result: null,
     progress: null,
+    stage: null,
+    stageUpdatedAt: null,
+    progressCurrent: null,
+    progressTotal: null,
+    deadlineAt: null,
     nativeRunType: null,
     nativeRunId: null,
     attempts: 1,
@@ -99,6 +108,8 @@ describe('CompositeOperationCoordinatorService', () => {
       organizationId: ORG_ID,
       parentRunId: PARENT_ID,
       operationKey: definition.key,
+      resourceClass: definition.resourceClass,
+      executionTimeoutMs: definition.executionTimeoutMs,
     }));
     expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
       runId: PARENT_ID,

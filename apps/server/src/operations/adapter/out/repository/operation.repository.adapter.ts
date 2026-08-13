@@ -33,6 +33,45 @@ function requiredRecord(value: Prisma.JsonValue): Record<string, unknown> {
   return asRecord(value) ?? {};
 }
 
+function progressCountMutation(input: {
+  progressCurrent?: number | null;
+  progressTotal?: number | null;
+}): Prisma.OperationRunUpdateManyMutationInput {
+  const hasCurrent = input.progressCurrent !== undefined;
+  const hasTotal = input.progressTotal !== undefined;
+  if (hasCurrent !== hasTotal) {
+    throw new Error('operation_progress_counts_must_be_paired');
+  }
+  if (!hasCurrent) return {};
+
+  const current = input.progressCurrent;
+  const total = input.progressTotal;
+  if ((current === null) !== (total === null)) {
+    throw new Error('operation_progress_counts_must_be_paired');
+  }
+  if (current === null && total === null) {
+    return { progressCurrent: null, progressTotal: null, progress: null };
+  }
+  if (
+    current === undefined ||
+    current === null ||
+    total === undefined ||
+    total === null ||
+    !Number.isInteger(current) ||
+    !Number.isInteger(total) ||
+    current < 0 ||
+    total < 0 ||
+    current > total
+  ) {
+    throw new Error('operation_progress_counts_invalid');
+  }
+  return {
+    progressCurrent: current,
+    progressTotal: total,
+    progress: total === 0 ? 0 : current / total,
+  };
+}
+
 export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
   return {
     id: row.id,
@@ -42,6 +81,8 @@ export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
     ownerDomain: row.ownerDomain,
     title: row.title,
     engineType: row.engineType as OperationRunRecord['engineType'],
+    resourceClass: row.resourceClass as OperationRunRecord['resourceClass'],
+    executionTimeoutMs: row.executionTimeoutMs,
     status: row.status as OperationRunRecord['status'],
     triggerSource: row.triggerSource as OperationRunRecord['triggerSource'],
     requestedByUserId: row.requestedByUserId,
@@ -51,6 +92,11 @@ export function mapOperationRunRow(row: OperationRunRow): OperationRunRecord {
     input: requiredRecord(row.input),
     result: asRecord(row.result),
     progress: row.progress,
+    stage: row.stage as OperationRunRecord['stage'],
+    stageUpdatedAt: row.stageUpdatedAt,
+    progressCurrent: row.progressCurrent,
+    progressTotal: row.progressTotal,
+    deadlineAt: row.deadlineAt,
     nativeRunType: row.nativeRunType,
     nativeRunId: row.nativeRunId,
     attempts: row.attempts,
@@ -129,6 +175,8 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           ownerDomain: input.ownerDomain,
           title: input.title,
           engineType: input.engineType,
+          resourceClass: input.resourceClass,
+          executionTimeoutMs: input.executionTimeoutMs,
           triggerSource: input.triggerSource,
           requestedByUserId: input.requestedByUserId,
           parentRunId: input.parentRunId,
@@ -206,6 +254,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       status: input.status,
     };
     if (input.progress !== undefined) data.progress = input.progress;
+    Object.assign(data, progressCountMutation(input));
     if (input.result !== undefined) {
       data.result =
         input.result === null
@@ -224,11 +273,12 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     if (input.leaseExpiresAt !== undefined) {
       data.leaseExpiresAt = input.leaseExpiresAt;
     }
+    if (input.deadlineAt !== undefined) data.deadlineAt = input.deadlineAt;
     if (input.attemptDelta !== undefined) {
       data.attempts = { increment: input.attemptDelta };
     }
 
-    const updated = await this.prisma.operationRun.updateMany({
+    const updatedCount = await this.updateRunWithStage({
       where: {
         id: input.runId,
         organizationId: input.organizationId,
@@ -238,8 +288,10 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           : {}),
       },
       data,
+      stage: input.stage,
+      stageUpdatedAt: new Date(),
     });
-    if (updated.count === 0) return null;
+    if (updatedCount === 0) return null;
     return this.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,
@@ -417,8 +469,12 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null> {
     const claimed = await this.prisma.$transaction(async (transaction) => {
-      const candidates = await transaction.$queryRaw<Array<{ id: string }>>`
-        SELECT id
+      const candidates = await transaction.$queryRaw<Array<{
+        id: string;
+        deadline_at: Date | null;
+        execution_timeout_ms: number;
+      }>>`
+        SELECT id, deadline_at, execution_timeout_ms
         FROM operation_runs
         WHERE organization_id = ${input.organizationId}::uuid
           AND engine_type = 'browser'
@@ -445,6 +501,8 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           attemptToken: randomUUID(),
           claimedAt: input.now,
           leaseExpiresAt: input.leaseExpiresAt,
+          deadlineAt: candidate.deadline_at
+            ?? new Date(input.now.getTime() + candidate.execution_timeout_ms),
           startedAt: input.now,
         },
       });
@@ -462,8 +520,16 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     now: Date;
     leaseExpiresAt: Date;
     progress?: number | null;
+    stage?: OperationRunTransition['stage'];
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
   }): Promise<OperationRunRecord | null> {
-    const updated = await this.prisma.operationRun.updateMany({
+    const data: Prisma.OperationRunUpdateManyMutationInput = {
+      leaseExpiresAt: input.leaseExpiresAt,
+      ...(input.progress !== undefined ? { progress: input.progress } : {}),
+      ...progressCountMutation(input),
+    };
+    const updatedCount = await this.updateRunWithStage({
       where: {
         id: input.runId,
         organizationId: input.organizationId,
@@ -471,15 +537,50 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         attemptToken: input.attemptToken,
         leaseExpiresAt: { gt: input.now },
       },
-      data: {
-        leaseExpiresAt: input.leaseExpiresAt,
-        ...(input.progress !== undefined ? { progress: input.progress } : {}),
-      },
+      data,
+      stage: input.stage,
+      stageUpdatedAt: input.now,
     });
-    if (updated.count === 0) return null;
+    if (updatedCount === 0) return null;
     return this.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,
     });
+  }
+
+  private async updateRunWithStage(input: {
+    where: Prisma.OperationRunWhereInput;
+    data: Prisma.OperationRunUpdateManyMutationInput;
+    stage: OperationRunTransition['stage'];
+    stageUpdatedAt: Date;
+  }): Promise<number> {
+    if (input.stage === undefined) {
+      const updated = await this.prisma.operationRun.updateMany({
+        where: input.where,
+        data: input.data,
+      });
+      return updated.count;
+    }
+
+    const changed = await this.prisma.operationRun.updateMany({
+      where: {
+        ...input.where,
+        ...(input.stage === null
+          ? { stage: { not: null } }
+          : { OR: [{ stage: null }, { stage: { not: input.stage } }] }),
+      },
+      data: {
+        ...input.data,
+        stage: input.stage,
+        stageUpdatedAt: input.stageUpdatedAt,
+      },
+    });
+    if (changed.count > 0) return changed.count;
+
+    const repeated = await this.prisma.operationRun.updateMany({
+      where: { ...input.where, stage: input.stage },
+      data: input.data,
+    });
+    return repeated.count;
   }
 }

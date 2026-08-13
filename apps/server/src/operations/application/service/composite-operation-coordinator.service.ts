@@ -53,6 +53,8 @@ export class CompositeOperationCoordinatorService
         ownerDomain: definition.ownerDomain,
         title: definition.title,
         engineType: definition.engineType,
+        resourceClass: definition.resourceClass,
+        executionTimeoutMs: definition.executionTimeoutMs,
         triggerSource: input.parent.triggerSource,
         requestedByUserId: input.parent.requestedByUserId,
         parentRunId: input.parent.id,

@@ -1645,6 +1645,8 @@ erDiagram
     String ownerDomain
     String title
     String engineType
+    String resourceClass
+    Int executionTimeoutMs
     String status
     String triggerSource
     String requestedByUserId FK
@@ -1654,6 +1656,11 @@ erDiagram
     Json input
     Json result
     Float progress
+    String stage
+    DateTime stageUpdatedAt
+    Int progressCurrent
+    Int progressTotal
+    DateTime deadlineAt
     String nativeRunType
     String nativeRunId
     Int attempts

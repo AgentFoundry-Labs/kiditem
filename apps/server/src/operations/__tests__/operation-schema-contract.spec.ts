@@ -20,6 +20,19 @@ describe('Operation Prisma schema contract', () => {
     );
   });
 
+  it('persists resource policy, deadlines, stages, and paired count indexes', () => {
+    const systemSchema = read('prisma/models/system.prisma');
+
+    expect(systemSchema).toContain('resourceClass      String');
+    expect(systemSchema).toContain('executionTimeoutMs Int');
+    expect(systemSchema).toContain('stageUpdatedAt');
+    expect(systemSchema).toContain('progressCurrent');
+    expect(systemSchema).toContain('progressTotal');
+    expect(systemSchema).toContain('deadlineAt');
+    expect(systemSchema).toContain('@@index([resourceClass, status, scheduledFor])');
+    expect(systemSchema).toContain('@@index([resourceClass, status, leaseExpiresAt])');
+  });
+
   it('adds organization and user back-relations', () => {
     const coreSchema = read('prisma/models/core.prisma');
 

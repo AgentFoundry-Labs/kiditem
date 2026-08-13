@@ -12,6 +12,8 @@ const definition: OperationDefinition = {
   allowedTriggers: ['dashboard', 'schedule'],
   scheduleSupported: true,
   maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 900_000,
   inputSchema: z.object({ sources: z.array(z.string()).min(1) }).strict(),
 };
 
@@ -40,5 +42,14 @@ describe('OperationHandlerRegistryService', () => {
       sources: ['naver'],
     });
     expect(() => registry.parseInput(definition.key, { sources: 'naver' })).toThrow();
+  });
+
+  it('preserves required resource policy on registered definitions', () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+
+    expect(registry.listDefinitions()).toEqual([
+      expect.objectContaining({ resourceClass: 'default', executionTimeoutMs: 900_000 }),
+    ]);
   });
 });

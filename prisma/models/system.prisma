@@ -206,6 +206,8 @@ model OperationRun {
   ownerDomain       String    @map("owner_domain")
   title             String
   engineType        String    @map("engine_type")
+  resourceClass      String   @default("default") @map("resource_class")
+  executionTimeoutMs Int      @default(900000) @map("execution_timeout_ms")
   status            String    @default("queued")
   triggerSource     String    @map("trigger_source")
   requestedByUserId String?   @map("requested_by_user_id") @db.Uuid
@@ -215,6 +217,11 @@ model OperationRun {
   input             Json      @default("{}") @db.JsonB
   result            Json?     @db.JsonB
   progress          Float?
+  stage              String?
+  stageUpdatedAt     DateTime? @map("stage_updated_at") @db.Timestamptz
+  progressCurrent    Int?      @map("progress_current")
+  progressTotal      Int?      @map("progress_total")
+  deadlineAt         DateTime? @map("deadline_at") @db.Timestamptz
   nativeRunType     String?   @map("native_run_type")
   nativeRunId       String?   @map("native_run_id")
   attempts          Int       @default(0)
@@ -242,6 +249,8 @@ model OperationRun {
   @@index([organizationId, status, createdAt])
   @@index([status, scheduledFor])
   @@index([status, leaseExpiresAt])
+  @@index([resourceClass, status, scheduledFor])
+  @@index([resourceClass, status, leaseExpiresAt])
   @@index([parentRunId])
   @@index([scheduleId])
   @@index([requestedByUserId])

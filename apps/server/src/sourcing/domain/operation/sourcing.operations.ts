@@ -17,6 +17,8 @@ export const SOURCING_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen', 'agent', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
+    resourceClass: 'default',
+    executionTimeoutMs: 900_000,
     inputSchema: SourcingDailyTrendInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

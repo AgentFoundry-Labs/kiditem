@@ -1,5 +1,7 @@
 import type {
   OperationEngineType,
+  OperationResourceClass,
+  OperationStage,
   OperationStatus,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
@@ -20,6 +22,8 @@ export interface OperationRunRecord {
   ownerDomain: string;
   title: string;
   engineType: OperationEngineType;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   status: OperationStatus;
   triggerSource: OperationTriggerSource;
   requestedByUserId: string | null;
@@ -29,6 +33,11 @@ export interface OperationRunRecord {
   input: Record<string, unknown>;
   result: Record<string, unknown> | null;
   progress: number | null;
+  stage: OperationStage | null;
+  stageUpdatedAt: Date | null;
+  progressCurrent: number | null;
+  progressTotal: number | null;
+  deadlineAt: Date | null;
   nativeRunType: string | null;
   nativeRunId: string | null;
   attempts: number;
@@ -54,6 +63,8 @@ export interface CreateOperationRunRecord {
   ownerDomain: string;
   title: string;
   engineType: OperationEngineType;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   triggerSource: OperationTriggerSource;
   requestedByUserId: string | null;
   parentRunId: string | null;
@@ -70,6 +81,10 @@ export interface OperationRunTransition {
   expectedStatuses: readonly OperationStatus[];
   status: OperationStatus;
   progress?: number | null;
+  stage?: OperationStage | null;
+  progressCurrent?: number | null;
+  progressTotal?: number | null;
+  deadlineAt?: Date | null;
   result?: Record<string, unknown> | null;
   nativeRunType?: string | null;
   nativeRunId?: string | null;
@@ -179,5 +194,8 @@ export interface OperationRunRepositoryPort {
     now: Date;
     leaseExpiresAt: Date;
     progress?: number | null;
+    stage?: OperationStage | null;
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
   }): Promise<OperationRunRecord | null>;
 }

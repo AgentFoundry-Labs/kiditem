@@ -1,5 +1,6 @@
 import type {
   OperationEngineType,
+  OperationResourceClass,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
 import type { z } from 'zod';
@@ -13,6 +14,8 @@ export interface OperationDefinition {
   allowedTriggers: readonly OperationTriggerSource[];
   scheduleSupported: boolean;
   maxAttempts: number;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   inputSchema: z.ZodType<Record<string, unknown>>;
 }
 

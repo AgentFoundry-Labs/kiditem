@@ -1,11 +1,38 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BrowserOperationClaimSchema,
+  BrowserOperationHeartbeatRequestSchema,
   BrowserOperationReportRequestSchema,
   CreateOperationRunRequestSchema,
+  OperationCatalogResponseSchema,
   OperationRunSchema,
   OperationStatusSchema,
   UpsertOperationScheduleRequestSchema,
 } from './operations.js';
+
+const validRun = {
+  id: '4f519a8e-54cf-4ced-9e4e-d94d61cb8136',
+  operationKey: 'sourcing.collect_daily_trends',
+  definitionVersion: 1,
+  title: '일일 트렌드 수집',
+  ownerDomain: 'sourcing',
+  engineType: 'composite',
+  status: 'queued',
+  triggerSource: 'dashboard',
+  parentRunId: null,
+  scheduleId: null,
+  nativeRunType: null,
+  nativeRunId: null,
+  progress: null,
+  result: null,
+  error: null,
+  requestedBy: null,
+  scheduledFor: null,
+  startedAt: null,
+  finishedAt: null,
+  createdAt: '2026-08-01T00:00:00.000Z',
+  updatedAt: '2026-08-01T00:00:00.000Z',
+} as const;
 
 describe('Operation wire contracts', () => {
   it('rejects tenant input and requires browser fencing', () => {
@@ -39,27 +66,14 @@ describe('Operation wire contracts', () => {
   it('accepts an organization-safe operation projection', () => {
     expect(
       OperationRunSchema.parse({
-        id: '4f519a8e-54cf-4ced-9e4e-d94d61cb8136',
-        operationKey: 'sourcing.collect_daily_trends',
-        definitionVersion: 1,
-        title: '일일 트렌드 수집',
-        ownerDomain: 'sourcing',
-        engineType: 'composite',
-        status: 'queued',
-        triggerSource: 'dashboard',
-        parentRunId: null,
-        scheduleId: null,
-        nativeRunType: null,
-        nativeRunId: null,
-        progress: null,
-        result: null,
-        error: null,
-        requestedBy: null,
-        scheduledFor: null,
-        startedAt: null,
-        finishedAt: null,
-        createdAt: '2026-08-01T00:00:00.000Z',
-        updatedAt: '2026-08-01T00:00:00.000Z',
+        ...validRun,
+        resourceClass: 'default',
+        executionTimeoutMs: 900_000,
+        stage: null,
+        stageUpdatedAt: null,
+        progressCurrent: null,
+        progressTotal: null,
+        deadlineAt: null,
       }),
     ).toMatchObject({ status: 'queued' });
   });
@@ -67,5 +81,131 @@ describe('Operation wire contracts', () => {
   it('keeps a composite parent waiting for a child as a non-terminal state', () => {
     expect(OperationStatusSchema.parse('waiting_dependency')).toBe('waiting_dependency');
     expect(OperationStatusSchema.options).toContain('waiting_dependency');
+  });
+
+  it('requires stage-safe progress counts without changing status vocabulary', () => {
+    expect(OperationStatusSchema.options).not.toContain('partial');
+    expect(
+      OperationRunSchema.parse({
+        ...validRun,
+        resourceClass: 'playwright_1688',
+        executionTimeoutMs: 900_000,
+        stage: 'collecting_keyword',
+        stageUpdatedAt: '2026-08-13T01:02:03.000Z',
+        progressCurrent: 11,
+        progressTotal: 12,
+        deadlineAt: '2026-08-13T01:17:03.000Z',
+      }).progressCurrent,
+    ).toBe(11);
+
+    expect(() =>
+      OperationRunSchema.parse({
+        ...validRun,
+        resourceClass: 'unknown',
+        executionTimeoutMs: 900_000,
+        stage: null,
+        stageUpdatedAt: null,
+        progressCurrent: null,
+        progressTotal: null,
+        deadlineAt: null,
+      }),
+    ).toThrow();
+    expect(() =>
+      OperationRunSchema.parse({
+        ...validRun,
+        resourceClass: 'playwright_1688',
+        executionTimeoutMs: 900_000,
+        stage: 'Collecting Keyword',
+        stageUpdatedAt: '2026-08-13T01:02:03.000Z',
+        progressCurrent: 13,
+        progressTotal: 12,
+        deadlineAt: null,
+      }),
+    ).toThrow();
+    expect(() =>
+      OperationRunSchema.parse({
+        ...validRun,
+        resourceClass: 'playwright_1688',
+        executionTimeoutMs: 900_000,
+        stage: null,
+        stageUpdatedAt: null,
+        progressCurrent: 1,
+        progressTotal: null,
+        deadlineAt: null,
+      }),
+    ).toThrow();
+  });
+
+  it('publishes resource policy in the operation catalog', () => {
+    expect(
+      OperationCatalogResponseSchema.parse({
+        items: [
+          {
+            key: 'sourcing.collect_daily_trends',
+            version: 1,
+            title: '일일 트렌드 수집',
+            ownerDomain: 'sourcing',
+            engineType: 'composite',
+            scheduleSupported: true,
+            resourceClass: 'default',
+            executionTimeoutMs: 900_000,
+          },
+        ],
+      }).items[0],
+    ).toMatchObject({ resourceClass: 'default', executionTimeoutMs: 900_000 });
+  });
+
+  it('carries deadline, stage, and paired counts through browser runtime contracts', () => {
+    expect(
+      BrowserOperationClaimSchema.parse({
+        runId: '4f519a8e-54cf-4ced-9e4e-d94d61cb8136',
+        operationKey: 'sourcing.search_1688_keyword_batch',
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        attempt: 1,
+        input: { keyword: '아동 가방' },
+        leaseExpiresAt: '2026-08-13T01:03:03.000Z',
+        deadlineAt: '2026-08-13T01:17:03.000Z',
+      }).deadlineAt,
+    ).toBe('2026-08-13T01:17:03.000Z');
+
+    expect(
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        stage: 'collecting_keyword',
+        progressCurrent: 11,
+        progressTotal: 12,
+      }),
+    ).toMatchObject({ stage: 'collecting_keyword', progressCurrent: 11 });
+    expect(
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressCurrent: null,
+        progressTotal: null,
+      }),
+    ).toMatchObject({ progressCurrent: null, progressTotal: null });
+    expect(() =>
+      BrowserOperationHeartbeatRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        progressCurrent: 11,
+      }),
+    ).toThrow();
+
+    expect(
+      BrowserOperationReportRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        status: 'succeeded',
+        stage: 'completed',
+        progressCurrent: 12,
+        progressTotal: 12,
+        result: { outcome: 'partial', imported: 11 },
+      }).result,
+    ).toEqual({ outcome: 'partial', imported: 11 });
+    expect(() =>
+      BrowserOperationReportRequestSchema.parse({
+        attemptToken: '6fb6fd5f-5100-42dd-8680-0c218231be4e',
+        status: 'succeeded',
+        result: { raw_payload: 'unsafe' },
+      }),
+    ).toThrow();
   });
 });
