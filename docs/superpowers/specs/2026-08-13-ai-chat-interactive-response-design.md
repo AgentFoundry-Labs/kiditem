@@ -1,12 +1,12 @@
 # KidItem CopilotKit-Native Interaction OS And AgentOS Design
 
 - Date: 2026-08-13
-- Status: Approved design direction; canonical rewrite awaiting review
+- Status: Approved canonical design
 - Classification: greenfield AgentOS platform reconstruction with a shared web
   interaction surface
-- Scope: official AgentOS conversations, interactive responses, CopilotKit
-  Threads and Enterprise Intelligence, AG-UI integration, durable execution,
-  and runtime adapters
+- Scope: official AgentOS conversations, interactive responses, CopilotKit OSS
+  and AG-UI integration, KidItem-owned conversation persistence, durable
+  execution, and runtime adapters
 - Declared cross-domain exception: the interaction plane may read
   organization-scoped projections from multiple domains, but business domains
   retain ownership of facts and mutations
@@ -16,12 +16,12 @@
 KidItem adopts **CopilotKit as its long-term Interaction OS** rather than using
 it as a replaceable chat widget.
 
-CopilotKit owns the user-facing AI interaction plane:
+CopilotKit OSS owns the user-facing AI interaction framework:
 
 - React conversation UI;
 - the global panel opened from the existing purple quick-action button;
-- thread and message history;
-- streaming, reconnect, replay, and concurrent thread coordination;
+- chat composition, streaming presentation, and client-side run state;
+- rendering of KidItem-owned history, reconnect, and replay data;
 - generative UI, response cards, suggested replies, and action rendering;
 - human-in-the-loop interaction;
 - shared dashboard context;
@@ -38,6 +38,7 @@ AgentOS becomes the control and reasoning plane behind that interaction:
 - approval policy;
 - cost, audit, and artifact ownership;
 - durable execution coordination;
+- canonical thread, message, activity, and replay persistence;
 - runtime selection for Hermes, Codex, Claude, and future agents.
 
 The Operations control plane continues to own generic schedules, run envelopes,
@@ -45,12 +46,15 @@ and engine dispatch. Business domains continue to own their facts and
 mutations.
 
 The canonical protocol between CopilotKit and AgentOS is **AG-UI**. The
-canonical conversation store is **CopilotKit Threads backed by self-hosted
-Enterprise Intelligence**. AgentOS does not keep a second transcript store.
+canonical conversation store is **KidItem AgentOS backed by PostgreSQL**.
+CopilotKit Enterprise Intelligence, Rich Threads, hosted projects, and the
+Enterprise chart are not KID-25 dependencies.
 
 This decision intentionally accepts a strong CopilotKit dependency in the
-interaction plane. Cost and preservation of the current chat APIs are not
-selection constraints.
+interaction plane while keeping production state in KidItem. The amount of
+KidItem code that must be rewritten is not a selection constraint. That does
+not authorize a Premium or Enterprise CopilotKit dependency: the selected
+product boundary is the OSS-distributed framework/SDK plus AG-UI.
 
 ## 2. Product Contract
 
@@ -90,8 +94,8 @@ the safety boundary for delegation, business writes, and external side effects.
 2. Let users ask fast, natural, multi-turn questions in an official session
    without a separate pre-session conversation class.
 3. Keep the current dashboard visible while an AgentOS conversation runs.
-4. Use CopilotKit's native thread, streaming, generative UI, shared state, and
-   HITL capabilities instead of rebuilding them.
+4. Use CopilotKit's native streaming, generative UI, shared state, and HITL
+   interaction primitives instead of rebuilding the presentation layer.
 5. Give conversational reads and durable work the same interaction language
    while applying different capability policy where required.
 6. Make every conversation resumable from either the global panel or a dedicated
@@ -107,6 +111,8 @@ the safety boundary for delegation, business writes, and external side effects.
   API.
 - Preserving the current chat transcript model or polling flow.
 - Creating a second KidItem-specific conversation framework beside CopilotKit.
+- Depending on CopilotKit Enterprise Intelligence, Rich Threads, hosted
+  projects, Premium APIs, or the Enterprise Helm chart.
 - Creating a separate lightweight conversation lifecycle, idle rotation, or
   promotion path before an official session.
 - Letting CopilotKit become the authority for organization access, business
@@ -124,9 +130,8 @@ scope while avoiding parallel implementations.
 
 | CopilotKit capability | KidItem use |
 |---|---|
-| React v2 primitives | The global panel, official workspace conversation, thread history, composer, streaming state, and message utilities |
-| Threads | Canonical conversation identity for every AgentSession |
-| Enterprise Intelligence | Durable thread events, replay, reconnect, locking, inspection, and enterprise persistence |
+| React v2 primitives | The global panel, official workspace conversation, KidItem-backed history, composer, streaming state, and message utilities |
+| Client thread/run identity | Stable opaque IDs carried through AG-UI and mapped to every AgentSession and AgentExecution |
 | AG-UI | The only conversational event protocol between the interaction layer and AgentOS |
 | Generative UI | Metrics, resource lists, comparisons, notices, progress, artifacts, and typed action cards |
 | Human in the loop | Approval, clarification, retry, cancel, and user-editable task inputs |
@@ -143,47 +148,35 @@ CLI, or another channel.
 ## 6. Target Architecture
 
 ~~~text
-┌──────────────────────────────────────────────────────────────────────┐
-│ KidItem Web                                                         │
-│ existing purple FAB -> CopilotKit panel / AgentOS workspace         │
-│ threads · messages · generative UI · shared state · HITL            │
-└───────────────────────────────┬──────────────────────────────────────┘
-                                │ CopilotKit protocol
-┌───────────────────────────────▼──────────────────────────────────────┐
-│ CopilotKit Interaction Gateway                                     │
-│ runtime · agent discovery · session authorization · auth bridge     │
-└──────────────┬───────────────────────────────────┬───────────────────┘
-               │                                   │
-┌──────────────▼─────────────────┐   ┌─────────────▼──────────────────┐
-│ Enterprise Intelligence        │   │ AG-UI AgentOS Gateway          │
-│ Threads · events · replay      │   │ policy · context · run bridge  │
-│ realtime · locks · inspection  │   └─────────────┬──────────────────┘
-└────────────────────────────────┘                 │
-                                      ┌────────────▼──────────────────┐
-                                      │ AgentOS Control Plane         │
-                                      │ agents · sessions · tasks     │
-                                      │ authority · approval · audit  │
-                                      └────────────┬──────────────────┘
-                                                   │
-                                      ┌────────────▼──────────────────┐
-                                      │ Durable Execution             │
-                                      │ Operations run envelope       │
-                                      │ retries · resume · cancel     │
-                                      └────────────┬──────────────────┘
-                                                   │
-                           ┌───────────────────────┼────────────────────┐
-                           │                       │                    │
-                    ┌──────▼──────┐       ┌────────▼───────┐   ┌──────▼──────┐
-                    │ Hermes       │       │ Codex / Claude │   │ Remote agent │
-                    │ adapter      │       │ CLI adapters   │   │ adapter      │
-                    └──────┬───────┘       └────────┬───────┘   └──────┬──────┘
-                           └───────────────────────┼────────────────────┘
-                                                   │ scoped MCP/capabilities
-                                      ┌────────────▼──────────────────┐
-                                      │ NestJS domain services        │
-                                      │ facts · deterministic actions │
-                                      │ organization-scoped policy    │
-                                      └───────────────────────────────┘
+KidItem Web
+  existing purple FAB
+    -> CopilotKit OSS UI / AG-UI client
+       chat · generative UI · shared state · HITL · history projection
+             |
+             | same-origin CopilotKit runtime protocol
+             v
+CopilotKit OSS Interaction Gateway
+  stateless protocol edge · agent discovery · auth bridge
+             |
+             | AG-UI
+             v
+AgentOS Control Plane
+  agents · sessions · tasks · policy · conversation events · replay cursor
+       |                         |
+       |                         +--> PostgreSQL
+       |                              control · events · projections · outbox
+       v
+Operations durable execution
+  run envelope · checkpoint · retry · resume · cancel
+       |
+       +--> Hermes adapter
+       +--> isolated Codex / Claude CLI adapters
+       +--> remote agent adapters
+             |
+             | scoped MCP / capabilities
+             v
+NestJS domain services
+  organization-scoped facts · deterministic actions · policy enforcement
 ~~~
 
 ### 6.1 Interaction Gateway deployment
@@ -202,27 +195,31 @@ even if its first implementation shares a repository with KidItem.
 - A dedicated deployment avoids coupling CopilotKit's runtime dependencies to
   NestJS's HTTP-adapter version.
 
-Exact public endpoint paths follow the selected self-hosted CopilotKit runtime
-contract. KidItem must not add a parallel message API beside that contract.
+The gateway exposes the exact same-origin endpoint required by the locked OSS
+CopilotKit runtime and translates only AG-UI. KidItem history/lifecycle APIs
+are server-owned projections behind the same interaction surface; they do not
+introduce a second browser-to-agent message protocol.
 
 ## 7. Source Of Truth And Ownership
 
 | Data or behavior | Source of truth | Explicitly not the owner |
 |---|---|---|
-| Thread identity, messages, UI tool events, reconnect/replay history | CopilotKit Threads / Enterprise Intelligence | AgentOS database |
+| Thread identity and lifecycle | AgentOS `AgentSession` | Browser state or a CopilotKit service |
+| Messages, UI activity, state snapshots, and replay cursor | AgentOS versioned conversation event log | CopilotKit service or a legacy transcript table |
 | Agent definition, version, prompt package, allowed capabilities | AgentOS | CopilotKit thread metadata |
 | Organization and actor access | KidItem auth and AgentOS policy | Browser, model, CopilotKit message text |
 | Session lifecycle and thread authorization | AgentOS AgentSession | CopilotKit metadata or browser state |
 | Task objective, delegation, authority, approval, and artifact linkage | AgentOS | Chat transcript |
-| Generic schedule, run envelope, and engine dispatch | Operations | CopilotKit |
+| Generic schedule, run envelope, and engine dispatch | Operations | CopilotKit OSS |
 | Runtime-native execution state | Runtime adapter plus Operations envelope | React UI |
 | Domain facts and mutations | Owning NestJS domain | AgentOS transcript or CopilotKit state |
 | Product analytics | Analytics pipeline | AgentOS audit log |
 
-CopilotKit events and AgentOS audit records are correlated, not duplicated.
-AgentOS may record hashes, identifiers, policy decisions, tool inputs and
-outputs required for audit, but it does not reconstruct a second user-visible
-message history.
+The AgentOS conversation event log is the one user-visible history store.
+Audit records remain a separate, purpose-limited projection containing hashes,
+identifiers, policy decisions, and tool evidence; they do not copy message
+history. CopilotKit OSS renders and emits the canonical KidItem records but is
+not another store.
 
 ## 8. Single Conversation Lifecycle
 
@@ -233,9 +230,9 @@ recent accessible sessions, a selected existing session, and read-only
 connection state. It must not create a session, task, policy snapshot,
 execution, Operations run, or transcript event.
 
-An empty new-conversation composer may hold a CopilotKit-generated opaque
-thread identifier in memory. That identifier is not an AgentOS resource until
-the first run is authorized.
+An empty new-conversation composer may hold a locally generated opaque thread
+identifier in memory. That identifier is not an AgentOS resource until the
+first run is authorized.
 
 ### 8.2 First submitted message
 
@@ -249,11 +246,13 @@ unbound CopilotKit thread
   -> create root AgentSessionTask
   -> create initial context epoch and policy snapshot
   -> create AgentExecution for the AG-UI run
+  -> append the first user conversation event
   -> dispatch through the selected runtime
 ~~~
 
-The control records are created in one transaction. The transcript remains in
-CopilotKit Threads / Enterprise Intelligence.
+The control records and first user event are created in one transaction. Later
+validated user, assistant, tool, state, HITL, and terminal events append to the
+same versioned event stream before they are exposed as replayable history.
 
 ### 8.3 Continued and new conversations
 
@@ -422,8 +421,11 @@ not model-authored business actions.
 
 ## 12. AgentOS Control Model
 
-The target control schema contains references rather than copied transcripts.
-Names are conceptual until the schema implementation plan is approved.
+The target control graph links durable control records to one canonical,
+append-only conversation event stream. Message content appears only in that
+stream; task, audit, policy, usage, and analytics records keep references or
+content-free evidence instead of copied transcripts. Names are conceptual until
+the schema implementation plan is approved.
 
 ~~~typescript
 interface AgentSession {
@@ -461,6 +463,18 @@ interface AgentExecution {
   attempt: number;
   status: string;
 }
+
+interface AgentConversationEvent {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  executionId: string | null;
+  sequence: bigint;
+  eventType: string;
+  schemaVersion: number;
+  payload: unknown;
+  createdAt: Date;
+}
 ~~~
 
 Additional control records cover:
@@ -473,16 +487,18 @@ Additional control records cover:
 - token and cost ledger entries;
 - policy decisions;
 - runtime attempts;
+- append-only conversation events and replay checkpoints;
 - audit events.
 
 The first-run transaction creates exactly one root task in `interpreting`
-state. Its objective remains null until the runtime derives normalized work
-metadata; KidItem does not copy the first message into a task field. Database
-and repository invariants enforce one root task per session.
+state and one canonical user-message event. The task objective remains null
+until the runtime derives normalized work metadata; KidItem does not copy the
+first message into a task field or audit record. Database and repository
+invariants enforce one root task per session and one monotonic event sequence.
 
-`AgentSession` directly owns the organization-scoped CopilotKit thread
-association. There is no separate pre-session binding. Context epochs and
-policy snapshots reference the session, and every execution has non-null
+`AgentSession` directly owns the organization-scoped AG-UI thread association.
+There is no separate pre-session binding. Context epochs, conversation events,
+and policy snapshots reference the session, and every execution has non-null
 session and task ownership.
 
 copilotThreadId, aguiRunId, sessionId, sessionTaskId, and executionId form the
@@ -506,16 +522,29 @@ The gateway owns:
 - runtime event normalization;
 - terminal-state reconciliation.
 
-All runtime output is normalized into AG-UI events before reaching CopilotKit.
+All runtime output is normalized into a versioned KidItem conversation event,
+durably appended, and then translated into AG-UI before reaching CopilotKit.
 The browser never consumes Hermes-, Codex-, Claude-, or provider-specific
-streams.
+streams. Live text deltas use the same ordered event identity as replay, so a
+disconnect can resume after the last acknowledged sequence without duplicating
+a visible message or tool invocation.
+
+The browser's prior message array is never model-context authority. AgentOS
+loads the canonical session event stream, verifies the newly submitted event
+against the signed input hash, and builds a bounded model conversation view.
+When history exceeds the active AgentVersion context policy, the runtime writes
+a versioned summary snapshot covering an exact source-sequence range and then
+uses that immutable snapshot plus later turns. Raw retained history remains
+available for user replay and legal lifecycle; a summary does not replace or
+delete it.
 
 Immediately before dispatch, the authenticated browser requests a signed run
 intent from Nest using the CopilotKit thread ID, prospective AG-UI run ID,
-selected allowed agent, and allowlisted dashboard context. Nest derives
-organization and actor identity, validates the agent, model, runtime, and
-policy, and returns a canonical token that expires after 30 seconds. Signing
-the intent is stateless and performs no database write.
+selected allowed agent, allowlisted dashboard context, and canonical hash of
+the normalized user event. Nest derives organization and actor identity,
+validates the agent, model, runtime, event envelope, and policy, and returns a
+canonical token that expires after 30 seconds. Signing the intent is stateless
+and performs no database write.
 
 The AG-UI request carries that intent with its thread and run IDs. The
 Interaction Gateway authenticates to Nest with a dedicated secret. Nest accepts
@@ -526,9 +555,10 @@ the request DTO.
 Run authorization follows one command contract:
 
 1. A thread without a session atomically creates the session, root task,
-   context epoch, policy snapshot, and execution.
+   context epoch, policy snapshot, execution, and first user-message event.
 2. A thread with a session validates organization, actor, lifecycle, primary
-   agent, context, and policy before creating or reusing the execution.
+   agent, context, and policy before creating or reusing the execution and
+   appending the idempotent user-message event.
 
 First-run creation takes a transaction-scoped lock derived from organization,
 actor, and Copilot thread. The organization-scoped thread and AG-UI run ID are
@@ -536,15 +566,17 @@ the idempotency identity. Exact retries return the same control graph;
 mismatched reuse returns a stable conflict rather than a raw database error.
 
 Reconnect and replay use a separate read-only connection authorization path.
-They must not create or reactivate a session, task, policy snapshot, execution,
-or Operations run.
+The server reads the latest projection plus events after the client's opaque
+cursor, completes replay, and then joins the live execution stream. It must not
+create or reactivate a session, task, policy snapshot, execution, conversation
+event, or Operations run.
 
 Failure semantics are explicit:
 
 - Missing model/runtime, inactive agent, invalid membership, or invalid context
   fails before any control record is written.
 - A database error inside first-run creation rolls back the complete control
-  graph.
+  graph and first message event.
 - Runtime dispatch failure marks only the execution `failed` with a stable
   error code; the session remains available for retry on the same thread.
 - Stop interrupts only the current execution unless an explicit task or
@@ -564,6 +596,7 @@ The gateway must preserve AG-UI semantics for:
 - stop/cancel;
 - terminal success and failure;
 - duplicate-event rejection.
+- snapshot-plus-cursor replay followed by an atomic live-stream join.
 
 ## 14. Durable Execution
 
@@ -574,8 +607,8 @@ Official AgentOS tasks may outlive a browser connection or server process.
   cancellation contract.
 - A durable workflow implementation persists checkpoints and resumes after
   worker failure.
-- CopilotKit receives progress and interrupts through AG-UI and can reconnect
-  to the same run.
+- CopilotKit receives progress and interrupts through AG-UI; KidItem replays
+  persisted conversation events and reconnects the client to the same run.
 - A closed panel does not cancel work.
 - Stopping an interactive run ends only its current execution.
 - Cancellation of an official task propagates through AgentOS, Operations, and
@@ -645,31 +678,39 @@ to keep a browser connection open.
 - Runtime credentials are short-lived and capability-scoped.
 - Thread metadata cannot override AgentOS policy.
 
-## 17. Enterprise Intelligence Deployment
+## 17. KidItem-Owned Conversation Persistence
 
-Self-hosted CopilotKit Enterprise Intelligence is the target from the first
-production release.
+KidItem production PostgreSQL is the canonical store for every AgentSession
+and its conversation history. There is no CopilotKit-hosted or self-hosted
+Enterprise Intelligence data plane.
 
-The platform deployment includes:
+The persistence design includes:
 
-- a supported Kubernetes cluster;
-- highly available PostgreSQL for CopilotKit thread/event persistence;
-- highly available Redis for realtime coordination and locks;
-- KidItem OIDC integration;
-- encryption in transit and at rest;
-- backup, restore, and disaster-recovery tests;
-- organization-aware retention and deletion;
-- regional and data-residency policy;
-- metrics, traces, logs, and alerting;
-- capacity and reconnect testing.
+- an append-only, organization-scoped `AgentConversationEvent` stream with a
+  unique `(sessionId, sequence)` order and idempotent external event identity;
+- versioned payload schemas for user/assistant messages, tool activity,
+  generative UI data, state snapshots, HITL requests/decisions, and terminal
+  events;
+- a compact session projection for title, lifecycle, last event sequence,
+  unread state, and pagination without scanning the full event log;
+- server-issued opaque replay cursors that bind organization, actor, session,
+  and last acknowledged sequence;
+- transactional event append and outbox publication so an event becomes live
+  only after it is durable;
+- a replaceable ephemeral fan-out layer for multi-replica delivery that never
+  becomes the replay source of truth;
+- legal hold, retention, archive, deletion, backup, restore, and disaster
+  recovery using KidItem's organization-aware data controls;
+- object storage references for large attachments and artifacts rather than
+  embedding unbounded blobs in event payloads; and
+- metrics, traces, logs, alerts, capacity tests, and reconnect-storm tests keyed
+  only by non-content correlation identifiers.
 
-CopilotKit data stores are isolated from KidItem's business database. They may
-store conversation content and CopilotKit event state, but they never become a
-business-data read path.
-
-Vendor telemetry is disabled in self-hosted production unless explicitly
-approved. KidItem emits its own observability with the cross-plane correlation
-IDs.
+The stored model is KidItem-owned and versioned independently from the AG-UI
+wire version. Gateway translators can upgrade old event payloads into the
+locked AG-UI train during replay. Audit tables do not duplicate message text,
+and ephemeral realtime infrastructure is reconstructable from PostgreSQL plus
+active Operations state.
 
 ## 18. Dependency And Repository Policy
 
@@ -678,7 +719,7 @@ Production dependencies are limited to canonical maintained surfaces:
 - [CopilotKit/CopilotKit](https://github.com/CopilotKit/CopilotKit) for the
   React/runtime packages;
 - [AgentFoundry-Labs/CopilotKit](https://github.com/AgentFoundry-Labs/CopilotKit)
-  as the verified public MIT source lineage and self-hosting evidence fork;
+  as the verified public source-lineage and patch-review fork;
 - [ag-ui-protocol/ag-ui](https://github.com/ag-ui-protocol/ag-ui) for protocol
   contracts;
 - [CopilotKit/aimock](https://github.com/CopilotKit/aimock) as a test and chaos
@@ -695,28 +736,31 @@ Management rules:
 - Do not mix independent CopilotKit minor versions.
 - Maintain a weekly upstream review and a scheduled compatibility canary.
 - Read release notes and diff protocol/schema changes before upgrade.
-- Run thread reconnect, HITL, duplicate-tool-call, and runtime cancellation
-  tests against every candidate.
+- Run KidItem history replay, reconnect, HITL, duplicate-tool-call, and runtime
+  cancellation tests against every candidate.
 - Keep an SBOM, package/license snapshot, and internal architecture decision
   record for every production release.
 - Do not maintain a permanent fork by default; use a short patch queue only
   when an upstream fix cannot land before KidItem's release.
-- Implementation and contract verification use the public packages, public
-  source, registry metadata, and no-cost Developer path. They require no paid
-  Team or Enterprise purchase and do not provision an external service.
-- Production self-hosting remains a later deployment acceptance gate. If the
-  released artifact, license, or target topology requires a contract or cost,
-  stop and obtain explicit owner approval before purchase or provisioning.
+- Do not install, configure, or call Enterprise Intelligence, Rich Threads,
+  hosted projects, Premium endpoints, project API keys, `useThreads`, or the
+  `copilot-intelligence` Helm chart.
+- The amount of existing KidItem code or schema that must be replaced is not a
+  constraint. Rewrite legacy chat persistence, gateway, frontend, and AgentOS
+  control models when that produces the target structure.
+- Before production deployment, verify the exact OSS package licenses,
+  transitive dependencies, published artifacts, and AG-UI compatibility. A
+  documentation/license discrepancy blocks that package train until resolved;
+  it never justifies silently introducing an Enterprise service dependency.
 
 ## 19. APIs To Keep And Remove
 
 ### 19.1 Canonical surfaces
 
-- CopilotKit runtime and thread endpoints for conversation discovery, connect,
-  run, stop, resume, stream, and history.
-- AG-UI agent endpoint from CopilotKit to AgentOS.
-- AgentOS control endpoints for agents, policies, sessions, tasks, approvals,
-  artifacts, and audit.
+- CopilotKit OSS runtime endpoints for connect, run, stop, and AG-UI stream.
+- AG-UI agent endpoint from CopilotKit OSS to AgentOS.
+- AgentOS endpoints for agent discovery, session list/lifecycle, conversation
+  history/replay, policies, tasks, approvals, artifacts, and audit.
 - NestJS domain capability endpoints/ports for scoped facts and mutations.
 - Operations endpoints/ports for run envelopes and engine dispatch.
 
@@ -760,25 +804,26 @@ fences, execution idempotency, and health probes.
 
 ### Phase 0 — contract and platform proof
 
-- Verify the public fork, public package train, chart metadata, and no-cost
-  Developer path without procurement or external provisioning.
+- Verify the public fork, exact OSS package train, exported runtime APIs,
+  licenses, and AG-UI contract.
 - Snapshot package licenses and resolve documentation/package discrepancies
   before production approval.
-- Prove OIDC, organization binding, Threads, reconnect, replay, locking, HITL,
-  and AG-UI conformance in an isolated environment.
+- Prove organization binding, KidItem-owned event persistence, reconnect,
+  replay, locking, HITL, and AG-UI conformance in an isolated environment.
 - Prove a dedicated Interaction Gateway deployment through KidItem ingress.
 - Load-test long streams, reconnect storms, and concurrent thread ownership.
-- Record the supported-version matrix for CopilotKit, AG-UI, React, Node,
-  PostgreSQL, Redis, and Kubernetes.
+- Record the supported-version matrix for CopilotKit OSS, AG-UI, React, Node,
+  and PostgreSQL.
 
-Exit: the platform can retain and resume a thread without KidItem legacy chat
-storage.
+Exit: KidItem can persist and resume an AG-UI conversation without legacy chat
+storage or any Enterprise Intelligence service.
 
 ### Phase 1 — CopilotKit interaction foundation
 
 - Install one exact CopilotKit v2 package train.
-- Deploy Enterprise Intelligence.
 - Build the Interaction Gateway.
+- Add the canonical AgentOS conversation event log, replay cursor, and history
+  projection.
 - Implement the AG-UI AgentOS gateway with a minimal policy-safe Operator.
 - Replace any CopilotKit-owned floating trigger with the existing purple
   quick-action entry.
@@ -786,15 +831,15 @@ storage.
   workspace.
 - Add allowlisted shared dashboard context.
 
-Exit: a user can open, close, reload, and resume a streamed CopilotKit thread
-while keeping the dashboard visible.
+Exit: a user can open, close, reload, and resume a streamed KidItem-owned
+conversation rendered by CopilotKit OSS while keeping the dashboard visible.
 
 ### Phase 2 — single-lifecycle session vertical slice
 
 - Add agent discovery and pre-submit selection with Operator as default.
 - Add the stateless 30-second run intent.
 - Atomically create `AgentSession`, its root task, the initial context epoch,
-  policy snapshot, and execution on the first AG-UI run.
+  policy snapshot, execution, and first user event on the first AG-UI run.
 - Add read-only organization-scoped capability access without granting
   mutation authority merely because the session exists.
 - Register text, citation, notice, metric, resource, comparison, suggestion,
@@ -854,15 +899,17 @@ Exit: no production conversational path bypasses CopilotKit or AG-UI.
 
 ## 21. Verification Strategy
 
-### CopilotKit and thread tests
+### CopilotKit OSS and conversation tests
 
 - opening an empty composer, history, and reconnect perform zero AgentOS writes;
-- first submit creates one session/root-task/policy/execution control graph;
+- first submit creates one session/root-task/policy/execution control graph and
+  one canonical user event;
 - create, resume, archive, restore, and reconnect session-backed threads;
 - recover after Interaction Gateway and browser restarts;
 - reject duplicate/out-of-order events;
 - enforce thread ownership and organization binding;
-- verify concurrent-tab locking and replay;
+- verify snapshot-plus-cursor replay, atomic live join, and concurrent-tab
+  locking;
 - verify the same session thread in the panel and workspace;
 - verify package-version canaries before upgrade.
 
@@ -870,7 +917,7 @@ Exit: no production conversational path bypasses CopilotKit or AG-UI.
 
 - run against isolated real PostgreSQL after a clean schema push;
 - prove first submit creates exactly one session, root task, context epoch,
-  policy snapshot, and execution;
+  policy snapshot, execution, and first conversation event;
 - prove exact retry returns the same identifiers and mismatched reuse conflicts;
 - prove concurrent first requests converge on one control graph;
 - prove a later run adds only an execution and a new thread adds a new session;
@@ -917,7 +964,8 @@ Exit: no production conversational path bypasses CopilotKit or AG-UI.
 - cancellation propagates through every layer;
 - retries preserve idempotency;
 - artifacts remain addressable after runtime teardown;
-- restore tests correlate thread, session, task, execution, and Operations run.
+- restore tests rebuild history from PostgreSQL and correlate thread, session,
+  task, execution, and Operations run.
 
 ### Implementation gates
 
@@ -939,11 +987,13 @@ applicable repository gates:
 
 ## 22. Acceptance Criteria
 
-- CopilotKit is the canonical UI, thread, message, stream, reconnect,
-  generative-UI, and HITL framework for KidItem AI.
-- Enterprise Intelligence is the canonical conversation/event store.
+- CopilotKit OSS is the canonical UI, streaming, generative-UI, shared-state,
+  and HITL framework for KidItem AI.
+- KidItem AgentOS/PostgreSQL is the canonical thread, message, activity,
+  snapshot, and replay store.
 - AG-UI is the only CopilotKit-to-AgentOS conversational protocol.
-- AgentOS contains no duplicate user-visible transcript store.
+- There is one KidItem-owned user-visible conversation store; legacy transcript
+  tables and any vendor-side duplicate are absent.
 - The existing purple floating button is the only global AI entry.
 - The dashboard remains visible beside desktop conversations.
 - Users can select an allowed agent, with Operator as the default.
@@ -972,19 +1022,29 @@ applicable repository gates:
   removed after guarded cutover.
 - CopilotKit and AG-UI upgrades are exact-pinned, canaried, observable, and
   recoverable.
+- No runtime path requires Enterprise Intelligence, Rich Threads, hosted
+  projects, Premium credentials, or the Enterprise chart.
 
 ## 23. Rejected Alternatives
 
-### CopilotKit as a chat widget only
+### CopilotKit OSS as a decorative widget over the legacy chat stack
 
-Rejected because KidItem would continue maintaining its own threads, message
-protocol, reconnect logic, cards, and HITL while receiving only a small part of
-CopilotKit's value.
+Rejected because KidItem would keep the legacy message protocol, polling,
+cards, and HITL while using only CopilotKit's visual shell. KidItem does own
+durable conversation state, but that state is designed directly behind AG-UI
+and CopilotKit OSS rather than preserving the old chat contract.
 
-### A KidItem-specific conversation API beside CopilotKit
+### A parallel browser conversation protocol beside AG-UI
 
-Rejected because it creates two sources of truth and makes replay,
-idempotency, and upgrades harder.
+Rejected because it creates two interaction protocols and makes replay,
+idempotency, and upgrades harder. KidItem history and lifecycle endpoints are
+projections of the same AgentOS event store, not another agent-run protocol.
+
+### Enterprise Intelligence as required persistence
+
+Rejected because KID-25 deliberately targets CopilotKit's OSS framework and
+AG-UI. Durable sessions, history, replay, reconnect, locking, retention, and
+observability are KidItem platform responsibilities.
 
 ### A pre-session thread followed by official-session promotion
 
