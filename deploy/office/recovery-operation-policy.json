@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "operationRules": [
     {
       "markerStatus": "prepared",
@@ -65,7 +65,82 @@
       "decision": "allow"
     }
   ],
+  "deploymentActionPlans": {
+    "application-only": [
+      "stage-runtime",
+      "compose-validation",
+      "start-application",
+      "candidate-health",
+      "smoke",
+      "previous-manifest",
+      "current-manifest",
+      "history-manifest",
+      "bundle",
+      "success-policy-transition"
+    ],
+    "compatible-application-only": [
+      "stage-runtime",
+      "compose-validation",
+      "start-application",
+      "candidate-health",
+      "smoke",
+      "previous-manifest",
+      "current-manifest",
+      "history-manifest",
+      "bundle",
+      "success-policy-transition",
+      "marker-archive",
+      "marker-remove"
+    ],
+    "schema": [
+      "stage-runtime",
+      "compose-validation",
+      "stop-writers",
+      "start-state-services",
+      "postgres-health",
+      "minio-health",
+      "schema-push",
+      "start-application",
+      "candidate-health",
+      "smoke",
+      "previous-manifest",
+      "current-manifest",
+      "history-manifest",
+      "bundle",
+      "success-policy-transition"
+    ],
+    "destructive-schema": [
+      "stage-runtime",
+      "compose-validation",
+      "stop-writers",
+      "start-state-services",
+      "postgres-health",
+      "minio-health",
+      "dump",
+      "marker-create",
+      "schema-push",
+      "schema-push-completed-status",
+      "start-application",
+      "candidate-health",
+      "smoke",
+      "previous-manifest",
+      "current-manifest",
+      "history-manifest",
+      "bundle",
+      "success-policy-transition",
+      "deployed-status"
+    ]
+  },
   "deploymentTransitions": [
+    {
+      "markerStatusAtStart": "any",
+      "deploymentKind": "recovery-capture",
+      "currentManifestIdentity": "any",
+      "destructiveBoundaryEntered": false,
+      "outcome": "failure",
+      "runtimeAction": "stop-writers",
+      "markerAction": "preserve"
+    },
     {
       "markerStatusAtStart": "any",
       "deploymentKind": "any",

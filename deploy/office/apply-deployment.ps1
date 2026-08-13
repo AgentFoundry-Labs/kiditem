@@ -34,6 +34,7 @@ $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
 $script:RecoveryRoot = Join-Path $OfficeRoot 'recovery'
 $script:RecoveryStatePath = Join-Path $script:DeploymentsRoot 'recovery-required.json'
 $script:RecoveryHistoryRoot = Join-Path $script:DeploymentsRoot 'recovery-history'
+$script:DeploymentMutationLockPath = Join-Path $script:DeploymentsRoot 'mutation.lock'
 $script:RecoveryPolicyPath = Join-Path $PSScriptRoot 'recovery-operation-policy.json'
 $script:ComposeArgs = @()
 
@@ -69,6 +70,31 @@ function Get-FileSha256 {
     throw "Cannot hash missing file: $Path"
   }
   return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Set-AtomicTextFile {
+  param(
+    [Parameter(Mandatory = $true)][string]$Path,
+    [Parameter(Mandatory = $true)][string]$Text
+  )
+
+  $parentPath = Split-Path -Parent $Path
+  New-Item -ItemType Directory -Path $parentPath -Force | Out-Null
+  $candidatePath = '{0}.{1}.candidate' -f $Path, ([guid]::NewGuid().ToString('N'))
+  try {
+    $Text | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+    if (Test-Path -LiteralPath $Path -PathType Leaf) {
+      [System.IO.File]::Replace($candidatePath, $Path, $null)
+    }
+    else {
+      [System.IO.File]::Move($candidatePath, $Path)
+    }
+  }
+  finally {
+    if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+      Remove-Item -LiteralPath $candidatePath
+    }
+  }
 }
 
 function Get-TextSha256 {
@@ -134,9 +160,10 @@ function Read-RecoveryOperationPolicy {
 
   $policy = Get-Content -LiteralPath $script:RecoveryPolicyPath -Raw | ConvertFrom-Json
   if (
-    $policy.schemaVersion -ne 1 -or
+    $policy.schemaVersion -ne 2 -or
     @($policy.operationRules).Count -eq 0 -or
-    @($policy.deploymentTransitions).Count -eq 0
+    @($policy.deploymentTransitions).Count -eq 0 -or
+    $null -eq $policy.deploymentActionPlans
   ) {
     throw "Office recovery policy is invalid: $script:RecoveryPolicyPath"
   }
@@ -156,7 +183,7 @@ function Read-RecoveryOperationPolicy {
   foreach ($transition in @($policy.deploymentTransitions)) {
     if (
       $transition.markerStatusAtStart -notin @('none', 'prepared', 'schema-push-completed', 'recovery-required', 'deployed', 'any') -or
-      $transition.deploymentKind -notin @('application-only', 'schema', 'any') -or
+      $transition.deploymentKind -notin @('application-only', 'schema', 'recovery-capture', 'any') -or
       $transition.currentManifestIdentity -notin @('candidate', 'not-candidate', 'none', 'any') -or
       ($transition.destructiveBoundaryEntered -ne 'any' -and $transition.destructiveBoundaryEntered -isnot [bool]) -or
       $transition.outcome -notin @('failure', 'full-success') -or
@@ -164,6 +191,37 @@ function Read-RecoveryOperationPolicy {
       $transition.markerAction -notin @('preserve', 'require-recovery', 'archive-remove')
     ) {
       throw "Office recovery transition is invalid: $($transition | ConvertTo-Json -Compress)"
+    }
+  }
+
+  $allowedActions = @(
+    'stage-runtime', 'compose-validation', 'stop-writers', 'start-state-services',
+    'postgres-health', 'minio-health', 'dump', 'marker-create', 'schema-push',
+    'schema-push-completed-status', 'start-application', 'candidate-health',
+    'smoke', 'previous-manifest', 'current-manifest', 'history-manifest',
+    'bundle', 'success-policy-transition', 'deployed-status', 'marker-archive',
+    'marker-remove'
+  )
+  $requiredPlanEndings = @{
+    'application-only' = 'success-policy-transition'
+    'compatible-application-only' = 'marker-remove'
+    'schema' = 'success-policy-transition'
+    'destructive-schema' = 'deployed-status'
+  }
+  foreach ($planName in $requiredPlanEndings.Keys) {
+    $planProperty = $policy.deploymentActionPlans.PSObject.Properties[$planName]
+    $actions = if ($null -eq $planProperty) { @() } else { @($planProperty.Value) }
+    if (
+      $actions.Count -eq 0 -or
+      $actions[-1] -ne $requiredPlanEndings[$planName] -or
+      @($actions | Select-Object -Unique).Count -ne $actions.Count
+    ) {
+      throw "Office recovery action plan is incomplete or ambiguous: $planName"
+    }
+    foreach ($action in $actions) {
+      if ($action -notin $allowedActions) {
+        throw "Office recovery action plan contains unknown action ${action}: $planName"
+      }
     }
   }
 
@@ -226,13 +284,51 @@ function Get-RecoveryDeploymentTransition {
   throw "Office recovery policy has no deployment transition for marker=$MarkerStatusAtStart kind=$DeploymentKind identity=$CurrentManifestIdentity boundary=$DestructiveBoundaryEntered outcome=$Outcome."
 }
 
+function Get-DeploymentActionPlan {
+  param(
+    [Parameter(Mandatory = $true)][object]$Policy,
+    [Parameter(Mandatory = $true)][string]$PlanName
+  )
+
+  $planProperty = $Policy.deploymentActionPlans.PSObject.Properties[$PlanName]
+  if ($null -eq $planProperty -or @($planProperty.Value).Count -eq 0) {
+    throw "Office recovery policy has no deployment action plan named $PlanName."
+  }
+  return @($planProperty.Value)
+}
+
+function Assert-NextDeploymentAction {
+  param(
+    [Parameter(Mandatory = $true)][object[]]$Plan,
+    [Parameter(Mandatory = $true)][ref]$Cursor,
+    [Parameter(Mandatory = $true)][string]$Action,
+    [switch]$Final
+  )
+
+  if ($Cursor.Value -ge $Plan.Count -or $Plan[$Cursor.Value] -ne $Action) {
+    $expected = if ($Cursor.Value -lt $Plan.Count) { $Plan[$Cursor.Value] } else { '<end>' }
+    throw "Office deployment action plan mismatch: expected $expected, received $Action."
+  }
+  $Cursor.Value++
+  if ($Final -and $Cursor.Value -ne $Plan.Count) {
+    throw "Office deployment action plan has unconsumed actions after $Action."
+  }
+}
+
 function Save-RecoveryState {
   param([Parameter(Mandatory = $true)][object]$State)
 
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
-  $candidatePath = "$($script:RecoveryStatePath).candidate"
-  $State | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
-  Move-Item -LiteralPath $candidatePath -Destination $script:RecoveryStatePath -Force
+  $candidatePath = '{0}.{1}.candidate' -f $script:RecoveryStatePath, ([guid]::NewGuid().ToString('N'))
+  try {
+    $State | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+    [System.IO.File]::Replace($candidatePath, $script:RecoveryStatePath, $null)
+  }
+  finally {
+    if (Test-Path -LiteralPath $candidatePath -PathType Leaf) {
+      Remove-Item -LiteralPath $candidatePath
+    }
+  }
 }
 
 function Save-NewRecoveryState {
@@ -249,6 +345,27 @@ function Save-NewRecoveryState {
       Remove-Item -LiteralPath $candidatePath
     }
   }
+}
+
+function Enter-DeploymentMutationLock {
+  try {
+    New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
+    return [System.IO.File]::Open(
+      $script:DeploymentMutationLockPath,
+      [System.IO.FileMode]::OpenOrCreate,
+      [System.IO.FileAccess]::ReadWrite,
+      [System.IO.FileShare]::None
+    )
+  }
+  catch {
+    throw "Office deployment mutation lock could not be acquired. Another mutating operation may be active; no runtime or recovery action was started. $($_.Exception.Message)"
+  }
+}
+
+function Exit-DeploymentMutationLock {
+  param([Parameter(Mandatory = $true)][System.IO.FileStream]$LockHandle)
+
+  $LockHandle.Dispose()
 }
 
 function Archive-RecoveryState {
@@ -506,7 +623,10 @@ function Assert-OperationAllowedByRecoveryState {
 function New-DestructiveRecoveryArtifact {
   param(
     [Parameter(Mandatory = $true)][object]$CandidateManifest,
-    [Parameter(Mandatory = $true)][string]$RecoveryCopyDirectory
+    [Parameter(Mandatory = $true)][string]$RecoveryCopyDirectory,
+    [Parameter(Mandatory = $true)][object[]]$ActionPlan,
+    [Parameter(Mandatory = $true)][ref]$ActionCursor,
+    [Parameter(Mandatory = $true)][ref]$RecoveryMarkerCreationAttempted
   )
 
   if (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf) {
@@ -539,6 +659,7 @@ function New-DestructiveRecoveryArtifact {
     throw "Refusing to overwrite an existing recovery artifact named $dumpName."
   }
 
+  Assert-NextDeploymentAction -Plan $ActionPlan -Cursor $ActionCursor -Action 'dump'
   try {
     Invoke-Checked docker exec kiditem-postgres pg_dump --format=custom "--file=$containerDumpPath" --username=kiditem --dbname=kiditem
     $catalog = Get-CheckedOutput docker exec kiditem-postgres pg_restore --list $containerDumpPath
@@ -580,6 +701,8 @@ function New-DestructiveRecoveryArtifact {
     recoveryRequiredAtUtc = $null
   }
 
+  Assert-NextDeploymentAction -Plan $ActionPlan -Cursor $ActionCursor -Action 'marker-create'
+  $RecoveryMarkerCreationAttempted.Value = $true
   Save-NewRecoveryState $state
   Write-Host "Quiesced recovery dump verified: SHA256 $localHash"
   Write-Host "Recovery copy verified: $copyDumpPath"
@@ -777,7 +900,7 @@ function Complete-DatabaseRecovery {
     Wait-ForRuntime
     Assert-SmokeTests
 
-    $priorBundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
+    Set-AtomicTextFile -Path $script:CurrentManifestPath -Text $priorBundle.Raw
     if (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf) {
       Remove-Item -LiteralPath $script:PreviousManifestPath -Force
     }
@@ -832,6 +955,20 @@ function Install-Deployment {
     $currentManifestIdentityAtStart = Get-CurrentManifestIdentityForRecoveryState $recoveryStateAtStart
   }
   $deploymentKind = if ($ApplySchema) { 'schema' } else { 'application-only' }
+  $actionPlanName = if ($ApplySchema -and $AcceptDataLoss) {
+    'destructive-schema'
+  }
+  elseif ($ApplySchema) {
+    'schema'
+  }
+  elseif ($markerStatusAtStart -eq 'deployed' -and $currentManifestIdentityAtStart -eq 'candidate') {
+    'compatible-application-only'
+  }
+  else {
+    'application-only'
+  }
+  $actionPlan = Get-DeploymentActionPlan -Policy $recoveryPolicy -PlanName $actionPlanName
+  $actionCursor = 0
   $preBoundaryFailureTransition = Get-RecoveryDeploymentTransition `
     -Policy $recoveryPolicy `
     -MarkerStatusAtStart $markerStatusAtStart `
@@ -845,6 +982,13 @@ function Install-Deployment {
     -DeploymentKind $deploymentKind `
     -CurrentManifestIdentity $currentManifestIdentityAtStart `
     -DestructiveBoundaryEntered $true `
+    -Outcome 'failure'
+  $captureFailureTransition = Get-RecoveryDeploymentTransition `
+    -Policy $recoveryPolicy `
+    -MarkerStatusAtStart $markerStatusAtStart `
+    -DeploymentKind 'recovery-capture' `
+    -CurrentManifestIdentity $currentManifestIdentityAtStart `
+    -DestructiveBoundaryEntered $false `
     -Outcome 'failure'
   $preBoundaryFullSuccessTransition = Get-RecoveryDeploymentTransition `
     -Policy $recoveryPolicy `
@@ -898,45 +1042,63 @@ function Install-Deployment {
 
   $candidateDeployEnv = Join-Path $OfficeRoot '.env.office.deploy.candidate'
   $destructiveBoundaryEntered = $false
+  $recoveryMarkerCreationAttempted = $false
   try {
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'stage-runtime'
     Write-DeployEnv $candidateDeployEnv $manifest
     Copy-Item -LiteralPath $sourceCompose -Destination $script:ComposePath -Force
     Copy-Item -LiteralPath $sourceNginx -Destination (Join-Path $OfficeRoot 'nginx.conf') -Force
     Move-Item -LiteralPath $candidateDeployEnv -Destination $script:DeployEnvPath -Force
     Set-ComposeArguments
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'compose-validation'
     Invoke-Checked docker @script:ComposeArgs config --quiet
     if ($ApplySchema) {
       Write-Warning 'Stopping application writers before the approved Prisma schema push.'
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'stop-writers'
       Stop-ApplicationWriters
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'start-state-services'
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres minio
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'postgres-health'
       Wait-ForContainerHealthy 'kiditem-postgres'
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'minio-health'
       Wait-ForContainerHealthy 'kiditem-minio'
       if ($AcceptDataLoss) {
-        New-DestructiveRecoveryArtifact $manifest $RecoveryCopyDirectory | Out-Null
+        New-DestructiveRecoveryArtifact `
+          -CandidateManifest $manifest `
+          -RecoveryCopyDirectory $RecoveryCopyDirectory `
+          -ActionPlan $actionPlan `
+          -ActionCursor ([ref]$actionCursor) `
+          -RecoveryMarkerCreationAttempted ([ref]$recoveryMarkerCreationAttempted) | Out-Null
         $destructiveBoundaryEntered = $true
       }
       $schemaCommand = 'cd /app && npx prisma db push'
       if ($AcceptDataLoss) {
         $schemaCommand = "$schemaCommand --accept-data-loss"
       }
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'schema-push'
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc $schemaCommand
       if ($destructiveBoundaryEntered) {
+        Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'schema-push-completed-status'
         Set-RecoveryStateStatus 'schema-push-completed'
       }
     }
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'start-application'
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'candidate-health'
     Wait-ForRuntime
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'smoke'
     Assert-SmokeTests
-    if ($destructiveBoundaryEntered) {
-      Set-RecoveryStateStatus 'deployed'
-    }
 
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'previous-manifest'
     if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
       Copy-Item -LiteralPath $script:CurrentManifestPath -Destination $script:PreviousManifestPath -Force
     }
-    $bundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'current-manifest'
+    Set-AtomicTextFile -Path $script:CurrentManifestPath -Text $bundle.Raw
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'history-manifest'
     $historyName = '{0}-{1}.json' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $manifest.gitSha.Substring(0, 12)
     $bundle.Raw | Set-Content -LiteralPath (Join-Path $script:DeploymentsRoot $historyName) -Encoding UTF8
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'bundle'
     $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
     New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
     $bundle.Raw | Set-Content -LiteralPath (Join-Path $archiveRoot 'office-deployment.json') -Encoding UTF8
@@ -955,22 +1117,32 @@ function Install-Deployment {
     else {
       $preBoundaryFullSuccessTransition
     }
+    $transitionIsFinalAction = (
+      -not $destructiveBoundaryEntered -and
+      $fullSuccessTransition.markerAction -eq 'preserve'
+    )
+    Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'success-policy-transition' -Final:$transitionIsFinalAction
     if ($fullSuccessTransition.markerAction -eq 'archive-remove') {
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'marker-archive'
       Archive-RecoveryState 'superseded-by-compatible-forward-deploy'
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'marker-remove' -Final
       Remove-Item -LiteralPath $script:RecoveryStatePath -Force
     }
     elseif ($fullSuccessTransition.markerAction -ne 'preserve') {
       throw "Unsupported successful deployment marker action: $($fullSuccessTransition.markerAction)"
     }
-
-    Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
-    Write-Host "API image: $($manifest.apiImage)"
-    Write-Host "Web image: $($manifest.webImage)"
+    if ($destructiveBoundaryEntered) {
+      Assert-NextDeploymentAction -Plan $actionPlan -Cursor ([ref]$actionCursor) -Action 'deployed-status' -Final
+      Set-RecoveryStateStatus 'deployed'
+    }
   }
   catch {
     $deploymentError = $_
     $failureTransition = if ($destructiveBoundaryEntered) {
       $postBoundaryFailureTransition
+    }
+    elseif ($recoveryMarkerCreationAttempted) {
+      $captureFailureTransition
     }
     else {
       $preBoundaryFailureTransition
@@ -1015,6 +1187,10 @@ function Install-Deployment {
     }
     throw $deploymentError
   }
+
+  Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
+  Write-Host "API image: $($manifest.apiImage)"
+  Write-Host "Web image: $($manifest.webImage)"
 }
 
 function Show-OfficeStatus {
@@ -1064,25 +1240,34 @@ if ($Operation -eq 'CompleteRecovery' -and (-not $RecoveryArtifactPath -or -not 
 }
 
 $head = Assert-LiveCheckout
-Assert-OperationAllowedByRecoveryState $Operation -ApplySchema:$ApplySchema
+if ($Operation -eq 'Status') {
+  Assert-OperationAllowedByRecoveryState $Operation -ApplySchema:$ApplySchema
+  Show-OfficeStatus $head
+  return
+}
+if ($Operation -eq 'Deploy' -and -not $ManifestPath) {
+  throw '-ManifestPath is required for Deploy.'
+}
 
-switch ($Operation) {
-  'Status' {
-    Show-OfficeStatus $head
-  }
-  'Deploy' {
-    if (-not $ManifestPath) {
-      throw '-ManifestPath is required for Deploy.'
+$mutationLock = Enter-DeploymentMutationLock
+try {
+  Assert-OperationAllowedByRecoveryState $Operation -ApplySchema:$ApplySchema
+
+  switch ($Operation) {
+    'Deploy' {
+      Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss -RecoveryCopyDirectory $RecoveryCopyDirectory
     }
-    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss -RecoveryCopyDirectory $RecoveryCopyDirectory
-  }
-  'Rollback' {
-    if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {
-      throw "No previous deployment manifest exists at $script:PreviousManifestPath"
+    'Rollback' {
+      if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {
+        throw "No previous deployment manifest exists at $script:PreviousManifestPath"
+      }
+      Install-Deployment $script:PreviousManifestPath $head -AllowAncestor
     }
-    Install-Deployment $script:PreviousManifestPath $head -AllowAncestor
+    'CompleteRecovery' {
+      Complete-DatabaseRecovery $RecoveryArtifactPath $RecoveredDatabaseDumpSha256 $RecoveredPriorManifestPath
+    }
   }
-  'CompleteRecovery' {
-    Complete-DatabaseRecovery $RecoveryArtifactPath $RecoveredDatabaseDumpSha256 $RecoveredPriorManifestPath
-  }
+}
+finally {
+  Exit-DeploymentMutationLock $mutationLock
 }

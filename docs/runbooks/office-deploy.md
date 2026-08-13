@@ -150,8 +150,11 @@ New-Item -ItemType Directory -Force -Path $recoveryCopyDirectory | Out-Null
 
 This one command owns the destructive cutover ordering:
 
-1. Validate release, image, volume, disk, Compose, prior-manifest, and recovery
-   directory prerequisites.
+1. Validate arguments and the live checkout, then acquire the exclusive
+   OS-backed deployment mutation lock before reading recovery state or policy.
+   Hold it through guard decisions, runtime/file work, failure handling, and
+   final marker state. Validate image, volume, disk, Compose, prior-manifest,
+   and recovery-directory prerequisites under that lock.
 2. Stop API, worker, web, and nginx. Keep PostgreSQL and MinIO running and
    healthy.
 3. With writers still stopped, create a custom-format PostgreSQL dump under
@@ -163,8 +166,18 @@ This one command owns the destructive cutover ordering:
    SHA-256, prior Git SHA, and exact prior manifest SHA. The marker contains no
    credentials.
 5. Run Prisma schema push while writers remain stopped, then start and health
-   check the candidate. Keep the marker after success so runtime-only rollback
+   check the candidate. Persist `schema-push-completed` atomically after push;
+   retain it throughout candidate health/smoke and every current, previous,
+   history, and bundle write. Persist `deployed` only as the last durable
+   transaction action. Keep the marker after success so runtime-only rollback
    remains blocked across later operator sessions.
+
+`Deploy`, `Rollback`, and `CompleteRecovery` share this lock. Another mutating
+operator fails before any stop, dump, restore, container start, or marker
+transition. The handle is released on success and failure; a leftover lock file
+is harmless because ownership is the open OS handle, not file presence.
+`Status` remains lock-free and reads only atomically replaced state files.
+Both the recovery marker and `current.json` use atomic replace-or-create writes.
 
 Do not take manual row counts or a dump before invoking the command and treat
 them as cutover evidence: writes could occur afterward. The verified dump is
@@ -328,6 +341,12 @@ archives and removes the marker only after that forward deployment completes
 its runtime health/smoke checks and deployment-record finalization. A mismatch
 blocks before any deployment mutation; an application-only failure restores the
 compatible candidate runtime and preserves the marker.
+
+If post-push finalization fails, application writers remain stopped. A failed
+attempt to atomically persist `recovery-required` cannot corrupt or remove the
+existing `schema-push-completed` marker, so the next mutating operation remains
+blocked. Failure to win atomic marker creation also keeps writers stopped; it
+never enters automatic runtime restoration.
 
 The operation and marker-transition rules live in
 `recovery-operation-policy.json`, which is shipped in the immutable operator

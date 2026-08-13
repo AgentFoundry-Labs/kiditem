@@ -177,7 +177,9 @@ test('deployment records are finalized inside the destructive failure boundary',
 
   assert.match(guardedTransaction.body, /CurrentManifestPath/);
   assert.match(guardedTransaction.body, /bundles\\\{0\}/);
-  assert.match(guardedTransaction.body, /Office deployment complete/);
+  assert.match(guardedTransaction.body, /Set-RecoveryStateStatus 'deployed'/);
+  assert.doesNotMatch(guardedTransaction.body, /Office deployment complete/);
+  assert.match(install, /catch[\s\S]+Office deployment complete/);
 });
 
 test('destructive Office boundary blocks runtime-only rollback and requires identity-bound recovery', () => {

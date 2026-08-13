@@ -87,6 +87,15 @@ records the dump plus candidate/prior manifest identities in
 `deployments/recovery-required.json`. Only then may Prisma push the schema.
 Application writers stay stopped throughout this sequence.
 
+`Deploy`, `Rollback`, and `CompleteRecovery` acquire one exclusive OS-backed
+mutation lock under `deployments` before reading recovery policy/state or
+changing files or runtime. The lock handle remains open through success and
+failure handling, then is disposed in an outer `finally`; the lock file may
+remain and is not treated as ownership. A contender fails before any stop,
+dump, restore, or container start. `Status` stays lock-free and read-only.
+The recovery marker and `current.json` are both replaced atomically so the
+lock-free status path never observes a partially written state file.
+
 The marker survives a successful destructive deployment because a runtime-only
 rollback is still incompatible with the contracted database. A later successful
 application-only deployment may make the destructive candidate the safe runtime
@@ -102,11 +111,17 @@ marker only after the operator restores the recorded dump manually and supplies
 the same dump SHA-256 plus the exact prior manifest. The script re-hashes and
 catalog-checks the artifact, verifies the prior manifest SHA and Git SHA, starts
 the prior runtime, and clears the marker only after health and smoke checks pass.
-It never claims to restore the database itself.
+It never claims to restore the database itself. Marker status replacement is
+atomic. After schema push, `schema-push-completed` remains durable across all
+candidate health/smoke and manifest/history/bundle finalization. `deployed` is
+the last durable transaction action, so a finalization failure cannot expose a
+successful destructive state. If persisting `recovery-required` also fails,
+the prior atomic `schema-push-completed` marker remains intact and blocks the
+next mutation.
 
 The operator bundle includes `recovery-operation-policy.json`. It is the shared,
-fail-closed operation/transition table consumed by PowerShell and exercised by
-cross-platform Node tests. Unknown combinations are denied. Recovery marker
+fail-closed operation/transition/action-order table consumed by PowerShell and
+exercised by cross-platform Node tests. Unknown combinations are denied. Recovery marker
 schema v2 requires the candidate Git SHA and stable candidate-manifest identity
 SHA-256; an older or incomplete marker is invalid and must not be removed or
 edited to bypass recovery. Artifact capture atomically creates a new marker and
