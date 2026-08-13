@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import { CanonicalResourceRefSchema } from './resource-ref';
+
+export { CanonicalResourceRefSchema } from './resource-ref';
+export type { CanonicalResourceRef } from './resource-ref';
 
 const positiveDecimalStringSchema = z.string().regex(/^[1-9][0-9]*$/);
 const nonNegativeDecimalStringSchema = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
@@ -80,14 +84,6 @@ export const InteractionBootstrapSchema = z
   })
   .strict()
   .superRefine(requireOneMatchingDefault);
-
-export const CanonicalResourceRefSchema = z
-  .object({
-    kind: z.string().min(1),
-    id: z.string().min(1),
-    version: z.string().min(1).nullable(),
-  })
-  .strict();
 
 export const DashboardContextSchema = z.object({
   routeKey: z.string().min(1),
@@ -309,6 +305,27 @@ export const AgentConversationReplayRequestSchema = z
   })
   .strict();
 
+export {
+  ComparisonResultSchema,
+  InteractionRouteKeySchema,
+  InteractionUiResultSchema,
+  MetricGroupResultSchema,
+  NavigationResultSchema,
+  NoticeResultSchema,
+  ResourceListResultSchema,
+  SuggestedRepliesResultSchema,
+} from './ui';
+export type {
+  ComparisonResult,
+  InteractionRouteKey,
+  InteractionUiResult,
+  MetricGroupResult,
+  NavigationResult,
+  NoticeResult,
+  ResourceListResult,
+  SuggestedRepliesResult,
+} from './ui';
+
 export const AguiConnectionAuthorizationSchema = z
   .object({
     session: AgentSessionSummarySchema,
@@ -335,7 +352,6 @@ export type InteractionPrincipal = z.infer<typeof InteractionPrincipalSchema>;
 export type AllowedAgent = z.infer<typeof AllowedAgentSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type InteractionBootstrap = z.infer<typeof InteractionBootstrapSchema>;
-export type CanonicalResourceRef = z.infer<typeof CanonicalResourceRefSchema>;
 export type DashboardContext = z.infer<typeof DashboardContextSchema>;
 export type AguiRunIntent = z.infer<typeof AguiRunIntentSchema>;
 export type AguiRunAuthorization = z.infer<typeof AguiRunAuthorizationSchema>;

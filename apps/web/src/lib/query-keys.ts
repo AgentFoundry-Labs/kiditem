@@ -1,4 +1,8 @@
 export const queryKeys = {
+  agentInteraction: {
+    all: ['agent-interaction'] as const,
+    bootstrap: () => [...queryKeys.agentInteraction.all, 'bootstrap'] as const,
+  },
   agents: {
     all: ['agents'] as const,
     list: () => [...queryKeys.agents.all, 'list'] as const,
