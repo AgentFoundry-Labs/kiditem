@@ -7,7 +7,7 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 
 ## 주요 테이블 (PostgreSQL, snake_case)
 - orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품·실시간 손익 집계 원천
-- master_products / sellpia_inventory_skus / channel_listings / channel_listing_options: 정규 상품, 물리 SKU, 채널 listing/option
+- master_products / sellpia_inventory_skus / channel_listings / channel_listing_options / channel_listing_option_inventory_components: 정규 상품, 물리 SKU, 채널 listing/option과 option별 소비 구성
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
 - channel_ad_target_daily_snapshots / channel_account_daily_kpi_snapshots: 광고 target/account KPI fact
 - master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
@@ -19,7 +19,8 @@ DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되
 
 ## 분석 팁
 - 이번달: WHERE ordered_at >= date_trunc('month', now())
-- 상품 조인: order_line_items.listing_option_id → channel_listing_options.id → channel_listings.master_product_id → master_products.id
+- 주문 라인 상품 귀속: order_line_items.listing_option_id → channel_listing_options.id → channel_listing_option_inventory_components.channel_listing_option_id → sellpia_inventory_skus.id/master_product_id → master_products.id. organization-backed join마다 각 테이블의 organization_id가 order_line_items.organization_id와 같은지 함께 검증한다.
+- 한 option은 여러 component/Sellpia SKU/MasterProduct를 소비할 수 있으므로 component 행과 quantity를 보존해 집계한다. channel_listings.master_product_id는 모든 option이 한 상품으로 수렴할 때만 채워지는 listing 전체 요약이며 주문 라인 상품 소유권으로 사용하지 않는다.
 - 채널 fact 조인: channel_listing_daily_snapshots.listing_id → channel_listings.id
 - 금액 포맷: 원 단위 정수
 - 비율: 소수 1자리 (예: 이익률 12.3%)
