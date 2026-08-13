@@ -65,6 +65,10 @@ export interface WingTrackedHistory {
   points: WingTrackedSnapshot[];
 }
 
+export interface WingTrackedHistoriesResponse {
+  items: WingTrackedHistory[];
+}
+
 const BASE = '/api/ads/wing-tracked-products';
 
 export function listWingTrackedProducts(): Promise<WingTrackedProduct[]> {
@@ -90,5 +94,14 @@ export function deleteWingTrackedProduct(id: string): Promise<{ id: string }> {
 export function fetchWingTrackedHistory(id: string, days = 30): Promise<WingTrackedHistory> {
   return apiClient.get<WingTrackedHistory>(
     `${BASE}/${id}/history?days=${encodeURIComponent(String(days))}`,
+  );
+}
+
+export function fetchWingTrackedHistories(
+  days = 30,
+): Promise<WingTrackedHistoriesResponse> {
+  return apiClient.get<WingTrackedHistoriesResponse>(
+    `${BASE}/history?days=${encodeURIComponent(String(days))}`,
+    { timeoutMs: 10_000 },
   );
 }

@@ -28,6 +28,11 @@ import {
   search1688ByImage,
   type Search1688ImageResponse,
 } from '../lib/1688-image-search-api';
+import {
+  summarizeWholesaleCollection,
+  type WholesaleCollectionSummary,
+  type WholesaleCollectionUnit,
+} from '../lib/wholesale-collection-outcome';
 import { SellochWholesaleOfferGrid } from './SellochWholesaleOfferGrid';
 
 const IMAGE_SEARCH_LAUNCH_INTERVAL_MS = 500;
@@ -51,8 +56,8 @@ export function SellochWholesaleCoupangMatches() {
   );
   const [imageSearches, setImageSearches] = useState<Record<string, ImageSearchState>>({});
   const [imageSearchAvailability, setImageSearchAvailability] = useState<ImageSearchAvailability>({ status: 'checking' });
-  const autoRequestedIds = useRef<Set<string>>(new Set());
-  const autoSearchTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
+  const [collectionStarted, setCollectionStarted] = useState(false);
+  const searchTimers = useRef<Array<ReturnType<typeof setTimeout>>>([]);
 
   const matches = useMemo(
     () => buildCoupangImageSearchRows({ coupangRows, limit: 24 }),
@@ -102,39 +107,32 @@ export function SellochWholesaleCoupangMatches() {
     }
   }, [canRunImageSearch, imageSearchAvailability]);
 
-  const clearAutoSearchTimers = useCallback(() => {
-    for (const timer of autoSearchTimers.current) clearTimeout(timer);
-    autoSearchTimers.current = [];
+  const clearSearchTimers = useCallback(() => {
+    for (const timer of searchTimers.current) clearTimeout(timer);
+    searchTimers.current = [];
   }, []);
 
   const scheduleImageSearches = useCallback((targetMatches: CoupangImageSearchRow[]) => {
     if (!canRunImageSearch) return;
     targetMatches.forEach((match, index) => {
-      autoRequestedIds.current.add(match.id);
       const timer = setTimeout(() => {
         void runImageSearch(match);
       }, index * IMAGE_SEARCH_LAUNCH_INTERVAL_MS);
-      autoSearchTimers.current.push(timer);
+      searchTimers.current.push(timer);
     });
   }, [canRunImageSearch, runImageSearch]);
 
   const rerunAllSearches = useCallback(() => {
     if (!canRunImageSearch) return;
-    clearAutoSearchTimers();
-    autoRequestedIds.current.clear();
+    clearSearchTimers();
     setImageSearches({});
+    setCollectionStarted(true);
     scheduleImageSearches(matches);
-  }, [canRunImageSearch, clearAutoSearchTimers, matches, scheduleImageSearches]);
-
-  useEffect(() => {
-    if (!canRunImageSearch) return;
-    const pendingMatches = matches.filter((match) => !autoRequestedIds.current.has(match.id));
-    scheduleImageSearches(pendingMatches);
-  }, [canRunImageSearch, matches, scheduleImageSearches]);
+  }, [canRunImageSearch, clearSearchTimers, matches, scheduleImageSearches]);
 
   useEffect(() => () => {
-    clearAutoSearchTimers();
-  }, [clearAutoSearchTimers]);
+    clearSearchTimers();
+  }, [clearSearchTimers]);
 
   useEffect(() => {
     let active = true;
@@ -151,12 +149,22 @@ export function SellochWholesaleCoupangMatches() {
     };
   }, []);
 
-  const finishedSearchCount = matches.filter((match) => {
-    const state = imageSearches[match.id];
-    return state?.status === 'success' || state?.status === 'error';
-  }).length;
-  const loadingSearchCount = matches.filter((match) => imageSearches[match.id]?.status === 'loading').length;
-  const collecting = canRunImageSearch && matches.length > 0 && finishedSearchCount < matches.length;
+  const collectionUnits = useMemo<WholesaleCollectionUnit[]>(
+    () => matches.map((match) => {
+      const state = imageSearches[match.id];
+      if (state?.status === 'error') return 'failed';
+      if (state?.status === 'success') {
+        return state.result.items.length > 0 ? 'changed' : 'unchanged';
+      }
+      return 'pending';
+    }),
+    [imageSearches, matches],
+  );
+  const collectionSummary = useMemo(
+    () => summarizeWholesaleCollection(collectionStarted, collectionUnits),
+    [collectionStarted, collectionUnits],
+  );
+  const collecting = collectionSummary.status === 'running';
 
   return (
     <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white shadow-[0_12px_30px_rgba(15,23,42,0.06)]">
@@ -178,20 +186,24 @@ export function SellochWholesaleCoupangMatches() {
             disabled={!canRunImageSearch || matches.length === 0 || collecting}
             className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#b5482b] hover:text-[#b5482b] disabled:opacity-60"
           >
-            {loadingSearchCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-            전체 다시 수집
+            {collecting ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
+            전체 수집
           </button>
         </div>
 
-        {canRunImageSearch && matches.length > 0 && (
+        {collectionSummary.status !== 'idle' && (
           <div className={cn(
             'mt-4 inline-flex h-9 items-center gap-2 rounded-lg px-3 text-xs font-black',
-            collecting ? 'bg-[#eef2ff] text-[#5b50d6]' : 'bg-green-100 text-green-700',
+            collectionSummary.status === 'running'
+              ? 'bg-[#eef2ff] text-[#5b50d6]'
+              : collectionSummary.status === 'failed'
+                ? 'bg-red-100 text-red-700'
+                : collectionSummary.status === 'partial'
+                  ? 'bg-amber-100 text-amber-800'
+                  : 'bg-green-100 text-green-700',
           )}>
             {collecting ? <Loader2 size={14} className="animate-spin" /> : <ImageIcon size={14} />}
-            {collecting
-              ? `수집중 ${formatNumber(finishedSearchCount)}/${formatNumber(matches.length)}`
-              : `수집 완료 ${formatNumber(matches.length)}개`}
+            {describeCollectionSummary(collectionSummary)}
           </div>
         )}
 
@@ -567,6 +579,23 @@ function imageSearchUnavailableMessage(availability: ImageSearchAvailability): s
     return '1688 직접 검색 연결을 확인한 뒤 다시 시도해 주세요.';
   }
   return '1688 직접 매칭을 실행할 수 있습니다.';
+}
+
+function describeCollectionSummary(summary: WholesaleCollectionSummary): string {
+  switch (summary.status) {
+    case 'running':
+      return `수집중 ${formatNumber(summary.finished)}/${formatNumber(summary.total)}`;
+    case 'failed':
+      return `수집 실패 · 성공 ${formatNumber(summary.succeeded)}개 · 실패 ${formatNumber(summary.failed)}개`;
+    case 'partial':
+      return `일부 수집 완료 · 성공 ${formatNumber(summary.succeeded)}개 · 실패 ${formatNumber(summary.failed)}개`;
+    case 'no_change':
+      return `변경 없음 · 성공 ${formatNumber(summary.succeeded)}개 · 새 후보 0개`;
+    case 'complete':
+      return `수집 완료 ${formatNumber(summary.succeeded)}개`;
+    case 'idle':
+      return '';
+  }
 }
 
 function formatImageSearchError(error: unknown): string {

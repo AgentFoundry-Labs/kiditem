@@ -114,6 +114,15 @@ describe('advertising query keys', () => {
       queryKeys.ads.campaigns('sync-status'),
     );
   });
+
+  it('keys Wing tracked-product history by its bounded day window', () => {
+    expect(queryKeys.sourcing.wingTrackedHistories(30)).toEqual([
+      'sourcing',
+      'wing-tracked-products',
+      'history',
+      30,
+    ]);
+  });
 });
 
 describe('product operations query keys', () => {

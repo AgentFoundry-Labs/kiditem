@@ -55,6 +55,14 @@ export class WingTrackedProductController {
     );
   }
 
+  @Get('history')
+  historyBulk(
+    @Query() query: WingTrackedHistoryQueryDto,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.service.getBulkHistory(query.days ?? 30, organizationId);
+  }
+
   @Delete(':id')
   remove(
     @Param('id') id: string,

@@ -13,6 +13,7 @@ import type {
   UpsertWingSnapshotByProductIdInput,
   UpsertWingTrackedProductInput,
   WingTrackedProductRepositoryPort,
+  WingTrackedHistory,
   WingTrackedProductRow,
   WingTrackedProductWithLatest,
   WingTrackedSnapshotRow,
@@ -148,17 +149,48 @@ export class WingTrackedProductRepositoryAdapter
     organizationId: string,
     days: number,
   ): Promise<WingTrackedSnapshotRow[]> {
-    const cutoff = new Date();
-    cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
     const rows = await this.prisma.coupangWingTrackedProductDailySnapshot.findMany({
       where: {
         trackedProductId: id,
         organizationId,
-        businessDate: { gte: startOfUtcDay(cutoff) },
+        businessDate: { gte: historyCutoff(days) },
       },
       orderBy: { businessDate: 'asc' },
     });
     return rows.map(toSnapshotRow);
+  }
+
+  async findBulkHistory(
+    organizationId: string,
+    days: number,
+  ): Promise<WingTrackedHistory[]> {
+    const rows = await this.prisma.coupangWingTrackedProductDailySnapshot.findMany({
+      where: {
+        organizationId,
+        businessDate: { gte: historyCutoff(days) },
+      },
+      orderBy: [
+        { trackedProductId: 'asc' },
+        { businessDate: 'asc' },
+      ],
+      include: {
+        trackedProduct: { select: { productName: true } },
+      },
+    });
+    const histories = new Map<string, WingTrackedHistory>();
+    for (const row of rows) {
+      const history = histories.get(row.trackedProductId);
+      if (history) {
+        history.points.push(toSnapshotRow(row));
+        continue;
+      }
+      histories.set(row.trackedProductId, {
+        trackedProductId: row.trackedProductId,
+        productName: row.trackedProduct.productName,
+        points: [toSnapshotRow(row)],
+      });
+    }
+    return [...histories.values()];
   }
 
   private async findByIdOrThrow(
@@ -234,4 +266,10 @@ function toNumber(value: Prisma.Decimal | null): number | null {
 
 function startOfUtcDay(date: Date): Date {
   return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+}
+
+function historyCutoff(days: number): Date {
+  const cutoff = new Date();
+  cutoff.setUTCDate(cutoff.getUTCDate() - (days - 1));
+  return startOfUtcDay(cutoff);
 }

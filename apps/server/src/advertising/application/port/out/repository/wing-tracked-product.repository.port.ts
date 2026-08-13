@@ -44,6 +44,12 @@ export interface WingTrackedProductWithLatest extends WingTrackedProductRow {
   latestSnapshot: WingTrackedSnapshotRow | null;
 }
 
+export interface WingTrackedHistory {
+  trackedProductId: string;
+  productName: string;
+  points: WingTrackedSnapshotRow[];
+}
+
 export interface UpsertWingTrackedProductInput {
   productId: string;
   itemId?: string | null;
@@ -92,4 +98,9 @@ export interface WingTrackedProductRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<WingTrackedSnapshotRow[]>;
+  /** 조직의 모든 추적상품 최근 이력을 단일 bounded read 로 조회한다. */
+  findBulkHistory(
+    organizationId: string,
+    days: number,
+  ): Promise<WingTrackedHistory[]>;
 }

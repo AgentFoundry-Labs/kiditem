@@ -3,6 +3,7 @@ import { currentBusinessDate } from '../../domain/business-date';
 import {
   WING_TRACKED_PRODUCT_REPOSITORY_PORT,
   type WingTrackedProductRepositoryPort,
+  type WingTrackedHistory,
   type WingTrackedProductWithLatest,
   type WingTrackedSnapshotRow,
   type WingTrackedSnapshotValues,
@@ -107,6 +108,14 @@ export class WingTrackedProductService {
     if (!tracker) throw new NotFoundException('Wing tracked product not found');
     const points = await this.repo.findHistory(id, organizationId, days);
     return { trackedProductId: id, productName: tracker.productName, points };
+  }
+
+  async getBulkHistory(
+    days: number,
+    organizationId: string,
+  ): Promise<{ items: WingTrackedHistory[] }> {
+    const items = await this.repo.findBulkHistory(organizationId, days);
+    return { items };
   }
 }
 

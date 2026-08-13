@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { KeyRound, Loader2, PackageSearch, RefreshCw, Search } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
@@ -61,7 +61,6 @@ export function SellochWholesaleKeywordSearch() {
   const [availability, setAvailability] = useState<KeywordSearchAvailability>({ status: 'checking' });
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
   const [newKeywordText, setNewKeywordText] = useState('');
-  const autoRequestedQueries = useRef<Set<string>>(new Set());
 
   const interestKeywords = useMemo(
     () => (interestTargetsQuery.data ?? [])
@@ -135,7 +134,6 @@ export function SellochWholesaleKeywordSearch() {
   const rerunTopSearches = useCallback(() => {
     if (!canRunKeywordSearch) return;
     for (const match of matches.slice(0, AUTO_KEYWORD_SEARCH_LIMIT)) {
-      autoRequestedQueries.current.add(match.searchQuery);
       void runKeywordSearch(match);
     }
   }, [canRunKeywordSearch, matches, runKeywordSearch]);
@@ -186,15 +184,6 @@ export function SellochWholesaleKeywordSearch() {
   }, [runKeywordSearch]);
 
   useEffect(() => {
-    if (!canRunKeywordSearch) return;
-    for (const match of matches.slice(0, AUTO_KEYWORD_SEARCH_LIMIT)) {
-      if (autoRequestedQueries.current.has(match.searchQuery)) continue;
-      autoRequestedQueries.current.add(match.searchQuery);
-      void runKeywordSearch(match);
-    }
-  }, [canRunKeywordSearch, matches, runKeywordSearch]);
-
-  useEffect(() => {
     let active = true;
     void get1688KeywordSearchStatus()
       .then((status) => {
@@ -231,7 +220,7 @@ export function SellochWholesaleKeywordSearch() {
           className="inline-flex h-10 shrink-0 items-center justify-center gap-2 rounded-lg border border-[#dbe2ea] bg-[#fbfbfc] px-4 text-xs font-black text-[#4b5563] transition hover:border-[#6d5dfc] hover:text-[#6d5dfc] disabled:opacity-60"
         >
           {loadingSearchCount > 0 ? <Loader2 size={15} className="animate-spin" /> : <RefreshCw size={15} />}
-          상위 {AUTO_KEYWORD_SEARCH_LIMIT}개 다시 검색
+          상위 {AUTO_KEYWORD_SEARCH_LIMIT}개 검색
         </button>
       </div>
 

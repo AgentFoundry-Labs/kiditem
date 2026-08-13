@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
   ArrowLeft,
@@ -20,9 +20,10 @@ import {
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
+import { queryKeys } from '@/lib/query-keys';
 import {
   deleteWingTrackedProduct,
-  fetchWingTrackedHistory,
+  fetchWingTrackedHistories,
   ingestWingTrackedSnapshots,
   listWingTrackedProducts,
   type IngestWingSnapshotItem,
@@ -63,25 +64,26 @@ export function ProductTrackingPage() {
     queryFn: listWingTrackedProducts,
   });
 
-  // 점수·추이 계산을 위해 모든 추적 상품의 이력을 미리 받는다(펼침 차트와 같은 queryKey 라 캐시 공유).
-  const historyQueries = useQueries({
-    queries: products.map((product) => ({
-      queryKey: ['wing-tracked-history', product.id],
-      queryFn: () => fetchWingTrackedHistory(product.id, 30),
-    })),
+  const { data: histories, isLoading: historyLoading } = useQuery({
+    queryKey: queryKeys.sourcing.wingTrackedHistories(30),
+    queryFn: () => fetchWingTrackedHistories(30),
   });
-  const historyLoading = historyQueries.some((query) => query.isLoading);
+  const historyByTrackedProductId = useMemo(
+    () => new Map(
+      (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),
+    ),
+    [histories?.items],
+  );
 
   const ranked = useMemo<RankedProduct[]>(() => {
     return products
-      .map((product, index) => {
-        const points = historyQueries[index]?.data?.points ?? [];
+      .map((product) => {
+        const points = historyByTrackedProductId.get(product.id) ?? [];
         return { product, points, trend: computeWindowTrend(points, windowDays) };
       })
       .sort((a, b) => (b.trend.score ?? -1) - (a.trend.score ?? -1))
       .map((entry, index) => ({ ...entry, rank: index + 1 }));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [products, historyQueries.map((query) => query.dataUpdatedAt).join(','), windowDays]);
+  }, [historyByTrackedProductId, products, windowDays]);
 
   const removeMutation = useMutation({
     mutationFn: (id: string) => deleteWingTrackedProduct(id),
@@ -105,9 +107,9 @@ export function ProductTrackingPage() {
     try {
       const captured = await refreshTrackedMetrics(products);
       await queryClient.invalidateQueries({ queryKey: TRACKED_QUERY_KEY });
-      products.forEach((product) =>
-        queryClient.invalidateQueries({ queryKey: ['wing-tracked-history', product.id] }),
-      );
+      await queryClient.invalidateQueries({
+        queryKey: queryKeys.sourcing.wingTrackedHistories(30),
+      });
       toast.success(
         captured > 0 ? `${captured}개 상품 지표를 갱신했습니다` : '갱신할 지표를 찾지 못했습니다',
       );
