@@ -7,8 +7,8 @@ import { SellpiaProductInventoryReader } from '../sellpia-product-inventory-read
 import { SellpiaMasterProductProfitFactReader } from '../sellpia-master-product-profit-fact.reader';
 import { SELLPIA_PRODUCT_SALES_EVENTS } from '../sellpia-product-sales.events';
 import type { PrismaService } from '../../../prisma/prisma.service';
-import { InventoryCommitmentRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../../inventory/application/service/inventory-commitment.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../../inventory/application/service/inventory-availability.service';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -28,8 +28,8 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    const inventory = new InventoryCommitmentService(
-      new InventoryCommitmentRepositoryAdapter(prismaService),
+    const inventory = new InventoryAvailabilityService(
+      new InventoryAvailabilityRepositoryAdapter(prismaService),
     );
     eventEmitter = new EventEmitter2();
     service = new SellpiaProductSalesService(
@@ -198,7 +198,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       inventoryResolution: {
         status: 'matched',
         currentStock: 200,
-        activeCommitmentQuantity: 0,
         availableStock: 200,
       },
       monthsOfAvailableStockLeft: 0.5,
@@ -411,7 +410,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     expect(events).toEqual([{ organizationId: TEST_ORGANIZATION_ID }]);
   });
 
-  it('uses common available stock for depletion while preserving physical stock', async () => {
+  it('uses physical available stock for depletion', async () => {
     await seedInventoryState(prisma, new Date('2026-07-17T04:00:00.000Z'));
     const sku = await prisma.sellpiaInventorySku.create({
       data: {
@@ -419,27 +418,6 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         code: 'COMMITTED',
         name: 'Committed inventory',
         currentStock: 100,
-      },
-    });
-    const commitment = await prisma.inventoryCommitment.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        kind: 'rocket_request',
-        sourceId: '31000000-0000-4000-8000-000000000001',
-        businessKey: 'coupang-rocket:test:committed',
-        unitQuantity: 80,
-        status: 'active',
-        inventoryGeneration: 1n,
-        createdBy: TEST_USER_ID,
-      },
-    });
-    await prisma.inventoryCommitmentAllocation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        commitmentId: commitment.id,
-        sellpiaInventorySkuId: sku.id,
-        unitsPerItem: 1,
-        quantity: 80,
       },
     });
     await prisma.sellpiaProductMonthlySales.createMany({
@@ -456,11 +434,10 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       inventoryResolution: {
         status: 'matched',
         currentStock: 100,
-        activeCommitmentQuantity: 80,
-        availableStock: 20,
+        availableStock: 100,
       },
-      monthsOfAvailableStockLeft: 0.2,
-      needsReorder: true,
+      monthsOfAvailableStockLeft: 1,
+      needsReorder: false,
     });
   });
 });

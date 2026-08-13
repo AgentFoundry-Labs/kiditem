@@ -18,8 +18,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
@@ -34,8 +34,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     service = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
-      new InventoryCommitmentService(
-        new InventoryCommitmentRepositoryAdapter(prismaService),
+      new InventoryAvailabilityService(
+        new InventoryAvailabilityRepositoryAdapter(prismaService),
       ),
       {
         findByMasterProductIds: async () => new Map(),

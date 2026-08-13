@@ -68,24 +68,6 @@ describe('Inventory architecture contract', () => {
     expect(hits).toEqual([]);
   });
 
-  it('owns physical-stock-independent commitments and component allocations', () => {
-    const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    const commitment = schema.match(
-      /model InventoryCommitment \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-    const allocation = schema.match(
-      /model InventoryCommitmentAllocation \{([\s\S]*?)\n\}/,
-    )?.[1] ?? '';
-
-    expect(commitment).toContain('businessKey');
-    expect(commitment).toContain('inventoryGeneration');
-    expect(commitment).toContain('predecessorCommitmentId');
-    expect(commitment).toContain('where: raw("status = \'active\'")');
-    expect(allocation).toContain('sellpiaInventorySkuId');
-    expect(allocation).toContain('unitsPerItem');
-    expect(commitment).not.toContain('currentStock');
-  });
-
   it('centralizes the Sellpia advisory transaction lock', () => {
     const hits = rg(
       `--type ts --files-with-matches 'inventory-sellpia:' ${inventoryRel()} --glob '!**/__tests__/**'`,

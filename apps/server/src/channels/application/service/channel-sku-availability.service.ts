@@ -6,7 +6,7 @@ import type {
 } from '@kiditem/shared/channel-sku-availability';
 import { projectChannelOptionCapacity } from '../../../products/domain/channel-option-capacity';
 import type { ChannelSkuAvailabilityPort } from '../port/in/channel-sku-availability.port';
-import type { InventorySkuAvailability } from '@kiditem/shared/inventory-commitment';
+import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import {
   INVENTORY_AVAILABILITY_PORT,
   type InventoryAvailabilityPort,
@@ -117,7 +117,6 @@ function toAvailabilityItem(
     return {
       ...component,
       currentStock: inventory?.currentStock ?? 0,
-      activeCommitmentQuantity: inventory?.activeCommitmentQuantity ?? 0,
       availableStock: inventory?.availableStock ?? 0,
       isActive: inventory?.isActive ?? false,
     };
@@ -125,7 +124,6 @@ function toAvailabilityItem(
   const projection = projectChannelOptionCapacity(components.map((component) => ({
       sellpiaInventorySkuId: component.sellpiaInventorySkuId,
       currentStock: component.currentStock,
-      activeCommitmentQuantity: component.activeCommitmentQuantity,
       availableStock: component.availableStock,
       quantity: component.quantity,
       isActive: component.isActive,
@@ -179,7 +177,6 @@ function toAvailabilityItem(
       optionName: component.optionName,
       barcode: component.barcode,
       currentStock: component.currentStock,
-      activeCommitmentQuantity: component.activeCommitmentQuantity,
       availableStock: component.availableStock,
       purchasePrice: component.purchasePrice,
       isActive: component.isActive,

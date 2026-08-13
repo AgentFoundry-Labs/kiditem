@@ -606,7 +606,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       verifiedGeneration: 7n,
       freshnessFence: '00000000-0000-4000-8000-000000000207',
     });
-    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 80);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100);
     const capacityReader = service as unknown as {
       readFreshCapacity(input: {
         organizationId: string;
@@ -626,8 +626,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       inventorySkus: [{
         sellpiaInventorySkuId: SKU_ID,
         currentStock: 100,
-        activeCommitmentQuantity: 80,
-        availableStock: 20,
+        availableStock: 100,
         isActive: true,
       }],
     });
@@ -641,7 +640,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       verifiedGeneration: 7n,
       freshnessFence: '00000000-0000-4000-8000-000000000217',
     });
-    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100);
 
     await expect(readFreshCapacityOrRequest(service, [SKU_ID, SKU_ID]))
       .resolves.toEqual({
@@ -653,8 +652,7 @@ describe('SellpiaInventoryFreshnessService', () => {
         inventorySkus: [{
           sellpiaInventorySkuId: SKU_ID,
           currentStock: 100,
-          activeCommitmentQuantity: 30,
-          availableStock: 70,
+          availableStock: 100,
           isActive: true,
         }],
       });
@@ -669,7 +667,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       requestedGeneration: 7n,
       verifiedGeneration: 7n,
     });
-    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100);
 
     await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
       status: 'refresh_required',
@@ -697,7 +695,7 @@ describe('SellpiaInventoryFreshnessService', () => {
       refreshReason: 'manual_request',
       syncNotBefore: new Date('2026-07-15T00:00:00.000Z'),
     });
-    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100, 30);
+    repository.seedInventorySku(ORG_ID, SKU_ID, true, 100);
 
     await expect(readFreshCapacityOrRequest(service, [SKU_ID])).resolves.toEqual({
       status: 'refresh_required',
@@ -771,7 +769,6 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     Map<string, {
       isActive: boolean;
       currentStock: number;
-      activeCommitmentQuantity: number;
     }>
   >();
   private tail: Promise<void> = Promise.resolve();
@@ -838,10 +835,9 @@ implements SellpiaInventoryFreshnessRepositoryPort {
     id: string,
     isActive: boolean,
     currentStock = 0,
-    activeCommitmentQuantity = 0,
   ) {
     const byOrganization = this.inventorySkus.get(organizationId) ?? new Map();
-    byOrganization.set(id, { isActive, currentStock, activeCommitmentQuantity });
+    byOrganization.set(id, { isActive, currentStock });
     this.inventorySkus.set(organizationId, byOrganization);
   }
 
@@ -942,7 +938,6 @@ implements SellpiaInventoryFreshnessRepositoryTransaction {
     id: string;
     isActive: boolean;
     currentStock: number;
-    activeCommitmentQuantity: number;
   }>> {
     return this.repository.findInventorySkus(
       this.organizationId,

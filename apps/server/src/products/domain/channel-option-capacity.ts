@@ -1,7 +1,6 @@
 export type ChannelOptionCapacityComponent = Readonly<{
   sellpiaInventorySkuId: string;
   currentStock: number | null;
-  activeCommitmentQuantity: number | null;
   availableStock: number | null;
   quantity: number;
   isActive: boolean | null;

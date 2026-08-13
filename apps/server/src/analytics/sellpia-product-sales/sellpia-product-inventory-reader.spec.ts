@@ -26,7 +26,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     } as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
       })),
     } as never, { findDisplayMedia });
 
@@ -76,7 +76,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     } as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
       })),
     } as never, { findDisplayMedia: vi.fn(async () => { throw new Error('unavailable'); }) });
     const warn = vi.spyOn((reader as never as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
@@ -111,7 +111,7 @@ describe('SellpiaProductInventoryReader display-media enrichment', () => {
     } as never, {
       findBySkuIds: vi.fn(async () => ({
         snapshot: { collected: true, generation: '1', verifiedAt: '2026-07-17T00:00:00.000Z' },
-        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, activeCommitmentQuantity: 0, availableStock: 10, isActive: true, generation: '1' }],
+        items: [{ sellpiaInventorySkuId: skuId, currentStock: 10, availableStock: 10, isActive: true, generation: '1' }],
       })),
     } as never, { findDisplayMedia: vi.fn(async () => new Map()) });
 

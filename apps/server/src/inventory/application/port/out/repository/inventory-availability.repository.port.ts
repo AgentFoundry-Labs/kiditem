@@ -1,12 +1,12 @@
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
-export interface InventoryAvailabilityPort {
-  findBySkuIds(input: {
+export interface InventoryAvailabilityRepositoryPort {
+  findAvailability(input: {
     organizationId: string;
     sellpiaInventorySkuIds: string[];
   }): Promise<InventoryAvailabilityBatch>;
 }
 
-export const INVENTORY_AVAILABILITY_PORT = Symbol(
-  'INVENTORY_AVAILABILITY_PORT',
+export const INVENTORY_AVAILABILITY_REPOSITORY_PORT = Symbol(
+  'INVENTORY_AVAILABILITY_REPOSITORY_PORT',
 );

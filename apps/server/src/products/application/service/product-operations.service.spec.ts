@@ -50,8 +50,7 @@ describe('ProductOperationsService', () => {
         items: [{
           sellpiaInventorySkuId: skuId,
           currentStock: 100,
-          activeCommitmentQuantity: 80,
-          availableStock: 20,
+          availableStock: 100,
           isActive: true,
           generation: '12',
         }],
@@ -102,7 +101,7 @@ describe('ProductOperationsService', () => {
     expect(result.items).toHaveLength(1);
     expect(result.total).toBe(2);
     expect(result.items[0]).toMatchObject({
-      inventoryUnits: 20,
+      inventoryUnits: 100,
       depletion: { needsReorder: true },
       visitorCount: 11,
       viewCount: 22,
@@ -511,7 +510,6 @@ function inventoryAvailability(sellpiaInventorySkuId: string, availableStock: nu
   return {
     sellpiaInventorySkuId,
     currentStock: availableStock,
-    activeCommitmentQuantity: 0,
     availableStock,
     isActive: true,
     generation: '12',
