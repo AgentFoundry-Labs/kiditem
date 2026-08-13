@@ -56,6 +56,7 @@ export interface SourcingRecommendationSourceRepositoryPort {
     normalizedKeyword: string;
     limit: number;
   }): Promise<{
+    generatedAt: Date | null;
     items: import('@kiditem/shared/sourcing').SourcingWingCatalogObservation[];
     rejectedCount: number;
   }>;

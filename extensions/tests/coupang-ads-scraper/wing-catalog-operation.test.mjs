@@ -11,6 +11,10 @@ const keywordContractSource = await readFile(
   new URL('../../kiditem-os/background/coupang/wing-keyword-contract.js', import.meta.url),
   'utf8',
 );
+const operationRuntimeSource = await readFile(
+  new URL('../../kiditem-os/background/operation-runtime-client.js', import.meta.url),
+  'utf8',
+);
 
 function operationSource() {
   const start = source.indexOf('const SOURCING_WING_CATALOG_OPERATION_KEY');
@@ -117,10 +121,15 @@ function createHarness(options = {}) {
     Response,
     Set,
     String,
+    TypeError,
     WING_CATALOG_MAX_PAGES: 5,
     authedFetch,
+    clearInterval,
+    clearTimeout,
     collectionSessions,
     searchWingCatalogProducts,
+    setInterval,
+    setTimeout,
   });
   context.globalThis = context;
   vm.runInContext(
@@ -257,6 +266,93 @@ test('reuses one run session and Wing tab, uploads each keyword, heartbeats coun
   assert.equal(JSON.stringify(outcome).includes('슬라임 상품'), false);
   assert.equal(harness.sessionCalls.filter(([name]) => name === 'detachTab').length, 1);
   assert.equal(harness.sessionCalls.filter(([name]) => name === 'succeed').length, 1);
+});
+
+test('runtime report recovery never replays Wing provider, ingest, or finalize work', async () => {
+  const harness = createHarness();
+  const storage = {};
+  const runtimeRequests = [];
+  let reportAttempts = 0;
+  let runtimeCleanupCalls = 0;
+  const claim = {
+    runId: harness.operation.runId,
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    attemptToken: harness.operation.attemptToken,
+    attempt: 1,
+    input: harness.operation.input,
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
+  };
+  const chrome = {
+    runtime: { id: 'kiditem-os-test' },
+    alarms: {
+      create() {},
+      onAlarm: { addListener() {} },
+    },
+    storage: {
+      local: {
+        async get(key) { return { [key]: storage[key] }; },
+        async set(values) { Object.assign(storage, values); },
+      },
+    },
+  };
+  const environmentContext = {
+    environmentIds: ['office'],
+    alarmName(base, environmentId) { return `${base}:${environmentId}`; },
+    parseAlarmName() { return null; },
+    async authedFetch(environmentId, path, init) {
+      runtimeRequests.push({
+        environmentId,
+        path,
+        body: init.body ? JSON.parse(init.body) : null,
+      });
+      if (path.endsWith('/claim')) {
+        return new Response(JSON.stringify({ claim }), { status: 200 });
+      }
+      if (path.endsWith('/report')) {
+        reportAttempts += 1;
+        if (reportAttempts === 1) throw new TypeError('offline');
+      }
+      return new Response(null, { status: 204 });
+    },
+  };
+  vm.runInContext(operationRuntimeSource, harness.context, {
+    filename: 'operation-runtime-client.js',
+  });
+  const runtime = harness.context.KidItemOperationRuntimeClient.create({
+    chrome,
+    environmentContext,
+    domains: {
+      runOperation(operationKey) {
+        assert.equal(operationKey, claim.operationKey);
+        return harness.context.runWingCatalogOperation;
+      },
+    },
+    sessions: {
+      async getOwned() { return { status: 'succeeded' }; },
+      async cancel() { runtimeCleanupCalls += 1; },
+    },
+  });
+
+  await runtime.tick('office');
+  const recoveryStart = runtimeRequests.length;
+  await runtime.wake('office');
+  const recoveryRequests = runtimeRequests.slice(recoveryStart);
+
+  assert.equal(harness.searches.length, 2);
+  assert.equal(
+    harness.requests.filter(({ path }) => path.endsWith('/coupang-observations')).length,
+    2,
+  );
+  assert.equal(
+    harness.requests.filter(({ path }) => path.endsWith('/finalize')).length,
+    1,
+  );
+  assert.equal(runtimeRequests.filter(({ path }) => path.endsWith('/report')).length, 2);
+  assert.equal(recoveryRequests[0]?.path.endsWith('/heartbeat'), true);
+  assert.equal(recoveryRequests[1]?.path.endsWith('/report'), true);
+  assert.equal(runtimeCleanupCalls, 1);
+  assert.equal(storage.kiditem_operation_runtime_active_v1?.office, undefined);
 });
 
 test('returns attention without finalize and preserves the managed login tab', async () => {

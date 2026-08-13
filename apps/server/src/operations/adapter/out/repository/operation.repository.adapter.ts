@@ -31,6 +31,7 @@ import type {
   OperationScheduleRecord,
   UpsertOperationScheduleRecord,
 } from '../../../application/port/out/repository/operation.repository.port';
+import type { ActiveBrowserAttemptTransaction } from '../../../application/port/active-browser-attempt-transaction';
 
 const runInclude = {
   requestedBy: {
@@ -234,6 +235,91 @@ function mapSchedule(row: OperationScheduleRow): OperationScheduleRecord {
 @Injectable()
 export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  async withActiveBrowserAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveBrowserOperationAttemptRecord,
+    transaction: ActiveBrowserAttemptTransaction,
+  ) => Promise<T>): Promise<T | null> {
+    return this.prisma.$transaction(async (transaction) => {
+      // Organization-scoped raw lock: this Operation row is always the first
+      // lock in browser publication transactions so cancellation linearizes.
+      const rows = await transaction.$queryRaw<Array<{
+        runId: string;
+        organizationId: string;
+        operationKey: string;
+        engineType: string;
+        status: string;
+        attemptToken: string | null;
+        input: Prisma.JsonValue;
+        requestedByUserId: string | null;
+        startedAt: Date | null;
+        leaseExpiresAt: Date | null;
+        deadlineAt: Date | null;
+      }>>(Prisma.sql`
+        SELECT
+          id AS "runId",
+          organization_id AS "organizationId",
+          operation_key AS "operationKey",
+          engine_type AS "engineType",
+          status,
+          attempt_token AS "attemptToken",
+          input,
+          requested_by_user_id AS "requestedByUserId",
+          started_at AS "startedAt",
+          lease_expires_at AS "leaseExpiresAt",
+          deadline_at AS "deadlineAt"
+        FROM operation_runs
+        WHERE id = ${input.runId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+        FOR UPDATE
+      `);
+      const row = rows[0];
+      if (!row) return null;
+
+      // This clock read intentionally happens after the row lock is acquired.
+      const [{ now }] = await transaction.$queryRaw<Array<{ now: Date }>>`
+        SELECT clock_timestamp() AS now
+        FROM operation_runs
+        WHERE id = ${input.runId}::uuid
+          AND organization_id = ${input.organizationId}::uuid
+      `;
+      if (
+        !now
+        || row.operationKey !== input.expectedOperationKey
+        || row.engineType !== 'browser'
+        || row.status !== 'running'
+        || row.attemptToken !== input.attemptToken
+        || !row.startedAt
+        || !row.leaseExpiresAt
+        || row.leaseExpiresAt.getTime() <= now.getTime()
+        || !row.deadlineAt
+        || row.deadlineAt.getTime() <= now.getTime()
+      ) return null;
+
+      const attempt: ActiveBrowserOperationAttemptRecord = {
+        runId: row.runId,
+        organizationId: row.organizationId,
+        operationKey: row.operationKey,
+        engineType: 'browser',
+        status: 'running',
+        attemptToken: row.attemptToken,
+        input: requiredRecord(row.input),
+        requestedByUserId: row.requestedByUserId,
+        startedAt: row.startedAt,
+        leaseExpiresAt: row.leaseExpiresAt,
+        deadlineAt: row.deadlineAt,
+      };
+      return operation(
+        attempt,
+        transaction as unknown as ActiveBrowserAttemptTransaction,
+      );
+    });
+  }
 
   async findActiveBrowserAttempt(input: {
     organizationId: string;
@@ -452,6 +538,8 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       data.leaseExpiresAt = input.leaseExpiresAt;
     }
     if (input.deadlineAt !== undefined) data.deadlineAt = input.deadlineAt;
+    const terminalTransition = ['succeeded', 'failed', 'cancelled', 'attention_required']
+      .includes(input.status);
     const mutation = {
       where: {
         id: input.runId,
@@ -465,14 +553,20 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       stage: input.stage,
       stageUpdatedAt: new Date(),
     };
+    const runMutation = (transaction?: Prisma.TransactionClient) =>
+      terminalTransition
+        ? this.updateRunWithLockedRow(mutation, transaction)
+        : this.updateRunWithStage(mutation, transaction);
     const updatedCount = input.signal
       ? await this.prisma.$transaction(async (transaction) => {
           input.signal?.throwIfAborted();
-          const count = await this.updateRunWithStage(mutation, transaction);
+          const count = await runMutation(transaction);
           input.signal?.throwIfAborted();
           return count;
         })
-      : await this.updateRunWithStage(mutation);
+      : terminalTransition
+        ? await this.prisma.$transaction((transaction) => runMutation(transaction))
+        : await runMutation();
     if (updatedCount === 0) return null;
     return this.findRunById({
       organizationId: input.organizationId,
@@ -952,5 +1046,33 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       data: input.data,
     });
     return repeated.count;
+  }
+
+  private async updateRunWithLockedRow(input: {
+    where: Prisma.OperationRunWhereInput;
+    data: Prisma.OperationRunUpdateManyMutationInput;
+    stage: OperationRunTransition['stage'];
+    stageUpdatedAt: Date;
+  }, transaction?: Prisma.TransactionClient): Promise<number> {
+    if (!transaction) {
+      throw new Error('operation_terminal_transition_transaction_required');
+    }
+    const id = typeof input.where.id === 'string' ? input.where.id : null;
+    const organizationId = typeof input.where.organizationId === 'string'
+      ? input.where.organizationId
+      : null;
+    if (!id || !organizationId) {
+      throw new Error('operation_terminal_transition_identity_required');
+    }
+    // Organization-scoped row-first lock shares the browser publication lock
+    // order, so cancellation/report and owner publication linearize cleanly.
+    await transaction.$queryRaw(Prisma.sql`
+      SELECT id
+      FROM operation_runs
+      WHERE id = ${id}::uuid
+        AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `);
+    return this.updateRunWithStage(input, transaction);
   }
 }

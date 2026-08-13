@@ -145,6 +145,12 @@ describe('Wing catalog browser-operation contracts', () => {
       items: [observation],
       rejectedCount: 0,
     }).items).toEqual([observation]);
+    expect(SourcingWingCatalogSnapshotSchema.parse({
+      keyword: '슬라임',
+      generatedAt: null,
+      items: [],
+      rejectedCount: 0,
+    }).generatedAt).toBeNull();
 
     expect(SourcingWingCatalogObservationBatchSchema.safeParse({
       keyword: '슬라임',

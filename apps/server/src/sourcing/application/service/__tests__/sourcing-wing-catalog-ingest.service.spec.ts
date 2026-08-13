@@ -4,6 +4,7 @@ import type { SourcingCollectionCoordinator } from '../sourcing-collection-coord
 import type { SourcingRecommendationService } from '../sourcing-recommendation.service';
 import type { OperationAttemptVerifierPort } from '../../../../operations/application/port/in/operation-attempt-verifier.port';
 import type { SourcingRecommendationSourceRepositoryPort } from '../../port/out/repository/sourcing-recommendation-source.repository.port';
+import type { SourcingRecommendationRepositoryPort } from '../../port/out/repository/sourcing-recommendation.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -16,18 +17,30 @@ function verifier(
   purpose = 'catalog_search',
   keywords: string[] = ['  슬라임 '],
 ): OperationAttemptVerifierPort {
-  return {
-    verifyActiveBrowserAttempt: vi.fn(async () => ({
-      runId: RUN_ID,
-      organizationId: ORGANIZATION_ID,
-      operationKey: 'sourcing.collect_wing_catalog_batch',
-      input: { keywords, maxPages: 2, purpose },
-      requestedByUserId: USER_ID,
-      startedAt: new Date('2026-08-14T00:00:00.000Z'),
-      leaseExpiresAt: new Date('2026-08-14T00:01:00.000Z'),
-      deadlineAt: new Date('2026-08-14T00:15:00.000Z'),
-    })),
+  const context = {
+    runId: RUN_ID,
+    organizationId: ORGANIZATION_ID,
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: { keywords, maxPages: 2, purpose },
+    requestedByUserId: USER_ID,
+    startedAt: new Date('2026-08-14T00:00:00.000Z'),
+    leaseExpiresAt: new Date('2026-08-14T00:01:00.000Z'),
+    deadlineAt: new Date('2026-08-14T00:15:00.000Z'),
   };
+  return {
+    verifyActiveBrowserAttempt: vi.fn(async () => context),
+    withActiveBrowserAttemptFence: vi.fn(async (_input, operation) =>
+      operation(context, {})),
+  };
+}
+
+function recommendationRuns(): SourcingRecommendationRepositoryPort {
+  return {
+    findById: vi.fn(),
+    findLatest: vi.fn(),
+    createOrGet: vi.fn(),
+    publishStagedRunInAttempt: vi.fn(async () => 'published'),
+  } as unknown as SourcingRecommendationRepositoryPort;
 }
 
 function sources(
@@ -36,7 +49,11 @@ function sources(
   return {
     listLatestOfferObservations: vi.fn(async () => ({ items: [], rejectedCount: 0 })),
     listLatestCoupangObservations: vi.fn(async () => ({ items: [], rejectedCount: 0 })),
-    listWingCatalogSnapshot: vi.fn(async () => ({ items, rejectedCount: 0 })),
+    listWingCatalogSnapshot: vi.fn(async () => ({
+      generatedAt: new Date('2026-08-14T00:00:00.000Z'),
+      items,
+      rejectedCount: 0,
+    })),
   };
 }
 
@@ -54,6 +71,44 @@ function durableFinalizeRepository() {
     leaseExpiresAt: new Date(Date.now() + 60_000),
   };
   return {
+    claimAuthorizedRunInAttempt: vi.fn(async (_transaction, input) => ({
+      kind: 'claimed' as const,
+      permit: {
+        ...permit,
+        runId: '00000000-0000-4000-8000-000000000020',
+        targetKey: input.targetKey,
+      },
+    })),
+    claimRecoverableRunInAttempt: vi.fn(async () => {
+      if (state === 'complete') return { kind: 'completed' as const, runId: FINALIZE_MARKER_ID };
+      if (state === 'collecting') {
+        return {
+          kind: 'in_progress' as const,
+          runId: FINALIZE_MARKER_ID,
+          leaseExpiresAt: permit.leaseExpiresAt,
+        };
+      }
+      state = 'collecting';
+      generation += 1;
+      permit = {
+        ...permit,
+        runId: FINALIZE_MARKER_ID,
+        leaseToken: `${FINALIZE_LEASE_TOKEN.slice(0, -1)}${generation}`,
+        generation,
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      };
+      return { kind: 'claimed' as const, permit };
+    }),
+    commitInAttempt: vi.fn(async (_transaction, input) => {
+      if (input.permit.runId === FINALIZE_MARKER_ID) state = 'complete';
+      return {
+        kind: 'committed' as const,
+        runId: input.permit.runId,
+        acceptedCount: input.output.discoveredCount,
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
     claimRecoverableRun: vi.fn(async () => {
       if (state === 'complete') return { kind: 'completed' as const, runId: FINALIZE_MARKER_ID };
       if (state === 'collecting') {
@@ -145,6 +200,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier(),
       sources(),
       durableFinalizeRepository() as never,
+      recommendationRuns(),
     );
 
     await service.ingest({
@@ -218,12 +274,14 @@ describe('SourcingWingCatalogIngestService', () => {
       refresh: vi.fn(async () => ({ status: 'ready' })),
     } as unknown as SourcingRecommendationService;
     const attemptVerifier = verifier();
+    const repository = durableFinalizeRepository();
     const service = new SourcingWingCatalogIngestService(
       coordinator,
       recommendations,
       attemptVerifier,
       sources(),
-      durableFinalizeRepository() as never,
+      repository as never,
+      recommendationRuns(),
     );
 
     const browserBatchInput = {
@@ -269,13 +327,14 @@ describe('SourcingWingCatalogIngestService', () => {
       },
     });
 
-    expect(attemptVerifier.verifyActiveBrowserAttempt).toHaveBeenCalledWith({
+    expect(attemptVerifier.withActiveBrowserAttemptFence).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       runId: RUN_ID,
       expectedOperationKey: 'sourcing.collect_wing_catalog_batch',
       attemptToken: ATTEMPT_TOKEN,
-    });
-    expect(coordinator.execute).toHaveBeenCalledWith(
+    }, expect.any(Function));
+    expect(repository.claimAuthorizedRunInAttempt).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         targetKey: 'keyword:슬라임',
@@ -283,9 +342,8 @@ describe('SourcingWingCatalogIngestService', () => {
         triggerKind: 'extension',
         triggeredByUserId: USER_ID,
       }),
-      expect.any(Function),
     );
-    expect(produced).toMatchObject({
+    expect(repository.commitInAttempt.mock.calls[0]?.[1]?.output).toMatchObject({
       observations: [{
         organizationId: ORGANIZATION_ID,
         sourceKey: 'coupang.wing_catalog',
@@ -294,26 +352,19 @@ describe('SourcingWingCatalogIngestService', () => {
       }],
     });
     expect(recommendations.refresh).not.toHaveBeenCalled();
-    expect(new Set(requestHashes).size).toBe(1);
+    expect(coordinator.execute).not.toHaveBeenCalled();
   });
 
   it('uses the shared case-insensitive keyword identity for ingest idempotency', async () => {
-    const executeInputs: Array<{ idempotencyKey: string; requestHash: string; targetKey: string }> = [];
-    const coordinator = {
-      execute: vi.fn(async (executeInput) => {
-        executeInputs.push(executeInput);
-        return {
-          kind: 'existing' as const,
-          runId: '00000000-0000-4000-8000-000000000020',
-        };
-      }),
-    } as unknown as SourcingCollectionCoordinator;
+    const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
+    const repository = durableFinalizeRepository();
     const service = new SourcingWingCatalogIngestService(
       coordinator,
       { refresh: vi.fn() } as unknown as SourcingRecommendationService,
       verifier('catalog_search', ['Ａ  Pencil']),
       sources(),
-      durableFinalizeRepository() as never,
+      repository as never,
+      recommendationRuns(),
     );
     const batch = {
       keyword: 'a pencil',
@@ -335,6 +386,8 @@ describe('SourcingWingCatalogIngestService', () => {
       batch: { ...batch, keyword: '  Ａ   PENCIL ' },
     });
 
+    const executeInputs = repository.claimAuthorizedRunInAttempt.mock.calls
+      .map((call) => call[1]);
     expect(executeInputs).toHaveLength(2);
     expect(new Set(executeInputs.map((input) => input.idempotencyKey)).size).toBe(1);
     expect(new Set(executeInputs.map((input) => input.requestHash)).size).toBe(1);
@@ -364,6 +417,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('recommendation_validation'),
       sources(),
       repository as never,
+      recommendationRuns(),
     );
 
     await expect(firstService.finalizeBrowserOperation(
@@ -372,7 +426,10 @@ describe('SourcingWingCatalogIngestService', () => {
     expect(repository.state()).toBe('failed');
 
     const resumedRecommendations = {
-      refresh: vi.fn(async () => ({ status: 'ready' })),
+      refresh: vi.fn(async () => ({
+        status: 'ready',
+        data: { runId: FINALIZE_MARKER_ID },
+      })),
     } as unknown as SourcingRecommendationService;
     const resumedService = new SourcingWingCatalogIngestService(
       coordinator,
@@ -380,6 +437,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('recommendation_validation'),
       sources(),
       repository as never,
+      recommendationRuns(),
     );
 
     await expect(resumedService.finalizeBrowserOperation(
@@ -387,13 +445,15 @@ describe('SourcingWingCatalogIngestService', () => {
     )).resolves.toMatchObject({ finalized: true, refreshed: true });
 
     expect(repository.fail).toHaveBeenCalledTimes(1);
-    expect(repository.commit).toHaveBeenCalledTimes(1);
+    expect(repository.commitInAttempt).toHaveBeenCalledTimes(1);
     expect(resumedRecommendations.refresh).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       limit: 50,
       idempotencyKey: `wing-operation:${RUN_ID}:recommendation-refresh`,
+      deferPublication: true,
     });
-    expect(repository.claimRecoverableRun).toHaveBeenCalledWith(
+    expect(repository.claimRecoverableRunInAttempt).toHaveBeenCalledWith(
+      expect.anything(),
       expect.objectContaining({
         targetKey: `finalize:${RUN_ID}`,
         idempotencyKey: `wing-operation:${RUN_ID}:finalize`,
@@ -409,7 +469,7 @@ describe('SourcingWingCatalogIngestService', () => {
     const recommendations = {
       refresh: vi.fn(async () => {
         await refreshPending;
-        return { status: 'ready' };
+        return { status: 'ready', data: { runId: FINALIZE_MARKER_ID } };
       }),
     } as unknown as SourcingRecommendationService;
     const service = new SourcingWingCatalogIngestService(
@@ -418,6 +478,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('recommendation_validation'),
       sources(),
       repository as never,
+      recommendationRuns(),
     );
 
     const first = service.finalizeBrowserOperation(finalizationInput('recommendation_validation'));
@@ -433,14 +494,17 @@ describe('SourcingWingCatalogIngestService', () => {
 
     await expect(Promise.all([first, second])).resolves.toHaveLength(2);
     expect(recommendations.refresh).toHaveBeenCalledTimes(1);
-    expect(repository.commit).toHaveBeenCalledTimes(1);
+    expect(repository.commitInAttempt).toHaveBeenCalledTimes(1);
   });
 
   it('does not rerun a completed refresh and finalizes non-refresh purposes without refresh', async () => {
     const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
     const repository = durableFinalizeRepository();
     const recommendations = {
-      refresh: vi.fn(async () => ({ status: 'ready' })),
+      refresh: vi.fn(async () => ({
+        status: 'ready',
+        data: { runId: FINALIZE_MARKER_ID },
+      })),
     } as unknown as SourcingRecommendationService;
     const recommendationService = new SourcingWingCatalogIngestService(
       coordinator,
@@ -448,6 +512,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('recommendation_validation'),
       sources(),
       repository as never,
+      recommendationRuns(),
     );
 
     await recommendationService.finalizeBrowserOperation(
@@ -465,12 +530,13 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('catalog_search'),
       sources(),
       noRefreshRepository as never,
+      recommendationRuns(),
     );
     await expect(noRefreshService.finalizeBrowserOperation(
       finalizationInput('catalog_search'),
     )).resolves.toMatchObject({ finalized: true, refreshed: false });
     expect(recommendations.refresh).toHaveBeenCalledTimes(1);
-    expect(noRefreshRepository.commit).toHaveBeenCalledTimes(1);
+    expect(noRefreshRepository.commitInAttempt).toHaveBeenCalledTimes(1);
   });
 
   it('rejects final keyword results that reorder the durable operation input', async () => {
@@ -481,6 +547,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier('catalog_search', ['Ａ', 'B']),
       sources(),
       repository as never,
+      recommendationRuns(),
     );
 
     await expect(service.finalizeBrowserOperation({
@@ -495,7 +562,7 @@ describe('SourcingWingCatalogIngestService', () => {
         ],
       },
     })).rejects.toThrow('wing_catalog_operation_input_mismatch');
-    expect(repository.claimRecoverableRun).not.toHaveBeenCalled();
+    expect(repository.claimRecoverableRunInAttempt).not.toHaveBeenCalled();
   });
 
   it('returns a parsed persisted owner snapshot and rejects a keyword outside the run input', async () => {
@@ -514,6 +581,7 @@ describe('SourcingWingCatalogIngestService', () => {
       verifier(),
       sourceRepository,
       durableFinalizeRepository() as never,
+      recommendationRuns(),
     );
 
     await expect(service.snapshot({ organizationId: ORGANIZATION_ID, keyword: ' 슬라임 ' }))

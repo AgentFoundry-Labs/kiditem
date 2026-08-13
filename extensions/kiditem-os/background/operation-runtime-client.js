@@ -8,6 +8,9 @@
   const ACTIVE_CLAIMS_STORAGE_KEY = "kiditem_operation_runtime_active_v1";
   const TERMINATED_ATTEMPTS_STORAGE_KEY = "kiditem_operation_runtime_terminated_v1";
   const MAX_RESUME_LEASE_MS = 90_000;
+  const SAFE_RESULT_MAX_BYTES = 32 * 1024;
+  const SAFE_RESULT_FORBIDDEN_KEY =
+    /(?:^|[_-])(file|base64|rows?|raw|payload|response|html|cookie|token|credential|secret)(?:$|[_-])/i;
   const TRANSPORT_ERROR_CODES = new Set([
     "network_error",
     "request_timeout",
@@ -29,11 +32,11 @@
     }
     const status = value.status;
     if (status === "succeeded") {
+      const result = normalizeSafeOperationResult(value.result);
+      if (result === null) throw new Error("invalid_operation_outcome");
       return {
         status,
-        result: value.result && typeof value.result === "object" && !Array.isArray(value.result)
-          ? value.result
-          : {},
+        result,
       };
     }
     if (status === "attention_required") {
@@ -50,6 +53,31 @@
       };
     }
     throw new Error("invalid_operation_outcome");
+  }
+
+  function normalizeSafeOperationResult(value) {
+    const candidate = isRecord(value) ? value : {};
+    let serialized;
+    try {
+      serialized = JSON.stringify(candidate);
+    } catch {
+      return null;
+    }
+    if (serialized.length > SAFE_RESULT_MAX_BYTES) return null;
+    const visit = (current) => {
+      if (Array.isArray(current)) return current.every(visit);
+      if (!isRecord(current)) return true;
+      return Object.entries(current).every(
+        ([key, nested]) => !SAFE_RESULT_FORBIDDEN_KEY.test(key) && visit(nested),
+      );
+    };
+    if (!visit(candidate)) return null;
+    try {
+      const normalized = JSON.parse(serialized);
+      return isRecord(normalized) ? normalized : null;
+    } catch {
+      return null;
+    }
   }
 
   function isRecord(value) {
@@ -69,6 +97,47 @@
     return isRecord(active) && validClaim(active.claim) &&
       active.claim.runId === claim.runId &&
       active.claim.attemptToken === claim.attemptToken;
+  }
+
+  function normalizePendingReport(value, claim) {
+    if (!isRecord(value) || !isRecord(value.payload)) return null;
+    if (
+      value.runId !== claim.runId ||
+      value.attemptToken !== claim.attemptToken ||
+      value.leaseExpiresAt !== claim.leaseExpiresAt ||
+      value.deadlineAt !== claim.deadlineAt
+    ) return null;
+    try {
+      const outcome = normalizeOutcome(value.payload);
+      const progress = typeof value.payload.progress === "number" &&
+        value.payload.progress >= 0 && value.payload.progress <= 1
+        ? value.payload.progress
+        : null;
+      const payload = { ...outcome, progress };
+      const stage = boundedText(value.payload.stage, null, 120);
+      if (stage !== null) payload.stage = stage;
+      if (Number.isInteger(value.payload.progressCurrent) && value.payload.progressCurrent >= 0) {
+        payload.progressCurrent = value.payload.progressCurrent;
+      }
+      if (Number.isInteger(value.payload.progressTotal) && value.payload.progressTotal >= 0) {
+        payload.progressTotal = value.payload.progressTotal;
+      }
+      if (
+        (payload.progressCurrent === undefined) !==
+        (payload.progressTotal === undefined) ||
+        (payload.progressCurrent !== undefined &&
+          payload.progressCurrent > payload.progressTotal)
+      ) return null;
+      return {
+        runId: claim.runId,
+        attemptToken: claim.attemptToken,
+        leaseExpiresAt: claim.leaseExpiresAt,
+        deadlineAt: claim.deadlineAt,
+        payload,
+      };
+    } catch {
+      return null;
+    }
   }
 
   function isFutureTimestamp(value) {
@@ -150,7 +219,39 @@
     );
     const activeTicks = new Set();
     const activeExecutions = new Set();
+    const storageMutationTails = new Map();
     let installed = false;
+
+    function enqueueStorageMutation(storageKey, operation) {
+      const previous = storageMutationTails.get(storageKey) || Promise.resolve();
+      const current = previous.catch(() => undefined).then(operation);
+      storageMutationTails.set(storageKey, current);
+      return current.finally(() => {
+        if (storageMutationTails.get(storageKey) === current) {
+          storageMutationTails.delete(storageKey);
+        }
+      });
+    }
+
+    async function mutateStoredRecords(storageKey, mutation) {
+      return enqueueStorageMutation(storageKey, async () => {
+        let records = {};
+        try {
+          const stored = await chromeApi.storage?.local?.get(storageKey);
+          const candidate = stored?.[storageKey];
+          records = isRecord(candidate) ? candidate : {};
+        } catch {
+          return { persisted: false, result: undefined };
+        }
+        const result = await mutation(records);
+        try {
+          await chromeApi.storage?.local?.set({ [storageKey]: records });
+          return { persisted: true, result };
+        } catch {
+          return { persisted: false, result };
+        }
+      });
+    }
 
     async function readActiveClaims() {
       try {
@@ -159,15 +260,6 @@
         return isRecord(claims) ? claims : {};
       } catch {
         return {};
-      }
-    }
-
-    async function writeActiveClaims(claims) {
-      try {
-        await chromeApi.storage?.local?.set({ [ACTIVE_CLAIMS_STORAGE_KEY]: claims });
-      } catch {
-        // Persistence is a restart-recovery guard. A temporary storage error
-        // must not prevent a browser operation that is already claimed.
       }
     }
 
@@ -183,19 +275,7 @@
       }
     }
 
-    async function writeTerminatedAttempts(attempts) {
-      try {
-        await chromeApi.storage?.local?.set({
-          [TERMINATED_ATTEMPTS_STORAGE_KEY]: attempts,
-        });
-      } catch {
-        // The backend attempt token is still the durable fence. This marker
-        // only prevents deterministic same-attempt replay across MV3 wakes.
-      }
-    }
-
     async function rememberTerminatedAttempt(environmentId, claim, failure) {
-      const attempts = await readTerminatedAttempts();
       const activeClaims = await readActiveClaims();
       const active = activeClaims[environmentId];
       const matchesActiveAttempt = isRecord(active) && validClaim(active.claim) &&
@@ -206,20 +286,21 @@
         Number.isFinite(Date.parse(String(active.resumeLeaseExpiresAt || "")))
         ? Date.parse(active.resumeLeaseExpiresAt)
         : Date.parse(claim.leaseExpiresAt);
-      attempts[environmentId] = {
-        runId: claim.runId,
-        attemptToken: claim.attemptToken,
-        expiresAt: new Date(Math.min(
-          renewedLease,
-          Date.parse(claim.deadlineAt),
-        )).toISOString(),
-        failureCode: boundedText(
-          failure?.code,
-          "operation_runtime_request_rejected",
-          120,
-        ),
-      };
-      await writeTerminatedAttempts(attempts);
+      await mutateStoredRecords(TERMINATED_ATTEMPTS_STORAGE_KEY, (attempts) => {
+        attempts[environmentId] = {
+          runId: claim.runId,
+          attemptToken: claim.attemptToken,
+          expiresAt: new Date(Math.min(
+            renewedLease,
+            Date.parse(claim.deadlineAt),
+          )).toISOString(),
+          failureCode: boundedText(
+            failure?.code,
+            "operation_runtime_request_rejected",
+            120,
+          ),
+        };
+      });
     }
 
     async function isTerminatedAttempt(environmentId, claim) {
@@ -227,8 +308,12 @@
       const terminated = attempts[environmentId];
       if (!isRecord(terminated)) return false;
       if (!isFutureTimestamp(terminated.expiresAt)) {
-        delete attempts[environmentId];
-        await writeTerminatedAttempts(attempts);
+        await mutateStoredRecords(TERMINATED_ATTEMPTS_STORAGE_KEY, (latest) => {
+          const current = latest[environmentId];
+          if (isRecord(current) && !isFutureTimestamp(current.expiresAt)) {
+            delete latest[environmentId];
+          }
+        });
         return false;
       }
       return terminated.runId === claim.runId &&
@@ -254,49 +339,72 @@
       progressState = {},
       renewed = false,
     ) {
-      const claims = await readActiveClaims();
-      const previous = claims[environmentId];
-      const leaseDurationMs = Number.isFinite(previous?.leaseDurationMs)
-        ? previous.leaseDurationMs
-        : boundedLeaseDuration(claim);
-      claims[environmentId] = {
-        claim,
-        progress: typeof progressState.progress === "number" &&
-          progressState.progress >= 0 && progressState.progress <= 1
-          ? progressState.progress
-          : null,
-        stage: boundedText(progressState.stage, null, 120),
-        progressCurrent: Number.isInteger(progressState.progressCurrent) &&
-          progressState.progressCurrent >= 0
-          ? progressState.progressCurrent
-          : null,
-        progressTotal: Number.isInteger(progressState.progressTotal) &&
-          progressState.progressTotal >= 0
-          ? progressState.progressTotal
-          : null,
-        leaseDurationMs,
-        lastHeartbeatSucceededAt: renewed ? new Date().toISOString() : null,
-        resumeLeaseExpiresAt: checkpointLeaseExpiry(
+      await mutateStoredRecords(ACTIVE_CLAIMS_STORAGE_KEY, (claims) => {
+        const previous = claims[environmentId];
+        const sameAttempt = isRecord(previous) && isSameAttempt(previous, claim);
+        const leaseDurationMs = Number.isFinite(previous?.leaseDurationMs)
+          ? previous.leaseDurationMs
+          : boundedLeaseDuration(claim);
+        claims[environmentId] = {
           claim,
+          progress: typeof progressState.progress === "number" &&
+            progressState.progress >= 0 && progressState.progress <= 1
+            ? progressState.progress
+            : null,
+          stage: boundedText(progressState.stage, null, 120),
+          progressCurrent: Number.isInteger(progressState.progressCurrent) &&
+            progressState.progressCurrent >= 0
+            ? progressState.progressCurrent
+            : null,
+          progressTotal: Number.isInteger(progressState.progressTotal) &&
+            progressState.progressTotal >= 0
+            ? progressState.progressTotal
+            : null,
           leaseDurationMs,
-          renewed,
-        ).toISOString(),
-      };
-      await writeActiveClaims(claims);
+          lastHeartbeatSucceededAt: renewed ? new Date().toISOString() : null,
+          resumeLeaseExpiresAt: checkpointLeaseExpiry(
+            claim,
+            leaseDurationMs,
+            renewed,
+          ).toISOString(),
+          ...(sameAttempt && Object.hasOwn(previous, "reportPending")
+            ? { reportPending: previous.reportPending }
+            : {}),
+        };
+      });
     }
 
     async function clearActiveClaim(environmentId, claim) {
-      const claims = await readActiveClaims();
-      const current = claims[environmentId];
-      if (!current || !validClaim(current.claim)) return;
-      if (
-        current.claim.runId !== claim.runId ||
-        current.claim.attemptToken !== claim.attemptToken
-      ) {
-        return;
+      await mutateStoredRecords(ACTIVE_CLAIMS_STORAGE_KEY, (claims) => {
+        const current = claims[environmentId];
+        if (!isSameAttempt(current, claim)) return;
+        delete claims[environmentId];
+      });
+    }
+
+    async function storePendingReport(environmentId, claim, payload) {
+      const normalized = normalizePendingReport({
+        runId: claim.runId,
+        attemptToken: claim.attemptToken,
+        leaseExpiresAt: claim.leaseExpiresAt,
+        deadlineAt: claim.deadlineAt,
+        payload,
+      }, claim);
+      if (!normalized) throw new Error("invalid_operation_terminal_report");
+      const mutation = await mutateStoredRecords(ACTIVE_CLAIMS_STORAGE_KEY, (claims) => {
+        const current = claims[environmentId];
+        if (!isSameAttempt(current, claim)) return false;
+        current.reportPending = normalized;
+        return true;
+      });
+      if (!mutation.persisted || !mutation.result) {
+        throw operationRuntimeError(
+          "operation_runtime_checkpoint_unavailable",
+          null,
+          "deterministic",
+        );
       }
-      delete claims[environmentId];
-      await writeActiveClaims(claims);
+      return normalized;
     }
 
     async function activeClaimFor(environmentId, terminateExpired = false) {
@@ -372,11 +480,15 @@
       if (await isTerminatedAttempt(environmentId, claim)) return false;
       const handler = domains.runOperation(claim.operationKey);
       if (typeof handler !== "function") {
+        const payload = {
+          status: "attention_required",
+          attentionReason: "browser_operation_handler_missing",
+          progress: null,
+        };
         try {
-          await report(environmentId, claim, {
-            status: "attention_required",
-            attentionReason: "browser_operation_handler_missing",
-          });
+          await storeActiveClaim(environmentId, claim);
+          const pending = await storePendingReport(environmentId, claim, payload);
+          await report(environmentId, claim, pending.payload);
           await cancelOwnedSession(environmentId, claim);
           await clearActiveClaim(environmentId, claim);
         } catch (error) {
@@ -547,7 +659,7 @@
           return true;
         }
         try {
-          await report(environmentId, claim, {
+          const pending = await storePendingReport(environmentId, claim, {
             ...outcome,
             progress: progressState.progress,
             ...(progressState.stage === null ? {} : { stage: progressState.stage }),
@@ -557,13 +669,14 @@
             ...(progressState.progressTotal === null
               ? {}
               : { progressTotal: progressState.progressTotal }),
-          }, attemptController.signal);
+          });
+          await report(environmentId, claim, pending.payload, attemptController.signal);
           await clearActiveClaim(environmentId, claim);
         } catch (error) {
           const failure = classifyRuntimeRequestError(error);
           if (failure.kind === "transport") {
             const stillPlausible = await activeClaimFor(environmentId);
-            if (!stillPlausible) await cancelManagedSession();
+            if (!isSameAttempt(stillPlausible, claim)) await cancelManagedSession();
           } else {
             abortAttempt(error);
             await rememberTerminatedAttempt(environmentId, claim, failure);
@@ -646,6 +759,39 @@
             progressState,
             true,
           );
+          const renewed = await activeClaimFor(environmentId, true);
+          if (!isSameAttempt(renewed, active.claim)) return false;
+          const pending = normalizePendingReport(renewed.reportPending, active.claim);
+          if (renewed.reportPending && !pending) {
+            const failure = {
+              kind: "deterministic",
+              code: "operation_runtime_invalid_checkpoint",
+              status: null,
+            };
+            await rememberTerminatedAttempt(environmentId, active.claim, failure);
+            await clearActiveClaim(environmentId, active.claim);
+            await cancelOwnedSession(environmentId, active.claim);
+            return false;
+          }
+          if (pending) {
+            try {
+              await report(environmentId, active.claim, pending.payload);
+              await clearActiveClaim(environmentId, active.claim);
+              await cancelOwnedSession(environmentId, active.claim);
+              return true;
+            } catch (error) {
+              const failure = classifyRuntimeRequestError(error);
+              if (failure.kind === "transport") {
+                await activeClaimFor(environmentId, true);
+                return false;
+              }
+              await rememberTerminatedAttempt(environmentId, active.claim, failure);
+              await clearActiveClaim(environmentId, active.claim);
+              await cancelOwnedSession(environmentId, active.claim);
+              console.warn("[operation-runtime] pending report rejected", failure.code);
+              return false;
+            }
+          }
           return executeClaim(environmentId, active.claim, {
             ...progressState,
             renewedCheckpoint: true,

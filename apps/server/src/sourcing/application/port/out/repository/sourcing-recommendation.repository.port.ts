@@ -1,3 +1,5 @@
+import type { ActiveBrowserAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
+
 export const SOURCING_RECOMMENDATION_REPOSITORY_PORT = Symbol(
   'SourcingRecommendationRepositoryPort',
 );
@@ -30,7 +32,7 @@ export interface SourcingRecommendationRunGraph {
   id: string;
   organizationId: string;
   inputManifestHash: string;
-  status: 'complete' | 'partial' | 'failed';
+  status: 'complete' | 'partial' | 'failed' | 'staged_complete' | 'staged_partial';
   businessDate: Date;
   generatedAt: Date;
   completedAt: Date | null;
@@ -47,7 +49,7 @@ export interface CreateSourcingRecommendationRunCommand {
   calculationVersion: string;
   inputManifestHash: string;
   inputManifest: Record<string, unknown>;
-  status: 'complete' | 'partial' | 'failed';
+  status: 'complete' | 'partial' | 'failed' | 'staged_complete' | 'staged_partial';
   businessDate: Date;
   generatedAt: Date;
   completedAt: Date | null;
@@ -63,6 +65,10 @@ export type CreateRecommendationRunResult =
   | { kind: 'existing'; run: SourcingRecommendationRunGraph };
 
 export interface SourcingRecommendationRepositoryPort {
+  publishStagedRunInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: { organizationId: string; runId: string },
+  ): Promise<'published' | 'already_published' | 'missing'>;
   findById(input: {
     organizationId: string;
     id: string;

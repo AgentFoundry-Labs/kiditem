@@ -137,6 +137,7 @@ export class SourcingRecommendationService {
     organizationId: string;
     limit?: number;
     idempotencyKey?: string;
+    deferPublication?: boolean;
   }): Promise<SourcingRecommendationEnvelope> {
     const limit = normalizeLimit(input.limit);
     const cutoffAt = new Date();
@@ -278,10 +279,12 @@ export class SourcingRecommendationService {
       calculationVersion: SOURCING_RECOMMENDATION_CALCULATION_VERSION,
       inputManifestHash,
       inputManifest: inputManifest.full,
-      status: warningCodes.length > 0 ? 'partial' : 'complete',
+      status: input.deferPublication
+        ? warningCodes.length > 0 ? 'staged_partial' : 'staged_complete'
+        : warningCodes.length > 0 ? 'partial' : 'complete',
       businessDate,
       generatedAt: cutoffAt,
-      completedAt: cutoffAt,
+      completedAt: input.deferPublication ? null : cutoffAt,
       expiresAt: null,
       warningCodes,
       errorCode: null,

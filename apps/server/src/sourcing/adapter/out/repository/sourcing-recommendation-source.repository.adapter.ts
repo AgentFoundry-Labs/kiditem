@@ -129,8 +129,50 @@ export class SourcingRecommendationSourceRepositoryAdapter
     organizationId: string;
     normalizedKeyword: string;
     limit: number;
-  }): Promise<{ items: SourcingWingCatalogObservation[]; rejectedCount: number }> {
+  }): Promise<{
+    generatedAt: Date | null;
+    items: SourcingWingCatalogObservation[];
+    rejectedCount: number;
+  }> {
     const limit = Math.max(1, Math.min(400, Math.floor(input.limit)));
+    const marker = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sourceKey: 'coupang.wing_catalog',
+        collectorKey: 'wing-catalog-operation-finalize',
+        status: { in: TERMINAL_COLLECTION_STATUSES },
+        completedAt: { not: null },
+        qualityReport: {
+          path: ['snapshots'],
+          array_contains: [{ keyword: input.normalizedKeyword }],
+        },
+      },
+      select: { id: true, completedAt: true, qualityReport: true },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+    });
+    let publication: { ingestionRunId: string; generatedAt: Date } | null = null;
+    if (marker?.completedAt) {
+      const batchIdempotencyKey = snapshotBatchIdempotencyKey(
+        marker.qualityReport,
+        input.normalizedKeyword,
+      );
+      const batch = batchIdempotencyKey
+        ? await this.prisma.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          idempotencyKey: batchIdempotencyKey,
+          status: { in: TERMINAL_COLLECTION_STATUSES },
+        },
+        select: { id: true },
+      })
+        : null;
+      if (batch) {
+        publication = { ingestionRunId: batch.id, generatedAt: marker.completedAt };
+      }
+    }
+    if (!publication) {
+      return { generatedAt: null, items: [], rejectedCount: 0 };
+    }
     const rows = await this.prisma.sourcingEvidenceObservation.findMany({
       where: {
         organizationId: input.organizationId,
@@ -139,9 +181,8 @@ export class SourcingRecommendationSourceRepositoryAdapter
         schemaVersion: {
           in: ['coupang-wing-catalog/v1', 'coupang-wing-catalog/v2'],
         },
-        conceptKey: input.normalizedKeyword,
+        ingestionRunId: publication.ingestionRunId,
         supersededByObservation: null,
-        ingestionRun: { status: { in: TERMINAL_COLLECTION_STATUSES } },
       },
       select: { id: true, payload: true },
       orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
@@ -159,10 +200,35 @@ export class SourcingRecommendationSourceRepositoryAdapter
       if (!byProduct.has(identity)) byProduct.set(identity, item);
     }
     return {
+      generatedAt: publication.generatedAt,
       items: [...byProduct.values()].slice(0, limit),
       rejectedCount,
     };
   }
+}
+
+function snapshotBatchIdempotencyKey(
+  qualityReport: unknown,
+  normalizedKeyword: string,
+): string | null {
+  if (!isRecord(qualityReport) || qualityReport.source !== 'coupang-wing-catalog-finalize') {
+    return null;
+  }
+  if (!Array.isArray(qualityReport.snapshots) || qualityReport.snapshots.length > 12) {
+    return null;
+  }
+  for (const candidate of qualityReport.snapshots) {
+    if (!isRecord(candidate)) continue;
+    if (
+      candidate.keyword === normalizedKeyword
+      && typeof candidate.batchIdempotencyKey === 'string'
+      && candidate.batchIdempotencyKey.length > 0
+      && candidate.batchIdempotencyKey.length <= 300
+    ) {
+      return candidate.batchIdempotencyKey;
+    }
+  }
+  return null;
 }
 
 function parseWingCatalogPayload(

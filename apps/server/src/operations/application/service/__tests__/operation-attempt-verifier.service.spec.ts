@@ -35,12 +35,19 @@ function activeAttempt(
 }
 
 describe('OperationAttemptVerifierService', () => {
-  let repository: Pick<OperationRunRepositoryPort, 'findActiveBrowserAttempt'>;
+  let repository: Pick<
+    OperationRunRepositoryPort,
+    'findActiveBrowserAttempt' | 'withActiveBrowserAttemptFence'
+  >;
   let lifecycleGate: Pick<OperationLifecycleGateService, 'assertAccepting'>;
   let service: OperationAttemptVerifierService;
 
   beforeEach(() => {
-    repository = { findActiveBrowserAttempt: vi.fn().mockResolvedValue(activeAttempt()) };
+    repository = {
+      findActiveBrowserAttempt: vi.fn().mockResolvedValue(activeAttempt()),
+      withActiveBrowserAttemptFence: vi.fn(async (_input, operation) =>
+        operation(activeAttempt(), {})),
+    };
     lifecycleGate = { assertAccepting: vi.fn() };
     service = new OperationAttemptVerifierService(
       repository as OperationRunRepositoryPort,
@@ -72,6 +79,29 @@ describe('OperationAttemptVerifierService', () => {
       attemptToken: ATTEMPT_TOKEN,
       now: NOW,
     });
+  });
+
+  it('keeps lifecycle checks inside the repository-owned transaction callback', async () => {
+    const transaction = { opaque: true };
+    vi.mocked(repository.withActiveBrowserAttemptFence).mockImplementation(
+      async (_input, operation) => operation(activeAttempt(), transaction),
+    );
+    const callback = vi.fn(async (attempt, opaqueTransaction) => ({
+      runId: attempt.runId,
+      opaqueTransaction,
+    }));
+
+    await expect(service.withActiveBrowserAttemptFence({
+      organizationId: ORGANIZATION_ID,
+      runId: RUN_ID,
+      expectedOperationKey: OPERATION_KEY,
+      attemptToken: ATTEMPT_TOKEN,
+    }, callback)).resolves.toEqual({ runId: RUN_ID, opaqueTransaction: transaction });
+    expect(callback).toHaveBeenCalledWith(
+      expect.objectContaining({ runId: RUN_ID, organizationId: ORGANIZATION_ID }),
+      transaction,
+    );
+    expect(lifecycleGate.assertAccepting).toHaveBeenCalledTimes(3);
   });
 
   it('exports both the verifier port and service from Operations', () => {

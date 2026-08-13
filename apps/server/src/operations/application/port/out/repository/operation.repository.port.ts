@@ -5,6 +5,7 @@ import type {
   OperationStatus,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
+import type { ActiveBrowserAttemptTransaction } from '../../active-browser-attempt-transaction';
 
 export const OPERATION_REPOSITORY_PORT = Symbol('OPERATION_REPOSITORY_PORT');
 
@@ -171,6 +172,15 @@ export interface OperationLifecycleBatchResult {
 }
 
 export interface OperationRunRepositoryPort {
+  withActiveBrowserAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveBrowserOperationAttemptRecord,
+    transaction: ActiveBrowserAttemptTransaction,
+  ) => Promise<T>): Promise<T | null>;
   findActiveBrowserAttempt(input: {
     organizationId: string;
     runId: string;

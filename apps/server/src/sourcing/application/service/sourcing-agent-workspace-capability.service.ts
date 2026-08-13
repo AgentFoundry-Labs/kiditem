@@ -54,6 +54,9 @@ export class SourcingAgentWorkspaceCapabilityService
     if (!run) {
       throw new NotFoundException({ code: 'RECOMMENDATION_RUN_MISSING' });
     }
+    if (run.status === 'staged_complete' || run.status === 'staged_partial') {
+      throw new NotFoundException({ code: 'RECOMMENDATION_RUN_MISSING' });
+    }
     const validation = await this.validationRows.listForRun({
       organizationId: input.organizationId,
       recommendationRunId: run.id,

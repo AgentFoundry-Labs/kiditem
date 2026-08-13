@@ -8,6 +8,10 @@ function createRepository() {
   const prisma = {
     sourcing1688OfferKeywordObservation: { findMany: vi.fn(async () => []) },
     sourcingEvidenceObservation: { findMany: vi.fn(async () => []) },
+    sourcingEvidenceIngestionRun: {
+      findMany: vi.fn(async () => []),
+      findFirst: vi.fn(async () => null),
+    },
   };
   return {
     repository: new SourcingRecommendationSourceRepositoryAdapter(prisma as never),
@@ -85,6 +89,21 @@ describe('SourcingRecommendationSourceRepositoryAdapter', () => {
 
   it('reads one organization-scoped persisted Wing snapshot and parses bounded owner rows', async () => {
     const { repository, prisma } = createRepository();
+    prisma.sourcingEvidenceIngestionRun.findFirst
+      .mockResolvedValueOnce({
+        id: '00000000-0000-4000-8000-000000000040',
+        completedAt: new Date('2026-08-14T01:00:00.000Z'),
+        qualityReport: {
+          source: 'coupang-wing-catalog-finalize',
+          snapshots: [{
+            keyword: '슬라임',
+            batchIdempotencyKey: 'wing-operation:new:slime',
+          }],
+        },
+      })
+      .mockResolvedValueOnce({
+        id: '00000000-0000-4000-8000-000000000041',
+      });
     prisma.sourcingEvidenceObservation.findMany.mockResolvedValueOnce([
       {
         id: '00000000-0000-4000-8000-000000000031',
@@ -103,7 +122,34 @@ describe('SourcingRecommendationSourceRepositoryAdapter', () => {
       organizationId: ORGANIZATION_ID,
       normalizedKeyword: '슬라임',
       limit: 400,
-    })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 1 });
+    })).resolves.toMatchObject({
+      generatedAt: new Date('2026-08-14T01:00:00.000Z'),
+      items: [{ productId: '123' }],
+      rejectedCount: 1,
+    });
+    expect(prisma.sourcingEvidenceIngestionRun.findFirst).toHaveBeenNthCalledWith(1, {
+      where: {
+        organizationId: ORGANIZATION_ID,
+        sourceKey: 'coupang.wing_catalog',
+        collectorKey: 'wing-catalog-operation-finalize',
+        status: { in: ['complete', 'partial'] },
+        completedAt: { not: null },
+        qualityReport: {
+          path: ['snapshots'],
+          array_contains: [{ keyword: '슬라임' }],
+        },
+      },
+      select: { id: true, completedAt: true, qualityReport: true },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
+    });
+    expect(prisma.sourcingEvidenceIngestionRun.findFirst).toHaveBeenNthCalledWith(2, {
+      where: {
+        organizationId: ORGANIZATION_ID,
+        idempotencyKey: 'wing-operation:new:slime',
+        status: { in: ['complete', 'partial'] },
+      },
+      select: { id: true },
+    });
     expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledTimes(1);
     expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledWith({
       where: {
@@ -111,13 +157,38 @@ describe('SourcingRecommendationSourceRepositoryAdapter', () => {
         platform: 'coupang',
         sourceKey: 'coupang.wing_catalog',
         schemaVersion: { in: ['coupang-wing-catalog/v1', 'coupang-wing-catalog/v2'] },
-        conceptKey: '슬라임',
+        ingestionRunId: '00000000-0000-4000-8000-000000000041',
         supersededByObservation: null,
-        ingestionRun: { status: { in: ['complete', 'partial'] } },
       },
       select: { id: true, payload: true },
       orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
       take: 800,
     });
+  });
+
+  it('returns a latest persisted empty snapshot without falling back to older rows', async () => {
+    const { repository, prisma } = createRepository();
+    prisma.sourcingEvidenceIngestionRun.findFirst.mockResolvedValueOnce({
+      id: '00000000-0000-4000-8000-000000000050',
+      completedAt: new Date('2026-08-14T02:00:00.000Z'),
+      qualityReport: {
+        source: 'coupang-wing-catalog-finalize',
+        snapshots: [{
+          keyword: '슬라임',
+          batchIdempotencyKey: 'wing-operation:empty:slime',
+        }],
+      },
+    }).mockResolvedValueOnce({ id: '00000000-0000-4000-8000-000000000051' });
+
+    await expect(repository.listWingCatalogSnapshot({
+      organizationId: ORGANIZATION_ID,
+      normalizedKeyword: '슬라임',
+      limit: 400,
+    })).resolves.toEqual({
+      generatedAt: new Date('2026-08-14T02:00:00.000Z'),
+      items: [],
+      rejectedCount: 0,
+    });
+    expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledTimes(1);
   });
 });

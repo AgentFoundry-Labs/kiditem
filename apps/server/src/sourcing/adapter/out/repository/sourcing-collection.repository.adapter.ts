@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
+import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
 import {
   isActiveCollectionStatus,
@@ -33,7 +34,21 @@ export class SourcingCollectionRepositoryAdapter
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult> {
     validateClaim(input);
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.claimAuthorizedRunTx(tx, input));
+  }
+
+  async claimAuthorizedRunInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult> {
+    validateClaim(input);
+    return this.claimAuthorizedRunTx(asTransaction(transaction), input);
+  }
+
+  private async claimAuthorizedRunTx(
+    tx: Transaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult> {
       await lockCollectionTarget(tx, input);
       const now = await databaseClock(tx);
 
@@ -110,7 +125,6 @@ export class SourcingCollectionRepositoryAdapter
         },
       });
       return { kind: 'claimed', permit: toPermit(run) };
-    });
   }
 
   async resumeAuthorizedRun(
@@ -156,7 +170,21 @@ export class SourcingCollectionRepositoryAdapter
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimRecoverableRunResult> {
     validateClaim(input);
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.claimRecoverableRunTx(tx, input));
+  }
+
+  async claimRecoverableRunInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
+    validateClaim(input);
+    return this.claimRecoverableRunTx(asTransaction(transaction), input);
+  }
+
+  private async claimRecoverableRunTx(
+    tx: Transaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
       await lockCollectionTarget(tx, input);
       const now = await databaseClock(tx);
       const existing = await tx.sourcingEvidenceIngestionRun.findFirst({
@@ -271,7 +299,6 @@ export class SourcingCollectionRepositoryAdapter
         },
       });
       return { kind: 'claimed', permit: toPermit(created) };
-    });
   }
 
   async checkpoint(
@@ -294,7 +321,20 @@ export class SourcingCollectionRepositoryAdapter
   async commit(
     input: CommitAuthorizedCollectionInput,
   ): Promise<CommitAuthorizedCollectionResult> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.commitTx(tx, input));
+  }
+
+  async commitInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: CommitAuthorizedCollectionInput,
+  ): Promise<CommitAuthorizedCollectionResult> {
+    return this.commitTx(asTransaction(transaction), input);
+  }
+
+  private async commitTx(
+    tx: Transaction,
+    input: CommitAuthorizedCollectionInput,
+  ): Promise<CommitAuthorizedCollectionResult> {
       await lockCollectionPermit(tx, input.permit);
       const now = await databaseClock(tx);
       const run = await tx.sourcingEvidenceIngestionRun.findFirst({
@@ -349,7 +389,6 @@ export class SourcingCollectionRepositoryAdapter
         duplicateCount,
         staleDiscardedCount: typedResult.staleDiscardedCount,
       };
-    });
   }
 
   async fail(input: FailAuthorizedCollectionInput): Promise<void> {
@@ -393,6 +432,12 @@ export class SourcingCollectionRepositoryAdapter
 }
 
 type Transaction = Prisma.TransactionClient;
+
+function asTransaction(
+  transaction: ActiveBrowserAttemptTransaction,
+): Transaction {
+  return transaction as unknown as Transaction;
+}
 
 async function findEnabledSourceControl(
   tx: Transaction,

@@ -16,7 +16,7 @@ function createHarness(options = {}) {
   const alarmNames = [];
   const alarmOptions = [];
   const alarmListeners = [];
-  const claim = Object.hasOwn(options, 'claim') ? options.claim : {
+  const defaultClaim = {
     runId: '11111111-1111-4111-8111-111111111111',
     operationKey: 'inventory.refresh_sellpia_snapshot',
     attemptToken: '22222222-2222-4222-8222-222222222222',
@@ -25,7 +25,13 @@ function createHarness(options = {}) {
     leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
     deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   };
+  const claimOption = Object.hasOwn(options, 'claim') ? options.claim : defaultClaim;
+  const claimFor = (environmentId) => typeof claimOption === 'function'
+    ? claimOption(environmentId)
+    : claimOption;
+  const environmentIds = options.environmentIds || ['office'];
   const storage = { ...(options.initialStorage || {}) };
+  let storageSetIndex = 0;
   const sessionCancellations = [];
   const chrome = {
     runtime: {
@@ -47,6 +53,11 @@ function createHarness(options = {}) {
           return { ...storage };
         },
         async set(values) {
+          const setIndex = storageSetIndex;
+          storageSetIndex += 1;
+          if (typeof options.beforeStorageSet === 'function') {
+            await options.beforeStorageSet({ setIndex, values });
+          }
           Object.assign(storage, values);
         },
         async remove(key) {
@@ -56,9 +67,12 @@ function createHarness(options = {}) {
     },
   };
   const environmentContext = {
-    environmentIds: ['office'],
+    environmentIds,
     alarmName(base, environmentId) { return `${base}:${environmentId}`; },
-    parseAlarmName(base, name) { return name === `${base}:office` ? 'office' : null; },
+    parseAlarmName(base, name) {
+      return environmentIds.find((environmentId) =>
+        name === `${base}:${environmentId}`) || null;
+    },
     async authedFetch(environmentId, pathName, init) {
       fetchCalls.push({
         environmentId,
@@ -66,7 +80,7 @@ function createHarness(options = {}) {
         body: init.body ? JSON.parse(init.body) : undefined,
       });
       if (pathName.endsWith('/claim')) {
-        return new Response(JSON.stringify({ claim }), { status: 200 });
+        return new Response(JSON.stringify({ claim: claimFor(environmentId) }), { status: 200 });
       }
       if (typeof options.fetchResponse === 'function') {
         return options.fetchResponse({ environmentId, pathName, init });
@@ -76,9 +90,14 @@ function createHarness(options = {}) {
   };
   const domains = {
     runOperation(key) {
-      assert.equal(key, claim.operationKey);
+      const knownClaim = environmentIds
+        .map(claimFor)
+        .find((candidate) => candidate?.operationKey === key);
+      assert.ok(knownClaim);
       return Object.hasOwn(options, 'handler')
-        ? options.handler
+        ? typeof options.handler === 'function'
+          ? options.handler
+          : options.handler?.[key]
         : (async () => ({ status: 'succeeded', result: { collected: 12 } }));
     },
   };
@@ -120,6 +139,22 @@ function createHarness(options = {}) {
     fetchCalls,
     sessionCancellations,
     storage,
+  };
+}
+
+function claimForEnvironment(environmentId) {
+  return {
+    runId: environmentId === 'local'
+      ? '11111111-1111-4111-8111-111111111111'
+      : '33333333-3333-4333-8333-333333333333',
+    operationKey: `inventory.refresh_${environmentId}_snapshot`,
+    attemptToken: environmentId === 'local'
+      ? '22222222-2222-4222-8222-222222222222'
+      : '44444444-4444-4444-8444-444444444444',
+    attempt: 1,
+    input: {},
+    leaseExpiresAt: new Date(Date.now() + 60_000).toISOString(),
+    deadlineAt: new Date(Date.now() + 15 * 60_000).toISOString(),
   };
 }
 
@@ -485,6 +520,7 @@ test('cleans the exact owned session after reporting a missing handler', async (
     attemptToken: '22222222-2222-4222-8222-222222222222',
     status: 'attention_required',
     attentionReason: 'browser_operation_handler_missing',
+    progress: null,
   });
   assert.deepEqual(JSON.parse(JSON.stringify(harness.sessionCancellations)), [{
     runId: '11111111-1111-4111-8111-111111111111',
@@ -619,7 +655,7 @@ test('terminates a malformed successful report response and structured auth fail
   }
 });
 
-test('retains only transport-unavailable reports and heartbeats before same-lifecycle replay', async () => {
+test('persists terminal reports across transport loss and retries without replaying provider work', async () => {
   for (const transportFailure of [
     new TypeError('offline'),
     Object.assign(new Error('request timed out'), { code: 'request_timeout' }),
@@ -648,12 +684,167 @@ test('retains only transport-unavailable reports and heartbeats before same-life
     await harness.client.wake('office');
     const resumeCalls = harness.fetchCalls.slice(beforeResume);
 
-    assert.equal(handlerCalls, 2);
+    assert.equal(handlerCalls, 1);
     assert.equal(resumeCalls[0]?.path.endsWith('/heartbeat'), true);
     assert.equal(resumeCalls[1]?.path.endsWith('/report'), true);
+    assert.deepEqual(resumeCalls[1]?.body, {
+      attemptToken: '22222222-2222-4222-8222-222222222222',
+      status: 'succeeded',
+      progress: null,
+      result: { collected: 1 },
+    });
     assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
-    assert.equal(harness.sessionCancellations.length, 0);
+    assert.equal(harness.sessionCancellations.length, 1);
   }
+});
+
+test('resumes a persisted terminal report after an MV3 worker restart without rerunning the handler', async () => {
+  let handlerCalls = 0;
+  let reportCalls = 0;
+  const handler = async () => {
+    handlerCalls += 1;
+    return { status: 'succeeded', result: { collected: 1 } };
+  };
+  const first = createHarness({
+    handler,
+    fetchResponse: ({ pathName }) => {
+      if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+      reportCalls += 1;
+      throw new TypeError('offline');
+    },
+  });
+
+  await first.client.tick('office');
+  const checkpoint = first.storage.kiditem_operation_runtime_active_v1?.office;
+  assert.equal(checkpoint?.reportPending?.payload?.status, 'succeeded');
+  assert.equal(checkpoint?.reportPending?.payload?.result?.collected, 1);
+
+  const restarted = createHarness({
+    handler,
+    initialStorage: first.storage,
+  });
+  await restarted.client.wake('office');
+
+  assert.equal(handlerCalls, 1);
+  assert.equal(reportCalls, 1);
+  assert.equal(
+    restarted.fetchCalls.filter((call) => call.path.endsWith('/heartbeat')).length,
+    1,
+  );
+  assert.equal(
+    restarted.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    1,
+  );
+  assert.equal(restarted.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+});
+
+test('retries bounded failed and attention reports without rerunning their completed handlers', async () => {
+  for (const outcome of [
+    {
+      status: 'failed',
+      errorCode: 'wing_catalog_all_keywords_failed',
+      errorMessage: 'All keywords failed.',
+    },
+    {
+      status: 'attention_required',
+      attentionReason: 'marketplace_login',
+    },
+  ]) {
+    let handlerCalls = 0;
+    let failFirstReport = true;
+    const harness = createHarness({
+      handler: async () => {
+        handlerCalls += 1;
+        return outcome;
+      },
+      fetchResponse: ({ pathName }) => {
+        if (pathName.endsWith('/report') && failFirstReport) {
+          failFirstReport = false;
+          throw new TypeError('offline');
+        }
+        return new Response(null, { status: 204 });
+      },
+    });
+
+    await harness.client.tick('office');
+    await harness.client.wake('office');
+
+    assert.equal(handlerCalls, 1);
+    assert.equal(
+      harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+      2,
+    );
+    assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  }
+});
+
+test('clears malformed persisted terminal data without replaying marketplace work', async () => {
+  const claim = claimForEnvironment('office');
+  let handlerCalls = 0;
+  const harness = createHarness({
+    claim,
+    handler: async () => {
+      handlerCalls += 1;
+      return { status: 'succeeded', result: { collected: 1 } };
+    },
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        office: {
+          claim,
+          progress: null,
+          leaseDurationMs: 60_000,
+          lastHeartbeatSucceededAt: new Date().toISOString(),
+          resumeLeaseExpiresAt: claim.leaseExpiresAt,
+          reportPending: {
+            runId: claim.runId,
+            attemptToken: claim.attemptToken,
+            leaseExpiresAt: claim.leaseExpiresAt,
+            deadlineAt: claim.deadlineAt,
+            payload: {
+              status: 'succeeded',
+              result: { rawRows: [{ secret: true }] },
+              progress: null,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  await harness.client.wake('office');
+
+  assert.equal(handlerCalls, 0);
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    0,
+  );
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.equal(harness.sessionCancellations.length, 1);
+});
+
+test('never sends a terminal report that could not first be persisted', async () => {
+  let handlerCalls = 0;
+  const harness = createHarness({
+    handler: async () => {
+      handlerCalls += 1;
+      return { status: 'succeeded', result: { collected: 1 } };
+    },
+    beforeStorageSet: async ({ values }) => {
+      if (values.kiditem_operation_runtime_active_v1?.office?.reportPending) {
+        throw new Error('storage unavailable');
+      }
+    },
+  });
+
+  await harness.client.tick('office');
+
+  assert.equal(handlerCalls, 1);
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    0,
+  );
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.equal(harness.sessionCancellations.length, 1);
 });
 
 test('drops a transport checkpoint that expires before report recovery', async () => {
@@ -686,4 +877,109 @@ test('drops a transport checkpoint that expires before report recovery', async (
   assert.equal(handlerCalls, 1);
   assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
   assert.equal(harness.sessionCancellations.length, 1);
+});
+
+test('serializes concurrent environment stores and pending reports without losing either checkpoint', async () => {
+  const harness = createHarness({
+    environmentIds: ['local', 'office'],
+    claim: claimForEnvironment,
+    beforeStorageSet: async ({ setIndex }) => {
+      if (setIndex === 0) await new Promise((resolve) => setTimeout(resolve, 15));
+    },
+    fetchResponse: ({ pathName }) => {
+      if (pathName.endsWith('/report')) throw new TypeError('offline');
+      return new Response(null, { status: 204 });
+    },
+  });
+
+  await Promise.all([harness.client.tick('local'), harness.client.tick('office')]);
+
+  const active = harness.storage.kiditem_operation_runtime_active_v1;
+  assert.deepEqual(Object.keys(active).sort(), ['local', 'office']);
+  assert.equal(active.local.reportPending.payload.status, 'succeeded');
+  assert.equal(active.office.reportPending.payload.status, 'succeeded');
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    2,
+  );
+});
+
+test('serializes concurrent pending-report clears without resurrecting another environment', async () => {
+  const local = claimForEnvironment('local');
+  const office = claimForEnvironment('office');
+  const checkpoint = (claim) => ({
+    claim,
+    progress: null,
+    stage: null,
+    progressCurrent: null,
+    progressTotal: null,
+    leaseDurationMs: 60_000,
+    lastHeartbeatSucceededAt: new Date().toISOString(),
+    resumeLeaseExpiresAt: claim.leaseExpiresAt,
+    reportPending: {
+      runId: claim.runId,
+      attemptToken: claim.attemptToken,
+      leaseExpiresAt: claim.leaseExpiresAt,
+      deadlineAt: claim.deadlineAt,
+      payload: { status: 'succeeded', result: { collected: 1 }, progress: null },
+    },
+  });
+  const harness = createHarness({
+    environmentIds: ['local', 'office'],
+    claim: claimForEnvironment,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        local: checkpoint(local),
+        office: checkpoint(office),
+      },
+    },
+    beforeStorageSet: async ({ setIndex }) => {
+      if (setIndex === 0) await new Promise((resolve) => setTimeout(resolve, 15));
+    },
+  });
+
+  await Promise.all([harness.client.wake('local'), harness.client.wake('office')]);
+
+  assert.deepEqual(harness.storage.kiditem_operation_runtime_active_v1, {});
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    2,
+  );
+});
+
+test('serializes concurrent tombstones and active clears after deterministic checkpoint rejection', async () => {
+  const local = claimForEnvironment('local');
+  const office = claimForEnvironment('office');
+  const checkpoint = (claim) => ({
+    claim,
+    progress: null,
+    leaseDurationMs: 60_000,
+    lastHeartbeatSucceededAt: new Date().toISOString(),
+    resumeLeaseExpiresAt: claim.leaseExpiresAt,
+  });
+  const harness = createHarness({
+    environmentIds: ['local', 'office'],
+    claim: claimForEnvironment,
+    initialStorage: {
+      kiditem_operation_runtime_active_v1: {
+        local: checkpoint(local),
+        office: checkpoint(office),
+      },
+    },
+    beforeStorageSet: async ({ setIndex }) => {
+      if (setIndex === 0) await new Promise((resolve) => setTimeout(resolve, 15));
+    },
+    fetchResponse: ({ pathName }) => pathName.endsWith('/heartbeat')
+      ? new Response(null, { status: 401 })
+      : new Response(null, { status: 204 }),
+  });
+
+  await Promise.all([harness.client.wake('local'), harness.client.wake('office')]);
+
+  assert.deepEqual(
+    Object.keys(harness.storage.kiditem_operation_runtime_terminated_v1).sort(),
+    ['local', 'office'],
+  );
+  assert.deepEqual(harness.storage.kiditem_operation_runtime_active_v1, {});
+  assert.equal(harness.sessionCancellations.length, 2);
 });

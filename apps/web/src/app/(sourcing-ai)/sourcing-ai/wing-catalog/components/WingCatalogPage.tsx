@@ -111,7 +111,7 @@ export function WingCatalogPage() {
       rows: snapshot.items.map(toWingCatalogProduct),
       total: snapshot.items.length,
       collectedCount: snapshot.items.length,
-      endedAt: Date.parse(snapshot.generatedAt),
+      endedAt: snapshot.generatedAt ? Date.parse(snapshot.generatedAt) : undefined,
       stopReason: snapshot.rejectedCount > 0 ? 'partial_snapshot' : 'persisted_snapshot',
     };
   }, [snapshotQuery.data]);

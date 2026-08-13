@@ -110,7 +110,7 @@ export const SourcingWingCatalogBatchResultSchema =
 export const SourcingWingCatalogSnapshotSchema = z
   .object({
     keyword: SourcingWingCatalogKeywordSchema,
-    generatedAt: InstantSchema,
+    generatedAt: InstantSchema.nullable(),
     items: z.array(SourcingWingCatalogObservationSchema).max(400),
     rejectedCount: BoundedCountSchema,
   })
