@@ -5,6 +5,8 @@ import {
   SourcingWingCatalogFinalizeSchema,
   SourcingWingCatalogObservationBatchSchema,
   SourcingWingCatalogSnapshotSchema,
+  canonicalizeSourcingWingCatalogKeyword,
+  sourcingWingCatalogKeywordIdentity,
 } from './browser-operations.js';
 
 const keywordResult = {
@@ -63,6 +65,43 @@ describe('Wing catalog browser-operation contracts', () => {
     ]) {
       expect(SourcingWingCatalogBatchInputSchema.safeParse(invalid).success).toBe(false);
     }
+  });
+
+  it('canonicalizes NFKC and whitespace while preserving display case and order', () => {
+    expect(canonicalizeSourcingWingCatalogKeyword('  Ａ\u00a0  Pencil  '))
+      .toBe('A Pencil');
+    expect(sourcingWingCatalogKeywordIdentity('  Ａ\u00a0  Pencil  '))
+      .toBe('a pencil');
+    expect(SourcingWingCatalogBatchInputSchema.parse({
+      keywords: ['  Ｂ  ', 'Ａ Pencil'],
+      maxPages: 1,
+      purpose: 'catalog_search',
+    }).keywords).toEqual(['B', 'A Pencil']);
+  });
+
+  it.each([
+    [['A', 'a']],
+    [['Ａ', 'A']],
+    [['A  Pencil', 'ａ pencil']],
+  ])('rejects normalized duplicate keywords before durable run creation: %j', (keywords) => {
+    expect(SourcingWingCatalogBatchInputSchema.safeParse({
+      keywords,
+      maxPages: 1,
+      purpose: 'catalog_search',
+    }).success).toBe(false);
+  });
+
+  it('applies keyword length bounds after canonicalization', () => {
+    expect(SourcingWingCatalogBatchInputSchema.safeParse({
+      keywords: [`${'a'.repeat(99)}  `],
+      maxPages: 1,
+      purpose: 'catalog_search',
+    }).success).toBe(true);
+    expect(SourcingWingCatalogBatchInputSchema.safeParse({
+      keywords: ['a'.repeat(101)],
+      maxPages: 1,
+      purpose: 'catalog_search',
+    }).success).toBe(false);
   });
 
   it.each([

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
@@ -11,6 +11,7 @@ import type {
   AuthorizedCollectionOutput,
   ClaimAuthorizedRunInput,
   ClaimAuthorizedRunResult,
+  ClaimRecoverableRunResult,
   CommitAuthorizedCollectionInput,
   CommitAuthorizedCollectionResult,
   FailAuthorizedCollectionInput,
@@ -148,6 +149,128 @@ export class SourcingCollectionRepositoryAdapter
         return { kind: 'denied', reasonCode: sourceControl.reasonCode };
       }
       return { kind: 'existing', permit: toPermit(run) };
+    });
+  }
+
+  async claimRecoverableRun(
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
+    validateClaim(input);
+    return this.prisma.$transaction(async (tx) => {
+      await lockCollectionTarget(tx, input);
+      const now = await databaseClock(tx);
+      const existing = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      if (existing) {
+        if (!sameRecoverableIdentity(existing, input)) {
+          return { kind: 'idempotency_conflict' };
+        }
+        if (existing.status === 'complete' || existing.status === 'partial') {
+          return { kind: 'completed', runId: existing.id };
+        }
+        if (
+          existing.status === 'collecting'
+          && !existing.cancelRequestedAt
+          && existing.leaseExpiresAt > now
+        ) {
+          return {
+            kind: 'in_progress',
+            runId: existing.id,
+            leaseExpiresAt: existing.leaseExpiresAt,
+          };
+        }
+        if (
+          existing.cancelRequestedAt
+          || existing.status === 'cancel_requested'
+          || existing.status === 'cancelled'
+          || existing.status === 'quarantined'
+        ) {
+          return {
+            kind: 'denied',
+            reasonCode: existing.status === 'quarantined'
+              ? 'source_collection_quarantined'
+              : 'source_collection_session_cancelled',
+          };
+        }
+
+        const sourceControl = await findEnabledSourceControl(tx, {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+        });
+        if (!sourceControl.allowed) {
+          return { kind: 'denied', reasonCode: sourceControl.reasonCode };
+        }
+        const leaseToken = randomUUID();
+        const leaseExpiresAt = new Date(
+          now.getTime() + Math.min(input.leaseDurationMs, MAX_LEASE_DURATION_MS),
+        );
+        const generation = existing.generation + 1;
+        const resumed = await tx.sourcingEvidenceIngestionRun.update({
+          where: { id: existing.id },
+          data: {
+            status: 'collecting',
+            leaseToken,
+            leaseExpiresAt,
+            sourceControlCheckedAt: now,
+            generation,
+            completedAt: null,
+            errorCode: null,
+            errorMessage: null,
+            startedAt: now,
+          },
+        });
+        return { kind: 'claimed', permit: toPermit(resumed) };
+      }
+
+      const active = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          status: { in: ['collecting', 'cancel_requested'] },
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (active) return { kind: 'idempotency_conflict' };
+
+      const sourceControl = await findEnabledSourceControl(tx, {
+        organizationId: input.organizationId,
+        sourceKey: input.sourceKey,
+      });
+      if (!sourceControl.allowed) {
+        return { kind: 'denied', reasonCode: sourceControl.reasonCode };
+      }
+      const leaseExpiresAt = new Date(
+        now.getTime() + Math.min(input.leaseDurationMs, MAX_LEASE_DURATION_MS),
+      );
+      const created = await tx.sourcingEvidenceIngestionRun.create({
+        data: {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          collectorKey: input.collectorKey,
+          collectorVersion: input.collectorVersion,
+          triggerKind: input.triggerKind,
+          triggeredByUserId: input.triggeredByUserId,
+          status: 'collecting',
+          leaseExpiresAt,
+          sourceControlCheckedAt: now,
+          generation: 1,
+          startedAt: now,
+          coverageNumerator: 0,
+          qualityReport: {} as Prisma.InputJsonValue,
+        },
+      });
+      return { kind: 'claimed', permit: toPermit(created) };
     });
   }
 
@@ -833,6 +956,25 @@ function toPermit(row: {
     generation: row.generation,
     leaseExpiresAt: row.leaseExpiresAt,
   };
+}
+
+function sameRecoverableIdentity(
+  row: {
+    sourceKey: string;
+    scopeKey: string;
+    targetKey: string;
+    requestHash: string;
+    collectorKey: string;
+    collectorVersion: string;
+  },
+  input: ClaimAuthorizedRunInput,
+): boolean {
+  return row.sourceKey === input.sourceKey
+    && row.scopeKey === input.scopeKey
+    && row.targetKey === input.targetKey
+    && row.requestHash === input.requestHash
+    && row.collectorKey === input.collectorKey
+    && row.collectorVersion === input.collectorVersion;
 }
 
 function validateClaim(input: ClaimAuthorizedRunInput): void {

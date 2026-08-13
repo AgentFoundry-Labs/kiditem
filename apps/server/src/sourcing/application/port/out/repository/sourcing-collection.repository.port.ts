@@ -32,6 +32,13 @@ export type ClaimAuthorizedRunResult =
   | { kind: 'denied'; reasonCode: string }
   | { kind: 'idempotency_conflict' };
 
+export type ClaimRecoverableRunResult =
+  | { kind: 'claimed'; permit: SourcingCollectionPermit }
+  | { kind: 'in_progress'; runId: string; leaseExpiresAt: Date }
+  | { kind: 'completed'; runId: string }
+  | { kind: 'denied'; reasonCode: string }
+  | { kind: 'idempotency_conflict' };
+
 export interface ClaimAuthorizedRunInput {
   organizationId: string;
   sourceKey: string;
@@ -131,6 +138,14 @@ export interface SourcingCollectionRepositoryPort {
   resumeAuthorizedRun(
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult>;
+  /**
+   * Claims an idempotent local effect whose external work is itself keyed.
+   * Failed, superseded, or expired generations are resumed on the same row;
+   * a live generation remains single-owner and a completed row is immutable.
+   */
+  claimRecoverableRun(
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult>;
   checkpoint(
     permit: SourcingCollectionPermit,
   ): Promise<'continue' | 'cancel' | 'superseded'>;

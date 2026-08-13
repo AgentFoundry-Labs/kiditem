@@ -7,6 +7,10 @@ const source = await readFile(
   new URL('../../kiditem-os/background/coupang/worker.js', import.meta.url),
   'utf8',
 );
+const keywordContractSource = await readFile(
+  new URL('../../kiditem-os/background/coupang/wing-keyword-contract.js', import.meta.url),
+  'utf8',
+);
 
 function operationSource() {
   const start = source.indexOf('const SOURCING_WING_CATALOG_OPERATION_KEY');
@@ -120,7 +124,7 @@ function createHarness(options = {}) {
   });
   context.globalThis = context;
   vm.runInContext(
-    `${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;`,
+    `${keywordContractSource}\n${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;`,
     context,
   );
   const operation = {
@@ -146,6 +150,70 @@ test('registers only the exact Wing catalog browser operation key', () => {
     /"sourcing\.collect_wing_catalog_batch": runSourcingWingCatalogOperation/,
   );
   assert.doesNotMatch(source, /sourcing\.(?:generic|url|action).*runSourcingWingCatalogOperation/);
+});
+
+test('uses one focused keyword contract helper loaded before the Coupang worker', async () => {
+  const [contractSource, serviceWorkerSource, sharedContractSource] = await Promise.all([
+    readFile(new URL('../../kiditem-os/background/coupang/wing-keyword-contract.js', import.meta.url), 'utf8'),
+    readFile(new URL('../../kiditem-os/background/service-worker.js', import.meta.url), 'utf8'),
+    readFile(new URL('../../../packages/shared/src/sourcing/browser-operations.ts', import.meta.url), 'utf8'),
+  ]);
+  const extensionVersion = contractSource.match(/CONTRACT_VERSION\s*=\s*"([^"]+)"/)?.[1];
+  const sharedVersion = sharedContractSource.match(
+    /SOURCING_WING_CATALOG_KEYWORD_CONTRACT_VERSION\s*=\s*\n?\s*'([^']+)'/,
+  )?.[1];
+
+  assert.equal(extensionVersion, sharedVersion);
+  assert.ok(
+    serviceWorkerSource.indexOf('coupang/wing-keyword-contract.js')
+      < serviceWorkerSource.indexOf('coupang/worker.js'),
+  );
+  assert.doesNotMatch(operationSource(), /function normalizedWingOperationKeyword/);
+});
+
+test('rejects NFKC, whitespace, and case-equivalent duplicates before starting a session', async () => {
+  for (const keywords of [
+    ['A', 'a'],
+    ['Ａ', 'A'],
+    ['A  Pencil', 'ａ pencil'],
+  ]) {
+    const harness = createHarness();
+    harness.operation.input.keywords = keywords;
+
+    await assert.rejects(
+      harness.context.runWingCatalogOperation(harness.operation),
+      /wing_catalog_operation_input_invalid/,
+    );
+    assert.equal(harness.searches.length, 0);
+    assert.equal(harness.sessionCalls.length, 0);
+  }
+});
+
+test('rejects non-string keyword values instead of coercing across the shared boundary', async () => {
+  for (const keyword of [1, true, { value: 'A' }, ['A']]) {
+    const harness = createHarness();
+    harness.operation.input.keywords = [keyword];
+
+    await assert.rejects(
+      harness.context.runWingCatalogOperation(harness.operation),
+      /wing_catalog_operation_input_invalid/,
+    );
+    assert.equal(harness.searches.length, 0);
+    assert.equal(harness.sessionCalls.length, 0);
+  }
+});
+
+test('canonicalizes keyword display values once and preserves input order', async () => {
+  const harness = createHarness();
+  harness.operation.input.keywords = ['  Ｂ  ', 'Ａ\u00a0  Pencil'];
+
+  await harness.context.runWingCatalogOperation(harness.operation);
+
+  assert.deepEqual(harness.searches.map(({ keyword }) => keyword), ['B', 'A Pencil']);
+  const ingested = harness.requests
+    .filter(({ path }) => path.endsWith('/coupang-observations'))
+    .map(({ body }) => body.keyword);
+  assert.deepEqual(ingested, ['B', 'A Pencil']);
 });
 
 test('reuses one run session and Wing tab, uploads each keyword, heartbeats counts, and finalizes once', async () => {

@@ -6,11 +6,20 @@ const InstantSchema = z.string().datetime({ offset: true });
 const NullableBoundedTextSchema = z.string().trim().max(500).nullable();
 const NullableMetricSchema = z.number().finite().nonnegative().max(2_147_483_647).nullable();
 
-export const SourcingWingCatalogKeywordSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(100);
+export const SOURCING_WING_CATALOG_KEYWORD_CONTRACT_VERSION =
+  'nfkc-collapse-casefold-v1';
+
+export function canonicalizeSourcingWingCatalogKeyword(value: string): string {
+  return value.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+}
+
+export function sourcingWingCatalogKeywordIdentity(value: string): string {
+  return canonicalizeSourcingWingCatalogKeyword(value).toLocaleLowerCase('en-US');
+}
+
+export const SourcingWingCatalogKeywordSchema = z.string()
+  .transform(canonicalizeSourcingWingCatalogKeyword)
+  .pipe(z.string().min(1).max(100));
 
 export const SourcingWingCatalogPurposeSchema = z.enum([
   'catalog_search',
@@ -25,7 +34,21 @@ export const SourcingWingCatalogBatchInputSchema = z
     maxPages: z.number().int().min(1).max(5),
     purpose: SourcingWingCatalogPurposeSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    const identities = new Set<string>();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['keywords', index],
+          message: 'Wing catalog keywords must be unique after normalization.',
+        });
+      }
+      identities.add(identity);
+    });
+  });
 
 export const SourcingWingCatalogObservationSchema = z
   .object({

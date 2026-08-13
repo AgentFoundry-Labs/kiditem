@@ -77,7 +77,9 @@ function createHarness(options = {}) {
   const domains = {
     runOperation(key) {
       assert.equal(key, claim.operationKey);
-      return options.handler || (async () => ({ status: 'succeeded', result: { collected: 12 } }));
+      return Object.hasOwn(options, 'handler')
+        ? options.handler
+        : (async () => ({ status: 'succeeded', result: { collected: 12 } }));
     },
   };
   const context = vm.createContext({
@@ -319,7 +321,7 @@ test('does not extend an offline checkpoint beyond the claimed server lease or d
   assert.ok(Date.parse(checkpoint.resumeLeaseExpiresAt) <= Date.parse(deadlineAt));
 });
 
-test('never resumes an expired server lease from a newer local recovery marker', async () => {
+test('never resumes an expired server lease and terminates its managed session', async () => {
   let handlerCalls = 0;
   const expiredClaim = {
     runId: '11111111-1111-4111-8111-111111111111',
@@ -330,7 +332,7 @@ test('never resumes an expired server lease from a newer local recovery marker',
     leaseExpiresAt: new Date(Date.now() - 1_000).toISOString(),
     deadlineAt: new Date(Date.now() + 60_000).toISOString(),
   };
-  const { client, fetchCalls } = createHarness({
+  const { client, fetchCalls, sessionCancellations } = createHarness({
     claim: null,
     initialStorage: {
       kiditem_operation_runtime_active_v1: {
@@ -352,4 +354,219 @@ test('never resumes an expired server lease from a newer local recovery marker',
   assert.equal(handlerCalls, 0);
   assert.equal(fetchCalls.some((call) => call.path.endsWith('/heartbeat')), false);
   assert.equal(fetchCalls.filter((call) => call.path.endsWith('/claim')).length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(sessionCancellations)), [{
+    runId: expiredClaim.runId,
+    cancelOptions: { closeManagedTab: true },
+  }]);
+});
+
+test('terminates deterministic terminal-report HTTP failures without replaying the handler', async () => {
+  for (const status of [400, 401, 403, 409, 422, 500]) {
+    let handlerCalls = 0;
+    const harness = createHarness({
+      fetchResponse: ({ pathName }) => pathName.endsWith('/report')
+        ? new Response(null, { status })
+        : new Response(null, { status: 204 }),
+      handler: async () => {
+        handlerCalls += 1;
+        return { status: 'succeeded', result: { collected: 1 } };
+      },
+    });
+
+    await harness.client.tick('office');
+    await harness.client.wake('office');
+
+    assert.equal(handlerCalls, 1, `HTTP ${status} must not replay provider work`);
+    assert.equal(
+      harness.storage.kiditem_operation_runtime_active_v1?.office,
+      undefined,
+      `HTTP ${status} must clear the runnable checkpoint`,
+    );
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(harness.sessionCancellations)),
+      [{
+        runId: '11111111-1111-4111-8111-111111111111',
+        cancelOptions: { closeManagedTab: true },
+      }],
+      `HTTP ${status} must close the managed session once`,
+    );
+  }
+});
+
+test('persists deterministic report termination across a service-worker restart', async () => {
+  let handlerCalls = 0;
+  const handler = async () => {
+    handlerCalls += 1;
+    return { status: 'succeeded', result: {} };
+  };
+  const first = createHarness({
+    handler,
+    fetchResponse: ({ pathName }) => pathName.endsWith('/report')
+      ? new Response(null, { status: 400 })
+      : new Response(null, { status: 204 }),
+  });
+  await first.client.tick('office');
+
+  const restarted = createHarness({
+    handler,
+    initialStorage: first.storage,
+  });
+  await restarted.client.wake('office');
+
+  assert.equal(handlerCalls, 1);
+  assert.equal(
+    restarted.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    0,
+  );
+});
+
+test('bounds a deterministic tombstone by the renewed lease rather than the original claim lease', async () => {
+  let handlerCalls = 0;
+  const claim = {
+    runId: '11111111-1111-4111-8111-111111111111',
+    operationKey: 'inventory.refresh_sellpia_snapshot',
+    attemptToken: '22222222-2222-4222-8222-222222222222',
+    attempt: 1,
+    input: {},
+    leaseExpiresAt: new Date(Date.now() + 40).toISOString(),
+    deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const harness = createHarness({
+    claim,
+    fetchResponse: ({ pathName }) => pathName.endsWith('/report')
+      ? new Response(null, { status: 400 })
+      : new Response(null, { status: 204 }),
+    handler: async ({ heartbeat }) => {
+      handlerCalls += 1;
+      await heartbeat(0.5);
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      return { status: 'succeeded', result: {} };
+    },
+  });
+
+  await harness.client.tick('office');
+  await harness.client.wake('office');
+
+  assert.equal(handlerCalls, 1);
+  assert.ok(
+    Date.parse(
+      harness.storage.kiditem_operation_runtime_terminated_v1.office.expiresAt,
+    ) > Date.parse(claim.leaseExpiresAt),
+  );
+});
+
+test('does not loop a missing-handler attention report after deterministic rejection', async () => {
+  const harness = createHarness({
+    handler: undefined,
+    fetchResponse: ({ pathName }) => pathName.endsWith('/report')
+      ? new Response(null, { status: 422 })
+      : new Response(null, { status: 204 }),
+  });
+
+  await harness.client.tick('office');
+  await harness.client.wake('office');
+
+  assert.equal(
+    harness.fetchCalls.filter((call) => call.path.endsWith('/report')).length,
+    1,
+  );
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.equal(harness.sessionCancellations.length, 1);
+});
+
+test('terminates a malformed successful report response and structured auth failure', async () => {
+  for (const failure of ['malformed_response', 'structured_auth']) {
+    let handlerCalls = 0;
+    const harness = createHarness({
+      fetchResponse: ({ pathName }) => {
+        if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+        if (failure === 'malformed_response') {
+          return new Response('{not-json', { status: 200 });
+        }
+        const error = new Error('login is required');
+        error.code = 'environment_auth_required';
+        throw error;
+      },
+      handler: async () => {
+        handlerCalls += 1;
+        return { status: 'succeeded', result: {} };
+      },
+    });
+
+    await harness.client.tick('office');
+    await harness.client.wake('office');
+
+    assert.equal(handlerCalls, 1, `${failure} must not replay provider work`);
+    assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+    assert.equal(harness.sessionCancellations.length, 1);
+  }
+});
+
+test('retains only transport-unavailable reports and heartbeats before same-lifecycle replay', async () => {
+  for (const transportFailure of [
+    new TypeError('offline'),
+    Object.assign(new Error('request timed out'), { code: 'request_timeout' }),
+    new DOMException('request timed out', 'AbortError'),
+  ]) {
+    let handlerCalls = 0;
+    let reportCalls = 0;
+    const harness = createHarness({
+      fetchResponse: ({ pathName }) => {
+        if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+        reportCalls += 1;
+        if (reportCalls === 1) throw transportFailure;
+        return new Response(null, { status: 204 });
+      },
+      handler: async () => {
+        handlerCalls += 1;
+        return { status: 'succeeded', result: { collected: 1 } };
+      },
+    });
+
+    await harness.client.tick('office');
+    assert.equal(handlerCalls, 1);
+    assert.ok(harness.storage.kiditem_operation_runtime_active_v1?.office);
+
+    const beforeResume = harness.fetchCalls.length;
+    await harness.client.wake('office');
+    const resumeCalls = harness.fetchCalls.slice(beforeResume);
+
+    assert.equal(handlerCalls, 2);
+    assert.equal(resumeCalls[0]?.path.endsWith('/heartbeat'), true);
+    assert.equal(resumeCalls[1]?.path.endsWith('/report'), true);
+    assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+    assert.equal(harness.sessionCancellations.length, 0);
+  }
+});
+
+test('drops a transport checkpoint that expires before report recovery', async () => {
+  let handlerCalls = 0;
+  const claim = {
+    runId: '11111111-1111-4111-8111-111111111111',
+    operationKey: 'inventory.refresh_sellpia_snapshot',
+    attemptToken: '22222222-2222-4222-8222-222222222222',
+    attempt: 1,
+    input: {},
+    leaseExpiresAt: new Date(Date.now() + 5).toISOString(),
+    deadlineAt: new Date(Date.now() + 60_000).toISOString(),
+  };
+  const harness = createHarness({
+    claim,
+    fetchResponse: ({ pathName }) => {
+      if (!pathName.endsWith('/report')) return new Response(null, { status: 204 });
+      return new Promise((_resolve, reject) => {
+        setTimeout(() => reject(new TypeError('offline')), 10);
+      });
+    },
+    handler: async () => {
+      handlerCalls += 1;
+      return { status: 'succeeded', result: {} };
+    },
+  });
+
+  await harness.client.tick('office');
+
+  assert.equal(handlerCalls, 1);
+  assert.equal(harness.storage.kiditem_operation_runtime_active_v1?.office, undefined);
+  assert.equal(harness.sessionCancellations.length, 1);
 });

@@ -5,6 +5,7 @@ import { WingCatalogPage } from './WingCatalogPage';
 import { fetchWingCatalogSnapshot } from '../lib/wing-catalog-api';
 import { searchWingCatalogProducts } from '../lib/wing-catalog-extension';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { searchNaverRelatedKeywords } from '../../recommendations/lib/naver-keyword-api';
 
 const start = vi.fn(async () => ({
   id: '10000000-0000-4000-8000-000000000001',
@@ -82,13 +83,42 @@ describe('WingCatalogPage browser operation', () => {
     renderPage();
 
     await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('슬라임'));
+    await screen.findByText(/0개 상품 · persisted_snapshot/);
     expect(start).not.toHaveBeenCalled();
     expect(searchWingCatalogProducts).not.toHaveBeenCalled();
+    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
     expect(capturedOptions).toMatchObject({
       operationKey: 'sourcing.collect_wing_catalog_batch',
       input: { keywords: ['슬라임'], maxPages: 2, purpose: 'catalog_search' },
       snapshotQueryKey: ['sourcing', 'wing-catalog', '슬라임'],
     });
+  });
+
+  it('does not contact providers or start work while resolving, reconnecting, or reloading the route', async () => {
+    const initial = renderPage();
+
+    await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('슬라임'));
+    await screen.findByText(/0개 상품 · persisted_snapshot/);
+    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+
+    initial.unmount();
+    window.history.replaceState(
+      {},
+      '',
+      '/sourcing-ai/wing-catalog?keyword=%ED%81%B4%EB%A0%88%EC%9D%B4&operationRun=10000000-0000-4000-8000-000000000002',
+    );
+    renderPage();
+
+    await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('클레이'));
+    await screen.findByText(/0개 상품 · persisted_snapshot/);
+    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
+    expect(start).not.toHaveBeenCalled();
+    expect(useSourcingOperationAction).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        initialRunId: '10000000-0000-4000-8000-000000000002',
+      }),
+    );
   });
 
   it('starts one durable operation from the explicit CTA and never calls the direct extension helper', async () => {
@@ -110,5 +140,20 @@ describe('WingCatalogPage browser operation', () => {
       'operationRun=10000000-0000-4000-8000-000000000001',
     );
     expect(window.location.search).toContain('keyword=%ED%81%B4%EB%A0%88%EC%9D%B4');
+  });
+
+  it('contacts the related-keyword provider only from its explicit operator action', async () => {
+    renderPage();
+    await screen.findByText(/0개 상품 · persisted_snapshot/);
+
+    fireEvent.click(screen.getByRole('button', { name: '네이버 연관 키워드 조회' }));
+
+    await waitFor(() => {
+      expect(searchNaverRelatedKeywords).toHaveBeenCalledWith({
+        seedKeywords: ['슬라임'],
+        maxResults: 30,
+      });
+    });
+    expect(start).not.toHaveBeenCalled();
   });
 });

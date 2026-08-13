@@ -123,7 +123,7 @@ export function WingCatalogPage() {
       seedKeywords: [relatedKeywordSeed],
       maxResults: 30,
     }),
-    enabled: relatedKeywordSeed.length > 0,
+    enabled: false,
   });
   const trackedProductsQuery = useQuery({
     queryKey: queryKeys.sourcing.wingTrackedProducts(),
@@ -254,6 +254,11 @@ export function WingCatalogPage() {
     await operation.retryAttention();
   };
 
+  const handleLoadRelatedKeywords = async () => {
+    if (!relatedKeywordSeed) return;
+    await relatedKeywordQuery.refetch();
+  };
+
   const handleDownload = () => {
     if (!result) return;
     const safeKeyword = (result.keyword ?? keyword).replace(/[^\w가-힣-]+/g, '-');
@@ -380,6 +385,9 @@ export function WingCatalogPage() {
           relatedKeywords={relatedKeywordRows}
           autocompleteKeywords={autocompleteKeywords}
           notice={relatedKeywordNotice}
+          canLoadProviderKeywords={relatedKeywordSeed.length > 0}
+          loadingProviderKeywords={loadingRelatedKeywords}
+          onLoadProviderKeywords={handleLoadRelatedKeywords}
         />
 
         <section className="grid overflow-hidden rounded-lg border border-[var(--border)] bg-[var(--surface)] shadow-sm md:grid-cols-2 xl:grid-cols-6">
@@ -532,6 +540,9 @@ function RelatedKeywordsSection({
   relatedKeywords,
   autocompleteKeywords,
   notice,
+  canLoadProviderKeywords,
+  loadingProviderKeywords,
+  onLoadProviderKeywords,
 }: {
   productNameKeywords: KeywordFrequency[];
   popularKeywordRows: PopularKeywordRow[];
@@ -540,18 +551,32 @@ function RelatedKeywordsSection({
   relatedKeywords: string[];
   autocompleteKeywords: string[];
   notice: string | null;
+  canLoadProviderKeywords: boolean;
+  loadingProviderKeywords: boolean;
+  onLoadProviderKeywords: () => void;
 }) {
   return (
     <section>
       <div className="mb-4 flex items-center justify-between gap-3">
         <h2 className="text-2xl font-black tracking-normal">연관키워드</h2>
-        <button
-          type="button"
-          className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)]"
-          aria-label="연관키워드 접기"
-        >
-          <ChevronUp size={16} />
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onLoadProviderKeywords}
+            disabled={!canLoadProviderKeywords || loadingProviderKeywords}
+            className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 text-xs font-black text-[var(--text-secondary)] transition hover:bg-[var(--surface-sunken)] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {loadingProviderKeywords && <Loader2 size={13} className="animate-spin" />}
+            네이버 연관 키워드 조회
+          </button>
+          <button
+            type="button"
+            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[var(--border)] bg-[var(--surface)] text-[var(--text-primary)]"
+            aria-label="연관키워드 접기"
+          >
+            <ChevronUp size={16} />
+          </button>
+        </div>
       </div>
       {notice && (
         <p className="mb-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold leading-5 text-amber-800">

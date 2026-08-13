@@ -136,6 +136,7 @@ export class SourcingRecommendationService {
   async refresh(input: {
     organizationId: string;
     limit?: number;
+    idempotencyKey?: string;
   }): Promise<SourcingRecommendationEnvelope> {
     const limit = normalizeLimit(input.limit);
     const cutoffAt = new Date();
@@ -262,8 +263,13 @@ export class SourcingRecommendationService {
       coupangEvidenceIds: coupangResult.items.map((item) => item.evidenceObservationId),
       targets,
       popularRows,
+      refreshIdempotencyKey: input.idempotencyKey,
     });
-    const inputManifestHash = hashManifest(inputManifest.stable);
+    const inputManifestHash = hashManifest(
+      input.idempotencyKey
+        ? { refreshIdempotencyKey: input.idempotencyKey }
+        : inputManifest.stable,
+    );
     const result = await this.runs.createOrGet({
       organizationId: input.organizationId,
       policyKey: SOURCING_RECOMMENDATION_POLICY_KEY,
@@ -364,6 +370,7 @@ function buildInputManifest(input: {
   coupangEvidenceIds: string[];
   targets: Awaited<ReturnType<SourcingInterestTargetRepositoryPort['list']>>;
   popularRows: Awaited<ReturnType<TrendCollectionRepositoryPort['findPopularKeywordHistory']>>;
+  refreshIdempotencyKey?: string;
 }): { stable: Record<string, unknown>; full: Record<string, unknown> } {
   const stable = {
     businessDate: input.businessDate.toISOString().slice(0, 10),
@@ -383,6 +390,9 @@ function buildInputManifest(input: {
       modelVersion: SOURCING_RECOMMENDATION_MODEL_VERSION,
       calculationVersion: SOURCING_RECOMMENDATION_CALCULATION_VERSION,
     },
+    ...(input.refreshIdempotencyKey
+      ? { refreshIdempotencyKey: input.refreshIdempotencyKey }
+      : {}),
   };
   return {
     stable,

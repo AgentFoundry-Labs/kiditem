@@ -61,66 +61,103 @@ interface RequestOptions extends ApiRequestOptions {
   emptyBodyAs?: 'empty-object' | 'null';
 }
 
-async function fetchApi(
-  path: string,
-  init?: RequestInit,
-  options?: ApiRequestOptions,
-): Promise<Response> {
-  const callerSignal = options?.signal ?? init?.signal ?? undefined;
-  const composedSignal = composeRequestSignal(
-    callerSignal,
-    options?.timeoutMs === undefined ? null : options.timeoutMs,
-  );
+class RequestSignalAbort extends Error {
+  constructor(readonly reason: unknown) {
+    super('Request aborted');
+    this.name = 'RequestSignalAbort';
+  }
+}
+
+async function raceWithSignal<T>(
+  signal: AbortSignal | undefined,
+  action: () => T | PromiseLike<T>,
+): Promise<T> {
+  if (!signal) return action();
+  if (signal.aborted) throw new RequestSignalAbort(signal.reason);
+
+  let onAbort: (() => void) | null = null;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(new RequestSignalAbort(signal.reason));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+  let operation: Promise<T>;
   try {
-    const authenticatedInit = await withAuthHeaders(init);
-    return await fetch(`${getApiBase()}${path}`, {
+    operation = Promise.resolve(action());
+  } catch (error) {
+    operation = Promise.reject(error);
+  }
+
+  try {
+    return await Promise.race([operation, aborted]);
+  } finally {
+    if (onAbort !== null) signal.removeEventListener('abort', onAbort);
+  }
+}
+
+function callerAbortError(reason: unknown): Error {
+  if (isAbortError(reason)) return reason as Error;
+  const error = new DOMException('The operation was aborted.', 'AbortError');
+  Object.defineProperty(error, 'cause', {
+    configurable: true,
+    value: reason,
+  });
+  return error;
+}
+
+function timeoutError(): ApiError {
+  return new ApiError(
+    0,
+    'request_timeout',
+    '요청 시간이 초과되었습니다. 다시 시도해주세요.',
+  );
+}
+
+async function fetchApiResponse(
+  path: string,
+  init: RequestInit | undefined,
+  signal: AbortSignal,
+  suppressNetworkErrorLog: boolean,
+): Promise<Response> {
+  const authenticatedInit = await raceWithSignal(signal, () => withAuthHeaders(init));
+  try {
+    return await raceWithSignal(signal, () => fetch(`${getApiBase()}${path}`, {
       ...authenticatedInit,
-      signal: composedSignal.signal,
-    });
-  } catch (err) {
-    if (composedSignal.didTimeout) {
-      throw new ApiError(
-        0,
-        'request_timeout',
-        '요청 시간이 초과되었습니다. 다시 시도해주세요.',
-      );
-    }
-    if (callerSignal?.aborted && isAbortError(callerSignal.reason)) {
-      throw callerSignal.reason;
-    }
-    if (isAbortError(err)) throw err;
-    if (!options?.suppressNetworkErrorLog) {
-      console.error('[apiClient] Network request failed', { path, error: err });
+      signal,
+    }));
+  } catch (error) {
+    if (error instanceof RequestSignalAbort || isAbortError(error)) throw error;
+    if (!suppressNetworkErrorLog) {
+      console.error('[apiClient] Network request failed', { path, error });
     }
     throw new ApiError(
       0,
       'network_error',
       'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
     );
-  } finally {
-    composedSignal.cleanup();
   }
 }
 
-async function read401Message(res: Response): Promise<string | null> {
+async function read401Message(
+  res: Response,
+  signal?: AbortSignal,
+): Promise<string | null> {
   try {
-    const body = (await res.clone().json()) as Record<string, unknown>;
+    const body = (await raceWithSignal(signal, () => res.clone().json())) as Record<string, unknown>;
     const msg = body?.message;
     return typeof msg === 'string' ? msg : null;
-  } catch {
+  } catch (error) {
+    if (error instanceof RequestSignalAbort) throw error;
     return null;
   }
 }
 
-async function request<T>(
-  path: string,
-  init?: RequestInit,
+async function consumeResponse<T>(
+  res: Response,
+  signal: AbortSignal,
   options?: RequestOptions,
 ): Promise<T> {
-  const res = await fetchApi(path, init, options);
-
   if (res.status === 401) {
-    const message = await read401Message(res);
+    const message = await read401Message(res, signal);
 
     if (message === 'auth_required') {
       clearAuthSession('session_expired');
@@ -141,7 +178,12 @@ async function request<T>(
 
   if (!res.ok) {
     // 비-401 path 는 기존 의미 유지: code = body.error (HTTP error category 식별자).
-    const body = await res.json().catch(() => ({}));
+    let body: unknown = {};
+    try {
+      body = await raceWithSignal(signal, () => res.json());
+    } catch (error) {
+      if (error instanceof RequestSignalAbort) throw error;
+    }
     const record = body as Record<string, unknown>;
     const code = typeof record.error === 'string' ? record.error : null;
     const messageRaw = record.message;
@@ -155,23 +197,76 @@ async function request<T>(
     throw new ApiError(res.status, code, detail);
   }
 
-  const text = await res.text();
+  const text = await raceWithSignal(signal, () => res.text());
   if (text) return JSON.parse(text) as T;
   return (options?.emptyBodyAs === 'null' ? null : {}) as T;
+}
+
+async function request<T>(
+  path: string,
+  init?: RequestInit,
+  options?: RequestOptions,
+): Promise<T> {
+  const callerSignal = options?.signal ?? init?.signal ?? undefined;
+  const composedSignal = composeRequestSignal(
+    callerSignal,
+    options?.timeoutMs === undefined ? null : options.timeoutMs,
+  );
+  try {
+    const response = await fetchApiResponse(
+      path,
+      init,
+      composedSignal.signal,
+      options?.suppressNetworkErrorLog === true,
+    );
+    return await consumeResponse<T>(response, composedSignal.signal, options);
+  } catch (error) {
+    if (error instanceof RequestSignalAbort) {
+      throw composedSignal.didTimeout
+        ? timeoutError()
+        : callerAbortError(callerSignal?.reason ?? error.reason);
+    }
+    if (composedSignal.didTimeout && isAbortError(error)) throw timeoutError();
+    if (isAbortError(error) && callerSignal?.aborted) {
+      throw callerAbortError(callerSignal.reason);
+    }
+    throw error;
+  } finally {
+    composedSignal.cleanup();
+  }
 }
 
 async function fetchRaw(
   path: string,
   init?: RequestInit,
 ): Promise<Response> {
-  const res = await fetchApi(path, init);
-  if (res.status === 401) {
-    const message = await read401Message(res);
-    if (message === 'auth_required') {
-      clearAuthSession('session_expired');
+  const signal = init?.signal ?? undefined;
+  try {
+    const authenticatedInit = await raceWithSignal(signal, () => withAuthHeaders(init));
+    const res = await raceWithSignal(signal, () => fetch(
+      `${getApiBase()}${path}`,
+      authenticatedInit,
+    ));
+    if (res.status === 401) {
+      const message = await read401Message(res, signal);
+      if (message === 'auth_required') {
+        clearAuthSession('session_expired');
+      }
     }
+    return res;
+  } catch (error) {
+    if (error instanceof RequestSignalAbort) throw callerAbortError(error.reason);
+    if (isAbortError(error) && signal?.aborted) {
+      throw callerAbortError(signal.reason);
+    }
+    if (isAbortError(error)) throw error;
+    console.error('[apiClient] Network request failed', { path, error });
+    throw new ApiError(
+      0,
+      'network_error',
+      'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
+    );
   }
-  return res;
 }
 
 export const apiClient = {

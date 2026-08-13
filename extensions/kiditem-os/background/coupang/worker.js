@@ -4631,10 +4631,6 @@ const SOURCING_WING_CATALOG_OPERATION_KEY =
 const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
 const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
 
-function normalizedWingOperationKeyword(value) {
-  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ");
-}
-
 function parseSourcingWingCatalogOperationInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("wing_catalog_operation_input_invalid");
@@ -4658,13 +4654,11 @@ function parseSourcingWingCatalogOperationInput(input) {
   ) {
     throw new Error("wing_catalog_operation_input_invalid");
   }
-  const keywords = input.keywords.map(normalizedWingOperationKeyword);
-  if (
-    keywords.some((keyword) => keyword.length < 1 || keyword.length > 100) ||
-    new Set(keywords).size !== keywords.length
-  ) {
-    throw new Error("wing_catalog_operation_input_invalid");
-  }
+  const keywords = KidItemWingKeywordContract.parseBatchKeywords(
+    input.keywords,
+    SOURCING_WING_CATALOG_MAX_KEYWORDS,
+    100,
+  );
   return { keywords, maxPages: input.maxPages, purpose: input.purpose };
 }
 

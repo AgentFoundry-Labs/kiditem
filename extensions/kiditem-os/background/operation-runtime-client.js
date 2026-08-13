@@ -6,7 +6,16 @@
   const HEARTBEAT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/heartbeat`;
   const REPORT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/report`;
   const ACTIVE_CLAIMS_STORAGE_KEY = "kiditem_operation_runtime_active_v1";
+  const TERMINATED_ATTEMPTS_STORAGE_KEY = "kiditem_operation_runtime_terminated_v1";
   const MAX_RESUME_LEASE_MS = 90_000;
+  const TRANSPORT_ERROR_CODES = new Set([
+    "network_error",
+    "request_timeout",
+    "transport_unavailable",
+    "ERR_NETWORK",
+    "ECONNRESET",
+    "ETIMEDOUT",
+  ]);
 
   function boundedText(value, fallback, maximum) {
     if (typeof value !== "string") return fallback;
@@ -61,14 +70,51 @@
     return Number.isFinite(timestamp) && timestamp > Date.now();
   }
 
-  function operationRuntimeError(message, status = null) {
+  function operationRuntimeError(message, status = null, failureKind = null) {
     const error = new Error(message);
     if (status !== null) error.status = status;
+    error.code = message;
+    if (failureKind) error.operationRuntimeFailureKind = failureKind;
     return error;
   }
 
+  function classifyRuntimeRequestError(error) {
+    const status = Number.isInteger(error?.status) ? error.status : null;
+    const code = typeof error?.code === "string" && error.code.length <= 120
+      ? error.code
+      : null;
+    if (
+      status === 409 ||
+      code === "operation_runtime_fence_lost" ||
+      error?.operationRuntimeFailureKind === "fence"
+    ) {
+      return { kind: "fence", code: "operation_runtime_fence_lost", status: 409 };
+    }
+    if (status !== null || error?.operationRuntimeFailureKind === "deterministic") {
+      return {
+        kind: "deterministic",
+        code: code || `operation_runtime_http_${status}`,
+        status,
+      };
+    }
+    if (
+      error?.operationRuntimeFailureKind === "transport" ||
+      TRANSPORT_ERROR_CODES.has(code) ||
+      error?.name === "TypeError" ||
+      error?.name === "AbortError" ||
+      error?.name === "TimeoutError"
+    ) {
+      return { kind: "transport", code: code || "transport_unavailable", status: null };
+    }
+    return {
+      kind: "deterministic",
+      code: code || "operation_runtime_request_rejected",
+      status: null,
+    };
+  }
+
   function isFenceError(error) {
-    return error?.status === 409;
+    return classifyRuntimeRequestError(error).kind === "fence";
   }
 
   function boundedLeaseDuration(claim) {
@@ -116,6 +162,83 @@
       } catch {
         // Persistence is a restart-recovery guard. A temporary storage error
         // must not prevent a browser operation that is already claimed.
+      }
+    }
+
+    async function readTerminatedAttempts() {
+      try {
+        const stored = await chromeApi.storage?.local?.get(
+          TERMINATED_ATTEMPTS_STORAGE_KEY,
+        );
+        const attempts = stored?.[TERMINATED_ATTEMPTS_STORAGE_KEY];
+        return isRecord(attempts) ? attempts : {};
+      } catch {
+        return {};
+      }
+    }
+
+    async function writeTerminatedAttempts(attempts) {
+      try {
+        await chromeApi.storage?.local?.set({
+          [TERMINATED_ATTEMPTS_STORAGE_KEY]: attempts,
+        });
+      } catch {
+        // The backend attempt token is still the durable fence. This marker
+        // only prevents deterministic same-attempt replay across MV3 wakes.
+      }
+    }
+
+    async function rememberTerminatedAttempt(environmentId, claim, failure) {
+      const attempts = await readTerminatedAttempts();
+      const activeClaims = await readActiveClaims();
+      const active = activeClaims[environmentId];
+      const matchesActiveAttempt = isRecord(active) && validClaim(active.claim) &&
+        active.claim.runId === claim.runId &&
+        active.claim.attemptToken === claim.attemptToken;
+      const renewedLease = matchesActiveAttempt &&
+        Number.isFinite(Date.parse(String(active.lastHeartbeatSucceededAt || ""))) &&
+        Number.isFinite(Date.parse(String(active.resumeLeaseExpiresAt || "")))
+        ? Date.parse(active.resumeLeaseExpiresAt)
+        : Date.parse(claim.leaseExpiresAt);
+      attempts[environmentId] = {
+        runId: claim.runId,
+        attemptToken: claim.attemptToken,
+        expiresAt: new Date(Math.min(
+          renewedLease,
+          Date.parse(claim.deadlineAt),
+        )).toISOString(),
+        failureCode: boundedText(
+          failure?.code,
+          "operation_runtime_request_rejected",
+          120,
+        ),
+      };
+      await writeTerminatedAttempts(attempts);
+    }
+
+    async function isTerminatedAttempt(environmentId, claim) {
+      const attempts = await readTerminatedAttempts();
+      const terminated = attempts[environmentId];
+      if (!isRecord(terminated)) return false;
+      if (!isFutureTimestamp(terminated.expiresAt)) {
+        delete attempts[environmentId];
+        await writeTerminatedAttempts(attempts);
+        return false;
+      }
+      return terminated.runId === claim.runId &&
+        terminated.attemptToken === claim.attemptToken;
+    }
+
+    async function cancelOwnedSession(environmentId, claim) {
+      if (!sessions) return;
+      try {
+        const owned = typeof sessions.getOwned === "function"
+          ? await sessions.getOwned(claim.runId, environmentId)
+          : null;
+        if (!owned || typeof sessions.cancel !== "function") return;
+        await sessions.cancel(claim.runId, { closeManagedTab: true });
+      } catch {
+        // Local cancellation is best effort; the server fence remains final.
       }
     }
 
@@ -170,7 +293,7 @@
       await writeActiveClaims(claims);
     }
 
-    async function activeClaimFor(environmentId) {
+    async function activeClaimFor(environmentId, terminateExpired = false) {
       const claims = await readActiveClaims();
       const active = claims[environmentId];
       if (!isRecord(active) || !validClaim(active.claim)) return null;
@@ -188,6 +311,9 @@
         isFutureTimestamp(active.claim.deadlineAt)
       ) return active;
       await clearActiveClaim(environmentId, active.claim);
+      if (terminateExpired) {
+        await cancelOwnedSession(environmentId, active.claim);
+      }
       return null;
     }
 
@@ -205,6 +331,7 @@
             ? "operation_runtime_fence_lost"
             : `operation_runtime_http_${status || "network"}`,
           status,
+          status === 409 ? "fence" : "deterministic",
         );
       }
       if (response.status === 204) return null;
@@ -213,7 +340,11 @@
       try {
         return JSON.parse(text);
       } catch {
-        throw new Error("operation_runtime_invalid_response");
+        throw operationRuntimeError(
+          "operation_runtime_invalid_response",
+          null,
+          "deterministic",
+        );
       }
     }
 
@@ -232,6 +363,7 @@
 
     async function executeClaim(environmentId, claim, initialState = {}) {
       if (activeExecutions.has(environmentId)) return false;
+      if (await isTerminatedAttempt(environmentId, claim)) return false;
       const handler = domains.runOperation(claim.operationKey);
       if (typeof handler !== "function") {
         try {
@@ -241,7 +373,16 @@
           });
           await clearActiveClaim(environmentId, claim);
         } catch (error) {
-          if (isFenceError(error)) await clearActiveClaim(environmentId, claim);
+          const failure = classifyRuntimeRequestError(error);
+          if (failure.kind !== "transport") {
+            await rememberTerminatedAttempt(environmentId, claim, failure);
+            await clearActiveClaim(environmentId, claim);
+            await cancelOwnedSession(environmentId, claim);
+            console.warn(
+              "[operation-runtime] missing-handler report rejected",
+              failure.code,
+            );
+          }
         }
         return true;
       }
@@ -270,15 +411,7 @@
       let managedSessionCleanup = null;
       const cancelManagedSession = () => {
         if (managedSessionCleanup || !sessions) return managedSessionCleanup;
-        managedSessionCleanup = Promise.resolve()
-          .then(async () => {
-            const owned = typeof sessions.getOwned === "function"
-              ? await sessions.getOwned(claim.runId, environmentId)
-              : null;
-            if (!owned || typeof sessions.cancel !== "function") return;
-            await sessions.cancel(claim.runId, { closeManagedTab: true });
-          })
-          .catch(() => undefined);
+        managedSessionCleanup = cancelOwnedSession(environmentId, claim);
         return managedSessionCleanup;
       };
       const abortAttempt = (reason) => {
@@ -414,9 +547,21 @@
           }, attemptController.signal);
           await clearActiveClaim(environmentId, claim);
         } catch (error) {
-          if (isFenceError(error)) await clearActiveClaim(environmentId, claim);
-          // Keep the claim checkpoint. The next service-worker wake-up resumes
-          // the exact fenced attempt instead of creating another provider job.
+          const failure = classifyRuntimeRequestError(error);
+          if (failure.kind === "transport") {
+            const stillPlausible = await activeClaimFor(environmentId);
+            if (!stillPlausible) await cancelManagedSession();
+          } else {
+            abortAttempt(error);
+            await rememberTerminatedAttempt(environmentId, claim, failure);
+            await clearActiveClaim(environmentId, claim);
+            console.warn(
+              "[operation-runtime] terminal report rejected",
+              failure.code,
+            );
+          }
+          // Only classified transport unavailability retains the checkpoint.
+          // A later wake must heartbeat the same fenced attempt before replay.
         }
       } finally {
         await stopHeartbeats();
@@ -438,6 +583,10 @@
         const claim = payload?.claim;
         if (!claim || typeof claim !== "object") return false;
         if (!validClaim(claim)) return false;
+        if (
+          !isFutureTimestamp(claim.leaseExpiresAt) ||
+          !isFutureTimestamp(claim.deadlineAt)
+        ) return false;
         await executeClaim(environmentId, claim);
         return true;
       } catch {
@@ -453,7 +602,7 @@
       if (activeTicks.has(environmentId) || activeExecutions.has(environmentId)) {
         return false;
       }
-      const active = await activeClaimFor(environmentId);
+      const active = await activeClaimFor(environmentId, true);
       if (active) {
         const progressState = {
           progress: active.progress,
@@ -489,15 +638,27 @@
             renewedCheckpoint: true,
           });
         } catch (error) {
-          if (!isFenceError(error)) {
+          const failure = classifyRuntimeRequestError(error);
+          if (failure.kind === "transport") {
             // The same attempt remains the only safe recovery owner while its
             // locally bounded lease/deadline are still plausible. Do not claim
             // another job merely because the network is temporarily offline.
+            const stillPlausible = await activeClaimFor(environmentId);
+            if (!stillPlausible) {
+              await cancelOwnedSession(environmentId, active.claim);
+            }
             return false;
           }
-          // A terminal or fenced run must not replay marketplace work from a
-          // stale local checkpoint. Drop it and ask the server for new work.
+          // A deterministic or fenced response must not replay marketplace
+          // work from a stale local checkpoint, even across an MV3 restart.
+          await rememberTerminatedAttempt(environmentId, active.claim, failure);
           await clearActiveClaim(environmentId, active.claim);
+          await cancelOwnedSession(environmentId, active.claim);
+          console.warn(
+            "[operation-runtime] checkpoint rejected",
+            failure.code,
+          );
+          return false;
         }
       }
       return tick(environmentId);

@@ -9,14 +9,19 @@ const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
 const RUN_ID = '00000000-0000-4000-8000-000000000010';
 const ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000011';
+const FINALIZE_MARKER_ID = '00000000-0000-4000-8000-000000000030';
+const FINALIZE_LEASE_TOKEN = '00000000-0000-4000-8000-000000000031';
 
-function verifier(purpose = 'catalog_search'): OperationAttemptVerifierPort {
+function verifier(
+  purpose = 'catalog_search',
+  keywords: string[] = ['  슬라임 '],
+): OperationAttemptVerifierPort {
   return {
     verifyActiveBrowserAttempt: vi.fn(async () => ({
       runId: RUN_ID,
       organizationId: ORGANIZATION_ID,
       operationKey: 'sourcing.collect_wing_catalog_batch',
-      input: { keywords: ['  슬라임 '], maxPages: 2, purpose },
+      input: { keywords, maxPages: 2, purpose },
       requestedByUserId: USER_ID,
       startedAt: new Date('2026-08-14T00:00:00.000Z'),
       leaseExpiresAt: new Date('2026-08-14T00:01:00.000Z'),
@@ -32,6 +37,75 @@ function sources(
     listLatestOfferObservations: vi.fn(async () => ({ items: [], rejectedCount: 0 })),
     listLatestCoupangObservations: vi.fn(async () => ({ items: [], rejectedCount: 0 })),
     listWingCatalogSnapshot: vi.fn(async () => ({ items, rejectedCount: 0 })),
+  };
+}
+
+function durableFinalizeRepository() {
+  let state: 'idle' | 'collecting' | 'failed' | 'complete' = 'idle';
+  let generation = 0;
+  let permit = {
+    runId: FINALIZE_MARKER_ID,
+    organizationId: ORGANIZATION_ID,
+    sourceKey: 'coupang.wing_catalog',
+    scopeKey: 'default',
+    targetKey: `finalize:${RUN_ID}`,
+    leaseToken: FINALIZE_LEASE_TOKEN,
+    generation,
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+  };
+  return {
+    claimRecoverableRun: vi.fn(async () => {
+      if (state === 'complete') return { kind: 'completed' as const, runId: FINALIZE_MARKER_ID };
+      if (state === 'collecting') {
+        return {
+          kind: 'in_progress' as const,
+          runId: FINALIZE_MARKER_ID,
+          leaseExpiresAt: permit.leaseExpiresAt,
+        };
+      }
+      state = 'collecting';
+      generation += 1;
+      permit = {
+        ...permit,
+        leaseToken: `${FINALIZE_LEASE_TOKEN.slice(0, -1)}${generation}`,
+        generation,
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      };
+      return { kind: 'claimed' as const, permit };
+    }),
+    commit: vi.fn(async () => {
+      state = 'complete';
+      return {
+        kind: 'committed' as const,
+        runId: FINALIZE_MARKER_ID,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        staleDiscardedCount: 0,
+      };
+    }),
+    fail: vi.fn(async () => {
+      state = 'failed';
+    }),
+    state: () => state,
+  };
+}
+
+function finalizationInput(purpose: 'catalog_search' | 'recommendation_validation') {
+  return {
+    organizationId: ORGANIZATION_ID,
+    operationRunId: RUN_ID,
+    attemptToken: ATTEMPT_TOKEN,
+    finalization: {
+      purpose,
+      keywords: [{
+        keyword: '슬라임',
+        outcome: 'complete' as const,
+        discovered: 1,
+        accepted: 1,
+        duplicate: 0,
+        failed: 0,
+      }],
+    },
   };
 }
 
@@ -70,6 +144,7 @@ describe('SourcingWingCatalogIngestService', () => {
       recommendations,
       verifier(),
       sources(),
+      durableFinalizeRepository() as never,
     );
 
     await service.ingest({
@@ -148,6 +223,7 @@ describe('SourcingWingCatalogIngestService', () => {
       recommendations,
       attemptVerifier,
       sources(),
+      durableFinalizeRepository() as never,
     );
 
     const browserBatchInput = {
@@ -221,82 +297,205 @@ describe('SourcingWingCatalogIngestService', () => {
     expect(new Set(requestHashes).size).toBe(1);
   });
 
-  it('durably finalizes once and refreshes recommendations only for the matching purpose', async () => {
-    let calls = 0;
-    const requestHashes: string[] = [];
+  it('uses the shared case-insensitive keyword identity for ingest idempotency', async () => {
+    const executeInputs: Array<{ idempotencyKey: string; requestHash: string; targetKey: string }> = [];
     const coordinator = {
-      execute: vi.fn(async (executeInput, producer) => {
-        requestHashes.push(executeInput.requestHash);
-        calls += 1;
-        if (calls === 1) {
-          await producer({
-            permit: {
-              runId: '00000000-0000-4000-8000-000000000030',
-              organizationId: ORGANIZATION_ID,
-              sourceKey: 'coupang.wing_catalog',
-              scopeKey: 'default',
-              targetKey: `finalize:${RUN_ID}`,
-              leaseToken: '00000000-0000-4000-8000-000000000031',
-              generation: 1,
-              leaseExpiresAt: new Date('2026-08-14T00:01:00.000Z'),
-            },
-            checkpoint: vi.fn(),
-          });
-          return { kind: 'committed', runId: 'marker', acceptedCount: 0, duplicateCount: 0, staleDiscardedCount: 0 };
-        }
-        return { kind: 'existing', runId: 'marker' };
+      execute: vi.fn(async (executeInput) => {
+        executeInputs.push(executeInput);
+        return {
+          kind: 'existing' as const,
+          runId: '00000000-0000-4000-8000-000000000020',
+        };
       }),
     } as unknown as SourcingCollectionCoordinator;
-    const recommendations = {
+    const service = new SourcingWingCatalogIngestService(
+      coordinator,
+      { refresh: vi.fn() } as unknown as SourcingRecommendationService,
+      verifier('catalog_search', ['Ａ  Pencil']),
+      sources(),
+      durableFinalizeRepository() as never,
+    );
+    const batch = {
+      keyword: 'a pencil',
+      maxPages: 2,
+      purpose: 'catalog_search' as const,
+      items: [],
+    };
+
+    await service.ingestBrowserBatch({
+      organizationId: ORGANIZATION_ID,
+      operationRunId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      batch,
+    });
+    await service.ingestBrowserBatch({
+      organizationId: ORGANIZATION_ID,
+      operationRunId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      batch: { ...batch, keyword: '  Ａ   PENCIL ' },
+    });
+
+    expect(executeInputs).toHaveLength(2);
+    expect(new Set(executeInputs.map((input) => input.idempotencyKey)).size).toBe(1);
+    expect(new Set(executeInputs.map((input) => input.requestHash)).size).toBe(1);
+    expect(executeInputs.map((input) => input.targetKey)).toEqual([
+      'keyword:a pencil',
+      'keyword:a pencil',
+    ]);
+  });
+
+  it('resumes a durable recommendation refresh after rejection in a later service instance', async () => {
+    let calls = 0;
+    const coordinator = {
+      execute: vi.fn(async () => {
+        calls += 1;
+        return calls === 1
+          ? { kind: 'committed', runId: FINALIZE_MARKER_ID, acceptedCount: 0, duplicateCount: 0, staleDiscardedCount: 0 }
+          : { kind: 'existing', runId: FINALIZE_MARKER_ID };
+      }),
+    } as unknown as SourcingCollectionCoordinator;
+    const failedRecommendations = {
+      refresh: vi.fn(async () => { throw new Error('refresh crashed'); }),
+    } as unknown as SourcingRecommendationService;
+    const repository = durableFinalizeRepository();
+    const firstService = new SourcingWingCatalogIngestService(
+      coordinator,
+      failedRecommendations,
+      verifier('recommendation_validation'),
+      sources(),
+      repository as never,
+    );
+
+    await expect(firstService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    )).rejects.toThrow('refresh crashed');
+    expect(repository.state()).toBe('failed');
+
+    const resumedRecommendations = {
       refresh: vi.fn(async () => ({ status: 'ready' })),
+    } as unknown as SourcingRecommendationService;
+    const resumedService = new SourcingWingCatalogIngestService(
+      coordinator,
+      resumedRecommendations,
+      verifier('recommendation_validation'),
+      sources(),
+      repository as never,
+    );
+
+    await expect(resumedService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    )).resolves.toMatchObject({ finalized: true, refreshed: true });
+
+    expect(repository.fail).toHaveBeenCalledTimes(1);
+    expect(repository.commit).toHaveBeenCalledTimes(1);
+    expect(resumedRecommendations.refresh).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: `wing-operation:${RUN_ID}:recommendation-refresh`,
+    });
+    expect(repository.claimRecoverableRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        targetKey: `finalize:${RUN_ID}`,
+        idempotencyKey: `wing-operation:${RUN_ID}:finalize`,
+      }),
+    );
+  });
+
+  it('serializes concurrent finalize refreshes and returns success only after durable completion', async () => {
+    const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
+    const repository = durableFinalizeRepository();
+    let releaseRefresh!: () => void;
+    const refreshPending = new Promise<void>((resolve) => { releaseRefresh = resolve; });
+    const recommendations = {
+      refresh: vi.fn(async () => {
+        await refreshPending;
+        return { status: 'ready' };
+      }),
     } as unknown as SourcingRecommendationService;
     const service = new SourcingWingCatalogIngestService(
       coordinator,
       recommendations,
       verifier('recommendation_validation'),
       sources(),
+      repository as never,
     );
-    const input = {
+
+    const first = service.finalizeBrowserOperation(finalizationInput('recommendation_validation'));
+    await vi.waitFor(() => expect(recommendations.refresh).toHaveBeenCalledTimes(1));
+    let secondSettled = false;
+    const second = service.finalizeBrowserOperation(finalizationInput('recommendation_validation'))
+      .finally(() => { secondSettled = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(secondSettled).toBe(false);
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+    releaseRefresh();
+
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+    expect(repository.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not rerun a completed refresh and finalizes non-refresh purposes without refresh', async () => {
+    const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
+    const repository = durableFinalizeRepository();
+    const recommendations = {
+      refresh: vi.fn(async () => ({ status: 'ready' })),
+    } as unknown as SourcingRecommendationService;
+    const recommendationService = new SourcingWingCatalogIngestService(
+      coordinator,
+      recommendations,
+      verifier('recommendation_validation'),
+      sources(),
+      repository as never,
+    );
+
+    await recommendationService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    );
+    await expect(recommendationService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    )).resolves.toMatchObject({ finalized: true, duplicate: true });
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+
+    const noRefreshRepository = durableFinalizeRepository();
+    const noRefreshService = new SourcingWingCatalogIngestService(
+      coordinator,
+      recommendations,
+      verifier('catalog_search'),
+      sources(),
+      noRefreshRepository as never,
+    );
+    await expect(noRefreshService.finalizeBrowserOperation(
+      finalizationInput('catalog_search'),
+    )).resolves.toMatchObject({ finalized: true, refreshed: false });
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+    expect(noRefreshRepository.commit).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects final keyword results that reorder the durable operation input', async () => {
+    const repository = durableFinalizeRepository();
+    const service = new SourcingWingCatalogIngestService(
+      { execute: vi.fn() } as unknown as SourcingCollectionCoordinator,
+      { refresh: vi.fn() } as unknown as SourcingRecommendationService,
+      verifier('catalog_search', ['Ａ', 'B']),
+      sources(),
+      repository as never,
+    );
+
+    await expect(service.finalizeBrowserOperation({
       organizationId: ORGANIZATION_ID,
       operationRunId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
       finalization: {
-        purpose: 'recommendation_validation' as const,
-        keywords: [{
-          keyword: '슬라임',
-          outcome: 'complete' as const,
-          discovered: 1,
-          accepted: 1,
-          duplicate: 0,
-          failed: 0,
-        }],
+        purpose: 'catalog_search',
+        keywords: [
+          { keyword: 'b', outcome: 'complete', discovered: 1, accepted: 1, duplicate: 0, failed: 0 },
+          { keyword: 'a', outcome: 'complete', discovered: 1, accepted: 1, duplicate: 0, failed: 0 },
+        ],
       },
-    };
-
-    await expect(service.finalizeBrowserOperation(input)).resolves.toMatchObject({ finalized: true });
-    await expect(service.finalizeBrowserOperation({
-      ...input,
-      finalization: {
-        ...input.finalization,
-        keywords: [{
-          ...input.finalization.keywords[0],
-          outcome: 'no_change' as const,
-          accepted: 0,
-          duplicate: 1,
-        }],
-      },
-    })).resolves.toMatchObject({ finalized: true });
-
-    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
-    expect(new Set(requestHashes).size).toBe(1);
-    expect(recommendations.refresh).toHaveBeenCalledWith({ organizationId: ORGANIZATION_ID, limit: 50 });
-    expect(coordinator.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        targetKey: `finalize:${RUN_ID}`,
-        idempotencyKey: `wing-operation:${RUN_ID}:finalize`,
-      }),
-      expect.any(Function),
-    );
+    })).rejects.toThrow('wing_catalog_operation_input_mismatch');
+    expect(repository.claimRecoverableRun).not.toHaveBeenCalled();
   });
 
   it('returns a parsed persisted owner snapshot and rejects a keyword outside the run input', async () => {
@@ -314,6 +513,7 @@ describe('SourcingWingCatalogIngestService', () => {
       recommendations,
       verifier(),
       sourceRepository,
+      durableFinalizeRepository() as never,
     );
 
     await expect(service.snapshot({ organizationId: ORGANIZATION_ID, keyword: ' 슬라임 ' }))
