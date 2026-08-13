@@ -4,6 +4,9 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
+  useMemo,
+  useRef,
   useState,
   type ComponentProps,
 } from 'react';
@@ -17,8 +20,12 @@ import { InteractionHeader } from './InteractionHeader';
 import { useInteractionBootstrap } from './useInteractionBootstrap';
 import { useInteractionStore } from './interaction-store';
 import { useKidItemConversation } from './useKidItemConversation';
+import { InteractionRegistration } from './interaction-registration';
 
-const SubmissionContext = createContext<(() => void) | null>(null);
+const SubmissionContext = createContext<{
+  markSubmitted: () => void;
+  registerSend: (send: ((content: string) => void) | null) => void;
+} | null>(null);
 
 const ManagedChatView = Object.assign(function ManagedChatView(props: CopilotChatViewProps) {
   const markSubmitted = useContext(SubmissionContext);
@@ -26,10 +33,14 @@ const ManagedChatView = Object.assign(function ManagedChatView(props: CopilotCha
   const setDraft = useInteractionStore((state) => state.setDraft);
   const handleSubmit = useCallback((value: string) => {
     if (!value.trim()) return;
-    markSubmitted?.();
+    markSubmitted?.markSubmitted();
     setDraft('');
     props.onSubmitMessage?.(value);
   }, [markSubmitted, props.onSubmitMessage, setDraft]);
+  useEffect(() => {
+    markSubmitted?.registerSend(handleSubmit);
+    return () => markSubmitted?.registerSend(null);
+  }, [handleSubmit, markSubmitted]);
 
   return (
     <CopilotChat.View
@@ -79,6 +90,17 @@ function ReadyInteractionSurface({
   onError: (message: string) => void;
 }) {
   const conversation = useKidItemConversation(bootstrap);
+  const sendSuggestedReplyRef = useRef<((content: string) => void) | null>(null);
+  const registerSend = useCallback((send: ((content: string) => void) | null) => {
+    sendSuggestedReplyRef.current = send;
+  }, []);
+  const sendSuggestedReply = useCallback((content: string) => {
+    sendSuggestedReplyRef.current?.(content);
+  }, []);
+  const submissionContext = useMemo(() => ({
+    markSubmitted: conversation.markSubmitted,
+    registerSend,
+  }), [conversation.markSubmitted, registerSend]);
   const { agent, isReady } = useAgent({
     agentId: conversation.agentId,
     updates: [UseAgentUpdate.OnRunStatusChanged],
@@ -92,7 +114,15 @@ function ReadyInteractionSurface({
         : '연결 중';
 
   return (
-    <section {...props} className={`flex min-h-0 flex-1 flex-col ${props.className ?? ''}`}>
+    <section
+      {...props}
+      data-thread-id={conversation.threadId}
+      data-session-id={conversation.session?.sessionId ?? ''}
+      className={`flex min-h-0 flex-1 flex-col ${props.className ?? ''}`}
+    >
+      <output aria-label="선택된 대화 식별자" className="sr-only">
+        {conversation.session ? `${conversation.session.sessionId}:${conversation.threadId}` : conversation.threadId}
+      </output>
       <InteractionHeader
         agents={bootstrap.agents}
         agentId={conversation.agentId}
@@ -109,8 +139,10 @@ function ReadyInteractionSurface({
           {errorMessage}
         </p>
       ) : null}
-      <SubmissionContext.Provider value={conversation.markSubmitted}>
+      <SubmissionContext.Provider value={submissionContext}>
+        <InteractionRegistration onSend={sendSuggestedReply} />
         <CopilotChat
+          key={`${conversation.agentId}:${conversation.threadId}`}
           agentId={conversation.agentId}
           threadId={conversation.threadId}
           chatView={ManagedChatView}

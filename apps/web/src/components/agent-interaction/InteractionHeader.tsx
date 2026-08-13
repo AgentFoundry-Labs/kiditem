@@ -1,5 +1,6 @@
 'use client';
 
+import Link from 'next/link';
 import type {
   AllowedAgent,
   AgentSessionSummary,
@@ -56,9 +57,9 @@ export function InteractionHeader({
         </button>
         <span className="text-xs text-muted-foreground">{connectionLabel}</span>
         {selectedSession ? (
-          <a className="ml-auto text-sm text-primary underline" href="/agent-os">
+          <Link className="ml-auto text-sm text-primary underline" href="/agent-os">
             AgentOS 워크스페이스
-          </a>
+          </Link>
         ) : null}
       </div>
       <div aria-label="대화 기록" className="mt-2 flex gap-2 overflow-x-auto">

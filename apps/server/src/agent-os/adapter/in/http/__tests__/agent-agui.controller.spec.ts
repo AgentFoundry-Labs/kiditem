@@ -10,6 +10,11 @@ describe('AgentAguiController', () => {
     expect(Reflect.getMetadata('__guards__', AgentAguiController)).toContain(InteractionGatewayGuard);
   });
 
+  it('exposes a private readiness probe used by the real interaction gateway', () => {
+    const controller = new AgentAguiController({} as never, {} as never, {} as never);
+    expect(controller.health()).toEqual({ status: 'ok' });
+  });
+
   it('streams official events as SSE and disconnect only closes the iterator', async () => {
     let returned = false;
     const runner = {

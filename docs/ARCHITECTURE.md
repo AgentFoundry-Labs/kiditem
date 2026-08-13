@@ -918,6 +918,22 @@ deterministic workflows, direct AI jobs, and browser tasks retain their native
 engines while their top-level execution is recorded by the Operations control
 plane.
 
+Interactive Agent OS conversations use CopilotKit OSS as the browser interaction
+framework and AG-UI as the wire protocol. KidItem remains authoritative for
+`AgentSession`, task, execution, conversation-event, outbox, replay cursor, and
+live-join state in PostgreSQL. The separate `apps/interaction-gateway` validates
+the browser principal through Nest, forwards only the opaque authorized run, and
+joins replay to live events without copying a transcript into web state.
+CopilotKit Premium/Enterprise persistence is not part of this boundary.
+
+The global authenticated panel and `/agent-os` workspace share one ephemeral
+selection store. React Query owns bootstrap freshness; CopilotKit/AG-UI owns
+in-memory messages and tool state. Navigation results contain an `actionId`,
+never a model-supplied URL; Nest reauthorizes the action and returns one
+allowlisted route. The current controller providers are provisionally wired in
+`AgentOsModule` until the KID-24 long-running operation module boundary lands;
+that follow-up must move wiring without changing these ownership contracts.
+
 ## Verification Baseline
 
 Common gates for architecture/refactor work:

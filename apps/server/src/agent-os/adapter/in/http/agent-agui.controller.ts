@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Inject,
+  Get,
   Param,
   Post,
   Req,
@@ -61,6 +62,12 @@ export class AgentAguiController {
     @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
     private readonly publisher?: AgentConversationLivePublisherPort,
   ) {}
+
+  @Get('health')
+  @ServiceAuth()
+  health(): { status: 'ok' } {
+    return { status: 'ok' };
+  }
 
   @Post(':agentDefinitionKey')
   @ServiceAuth()

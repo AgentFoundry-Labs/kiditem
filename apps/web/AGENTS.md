@@ -37,6 +37,13 @@ session on `auth_required`; there is no refresh or 401 retry path. CopilotKit
 uses same-origin `/api/copilotkit`; do not add a Next.js route handler for
 Nest-owned APIs.
 
+Agent interaction bootstrap is React Query server state. Its Zustand store may
+hold only open/agent/session-thread/draft ephemeral UI state; never persist or
+duplicate messages, replay events, or bootstrap responses. CopilotKit v2 owns
+the in-memory transcript/tool state and connects only through same-origin
+`/api/copilotkit`. Use public focused v2 exports; do not use `useThreads`,
+Premium/Enterprise APIs, private internals, or `@copilotkit/react-ui`.
+
 ## Change Boundaries
 
 - Split large components along pure helpers, presentational UI, hooks, and

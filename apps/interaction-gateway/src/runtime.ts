@@ -19,6 +19,7 @@ import {
   type AguiRunAuthorization,
 } from '@kiditem/shared/agent-interaction';
 import {
+  EMPTY,
   concat,
   defer,
   finalize,
@@ -218,8 +219,8 @@ export class KidItemAgentRunner extends AgentRunner {
       const afterSequence =
         previousSequence?.toString() ?? page.replay.lastSequence;
       const active = this.active.get(input.threadId);
-      const liveEvents = this.control
-        .connectLive(input.request, {
+      const liveEvents = active
+        ? this.control.connectLive(input.request, {
           agentDefinitionKey: input.agentDefinitionKey,
           copilotThreadId: input.threadId,
           afterSequence,
@@ -231,7 +232,8 @@ export class KidItemAgentRunner extends AgentRunner {
             assertLiveCorrelation(event, input.threadId, active?.runId);
             return event;
           }),
-        );
+        )
+        : EMPTY;
       return { replayEvents, liveEvents };
     }
     throw new Error('Replay exceeded the bounded page limit.');

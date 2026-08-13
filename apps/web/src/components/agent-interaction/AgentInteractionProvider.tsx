@@ -2,12 +2,10 @@
 
 import type { ReactNode } from 'react';
 import { CopilotKitProvider } from '@copilotkit/react-core/v2';
-import { InteractionRegistration } from './interaction-registration';
 
 export function AgentInteractionProvider({ children }: { children: ReactNode }) {
   return (
     <CopilotKitProvider runtimeUrl="/api/copilotkit" credentials="include">
-      <InteractionRegistration />
       {children}
     </CopilotKitProvider>
   );

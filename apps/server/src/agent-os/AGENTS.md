@@ -25,6 +25,10 @@ agent-os/
 - Manual drain/debug endpoint:
   `POST /api/agent-os/executor/claim-and-run`
 - Code-owned agent catalog/bootstrap and runtime handler registration
+- Organization-scoped interaction bootstrap, run authorization, AG-UI event
+  persistence/replay/live join, and action reauthorization. Current module
+  wiring is provisional until KID-24 lands; preserve the boundary contract when
+  moving providers.
 
 ## Main Data Models
 
@@ -120,6 +124,9 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - `AGENT_RUNTIME_ALLOW_NOOP=1` is only for isolated tests.
 - Reconciliation changes Agent OS ledger state only. It must not replay owner
   capabilities or synthesize a delayed business-domain result.
+- Interaction analytics is metadata-only and non-authoritative. Never emit
+  messages/model output, resource names, dashboard payloads, credentials,
+  cookies, tokens, or raw organization/user identifiers.
 
 ## Bootstrap
 

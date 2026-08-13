@@ -317,6 +317,9 @@ describe('CopilotKit native runtime routes', () => {
       of({ type: EventType.CUSTOM, name: 'kiditem.live', value: 'joined' }),
     );
     const gateway = createInteractionGateway(dependencies(control));
+    gateway.runner.registerActiveGrant({
+      agentDefinitionKey: 'operator', threadId: THREAD_ID, runId: RUN_ID, authorization,
+    });
     const response = await gateway.handler(
       new Request('http://gateway.test/api/copilotkit/agent/operator/connect', {
         method: 'POST',
@@ -351,6 +354,26 @@ describe('CopilotKit native runtime routes', () => {
         liveJoinToken: 'j'.repeat(64),
       }),
     );
+  });
+
+  it('completes terminal replay without holding a live stream that blocks a later run', async () => {
+    const control = controlHarness();
+    const gateway = createInteractionGateway(dependencies(control));
+    const response = await gateway.handler(
+      new Request('http://gateway.test/api/copilotkit/agent/operator/connect', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: COOKIE },
+        body: JSON.stringify(runInput({ messages: [] })),
+      }),
+    );
+
+    const events = await readSseEvents(response);
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: EventType.TEXT_MESSAGE_CONTENT,
+      delta: 'event 1',
+    }));
+    expect(control.connectLive).not.toHaveBeenCalled();
   });
 
   it.each([

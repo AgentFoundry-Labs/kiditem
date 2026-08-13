@@ -155,6 +155,7 @@ same-origin `/api/*` routing.
 |---|---|---:|---|---|
 | `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Office leaves it empty so browser requests stay same-origin and nginx routes `/api/*`. |
 | `NEXT_PUBLIC_ENABLE_QUERY_DEVTOOLS` | Web runtime | Optional | Query devtools provider | Effective only when `NODE_ENV=development`. |
+| `INTERACTION_GATEWAY_URL` | Next server/build | Production interaction UI | Next same-origin rewrite | Server-only gateway base for `/api/copilotkit/:path*`. Production server startup fails closed when absent; local development alone defaults to `http://localhost:4100`. Never prefix this variable with `NEXT_PUBLIC_`. |
 
 ## Storage
 
@@ -292,6 +293,10 @@ use independent random values. Never expose them through `NEXT_PUBLIC_*`, send
 them to the browser or gateway request bodies, include them in Agent OS prompts,
 or print their values in logs, deployment output, tests, issues, or pull
 requests.
+
+The browser sees only same-origin `/api/copilotkit`. `INTERACTION_GATEWAY_URL`
+is a server-side Next rewrite destination and must point at the deployed OSS
+gateway; it is not a CopilotKit public key or Enterprise endpoint.
 
 ## Channel Credentials
 

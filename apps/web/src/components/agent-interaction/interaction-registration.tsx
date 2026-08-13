@@ -6,7 +6,7 @@ import { useAgentContext, useDefaultRenderTool } from '@copilotkit/react-core/v2
 import { projectDashboardContext } from './dashboard-context';
 import { InteractionResultRenderer } from './renderers';
 
-export function InteractionRegistration() {
+export function InteractionRegistration({ onSend }: { onSend?: (content: string) => void }) {
   const pathname = usePathname();
   const value = useMemo(() => projectDashboardContext({
     routeKey: routeKeyForPath(pathname),
@@ -24,12 +24,12 @@ export function InteractionRegistration() {
       if (status !== 'complete') return <p>{name} 실행 중</p>;
       if (!result) return <p>{name} 결과가 없습니다.</p>;
       try {
-        return <InteractionResultRenderer result={JSON.parse(result)} />;
+        return <InteractionResultRenderer result={JSON.parse(result)} onSend={onSend} />;
       } catch {
         return <p>{result.slice(0, 2_000)}</p>;
       }
     },
-  });
+  }, [onSend]);
   return null;
 }
 

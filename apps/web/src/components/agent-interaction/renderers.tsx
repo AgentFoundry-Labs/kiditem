@@ -72,7 +72,15 @@ function fallbackFrom(value: unknown): string {
   return '지원하지 않는 응답입니다.';
 }
 
-export function InteractionResultRenderer({ result }: { result: unknown }) {
+export function InteractionResultRenderer({
+  result,
+  onSend,
+  isLatestMessage = true,
+}: {
+  result: unknown;
+  onSend?: (content: string) => void;
+  isLatestMessage?: boolean;
+}) {
   const parsed = InteractionUiResultSchema.safeParse(result);
   if (!parsed.success) return <p>{fallbackFrom(result)}</p>;
   const value = parsed.data;
@@ -88,6 +96,8 @@ export function InteractionResultRenderer({ result }: { result: unknown }) {
     case 'navigation':
       return <NavigationRenderer result={value} />;
     case 'suggested_replies':
-      return <p>{value.textFallback}</p>;
+      return onSend ? (
+        <SuggestedReplies replies={value.replies} isLatestMessage={isLatestMessage} onSend={onSend} />
+      ) : <p>{value.textFallback}</p>;
   }
 }

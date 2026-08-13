@@ -1,4 +1,4 @@
-import { createElement, type ComponentType } from 'react';
+import { createElement, useEffect, type ComponentType } from 'react';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -11,6 +11,7 @@ import { bootstrap, existingSession, makeQueryClient } from './test-fixtures';
 
 const copilotRun = vi.hoisted(() => vi.fn());
 const copilotConnect = vi.hoisted(() => vi.fn());
+const copilotChatLifecycle = vi.hoisted(() => ({ mounts: vi.fn(), unmounts: vi.fn() }));
 const providerProps = vi.hoisted(() => vi.fn());
 const chatError = vi.hoisted(() => ({
   handler: null as null | ((event: {
@@ -22,6 +23,10 @@ const chatError = vi.hoisted(() => ({
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: { getParsed: vi.fn(), post: vi.fn() },
+}));
+
+vi.mock('next/navigation', () => ({
+  usePathname: () => '/dashboard',
 }));
 
 vi.mock('@copilotkit/react-core/v2', () => {
@@ -51,6 +56,10 @@ vi.mock('@copilotkit/react-core/v2', () => {
     chatView?: ComponentType<Record<string, unknown>>;
     onError?: (event: { error: Error; code: string; context: Record<string, unknown> }) => void;
   }) => {
+    useEffect(() => {
+      copilotChatLifecycle.mounts(props.threadId);
+      return () => copilotChatLifecycle.unmounts(props.threadId);
+    }, []);
     chatError.handler = props.onError ?? null;
     copilotConnect({ agentId: props.agentId, threadId: props.threadId });
     const ChatView = props.chatView ?? View;
@@ -71,6 +80,8 @@ vi.mock('@copilotkit/react-core/v2', () => {
   return {
     UseAgentUpdate: { OnRunStatusChanged: 'OnRunStatusChanged' },
     useAgent: () => ({ agent: { isRunning: false }, isReady: true }),
+    useAgentContext: vi.fn(),
+    useDefaultRenderTool: vi.fn(),
     CopilotKitProvider: ({ children, ...props }: { children: unknown }) => {
       providerProps(props);
       return children;
@@ -152,6 +163,19 @@ describe('AgentInteractionSurface', () => {
       '/agent-os',
     );
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('remounts the public chat lifecycle when selecting an existing thread', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+    await user.click(await screen.findByRole('button', { name: '세션 session-1 열기' }));
+
+    await waitFor(() => expect(copilotChatLifecycle.mounts).toHaveBeenCalledWith(
+      existingSession.copilotThreadId,
+    ));
+    expect(copilotChatLifecycle.unmounts).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+    );
   });
 
   it('delegates replay/live message ownership to CopilotKit without a parallel transcript', async () => {

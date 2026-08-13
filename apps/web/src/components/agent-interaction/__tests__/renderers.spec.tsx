@@ -42,6 +42,25 @@ describe('interaction renderers', () => {
     expect(screen.queryByRole('button', { name: '추천 1' })).not.toBeInTheDocument();
   });
 
+  it('wires a typed suggested-replies result to the public send boundary', () => {
+    const send = vi.fn();
+    renderWithQuery(<InteractionResultRenderer result={{
+      kind: 'suggested_replies',
+      messageId: 'assistant-message-1',
+      replies: [
+        { id: '11111111-1111-4111-8111-111111111111', label: '후속 확인', content: '후속 확인해줘' },
+        { id: '22222222-2222-4222-8222-222222222222', label: '상세 보기', content: '상세를 보여줘' },
+      ],
+      textFallback: '추천 질문이 있습니다.',
+    }} onSend={send} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '후속 확인' }));
+
+    expect(send).toHaveBeenCalledOnce();
+    expect(send).toHaveBeenCalledWith('후속 확인해줘');
+    expect(screen.queryByRole('button', { name: '상세 보기' })).not.toBeInTheDocument();
+  });
+
   it('authorizes navigation with actionId only before pushing the allowlisted href', async () => {
     vi.mocked(apiClient.post).mockResolvedValue({ href: '/stock-ops' });
     renderWithQuery(<InteractionResultRenderer result={{
