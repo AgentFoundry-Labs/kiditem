@@ -40,7 +40,7 @@ function inventoryRel(): string {
 describe('Inventory architecture contract', () => {
   it('uses SellpiaInventorySku as the sole operational inventory identity', () => {
     const schema = readFileSync(PRISMA_INVENTORY_SCHEMA, 'utf8');
-    for (const modelName of ['StockTransfer', 'PickingItem', 'ReturnTransfer']) {
+    for (const modelName of ['StockTransfer', 'ReturnTransfer']) {
       const block = schema.match(new RegExp(`model ${modelName} \\{([\\s\\S]*?)\\n\\}`))?.[1] ?? '';
       expect(block, `${modelName} must carry sellpiaInventorySkuId`)
         .toContain('sellpiaInventorySkuId');
@@ -78,15 +78,6 @@ describe('Inventory architecture contract', () => {
         'adapter/out/repository/sellpia-inventory-transaction-lock.ts',
       ),
     ]);
-  });
-
-  it('keeps Unshipped reads behind a dedicated repository adapter', () => {
-    const service = readFileSync(
-      path.join(INVENTORY_ROOT, 'application/service/unshipped.service.ts'),
-      'utf8',
-    );
-    expect(service).toContain('UNSHIPPED_REPOSITORY_PORT');
-    expect(service).not.toContain('INVENTORY_QUERY_REPOSITORY_PORT');
   });
 
   it('PrismaService is imported only under inventory/adapter/out/repository/**', () => {

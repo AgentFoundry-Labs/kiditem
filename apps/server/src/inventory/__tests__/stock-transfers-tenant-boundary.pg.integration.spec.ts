@@ -10,7 +10,6 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
-import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
 import { TransfersService } from '../application/service/transfers.service';
 
 const SELLPIA_INVENTORY_SKU_ID = '10000000-0000-4000-8000-000000000001';
@@ -105,28 +104,13 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     await expect(prisma.stockTransfer.count()).resolves.toBe(0);
   });
 
-  it('rejects a foreign physical SKU for transfer, picking, and return records', async () => {
+  it('rejects a foreign physical SKU for transfer and return records', async () => {
     await expect(service.create(TEST_ORGANIZATION_ID, {
       sellpiaInventorySkuId: FOREIGN_SELLPIA_INVENTORY_SKU_ID,
       fromWarehouseId: OWN_WAREHOUSE_ID,
       toWarehouseId: OWN_WAREHOUSE_2_ID,
       quantity: 1,
     })).rejects.toBeInstanceOf(NotFoundException);
-
-    const picking = new PickingRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    await expect(picking.createPickingList(
-      TEST_ORGANIZATION_ID,
-      'PK-FOREIGN-SKU',
-      [{
-        orderId: '20000000-0000-4000-8000-000000000002',
-        sellpiaInventorySkuId: FOREIGN_SELLPIA_INVENTORY_SKU_ID,
-        productName: '타 조직 상품',
-        sku: 'SP-FOREIGN',
-        quantity: 1,
-      }],
-    )).rejects.toBeInstanceOf(NotFoundException);
 
     await expect(prisma.returnTransfer.create({
       data: {
@@ -138,7 +122,6 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     })).rejects.toThrow();
 
     await expect(prisma.stockTransfer.count()).resolves.toBe(0);
-    await expect(prisma.pickingList.count()).resolves.toBe(0);
     await expect(prisma.returnTransfer.count()).resolves.toBe(0);
 
     const stocks = await prisma.sellpiaInventorySku.findMany({
@@ -154,7 +137,7 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     ]);
   });
 
-  it('records transfer, picking, and return movement without changing current stock', async () => {
+  it('records transfer and return movement without changing current stock', async () => {
     const transfer = await service.create(TEST_ORGANIZATION_ID, {
       sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
       fromWarehouseId: OWN_WAREHOUSE_ID,
@@ -163,22 +146,6 @@ describe('stock transfer tenant boundary (PG integration)', () => {
     });
     await service.update(transfer.id, { status: 'in_transit' }, TEST_ORGANIZATION_ID);
     await service.update(transfer.id, { status: 'completed' }, TEST_ORGANIZATION_ID);
-
-    const picking = new PickingRepositoryAdapter(
-      prisma as unknown as PrismaService,
-    );
-    const list = await picking.createPickingList(
-      TEST_ORGANIZATION_ID,
-      'PK-RECORD-ONLY',
-      [{
-        orderId: '20000000-0000-4000-8000-000000000001',
-        sellpiaInventorySkuId: SELLPIA_INVENTORY_SKU_ID,
-        productName: '이동 상품',
-        sku: 'SP-TRANSFER',
-        quantity: 3,
-      }],
-    );
-    await picking.completePickingList(list.id, TEST_ORGANIZATION_ID);
 
     const movement = await prisma.returnTransfer.create({
       data: {

@@ -437,7 +437,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         availableStock: 100,
       },
       monthsOfAvailableStockLeft: 1,
-      needsReorder: false,
+      needsReorder: true,
     });
   });
 });

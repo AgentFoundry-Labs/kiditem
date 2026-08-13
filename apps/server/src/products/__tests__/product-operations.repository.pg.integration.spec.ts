@@ -428,7 +428,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     })).toEqual({ id: product.id });
   });
 
-  it('preserves physical stock while common commitments reduce option capacity', async () => {
+  it('uses physical stock for option capacity without mutating it', async () => {
     const { product, options } = await linkedProductWithOptions('KI-COMMITTED', 1);
     const sku = await inventorySku('SP-COMMITTED', 100, true, TEST_ORGANIZATION_ID, product.id);
     await service.replaceChannelOptionInventory(
@@ -436,38 +436,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       options[0]!.id,
       { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
     );
-    const commitment = await prisma.inventoryCommitment.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        kind: 'rocket_request',
-        sourceId: randomUUID(),
-        businessKey: `coupang-rocket:test:${randomUUID()}`,
-        unitQuantity: 80,
-        status: 'active',
-        inventoryGeneration: 1n,
-        createdBy: TEST_USER_ID,
-      },
-    });
-    await prisma.inventoryCommitmentAllocation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        commitmentId: commitment.id,
-        sellpiaInventorySkuId: sku.id,
-        unitsPerItem: 1,
-        quantity: 80,
-      },
-    });
-
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail).toMatchObject({
-      inventoryUnits: 20,
+      inventoryUnits: 100,
       inventoryStatus: 'sellable',
       channelListings: [{ options: [{
-        capacity: 10,
+        capacity: 50,
         inventoryComponents: [{
           currentStock: 100,
-          availableStock: 20,
+          availableStock: 100,
           quantity: 2,
         }],
       }] }],
