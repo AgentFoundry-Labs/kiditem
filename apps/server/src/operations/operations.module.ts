@@ -18,6 +18,11 @@ import { CompositeOperationCoordinatorService } from './application/service/comp
 import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/composite-operation-coordinator.port';
 import { OperationLifecycleGateService } from './application/service/operation-lifecycle-gate.service';
 import {
+  OperationAttemptVerifierService,
+  operationAttemptVerifierProvider,
+} from './application/service/operation-attempt-verifier.service';
+import { OPERATION_ATTEMPT_VERIFIER_PORT } from './application/port/in/operation-attempt-verifier.port';
+import {
   DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
   OPERATION_LIFECYCLE_OPTIONS,
   OperationServerLifecycleService,
@@ -41,6 +46,8 @@ import {
     OperationSchedulerService,
     CompositeOperationCoordinatorService,
     OperationLifecycleGateService,
+    OperationAttemptVerifierService,
+    operationAttemptVerifierProvider,
     OperationServerLifecycleService,
     {
       provide: OPERATION_LIFECYCLE_OPTIONS,
@@ -61,6 +68,8 @@ import {
     OPERATION_HANDLER_REGISTRY_PORT,
     OPERATION_RUNNER_PORT,
     COMPOSITE_OPERATION_COORDINATOR_PORT,
+    OPERATION_ATTEMPT_VERIFIER_PORT,
+    OperationAttemptVerifierService,
     OperationHandlerRegistryService,
     OperationRunService,
     OperationSchedulerService,

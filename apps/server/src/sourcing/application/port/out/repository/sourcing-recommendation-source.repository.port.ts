@@ -50,4 +50,13 @@ export interface SourcingRecommendationSourceRepositoryPort {
     lookbackDays: number;
     limit: number;
   }): Promise<{ items: SourcingCoupangObservationSource[]; rejectedCount: number }>;
+
+  listWingCatalogSnapshot(input: {
+    organizationId: string;
+    normalizedKeyword: string;
+    limit: number;
+  }): Promise<{
+    items: import('@kiditem/shared/sourcing').SourcingWingCatalogObservation[];
+    rejectedCount: number;
+  }>;
 }

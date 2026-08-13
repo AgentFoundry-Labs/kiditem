@@ -21,6 +21,7 @@ import {
 } from './operation-execution.repository';
 import { createFencedCompositeChild } from './operation-composite.repository';
 import type {
+  ActiveBrowserOperationAttemptRecord,
   CreateOperationRunRecord,
   OperationActiveAttemptTransition,
   OperationLifecycleBatchResult,
@@ -233,6 +234,62 @@ function mapSchedule(row: OperationScheduleRow): OperationScheduleRecord {
 @Injectable()
 export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
+
+  async findActiveBrowserAttempt(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+    now: Date;
+  }): Promise<ActiveBrowserOperationAttemptRecord | null> {
+    const row = await this.prisma.operationRun.findFirst({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        operationKey: input.expectedOperationKey,
+        engineType: 'browser',
+        status: 'running',
+        attemptToken: input.attemptToken,
+        startedAt: { not: null },
+        leaseExpiresAt: { gt: input.now },
+        deadlineAt: { gt: input.now },
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        operationKey: true,
+        engineType: true,
+        status: true,
+        attemptToken: true,
+        input: true,
+        requestedByUserId: true,
+        startedAt: true,
+        leaseExpiresAt: true,
+        deadlineAt: true,
+      },
+    });
+    if (
+      !row?.attemptToken
+      || !row.startedAt
+      || !row.leaseExpiresAt
+      || !row.deadlineAt
+    ) {
+      return null;
+    }
+    return {
+      runId: row.id,
+      organizationId: row.organizationId,
+      operationKey: row.operationKey,
+      engineType: row.engineType as ActiveBrowserOperationAttemptRecord['engineType'],
+      status: row.status as ActiveBrowserOperationAttemptRecord['status'],
+      attemptToken: row.attemptToken,
+      input: requiredRecord(row.input),
+      requestedByUserId: row.requestedByUserId,
+      startedAt: row.startedAt,
+      leaseExpiresAt: row.leaseExpiresAt,
+      deadlineAt: row.deadlineAt,
+    };
+  }
 
   async findRunById(input: {
     organizationId: string;

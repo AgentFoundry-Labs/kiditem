@@ -1169,6 +1169,8 @@ async function deleteWingProduct(message) {
 }
 
 async function searchWingCatalogProducts(message) {
+  const operationSignal = message?.signal;
+  operationSignal?.throwIfAborted?.();
   const keyword =
     typeof message.keyword === "string" ? message.keyword.trim() : "";
   if (!keyword) return { success: false, error: "검색 키워드를 입력하세요" };
@@ -1190,6 +1192,7 @@ async function searchWingCatalogProducts(message) {
         message.environmentId,
       )
     : message.collectionRunId;
+  operationSignal?.throwIfAborted?.();
   const tab = Number.isInteger(message.collectionTabId)
     ? (await getTab(message.collectionTabId).catch(() => null)) ??
       (await getOrCreateWingCatalogTab())
@@ -1203,6 +1206,7 @@ async function searchWingCatalogProducts(message) {
     await coupangEnvironment.bindTab(tabId, message.environmentId);
   }
   await collectionRuns.attachTab(runId, tab);
+  operationSignal?.throwIfAborted?.();
   const cancelledResult = {
     success: false,
     cancelled: true,
@@ -1211,12 +1215,16 @@ async function searchWingCatalogProducts(message) {
   };
   if (await collectionRuns.isCancelled(runId)) return cancelledResult;
 
-  const loaded = await waitForTabComplete(tabId, {
-    expectedUrl: WING_CATALOG_FORM_URL,
-    timeoutMs: 60000,
-  }).catch((error) => ({
+  const loaded = await raceWingCatalogOperationAbort(
+    waitForTabComplete(tabId, {
+      expectedUrl: WING_CATALOG_FORM_URL,
+      timeoutMs: 60000,
+    }),
+    operationSignal,
+  ).catch((error) => ({
     error: error?.message || "Wing 상품등록 화면 로딩 실패",
   }));
+  operationSignal?.throwIfAborted?.();
   if (await collectionRuns.isCancelled(runId)) return cancelledResult;
   if (loaded?.error) {
     if (ownsSession) await collectionSessions.fail(runId);
@@ -1251,7 +1259,10 @@ async function searchWingCatalogProducts(message) {
     };
     let response;
     try {
-      response = await executeWingCatalogSearchWithRetry(tabId, payload);
+      response = await raceWingCatalogOperationAbort(
+        executeWingCatalogSearchWithRetry(tabId, payload),
+        operationSignal,
+      );
     } catch (error) {
       if (await collectionRuns.isCancelled(runId)) return cancelledResult;
       if (ownsSession) {
@@ -1333,7 +1344,12 @@ async function searchWingCatalogProducts(message) {
       break;
     }
     searchPage = body.nextSearchPage;
-    if (index < maxPages - 1) await sleep(WING_CATALOG_PAGE_DELAY_MS);
+    if (index < maxPages - 1) {
+      await raceWingCatalogOperationAbort(
+        sleep(WING_CATALOG_PAGE_DELAY_MS),
+        operationSignal,
+      );
+    }
   }
 
   const reliableUpstreamTotal =
@@ -1364,6 +1380,18 @@ async function searchWingCatalogProducts(message) {
   if (ownsSession) await removeTab(tabId);
   if (await collectionRuns.isCancelled(runId)) return cancelledResult;
   return { ...result, runId };
+}
+
+function raceWingCatalogOperationAbort(operation, signal) {
+  if (!signal) return operation;
+  signal.throwIfAborted?.();
+  return new Promise((resolve, reject) => {
+    const abort = () => reject(signal.reason || new Error("operation_aborted"));
+    signal.addEventListener("abort", abort, { once: true });
+    Promise.resolve(operation).then(resolve, reject).finally(() => {
+      signal.removeEventListener("abort", abort);
+    });
+  });
 }
 
 async function searchCoupangKeywordSuggestions(message) {
@@ -4598,6 +4626,381 @@ async function handleScrapeTargets(
   });
 }
 
+const SOURCING_WING_CATALOG_OPERATION_KEY =
+  "sourcing.collect_wing_catalog_batch";
+const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
+const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
+
+function normalizedWingOperationKeyword(value) {
+  return String(value || "").normalize("NFKC").trim().replace(/\s+/g, " ");
+}
+
+function parseSourcingWingCatalogOperationInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("wing_catalog_operation_input_invalid");
+  }
+  if (
+    !Array.isArray(input.keywords) ||
+    input.keywords.length < 1 ||
+    input.keywords.length > SOURCING_WING_CATALOG_MAX_KEYWORDS ||
+    !Number.isInteger(input.maxPages) ||
+    input.maxPages < 1 ||
+    input.maxPages > WING_CATALOG_MAX_PAGES ||
+    ![
+      "catalog_search",
+      "market_analysis",
+      "recommendation_validation",
+      "tracked_metrics",
+    ].includes(input.purpose) ||
+    Object.keys(input).some(
+      (key) => !["keywords", "maxPages", "purpose"].includes(key),
+    )
+  ) {
+    throw new Error("wing_catalog_operation_input_invalid");
+  }
+  const keywords = input.keywords.map(normalizedWingOperationKeyword);
+  if (
+    keywords.some((keyword) => keyword.length < 1 || keyword.length > 100) ||
+    new Set(keywords).size !== keywords.length
+  ) {
+    throw new Error("wing_catalog_operation_input_invalid");
+  }
+  return { keywords, maxPages: input.maxPages, purpose: input.purpose };
+}
+
+function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
+  return {
+    productId: String(row.productId),
+    itemId: row.itemId == null ? null : String(row.itemId),
+    vendorItemId:
+      row.vendorItemId == null ? null : String(row.vendorItemId),
+    productName: String(row.productName || "").slice(0, 500),
+    itemName: row.itemName == null ? null : String(row.itemName).slice(0, 500),
+    brandName:
+      row.brandName == null ? null : String(row.brandName).slice(0, 500),
+    manufacture:
+      row.manufacture == null ? null : String(row.manufacture).slice(0, 500),
+    categoryHierarchy:
+      row.categoryHierarchy == null
+        ? null
+        : String(row.categoryHierarchy).slice(0, 1000),
+    imagePath:
+      row.imagePath == null ? null : String(row.imagePath).slice(0, 2000),
+    salePriceKrw: wingOperationBoundedInteger(row.salePrice),
+    ratingAverage: wingOperationBoundedNumber(row.rating, 0, 5),
+    ratingCount: wingOperationBoundedInteger(row.ratingCount),
+    viewsLast28d: wingOperationBoundedInteger(row.pvLast28Day),
+    salesLast28d: wingOperationBoundedInteger(row.salesLast28d),
+    estimatedRevenue28d: wingOperationBoundedNumber(
+      row.estimatedRevenue28d,
+      0,
+      2147483647,
+    ),
+    conversionRate28d: wingOperationBoundedNumber(
+      row.conversionRate28d,
+      0,
+      1,
+    ),
+    deliveryInfo:
+      row.deliveryInfo == null
+        ? null
+        : String(row.deliveryInfo).slice(0, 1000),
+    sourceKeyword,
+    capturedAt,
+  };
+}
+
+function wingOperationBoundedInteger(value) {
+  const numeric = Number(value);
+  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 2147483647
+    ? numeric
+    : null;
+}
+
+function wingOperationBoundedNumber(value, minimum, maximum) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum
+    ? numeric
+    : null;
+}
+
+async function requestSourcingWingOperation(operation, path, body) {
+  operation.signal?.throwIfAborted?.();
+  const response = await authedFetch(operation.environmentId, path, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-operation-attempt-token": operation.attemptToken,
+    },
+    body: JSON.stringify(body),
+    signal: operation.signal,
+  });
+  operation.signal?.throwIfAborted?.();
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const error = new Error(
+      response.status === 409
+        ? "operation_runtime_fence_lost"
+        : `wing_catalog_ingest_http_${response.status}`,
+    );
+    error.status = response.status;
+    throw error;
+  }
+  return payload;
+}
+
+async function ensureSourcingWingOperationSession(operation, input) {
+  const existing = await collectionSessions.getOwned(
+    operation.runId,
+    operation.environmentId,
+  );
+  if (existing) {
+    if (
+      existing.producer !== "sourcing.wing_catalog" ||
+      existing.status !== "running"
+    ) {
+      throw new Error("wing_catalog_operation_session_invalid");
+    }
+    return existing;
+  }
+  return collectionSessions.start({
+    runId: operation.runId,
+    environmentId: operation.environmentId,
+    producer: "sourcing.wing_catalog",
+    classification: "background_preferred",
+    restartStrategy: "extension",
+    inputIdentity: {
+      purpose: input.purpose,
+      keywordCount: input.keywords.length,
+      maxPages: input.maxPages,
+      startedAt: Date.now(),
+    },
+  });
+}
+
+async function runSourcingWingCatalogOperation(operation) {
+  const input = parseSourcingWingCatalogOperationInput(operation.input);
+  await ensureSourcingWingOperationSession(operation, input);
+  operation.signal?.throwIfAborted?.();
+  const keywordResults = [];
+  let collectionTabId;
+  let keepAttentionTab = false;
+  let terminalSession = false;
+  let fenceLost = false;
+
+  try {
+    for (let index = 0; index < input.keywords.length; index += 1) {
+      const keyword = input.keywords[index];
+      await operation.heartbeat({
+        progress: index / input.keywords.length,
+        stage: "collecting_keyword",
+        progressCurrent: index,
+        progressTotal: input.keywords.length,
+      });
+      operation.signal?.throwIfAborted?.();
+
+      let search;
+      try {
+        search = await searchWingCatalogProducts({
+          keyword,
+          maxPages: input.maxPages,
+          collectionRunId: operation.runId,
+          ...(Number.isInteger(collectionTabId)
+            ? { collectionTabId }
+            : {}),
+          environmentId: operation.environmentId,
+          signal: operation.signal,
+        });
+      } catch (error) {
+        if (operation.signal?.aborted) throw operation.signal.reason || error;
+        keywordResults.push({
+          keyword,
+          outcome: "failed",
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          failed: 1,
+          errorCode: "wing_catalog_keyword_failed",
+        });
+        await operation.heartbeat({
+          progress: (index + 1) / input.keywords.length,
+          stage: "collecting_keyword",
+          progressCurrent: index + 1,
+          progressTotal: input.keywords.length,
+        });
+        continue;
+      }
+
+      if (Number.isInteger(search?.tabId)) collectionTabId = search.tabId;
+      if (search?.attentionRequired) {
+        keepAttentionTab = true;
+        return {
+          status: "attention_required",
+          attentionReason: "marketplace_login",
+        };
+      }
+      if (!search?.success) {
+        keywordResults.push({
+          keyword,
+          outcome: "failed",
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          failed: 1,
+          errorCode: "wing_catalog_keyword_failed",
+        });
+        await operation.heartbeat({
+          progress: (index + 1) / input.keywords.length,
+          stage: "collecting_keyword",
+          progressCurrent: index + 1,
+          progressTotal: input.keywords.length,
+        });
+        continue;
+      }
+
+      operation.signal?.throwIfAborted?.();
+      const rows = Array.isArray(search.rows)
+        ? search.rows.slice(0, SOURCING_WING_CATALOG_MAX_ITEMS)
+        : [];
+      const capturedAt = new Date().toISOString();
+      const items = rows
+        .filter((row) => row && row.productId != null && row.productName)
+        .map((row) =>
+          toSourcingWingCatalogObservation(row, keyword, capturedAt),
+        );
+      const ingest = await requestSourcingWingOperation(
+        operation,
+        `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/coupang-observations`,
+        { keyword, maxPages: input.maxPages, purpose: input.purpose, items },
+      );
+      const accepted = Math.max(0, Number(ingest?.acceptedCount) || 0);
+      const duplicate = Math.max(0, Number(ingest?.duplicateCount) || 0);
+      keywordResults.push({
+        keyword,
+        outcome: accepted > 0 ? "complete" : "no_change",
+        discovered: items.length,
+        accepted,
+        duplicate,
+        failed: 0,
+      });
+      await collectionSessions.progress(operation.runId, {
+        current: index + 1,
+        total: input.keywords.length,
+        completed: keywordResults.filter((result) => result.failed === 0).length,
+        failed: keywordResults.filter((result) => result.failed > 0).length,
+        label: keyword,
+      });
+      await operation.heartbeat({
+        progress: (index + 1) / input.keywords.length,
+        stage: "collecting_keyword",
+        progressCurrent: index + 1,
+        progressTotal: input.keywords.length,
+      });
+    }
+
+    operation.signal?.throwIfAborted?.();
+    await operation.heartbeat({
+      progress: 1,
+      stage: "finalizing",
+      progressCurrent: input.keywords.length,
+      progressTotal: input.keywords.length,
+    });
+    await requestSourcingWingOperation(
+      operation,
+      `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/finalize`,
+      { purpose: input.purpose, keywords: keywordResults },
+    );
+    operation.signal?.throwIfAborted?.();
+
+    const discovered = keywordResults.reduce(
+      (total, result) => total + result.discovered,
+      0,
+    );
+    const accepted = keywordResults.reduce(
+      (total, result) => total + result.accepted,
+      0,
+    );
+    const duplicate = keywordResults.reduce(
+      (total, result) => total + result.duplicate,
+      0,
+    );
+    const failed = keywordResults.reduce(
+      (total, result) => total + result.failed,
+      0,
+    );
+    if (failed === keywordResults.length) {
+      await collectionSessions.fail(operation.runId);
+      terminalSession = true;
+      return {
+        status: "failed",
+        errorCode: "wing_catalog_all_keywords_failed",
+        errorMessage: "Wing catalog collection failed for every keyword.",
+      };
+    }
+    const outcome = failed > 0
+      ? "partial"
+      : accepted === 0
+        ? "no_change"
+        : "complete";
+    await collectionSessions.succeed(operation.runId);
+    terminalSession = true;
+    return {
+      status: "succeeded",
+      result: {
+        outcome,
+        summary: {
+          discovered,
+          accepted,
+          duplicate,
+          unchanged: Math.max(0, discovered - accepted - failed),
+          failed,
+        },
+        sources: [
+          {
+            source: "wing_catalog",
+            outcome,
+            accepted,
+            failed,
+            ...(failed > 0 ? { errorCode: "wing_catalog_keyword_failed" } : {}),
+          },
+        ],
+        keywords: keywordResults,
+        snapshotGeneratedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    fenceLost =
+      error?.status === 409 || error?.message === "operation_runtime_fence_lost";
+    if (!operation.signal?.aborted && !fenceLost) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+      terminalSession = true;
+    }
+    throw error;
+  } finally {
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      Number.isInteger(collectionTabId)
+    ) {
+      await collectionSessions.detachTab(operation.runId, {
+        tabId: collectionTabId,
+        closeManagedTab: true,
+      }).catch(() => undefined);
+    }
+    // Abort cleanup is owned by the runtime, which cancels the exact session
+    // and closes its managed tab before suppressing the stale report.
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      !terminalSession
+    ) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+    }
+  }
+}
+
 async function runAdvertisingProfitabilityOperation(operation) {
   const headers = {
     "Content-Type": "application/json",
@@ -4900,6 +5303,7 @@ KidItemDomains.register({
   },
   operations: {
     "advertising.refresh_profitability_spend": runAdvertisingProfitabilityOperation,
+    "sourcing.collect_wing_catalog_batch": runSourcingWingCatalogOperation,
   },
   capabilities: {
     profitabilityAdvertisingRefreshV1: true,

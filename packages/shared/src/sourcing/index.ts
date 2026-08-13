@@ -1,4 +1,5 @@
 export * from './candidate-status';
+export * from './browser-operations';
 export * from './extension';
 export * from './operation-result';
 export * from './product-preparation';

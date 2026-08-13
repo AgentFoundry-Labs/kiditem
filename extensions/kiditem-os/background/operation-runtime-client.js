@@ -387,7 +387,8 @@
             signal: attemptController.signal,
             heartbeat,
           }));
-        } catch {
+        } catch (error) {
+          if (isFenceError(error)) abortAttempt(error);
           outcome = {
             status: "failed",
             errorCode: "browser_operation_failed",

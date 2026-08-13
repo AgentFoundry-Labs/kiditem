@@ -228,6 +228,28 @@ test('aborts the exact handler on heartbeat fence loss and suppresses its stale 
   assert.equal(fetchCalls.some((call) => call.path.endsWith('/report')), false);
 });
 
+test('aborts cleanup and suppresses reporting when a fenced handler request returns 409', async () => {
+  let handlerSignal;
+  const { client, fetchCalls, sessionCancellations } = createHarness({
+    handler: async ({ signal }) => {
+      handlerSignal = signal;
+      const error = new Error('operation_runtime_fence_lost');
+      error.status = 409;
+      throw error;
+    },
+  });
+
+  await client.tick('office');
+
+  assert.equal(handlerSignal.aborted, true);
+  assert.equal(handlerSignal.reason?.message, 'operation_runtime_fence_lost');
+  assert.deepEqual(JSON.parse(JSON.stringify(sessionCancellations)), [{
+    runId: '11111111-1111-4111-8111-111111111111',
+    cancelOptions: { closeManagedTab: true },
+  }]);
+  assert.equal(fetchCalls.some((call) => call.path.endsWith('/report')), false);
+});
+
 test('uses the claimed absolute deadline to abort pending heartbeat work before returning', async () => {
   let heartbeatSettled = false;
   let abortReason;

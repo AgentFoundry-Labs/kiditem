@@ -56,6 +56,20 @@ export interface OperationRunRecord {
   requestedBy: OperationRunActorRecord | null;
 }
 
+export interface ActiveBrowserOperationAttemptRecord {
+  runId: string;
+  organizationId: string;
+  operationKey: string;
+  engineType: OperationEngineType;
+  status: OperationStatus;
+  attemptToken: string;
+  input: Record<string, unknown>;
+  requestedByUserId: string | null;
+  startedAt: Date;
+  leaseExpiresAt: Date;
+  deadlineAt: Date;
+}
+
 export interface CreateOperationRunRecord {
   signal: AbortSignal;
   organizationId: string;
@@ -157,6 +171,13 @@ export interface OperationLifecycleBatchResult {
 }
 
 export interface OperationRunRepositoryPort {
+  findActiveBrowserAttempt(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+    now: Date;
+  }): Promise<ActiveBrowserOperationAttemptRecord | null>;
   findRunById(input: {
     organizationId: string;
     runId: string;

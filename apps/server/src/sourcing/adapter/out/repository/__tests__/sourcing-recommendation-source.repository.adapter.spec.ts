@@ -82,4 +82,42 @@ describe('SourcingRecommendationSourceRepositoryAdapter', () => {
 
     expect(result).toEqual({ items: [], rejectedCount: 1 });
   });
+
+  it('reads one organization-scoped persisted Wing snapshot and parses bounded owner rows', async () => {
+    const { repository, prisma } = createRepository();
+    prisma.sourcingEvidenceObservation.findMany.mockResolvedValueOnce([
+      {
+        id: '00000000-0000-4000-8000-000000000031',
+        payload: {
+          productId: '123', itemId: null, vendorItemId: null, productName: '슬라임', itemName: null,
+          brandName: null, manufacture: null, categoryHierarchy: null, imagePath: null, salePriceKrw: null,
+          ratingAverage: null, ratingCount: null, viewsLast28d: null, salesLast28d: null,
+          estimatedRevenue28d: null, conversionRate28d: null, deliveryInfo: null,
+          sourceKeyword: '슬라임', capturedAt: '2026-08-14T00:00:00.000Z',
+        },
+      },
+      { id: 'bad', payload: { productId: 'raw-arbitrary-json' } },
+    ]);
+
+    await expect(repository.listWingCatalogSnapshot({
+      organizationId: ORGANIZATION_ID,
+      normalizedKeyword: '슬라임',
+      limit: 400,
+    })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 1 });
+    expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledTimes(1);
+    expect(prisma.sourcingEvidenceObservation.findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        platform: 'coupang',
+        sourceKey: 'coupang.wing_catalog',
+        schemaVersion: { in: ['coupang-wing-catalog/v1', 'coupang-wing-catalog/v2'] },
+        conceptKey: '슬라임',
+        supersededByObservation: null,
+        ingestionRun: { status: { in: ['complete', 'partial'] } },
+      },
+      select: { id: true, payload: true },
+      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
+      take: 800,
+    });
+  });
 });

@@ -158,6 +158,38 @@ describe('useSourcingOperationAction', () => {
     expect(invalidate).toHaveBeenCalledTimes(1);
   });
 
+  it('invalidates the snapshot key captured by the run even if form input changes later', async () => {
+    mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
+    const client = makeClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const view = renderHook(
+      ({ searchKeyword }: { searchKeyword: string }) =>
+        useSourcingOperationAction({
+          ...options,
+          input: { ...options.input, keywords: [searchKeyword] },
+          snapshotQueryKey: ['sourcing', 'wing-catalog', searchKeyword] as const,
+        }),
+      {
+        initialProps: { searchKeyword: '스티커' },
+        wrapper: wrapper(client),
+      },
+    );
+
+    await act(async () => {
+      await view.result.current.start();
+    });
+    view.rerender({ searchKeyword: '클레이' });
+    mocks.run = operationRun(RUN_A, 'succeeded');
+    view.rerender({ searchKeyword: '클레이' });
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: ['sourcing', 'wing-catalog', '스티커'],
+    }));
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ['sourcing', 'wing-catalog', '클레이'],
+    });
+  });
+
   it('ignores a terminal notification from an older run after a newer start', async () => {
     mocks.start
       .mockResolvedValueOnce(operationRun(RUN_A, 'queued'))

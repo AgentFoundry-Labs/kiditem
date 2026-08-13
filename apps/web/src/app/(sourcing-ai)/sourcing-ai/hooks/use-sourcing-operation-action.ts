@@ -18,6 +18,7 @@ export interface UseSourcingOperationActionOptions<
   input: TInput;
   snapshotQueryKey: QueryKey;
   idempotencyKey?: string;
+  initialRunId?: string | null;
 }
 
 export function useSourcingOperationAction<
@@ -27,10 +28,19 @@ export function useSourcingOperationAction<
   const startMutation = useStartOperation();
   const cancelMutation = useCancelOperationRun();
   const retryMutation = useRetryBrowserOperationRun();
-  const [latestRunId, setLatestRunId] = useState<string | null>(null);
-  const latestRunIdRef = useRef<string | null>(null);
+  const [latestRunId, setLatestRunId] = useState<string | null>(
+    () => options.initialRunId ?? null,
+  );
+  const latestRunIdRef = useRef<string | null>(options.initialRunId ?? null);
   const latestStartRequestRef = useRef(0);
   const invalidatedRunIdsRef = useRef(new Set<string>());
+  const snapshotQueryKeysByRunIdRef = useRef(
+    new Map<string, QueryKey>(
+      options.initialRunId
+        ? [[options.initialRunId, options.snapshotQueryKey]]
+        : [],
+    ),
+  );
   const runQuery = useOperationRun(latestRunId);
 
   const start = useCallback(async (): Promise<OperationRun> => {
@@ -48,10 +58,17 @@ export function useSourcingOperationAction<
 
     if (latestStartRequestRef.current === requestNumber) {
       latestRunIdRef.current = run.id;
+      snapshotQueryKeysByRunIdRef.current.set(run.id, options.snapshotQueryKey);
       setLatestRunId(run.id);
     }
     return run;
-  }, [options.idempotencyKey, options.input, options.operationKey, startMutation]);
+  }, [
+    options.idempotencyKey,
+    options.input,
+    options.operationKey,
+    options.snapshotQueryKey,
+    startMutation,
+  ]);
 
   const cancel = useCallback(async (): Promise<OperationRun | null> => {
     const runId = latestRunIdRef.current;
@@ -74,8 +91,11 @@ export function useSourcingOperationAction<
     }
 
     invalidatedRunIdsRef.current.add(run.id);
-    void queryClient.invalidateQueries({ queryKey: options.snapshotQueryKey });
-  }, [options.snapshotQueryKey, queryClient, runQuery.data]);
+    const snapshotQueryKey = snapshotQueryKeysByRunIdRef.current.get(run.id);
+    if (snapshotQueryKey) {
+      void queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
+    }
+  }, [queryClient, runQuery.data]);
 
   return {
     runId: latestRunId,

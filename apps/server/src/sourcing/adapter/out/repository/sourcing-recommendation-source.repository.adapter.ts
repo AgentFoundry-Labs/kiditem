@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { SourcingCoupangObservationCommandSchema } from '@kiditem/shared/sourcing';
+import {
+  SourcingCoupangObservationCommandSchema,
+  SourcingWingCatalogObservationSchema,
+  type SourcingWingCatalogObservation,
+} from '@kiditem/shared/sourcing';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   SourcingCoupangObservationSource,
@@ -81,7 +85,9 @@ export class SourcingRecommendationSourceRepositoryAdapter
         organizationId: input.organizationId,
         platform: 'coupang',
         sourceKey: 'coupang.wing_catalog',
-        schemaVersion: 'coupang-wing-catalog/v1',
+        schemaVersion: {
+          in: ['coupang-wing-catalog/v1', 'coupang-wing-catalog/v2'],
+        },
         availableAt: { lte: input.cutoffAt },
         ingestedAt: { gte: lookbackStart(input.cutoffAt, input.lookbackDays), lte: input.cutoffAt },
         supersededByObservation: null,
@@ -94,15 +100,11 @@ export class SourcingRecommendationSourceRepositoryAdapter
     const byProduct = new Map<string, SourcingCoupangObservationSource>();
     let rejectedCount = 0;
     for (const row of rows) {
-      const parsed = SourcingCoupangObservationCommandSchema.safeParse({
-        idempotencyKey: '00000000-0000-4000-8000-000000000000',
-        items: [row.payload],
-      });
-      if (!parsed.success) {
+      const item = parseWingCatalogPayload(row.payload);
+      if (!item) {
         rejectedCount += 1;
         continue;
       }
-      const item = parsed.data.items[0];
       const source: SourcingCoupangObservationSource = {
         evidenceObservationId: row.id,
         productId: item.productId,
@@ -122,6 +124,70 @@ export class SourcingRecommendationSourceRepositoryAdapter
     }
     return { items: [...byProduct.values()].slice(0, input.limit), rejectedCount };
   }
+
+  async listWingCatalogSnapshot(input: {
+    organizationId: string;
+    normalizedKeyword: string;
+    limit: number;
+  }): Promise<{ items: SourcingWingCatalogObservation[]; rejectedCount: number }> {
+    const limit = Math.max(1, Math.min(400, Math.floor(input.limit)));
+    const rows = await this.prisma.sourcingEvidenceObservation.findMany({
+      where: {
+        organizationId: input.organizationId,
+        platform: 'coupang',
+        sourceKey: 'coupang.wing_catalog',
+        schemaVersion: {
+          in: ['coupang-wing-catalog/v1', 'coupang-wing-catalog/v2'],
+        },
+        conceptKey: input.normalizedKeyword,
+        supersededByObservation: null,
+        ingestionRun: { status: { in: TERMINAL_COLLECTION_STATUSES } },
+      },
+      select: { id: true, payload: true },
+      orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
+      take: Math.min(800, limit * 2),
+    });
+    const byProduct = new Map<string, SourcingWingCatalogObservation>();
+    let rejectedCount = 0;
+    for (const row of rows) {
+      const item = parseWingCatalogPayload(row.payload);
+      if (!item) {
+        rejectedCount += 1;
+        continue;
+      }
+      const identity = `${item.productId}\u001f${item.vendorItemId ?? item.itemId ?? ''}`;
+      if (!byProduct.has(identity)) byProduct.set(identity, item);
+    }
+    return {
+      items: [...byProduct.values()].slice(0, limit),
+      rejectedCount,
+    };
+  }
+}
+
+function parseWingCatalogPayload(
+  value: unknown,
+): SourcingWingCatalogObservation | null {
+  const current = SourcingWingCatalogObservationSchema.safeParse(value);
+  if (current.success) return current.data;
+
+  const legacy = SourcingCoupangObservationCommandSchema.safeParse({
+    idempotencyKey: '00000000-0000-4000-8000-000000000000',
+    items: [value],
+  });
+  if (!legacy.success) return null;
+  const item = legacy.data.items[0];
+  return {
+    ...item,
+    itemName: null,
+    brandName: null,
+    manufacture: null,
+    categoryHierarchy: null,
+    imagePath: null,
+    estimatedRevenue28d: null,
+    conversionRate28d: null,
+    deliveryInfo: null,
+  };
 }
 
 function lookbackStart(cutoffAt: Date, lookbackDays: number): Date {
