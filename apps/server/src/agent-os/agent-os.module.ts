@@ -9,6 +9,7 @@ import { AgentRunObservabilityController } from './adapter/in/http/agent-run-obs
 import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
 import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
+import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
@@ -22,6 +23,7 @@ import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-sess
 import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
 import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
+import { AGENT_INTERACTION_REPOSITORY } from './application/port/out/repository/agent-interaction-repository.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
@@ -107,6 +109,10 @@ const agentInteractionProviders = [
       useExisting: AgentOsLiveReadinessAdapter,
     },
     { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
+    {
+      provide: AGENT_INTERACTION_REPOSITORY,
+      useClass: PrismaAgentInteractionRepository,
+    },
     { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
     {
       provide: AGENT_RUNTIME_ASSETS_PORT,

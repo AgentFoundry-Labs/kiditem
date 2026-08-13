@@ -378,9 +378,13 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentAuthorizationEvent |
 | Organization | organization | referenced by external | AgentOS | AgentConversation |
 | Organization | organization | referenced by external | AgentOS | AgentCostEvent |
+| Organization | organization | referenced by external | AgentOS | AgentExecution |
+| Organization | organization | referenced by external | AgentOS | AgentExecutionUsage |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
+| Organization | organization | referenced by external | AgentOS | AgentInteractionThreadBinding |
 | Organization | organization | referenced by external | AgentOS | AgentMessage |
+| Organization | organization | referenced by external | AgentOS | AgentPolicySnapshot |
 | Organization | organization | referenced by external | AgentOS | AgentRun |
 | Organization | organization | referenced by external | AgentOS | AgentRunEvent |
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
@@ -565,3 +569,4 @@ erDiagram
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
+| User | user | referenced by external | AgentOS | AgentInteractionThreadBinding |

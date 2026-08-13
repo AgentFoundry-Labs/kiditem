@@ -7,6 +7,157 @@
 // Agent OS through `AgentRunnerPort` and shares related FK columns.
 
 /// @namespace AgentOS
+/// @describe Immutable runtime and policy identity for one version of a code-defined interactive agent.
+model AgentVersion {
+  id                 String    @id @default(uuid()) @db.Uuid
+  agentDefinitionKey String    @map("agent_definition_key")
+  version            Int
+  displayName        String    @map("display_name")
+  description        String
+  runtimeType        String    @map("runtime_type")
+  modelIdentity      String    @map("model_identity")
+  capabilityKeys     Json      @map("capability_keys") @db.JsonB
+  policyDocument     Json      @map("policy_document") @db.JsonB
+  activatedAt        DateTime? @map("activated_at") @db.Timestamptz
+  retiredAt          DateTime? @map("retired_at") @db.Timestamptz
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  threadBindings  AgentInteractionThreadBinding[]
+  policySnapshots AgentPolicySnapshot[]
+  executions      AgentExecution[]
+
+  @@unique([agentDefinitionKey, version], map: "agent_versions_definition_version_key")
+  @@index([agentDefinitionKey, activatedAt])
+  @@map("agent_versions")
+}
+
+/// @namespace AgentOS
+/// @describe Transcript-free binding between an opaque CopilotKit thread and its organization, principal, agent version, class, and lifecycle.
+model AgentInteractionThreadBinding {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  copilotThreadId  String    @unique(map: "agent_interaction_thread_bindings_copilot_thread_key") @map("copilot_thread_id")
+  agentVersionId   String    @map("agent_version_id") @db.Uuid
+  interactionClass String    @map("interaction_class")
+  lifecycle        String    @default("active")
+  contextEpoch     Int       @default(1) @map("context_epoch")
+  idleExpiresAt    DateTime? @map("idle_expires_at") @db.Timestamptz
+  archivedAt       DateTime? @map("archived_at") @db.Timestamptz
+  deletedAt        DateTime? @map("deleted_at") @db.Timestamptz
+  legalHoldAt      DateTime? @map("legal_hold_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  user         User                @relation(fields: [userId], references: [id], onDelete: Restrict)
+  agentVersion AgentVersion        @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  epochs       AgentContextEpoch[]
+  executions   AgentExecution[]
+
+  @@unique([organizationId, userId, agentVersionId], map: "agent_interaction_thread_bindings_active_quick_ask_scope_key", where: raw("interaction_class = 'quick_ask' AND lifecycle = 'active'"))
+  @@index([organizationId, userId, agentVersionId, interactionClass, lifecycle])
+  @@index([organizationId, copilotThreadId])
+  @@index([userId])
+  @@index([agentVersionId])
+  @@map("agent_interaction_thread_bindings")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable context-boundary marker for a transcript-free interaction thread.
+model AgentContextEpoch {
+  id                  String   @id @default(uuid()) @db.Uuid
+  threadBindingId     String   @map("thread_binding_id") @db.Uuid
+  epoch               Int
+  interactionClass    String   @map("interaction_class")
+  boundaryAguiRunId   String?  @map("boundary_agui_run_id")
+  validatedHandoffRef String?  @map("validated_handoff_ref")
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  threadBinding AgentInteractionThreadBinding @relation(fields: [threadBindingId], references: [id], onDelete: Cascade)
+
+  @@unique([threadBindingId, epoch], map: "agent_context_epochs_binding_epoch_key")
+  @@map("agent_context_epochs")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable organization-scoped policy decision used to authorize one or more AgentOS interaction executions.
+model AgentPolicySnapshot {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  agentVersionId String   @map("agent_version_id") @db.Uuid
+  authorityClass String   @map("authority_class")
+  capabilityKeys Json     @map("capability_keys") @db.JsonB
+  policyHash     String   @map("policy_hash")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization     @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  agentVersion AgentVersion     @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  executions   AgentExecution[]
+
+  @@index([organizationId, agentVersionId, createdAt])
+  @@index([agentVersionId])
+  @@map("agent_policy_snapshots")
+}
+
+/// @namespace AgentOS
+/// @describe Transcript-free interaction execution correlation and terminal control state. CopilotKit/Enterprise Intelligence owns transcript and event authority.
+model AgentExecution {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  threadBindingId  String    @map("thread_binding_id") @db.Uuid
+  copilotThreadId  String    @map("copilot_thread_id")
+  aguiRunId        String    @map("agui_run_id")
+  sessionId        String?   @map("session_id") @db.Uuid
+  sessionTaskId    String?   @map("session_task_id") @db.Uuid
+  interactionClass String    @map("interaction_class")
+  agentVersionId   String    @map("agent_version_id") @db.Uuid
+  runtimeType      String    @map("runtime_type")
+  modelIdentity    String    @map("model_identity")
+  policySnapshotId String    @map("policy_snapshot_id") @db.Uuid
+  attempt          Int       @default(1)
+  status           String
+  startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt       DateTime? @map("finished_at") @db.Timestamptz
+  errorCode        String?   @map("error_code")
+
+  organization   Organization                  @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  threadBinding  AgentInteractionThreadBinding @relation(fields: [threadBindingId], references: [id], onDelete: Restrict)
+  agentVersion   AgentVersion                  @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  policySnapshot AgentPolicySnapshot           @relation(fields: [policySnapshotId], references: [id], onDelete: Restrict)
+  usage          AgentExecutionUsage[]
+
+  @@unique([organizationId, copilotThreadId, aguiRunId], map: "agent_executions_org_thread_agui_run_key")
+  @@index([organizationId, sessionId, status])
+  @@index([threadBindingId])
+  @@index([agentVersionId])
+  @@index([policySnapshotId])
+  @@map("agent_executions")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable model usage and cost record attached to an organization-scoped interaction execution.
+model AgentExecutionUsage {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  executionId    String   @map("execution_id") @db.Uuid
+  modelIdentity  String   @map("model_identity")
+  provider       String
+  inputTokens    Int      @map("input_tokens")
+  outputTokens   Int      @map("output_tokens")
+  costMicros     BigInt   @map("cost_micros") @db.BigInt
+  currency       String   @default("USD")
+  recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+
+  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  execution    AgentExecution @relation(fields: [executionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, executionId, recordedAt])
+  @@index([executionId])
+  @@map("agent_execution_usages")
+}
+
+/// @namespace AgentOS
 /// @describe Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry.
 model AgentInstance {
   id                 String    @id @default(uuid()) @db.Uuid

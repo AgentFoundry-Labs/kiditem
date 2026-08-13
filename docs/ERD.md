@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 17 |
+| [AgentOS](erd/agentos.md) | 23 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 23 |
 | [Core](erd/core.md) | 16 |
@@ -47,11 +47,16 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentApprovalRequest | AgentOS | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
 | AgentArtifact | AgentOS | `agent_artifacts` | User-visible output card linked to task, tool, or domain record. |
 | AgentAuthorizationEvent | AgentOS | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
+| AgentContextEpoch | AgentOS | `agent_context_epochs` | Immutable context-boundary marker for a transcript-free interaction thread. |
 | AgentConversation | AgentOS | `agent_conversations` | User-facing Agent OS conversation thread. |
 | AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
+| AgentExecution | AgentOS | `agent_executions` | Transcript-free interaction execution correlation and terminal control state. CopilotKit/Enterprise Intelligence owns transcript and event authority. |
+| AgentExecutionUsage | AgentOS | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
+| AgentInteractionThreadBinding | AgentOS | `agent_interaction_thread_bindings` | Transcript-free binding between an opaque CopilotKit thread and its organization, principal, agent version, class, and lifecycle. |
 | AgentMessage | AgentOS | `agent_messages` | Visible conversation message tied to user, Operator, agent, or tool output. |
+| AgentPolicySnapshot | AgentOS | `agent_policy_snapshots` | Immutable organization-scoped policy decision used to authorize one or more AgentOS interaction executions. |
 | AgentRun | AgentOS | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
 | AgentRunEvent | AgentOS | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
 | AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
@@ -59,6 +64,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentTaskSession | AgentOS | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
 | AgentToolDefinition | AgentOS | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
 | AgentToolInvocation | AgentOS | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
+| AgentVersion | AgentOS | `agent_versions` | Immutable runtime and policy identity for one version of a code-defined interactive agent. |
 | WorkflowRun | AgentOS | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
 | WorkflowTemplate | AgentOS | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
 | AiDirectJob | AI | `ai_direct_jobs` | Durable queue and projection checkpoint for direct thumbnail, detail-page, and image-edit model work. |
@@ -331,6 +337,15 @@ erDiagram
     String decidedByUserId FK
     DateTime createdAt
   }
+  AgentContextEpoch {
+    String id PK
+    String threadBindingId FK
+    Int epoch
+    String interactionClass
+    String boundaryAguiRunId
+    String validatedHandoffRef
+    DateTime createdAt
+  }
   AgentConversation {
     String id PK
     String organizationId FK
@@ -360,6 +375,37 @@ erDiagram
     Json metadata
     DateTime occurredAt
     DateTime createdAt
+  }
+  AgentExecution {
+    String id PK
+    String organizationId FK
+    String threadBindingId FK
+    String copilotThreadId
+    String aguiRunId
+    String sessionId
+    String sessionTaskId
+    String interactionClass
+    String agentVersionId FK
+    String runtimeType
+    String modelIdentity
+    String policySnapshotId FK
+    Int attempt
+    String status
+    DateTime startedAt
+    DateTime finishedAt
+    String errorCode
+  }
+  AgentExecutionUsage {
+    String id PK
+    String organizationId FK
+    String executionId FK
+    String modelIdentity
+    String provider
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicros
+    String currency
+    DateTime recordedAt
   }
   AgentInstance {
     String id PK
@@ -394,6 +440,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  AgentInteractionThreadBinding {
+    String id PK
+    String organizationId FK
+    String userId FK
+    String copilotThreadId UK
+    String agentVersionId FK
+    String interactionClass
+    String lifecycle
+    Int contextEpoch
+    DateTime idleExpiresAt
+    DateTime archivedAt
+    DateTime deletedAt
+    DateTime legalHoldAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   AgentMessage {
     String id PK
     String organizationId FK
@@ -404,6 +466,15 @@ erDiagram
     String requestId FK
     String runId FK
     Json metadata
+    DateTime createdAt
+  }
+  AgentPolicySnapshot {
+    String id PK
+    String organizationId FK
+    String agentVersionId FK
+    String authorityClass
+    Json capabilityKeys
+    String policyHash
     DateTime createdAt
   }
   AgentRun {
@@ -566,6 +637,20 @@ erDiagram
     DateTime completedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentVersion {
+    String id PK
+    String agentDefinitionKey
+    Int version
+    String displayName
+    String description
+    String runtimeType
+    String modelIdentity
+    Json capabilityKeys
+    Json policyDocument
+    DateTime activatedAt
+    DateTime retiredAt
+    DateTime createdAt
   }
   AiDirectJob {
     String id PK
@@ -3206,6 +3291,7 @@ erDiagram
   AgentConversation ||--o{ AgentMessage : "conversation"
   AgentConversation o|--o{ AgentRunRequest : "conversation"
   AgentConversation o|--o{ AgentToolInvocation : "conversation"
+  AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
@@ -3220,7 +3306,10 @@ erDiagram
   AgentInstance ||--o{ AgentTaskSession : "agentInstance"
   AgentInstance ||--o{ AgentToolInvocation : "agentInstance"
   AgentInstance o|--o{ User : "agentInstance"
+  AgentInteractionThreadBinding ||--o{ AgentContextEpoch : "threadBinding"
+  AgentInteractionThreadBinding ||--o{ AgentExecution : "threadBinding"
   AgentMessage o|--o{ AgentRunRequest : "initiatedByMessage"
+  AgentPolicySnapshot ||--o{ AgentExecution : "policySnapshot"
   AgentRun o|--o{ AgentApprovalRequest : "run"
   AgentRun o|--o{ AgentArtifact : "run"
   AgentRun o|--o{ AgentAuthorizationEvent : "run"
@@ -3247,6 +3336,9 @@ erDiagram
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
   AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
+  AgentVersion ||--o{ AgentExecution : "agentVersion"
+  AgentVersion ||--o{ AgentInteractionThreadBinding : "agentVersion"
+  AgentVersion ||--o{ AgentPolicySnapshot : "agentVersion"
   CandidateImage o|--o{ ThumbnailGenerationInputImage : "candidateImage"
   ChannelAccount ||--o{ ChannelAccountDailyKpiSnapshot : "channelAccount"
   ChannelAccount ||--o{ ChannelAdTargetDailySnapshot : "channelAccount"
@@ -3359,9 +3451,13 @@ erDiagram
   Organization ||--o{ AgentAuthorizationEvent : "organization"
   Organization ||--o{ AgentConversation : "organization"
   Organization ||--o{ AgentCostEvent : "organization"
+  Organization ||--o{ AgentExecution : "organization"
+  Organization ||--o{ AgentExecutionUsage : "organization"
   Organization ||--o{ AgentInstance : "organization"
   Organization ||--o{ AgentInstanceToolPolicy : "organization"
+  Organization ||--o{ AgentInteractionThreadBinding : "organization"
   Organization ||--o{ AgentMessage : "organization"
+  Organization ||--o{ AgentPolicySnapshot : "organization"
   Organization ||--o{ AgentRun : "organization"
   Organization ||--o{ AgentRunEvent : "organization"
   Organization ||--o{ AgentRunRequest : "organization"
@@ -3599,6 +3695,7 @@ erDiagram
   User o|--o{ AgentAuthorizationEvent : "decidedBy"
   User o|--o{ AgentAuthorizationEvent : "requestedBy"
   User o|--o{ AgentConversation : "createdBy"
+  User ||--o{ AgentInteractionThreadBinding : "user"
   User o|--o{ AgentRunRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
   User ||--o{ AuthSession : "user"

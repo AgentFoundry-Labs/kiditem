@@ -12,11 +12,16 @@
 | AgentApprovalRequest | `agent_approval_requests` | Human approval state. While pending, AgentRunRequest.status = requires_approval. |
 | AgentArtifact | `agent_artifacts` | User-visible output card linked to task, tool, or domain record. |
 | AgentAuthorizationEvent | `agent_authorization_events` | Authorization audit. Logged before, during, and outside runs (eg. admin policy widening). |
+| AgentContextEpoch | `agent_context_epochs` | Immutable context-boundary marker for a transcript-free interaction thread. |
 | AgentConversation | `agent_conversations` | User-facing Agent OS conversation thread. |
 | AgentCostEvent | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
+| AgentExecution | `agent_executions` | Transcript-free interaction execution correlation and terminal control state. CopilotKit/Enterprise Intelligence owns transcript and event authority. |
+| AgentExecutionUsage | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
+| AgentInteractionThreadBinding | `agent_interaction_thread_bindings` | Transcript-free binding between an opaque CopilotKit thread and its organization, principal, agent version, class, and lifecycle. |
 | AgentMessage | `agent_messages` | Visible conversation message tied to user, Operator, agent, or tool output. |
+| AgentPolicySnapshot | `agent_policy_snapshots` | Immutable organization-scoped policy decision used to authorize one or more AgentOS interaction executions. |
 | AgentRun | `agent_runs` | Accepted execution attempt. Replaces HeartbeatRun. Always starts at status="running"; queue state lives on AgentRunRequest. |
 | AgentRunEvent | `agent_run_events` | Run-local event timeline (status, tool, model, safety, fallback). Bulk logs go to external store via logRef. |
 | AgentRunRequest | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
@@ -24,6 +29,7 @@
 | AgentTaskSession | `agent_task_sessions` | Per-task durable session. taskKey defaults to "default" only at API boundary. |
 | AgentToolDefinition | `agent_tool_definitions` | Catalog of business tools agents may invoke. KidItem ships a curated set; not a generic HTTP/DB tool marketplace. |
 | AgentToolInvocation | `agent_tool_invocations` | Durable capability/tool invocation audit record. |
+| AgentVersion | `agent_versions` | Immutable runtime and policy identity for one version of a code-defined interactive agent. |
 | WorkflowRun | `workflow_runs` | Workflow run record. Workflow runner triggers Agent OS via AgentRunnerPort with sourceWorkflowRunId. |
 | WorkflowTemplate | `workflow_templates` | Workflow definition. Trigger config + nodes/edges. |
 
@@ -93,6 +99,15 @@ erDiagram
     String decidedByUserId FK
     DateTime createdAt
   }
+  AgentContextEpoch {
+    String id PK
+    String threadBindingId FK
+    Int epoch
+    String interactionClass
+    String boundaryAguiRunId
+    String validatedHandoffRef
+    DateTime createdAt
+  }
   AgentConversation {
     String id PK
     String organizationId FK
@@ -122,6 +137,37 @@ erDiagram
     Json metadata
     DateTime occurredAt
     DateTime createdAt
+  }
+  AgentExecution {
+    String id PK
+    String organizationId FK
+    String threadBindingId FK
+    String copilotThreadId
+    String aguiRunId
+    String sessionId
+    String sessionTaskId
+    String interactionClass
+    String agentVersionId FK
+    String runtimeType
+    String modelIdentity
+    String policySnapshotId FK
+    Int attempt
+    String status
+    DateTime startedAt
+    DateTime finishedAt
+    String errorCode
+  }
+  AgentExecutionUsage {
+    String id PK
+    String organizationId FK
+    String executionId FK
+    String modelIdentity
+    String provider
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicros
+    String currency
+    DateTime recordedAt
   }
   AgentInstance {
     String id PK
@@ -156,6 +202,22 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  AgentInteractionThreadBinding {
+    String id PK
+    String organizationId FK
+    String userId FK
+    String copilotThreadId UK
+    String agentVersionId FK
+    String interactionClass
+    String lifecycle
+    Int contextEpoch
+    DateTime idleExpiresAt
+    DateTime archivedAt
+    DateTime deletedAt
+    DateTime legalHoldAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   AgentMessage {
     String id PK
     String organizationId FK
@@ -166,6 +228,15 @@ erDiagram
     String requestId FK
     String runId FK
     Json metadata
+    DateTime createdAt
+  }
+  AgentPolicySnapshot {
+    String id PK
+    String organizationId FK
+    String agentVersionId FK
+    String authorityClass
+    Json capabilityKeys
+    String policyHash
     DateTime createdAt
   }
   AgentRun {
@@ -329,6 +400,20 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  AgentVersion {
+    String id PK
+    String agentDefinitionKey
+    Int version
+    String displayName
+    String description
+    String runtimeType
+    String modelIdentity
+    Json capabilityKeys
+    Json policyDocument
+    DateTime activatedAt
+    DateTime retiredAt
+    DateTime createdAt
+  }
   WorkflowRun {
     String id PK
     String organizationId
@@ -365,6 +450,7 @@ erDiagram
   AgentConversation ||--o{ AgentMessage : "conversation"
   AgentConversation o|--o{ AgentRunRequest : "conversation"
   AgentConversation o|--o{ AgentToolInvocation : "conversation"
+  AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
@@ -378,7 +464,10 @@ erDiagram
   AgentInstance ||--|| AgentRuntimeState : "agentInstance"
   AgentInstance ||--o{ AgentTaskSession : "agentInstance"
   AgentInstance ||--o{ AgentToolInvocation : "agentInstance"
+  AgentInteractionThreadBinding ||--o{ AgentContextEpoch : "threadBinding"
+  AgentInteractionThreadBinding ||--o{ AgentExecution : "threadBinding"
   AgentMessage o|--o{ AgentRunRequest : "initiatedByMessage"
+  AgentPolicySnapshot ||--o{ AgentExecution : "policySnapshot"
   AgentRun o|--o{ AgentApprovalRequest : "run"
   AgentRun o|--o{ AgentArtifact : "run"
   AgentRun o|--o{ AgentAuthorizationEvent : "run"
@@ -405,6 +494,9 @@ erDiagram
   AgentToolDefinition o|--o{ AgentAuthorizationEvent : "tool"
   AgentToolDefinition ||--o{ AgentInstanceToolPolicy : "tool"
   AgentToolInvocation o|--o{ AgentArtifact : "toolInvocation"
+  AgentVersion ||--o{ AgentExecution : "agentVersion"
+  AgentVersion ||--o{ AgentInteractionThreadBinding : "agentVersion"
+  AgentVersion ||--o{ AgentPolicySnapshot : "agentVersion"
   WorkflowRun o|--o{ AgentRunRequest : "sourceWorkflowRun"
   WorkflowTemplate ||--o{ WorkflowRun : "template"
 ```
@@ -424,10 +516,15 @@ erDiagram
 | AgentConversation | createdBy | references external | Core | User |
 | AgentConversation | organization | references external | Core | Organization |
 | AgentCostEvent | organization | references external | Core | Organization |
+| AgentExecution | organization | references external | Core | Organization |
+| AgentExecutionUsage | organization | references external | Core | Organization |
 | AgentInstance | agentInstance | referenced by external | Core | User |
 | AgentInstance | organization | references external | Core | Organization |
 | AgentInstanceToolPolicy | organization | references external | Core | Organization |
+| AgentInteractionThreadBinding | organization | references external | Core | Organization |
+| AgentInteractionThreadBinding | user | references external | Core | User |
 | AgentMessage | organization | references external | Core | Organization |
+| AgentPolicySnapshot | organization | references external | Core | Organization |
 | AgentRun | organization | references external | Core | Organization |
 | AgentRunEvent | organization | references external | Core | Organization |
 | AgentRunRequest | organization | references external | Core | Organization |
