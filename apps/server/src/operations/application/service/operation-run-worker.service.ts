@@ -28,6 +28,7 @@ const RESOURCE_CLASSES: readonly OperationResourceClass[] = [
   'snapshot_compute',
 ];
 const DEADLINE_SWEEP_LIMIT = 100;
+const SHUTDOWN_DRAIN_TIMEOUT_MS = 5_000;
 
 @Injectable()
 export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy {
@@ -77,7 +78,19 @@ export class OperationRunWorkerService implements OnModuleInit, OnModuleDestroy 
         ...attempts,
       ]),
     ].filter((promise): promise is Promise<void> => promise !== null);
-    await Promise.allSettled(pending);
+    if (pending.length === 0) return;
+
+    const settled = Promise.allSettled(pending).then(() => undefined);
+    let timeoutHandle: ReturnType<typeof setTimeout> | null = null;
+    const timedOut = new Promise<void>((resolve) => {
+      timeoutHandle = setTimeout(resolve, SHUTDOWN_DRAIN_TIMEOUT_MS);
+      timeoutHandle.unref?.();
+    });
+    try {
+      await Promise.race([settled, timedOut]);
+    } finally {
+      if (timeoutHandle) clearTimeout(timeoutHandle);
+    }
   }
 
   async tick(): Promise<void> {

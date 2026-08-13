@@ -9,10 +9,12 @@ const originalLeaseMs = process.env.OPERATION_RUN_LEASE_MS;
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
-  const promise = new Promise<T>((resolvePromise) => {
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
     resolve = resolvePromise;
+    reject = rejectPromise;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function run(
@@ -327,5 +329,96 @@ describe('OperationRunWorkerService', () => {
     expect(executor.execute).not.toHaveBeenCalled();
     expect(compositeCoordinator.resumeTerminalChildren).toHaveBeenCalledOnce();
     expect(destroyed).toBe(true);
+  });
+
+  it('bounds shutdown while an active attempt never settles', async () => {
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) =>
+        resourceClass === 'naver_api'
+          ? Promise.resolve(run('naver_api', 'naver-never-settles'))
+          : Promise.resolve(null)),
+    };
+    const executor = {
+      execute: vi.fn().mockReturnValue(new Promise<void>(() => undefined)),
+      abortAll: vi.fn(),
+    };
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      { resumeTerminalChildren: vi.fn().mockResolvedValue(undefined) } as never,
+    );
+    await worker.tick();
+
+    let destroyed = false;
+    const shutdown = worker.onModuleDestroy().finally(() => {
+      destroyed = true;
+    });
+    await vi.advanceTimersByTimeAsync(4_999);
+    expect(destroyed).toBe(false);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(destroyed).toBe(true);
+    await shutdown;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('bounds pending claim and composite drains and observes their late rejections', async () => {
+    const attempt = deferred<void>();
+    const claim = deferred<OperationRunRecord | null>();
+    const resume = deferred<void>();
+    const unhandled = vi.fn();
+    process.on('unhandledRejection', unhandled);
+    const repository = {
+      expirePastDeadlineRuns: vi.fn().mockResolvedValue(0),
+      claimNextRun: vi.fn(({ resourceClass }: { resourceClass: OperationResourceClass }) => {
+        if (resourceClass === 'naver_api') {
+          return Promise.resolve(run('naver_api', 'naver-late-rejection'));
+        }
+        if (resourceClass === 'playwright_1688') return claim.promise;
+        return Promise.resolve(null);
+      }),
+    };
+    const executor = {
+      execute: vi.fn().mockReturnValue(attempt.promise),
+      abortAll: vi.fn(),
+    };
+    const compositeCoordinator = {
+      resumeTerminalChildren: vi.fn().mockReturnValue(resume.promise),
+    };
+    const worker = new OperationRunWorkerService(
+      executor as never,
+      repository as never,
+      compositeCoordinator as never,
+    );
+
+    const tick = worker.tick();
+    await vi.waitFor(() => {
+      expect(executor.execute).toHaveBeenCalledOnce();
+      expect(repository.claimNextRun).toHaveBeenCalledWith(expect.objectContaining({
+        resourceClass: 'playwright_1688',
+      }));
+    });
+    const claimsBeforeShutdown = repository.claimNextRun.mock.calls.length;
+    const resumesBeforeShutdown = compositeCoordinator.resumeTerminalChildren.mock.calls.length;
+
+    const shutdown = worker.onModuleDestroy();
+    await vi.advanceTimersByTimeAsync(5_000);
+    await shutdown;
+    await worker.tick();
+
+    expect(repository.claimNextRun).toHaveBeenCalledTimes(claimsBeforeShutdown);
+    expect(compositeCoordinator.resumeTerminalChildren).toHaveBeenCalledTimes(
+      resumesBeforeShutdown,
+    );
+    expect(vi.getTimerCount()).toBe(0);
+
+    attempt.reject(new Error('late attempt failure'));
+    claim.reject(new Error('late claim failure'));
+    resume.reject(new Error('late composite failure'));
+    await tick;
+    await vi.advanceTimersByTimeAsync(0);
+    expect(unhandled).not.toHaveBeenCalled();
+    process.off('unhandledRejection', unhandled);
   });
 });

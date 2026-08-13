@@ -200,17 +200,28 @@ export async function transitionActiveServerAttempt(
   }
 
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
-    UPDATE operation_runs
+    WITH locked_attempt AS MATERIALIZED (
+      SELECT id, organization_id
+      FROM operation_runs
+      WHERE id = ${input.runId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+      FOR UPDATE
+    ), fenced_attempt AS MATERIALIZED (
+      SELECT id, organization_id, clock_timestamp() AS locked_at
+      FROM locked_attempt
+    )
+    UPDATE operation_runs AS run
     SET ${Prisma.join(assignments)}
-    WHERE id = ${input.runId}::uuid
-      AND organization_id = ${input.organizationId}::uuid
-      AND status IN (${Prisma.join(input.expectedStatuses)})
-      AND attempt_token = ${input.expectedAttemptToken}::uuid
-      AND lease_expires_at IS NOT NULL
-      AND lease_expires_at > CURRENT_TIMESTAMP
-      AND deadline_at IS NOT NULL
-      AND deadline_at > CURRENT_TIMESTAMP
-    RETURNING id
+    FROM fenced_attempt
+    WHERE run.id = fenced_attempt.id
+      AND run.organization_id = fenced_attempt.organization_id
+      AND run.status IN (${Prisma.join(input.expectedStatuses)})
+      AND run.attempt_token = ${input.expectedAttemptToken}::uuid
+      AND run.lease_expires_at IS NOT NULL
+      AND run.lease_expires_at > fenced_attempt.locked_at
+      AND run.deadline_at IS NOT NULL
+      AND run.deadline_at > fenced_attempt.locked_at
+    RETURNING run.id
   `;
   return rows.length === 1;
 }

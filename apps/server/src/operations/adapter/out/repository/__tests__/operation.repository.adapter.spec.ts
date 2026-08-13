@@ -690,8 +690,13 @@ describe('OperationRepositoryAdapter active-attempt transition fence', () => {
     const rawQueryArguments = queryRaw.mock.calls[0] ?? [];
     const queryText = String(rawQueryArguments[0]);
     expect(queryText).toContain('attempt_token =');
-    expect(queryText).toContain('lease_expires_at > CURRENT_TIMESTAMP');
-    expect(queryText).toContain('deadline_at > CURRENT_TIMESTAMP');
+    expect(queryText).toContain('WITH locked_attempt AS MATERIALIZED');
+    expect(queryText).toContain('FOR UPDATE');
+    expect(queryText).toContain('clock_timestamp() AS locked_at');
+    expect(queryText).toContain(
+      'lease_expires_at > fenced_attempt.locked_at',
+    );
+    expect(queryText).toContain('deadline_at > fenced_attempt.locked_at');
     expect(rawQueryArguments).toContain(ORG_ID);
     expect(rawQueryArguments).toContain(RUN_ID);
     expect(rawQueryArguments).toContain(ATTEMPT_TOKEN);
