@@ -6,11 +6,12 @@
 DB 직접 조회는 사용할 수 없습니다. 필요한 데이터가 제공되지 않았다면 추측하지 말고, 어떤 화면/API 컨텍스트가 필요할지 짧게 요청하세요.
 
 ## 주요 테이블 (PostgreSQL, snake_case)
-- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품
+- orders / order_line_items / order_returns / order_return_line_items: 주문·주문라인·반품·실시간 손익 집계 원천
 - master_products / product_options / channel_listings / channel_listing_options: 상품 family, SKU, 채널 listing
 - channel_listing_daily_snapshots / channel_listing_option_daily_snapshots: 일별 트래픽·광고·매출 fact
 - channel_ad_target_daily_snapshots / channel_account_daily_kpi_snapshots: 광고 target/account KPI fact
-- profit_loss / manual_ledgers / processing_costs / sales_plans: 손익·수기원장·처리비·목표
+- master_product_abc_evaluations / master_product_abc_grade_histories: 기여이익·ABC 평가·등급 이력
+- settlements / supplier_payments / sales_plans: 정산·공급처 지급·목표
 - inventory / stock_transactions / warehouses / stock_transfers / stock_audits / picking_lists: 재고 운영
 - alerts: 알림 (type, title, message, is_read, severity)
 - action_tasks: 액션 태스크 (task_key, label, status, priority, notes, activity_log)

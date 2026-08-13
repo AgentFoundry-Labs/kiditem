@@ -1,7 +1,8 @@
-# finance — P&L, Costs, Payments, Settlements
+# finance — P&L, Payments, Plans, Settlements
 
-`src/finance/` owns live financial aggregation plus manual ledger, processing
-costs, supplier payments, sales plans, and settlement reconciliation.
+`src/finance/` owns live financial aggregation, supplier payments, sales plans,
+settlement reconciliation, and the profitability evidence port consumed by
+Products.
 `Settlement` still lives in the Orders Prisma namespace and `SupplierPayment`
 in Supply, but the backend capability owner is finance.
 
@@ -9,8 +10,6 @@ in Supply, but the backend capability owner is finance.
 
 - Company P&L: `GET /api/profit-loss`
 - Sales analysis: `GET /api/sales-analysis`
-- Manual ledger: `/api/manual-ledger/*`
-- Processing costs: `/api/processing-costs/*`
 - Supplier payments: `/api/supplier-payments/*`
 - Sales plans: `/api/sales-plans/*`
 - Settlements: `/api/settlements/*`
@@ -19,8 +18,8 @@ in Supply, but the backend capability owner is finance.
 
 - Live P&L reads aggregate orders, line items, returns, listing/options, and ad
   spend.
-- `ManualLedger`, processing cost rows, sales plans, settlements, and supplier
-  payments back finance-owned operational views.
+- Sales plans, settlements, and supplier payments back finance-owned
+  operational views.
 - `ProfitLoss` may remain as legacy/cache data, but is not the live read source
   of truth.
 
@@ -59,6 +58,7 @@ in Supply, but the backend capability owner is finance.
 
 ## Transitional Exceptions
 
-- Finance stays flat while it is live aggregation plus CRUD. Provider calls,
-  raw SQL reporting, cross-domain mutations, or long transaction invariants
-  require a scoped reconstruction plan.
+- Finance stays flat while it is live aggregation plus focused payment, plan,
+  and settlement capabilities. Provider calls, raw SQL reporting, cross-domain
+  mutations, or long transaction invariants require a scoped reconstruction
+  plan.
