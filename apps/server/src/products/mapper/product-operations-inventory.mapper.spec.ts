@@ -89,7 +89,6 @@ function rawListItem() {
     orderCount: null,
     salesAmount: null,
     adSpend: null,
-    profit: null,
     contributionMargin: null,
     contributionProfitVelocity30: null,
     inventorySkuIds: [SKU_ID],

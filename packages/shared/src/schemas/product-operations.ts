@@ -252,7 +252,6 @@ export const MasterProductOperationsListItemSchema =
       traffic: ProductOperationsMetricFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
     }).strict(),
-    profit: z.number().int().nullable(),
     contributionProfitVelocity30: z.number().finite().nullable(),
     contributionMargin: z.number().finite().nullable(),
   });

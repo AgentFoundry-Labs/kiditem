@@ -174,6 +174,48 @@ describe('product operations contracts', () => {
     });
   });
 
+  it('rejects the retired legacy profit projection on strict list items', () => {
+    const legacy = {
+      ...MasterProductOperationsListItemSchema.parse({
+        ...metadataFixture,
+        imageUrls: [],
+        displayImageUrls: [],
+        isSelling: true,
+        updatedAt: '2026-07-16T00:00:00.000Z',
+        depletion: {
+          coverage: 'no_direct_sales',
+          needsReorder: false,
+          reorderSkuCount: 0,
+          minMonthsOfAvailableStockLeft: null,
+        },
+        channelOptionSummary: { total: 0, active: 0, configured: 0, warning: 0 },
+        inventoryUnits: 0,
+        inventoryStatus: 'configuration_required',
+        channelCount: 0,
+        channelStatus: 'unlisted',
+        activeChannels: [],
+        traffic: null,
+        visitorCount: null,
+        viewCount: null,
+        cartAddCount: null,
+        orderCount: null,
+        salesQuantity: null,
+        salesAmount: null,
+        adSpend: null,
+        adSpendRate: null,
+        metricsFreshness: {
+          traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+          advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
+        },
+        contributionProfitVelocity30: null,
+        contributionMargin: null,
+      }),
+      profit: 12_000,
+    };
+
+    expect(MasterProductOperationsListItemSchema.safeParse(legacy).success).toBe(false);
+  });
+
   it('requires raw and calculated display image URLs separately', () => {
     const directImageMetadata = {
       ...metadataFixture,
@@ -340,7 +382,6 @@ describe('product operations contracts', () => {
         traffic: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { status: 'MISSING', coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
-      profit: null,
       contributionProfitVelocity30: null,
       contributionMargin: null,
     });

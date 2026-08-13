@@ -629,13 +629,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         adSpend: 5_000,
       },
     });
-    await prisma.profitLoss.create({
+    await prisma.masterProductAbcEvaluation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        year: now.getUTCFullYear(),
-        month: now.getUTCMonth() + 1,
-        netProfit: 12_000,
+        masterProductId: withFacts.id,
+        calculationStatus: 'INSUFFICIENT_EVIDENCE',
+        weightedContributionProfit: -12_000,
+        evaluationCutoffDate: now,
+        sellpiaSourceStatus: 'READY',
+        advertisingSourceStatus: 'READY',
+        ordersSourceStatus: 'NOT_APPLIED',
+        mappingSourceStatus: 'READY',
+        costComponentsJson: automaticCostComponents(),
+        calculatedAt: now,
       },
     });
 
@@ -643,6 +649,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1,
       limit: 50,
       periodDays: 7,
+      activeStatus: 'all',
     });
     const byId = new Map(page.items.map((item) => [item.id, item]));
     expect(byId.get(withoutFacts.id)).toMatchObject({
@@ -650,7 +657,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       orderCount: null,
       salesAmount: null,
       adSpend: null,
-      profit: null,
+      abcEvaluation: null,
     });
     expect(byId.get(withFacts.id)).toMatchObject({
       channelCount: 1,
@@ -662,8 +669,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: 40_000,
       adSpend: 5_000,
-      profit: 12_000,
+      abcEvaluation: { weightedContributionProfit: -12_000 },
     });
+    expect(page.summary.negativeProfitCount).toBe(1);
   });
 
   async function linkedProductWithOptions(code: string, optionCount: number) {

@@ -123,6 +123,36 @@ describe('ProductOperationsService', () => {
     ]));
   });
 
+  it('counts negative profit only from the current ABC contribution-profit evaluation', async () => {
+    const repository = makeRepository();
+    const negative = rawListProduct(productId);
+    negative.abcEvaluation = {
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: -12_000,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const missing = rawListProduct('00000000-0000-4000-8000-000000000099');
+    repository.listProducts.mockResolvedValue({
+      items: [negative, missing],
+      page: 1,
+      limit: 50,
+      sellingChannelProducts: [],
+    });
+    const service = makeService(repository);
+
+    const result = await service.listProducts(organizationId, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'all',
+      adStatus: 'all',
+    });
+
+    expect(result.summary.negativeProfitCount).toBe(1);
+  });
+
   it('uses the same inventory command predicates for counts and filtered product rows', async () => {
     const attentionId = '10000000-0000-4000-8000-000000000011';
     const outOfStockId = '10000000-0000-4000-8000-000000000012';
@@ -584,7 +614,6 @@ function rawListProduct(id: string) {
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
       },
     },
-    profit: null,
     inventorySkuIds: [skuId],
     inventoryOptions: [{
       id: channelListingOptionId,
