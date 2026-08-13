@@ -20,6 +20,8 @@ describe('OrdersModule owner wiring', () => {
     const imports: unknown[] = Reflect.getMetadata('imports', OrdersModule) ?? [];
     const controllers: unknown[] = Reflect.getMetadata('controllers', OrdersModule) ?? [];
     const providers: unknown[] = Reflect.getMetadata('providers', OrdersModule) ?? [];
+    const controllerNames = controllers.map((controller) => (controller as { name?: string }).name);
+    const providerNames = providers.map((provider) => (provider as { name?: string }).name);
 
     expect(imports).toContain(PrismaModule);
     expect(imports).toContain(SupplyModule);
@@ -30,6 +32,8 @@ describe('OrdersModule owner wiring', () => {
     expect(providers).toContain(SellpiaOrderTransmissionService);
     expect(providers).toContain(SellpiaOrderTransmissionRepositoryAdapter);
     expect(providers).toContain(MarketplaceOrderCollectionOperationHandler);
+    expect(controllerNames).not.toContain('CsController');
+    expect(providerNames).not.toContain('CsService');
     expect(providers).toContainEqual({
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
