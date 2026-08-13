@@ -98,6 +98,14 @@ function parsePersistedExecutionTimeoutMs(value: unknown): number {
   return parsed.data;
 }
 
+function parsePersistedDeadlineAt(value: unknown): Date | null {
+  if (value === null) return null;
+  if (!(value instanceof Date) || !Number.isFinite(value.getTime())) {
+    throw invalidPersistedExecutionMetadata();
+  }
+  return value;
+}
+
 function parseExecutionTimeoutMsMutation(value: unknown): number {
   const parsed = OperationExecutionTimeoutMsSchema.safeParse(value);
   if (!parsed.success) {
@@ -384,7 +392,26 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   async transitionActiveAttempt(
     input: OperationActiveAttemptTransition,
   ): Promise<OperationRunRecord | null> {
-    const updated = await transitionActiveServerAttempt(this.prisma, input);
+    const parsedStage = input.stage === undefined
+      ? undefined
+      : OperationStageSchema.nullable().safeParse(input.stage);
+    if (parsedStage !== undefined && !parsedStage.success) {
+      throw new Error('operation_stage_invalid');
+    }
+    const progressCounts = progressCountMutation(input);
+    const updated = await transitionActiveServerAttempt(this.prisma, {
+      ...input,
+      ...(parsedStage === undefined ? {} : { stage: parsedStage.data }),
+      ...(progressCounts.progress === undefined
+        ? {}
+        : { progress: progressCounts.progress as number | null }),
+      ...(progressCounts.progressCurrent === undefined
+        ? {}
+        : { progressCurrent: progressCounts.progressCurrent as number | null }),
+      ...(progressCounts.progressTotal === undefined
+        ? {}
+        : { progressTotal: progressCounts.progressTotal as number | null }),
+    });
     if (!updated) return null;
     return this.findRunById({
       organizationId: input.organizationId,
@@ -570,12 +597,17 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           AND engine_type = 'browser'
           AND status = 'waiting_runtime'
           AND attempts < max_attempts
+          AND (deadline_at IS NULL OR deadline_at > ${input.now})
         ORDER BY created_at ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
       `;
       const candidate = candidates[0];
       if (!candidate) return null;
+      if (!Object.prototype.hasOwnProperty.call(candidate, 'deadline_at')) {
+        throw invalidPersistedExecutionMetadata();
+      }
+      const deadlineAt = parsePersistedDeadlineAt(candidate.deadline_at);
       const executionTimeoutMs = parsePersistedExecutionTimeoutMs(
         candidate.execution_timeout_ms,
       );
@@ -594,7 +626,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           attemptToken: randomUUID(),
           claimedAt: input.now,
           leaseExpiresAt: input.leaseExpiresAt,
-          deadlineAt: candidate.deadline_at
+          deadlineAt: deadlineAt
             ?? new Date(input.now.getTime() + executionTimeoutMs),
           startedAt: input.now,
         },

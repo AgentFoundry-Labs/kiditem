@@ -156,13 +156,19 @@ export class BrowserOperationRuntimeService {
 
     switch (input.status) {
       case 'running':
-        return this.repository.transition({
-          ...base,
-          status: 'running',
+        return this.repository.heartbeatBrowserRun({
+          organizationId: input.organizationId,
+          runId: input.runId,
+          attemptToken: input.attemptToken,
+          now,
           leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
+          progress: input.progress,
+          stage: input.stage,
+          progressCurrent: input.progressCurrent,
+          progressTotal: input.progressTotal,
         });
       case 'attention_required':
-        return this.repository.transition({
+        return this.repository.transitionActiveAttempt({
           ...base,
           status: 'attention_required',
           errorCode: 'browser_attention_required',
@@ -173,7 +179,7 @@ export class BrowserOperationRuntimeService {
           leaseExpiresAt: null,
         });
       case 'succeeded':
-        return this.repository.transition({
+        return this.repository.transitionActiveAttempt({
           ...base,
           status: 'succeeded',
           progress: 1,
@@ -185,7 +191,7 @@ export class BrowserOperationRuntimeService {
           leaseExpiresAt: null,
         });
       case 'failed':
-        return this.repository.transition({
+        return this.repository.transitionActiveAttempt({
           ...base,
           status: 'failed',
           errorCode: input.errorCode ?? 'browser_operation_failed',

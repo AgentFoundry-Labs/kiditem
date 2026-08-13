@@ -178,6 +178,22 @@ export async function transitionActiveServerAttempt(
     assignments.push(Prisma.sql`${column} = ${value}`);
   };
   if (input.progress !== undefined) add(Prisma.sql`progress`, input.progress);
+  if (input.stage !== undefined) {
+    assignments.push(Prisma.sql`
+      stage_updated_at = CASE
+        WHEN stage IS DISTINCT FROM ${input.stage}
+          THEN clock_timestamp()
+        ELSE stage_updated_at
+      END
+    `);
+    add(Prisma.sql`stage`, input.stage);
+  }
+  if (input.progressCurrent !== undefined) {
+    add(Prisma.sql`progress_current`, input.progressCurrent);
+  }
+  if (input.progressTotal !== undefined) {
+    add(Prisma.sql`progress_total`, input.progressTotal);
+  }
   if (input.result !== undefined) {
     assignments.push(
       Prisma.sql`result = ${input.result === null ? null : JSON.stringify(input.result)}::jsonb`,

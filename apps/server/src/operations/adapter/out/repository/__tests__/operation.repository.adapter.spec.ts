@@ -422,6 +422,61 @@ describe('OperationRepositoryAdapter browser claim deadline', () => {
     }));
   });
 
+  it('binds the current wall clock to exclude past-deadline browser claims', async () => {
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([]),
+      operationRun: { update: vi.fn() },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.claimNextBrowserRun({
+      organizationId: ORG_ID,
+      runtimeId: 'office:kiditem-os',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    })).resolves.toBeNull();
+
+    const rawQueryArguments = transaction.$queryRaw.mock.calls[0] ?? [];
+    const queryText = String(rawQueryArguments[0]);
+    expect(queryText).toContain(
+      'deadline_at IS NULL OR deadline_at >',
+    );
+    expect(rawQueryArguments).toContain(NOW);
+    expect(transaction.operationRun.update).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['missing', {}],
+    ['malformed', { deadline_at: '2026-08-13T01:10:00.000Z' }],
+    ['invalid Date', { deadline_at: new Date(Number.NaN) }],
+  ])('rejects a %s raw browser deadline before mutation', async (
+    _name,
+    deadlineFields,
+  ) => {
+    const update = vi.fn();
+    const transaction = {
+      $queryRaw: vi.fn().mockResolvedValue([{
+        id: RUN_ID,
+        execution_timeout_ms: 900_000,
+        ...deadlineFields,
+      }]),
+      operationRun: { update },
+    };
+    const repository = new OperationRepositoryAdapter({
+      $transaction: vi.fn((callback) => callback(transaction)),
+    } as never);
+
+    await expect(repository.claimNextBrowserRun({
+      organizationId: ORG_ID,
+      runtimeId: 'office:kiditem-os',
+      now: NOW,
+      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    })).rejects.toThrow('operation_run_persisted_execution_metadata_invalid');
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('rejects a malformed raw execution timeout before claiming the run', async () => {
     const update = vi.fn().mockResolvedValue({ id: RUN_ID });
     const transaction = {
@@ -664,6 +719,44 @@ describe('OperationRepositoryAdapter deadline sweep', () => {
 });
 
 describe('OperationRepositoryAdapter active-attempt transition fence', () => {
+  it('atomically persists validated stage and normalized paired counts', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ id: RUN_ID }]);
+    const repository = new OperationRepositoryAdapter({
+      $queryRaw: queryRaw,
+      operationRun: { findFirst: vi.fn().mockResolvedValue(makeRunRow()) },
+    } as never);
+
+    await repository.transitionActiveAttempt({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedStatuses: ['running'],
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      status: 'succeeded',
+      progress: 1,
+      stage: 'completed',
+      progressCurrent: 11,
+      progressTotal: 12,
+      result: { outcome: 'partial', imported: 11 },
+    });
+
+    const rawQueryArguments = queryRaw.mock.calls[0] ?? [];
+    const assignments = rawQueryArguments.find(
+      (argument) =>
+        typeof argument === 'object' &&
+        argument !== null &&
+        Array.isArray((argument as { strings?: unknown }).strings),
+    ) as { strings: string[]; values: unknown[] };
+    const assignmentText = assignments.strings.join('?');
+    expect(assignmentText).toContain('stage_updated_at = CASE');
+    expect(assignmentText).toContain('stage IS DISTINCT FROM');
+    expect(assignmentText).toContain('progress_current =');
+    expect(assignmentText).toContain('progress_total =');
+    expect(assignments.values).toContain('completed');
+    expect(assignments.values).toContain(11);
+    expect(assignments.values).toContain(12);
+    expect(assignments.values).toContain(11 / 12);
+  });
+
   it('atomically requires the exact token and database-current lease and deadline', async () => {
     const queryRaw = vi.fn().mockResolvedValue([{ id: RUN_ID }]);
     const findFirst = vi.fn().mockResolvedValue(makeRunRow({ status: 'succeeded' }));
