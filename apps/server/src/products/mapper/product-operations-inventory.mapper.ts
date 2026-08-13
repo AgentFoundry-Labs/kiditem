@@ -1,4 +1,4 @@
-import { projectChannelOptionCapacity } from '../domain/channel-option-capacity';
+import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-capacity';
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
 import type {
   MasterProductOperationsDetail,

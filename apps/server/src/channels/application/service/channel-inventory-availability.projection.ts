@@ -1,5 +1,5 @@
 import type { InventorySkuAvailability } from '@kiditem/shared/inventory-availability';
-import { projectChannelOptionCapacity } from '../../../products/domain/channel-option-capacity';
+import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-capacity';
 
 type ChannelRecipeComponent = Readonly<{
   sellpiaInventorySkuId: string;

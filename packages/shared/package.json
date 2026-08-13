@@ -135,6 +135,11 @@
       "import": "./dist/inventory-availability.js",
       "require": "./dist/inventory-availability.cjs"
     },
+    "./channel-option-capacity": {
+      "types": "./dist/channel-option-capacity.d.ts",
+      "import": "./dist/channel-option-capacity.js",
+      "require": "./dist/channel-option-capacity.cjs"
+    },
     "./product-operations": {
       "types": "./dist/product-operations.d.ts",
       "import": "./dist/product-operations.js",
@@ -339,6 +344,9 @@
       ],
       "inventory-availability": [
         "dist/inventory-availability.d.ts"
+      ],
+      "channel-option-capacity": [
+        "dist/channel-option-capacity.d.ts"
       ],
       "product-operations": [
         "dist/product-operations.d.ts"

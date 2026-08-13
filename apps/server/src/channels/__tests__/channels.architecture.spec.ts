@@ -13,6 +13,8 @@ import path from 'node:path';
 //     repository adapters directly.
 //   - Outgoing provider/automation adapters do not import application services.
 //   - The legacy `adapters/coupang/` folder remains a compatibility shim only.
+//   - Cross-owner channel-option capacity policy comes from its focused shared
+//     contract, never Products internals.
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const CHANNELS_ROOT = path.resolve(__dirname, '..');
@@ -93,6 +95,24 @@ describe('channels architecture contract', () => {
     expect(
       hits,
       `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+    ).toEqual([]);
+  });
+
+  it('Channels and Products consume the public channel-option capacity contract', () => {
+    const consumers = rg(
+      `--type ts --files-with-matches '@kiditem/shared/channel-option-capacity' apps/server/src/channels apps/server/src/products --glob '!**/*.spec.ts'`,
+    ).sort();
+    expect(consumers).toEqual([
+      'apps/server/src/channels/application/service/channel-inventory-availability.projection.ts',
+      'apps/server/src/products/mapper/product-operations-inventory.mapper.ts',
+    ]);
+
+    const internalImports = rg(
+      `--type ts --files-with-matches 'domain/channel-option-capacity' apps/server/src --glob '!**/*.spec.ts'`,
+    );
+    expect(
+      internalImports,
+      `server domains must not import another owner's internal capacity policy:\n${internalImports.join('\n')}`,
     ).toEqual([]);
   });
 
