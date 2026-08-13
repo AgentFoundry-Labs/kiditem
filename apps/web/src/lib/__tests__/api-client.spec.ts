@@ -446,3 +446,114 @@ describe('api base helpers', () => {
       .toBe('https://api.kiditem.local');
   });
 });
+
+describe('apiClient request deadlines', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn());
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function installAbortableNeverSettlingFetch() {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementationOnce((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+          once: true,
+        });
+      }));
+    return fetchMock;
+  }
+
+  it('turns the default GET deadline into request_timeout and clears the timer', async () => {
+    const fetchMock = installAbortableNeverSettlingFetch();
+
+    const pending = apiClient.get('/api/slow');
+    await vi.advanceTimersByTimeAsync(0);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(vi.getTimerCount()).toBe(1);
+
+    const rejected = expect(pending).rejects.toMatchObject({
+      status: 0,
+      code: 'request_timeout',
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('honors an explicit GET deadline for a never-settling fetch', async () => {
+    installAbortableNeverSettlingFetch();
+
+    const pending = apiClient.get('/api/slow', { timeoutMs: 10 });
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'request_timeout' });
+    await vi.advanceTimersByTimeAsync(10);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves caller abort identity instead of reporting request_timeout', async () => {
+    installAbortableNeverSettlingFetch();
+    const caller = new AbortController();
+    const reason = new DOMException('route changed', 'AbortError');
+
+    const pending = apiClient.get('/api/slow', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves an already-aborted caller signal without allocating a timer', async () => {
+    const caller = new AbortController();
+    const reason = new DOMException('already left', 'AbortError');
+    caller.abort(reason);
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementationOnce((_url: string, init?: RequestInit) =>
+      Promise.reject(init?.signal?.reason));
+
+    await expect(apiClient.get('/api/slow', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    })).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('cleans its timer when fetch rejects before the deadline', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError('offline'));
+
+    await expect(apiClient.get('/api/fail-fast', { timeoutMs: 10_000 }))
+      .rejects.toMatchObject({ code: 'network_error' });
+
+    expect(vi.getTimerCount()).toBe(0);
+    error.mockRestore();
+  });
+
+  it('cleans its timer on an HTTP error response', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(503, { error: 'unavailable', message: 'try later' }),
+    );
+
+    await expect(apiClient.get('/api/http-error', { timeoutMs: 10_000 }))
+      .rejects.toMatchObject({ status: 503, code: 'unavailable' });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

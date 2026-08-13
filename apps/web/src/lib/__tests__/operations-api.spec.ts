@@ -25,6 +25,8 @@ describe('operationsApi', () => {
       title: '일일 트렌드 수집',
       ownerDomain: 'sourcing',
       engineType: 'composite',
+      resourceClass: 'default',
+      executionTimeoutMs: 60_000,
       status: 'queued',
       triggerSource: 'dashboard',
       parentRunId: null,
@@ -32,6 +34,11 @@ describe('operationsApi', () => {
       nativeRunType: null,
       nativeRunId: null,
       progress: null,
+      stage: null,
+      stageUpdatedAt: null,
+      progressCurrent: null,
+      progressTotal: null,
+      deadlineAt: null,
       result: null,
       error: null,
       requestedBy: null,
@@ -51,7 +58,10 @@ describe('operationsApi', () => {
     expect(apiClient.post).toHaveBeenCalledWith(
       '/api/operations/sourcing.collect_daily_trends/runs',
       { sourceSurface: 'dashboard', input: { sources: ['naver'] } },
-      { headers: { 'Idempotency-Key': 'click-1' } },
+      {
+        headers: { 'Idempotency-Key': 'click-1' },
+        timeoutMs: 10_000,
+      },
     );
   });
 

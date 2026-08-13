@@ -2,6 +2,9 @@ import { ZodType, ZodError } from 'zod';
 import { getApiBase } from './api';
 import { ApiError } from './api-error';
 import { clearAuthSession, getAuthSession } from './auth/session';
+import { composeRequestSignal } from './request-deadline';
+
+const DEFAULT_READ_TIMEOUT_MS = 15_000;
 
 /**
  * KidItem opaque session token 을 `Authorization: Bearer <token>` 헤더로 첨부.
@@ -30,14 +33,19 @@ async function withAuthHeaders(init?: RequestInit): Promise<RequestInit> {
 }
 
 function isAbortError(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError';
+  return typeof err === 'object'
+    && err !== null
+    && 'name' in err
+    && err.name === 'AbortError';
 }
 
-interface RequestDiagnostics {
+export interface ApiRequestOptions {
+  signal?: AbortSignal;
+  timeoutMs?: number | null;
   suppressNetworkErrorLog?: boolean;
 }
 
-interface RequestOptions extends RequestDiagnostics {
+interface RequestOptions extends ApiRequestOptions {
   /**
    * 본문 없는 200 을 무엇으로 볼지 정한다.
    *
@@ -56,13 +64,32 @@ interface RequestOptions extends RequestDiagnostics {
 async function fetchApi(
   path: string,
   init?: RequestInit,
-  diagnostics?: RequestDiagnostics,
+  options?: ApiRequestOptions,
 ): Promise<Response> {
+  const callerSignal = options?.signal ?? init?.signal ?? undefined;
+  const composedSignal = composeRequestSignal(
+    callerSignal,
+    options?.timeoutMs === undefined ? null : options.timeoutMs,
+  );
   try {
-    return await fetch(`${getApiBase()}${path}`, await withAuthHeaders(init));
+    const authenticatedInit = await withAuthHeaders(init);
+    return await fetch(`${getApiBase()}${path}`, {
+      ...authenticatedInit,
+      signal: composedSignal.signal,
+    });
   } catch (err) {
+    if (composedSignal.didTimeout) {
+      throw new ApiError(
+        0,
+        'request_timeout',
+        '요청 시간이 초과되었습니다. 다시 시도해주세요.',
+      );
+    }
+    if (callerSignal?.aborted && isAbortError(callerSignal.reason)) {
+      throw callerSignal.reason;
+    }
     if (isAbortError(err)) throw err;
-    if (!diagnostics?.suppressNetworkErrorLog) {
+    if (!options?.suppressNetworkErrorLog) {
       console.error('[apiClient] Network request failed', { path, error: err });
     }
     throw new ApiError(
@@ -70,6 +97,8 @@ async function fetchApi(
       'network_error',
       'API 서버에 연결하지 못했습니다. 백엔드 실행 상태 또는 CORS 설정을 확인해주세요.',
     );
+  } finally {
+    composedSignal.cleanup();
   }
 }
 
@@ -146,21 +175,42 @@ async function fetchRaw(
 }
 
 export const apiClient = {
-  get: <T>(path: string) => request<T>(path),
+  get: <T>(path: string, options?: ApiRequestOptions) =>
+    request<T>(path, undefined, {
+      ...options,
+      timeoutMs: options?.timeoutMs === undefined
+        ? DEFAULT_READ_TIMEOUT_MS
+        : options.timeoutMs,
+    }),
   /**
    * "없을 수도 있는 단일 리소스" 읽기. 본문 없는 200 을 `{}` 가 아니라 `null` 로
    * 돌려주므로 호출부의 `if (!x)` 가드가 실제로 동작한다.
    *
    * 백엔드 핸들러가 `null` 을 반환할 수 있는 GET 은 `get` 대신 이걸 쓴다.
    */
-  getNullable: <T>(path: string): Promise<T | null> =>
-    request<T | null>(path, undefined, { emptyBodyAs: 'null' }),
+  getNullable: <T>(path: string, options?: ApiRequestOptions): Promise<T | null> =>
+    request<T | null>(path, undefined, {
+      ...options,
+      timeoutMs: options?.timeoutMs === undefined
+        ? DEFAULT_READ_TIMEOUT_MS
+        : options.timeoutMs,
+      emptyBodyAs: 'null',
+    }),
   /**
    * GET + Zod parse at the client boundary (Plan D spec § I1).
    * Surfaces API schema drift as a runtime ZodError rather than a silent type cast.
    */
-  getParsed: async <T>(path: string, schema: ZodType<T>): Promise<T> => {
-    const raw = await request<unknown>(path);
+  getParsed: async <T>(
+    path: string,
+    schema: ZodType<T>,
+    options?: ApiRequestOptions,
+  ): Promise<T> => {
+    const raw = await request<unknown>(path, undefined, {
+      ...options,
+      timeoutMs: options?.timeoutMs === undefined
+        ? DEFAULT_READ_TIMEOUT_MS
+        : options.timeoutMs,
+    });
     try {
       return schema.parse(raw);
     } catch (err) {
@@ -173,10 +223,8 @@ export const apiClient = {
   post: <T>(
     path: string,
     body?: unknown,
-    options?: {
-      signal?: AbortSignal;
+    options?: ApiRequestOptions & {
       headers?: HeadersInit;
-      suppressNetworkErrorLog?: boolean;
     },
   ) => {
     const headers = new Headers(options?.headers);
@@ -187,28 +235,32 @@ export const apiClient = {
         method: 'POST',
         headers,
         body: body !== undefined ? JSON.stringify(body) : undefined,
-        signal: options?.signal,
       },
-      { suppressNetworkErrorLog: options?.suppressNetworkErrorLog },
+      options,
     );
   },
-  patch: <T>(path: string, body: unknown) =>
+  patch: <T>(path: string, body: unknown, options?: ApiRequestOptions) =>
     request<T>(path, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }),
+    }, options),
   /**
    * PATCH + Zod parse at the client boundary. Mirrors `getParsed` so write paths
    * that depend on server-returned envelope shapes (e.g. `{ images }`) surface
    * drift as a ZodError rather than a silent type cast.
    */
-  patchParsed: async <T>(path: string, schema: ZodType<T>, body: unknown): Promise<T> => {
+  patchParsed: async <T>(
+    path: string,
+    schema: ZodType<T>,
+    body: unknown,
+    options?: ApiRequestOptions,
+  ): Promise<T> => {
     const raw = await request<unknown>(path, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    });
+    }, options);
     try {
       return schema.parse(raw);
     } catch (err) {
@@ -232,13 +284,13 @@ export const apiClient = {
       throw err;
     }
   },
-  put: <T>(path: string, body: unknown) =>
+  put: <T>(path: string, body: unknown, options?: ApiRequestOptions) =>
     request<T>(path, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-    }),
-  delete: <T>(path: string, body?: unknown) =>
+    }, options),
+  delete: <T>(path: string, body?: unknown, options?: ApiRequestOptions) =>
     request<T>(
       path,
       body === undefined
@@ -248,6 +300,7 @@ export const apiClient = {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(body),
           },
+      options,
     ),
   upload: <T>(path: string, formData: FormData) =>
     request<T>(path, { method: 'POST', body: formData }),

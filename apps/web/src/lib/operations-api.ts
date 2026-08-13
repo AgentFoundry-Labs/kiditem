@@ -28,9 +28,12 @@ export const operationsApi = {
     const raw = await apiClient.post<unknown>(
       `/api/operations/${encodeURIComponent(operationKey)}/runs`,
       { sourceSurface: input.sourceSurface, input: input.input },
-      input.idempotencyKey
-        ? { headers: { 'Idempotency-Key': input.idempotencyKey } }
-        : undefined,
+      {
+        timeoutMs: 10_000,
+        ...(input.idempotencyKey
+          ? { headers: { 'Idempotency-Key': input.idempotencyKey } }
+          : {}),
+      },
     );
     return OperationRunSchema.parse(raw);
   },
