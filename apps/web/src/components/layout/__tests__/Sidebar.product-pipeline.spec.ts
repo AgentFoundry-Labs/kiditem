@@ -43,7 +43,6 @@ describe('Sidebar product pipeline navigation', () => {
         ['/product-hub', '상품 관리'],
         ['/product-hub/matching', '상품 매칭'],
         ['/reviews', '리뷰 관리'],
-        ['/product-hub/options', '셀피아 재고'],
       ]],
       ['주문관리', [
         ['/order-collection', '주문수집'],

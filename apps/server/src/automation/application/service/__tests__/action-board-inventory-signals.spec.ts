@@ -54,7 +54,7 @@ describe('ActionBoardService inventory signals', () => {
     expect(inventorySeeds).toEqual(expect.arrayContaining([
       expect.objectContaining({
         taskKey: 'h-zero-stock',
-        href: '/inventory-hub?tab=status',
+        href: '/inventory-hub',
         apiCall: null,
       }),
       expect.objectContaining({

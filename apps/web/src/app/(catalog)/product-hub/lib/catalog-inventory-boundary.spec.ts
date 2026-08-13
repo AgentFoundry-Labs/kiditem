@@ -9,7 +9,7 @@ const productHubRoot = resolve(
 
 function productionSource(
   dir = productHubRoot,
-  excludedDirectories = new Set(['matching', 'options']),
+  excludedDirectories = new Set(['matching']),
 ): string {
   return readdirSync(dir)
     .flatMap((entry) => {
@@ -19,7 +19,6 @@ function productionSource(
         return productionSource(path, excludedDirectories);
       }
         if (!/\.(ts|tsx)$/.test(entry) || /\.(spec|test)\./.test(entry)) return [];
-        if (entry === 'ProductOptionsWorkspace.tsx') return [];
         return [readFileSync(path, 'utf8')];
     })
     .join('\n');
@@ -45,21 +44,5 @@ describe('product hub final inventory ownership boundary', () => {
     expect(source).not.toContain('/api/traffic/upload');
     expect(source).not.toContain('/api/inventory/adjust');
     expect(source).not.toContain('dark:');
-  });
-
-  it('renders the option URL with its own read-only Sellpia inventory query', () => {
-    const pageSource = readFileSync(join(productHubRoot, 'options/page.tsx'), 'utf8');
-    const workspaceSource = readFileSync(
-      join(productHubRoot, 'components/ProductOptionsWorkspace.tsx'),
-      'utf8',
-    );
-
-    expect(pageSource).toContain('ProductOptionsWorkspace');
-    expect(pageSource).toContain('headingLevel={1}');
-    expect(workspaceSource).toContain('useSellpiaInventorySkuPageState');
-    expect(workspaceSource).toContain('SellpiaOptionTable');
-    expect(workspaceSource).toContain('/api/inventory/sellpia-skus');
-    expect(workspaceSource).not.toContain("from '../matching/page'");
-    expect(workspaceSource).not.toContain('/api/products/options');
   });
 });

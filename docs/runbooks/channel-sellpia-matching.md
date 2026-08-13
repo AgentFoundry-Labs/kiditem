@@ -98,8 +98,8 @@ alters a multi-component BOM. Conflicting identifiers or title quantities, an
 uncertain pack/BOM, generic barcode, raw alias, similarity, rank, or AI
 requires operator review.
 
-Use `/product-hub/options` to inspect the complete read-only Sellpia collection
-and confirmed channel-option destinations. That screen cannot edit stock,
+Use `/inventory-hub` to inspect the complete read-only Sellpia collection and
+confirmed channel-option destinations. That workspace cannot edit stock,
 identity, or component quantity.
 
 ## Capacity And Quantity-Deduction Semantics

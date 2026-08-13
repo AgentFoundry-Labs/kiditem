@@ -18,7 +18,7 @@ describe('browser operation producer policy', () => {
     });
   });
 
-  it('registers Sellpia inventory freshness at the restored Sellpia sync tab', () => {
+  it('registers Sellpia inventory freshness at the canonical inventory workspace', () => {
     const runId = '22222222-2222-4222-8222-222222222222';
 
     expect(
@@ -30,11 +30,11 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: 'Sellpia 재고 갱신',
-      href: '/inventory-hub?tab=sellpia-sync',
+      href: '/inventory-hub',
     });
   });
 
-  it('registers stable Sellpia quality warnings at the restored import-status tab', () => {
+  it('registers stable Sellpia quality warnings at the canonical inventory workspace', () => {
     const fileHash = 'a'.repeat(64);
 
     expect(
@@ -46,7 +46,7 @@ describe('browser operation producer policy', () => {
       }),
     ).toEqual({
       title: 'Sellpia 재고 품질 확인 필요',
-      href: '/stock-ops?tab=freshness',
+      href: '/inventory-hub',
     });
   });
 

@@ -80,6 +80,26 @@ describe('<ProductEditorDialog>', () => {
     expect(screen.queryByDisplayValue(/CP-/)).not.toBeInTheDocument();
     expect(screen.getByLabelText('이미지 URL')).toHaveValue('');
   });
+
+  it('preserves a system-owned Sellpia code without exposing or submitting it', async () => {
+    vi.mocked(apiClient.patch).mockResolvedValue({ id: 'product-1' });
+    renderDialog({
+      onOpenChange: vi.fn(),
+      onSaved: vi.fn(),
+      product: sellpiaInternalProduct(),
+    });
+
+    expect(screen.queryByLabelText('상품 코드')).not.toBeInTheDocument();
+    expect(screen.queryByText(/INV-SELLPIA-100/)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText('상품명'), { target: { value: '이름 변경' } });
+    fireEvent.click(screen.getByRole('button', { name: '변경 저장' }));
+
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith(
+      '/api/products/masters/11111111-1111-4111-8111-111111111111',
+      expect.not.objectContaining({ code: expect.anything() }),
+    ));
+  });
 });
 
 function renderDialog(props: {
@@ -98,4 +118,31 @@ function renderDialog(props: {
       />
     </QueryClientProvider>,
   );
+}
+
+function sellpiaInternalProduct(): MasterProductOperationsMetadata {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    code: 'INV-SELLPIA-100',
+    displayReference: {
+      type: 'product_code',
+      label: '상품 코드',
+      value: 'INV-SELLPIA-100',
+    },
+    name: '셀피아 내부 상품',
+    description: null,
+    category: null,
+    brand: null,
+    tags: [],
+    imageUrls: [],
+    displayImageUrls: [],
+    abcGrade: null,
+    abcEvaluation: null,
+    profitTag: null,
+    adTier: null,
+    adBudgetLimit: null,
+    healthScore: null,
+    healthUpdatedAt: null,
+    isActive: true,
+  };
 }

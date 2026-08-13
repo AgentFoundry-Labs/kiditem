@@ -172,7 +172,7 @@ async function startSellpiaInventoryOperationAlert(operation) {
           : "Sellpia 현재고 동기화를 실행하고 있습니다.",
         sourceType: "browser_collection_session",
         sourceId: "inventory.sellpia",
-        href: "/inventory-hub?tab=sellpia-sync",
+        href: "/inventory-hub",
         severity: "info",
         progress: 0,
         metadata: sellpiaInventoryOperationAlertMetadata(

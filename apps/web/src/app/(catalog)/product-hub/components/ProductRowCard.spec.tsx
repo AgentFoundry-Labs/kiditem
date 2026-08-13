@@ -16,6 +16,28 @@ describe('ProductRowCard', () => {
     expect(screen.queryByRole('img', { name: '테스트 상품 상품 이미지' })).not.toBeInTheDocument();
   });
 
+  it('keeps an operator product code visible in the catalog row', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText(/상품코드 MASTER-1/)).toBeInTheDocument();
+  });
+
+  it('hides a system-owned Sellpia code while retaining product context', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      code: 'INV-SELLPIA-100',
+      displayReference: {
+        type: 'product_code',
+        label: '상품 코드',
+        value: 'INV-SELLPIA-100',
+      },
+    }} />);
+
+    expect(screen.getByText('테스트 상품')).toBeInTheDocument();
+    expect(screen.getByText('KidItem')).toBeInTheDocument();
+    expect(screen.queryByText(/INV-SELLPIA-/)).not.toBeInTheDocument();
+  });
+
   it('opens the already-loaded ABC evidence through an accessible badge button', () => {
     const onOpenAbcDetail = vi.fn();
     render(<ProductRowCard product={product()} onOpenAbcDetail={onOpenAbcDetail} />);

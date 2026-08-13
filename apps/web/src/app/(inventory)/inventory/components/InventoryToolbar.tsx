@@ -1,18 +1,12 @@
 'use client';
 
-import { Barcode, Download, Search } from 'lucide-react';
+import { Barcode, Download } from 'lucide-react';
 import { formatDateTime } from '@/lib/utils';
-import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
 import { SellpiaSyncAction } from '../../_shared/SellpiaSyncAction';
 
 interface InventoryToolbarProps {
-  query: string;
   latestImportAt: string | Date | null;
   busy: boolean;
-  includeOutOfStock: boolean;
-  onQueryChange: (value: string) => void;
-  onIncludeOutOfStockChange: (value: boolean) => void;
-  onSearch: () => void;
   onBarcodePrint: () => void;
   onExcel: () => void;
   headingLevel?: 1 | 2;
@@ -20,13 +14,8 @@ interface InventoryToolbarProps {
 }
 
 export function InventoryToolbar({
-  query,
   latestImportAt,
   busy,
-  includeOutOfStock,
-  onQueryChange,
-  onIncludeOutOfStockChange,
-  onSearch,
   onBarcodePrint,
   onExcel,
   headingLevel = 1,
@@ -36,7 +25,7 @@ export function InventoryToolbar({
   return (
     <div className="space-y-3">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-        {showHeading ? <Heading className="page-title">재고 현황</Heading> : null}
+        {showHeading ? <Heading className="page-title">재고 관리</Heading> : null}
         <div className="flex flex-wrap gap-2">
           <SellpiaSyncAction />
           <button
@@ -64,34 +53,6 @@ export function InventoryToolbar({
         <p className="mt-1 text-xs text-[var(--text-secondary)]">
           마지막 완료: {latestImportAt ? formatDateTime(latestImportAt) : '가져오기 기록 없음'}
         </p>
-      </div>
-      <div className="flex max-w-xl flex-wrap items-center gap-3">
-        <form
-          className="flex min-w-72 flex-1 gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSearch();
-          }}
-        >
-          <label className="sr-only" htmlFor="sellpia-inventory-search">재고 검색</label>
-          <input
-            id="sellpia-inventory-search"
-            value={query}
-            onChange={(event) => onQueryChange(event.target.value)}
-            placeholder="Sellpia 코드, 상품명, 옵션, 바코드 검색"
-            className="min-w-0 flex-1 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-3 py-2 text-sm"
-          />
-          <button
-            type="submit"
-            className="inline-flex items-center gap-2 rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-medium text-white"
-          >
-            <Search className="h-4 w-4" aria-hidden="true" /> 검색
-          </button>
-        </form>
-        <SellpiaOutOfStockToggle
-          checked={includeOutOfStock}
-          onCheckedChange={onIncludeOutOfStockChange}
-        />
       </div>
     </div>
   );

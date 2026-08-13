@@ -1,5 +1,6 @@
 import { Boxes, ChartNoAxesCombined, History, Tags } from 'lucide-react';
 import { formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
+import { isInternalProductCode } from '@/lib/operator-product-reference';
 import { ProductAbcBadge } from '@/components/product-abc/ProductAbcBadge';
 import type { MasterProductOperationsDetail } from '@kiditem/shared/product-operations';
 
@@ -18,13 +19,16 @@ export default function ProductInfoCards({
   product: MasterProductOperationsDetail;
   onOpenAbcDetail: () => void;
 }) {
+  const hasVisibleDisplayReference = product.displayReference.type !== 'product_code'
+    || !isInternalProductCode(product.displayReference.value);
+
   return (
     <div className="grid gap-4 lg:grid-cols-2">
       <InfoCard title="상품 운영 정보" icon={<Tags size={16} />}>
-        <InfoRow
+        {hasVisibleDisplayReference ? <InfoRow
           label={product.displayReference.label}
           value={<span className="font-mono">{product.displayReference.value}</span>}
-        />
+        /> : null}
         <InfoRow label="카테고리" value={product.category ?? '미등록'} />
         <InfoRow label="브랜드" value={product.brand ?? '미등록'} />
         <InfoRow label="ABC 등급" value={

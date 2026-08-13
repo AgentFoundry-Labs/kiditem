@@ -29,12 +29,12 @@ describe('StockOpsPage', () => {
   });
 
   it.each([
-    ['sellpia-zero', '/inventory-hub?tab=status'],
-    ['mapping-attention', '/inventory-hub?tab=status'],
-    ['inventory-value', '/inventory-hub?tab=status'],
-    ['freshness', '/inventory-hub?tab=sellpia-sync'],
-    ['transfer', '/inventory-hub?tab=status'],
-    ['return-transfer', '/inventory-hub?tab=status'],
+    ['sellpia-zero', '/inventory-hub'],
+    ['mapping-attention', '/inventory-hub'],
+    ['inventory-value', '/inventory-hub'],
+    ['freshness', '/inventory-hub'],
+    ['transfer', '/inventory-hub'],
+    ['return-transfer', '/inventory-hub'],
   ])('sends the moved ?tab=%s deep link to its new home', (legacyTab, destination) => {
     // 대시보드와 서버 운영 알림이 이 링크들을 그대로 들고 있다. 빈 화면으로 떨어뜨리면 안 된다.
     navigation.params = new URLSearchParams(`tab=${legacyTab}`);
