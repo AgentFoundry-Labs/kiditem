@@ -34,6 +34,7 @@ model Organization {
   reviews                         Review[]
   alerts                          Alert[]
   operationRuns                   OperationRun[]
+  operationRunCheckpoints         OperationRunCheckpoint[]
   operationSchedules              OperationSchedule[]
 
   // Sourcing & Content

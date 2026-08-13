@@ -188,6 +188,8 @@ erDiagram
     String modelIdentity
     String policySnapshotId FK
     String inputHash
+    Json currentInput
+    Json resourceRefs
     Int attempt
     String status
     DateTime startedAt

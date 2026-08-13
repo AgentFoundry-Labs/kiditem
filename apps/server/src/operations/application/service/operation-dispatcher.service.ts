@@ -109,6 +109,21 @@ export class OperationDispatcherService {
             leaseExpiresAt: null,
           });
           return;
+        case 'cancelled':
+          await this.repository.transition({
+            organizationId: run.organizationId,
+            runId: run.id,
+            expectedStatuses: ['running'],
+            expectedAttemptToken: run.attemptToken,
+            status: 'cancelled',
+            result: result.result,
+            finishedAt: new Date(),
+            claimedBy: null,
+            attemptToken: null,
+            claimedAt: null,
+            leaseExpiresAt: null,
+          });
+          return;
         case 'failed':
           await this.repository.transition({
             organizationId: run.organizationId,

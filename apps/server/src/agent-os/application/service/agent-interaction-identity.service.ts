@@ -278,6 +278,8 @@ export class AgentInteractionIdentityService {
       capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
       policyHash: claims.policyHash,
       inputHash: claims.inputHash,
+      currentInput: { dashboardContext, userEvent },
+      currentResourceRefs: dashboardContext.resourceRefs,
       userEvent,
     });
     this.assertAuthorizedRecord(authorized, claims, input);

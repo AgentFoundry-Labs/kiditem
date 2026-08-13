@@ -121,7 +121,8 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen
   in one transaction.
 - Missing runtime handler fails fast with `runtime_not_configured`.
-- `AGENT_RUNTIME_ALLOW_NOOP=1` is only for isolated tests.
+- Durable runtime tests inject explicit fake adapters; production has no no-op
+  or fallback runtime path.
 - Reconciliation changes Agent OS ledger state only. It must not replay owner
   capabilities or synthesize a delayed business-domain result.
 - Interaction analytics is metadata-only and non-authoritative. Never emit

@@ -91,6 +91,8 @@ export interface AgentExecutionRecord {
   modelIdentity: string;
   policySnapshotId: string;
   inputHash: string;
+  currentInput: unknown;
+  resourceRefs: unknown;
   attempt: number;
   status: string;
   startedAt: Date;
@@ -126,6 +128,8 @@ export interface AuthorizeAgentExecutionInput {
   capabilityKeys: string[];
   policyHash: string;
   inputHash: string;
+  currentInput?: Record<string, unknown>;
+  currentResourceRefs?: unknown[];
   userEvent: {
     externalEventId: string;
     schemaVersion: 1;

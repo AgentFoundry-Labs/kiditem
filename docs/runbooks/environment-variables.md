@@ -262,7 +262,6 @@ covered by an operator runbook.
 |---|---|---|---|
 | `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
 | `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
-| `AGENT_RUNTIME_ALLOW_NOOP` | Isolated dev/test only | Routing runtime adapter | Never set in Office. |
 | `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry and Agent OS seed | Used only when a per-agent model env is empty. Local `npm run seed:agent-os` reads this from root `.env`; API runtime reads it from `apps/server/.env`. |
 | `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
@@ -420,7 +419,6 @@ Get-Content C:\ProgramData\Kiditem\deployments\current.json
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
 - `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
   ready for the enabled agent types.
-- `AGENT_RUNTIME_ALLOW_NOOP=1` is present in Office.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.
 

@@ -180,4 +180,11 @@ export interface OperationRunRepositoryPort {
     leaseExpiresAt: Date;
     progress?: number | null;
   }): Promise<OperationRunRecord | null>;
+  heartbeatRun?(input: {
+    organizationId: string;
+    runId: string;
+    attemptToken: string;
+    now: Date;
+    leaseExpiresAt: Date;
+  }): Promise<boolean>;
 }

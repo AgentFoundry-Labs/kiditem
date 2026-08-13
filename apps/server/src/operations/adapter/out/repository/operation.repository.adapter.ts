@@ -482,4 +482,24 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       runId: input.runId,
     });
   }
+
+  async heartbeatRun(input: {
+    organizationId: string;
+    runId: string;
+    attemptToken: string;
+    now: Date;
+    leaseExpiresAt: Date;
+  }): Promise<boolean> {
+    const updated = await this.prisma.operationRun.updateMany({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        status: 'running',
+        attemptToken: input.attemptToken,
+        leaseExpiresAt: { gt: input.now },
+      },
+      data: { leaseExpiresAt: input.leaseExpiresAt },
+    });
+    return updated.count === 1;
+  }
 }

@@ -18,6 +18,7 @@
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationRunCheckpoint | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
 | SystemSetting | `system_settings` | - |
 
@@ -196,6 +197,15 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  OperationRunCheckpoint {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    BigInt sequence
+    String kind
+    Json state
+    DateTime createdAt
+  }
   OperationSchedule {
     String id PK
     String organizationId FK
@@ -221,6 +231,7 @@ erDiagram
   }
   ActionTask o|--o{ Alert : "actionTask"
   OperationRun o|--o{ OperationRun : "parentRun"
+  OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
 ```
 
@@ -237,6 +248,7 @@ erDiagram
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
 | OperationRun | organization | references external | Core | Organization |
 | OperationRun | requestedBy | references external | Core | User |
+| OperationRunCheckpoint | organization | references external | Core | Organization |
 | OperationSchedule | createdBy | references external | Core | User |
 | OperationSchedule | organization | references external | Core | Organization |
 | SystemSetting | organization | references external | Core | Organization |

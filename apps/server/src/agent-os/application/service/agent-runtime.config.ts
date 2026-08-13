@@ -1,5 +1,4 @@
 export interface AgentRuntimeEnv {
-  AGENT_RUNTIME_ALLOW_NOOP?: string;
   AGENT_RUNTIME_WORKER_ENABLED?: string;
   AGENT_RUNTIME_WORKER_INTERVAL_MS?: string;
   AGENT_RUNTIME_EXECUTION_TIMEOUT_MS?: string;
@@ -74,12 +73,6 @@ export function resolveAgentLocalCliRuntimeConfig(
         Number(AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD),
       ).toString(),
   };
-}
-
-export function resolveAgentRuntimeAllowNoop(
-  env: AgentRuntimeEnv = process.env,
-): boolean {
-  return env.AGENT_RUNTIME_ALLOW_NOOP === '1';
 }
 
 export function resolveAgentRuntimeWorkerEnabled(

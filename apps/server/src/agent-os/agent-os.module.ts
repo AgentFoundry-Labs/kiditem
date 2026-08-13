@@ -21,6 +21,8 @@ import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repo
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
 import { PrismaAgentVersionRepository } from './adapter/out/repository/prisma-agent-version.repository';
 import { PrismaAgentSessionControlRepository } from './adapter/out/repository/prisma-agent-session-control.repository';
+import { PrismaAgentExecutionContextRepository } from './adapter/out/repository/prisma-agent-execution-context.repository';
+import { PrismaAgentConversationModelViewRepository } from './adapter/out/repository/prisma-agent-conversation-model-view.repository';
 import { InProcessAgentConversationLivePublisher } from './adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { InteractionProductAnalyticsAdapter } from './adapter/out/event/interaction-product-analytics.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
@@ -35,17 +37,22 @@ import { AgentLocalCliRuntimeAdapter } from './adapter/out/runtime/agent-local-c
 import { AgentLocalProcessRegistry } from './adapter/out/runtime/agent-local-process-registry';
 import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-session.adapter';
 import { FilesystemAgentRuntimeManifestCatalog } from './adapter/out/runtime/filesystem-agent-runtime-manifest-catalog';
+import { FilesystemAgentDurableRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-durable-runtime-assets.adapter';
+import { OpenAiConversationSummarizerAdapter } from './adapter/out/runtime/openai-conversation-summarizer.adapter';
 import { AGENT_LOG_STORE_PORT } from './application/port/out/storage/agent-log-store.port';
 import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_INTERACTION_REPOSITORY } from './application/port/out/repository/agent-interaction-repository.port';
 import { AGENT_VERSION_REPOSITORY } from './application/port/out/repository/agent-version.repository.port';
 import { AGENT_SESSION_CONTROL_REPOSITORY } from './application/port/out/repository/agent-session-control.repository.port';
+import { AGENT_EXECUTION_CONTEXT_REPOSITORY } from './application/port/out/repository/agent-execution-context.repository.port';
+import { AGENT_CONVERSATION_MODEL_VIEW_REPOSITORY } from './application/port/out/repository/agent-conversation-model-view.repository.port';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from './application/port/out/event/agent-conversation-live-publisher.port';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from './application/port/out/event/interaction-product-analytics.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
+import { AGENT_DURABLE_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-durable-runtime.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
 import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
@@ -82,6 +89,12 @@ import {
   AgentRuntimeCatalogStartupValidator,
 } from './application/service/agent-runtime-catalog-startup-validator.service';
 import { AgentVersionPublisher } from './application/service/agent-version-publisher.service';
+import {
+  AGENT_CONVERSATION_SUMMARIZER,
+  AgentConversationModelViewService,
+} from './application/service/agent-conversation-model-view.service';
+import { AgentExecutionContextBuilder } from './application/service/agent-execution-context-builder.service';
+import { AgentRuntimeAdapterRegistry } from './application/service/agent-runtime-adapter.registry';
 import { resolveAgentOsRepositoryRoot } from './seed-agent-os';
 
 const agentInteractionProviders = [
@@ -135,6 +148,9 @@ const agentInteractionProviders = [
     AgentRunGraphService,
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
+    AgentRuntimeAdapterRegistry,
+    AgentConversationModelViewService,
+    AgentExecutionContextBuilder,
     AgentRuntimeAssetsStartupValidator,
     AgentRuntimeCatalogStartupValidator,
     {
@@ -148,6 +164,7 @@ const agentInteractionProviders = [
     AgentOsMcpToolExecutor,
     KidItemMcpToolRegistry,
     OpenAiResponsesOperatorRuntimeAdapter,
+    OpenAiConversationSummarizerAdapter,
     OpenAiResponsesAguiRuntimeAdapter,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
@@ -158,6 +175,10 @@ const agentInteractionProviders = [
     KidItemMcpSessionAdapter,
     AgentInlineRunReconciler,
     FilesystemAgentRuntimeAssetsAdapter,
+    {
+      provide: FilesystemAgentDurableRuntimeAssetsAdapter,
+      useFactory: () => new FilesystemAgentDurableRuntimeAssetsAdapter(),
+    },
     {
       provide: AGENT_RUNTIME_MANIFEST_CATALOG,
       useFactory: () =>
@@ -182,6 +203,23 @@ const agentInteractionProviders = [
     {
       provide: AGENT_SESSION_CONTROL_REPOSITORY,
       useClass: PrismaAgentSessionControlRepository,
+    },
+    {
+      provide: AGENT_EXECUTION_CONTEXT_REPOSITORY,
+      useClass: PrismaAgentExecutionContextRepository,
+    },
+    PrismaAgentConversationModelViewRepository,
+    {
+      provide: AGENT_CONVERSATION_MODEL_VIEW_REPOSITORY,
+      useExisting: PrismaAgentConversationModelViewRepository,
+    },
+    {
+      provide: AGENT_DURABLE_RUNTIME_ASSETS_PORT,
+      useExisting: FilesystemAgentDurableRuntimeAssetsAdapter,
+    },
+    {
+      provide: AGENT_CONVERSATION_SUMMARIZER,
+      useExisting: OpenAiConversationSummarizerAdapter,
     },
     InProcessAgentConversationLivePublisher,
     {
@@ -233,6 +271,10 @@ const agentInteractionProviders = [
     AgentPolicyService,
     OperatorContextBuilder,
     AgentRuntimeHandlerRegistry,
+    AgentRuntimeAdapterRegistry,
+    AgentExecutionContextBuilder,
+    AGENT_INTERACTION_REPOSITORY,
+    AGENT_SESSION_CONTROL_REPOSITORY,
     AgentTaskDelegationService,
     AgentToolRouter,
     AgentOsMcpToolExecutor,

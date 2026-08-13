@@ -34,8 +34,8 @@ export class AgentRuntimeHandlerRegistry {
       throw new Error('AgentRuntimeHandlerRegistry.register: agentType is required.');
     }
     if (this.handlers.has(agentType)) {
-      this.logger.warn(
-        `AgentRuntimeHandlerRegistry: replacing existing handler for "${agentType}".`,
+      throw new Error(
+        `AgentRuntimeHandlerRegistry: handler already registered for "${agentType}".`,
       );
     }
     this.handlers.set(agentType, handler);

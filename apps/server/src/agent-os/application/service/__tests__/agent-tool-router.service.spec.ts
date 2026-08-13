@@ -1202,4 +1202,83 @@ describe('AgentToolRouter', () => {
       summary: { candidateId: 'candidate-1', thumbnailGenerationId: 'thumb-1' },
     });
   });
+
+  it('rechecks the exact session execution policy immediately before capability execution', async () => {
+    const execute = vi.fn();
+    const registry = new AgentCapabilityRegistry();
+    registry.register({
+      key: 'analytics.readOverview',
+      ownerDomain: 'analytics',
+      executionKind: 'query',
+      inputSchema: z.object({}),
+      outputSchema: z.object({}),
+      sideEffects: ['read'],
+      approvalRisk: 'none',
+      idempotencyKey: () => null,
+      execute,
+    });
+    const invocation = {
+      id: 'tool-official-1',
+      organizationId: 'org-1',
+      conversationId: null,
+      agentInstanceId: 'agent-1',
+      requestId: null,
+      runId: null,
+      approvalRequestId: null,
+      capabilityKey: 'analytics.readOverview',
+      status: 'running',
+      policyDecision: 'allowed',
+      reasonCode: 'policy_allow',
+      resourceType: null,
+      resourceId: null,
+      idempotencyKey: null,
+      inputSummary: {},
+      outputSummary: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt,
+      completedAt: null,
+      createdAt: startedAt,
+      updatedAt: startedAt,
+    };
+    const repository = {
+      createToolInvocation: vi.fn().mockResolvedValue(invocation),
+      completeToolInvocation: vi.fn().mockResolvedValue({
+        ...invocation,
+        status: 'failed',
+      }),
+    } as unknown as AgentOsRepositoryPort;
+    const policy = {
+      authorizeToolUse: vi.fn().mockResolvedValue({
+        decision: 'allowed',
+        reasonCode: 'policy_allow',
+        reason: 'Allowed by legacy policy.',
+      }),
+    } as unknown as AgentPolicyService;
+    const sessionControl = {
+      isExecutionCapabilityAllowed: vi
+        .fn()
+        .mockResolvedValueOnce(true)
+        .mockResolvedValueOnce(false),
+    };
+    const router = new AgentToolRouter(
+      registry,
+      repository,
+      policy,
+      sessionControl as never,
+    );
+
+    await expect(router.invoke({
+      organizationId: 'org-1',
+      sessionId: 'session-1',
+      sessionTaskId: 'task-1',
+      executionId: 'execution-1',
+      agentInstanceId: 'agent-1',
+      agentType: 'operator',
+      capabilityKey: 'analytics.readOverview',
+      input: {},
+    })).rejects.toMatchObject({ code: 'AGENT_EXECUTION_CAPABILITY_DENIED' });
+    expect(sessionControl.isExecutionCapabilityAllowed).toHaveBeenCalledTimes(2);
+    expect(execute).not.toHaveBeenCalled();
+  });
 });

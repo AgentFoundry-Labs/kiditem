@@ -7,7 +7,6 @@ import {
   type CancelAgentRuntimeInput,
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { AgentRuntimeHandlerRegistry } from '../../../application/service/agent-runtime-handler-registry.service';
-import { resolveAgentRuntimeAllowNoop } from '../../../application/service/agent-runtime.config';
 import { AgentLocalCliRuntimeAdapter } from './agent-local-cli-runtime.adapter';
 
 /**
@@ -21,12 +20,6 @@ import { AgentLocalCliRuntimeAdapter } from './agent-local-cli-runtime.adapter';
  * domain has registered a handler for, the run fails with
  * `runtime_not_configured` and the operator sees a clear deployment gap.
  *
- * `AGENT_RUNTIME_ALLOW_NOOP=1` keeps its meaning: synthetic stub success
- * for isolated dev/test work where you want the queue/coordinator path
- * exercised without binding a real handler. Never set this in shared
- * environments — the synthetic output is empty and downstream sinks
- * cannot apply it.
- *
  * Worker default — `AgentRunWorker` is still opt-in
  * (`AGENT_RUNTIME_WORKER_ENABLED=1`). Once enabled, agent types with a
  * handler succeed; agent types without a handler still fail-fast quickly
@@ -36,8 +29,6 @@ import { AgentLocalCliRuntimeAdapter } from './agent-local-cli-runtime.adapter';
 @Injectable()
 export class RoutingRuntimeAdapter implements AgentRuntimePort {
   private readonly logger = new Logger(RoutingRuntimeAdapter.name);
-  private readonly allowNoop = resolveAgentRuntimeAllowNoop();
-
   constructor(
     private readonly registry: AgentRuntimeHandlerRegistry,
     private readonly localCliRuntime?: AgentLocalCliRuntimeAdapter,
@@ -61,31 +52,6 @@ export class RoutingRuntimeAdapter implements AgentRuntimePort {
         );
       }
       return this.localCliRuntime.execute(context);
-    }
-
-    if (this.allowNoop) {
-      this.logger.debug(
-        `[noop] no handler registered for ${context.agentType}; AGENT_RUNTIME_ALLOW_NOOP=1 stub.`,
-      );
-      return {
-        output: {
-          ok: true,
-          agentType: context.agentType,
-          runId: context.runId,
-          requestId: context.requestId,
-          model: context.model,
-          adapterType: context.adapterType,
-          message:
-            'RoutingRuntimeAdapter no-op: AGENT_RUNTIME_ALLOW_NOOP=1, no handler registered.',
-        },
-        provider: 'local-stub',
-        inputTokens: 0,
-        outputTokens: 0,
-        cachedInputTokens: 0,
-        costMicros: 0n,
-        logExcerpt:
-          'local-stub: AGENT_RUNTIME_ALLOW_NOOP=1, no handler registered.',
-      };
     }
 
     this.logger.warn(

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
 import type {
   AgentArtifactRecord,
@@ -12,6 +12,10 @@ import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
 } from '../port/out/repository/agent-os-repository.port';
+import {
+  AGENT_SESSION_CONTROL_REPOSITORY,
+  type AgentSessionControlRepositoryPort,
+} from '../port/out/repository/agent-session-control.repository.port';
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import { AgentPolicyService } from './agent-policy.service';
 
@@ -25,6 +29,9 @@ export interface InvokeAgentToolInput {
   capabilityKey: string;
   input: Record<string, unknown>;
   requestedByUserId?: string | null;
+  sessionId?: string;
+  sessionTaskId?: string;
+  executionId?: string;
 }
 
 function errorMessage(error: unknown): string {
@@ -38,6 +45,9 @@ export class AgentToolRouter {
     @Inject(AGENT_OS_REPOSITORY_PORT)
     private readonly repository: AgentOsRepositoryPort,
     private readonly policy: AgentPolicyService,
+    @Optional()
+    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
+    private readonly sessionControl?: AgentSessionControlRepositoryPort,
   ) {}
 
   async invoke(input: InvokeAgentToolInput) {
@@ -48,6 +58,7 @@ export class AgentToolRouter {
         `Capability is not registered: ${input.capabilityKey}`,
       );
     }
+    await this.requireSessionCapability(input);
 
     const parsedInput = handler.inputSchema.safeParse(input.input);
     if (!parsedInput.success) {
@@ -297,6 +308,7 @@ export class AgentToolRouter {
     executionInput: AgentCapabilityExecutionInput;
     invocation: AgentToolInvocationRecord;
   }) {
+    await this.requireSessionCapability(input.input);
     try {
       const result = await input.handler.execute(input.executionInput);
       const parsedOutput = input.handler.outputSchema.safeParse(
@@ -376,6 +388,30 @@ export class AgentToolRouter {
         errorMessage: message,
       });
       throw new AgentOsRuntimeError('capability_failed', message);
+    }
+  }
+
+  private async requireSessionCapability(
+    input: InvokeAgentToolInput,
+  ): Promise<void> {
+    if (!input.sessionId && !input.sessionTaskId && !input.executionId) return;
+    if (
+      !input.sessionId ||
+      !input.sessionTaskId ||
+      !input.executionId ||
+      !this.sessionControl ||
+      !(await this.sessionControl.isExecutionCapabilityAllowed({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        sessionTaskId: input.sessionTaskId,
+        executionId: input.executionId,
+        capabilityKey: input.capabilityKey,
+      }))
+    ) {
+      throw new AgentOsRuntimeError(
+        'AGENT_EXECUTION_CAPABILITY_DENIED',
+        'Capability is outside the immutable Agent version and execution policy.',
+      );
     }
   }
 

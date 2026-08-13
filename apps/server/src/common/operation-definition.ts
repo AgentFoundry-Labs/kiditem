@@ -48,6 +48,7 @@ export type OperationHandlerResult =
   | { kind: 'waiting_runtime' }
   | { kind: 'waiting_dependency'; child: StartChildOperation }
   | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
+  | { kind: 'cancelled'; result: Record<string, unknown> }
   | { kind: 'failed'; code: string; message: string };
 
 export interface OperationHandler {

@@ -200,6 +200,8 @@ model AgentExecution {
   modelIdentity    String    @map("model_identity")
   policySnapshotId String    @map("policy_snapshot_id") @db.Uuid
   inputHash        String    @map("input_hash")
+  currentInput     Json      @default("{}") @map("current_input") @db.JsonB
+  resourceRefs     Json      @default("[]") @map("resource_refs") @db.JsonB
   attempt          Int       @default(1)
   status           String
   startedAt        DateTime  @default(now()) @map("started_at") @db.Timestamptz

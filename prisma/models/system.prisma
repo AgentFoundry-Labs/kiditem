@@ -231,11 +231,12 @@ model OperationRun {
   createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt         DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  requestedBy  User?              @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
-  parentRun    OperationRun?      @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
-  childRuns    OperationRun[]     @relation("OperationRunHierarchy")
-  schedule     OperationSchedule? @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  organization Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  requestedBy  User?                    @relation("OperationRunRequestedBy", fields: [requestedByUserId], references: [id], onDelete: SetNull)
+  parentRun    OperationRun?            @relation("OperationRunHierarchy", fields: [parentRunId], references: [id], onDelete: SetNull)
+  childRuns    OperationRun[]           @relation("OperationRunHierarchy")
+  schedule     OperationSchedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
+  checkpoints  OperationRunCheckpoint[] @relation("OperationRunCheckpoints")
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
@@ -247,6 +248,27 @@ model OperationRun {
   @@index([requestedByUserId])
   @@index([organizationId, nativeRunType, nativeRunId])
   @@map("operation_runs")
+}
+
+/// @namespace System
+/// @describe Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run.
+model OperationRunCheckpoint {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  operationRunId String   @map("operation_run_id") @db.Uuid
+  sequence       BigInt   @db.BigInt
+  kind           String
+  state          Json     @default("{}") @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  operationRun OperationRun @relation("OperationRunCheckpoints", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([operationRunId, sequence], map: "operation_run_checkpoints_run_sequence_key")
+  @@unique([id, organizationId], map: "operation_run_checkpoints_id_org_key")
+  @@index([organizationId, operationRunId, sequence])
+  @@index([operationRunId, organizationId])
+  @@map("operation_run_checkpoints")
 }
 
 /// @namespace System

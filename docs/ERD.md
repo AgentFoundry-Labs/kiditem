@@ -33,7 +33,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Orders](erd/orders.md) | 13 |
 | [Sourcing](erd/sourcing.md) | 30 |
 | [Supply](erd/supply.md) | 13 |
-| [System](erd/system.md) | 11 |
+| [System](erd/system.md) | 12 |
 
 ## Model Index
 
@@ -218,6 +218,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Marketplace | System | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
 | MigrationCheckpoint | System | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | System | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
+| OperationRunCheckpoint | System | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | System | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
 | SystemSetting | System | `system_settings` | - |
 
@@ -426,6 +427,8 @@ erDiagram
     String modelIdentity
     String policySnapshotId FK
     String inputHash
+    Json currentInput
+    Json resourceRefs
     Int attempt
     String status
     DateTime startedAt
@@ -1875,6 +1878,15 @@ erDiagram
     DateTime finishedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  OperationRunCheckpoint {
+    String id PK
+    String organizationId FK
+    String operationRunId FK
+    BigInt sequence
+    String kind
+    Json state
+    DateTime createdAt
   }
   OperationSchedule {
     String id PK
@@ -3578,6 +3590,7 @@ erDiagram
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   OperationRun o|--o{ OperationRun : "parentRun"
+  OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
   Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
@@ -3664,6 +3677,7 @@ erDiagram
   Organization ||--o{ NaverKeywordDailySnapshot : "organization"
   Organization ||--o{ NaverPopularKeywordDailySnapshot : "organization"
   Organization ||--o{ OperationRun : "organization"
+  Organization ||--o{ OperationRunCheckpoint : "organization"
   Organization ||--o{ OperationSchedule : "organization"
   Organization ||--o{ Order : "organization"
   Organization ||--o{ OrderLineItem : "organization"

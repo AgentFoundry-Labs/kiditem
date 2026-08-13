@@ -4,9 +4,11 @@ import { OperationsController } from './adapter/in/http/operations.controller';
 import { OperationSchedulesController } from './adapter/in/http/operation-schedules.controller';
 import { BrowserOperationRuntimeController } from './adapter/in/http/browser-operation-runtime.controller';
 import { OperationRepositoryAdapter } from './adapter/out/repository/operation.repository.adapter';
+import { OperationCheckpointRepositoryAdapter } from './adapter/out/repository/operation-checkpoint.repository.adapter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from './application/port/in/operation-handler-registry.port';
 import { OPERATION_RUNNER_PORT } from './application/port/in/operation-runner.port';
 import { OPERATION_REPOSITORY_PORT } from './application/port/out/repository/operation.repository.port';
+import { OPERATION_CHECKPOINT_REPOSITORY_PORT } from './application/port/out/repository/operation-checkpoint.repository.port';
 import { OperationHandlerRegistryService } from './application/service/operation-handler-registry.service';
 import { BrowserOperationRuntimeService } from './application/service/browser-operation-runtime.service';
 import { OperationDispatcherService } from './application/service/operation-dispatcher.service';
@@ -26,6 +28,7 @@ import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/comp
   providers: [
     OperationHandlerRegistryService,
     OperationRepositoryAdapter,
+    OperationCheckpointRepositoryAdapter,
     OperationRunService,
     BrowserOperationRuntimeService,
     OperationDispatcherService,
@@ -37,6 +40,10 @@ import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/comp
       useExisting: OperationHandlerRegistryService,
     },
     { provide: OPERATION_REPOSITORY_PORT, useExisting: OperationRepositoryAdapter },
+    {
+      provide: OPERATION_CHECKPOINT_REPOSITORY_PORT,
+      useExisting: OperationCheckpointRepositoryAdapter,
+    },
     { provide: OPERATION_RUNNER_PORT, useExisting: OperationRunService },
     {
       provide: COMPOSITE_OPERATION_COORDINATOR_PORT,
@@ -46,6 +53,8 @@ import { COMPOSITE_OPERATION_COORDINATOR_PORT } from './application/port/in/comp
   exports: [
     OPERATION_HANDLER_REGISTRY_PORT,
     OPERATION_RUNNER_PORT,
+    OPERATION_REPOSITORY_PORT,
+    OPERATION_CHECKPOINT_REPOSITORY_PORT,
     COMPOSITE_OPERATION_COORDINATOR_PORT,
     OperationHandlerRegistryService,
     OperationRunService,

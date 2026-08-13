@@ -241,9 +241,28 @@ const toolResultStateSnapshotEventPayloadSchema = z
   })
   .strict();
 
+const conversationSummaryStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: z.literal('conversation_summary'),
+    snapshotVersion: z.number().int().positive(),
+    data: z
+      .object({
+        content: boundedContentSchema,
+        sourceFromSequence: positiveDecimalStringSchema,
+        sourceThroughSequence: positiveDecimalStringSchema,
+        sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+        summarizerModelIdentity: z.string().min(1).max(256),
+        summaryPromptHash: z.string().regex(/^[a-f0-9]{64}$/),
+      })
+      .strict(),
+  })
+  .strict();
+
 const genericStateSnapshotEventPayloadSchema = z
   .object({
-    snapshotType: stableCodeSchema.refine((value) => value !== 'tool_result'),
+    snapshotType: stableCodeSchema.refine(
+      (value) => value !== 'tool_result' && value !== 'conversation_summary',
+    ),
     snapshotVersion: z.number().int().positive(),
     data: z
       .object({
@@ -255,6 +274,7 @@ const genericStateSnapshotEventPayloadSchema = z
 
 export const StateSnapshotEventPayloadSchema = z.union([
   toolResultStateSnapshotEventPayloadSchema,
+  conversationSummaryStateSnapshotEventPayloadSchema,
   genericStateSnapshotEventPayloadSchema,
 ]);
 

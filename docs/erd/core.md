@@ -516,6 +516,7 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | BusinessRule |
 | Organization | organization | referenced by external | System | OperationRun |
+| Organization | organization | referenced by external | System | OperationRunCheckpoint |
 | Organization | organization | referenced by external | System | OperationSchedule |
 | Organization | organization | referenced by external | System | SystemSetting |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Inventory | SellpiaInventoryState |

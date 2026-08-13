@@ -18,7 +18,23 @@ export class AgentSessionControlRepositoryError extends Error {
 export interface DelegatedTaskRecord {
   delegationId: string;
   childTaskId: string;
+  childExecutionId: string;
   state: string;
+}
+
+export interface DelegationContextRecord {
+  sessionLifecycle: string;
+  taskStatus: string;
+  parentAgentVersionId: string;
+  parentExecutionId: string;
+  parentDepth: number;
+  childCount: number;
+  parentManifest: unknown;
+  targetAgentVersionId: string;
+  targetDefinitionKey: string;
+  targetCapabilityKeys: unknown;
+  activeTarget: boolean;
+  parentPolicyCapabilityKeys: unknown;
 }
 
 export interface ExecutionAttemptRecord {
@@ -26,6 +42,8 @@ export interface ExecutionAttemptRecord {
   executionId: string;
   attemptNumber: number;
   runtimeType: string;
+  externalRunId: string | null;
+  encryptedHandleRef: string | null;
   state: string;
 }
 
@@ -42,6 +60,20 @@ export interface SessionArtifactRecord {
 }
 
 export interface AgentSessionControlRepositoryPort {
+  isExecutionCapabilityAllowed(input: {
+    organizationId: string;
+    sessionId: string;
+    sessionTaskId: string;
+    executionId: string;
+    capabilityKey: string;
+  }): Promise<boolean>;
+  loadDelegationContext(input: {
+    organizationId: string;
+    sessionId: string;
+    parentTaskId: string;
+    parentExecutionId: string;
+    targetAgentDefinitionKey: string;
+  }): Promise<DelegationContextRecord | null>;
   createDelegatedTask(input: {
     organizationId: string;
     sessionId: string;
@@ -52,6 +84,10 @@ export interface AgentSessionControlRepositoryPort {
     authoritySubset: string[];
     depth: number;
     idempotencyKey: string;
+    parentExecutionId?: string;
+    targetAgentDefinitionKey?: string;
+    maxDepth?: number;
+    maxChildrenPerTask?: number;
   }): Promise<DelegatedTaskRecord>;
   startAttempt(input: {
     organizationId: string;
@@ -61,6 +97,15 @@ export interface AgentSessionControlRepositoryPort {
     externalRunId?: string | null;
     encryptedHandleRef?: string | null;
     idempotencyKey: string;
+  }): Promise<ExecutionAttemptRecord>;
+  persistAttemptHandle(input: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    attemptId: string;
+    runtimeType: string;
+    externalRunId: string;
+    encryptedHandleRef: string;
   }): Promise<ExecutionAttemptRecord>;
   finishAttempt(input: {
     organizationId: string;

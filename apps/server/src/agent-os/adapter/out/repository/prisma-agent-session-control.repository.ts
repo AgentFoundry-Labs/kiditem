@@ -1,10 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
+import { createHash } from 'node:crypto';
+import {
+  CanonicalResourceRefSchema,
+  UserMessageEventPayloadSchema,
+} from '@kiditem/shared/agent-interaction';
+import { z } from 'zod';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   AgentSessionControlRepositoryError,
   type AgentSessionControlRepositoryPort,
   type DelegatedTaskRecord,
+  type DelegationContextRecord,
   type ExecutionAttemptRecord,
   type SessionApprovalRecord,
   type SessionArtifactRecord,
@@ -24,11 +31,127 @@ export class PrismaAgentSessionControlRepository
 {
   constructor(private readonly prisma: PrismaService) {}
 
+  async isExecutionCapabilityAllowed(input: {
+    organizationId: string;
+    sessionId: string;
+    sessionTaskId: string;
+    executionId: string;
+    capabilityKey: string;
+  }): Promise<boolean> {
+    const execution = await this.prisma.agentExecution.findFirst({
+      where: {
+        id: input.executionId,
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        sessionTaskId: input.sessionTaskId,
+        status: 'running',
+        session: { lifecycle: 'active' },
+        sessionTask: {
+          status: { in: ['queued', 'running', 'waiting_approval', 'paused'] },
+        },
+      },
+      select: {
+        agentVersionId: true,
+        agentVersion: { select: { runtimeManifest: true } },
+        policySnapshot: {
+          select: { agentVersionId: true, capabilityKeys: true },
+        },
+      },
+    });
+    if (
+      !execution ||
+      execution.policySnapshot.agentVersionId !== execution.agentVersionId
+    ) return false;
+    const manifest = execution.agentVersion.runtimeManifest;
+    if (!manifest || typeof manifest !== 'object' || Array.isArray(manifest)) {
+      return false;
+    }
+    const manifestKeys = stringArray(manifest.capabilityKeys);
+    const policyKeys = stringArray(execution.policySnapshot.capabilityKeys);
+    return (
+      manifestKeys.includes(input.capabilityKey) &&
+      policyKeys.includes(input.capabilityKey)
+    );
+  }
+
+  async loadDelegationContext(input: {
+    organizationId: string;
+    sessionId: string;
+    parentTaskId: string;
+    parentExecutionId: string;
+    targetAgentDefinitionKey: string;
+  }): Promise<DelegationContextRecord | null> {
+    const parent = await this.prisma.agentSessionTask.findFirst({
+      where: {
+        id: input.parentTaskId,
+        sessionId: input.sessionId,
+        organizationId: input.organizationId,
+      },
+      select: {
+        status: true,
+        assignedAgentVersionId: true,
+        session: { select: { lifecycle: true } },
+        assignedAgentVersion: { select: { runtimeManifest: true } },
+        incomingDelegation: { select: { depth: true } },
+        executions: {
+          where: { id: input.parentExecutionId, status: 'running' },
+          select: {
+            id: true,
+            policySnapshot: { select: { capabilityKeys: true } },
+          },
+          take: 1,
+        },
+        _count: { select: { children: true } },
+      },
+    });
+    const execution = parent?.executions[0];
+    if (!parent || !execution) return null;
+    const target = await this.prisma.agentVersion.findFirst({
+      where: {
+        agentDefinitionKey: input.targetAgentDefinitionKey,
+        activatedAt: { not: null },
+        retiredAt: null,
+      },
+      select: {
+        id: true,
+        agentDefinitionKey: true,
+        capabilityKeys: true,
+      },
+    });
+    if (!target) return null;
+    return {
+      sessionLifecycle: parent.session.lifecycle,
+      taskStatus: parent.status,
+      parentAgentVersionId: parent.assignedAgentVersionId,
+      parentExecutionId: execution.id,
+      parentDepth: parent.incomingDelegation?.depth ?? 0,
+      childCount: parent._count.children,
+      parentManifest: parent.assignedAgentVersion.runtimeManifest,
+      targetAgentVersionId: target.id,
+      targetDefinitionKey: target.agentDefinitionKey,
+      targetCapabilityKeys: target.capabilityKeys,
+      activeTarget: true,
+      parentPolicyCapabilityKeys: execution.policySnapshot.capabilityKeys,
+    };
+  }
+
   async createDelegatedTask(
     input: Parameters<AgentSessionControlRepositoryPort['createDelegatedTask']>[0],
   ): Promise<DelegatedTaskRecord> {
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
-      await lock(tx, ['delegation', input.sessionId, input.parentTaskId, input.idempotencyKey]);
+      await lock(tx, [
+        'agent-os:delegation-parent:v1',
+        input.organizationId,
+        input.sessionId,
+        input.parentTaskId,
+      ]);
+      await lock(tx, [
+        'agent-os:delegation-key:v1',
+        input.organizationId,
+        input.sessionId,
+        input.parentTaskId,
+        input.idempotencyKey,
+      ]);
       const existing = await tx.agentSessionTaskDelegation.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -36,7 +159,14 @@ export class PrismaAgentSessionControlRepository
           parentTaskId: input.parentTaskId,
           idempotencyKey: input.idempotencyKey,
         },
-        include: { childTask: { select: { objective: true } } },
+        include: {
+          childTask: {
+            select: {
+              objective: true,
+              executions: { select: { id: true }, take: 1 },
+            },
+          },
+        },
       });
       if (existing) {
         if (
@@ -48,7 +178,9 @@ export class PrismaAgentSessionControlRepository
         ) {
           throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
         }
-        return mapDelegation(existing);
+        const childExecution = existing.childTask.executions[0];
+        if (!childExecution) throw state();
+        return mapDelegation(existing, childExecution.id);
       }
 
       const parent = await tx.agentSessionTask.findFirst({
@@ -57,11 +189,89 @@ export class PrismaAgentSessionControlRepository
           sessionId: input.sessionId,
           organizationId: input.organizationId,
         },
-        include: { session: { select: { lifecycle: true, authorityProfileVersionId: true } } },
+        include: {
+          session: {
+            select: {
+              lifecycle: true,
+              copilotThreadId: true,
+              authorityProfileVersionId: true,
+            },
+          },
+          assignedAgentVersion: { select: { runtimeManifest: true } },
+          incomingDelegation: { select: { depth: true } },
+        },
       });
       if (!parent || parent.session.lifecycle !== 'active') throw scope();
       if (parent.assignedAgentVersionId !== input.fromAgentVersionId) throw scope();
       if (TERMINAL_STATES.has(parent.status)) throw state();
+
+      const target = await tx.agentVersion.findFirst({
+        where: {
+          id: input.toAgentVersionId,
+          ...(input.targetAgentDefinitionKey
+            ? { agentDefinitionKey: input.targetAgentDefinitionKey }
+            : {}),
+          activatedAt: { not: null },
+          retiredAt: null,
+        },
+        select: {
+          id: true,
+          agentDefinitionKey: true,
+          runtimeType: true,
+          modelIdentity: true,
+          capabilityKeys: true,
+        },
+      });
+      if (!target) throw scope();
+
+      let policyCapabilityKeys = input.authoritySubset;
+      let canonicalUserEvent: Record<string, unknown> | null = null;
+      let currentResourceRefs: unknown[] = [];
+      if (input.parentExecutionId) {
+        const execution = await tx.agentExecution.findFirst({
+          where: {
+            id: input.parentExecutionId,
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            sessionTaskId: input.parentTaskId,
+            status: 'running',
+          },
+          select: {
+            currentInput: true,
+            resourceRefs: true,
+            policySnapshot: { select: { capabilityKeys: true } },
+          },
+        });
+        if (!execution) throw scope();
+        canonicalUserEvent = parseCanonicalUserEvent(execution.currentInput);
+        currentResourceRefs = z
+          .array(CanonicalResourceRefSchema)
+          .max(50)
+          .parse(execution.resourceRefs);
+        const parentPolicy = stringArray(execution.policySnapshot.capabilityKeys);
+        const targetCapabilities = stringArray(target.capabilityKeys);
+        if (
+          input.authoritySubset.some(
+            (key) => !parentPolicy.includes(key) || !targetCapabilities.includes(key),
+          )
+        ) throw state();
+        const parentDepth = parent.incomingDelegation?.depth ?? 0;
+        const childCount = await tx.agentSessionTask.count({
+          where: {
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            parentTaskId: input.parentTaskId,
+          },
+        });
+        if (
+          input.depth !== parentDepth + 1 ||
+          input.maxDepth === undefined ||
+          input.depth > input.maxDepth ||
+          input.maxChildrenPerTask === undefined ||
+          childCount >= input.maxChildrenPerTask
+        ) throw state();
+        policyCapabilityKeys = [...input.authoritySubset].sort();
+      }
 
       const child = await tx.agentSessionTask.create({
         data: {
@@ -90,7 +300,70 @@ export class PrismaAgentSessionControlRepository
           state: 'created',
         },
       });
-      return mapDelegation(created);
+      await lock(tx, [
+        'delegated-policy',
+        input.sessionId,
+        target.id,
+        canonicalJson(policyCapabilityKeys),
+      ]);
+      const policyHash = createHash('sha256')
+        .update(canonicalJson(policyCapabilityKeys))
+        .digest('hex');
+      let policy = await tx.agentPolicySnapshot.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          agentVersionId: target.id,
+          authorityProfileVersionId: parent.session.authorityProfileVersionId,
+          policyHash,
+        },
+        select: { id: true },
+      });
+      policy ??= await tx.agentPolicySnapshot.create({
+        data: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          agentVersionId: target.id,
+          authorityProfileVersionId: parent.session.authorityProfileVersionId,
+          capabilityKeys: policyCapabilityKeys,
+          policyHash,
+        },
+        select: { id: true },
+      });
+      const childInput = canonicalUserEvent && input.parentExecutionId
+        ? {
+            userEvent: canonicalUserEvent,
+            delegation: {
+              delegationId: created.id,
+              parentTaskId: input.parentTaskId,
+              parentExecutionId: input.parentExecutionId,
+              objective: input.objective,
+              targetAgentDefinitionKey: target.agentDefinitionKey,
+              authoritySubset: policyCapabilityKeys,
+            },
+          }
+        : { objective: input.objective };
+      const childExecution = await tx.agentExecution.create({
+        data: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          sessionTaskId: child.id,
+          copilotThreadId: parent.session.copilotThreadId,
+          aguiRunId: `delegation:${child.id}`,
+          agentVersionId: target.id,
+          runtimeType: target.runtimeType,
+          modelIdentity: target.modelIdentity,
+          policySnapshotId: policy.id,
+          inputHash: createHash('sha256')
+            .update(canonicalJson(childInput))
+            .digest('hex'),
+          currentInput: childInput as Prisma.InputJsonValue,
+          resourceRefs: currentResourceRefs as Prisma.InputJsonValue,
+          status: 'running',
+        },
+        select: { id: true },
+      });
+      return mapDelegation(created, childExecution.id);
     }).catch(rethrowStable);
   }
 
@@ -114,8 +387,10 @@ export class PrismaAgentSessionControlRepository
       if (existing) {
         if (
           existing.runtimeType !== input.runtimeType ||
-          existing.externalRunId !== (input.externalRunId ?? null) ||
-          existing.encryptedHandleRef !== (input.encryptedHandleRef ?? null)
+          (input.externalRunId !== undefined &&
+            existing.externalRunId !== input.externalRunId) ||
+          (input.encryptedHandleRef !== undefined &&
+            existing.encryptedHandleRef !== input.encryptedHandleRef)
         ) {
           throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
         }
@@ -168,6 +443,41 @@ export class PrismaAgentSessionControlRepository
     return mapAttempt((await this.prisma.agentExecutionAttempt.findFirst({
       where: { id: input.attemptId, organizationId: input.organizationId },
     }))!);
+  }
+
+  async persistAttemptHandle(
+    input: Parameters<AgentSessionControlRepositoryPort['persistAttemptHandle']>[0],
+  ): Promise<ExecutionAttemptRecord> {
+    return this.prisma.$transaction(async (tx) => {
+      await lock(tx, ['attempt-handle', input.executionId, input.attemptId]);
+      const attempt = await tx.agentExecutionAttempt.findFirst({
+        where: {
+          id: input.attemptId,
+          executionId: input.executionId,
+          sessionId: input.sessionId,
+          organizationId: input.organizationId,
+        },
+      });
+      if (!attempt) throw scope();
+      if (
+        attempt.externalRunId === input.externalRunId &&
+        attempt.encryptedHandleRef === input.encryptedHandleRef &&
+        attempt.runtimeType === input.runtimeType
+      ) return mapAttempt(attempt);
+      if (
+        attempt.state !== 'running' ||
+        attempt.runtimeType !== input.runtimeType ||
+        attempt.externalRunId !== null ||
+        attempt.encryptedHandleRef !== null
+      ) throw state();
+      return mapAttempt(await tx.agentExecutionAttempt.update({
+        where: { id: attempt.id },
+        data: {
+          externalRunId: input.externalRunId,
+          encryptedHandleRef: input.encryptedHandleRef,
+        },
+      }));
+    }).catch(rethrowStable);
   }
 
   async requestApproval(
@@ -377,11 +687,44 @@ export class PrismaAgentSessionControlRepository
   }
 }
 
-function mapDelegation(row: { id: string; childTaskId: string; state: string }): DelegatedTaskRecord {
-  return { delegationId: row.id, childTaskId: row.childTaskId, state: row.state };
+function parseCanonicalUserEvent(value: Prisma.JsonValue): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw state();
+  const userEvent = value.userEvent;
+  if (!userEvent || typeof userEvent !== 'object' || Array.isArray(userEvent)) {
+    throw state();
+  }
+  if (
+    typeof userEvent.externalEventId !== 'string' ||
+    userEvent.schemaVersion !== 1
+  ) throw state();
+  return {
+    externalEventId: userEvent.externalEventId,
+    schemaVersion: 1,
+    payload: UserMessageEventPayloadSchema.parse(userEvent.payload),
+  };
 }
-function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; state: string }): ExecutionAttemptRecord {
-  return { id: row.id, executionId: row.executionId, attemptNumber: row.attemptNumber, runtimeType: row.runtimeType, state: row.state };
+
+function mapDelegation(
+  row: { id: string; childTaskId: string; state: string },
+  childExecutionId: string,
+): DelegatedTaskRecord {
+  return {
+    delegationId: row.id,
+    childTaskId: row.childTaskId,
+    childExecutionId,
+    state: row.state,
+  };
+}
+function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; externalRunId: string | null; encryptedHandleRef: string | null; state: string }): ExecutionAttemptRecord {
+  return {
+    id: row.id,
+    executionId: row.executionId,
+    attemptNumber: row.attemptNumber,
+    runtimeType: row.runtimeType,
+    externalRunId: row.externalRunId,
+    encryptedHandleRef: row.encryptedHandleRef,
+    state: row.state,
+  };
 }
 function mapApproval(row: { id: string; state: string; decisionIdempotencyKey: string | null }): SessionApprovalRecord {
   return { id: row.id, state: row.state, decisionIdempotencyKey: row.decisionIdempotencyKey };
@@ -410,6 +753,14 @@ function canonicalJson(value: unknown): string {
       .join(',')}}`;
   }
   throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+}
+function stringArray(value: unknown): string[] {
+  if (
+    !Array.isArray(value) ||
+    value.some((item) => typeof item !== 'string' || !item.trim()) ||
+    new Set(value).size !== value.length
+  ) throw state();
+  return value as string[];
 }
 function scope(): AgentSessionControlRepositoryError {
   return conflict('AGENT_SESSION_CONTROL_SCOPE_INVALID');

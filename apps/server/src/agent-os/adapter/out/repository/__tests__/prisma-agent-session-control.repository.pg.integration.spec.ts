@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -9,6 +10,7 @@ import {
   TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { PrismaAgentSessionControlRepository } from '../prisma-agent-session-control.repository';
+import { PrismaAgentExecutionContextRepository } from '../prisma-agent-execution-context.repository';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
 const VERSION_TO = '20000000-0000-4000-8000-000000000002';
@@ -66,6 +68,87 @@ describe('PrismaAgentSessionControlRepository', () => {
     })).resolves.toBe(1);
   });
 
+  it('anchors an official child execution to the canonical parent user event without copying a conversation turn', async () => {
+    const fixture = await createRootGraph();
+
+    const delegated = await repository.createDelegatedTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      parentExecutionId: fixture.executionId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      targetAgentDefinitionKey: 'sourcing',
+      objective: '상품 근거를 검증한다',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      maxDepth: 2,
+      maxChildrenPerTask: 5,
+      idempotencyKey: 'delegate:official:1',
+    });
+
+    const childExecution = await prisma!.agentExecution.findUniqueOrThrow({
+      where: { id: delegated.childExecutionId },
+      select: { currentInput: true, resourceRefs: true },
+    });
+    expect(childExecution.currentInput).toMatchObject({
+      userEvent: {
+        externalEventId: expect.stringMatching(/^user-event:/),
+        payload: { content: 'canonical root request' },
+      },
+      delegation: {
+        objective: '상품 근거를 검증한다',
+        parentExecutionId: fixture.executionId,
+      },
+    });
+    await expect(prisma!.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(1);
+    const attempt = await repository.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: delegated.childExecutionId,
+      runtimeType: 'codex_cli',
+      idempotencyKey: 'operation:official-child',
+    });
+    const contextRepository = new PrismaAgentExecutionContextRepository(
+      prisma as never,
+    );
+    await expect(contextRepository.loadExecutionGraph({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      attemptId: attempt.id,
+    })).resolves.toMatchObject({
+      currentUserEvent: {
+        eventType: 'user_message',
+        payload: { content: 'canonical root request' },
+      },
+    });
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(true);
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: fixture.taskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(false);
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'supply.submit_purchase_order',
+    })).resolves.toBe(false);
+  });
+
   it('rejects an idempotency key reused with different delegated input', async () => {
     const fixture = await createRootGraph();
     const input = {
@@ -85,6 +168,35 @@ describe('PrismaAgentSessionControlRepository', () => {
       ...input,
       objective: '다른 목표',
     })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT' });
+  });
+
+  it('serializes distinct child keys against the immutable max-children bound', async () => {
+    const fixture = await createRootGraph();
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      parentExecutionId: fixture.executionId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      targetAgentDefinitionKey: 'sourcing',
+      objective: '근거 확인',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      maxDepth: 2,
+      maxChildrenPerTask: 1,
+    };
+
+    const outcomes = await Promise.allSettled([
+      repository.createDelegatedTask({ ...base, idempotencyKey: 'delegate:limit:a' }),
+      repository.createDelegatedTask({ ...base, idempotencyKey: 'delegate:limit:b' }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    await expect(prisma!.agentSessionTask.count({
+      where: { sessionId: fixture.sessionId, parentTaskId: fixture.taskId },
+    })).resolves.toBe(1);
   });
 
   it('assigns an immutable sequential attempt number and terminals once', async () => {
@@ -363,7 +475,11 @@ async function seedControlFixture(client: PrismaClient): Promise<void> {
         capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
         policyDocument: {},
         manifestHash: '2'.repeat(64),
-        runtimeManifest: { ...baseManifest, agentDefinitionKey: 'sourcing' },
+        runtimeManifest: {
+          ...baseManifest,
+          agentDefinitionKey: 'sourcing',
+          capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+        },
         activatedAt: new Date('2026-08-14T00:00:00.000Z'),
       },
     ],
@@ -424,10 +540,20 @@ async function createRootGraph(): Promise<{
       sessionId: session.id,
       agentVersionId: VERSION_FROM,
       authorityProfileVersionId: AUTHORITY_VERSION,
-      capabilityKeys: [],
+      capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
       policyHash: '5'.repeat(64),
     },
   });
+  const userEvent = {
+    externalEventId: `user-event:${crypto.randomUUID()}`,
+    schemaVersion: 1,
+    payload: {
+      phase: 'complete',
+      messageId: `message-${crypto.randomUUID()}`,
+      content: 'canonical root request',
+    },
+  };
+  const currentInput = { userEvent };
   const execution = await prisma.agentExecution.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
@@ -439,9 +565,43 @@ async function createRootGraph(): Promise<{
       runtimeType: 'copilotkit_agui',
       modelIdentity: 'gpt-test',
       policySnapshotId: policy.id,
-      inputHash: '6'.repeat(64),
+      inputHash: createHash('sha256')
+        .update(canonicalJson(currentInput))
+        .digest('hex'),
+      currentInput,
+      resourceRefs: [],
       status: 'running',
     },
   });
+  await prisma.agentConversationEvent.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: session.id,
+      executionId: execution.id,
+      externalEventId: userEvent.externalEventId,
+      sequence: 1n,
+      eventType: 'user_message',
+      schemaVersion: userEvent.schemaVersion,
+      payload: userEvent.payload,
+    },
+  });
+  await prisma.agentSession.update({
+    where: { id: session.id },
+    data: { lastEventSequence: 1n },
+  });
   return { sessionId: session.id, taskId: task.id, executionId: execution.id };
+}
+
+function canonicalJson(value: unknown): string {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    typeof value === 'number'
+  ) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
+    .join(',')}}`;
 }
