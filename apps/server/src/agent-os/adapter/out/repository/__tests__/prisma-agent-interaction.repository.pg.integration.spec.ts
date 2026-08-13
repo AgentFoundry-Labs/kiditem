@@ -324,6 +324,47 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     });
   });
 
+  it('snapshots the validated first user event before authorization awaits', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const input = firstRunInput({
+      copilotThreadId: 'thread-event-snapshot',
+      aguiRunId: 'run-event-snapshot',
+      externalEventId: 'original-user-event',
+    });
+    const lockHeld = deferred<void>();
+    const releaseLock = deferred<void>();
+    const blocker = prisma.$transaction(async (tx) => {
+      const lockKey = authorizationLockKey(input);
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+      `;
+      lockHeld.resolve();
+      await releaseLock.promise;
+    });
+    await lockHeld.promise;
+
+    const authorizationPromise = repository.authorizeExecution(input);
+    input.userEvent.externalEventId = 'mutated-user-event';
+    input.userEvent.payload.messageId = 'mutated-user-event';
+    input.userEvent.payload.content = 'mutated after invocation';
+    try {
+      await waitForAdvisoryLockWaiters(prisma, 1);
+    } finally {
+      releaseLock.resolve();
+      await blocker;
+    }
+
+    await expect(authorizationPromise).resolves.toMatchObject({
+      userEvent: {
+        externalEventId: 'original-user-event',
+        payload: {
+          messageId: 'original-user-event',
+          content: '재고 현황 알려줘',
+        },
+      },
+    });
+  });
+
   it('allocates unique monotonic sequences and one outbox per concurrent event', async () => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
     const first = await repository.authorizeExecution(firstRunInput({
@@ -356,6 +397,54 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       where: { id: first.session.id },
       select: { lastEventSequence: true },
     })).resolves.toEqual({ lastEventSequence: 13n });
+  });
+
+  it('snapshots a validated append event before the session lock await', async () => {
+    if (!prisma) throw new Error('Prisma test client was not initialized');
+    const first = await repository.authorizeExecution(firstRunInput({
+      copilotThreadId: 'thread-append-snapshot',
+      aguiRunId: 'run-append-snapshot',
+    }));
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'original-assistant-event',
+      eventType: 'assistant_message' as const,
+      schemaVersion: 1 as const,
+      payload: {
+        messageId: 'original-assistant-event',
+        content: 'original assistant content',
+      },
+    };
+    const lockHeld = deferred<void>();
+    const releaseLock = deferred<void>();
+    const blocker = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT id
+        FROM agent_sessions
+        WHERE id = ${first.session.id}::uuid
+        FOR UPDATE
+      `;
+      lockHeld.resolve();
+      await releaseLock.promise;
+    });
+    await lockHeld.promise;
+
+    const appendPromise = repository.appendExecutionEvent(input);
+    input.externalEventId = 'mutated-assistant-event';
+    input.payload.messageId = 'mutated-assistant-event';
+    input.payload.content = 'mutated after invocation';
+    releaseLock.resolve();
+    await blocker;
+
+    await expect(appendPromise).resolves.toMatchObject({
+      externalEventId: 'original-assistant-event',
+      payload: {
+        messageId: 'original-assistant-event',
+        content: 'original assistant content',
+      },
+    });
   });
 
   it('returns the event winner for canonical exact retry and conflicts on mismatched reuse', async () => {

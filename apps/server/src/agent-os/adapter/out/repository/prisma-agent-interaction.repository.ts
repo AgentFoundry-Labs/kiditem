@@ -1,8 +1,11 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import {
+  AgentConversationEventContentSchema,
+  type AgentConversationEventContent,
+} from '@kiditem/shared/agent-interaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { AgentConversationEventContentSchema } from '@kiditem/shared/agent-interaction';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import type {
   ActiveAgentVersionRecord,
@@ -246,13 +249,25 @@ implements AgentInteractionRepositoryPort {
   }
 
   async authorizeExecution(
-    input: AuthorizeAgentExecutionInput,
+    unsafeInput: AuthorizeAgentExecutionInput,
   ): Promise<AuthorizedExecutionRecord> {
-    validateConversationEventContent({
+    const userEvent = validateConversationEventContent({
       eventType: 'user_message',
-      schemaVersion: input.userEvent.schemaVersion,
-      payload: input.userEvent.payload,
+      schemaVersion: unsafeInput.userEvent.schemaVersion,
+      payload: unsafeInput.userEvent.payload,
     });
+    if (userEvent.eventType !== 'user_message') {
+      throw interactionEventEnvelopeInvalid();
+    }
+    const input: AuthorizeAgentExecutionInput = {
+      ...unsafeInput,
+      capabilityKeys: [...unsafeInput.capabilityKeys],
+      userEvent: {
+        externalEventId: unsafeInput.userEvent.externalEventId,
+        schemaVersion: userEvent.schemaVersion,
+        payload: userEvent.payload,
+      },
+    };
     try {
       return await this.prisma.$transaction(async (tx) => {
         await acquireAuthorizationLock(tx, input);
@@ -372,9 +387,19 @@ implements AgentInteractionRepositoryPort {
   }
 
   async appendExecutionEvent(
-    input: AppendExecutionEventInput,
+    unsafeInput: AppendExecutionEventInput,
   ): Promise<AgentConversationEventRecord> {
-    validateConversationEventContent(input);
+    const eventContent = validateConversationEventContent(unsafeInput);
+    const input: AppendExecutionEventInput = {
+      ...unsafeInput,
+      terminal: unsafeInput.terminal
+        ? {
+            ...unsafeInput.terminal,
+            finishedAt: new Date(unsafeInput.terminal.finishedAt),
+          }
+        : undefined,
+      ...eventContent,
+    };
     try {
       return await this.prisma.$transaction(async (tx) => {
         let session = await lockSessionById(
@@ -810,18 +835,16 @@ function validateConversationEventContent(input: {
   eventType: unknown;
   schemaVersion: unknown;
   payload: unknown;
-}): void {
+}): AgentConversationEventContent {
   const parsed = AgentConversationEventContentSchema.safeParse({
     eventType: input.eventType,
     schemaVersion: input.schemaVersion,
     payload: input.payload,
   });
   if (!parsed.success) {
-    throw new AgentOsBoundaryError(
-      'INTERACTION_EVENT_ENVELOPE_INVALID',
-      'Interaction event type, schema version, and payload must match.',
-    );
+    throw interactionEventEnvelopeInvalid();
   }
+  return parsed.data;
 }
 
 async function assertExistingAppendMatches(
@@ -1042,6 +1065,13 @@ function interactionEventConflict(): AgentOsBoundaryError {
   return new AgentOsBoundaryError(
     'INTERACTION_EVENT_CONFLICT',
     'The external event identity already exists with different immutable input.',
+  );
+}
+
+function interactionEventEnvelopeInvalid(): AgentOsBoundaryError {
+  return new AgentOsBoundaryError(
+    'INTERACTION_EVENT_ENVELOPE_INVALID',
+    'Interaction event type, schema version, and payload must match.',
   );
 }
 
