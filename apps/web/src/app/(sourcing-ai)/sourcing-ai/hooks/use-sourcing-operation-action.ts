@@ -9,6 +9,7 @@ import {
   useRetryBrowserOperationRun,
   useStartOperation,
 } from '@/hooks/useOperationRun';
+import { wakeBrowserOperationRuntime } from '@/lib/extension-bridge';
 
 export interface UseSourcingOperationActionOptions<
   TInput extends Readonly<Record<string, unknown>>,
@@ -43,6 +44,7 @@ export function useSourcingOperationAction<
         idempotencyKey: options.idempotencyKey,
       },
     });
+    void wakeBrowserOperationRuntime().catch(() => undefined);
 
     if (latestStartRequestRef.current === requestNumber) {
       latestRunIdRef.current = run.id;

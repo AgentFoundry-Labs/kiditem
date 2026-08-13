@@ -363,7 +363,17 @@
       return (await sessions.get(runId))?.status === "cancelled";
     }
 
+    async function abortOperationSession(runId, environmentId) {
+      const session = await sessions.get(runId);
+      if (!session) return null;
+      if (session.environmentId !== environmentId) {
+        throw new Error("Collection session environment does not match owner");
+      }
+      return sessions.cancel(runId, { closeManagedTab: true });
+    }
+
     return Object.freeze({
+      abortOperationSession,
       attachTab,
       beginWebCollection,
       cancel,

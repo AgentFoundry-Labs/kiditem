@@ -11,6 +11,7 @@ import {
   detectSourcingExtensionId,
   collectSellpiaManualMatch,
   sendToExtensionViaPort,
+  wakeBrowserOperationRuntime,
 } from '../extension-bridge';
 
 type PingResponse = {
@@ -270,6 +271,85 @@ describe('durable extension command port', () => {
       name: 'kiditem-wing-form-v1',
     });
     expect(disconnect).toHaveBeenCalledOnce();
+  });
+});
+
+describe('browser operation runtime wake', () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+    window.localStorage.clear();
+  });
+
+  it('sends only the wake action to the detected unified extension', async () => {
+    window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'kiditem-os');
+    const sendMessage = vi.fn((
+      _id: string,
+      message: unknown,
+      callback: (value: unknown) => void,
+    ) => {
+      callback((message as { action?: string }).action === 'ping'
+        ? {
+            success: true,
+            capabilities: { kiditemEnvironmentProfilesV1: true },
+          }
+        : { success: true, accepted: true });
+    });
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: { runtime: { lastError: undefined, sendMessage } },
+    });
+
+    await expect(wakeBrowserOperationRuntime()).resolves.toBe(true);
+    expect(sendMessage).toHaveBeenLastCalledWith(
+      'kiditem-os',
+      { action: 'wakeOperationRuntime' },
+      expect.any(Function),
+    );
+  });
+
+  it('returns false when the unified extension is absent', async () => {
+    vi.useFakeTimers();
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: undefined,
+    });
+
+    const wake = wakeBrowserOperationRuntime();
+    await vi.runAllTimersAsync();
+    await expect(wake).resolves.toBe(false);
+  });
+
+  it('rejects after the three-second wake response deadline', async () => {
+    vi.useFakeTimers();
+    window.localStorage.setItem(KIDITEM_EXTENSION_ID_KEY, 'kiditem-os');
+    const sendMessage = vi.fn((
+      _id: string,
+      message: unknown,
+      callback: (value: unknown) => void,
+    ) => {
+      if ((message as { action?: string }).action === 'ping') {
+        callback({
+          success: true,
+          capabilities: { kiditemEnvironmentProfilesV1: true },
+        });
+      }
+    });
+    Object.defineProperty(window, 'chrome', {
+      configurable: true,
+      value: { runtime: { lastError: undefined, sendMessage } },
+    });
+
+    const wake = wakeBrowserOperationRuntime();
+    await vi.advanceTimersByTimeAsync(2_999);
+    let settled = false;
+    void wake.then(
+      () => { settled = true; },
+      () => { settled = true; },
+    );
+    await Promise.resolve();
+    expect(settled).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await expect(wake).rejects.toThrow('익스텐션 응답 시간이 초과되었습니다.');
   });
 });
 

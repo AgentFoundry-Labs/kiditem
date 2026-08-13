@@ -18,6 +18,7 @@
     const environmentContext = options.environmentContext;
     const sessions = options.sessions;
     const domains = options.domains;
+    const operationRuntime = options.operationRuntime;
 
     async function domainForRun(runId, environmentId) {
       const session = await sessions.getOwned(runId, environmentId);
@@ -83,6 +84,24 @@
       const senderEnvironment = environmentContext.resolveSender(sender);
       if (!senderEnvironment) return false;
       const environmentId = senderEnvironment.environmentId;
+
+      if (msg.action === "wakeOperationRuntime") {
+        if (
+          Object.keys(msg).length !== 1 ||
+          typeof operationRuntime?.wake !== "function"
+        ) {
+          sendResponse({
+            success: false,
+            error: "Invalid operation runtime wake request",
+          });
+          return false;
+        }
+        sendResponse({ success: true, accepted: true });
+        void Promise.resolve()
+          .then(() => operationRuntime.wake(environmentId))
+          .catch(() => undefined);
+        return false;
+      }
 
       if (msg.action === "ping") {
         sendResponse({

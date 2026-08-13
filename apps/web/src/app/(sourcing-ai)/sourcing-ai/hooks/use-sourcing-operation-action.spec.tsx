@@ -10,6 +10,11 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   retry: vi.fn(),
   run: undefined as unknown,
+  wake: vi.fn(),
+}));
+
+vi.mock('@/lib/extension-bridge', () => ({
+  wakeBrowserOperationRuntime: mocks.wake,
 }));
 
 vi.mock('@/hooks/useOperationRun', () => ({
@@ -87,6 +92,7 @@ describe('useSourcingOperationAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.run = undefined;
+    mocks.wake.mockResolvedValue(true);
   });
 
   it('starts the exact operation with strict input and owns its returned run ID', async () => {
@@ -109,6 +115,25 @@ describe('useSourcingOperationAction', () => {
       },
     });
     expect(result.current.runId).toBe(RUN_A);
+    expect(mocks.wake).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the durable server run successful when the extension nudge fails', async () => {
+    const run = operationRun(RUN_A, 'queued');
+    mocks.start.mockResolvedValueOnce(run);
+    mocks.wake.mockRejectedValueOnce(new Error('extension unavailable'));
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction(options), {
+      wrapper: wrapper(client),
+    });
+
+    let started: OperationRun | undefined;
+    await act(async () => {
+      started = await result.current.start();
+    });
+    expect(started).toEqual(run);
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    expect(mocks.wake).toHaveBeenCalledTimes(1);
   });
 
   it('invalidates the snapshot exactly once after its latest run succeeds', async () => {

@@ -165,6 +165,38 @@ test('통합 서비스워커가 세 도메인을 모두 싣고 부팅한다', ()
   assert.ok(context.KidItemDomains);
 });
 
+test('브라우저 Operation runtime 인스턴스를 하나만 만들고 공용 dispatch에 보관한다', () => {
+  const source = readFileSync(entryPath, 'utf8');
+  assert.equal(
+    source.match(/KidItemOperationRuntimeClient\.create\(/g)?.length,
+    1,
+  );
+  assert.match(source, /const browserOperationRuntime\s*=\s*KidItemOperationRuntimeClient\.create/);
+  assert.match(source, /operationRuntime:\s*browserOperationRuntime/);
+  assert.match(source, /browserOperationRuntime\.install\(\)/);
+});
+
+test('wakeOperationRuntime에는 공용 dispatch만 즉시 응답한다', async () => {
+  const { fake } = bootServiceWorker();
+  const responses = [];
+  let keptAlive = 0;
+
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      { action: 'wakeOperationRuntime' },
+      { url: 'http://localhost:3000/sourcing-ai/wing-catalog' },
+      (response) => responses.push(response),
+    );
+    if (result === true) keptAlive += 1;
+  }
+
+  assert.equal(keptAlive, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(responses)), [
+    { success: true, accepted: true },
+  ]);
+  await Promise.resolve();
+});
+
 test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다', async () => {
   const { fake } = bootServiceWorker();
 

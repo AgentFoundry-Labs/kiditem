@@ -6,7 +6,7 @@
   const HEARTBEAT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/heartbeat`;
   const REPORT_PATH = (runId) => `/api/operation-runtime/browser/runs/${encodeURIComponent(runId)}/report`;
   const ACTIVE_CLAIMS_STORAGE_KEY = "kiditem_operation_runtime_active_v1";
-  const RESUME_LEASE_MS = 90_000;
+  const MAX_RESUME_LEASE_MS = 90_000;
 
   function boundedText(value, fallback, maximum) {
     if (typeof value !== "string") return fallback;
@@ -51,12 +51,36 @@
     return isRecord(value) &&
       typeof value.runId === "string" && value.runId.length > 0 &&
       typeof value.operationKey === "string" && value.operationKey.length > 0 &&
-      typeof value.attemptToken === "string" && value.attemptToken.length > 0;
+      typeof value.attemptToken === "string" && value.attemptToken.length > 0 &&
+      Number.isFinite(Date.parse(String(value.leaseExpiresAt || ""))) &&
+      Number.isFinite(Date.parse(String(value.deadlineAt || "")));
   }
 
   function isFutureTimestamp(value) {
     const timestamp = Date.parse(String(value || ""));
     return Number.isFinite(timestamp) && timestamp > Date.now();
+  }
+
+  function operationRuntimeError(message, status = null) {
+    const error = new Error(message);
+    if (status !== null) error.status = status;
+    return error;
+  }
+
+  function isFenceError(error) {
+    return error?.status === 409;
+  }
+
+  function boundedLeaseDuration(claim) {
+    const remaining = Date.parse(claim.leaseExpiresAt) - Date.now();
+    return Math.max(1_000, Math.min(MAX_RESUME_LEASE_MS, remaining));
+  }
+
+  function checkpointLeaseExpiry(claim, leaseDurationMs, renewed) {
+    const serverLease = Date.parse(claim.leaseExpiresAt);
+    const deadline = Date.parse(claim.deadlineAt);
+    const estimatedLease = renewed ? Date.now() + leaseDurationMs : serverLease;
+    return new Date(Math.min(estimatedLease, deadline));
   }
 
   function create(options) {
@@ -66,6 +90,7 @@
     const chromeApi = options.chrome;
     const environmentContext = options.environmentContext;
     const domains = options.domains;
+    const sessions = options.sessions || null;
     const runtimeId = boundedText(
       options.runtimeId || chromeApi.runtime?.id,
       "kiditem-os-browser-runtime-v1",
@@ -94,14 +119,39 @@
       }
     }
 
-    async function storeActiveClaim(environmentId, claim, progress = null) {
+    async function storeActiveClaim(
+      environmentId,
+      claim,
+      progressState = {},
+      renewed = false,
+    ) {
       const claims = await readActiveClaims();
+      const previous = claims[environmentId];
+      const leaseDurationMs = Number.isFinite(previous?.leaseDurationMs)
+        ? previous.leaseDurationMs
+        : boundedLeaseDuration(claim);
       claims[environmentId] = {
         claim,
-        progress: typeof progress === "number" && progress >= 0 && progress <= 1
-          ? progress
+        progress: typeof progressState.progress === "number" &&
+          progressState.progress >= 0 && progressState.progress <= 1
+          ? progressState.progress
           : null,
-        resumeLeaseExpiresAt: new Date(Date.now() + RESUME_LEASE_MS).toISOString(),
+        stage: boundedText(progressState.stage, null, 120),
+        progressCurrent: Number.isInteger(progressState.progressCurrent) &&
+          progressState.progressCurrent >= 0
+          ? progressState.progressCurrent
+          : null,
+        progressTotal: Number.isInteger(progressState.progressTotal) &&
+          progressState.progressTotal >= 0
+          ? progressState.progressTotal
+          : null,
+        leaseDurationMs,
+        lastHeartbeatSucceededAt: renewed ? new Date().toISOString() : null,
+        resumeLeaseExpiresAt: checkpointLeaseExpiry(
+          claim,
+          leaseDurationMs,
+          renewed,
+        ).toISOString(),
       };
       await writeActiveClaims(claims);
     }
@@ -124,20 +174,38 @@
       const claims = await readActiveClaims();
       const active = claims[environmentId];
       if (!isRecord(active) || !validClaim(active.claim)) return null;
-      const lease = active.resumeLeaseExpiresAt || active.claim.leaseExpiresAt;
-      if (isFutureTimestamp(lease)) return active;
+      const hasRenewalProof = Number.isFinite(active.leaseDurationMs) &&
+        Number.isFinite(Date.parse(String(active.lastHeartbeatSucceededAt || "")));
+      const localLease = active.resumeLeaseExpiresAt || active.claim.leaseExpiresAt;
+      const plausibleLease = hasRenewalProof
+        ? localLease
+        : new Date(Math.min(
+            Date.parse(localLease),
+            Date.parse(active.claim.leaseExpiresAt),
+          )).toISOString();
+      if (
+        isFutureTimestamp(plausibleLease) &&
+        isFutureTimestamp(active.claim.deadlineAt)
+      ) return active;
       await clearActiveClaim(environmentId, active.claim);
       return null;
     }
 
-    async function requestJson(environmentId, path, body) {
+    async function requestJson(environmentId, path, body, signal) {
       const response = await environmentContext.authedFetch(environmentId, path, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        ...(signal ? { signal } : {}),
       });
       if (!response?.ok) {
-        throw new Error(`operation_runtime_http_${response?.status || "network"}`);
+        const status = Number.isInteger(response?.status) ? response.status : null;
+        throw operationRuntimeError(
+          status === 409
+            ? "operation_runtime_fence_lost"
+            : `operation_runtime_http_${status || "network"}`,
+          status,
+        );
       }
       if (response.status === 204) return null;
       const text = await response.text();
@@ -149,11 +217,11 @@
       }
     }
 
-    async function report(environmentId, claim, payload) {
+    async function report(environmentId, claim, payload, signal) {
       await requestJson(environmentId, REPORT_PATH(claim.runId), {
         attemptToken: claim.attemptToken,
         ...payload,
-      });
+      }, signal);
     }
 
     function heartbeatIntervalMs(claim) {
@@ -162,47 +230,153 @@
       return Math.max(1_000, Math.floor(Math.max(3_000, remaining) / 3));
     }
 
-    async function executeClaim(environmentId, claim, initialProgress = null) {
+    async function executeClaim(environmentId, claim, initialState = {}) {
       if (activeExecutions.has(environmentId)) return false;
       const handler = domains.runOperation(claim.operationKey);
       if (typeof handler !== "function") {
-        await report(environmentId, claim, {
-          status: "attention_required",
-          attentionReason: "browser_operation_handler_missing",
-        });
-        await clearActiveClaim(environmentId, claim);
+        try {
+          await report(environmentId, claim, {
+            status: "attention_required",
+            attentionReason: "browser_operation_handler_missing",
+          });
+          await clearActiveClaim(environmentId, claim);
+        } catch (error) {
+          if (isFenceError(error)) await clearActiveClaim(environmentId, claim);
+        }
         return true;
       }
 
       activeExecutions.add(environmentId);
-      let latestProgress =
-        typeof initialProgress === "number" && initialProgress >= 0 && initialProgress <= 1
-          ? initialProgress
-          : null;
-      let heartbeatStopped = false;
-      const sendHeartbeat = async () => {
-        if (heartbeatStopped) return;
-        try {
-          await requestJson(environmentId, HEARTBEAT_PATH(claim.runId), {
-            attemptToken: claim.attemptToken,
-            progress: latestProgress,
-          });
-          await storeActiveClaim(environmentId, claim, latestProgress);
-        } catch {
-          // A fenced or unavailable lease is resolved by the terminal report; do
-          // not retry the domain handler or leak its raw browser error.
-        }
+      const progressState = {
+        progress: typeof initialState.progress === "number" &&
+          initialState.progress >= 0 && initialState.progress <= 1
+          ? initialState.progress
+          : null,
+        stage: boundedText(initialState.stage, null, 120),
+        progressCurrent: Number.isInteger(initialState.progressCurrent) &&
+          initialState.progressCurrent >= 0
+          ? initialState.progressCurrent
+          : null,
+        progressTotal: Number.isInteger(initialState.progressTotal) &&
+          initialState.progressTotal >= 0
+          ? initialState.progressTotal
+          : null,
       };
-      const intervalId = setInterval(() => { void sendHeartbeat(); }, heartbeatIntervalMs(claim));
-      const heartbeat = async (progress) => {
-        if (typeof progress === "number" && progress >= 0 && progress <= 1) {
-          latestProgress = progress;
+      const attemptController = new AbortController();
+      const heartbeatRequestController = new AbortController();
+      const pendingHeartbeats = new Set();
+      let heartbeatStopped = false;
+      let deadlineTimerId = null;
+      let managedSessionCleanup = null;
+      const cancelManagedSession = () => {
+        if (managedSessionCleanup || !sessions) return managedSessionCleanup;
+        managedSessionCleanup = Promise.resolve()
+          .then(async () => {
+            const owned = typeof sessions.getOwned === "function"
+              ? await sessions.getOwned(claim.runId, environmentId)
+              : null;
+            if (!owned || typeof sessions.cancel !== "function") return;
+            await sessions.cancel(claim.runId, { closeManagedTab: true });
+          })
+          .catch(() => undefined);
+        return managedSessionCleanup;
+      };
+      const abortAttempt = (reason) => {
+        if (!attemptController.signal.aborted) attemptController.abort(reason);
+        if (!heartbeatRequestController.signal.aborted) {
+          heartbeatRequestController.abort(reason);
+        }
+        void cancelManagedSession();
+      };
+      const deadlineRemaining = Date.parse(claim.deadlineAt) - Date.now();
+      if (deadlineRemaining <= 0) {
+        abortAttempt(operationRuntimeError("operation_deadline_exceeded"));
+      } else {
+        deadlineTimerId = setTimeout(() => {
+          abortAttempt(operationRuntimeError("operation_deadline_exceeded"));
+        }, deadlineRemaining);
+      }
+
+      const heartbeatBody = () => {
+        const body = {
+          attemptToken: claim.attemptToken,
+          progress: progressState.progress,
+        };
+        if (progressState.stage !== null) body.stage = progressState.stage;
+        if (progressState.progressCurrent !== null) {
+          body.progressCurrent = progressState.progressCurrent;
+        }
+        if (progressState.progressTotal !== null) {
+          body.progressTotal = progressState.progressTotal;
+        }
+        return body;
+      };
+      const sendHeartbeat = () => {
+        if (heartbeatStopped || attemptController.signal.aborted) {
+          return Promise.reject(
+            attemptController.signal.reason ||
+              operationRuntimeError("operation_runtime_heartbeat_stopped"),
+          );
+        }
+        const pending = requestJson(
+          environmentId,
+          HEARTBEAT_PATH(claim.runId),
+          heartbeatBody(),
+          heartbeatRequestController.signal,
+        ).then(async () => {
+          if (!attemptController.signal.aborted) {
+            await storeActiveClaim(environmentId, claim, progressState, true);
+          }
+        }).catch((error) => {
+          if (isFenceError(error)) abortAttempt(error);
+          throw error;
+        });
+        pendingHeartbeats.add(pending);
+        void pending.finally(() => pendingHeartbeats.delete(pending)).catch(() => undefined);
+        return pending;
+      };
+      const intervalId = setInterval(() => {
+        void sendHeartbeat().catch(() => undefined);
+      }, heartbeatIntervalMs(claim));
+      const heartbeat = async (update) => {
+        if (typeof update === "number" && update >= 0 && update <= 1) {
+          progressState.progress = update;
+        } else if (isRecord(update)) {
+          if (typeof update.progress === "number" && update.progress >= 0 && update.progress <= 1) {
+            progressState.progress = update.progress;
+          }
+          if (typeof update.stage === "string") {
+            progressState.stage = boundedText(update.stage, progressState.stage, 120);
+          }
+          if (Number.isInteger(update.progressCurrent) && update.progressCurrent >= 0) {
+            progressState.progressCurrent = update.progressCurrent;
+          }
+          if (Number.isInteger(update.progressTotal) && update.progressTotal >= 0) {
+            progressState.progressTotal = update.progressTotal;
+          }
         }
         await sendHeartbeat();
       };
+      const stopHeartbeats = async () => {
+        if (!heartbeatStopped) {
+          heartbeatStopped = true;
+          clearInterval(intervalId);
+        }
+        if (!heartbeatRequestController.signal.aborted) {
+          heartbeatRequestController.abort(
+            operationRuntimeError("operation_runtime_heartbeat_stopped"),
+          );
+        }
+        await Promise.allSettled([...pendingHeartbeats]);
+      };
 
       try {
-        await storeActiveClaim(environmentId, claim, latestProgress);
+        await storeActiveClaim(
+          environmentId,
+          claim,
+          progressState,
+          initialState.renewedCheckpoint === true,
+        );
         let outcome;
         try {
           outcome = normalizeOutcome(await handler({
@@ -210,6 +384,7 @@
             runId: claim.runId,
             attemptToken: claim.attemptToken,
             input: claim.input || {},
+            signal: attemptController.signal,
             heartbeat,
           }));
         } catch {
@@ -219,16 +394,33 @@
             errorMessage: "The browser operation could not be completed.",
           };
         }
-        try {
-          await report(environmentId, claim, { ...outcome, progress: latestProgress });
+        await stopHeartbeats();
+        if (attemptController.signal.aborted) {
           await clearActiveClaim(environmentId, claim);
-        } catch {
+          return true;
+        }
+        try {
+          await report(environmentId, claim, {
+            ...outcome,
+            progress: progressState.progress,
+            ...(progressState.stage === null ? {} : { stage: progressState.stage }),
+            ...(progressState.progressCurrent === null
+              ? {}
+              : { progressCurrent: progressState.progressCurrent }),
+            ...(progressState.progressTotal === null
+              ? {}
+              : { progressTotal: progressState.progressTotal }),
+          }, attemptController.signal);
+          await clearActiveClaim(environmentId, claim);
+        } catch (error) {
+          if (isFenceError(error)) await clearActiveClaim(environmentId, claim);
           // Keep the claim checkpoint. The next service-worker wake-up resumes
           // the exact fenced attempt instead of creating another provider job.
         }
       } finally {
-        heartbeatStopped = true;
-        clearInterval(intervalId);
+        await stopHeartbeats();
+        if (deadlineTimerId !== null) clearTimeout(deadlineTimerId);
+        if (managedSessionCleanup) await managedSessionCleanup;
         activeExecutions.delete(environmentId);
       }
       return true;
@@ -244,13 +436,7 @@
         });
         const claim = payload?.claim;
         if (!claim || typeof claim !== "object") return false;
-        if (
-          typeof claim.runId !== "string"
-          || typeof claim.operationKey !== "string"
-          || typeof claim.attemptToken !== "string"
-        ) {
-          return false;
-        }
+        if (!validClaim(claim)) return false;
         await executeClaim(environmentId, claim);
         return true;
       } catch {
@@ -268,14 +454,46 @@
       }
       const active = await activeClaimFor(environmentId);
       if (active) {
+        const progressState = {
+          progress: active.progress,
+          stage: active.stage,
+          progressCurrent: active.progressCurrent,
+          progressTotal: active.progressTotal,
+        };
         try {
-          await requestJson(environmentId, HEARTBEAT_PATH(active.claim.runId), {
+          const body = {
             attemptToken: active.claim.attemptToken,
             progress: active.progress,
+          };
+          if (typeof active.stage === "string") body.stage = active.stage;
+          if (Number.isInteger(active.progressCurrent)) {
+            body.progressCurrent = active.progressCurrent;
+          }
+          if (Number.isInteger(active.progressTotal)) {
+            body.progressTotal = active.progressTotal;
+          }
+          await requestJson(
+            environmentId,
+            HEARTBEAT_PATH(active.claim.runId),
+            body,
+          );
+          await storeActiveClaim(
+            environmentId,
+            active.claim,
+            progressState,
+            true,
+          );
+          return executeClaim(environmentId, active.claim, {
+            ...progressState,
+            renewedCheckpoint: true,
           });
-          await storeActiveClaim(environmentId, active.claim, active.progress);
-          return executeClaim(environmentId, active.claim, active.progress);
-        } catch {
+        } catch (error) {
+          if (!isFenceError(error)) {
+            // The same attempt remains the only safe recovery owner while its
+            // locally bounded lease/deadline are still plausible. Do not claim
+            // another job merely because the network is temporarily offline.
+            return false;
+          }
           // A terminal or fenced run must not replay marketplace work from a
           // stale local checkpoint. Drop it and ask the server for new work.
           await clearActiveClaim(environmentId, active.claim);
@@ -308,7 +526,7 @@
       chromeApi.runtime.onStartup?.addListener(installAlarms);
     }
 
-    return Object.freeze({ install, tick });
+    return Object.freeze({ install, tick, wake: resumeOrTick });
   }
 
   root.KidItemOperationRuntimeClient = Object.freeze({ create });
