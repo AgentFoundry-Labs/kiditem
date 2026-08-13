@@ -351,13 +351,13 @@ describe('OperationAlertLifecycleController.start', () => {
     ).rejects.toBeInstanceOf(NotFoundException);
   });
 
-  it('appends collectionRun with an ampersand when the canonical route has a query', async () => {
+  it('routes the installed Rocket dashboard producer to the current operator page', async () => {
     const { controller, service } = makeController();
     service.start.mockResolvedValueOnce(
       alertRow({
         title: '쿠팡 로켓 매출 수집',
         sourceId: 'dashboard.rocket_sales',
-        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
+        href: `/rocket-orders?collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
 
@@ -384,7 +384,7 @@ describe('OperationAlertLifecycleController.start', () => {
         title: '쿠팡 로켓 매출 수집',
         sourceType: 'browser_collection_session',
         sourceId: 'dashboard.rocket_sales',
-        href: `/sales-analysis?tab=rocket-daily&collectionRun=${COLLECTION_RUN_ID}`,
+        href: `/rocket-orders?collectionRun=${COLLECTION_RUN_ID}`,
       }),
     );
   });

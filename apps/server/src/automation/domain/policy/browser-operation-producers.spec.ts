@@ -67,6 +67,7 @@ describe('browser operation producer policy', () => {
   });
 
   it.each([
+    ['dashboard.rocket_sales', '쿠팡 로켓 매출 수집', '/rocket-orders'],
     ['orders.coupang_shipment_summary', '쿠팡 쉽먼트 조회', '/coupang-shipments'],
     ['orders.coupang_rocket_po', '쿠팡 로켓 PO 수집', '/rocket-orders'],
   ] as const)('routes %s to its operational screen', (sourceId, title, href) => {
