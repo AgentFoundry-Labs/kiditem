@@ -64,7 +64,10 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   const undocumented = expected.filter((file) => !readme.includes(`scripts/${file}`));
 
   const missingPackageHooks = [];
-  if (!packageScripts['check:copilotkit-train']) {
+  if (
+    packageScripts['check:copilotkit-train'] !==
+    'node scripts/check-copilotkit-train.mjs'
+  ) {
     missingPackageHooks.push('check:copilotkit-train');
   }
   if (!packageScripts['check:scripts-inventory']) {
