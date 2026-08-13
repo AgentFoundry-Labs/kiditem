@@ -23,6 +23,8 @@ import { SourcingAgentMcpCollectionModule } from '../sourcing/sourcing-agent-mcp
 import { InternalSourcingCollectionController } from '../sourcing/adapter/in/http/internal-sourcing-collection.controller';
 import { SourcingCollectionOperationAdapter } from '../sourcing/adapter/out/operations/sourcing-collection-operation.adapter';
 import { SourcingCollectionApiCommandAdapter } from '../sourcing/adapter/out/http/sourcing-collection-api-command.adapter';
+import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
+import { AI_DIRECT_JOB_WAKE_PORT } from '../ai/application/port/out/runtime';
 
 type ProviderLike = Function | { provide?: unknown };
 type ModuleLike =
@@ -145,11 +147,29 @@ describe('application root topology', () => {
     ).toContain("from '../../../../agent-mcp-application.module'");
   });
 
-  it('keeps the real manager, sourcing/listing, and order handlers in worker context', () => {
-    const workerProviders = providers(AgentWorkerApplicationModule);
-    expect(workerProviders).toContain(OperatorRuntimeHandler);
-    expect(workerProviders).toContain(SourcingRuntimeHandler);
-    expect(workerProviders).toContain(OrderAgentRuntimeHandler);
+  it('keeps the real manager, sourcing/listing, and order handlers in both Agent roots', () => {
+    for (const root of [
+      AgentWorkerApplicationModule,
+      AgentMcpApplicationModule,
+    ]) {
+      const rootProviders = providers(root);
+      expect(rootProviders).toContain(OperatorRuntimeHandler);
+      expect(rootProviders).toContain(SourcingRuntimeHandler);
+      expect(rootProviders).toContain(OrderAgentRuntimeHandler);
+    }
+  });
+
+  it('keeps the API-owned AI direct-job poller out of Agent process roots', () => {
+    for (const root of [
+      AgentWorkerApplicationModule,
+      AgentMcpApplicationModule,
+    ]) {
+      const rootProviders = providers(root);
+      expect(rootProviders).not.toContain(AiDirectJobWorkerService);
+      expect(rootProviders).not.toContainEqual(
+        expect.objectContaining({ provide: AI_DIRECT_JOB_WAKE_PORT }),
+      );
+    }
   });
 
   it('binds collection directly only in API and over HTTP only in MCP', () => {

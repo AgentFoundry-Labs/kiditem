@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import {
+  MAX_OPERATION_PERSISTED_INT,
   OperationExecutionTimeoutMsSchema,
   OperationProgressCountSchema,
   OperationResourceClassSchema,
@@ -8,16 +9,6 @@ import {
 } from '@kiditem/shared/operations';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import type {
-  CreateOperationRunRecord,
-  OperationActiveAttemptTransition,
-  OperationLifecycleBatchResult,
-  OperationRunRecord,
-  OperationRunRepositoryPort,
-  OperationRunTransition,
-  OperationScheduleRecord,
-  UpsertOperationScheduleRecord,
-} from '../../../application/port/out/repository/operation.repository.port';
 import {
   advanceOperationSchedulesPastLifecycleCutoff,
   cancelClaimedOperationAttemptForLifecycle,
@@ -29,6 +20,16 @@ import {
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
 import { createFencedCompositeChild } from './operation-composite.repository';
+import type {
+  CreateOperationRunRecord,
+  OperationActiveAttemptTransition,
+  OperationLifecycleBatchResult,
+  OperationRunRecord,
+  OperationRunRepositoryPort,
+  OperationRunTransition,
+  OperationScheduleRecord,
+  UpsertOperationScheduleRecord,
+} from '../../../application/port/out/repository/operation.repository.port';
 
 const runInclude = {
   requestedBy: {
@@ -722,35 +723,130 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   async heartbeatBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runId: string;
     attemptToken: string;
-    now: Date;
-    leaseExpiresAt: Date;
+    leaseDurationMs: number;
     progress?: number | null;
     stage?: OperationRunTransition['stage'];
     progressCurrent?: number | null;
     progressTotal?: number | null;
   }): Promise<OperationRunRecord | null> {
-    const data: Prisma.OperationRunUpdateManyMutationInput = {
-      leaseExpiresAt: input.leaseExpiresAt,
-      ...(input.progress !== undefined ? { progress: input.progress } : {}),
-      ...progressCountMutation(input),
+    if (input.signal.aborted) return null;
+    if (
+      !Number.isSafeInteger(input.leaseDurationMs) ||
+      input.leaseDurationMs <= 0 ||
+      input.leaseDurationMs > MAX_OPERATION_PERSISTED_INT
+    ) {
+      throw new Error('operation_browser_lease_duration_invalid');
+    }
+
+    const parsedStage = input.stage === undefined
+      ? undefined
+      : OperationStageSchema.nullable().safeParse(input.stage);
+    if (parsedStage !== undefined && !parsedStage.success) {
+      throw new Error('operation_stage_invalid');
+    }
+    const stage = parsedStage === undefined ? undefined : parsedStage.data;
+    const progressCounts = progressCountMutation(input) as {
+      progress?: number | null;
+      progressCurrent?: number | null;
+      progressTotal?: number | null;
     };
-    const updatedCount = await this.updateRunWithStage({
-      where: {
-        id: input.runId,
-        organizationId: input.organizationId,
-        status: 'running',
-        attemptToken: input.attemptToken,
-        leaseExpiresAt: { gt: input.now },
-        deadlineAt: { gt: input.now },
-      },
-      data,
-      stage: input.stage,
-      stageUpdatedAt: input.now,
-    });
-    if (updatedCount === 0) return null;
+    const aborted = new Error('operation_browser_heartbeat_aborted');
+    const assertNotAborted = () => {
+      if (input.signal.aborted) throw aborted;
+    };
+
+    let updated = false;
+    try {
+      updated = await this.prisma.$transaction(async (transaction) => {
+        assertNotAborted();
+        const locked = await transaction.$queryRaw<
+          Array<{ id: string; locked_at: Date }>
+        >(
+          Prisma.sql`
+            WITH locked_run AS MATERIALIZED (
+              SELECT id
+              FROM operation_runs
+              WHERE id = ${input.runId}::uuid
+                AND organization_id = ${input.organizationId}::uuid
+                AND status = 'running'
+                AND attempt_token = ${input.attemptToken}::uuid
+              FOR UPDATE
+            )
+            SELECT id, clock_timestamp() AS locked_at
+            FROM locked_run
+          `,
+        );
+        assertNotAborted();
+        if (locked.length !== 1) return false;
+
+        const lockedAt = locked[0]?.locked_at;
+        if (!(lockedAt instanceof Date) || !Number.isFinite(lockedAt.getTime())) {
+          throw new Error('operation_browser_heartbeat_clock_invalid');
+        }
+
+        const assignments: Prisma.Sql[] = [
+          Prisma.sql`
+            lease_expires_at = ${lockedAt}::timestamptz
+              + (${input.leaseDurationMs} * interval '1 millisecond')
+          `,
+          Prisma.sql`updated_at = ${lockedAt}::timestamptz`,
+        ];
+        const progress = progressCounts.progress !== undefined
+          ? progressCounts.progress
+          : input.progress;
+        if (progress !== undefined) {
+          assignments.push(Prisma.sql`progress = ${progress}`);
+        }
+        if (progressCounts.progressCurrent !== undefined) {
+          assignments.push(
+            Prisma.sql`progress_current = ${progressCounts.progressCurrent}`,
+          );
+        }
+        if (progressCounts.progressTotal !== undefined) {
+          assignments.push(
+            Prisma.sql`progress_total = ${progressCounts.progressTotal}`,
+          );
+        }
+        if (stage !== undefined) {
+          assignments.push(Prisma.sql`
+            stage_updated_at = CASE
+              WHEN stage IS DISTINCT FROM ${stage}
+                THEN ${lockedAt}::timestamptz
+              ELSE stage_updated_at
+            END
+          `);
+          assignments.push(Prisma.sql`stage = ${stage}`);
+        }
+
+        assertNotAborted();
+        const rows = await transaction.$queryRaw<Array<{ id: string }>>(
+          Prisma.sql`
+            UPDATE operation_runs
+            SET ${Prisma.join(assignments)}
+            WHERE id = ${input.runId}::uuid
+              AND organization_id = ${input.organizationId}::uuid
+              AND status = 'running'
+              AND attempt_token = ${input.attemptToken}::uuid
+              AND lease_expires_at IS NOT NULL
+              AND lease_expires_at > ${lockedAt}::timestamptz
+              AND deadline_at IS NOT NULL
+              AND deadline_at > ${lockedAt}::timestamptz
+            RETURNING id
+          `,
+        );
+        assertNotAborted();
+        return rows.length === 1;
+      });
+    } catch (error) {
+      if (error === aborted) return null;
+      throw error;
+    }
+
+    if (!updated) return null;
     return this.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,

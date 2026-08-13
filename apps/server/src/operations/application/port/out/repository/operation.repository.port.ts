@@ -271,11 +271,11 @@ export interface OperationRunRepositoryPort {
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null>;
   heartbeatBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runId: string;
     attemptToken: string;
-    now: Date;
-    leaseExpiresAt: Date;
+    leaseDurationMs: number;
     progress?: number | null;
     stage?: OperationStage | null;
     progressCurrent?: number | null;

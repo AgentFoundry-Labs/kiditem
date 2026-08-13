@@ -196,6 +196,158 @@ describe('operation execution repository PostgreSQL fencing', () => {
     })).resolves.toEqual({ status: 'running', result: null, attemptToken });
   });
 
+  it('rejects a browser heartbeat that began before but acquired its row lock after the absolute deadline', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    const stageUpdatedAt = new Date('2026-08-13T01:02:03.000Z');
+    const [{ deadline_at: deadlineAt }] = await locker.$queryRaw<
+      Array<{ deadline_at: Date }>
+    >`SELECT clock_timestamp() + interval '500 milliseconds' AS deadline_at`;
+    const originalLeaseExpiresAt = new Date(deadlineAt.getTime() + 10_000);
+    await createBrowserRun(locker, {
+      runId,
+      attemptToken,
+      deadlineAt,
+      leaseExpiresAt: originalLeaseExpiresAt,
+      progress: 0.1,
+      stage: 'initializing',
+      stageUpdatedAt,
+      progressCurrent: 1,
+      progressTotal: 10,
+    });
+
+    const lockAcquired = deferred();
+    const heartbeatStarted = deferred();
+    const lockTransaction = locker.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM operation_runs
+        WHERE id = ${runId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      lockAcquired.resolve();
+      await heartbeatStarted.promise;
+      await transaction.$queryRaw`
+        SELECT pg_sleep(
+          GREATEST(
+            0,
+            EXTRACT(EPOCH FROM (${deadlineAt}::timestamptz - clock_timestamp())) + 0.2
+          )
+        ) IS NULL AS slept
+      `;
+    });
+    await lockAcquired.promise;
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const heartbeat = repository.heartbeatBrowserRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      runId,
+      attemptToken,
+      leaseDurationMs: 60_000,
+      progress: 0.75,
+      stage: 'collecting_keyword',
+      progressCurrent: 3,
+      progressTotal: 4,
+    });
+    heartbeatStarted.resolve();
+
+    await lockTransaction;
+    await expect(heartbeat).resolves.toBeNull();
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: {
+        leaseExpiresAt: true,
+        progress: true,
+        stage: true,
+        stageUpdatedAt: true,
+        progressCurrent: true,
+        progressTotal: true,
+      },
+    })).resolves.toEqual({
+      leaseExpiresAt: originalLeaseExpiresAt,
+      progress: 0.1,
+      stage: 'initializing',
+      stageUpdatedAt,
+      progressCurrent: 1,
+      progressTotal: 10,
+    });
+  });
+
+  it('rolls back a browser heartbeat when shutdown aborts while its row lock is blocked', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    const stageUpdatedAt = new Date('2026-08-13T01:02:03.000Z');
+    const originalLeaseExpiresAt = new Date(Date.now() + 60_000);
+    await createBrowserRun(locker, {
+      runId,
+      attemptToken,
+      deadlineAt: new Date(Date.now() + 60_000),
+      leaseExpiresAt: originalLeaseExpiresAt,
+      progress: 0.1,
+      stage: 'initializing',
+      stageUpdatedAt,
+      progressCurrent: 1,
+      progressTotal: 10,
+    });
+
+    const lockAcquired = deferred();
+    const releaseLock = deferred();
+    const lockTransaction = locker.$transaction(async (transaction) => {
+      await transaction.$queryRaw`
+        SELECT id
+        FROM operation_runs
+        WHERE id = ${runId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      lockAcquired.resolve();
+      await releaseLock.promise;
+    });
+    await lockAcquired.promise;
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const controller = new AbortController();
+    const heartbeat = repository.heartbeatBrowserRun({
+      signal: controller.signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      runId,
+      attemptToken,
+      leaseDurationMs: 120_000,
+      progress: 0.75,
+      stage: 'collecting_keyword',
+      progressCurrent: 3,
+      progressTotal: 4,
+    });
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    controller.abort('operation_server_shutdown');
+    releaseLock.resolve();
+
+    await lockTransaction;
+    await expect(heartbeat).resolves.toBeNull();
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: {
+        leaseExpiresAt: true,
+        progress: true,
+        stage: true,
+        stageUpdatedAt: true,
+        progressCurrent: true,
+        progressTotal: true,
+      },
+    })).resolves.toEqual({
+      leaseExpiresAt: originalLeaseExpiresAt,
+      progress: 0.1,
+      stage: 'initializing',
+      stageUpdatedAt,
+      progressCurrent: 1,
+      progressTotal: 10,
+    });
+  });
+
   it('rejects expired-lease, wrong-token, and wrong-tenant browser terminal reports', async () => {
     const runId = randomUUID();
     const attemptToken = randomUUID();
@@ -572,6 +724,11 @@ async function createBrowserRun(
     attemptToken: string;
     deadlineAt: Date;
     leaseExpiresAt: Date;
+    progress?: number;
+    stage?: string;
+    stageUpdatedAt?: Date;
+    progressCurrent?: number;
+    progressTotal?: number;
   },
 ): Promise<void> {
   await prisma.operationRun.create({
@@ -596,6 +753,11 @@ async function createBrowserRun(
       leaseExpiresAt: input.leaseExpiresAt,
       deadlineAt: input.deadlineAt,
       startedAt: new Date(),
+      progress: input.progress,
+      stage: input.stage,
+      stageUpdatedAt: input.stageUpdatedAt,
+      progressCurrent: input.progressCurrent,
+      progressTotal: input.progressTotal,
     },
   });
 }

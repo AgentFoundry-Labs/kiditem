@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { OperationHandlerRegistryPort } from '../../port/in/operation-handler-registry.port';
-import type { OperationRunRepositoryPort } from '../../port/out/repository/operation.repository.port';
 import { BrowserOperationRuntimeService } from '../browser-operation-runtime.service';
 import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
+import type { OperationHandlerRegistryPort } from '../../port/in/operation-handler-registry.port';
+import type { OperationRunRepositoryPort } from '../../port/out/repository/operation.repository.port';
 
 const ORG_ID = 'df3b198e-5b31-4f86-b054-bbf4852536a5';
 const RUN_ID = 'c2e779aa-f5bf-42c2-91f2-dc10be211c71';
@@ -28,6 +28,14 @@ function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
   if (state !== 'BOOTSTRAPPING') gate.beginStopping();
   if (state === 'STOPPED') gate.finishStopping();
   return gate;
+}
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
 }
 
 function makeService(
@@ -133,6 +141,54 @@ describe('BrowserOperationRuntimeService', () => {
         message: 'operation_server_lifecycle_unavailable',
       });
       expect(repository.heartbeatBrowserRun).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['heartbeat', 'running report'] as const)(
+    'loses the browser fence when %s pauses while the lifecycle enters STOPPING',
+    async (mutation) => {
+      const enteredRepository = deferred();
+      const releaseRepository = deferred();
+      let persistedWrites = 0;
+      const repository = {
+        heartbeatBrowserRun: vi.fn(async (input: { signal?: AbortSignal }) => {
+          enteredRepository.resolve();
+          await releaseRepository.promise;
+          if (!input.signal?.aborted) {
+            persistedWrites += 1;
+            return { id: RUN_ID };
+          }
+          return null;
+        }),
+      } as unknown as OperationRunRepositoryPort;
+      const gate = acceptingGate();
+      const service = makeService(repository, gate);
+
+      const pendingMutation = mutation === 'heartbeat'
+        ? service.heartbeat({
+            organizationId: ORG_ID,
+            runId: RUN_ID,
+            request: { attemptToken: OLD_TOKEN, progress: 0.5 },
+          })
+        : service.report({
+            organizationId: ORG_ID,
+            runId: RUN_ID,
+            attemptToken: OLD_TOKEN,
+            status: 'running',
+            progress: 0.5,
+          });
+      await enteredRepository.promise;
+
+      gate.beginStopping();
+      releaseRepository.resolve();
+
+      await expect(pendingMutation).rejects.toThrow(
+        'browser_runtime_fence_lost',
+      );
+      expect(persistedWrites).toBe(0);
+      expect(repository.heartbeatBrowserRun).toHaveBeenCalledWith(
+        expect.objectContaining({ signal: gate.signal() }),
+      );
     },
   );
 

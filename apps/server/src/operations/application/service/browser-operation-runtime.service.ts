@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
@@ -5,25 +6,24 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import type {
-  BrowserOperationClaim,
-  BrowserOperationHeartbeatRequest,
-  BrowserOperationReportRequest,
-} from '@kiditem/shared/operations';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
-import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import type {
-  OperationRunRecord,
-  OperationRunRepositoryPort,
-} from '../port/out/repository/operation.repository.port';
 import {
   OPERATION_RUNNER_PORT,
   type OperationRunnerPort,
 } from '../port/in/operation-runner.port';
 import { resolveOperationRunLeaseMs } from './operation-runtime.config';
 import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
-import { randomUUID } from 'node:crypto';
+import type {
+  OperationRunRecord,
+  OperationRunRepositoryPort,
+} from '../port/out/repository/operation.repository.port';
+import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import type {
+  BrowserOperationClaim,
+  BrowserOperationHeartbeatRequest,
+  BrowserOperationReportRequest,
+} from '@kiditem/shared/operations';
 
 @Injectable()
 export class BrowserOperationRuntimeService {
@@ -95,14 +95,15 @@ export class BrowserOperationRuntimeService {
     runId: string;
     request: BrowserOperationHeartbeatRequest;
   }): Promise<void> {
-    const now = new Date();
     this.lifecycleGate.assertAccepting();
+    const signal = this.lifecycleGate.signal();
+    signal.throwIfAborted();
     const result = await this.repository.heartbeatBrowserRun({
+      signal,
       organizationId: input.organizationId,
       runId: input.runId,
       attemptToken: input.request.attemptToken,
-      now,
-      leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
+      leaseDurationMs: this.leaseMs,
       progress: input.request.progress,
       stage: input.request.stage,
       progressCurrent: input.request.progressCurrent,
@@ -183,12 +184,14 @@ export class BrowserOperationRuntimeService {
     switch (input.status) {
       case 'running':
         this.lifecycleGate.assertAccepting();
+        const signal = this.lifecycleGate.signal();
+        signal.throwIfAborted();
         return this.repository.heartbeatBrowserRun({
+          signal,
           organizationId: input.organizationId,
           runId: input.runId,
           attemptToken: input.attemptToken,
-          now,
-          leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
+          leaseDurationMs: this.leaseMs,
           progress: input.progress,
           stage: input.stage,
           progressCurrent: input.progressCurrent,

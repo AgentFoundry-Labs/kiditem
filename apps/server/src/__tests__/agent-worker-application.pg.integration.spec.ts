@@ -1,13 +1,13 @@
 import { NestFactory } from '@nestjs/core';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AgentWorkerApplicationModule } from '../agent-worker-application.module';
+import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
 import { makeTestPrisma } from '../test-helpers/real-prisma';
 import type { INestApplicationContext } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
 const DISABLED_WORKER_ENV = {
   AGENT_RUNTIME_WORKER_ENABLED: '0',
-  AI_DIRECT_JOB_WORKER_ENABLED: '0',
   OPERATION_RUNTIME_WORKER_ENABLED: '0',
   OPERATION_SCHEDULER_ENABLED: '0',
 } as const;
@@ -18,13 +18,14 @@ let prisma: PrismaClient | null = null;
 let priorEnvironment: Partial<
   Record<DisabledWorkerEnvKey, string | undefined>
 > = {};
+let priorAiDirectJobWorkerEnabled: string | undefined;
 
 async function resetStatementObservation(): Promise<void> {
   if (!prisma) throw new Error('Postgres observer was not initialized');
   await prisma.$queryRaw`SELECT pg_stat_statements_reset()`;
 }
 
-async function operationRunStatements(): Promise<string[]> {
+async function forbiddenWorkerRootStatements(): Promise<string[]> {
   if (!prisma) throw new Error('Postgres observer was not initialized');
   const statements = await prisma.$queryRaw<Array<{ query: string }>>`
     SELECT query
@@ -32,14 +33,14 @@ async function operationRunStatements(): Promise<string[]> {
   `;
   return statements
     .map(({ query }) => query)
-    .filter((query) => /\boperation_runs\b/i.test(query));
+    .filter((query) => /\b(?:operation_runs|ai_direct_jobs)\b/i.test(query));
 }
 
-async function assertNoOperationRunStatements(): Promise<void> {
-  const statements = await operationRunStatements();
+async function assertNoForbiddenWorkerRootStatements(): Promise<void> {
+  const statements = await forbiddenWorkerRootStatements();
   if (statements.length > 0) {
     throw new Error(
-      `Agent worker root touched operation_runs:\n${statements.join('\n')}`,
+      `Agent worker root touched an API-owned run table:\n${statements.join('\n')}`,
     );
   }
 }
@@ -48,7 +49,9 @@ beforeAll(async () => {
   priorEnvironment = Object.fromEntries(
     Object.keys(DISABLED_WORKER_ENV).map((key) => [key, process.env[key]]),
   );
+  priorAiDirectJobWorkerEnabled = process.env.AI_DIRECT_JOB_WORKER_ENABLED;
   Object.assign(process.env, DISABLED_WORKER_ENV);
+  delete process.env.AI_DIRECT_JOB_WORKER_ENABLED;
 
   prisma = makeTestPrisma();
   await prisma.$connect();
@@ -64,6 +67,11 @@ afterAll(async () => {
       if (prior === undefined) delete process.env[key];
       else process.env[key] = prior;
     }
+    if (priorAiDirectJobWorkerEnabled === undefined) {
+      delete process.env.AI_DIRECT_JOB_WORKER_ENABLED;
+    } else {
+      process.env.AI_DIRECT_JOB_WORKER_ENABLED = priorAiDirectJobWorkerEnabled;
+    }
   }
 });
 
@@ -72,25 +80,34 @@ beforeEach(async () => {
 });
 
 describe('AgentWorkerApplicationModule (real Postgres)', () => {
-  it('detects an injected operation_runs query at the database boundary', async () => {
-    if (!prisma) throw new Error('Postgres observer was not initialized');
-    await prisma.$queryRawUnsafe(
-      'SELECT count(*) FROM operation_runs /* forbidden worker-root probe */',
-    );
+  it.each(['operation_runs', 'ai_direct_jobs'])(
+    'detects an injected %s query at the database boundary',
+    async (table) => {
+      if (!prisma) throw new Error('Postgres observer was not initialized');
+      await prisma.$queryRawUnsafe(
+        `SELECT count(*) FROM ${table} /* forbidden worker-root probe */`,
+      );
 
-    await expect(assertNoOperationRunStatements()).rejects.toThrow(
-      'Agent worker root touched operation_runs',
-    );
-  });
+      await expect(assertNoForbiddenWorkerRootStatements()).rejects.toThrow(
+        'Agent worker root touched an API-owned run table',
+      );
+    },
+  );
 
-  it('boots the actual worker application context without operation_runs SQL', async () => {
+  it('boots the actual worker context without Operations or AI direct-job poll SQL', async () => {
     let context: INestApplicationContext | null = null;
     try {
       context = await NestFactory.createApplicationContext(
         AgentWorkerApplicationModule,
-        { logger: false },
+        { abortOnError: false, logger: ['error'] },
       );
-      await expect(assertNoOperationRunStatements()).resolves.toBeUndefined();
+      expect(() =>
+        context!.get(AiDirectJobWorkerService, { strict: false }),
+      ).toThrow();
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      await expect(
+        assertNoForbiddenWorkerRootStatements(),
+      ).resolves.toBeUndefined();
     } finally {
       await context?.close();
     }

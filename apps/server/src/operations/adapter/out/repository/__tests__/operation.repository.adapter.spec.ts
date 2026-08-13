@@ -114,6 +114,33 @@ function makePrisma(updateMany: ReturnType<typeof vi.fn>) {
   };
 }
 
+function makeBrowserHeartbeatPrisma(
+  queryRaw = vi.fn()
+    .mockResolvedValueOnce([{ id: RUN_ID, locked_at: NOW }])
+    .mockResolvedValueOnce([{ id: RUN_ID }]),
+) {
+  const findFirst = vi.fn().mockResolvedValue(makeRunRow());
+  return {
+    queryRaw,
+    findFirst,
+    prisma: {
+      $transaction: vi.fn((callback) => callback({ $queryRaw: queryRaw })),
+      operationRun: { findFirst },
+    },
+  };
+}
+
+function makeBrowserHeartbeatInput(overrides: Record<string, unknown> = {}) {
+  return {
+    signal: new AbortController().signal,
+    organizationId: ORG_ID,
+    runId: RUN_ID,
+    attemptToken: ATTEMPT_TOKEN,
+    leaseDurationMs: 60_000,
+    ...overrides,
+  };
+}
+
 describe('mapOperationRunRow persisted execution metadata', () => {
   it.each([
     ['unknown resource class', { resourceClass: 'unknown' }],
@@ -405,158 +432,142 @@ describe('OperationRepositoryAdapter stage and count mapping', () => {
   });
 
   it('timestamps a changed heartbeat stage and derives normalized progress', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       stage: 'collecting_keyword',
       progressCurrent: 3,
       progressTotal: 12,
-    });
+    }) as never);
 
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        organizationId: ORG_ID,
-        attemptToken: ATTEMPT_TOKEN,
-        deadlineAt: { gt: NOW },
-      }),
-      data: expect.objectContaining({
-        stage: 'collecting_keyword',
-        stageUpdatedAt: NOW,
-        progressCurrent: 3,
-        progressTotal: 12,
-        progress: 0.25,
-      }),
-    }));
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    const lockSql = sqlText(queryRaw.mock.calls[0]?.[0]);
+    const updateSql = sqlText(queryRaw.mock.calls[1]?.[0]);
+    expect(lockSql).toContain(`organization_id = ${ORG_ID}::uuid`);
+    expect(lockSql).toContain(`attempt_token = ${ATTEMPT_TOKEN}::uuid`);
+    expect(lockSql).toContain("status = 'running'");
+    expect(lockSql).toContain('FOR UPDATE');
+    expect(updateSql).toContain('stage_updated_at = CASE');
+    expect(updateSql).toContain('stage IS DISTINCT FROM collecting_keyword');
+    expect(updateSql).toContain('progress_current = 3');
+    expect(updateSql).toContain('progress_total = 12');
+    expect(updateSql).toContain('progress = 0.25');
+    expect(updateSql).toContain(`deadline_at > ${NOW.toString()}::timestamptz`);
   });
 
   it('preserves stageUpdatedAt when a heartbeat repeats the current stage', async () => {
-    const updateMany = vi.fn()
-      .mockResolvedValueOnce({ count: 0 })
-      .mockResolvedValueOnce({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       stage: 'collecting_keyword',
-    });
+    }) as never);
 
-    expect(updateMany).toHaveBeenCalledTimes(2);
-    expect(updateMany.mock.calls[0]?.[0].where).toMatchObject({
-      OR: [
-        { stage: null },
-        { stage: { not: 'collecting_keyword' } },
-      ],
-    });
-    expect(updateMany.mock.calls[1]?.[0].where).toMatchObject({
-      stage: 'collecting_keyword',
-    });
-    expect(updateMany.mock.calls[1]?.[0].data).not.toHaveProperty('stageUpdatedAt');
+    const updateSql = sqlText(queryRaw.mock.calls[1]?.[0]);
+    expect(updateSql).toContain(
+      'WHEN stage IS DISTINCT FROM collecting_keyword',
+    );
+    expect(updateSql).toContain('ELSE stage_updated_at');
   });
 
   it('rejects a partial count update before touching the run', async () => {
-    const updateMany = vi.fn();
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await expect(repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await expect(repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       progressCurrent: 3,
-    })).rejects.toThrow('operation_progress_counts_must_be_paired');
-    expect(updateMany).not.toHaveBeenCalled();
+    }) as never)).rejects.toThrow('operation_progress_counts_must_be_paired');
+    expect(queryRaw).not.toHaveBeenCalled();
   });
 
   it('jointly clears counts and their derived normalized progress', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       progressCurrent: null,
       progressTotal: null,
-    });
+    }) as never);
 
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        progressCurrent: null,
-        progressTotal: null,
-        progress: null,
-      }),
-    }));
+    const updateSql = sqlText(queryRaw.mock.calls[1]?.[0]);
+    expect(updateSql).toContain('progress_current = null');
+    expect(updateSql).toContain('progress_total = null');
+    expect(updateSql).toContain('progress = null');
   });
 
   it('normalizes zero of zero progress to a finite persisted zero', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       progressCurrent: 0,
       progressTotal: 0,
-    });
+    }) as never);
 
-    const progress = updateMany.mock.calls[0]?.[0].data.progress;
-    expect(progress).toBe(0);
-    expect(Number.isFinite(progress)).toBe(true);
+    const updateSql = sqlText(queryRaw.mock.calls[1]?.[0]);
+    expect(updateSql).toContain('progress_current = 0');
+    expect(updateSql).toContain('progress_total = 0');
+    expect(updateSql).toContain('progress = 0');
   });
 
   it('accepts the persisted signed-32-bit maximum for count updates', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       progressCurrent: MAX_OPERATION_PERSISTED_INT,
       progressTotal: MAX_OPERATION_PERSISTED_INT,
-    });
+    }) as never);
 
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({
-        progressCurrent: MAX_OPERATION_PERSISTED_INT,
-        progressTotal: MAX_OPERATION_PERSISTED_INT,
-        progress: 1,
-      }),
-    }));
+    const updateSql = sqlText(queryRaw.mock.calls[1]?.[0]);
+    expect(updateSql).toContain(
+      `progress_current = ${MAX_OPERATION_PERSISTED_INT}`,
+    );
+    expect(updateSql).toContain(
+      `progress_total = ${MAX_OPERATION_PERSISTED_INT}`,
+    );
+    expect(updateSql).toContain('progress = 1');
   });
 
   it('rejects out-of-range counts before calling Prisma', async () => {
-    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
-    const repository = new OperationRepositoryAdapter(makePrisma(updateMany) as never);
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
 
-    await expect(repository.heartbeatBrowserRun({
-      organizationId: ORG_ID,
-      runId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      now: NOW,
-      leaseExpiresAt: new Date('2026-08-13T01:03:03.000Z'),
+    await expect(repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
       progressCurrent: MAX_OPERATION_PERSISTED_INT + 1,
       progressTotal: MAX_OPERATION_PERSISTED_INT + 1,
-    })).rejects.toThrow('operation_progress_counts_invalid');
-    expect(updateMany).not.toHaveBeenCalled();
+    }) as never)).rejects.toThrow('operation_progress_counts_invalid');
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('rejects an invalid browser checkpoint stage before locking the run', async () => {
+    const { prisma, queryRaw } = makeBrowserHeartbeatPrisma();
+    const repository = new OperationRepositoryAdapter(prisma as never);
+
+    await expect(repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
+      stage: 'Collecting Keyword',
+    }) as never)).rejects.toThrow('operation_stage_invalid');
+    expect(queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('turns a shutdown observed after the raw update into transaction rollback fence loss', async () => {
+    const controller = new AbortController();
+    const queryRaw = vi.fn()
+      .mockResolvedValueOnce([{ id: RUN_ID, locked_at: NOW }])
+      .mockImplementationOnce(async () => {
+        controller.abort('operation_server_shutdown');
+        return [{ id: RUN_ID }];
+      });
+    const { prisma, findFirst } = makeBrowserHeartbeatPrisma(queryRaw);
+    const repository = new OperationRepositoryAdapter(prisma as never);
+
+    await expect(repository.heartbeatBrowserRun(makeBrowserHeartbeatInput({
+      signal: controller.signal,
+      progress: 0.5,
+    }) as never)).resolves.toBeNull();
+    expect(queryRaw).toHaveBeenCalledTimes(2);
+    expect(findFirst).not.toHaveBeenCalled();
   });
 });
 
