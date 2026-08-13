@@ -27,6 +27,10 @@ describe('OpenAiResponsesAguiRuntimeAdapter', () => {
     runtime.onModuleInit();
     const invokeCapability = vi.fn().mockResolvedValue({
       resourceType: 'analytics_overview', outputSummary: { sales: { orders: 8 } },
+      interactionUiResult: {
+        kind: 'notice', tone: 'info', title: '조회 완료', body: '주문을 확인했습니다.',
+        textFallback: '주문을 확인했습니다.',
+      },
     });
     const recordUsage = vi.fn();
     const events = [];
@@ -54,6 +58,8 @@ describe('OpenAiResponsesAguiRuntimeAdapter', () => {
       EventType.RUN_FINISHED,
     ]);
     expect(invokeCapability).toHaveBeenCalledWith('analytics.readOverview', { period: 'today' });
+    expect(JSON.parse((events.find((event) => event.type === EventType.TOOL_CALL_RESULT) as { content: string }).content))
+      .toEqual(expect.objectContaining({ kind: 'notice', title: '조회 완료' }));
     expect(recordUsage).toHaveBeenCalledTimes(2);
     expect(responses.decide).toHaveBeenCalledWith(expect.objectContaining({ model: 'gpt-5.4' }));
   });

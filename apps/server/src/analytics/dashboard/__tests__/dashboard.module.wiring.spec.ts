@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { DashboardModule } from '../dashboard.module';
 import { PrismaModule } from '../../../prisma/prisma.module';
-import { AgentOsModule } from '../../../agent-os/agent-os.module';
 
 import { DashboardController } from '../adapter/in/http/dashboard.controller';
 
@@ -59,10 +58,9 @@ const EXPECTED_PORT_BINDINGS = [
 // stray legacy controller, or an accidental route rename fails at vitest
 // time before reaching dev:server boot.
 describe('DashboardModule capability wiring', () => {
-  it('imports Prisma and Agent OS for owner-published capability registration', () => {
+  it('does not import Agent OS from the analytics owner module', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, DashboardModule) ?? [];
-    expect(imports).toHaveLength(2);
-    expect(new Set(imports)).toEqual(new Set([PrismaModule, AgentOsModule]));
+    expect(imports).toEqual([PrismaModule]);
   });
 
   it('mounts the dashboard controller from adapter/in/http', () => {

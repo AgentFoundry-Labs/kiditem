@@ -53,12 +53,18 @@ test('AgentOS interaction vertical slice is durable, replay-safe, and tenant-sco
       expect(selected).not.toBe(threadId);
       return selected;
     });
-    await stage('failure, safe rendering, suggestion, and navigation contracts hold', async () => {
-      await harness.expectFailedDispatchRetryKeepsSession(page, secondThread);
-      await harness.expectSafeAnalyticsAndSourcingRenderer(page);
-      await harness.expectSuggestionSendsOnce(page);
-      await harness.expectAuthorizedNavigation(page);
-    });
+    await stage('projected tool results and terminal analytics are safe', () => (
+      harness.expectSafeAnalyticsAndSourcingRenderer(page)
+    ));
+    await stage('latest suggestion sends once and consumes siblings', () => (
+      harness.expectSuggestionSendsOnce(page)
+    ));
+    await stage('failure and retry keep the selected session', () => (
+      harness.expectFailedDispatchRetryKeepsSession(page, secondThread)
+    ));
+    await stage('navigation authorizes actionId and follows an allowlisted route', () => (
+      harness.expectAuthorizedNavigation(page)
+    ));
     await stage('panel and workspace share the selected thread', () => (
       harness.expectPanelAndWorkspaceShareThread(page, secondThread)
     ));

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AutomationModule } from '../automation/automation.module';
 import { ReadinessModule } from '../readiness/readiness.module';
+import { DashboardModule } from '../analytics/dashboard/dashboard.module';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
 import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
@@ -13,10 +15,12 @@ import { AgentInteractionControlController } from './adapter/in/http/agent-inter
 import { AgentAguiController } from './adapter/in/http/agent-agui.controller';
 import { AgentInteractionActionsController } from './adapter/in/http/agent-interaction-actions.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from './adapter/in/agent/agent-os-platform-probe-capability.adapter';
+import { AnalyticsOverviewAgentCapabilityAdapter } from './adapter/in/agent/analytics-overview-agent-capability.adapter';
 import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
 import { InProcessAgentConversationLivePublisher } from './adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
+import { InteractionProductAnalyticsAdapter } from './adapter/out/event/interaction-product-analytics.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
@@ -33,6 +37,7 @@ import { AGENT_OS_LIVE_READINESS_PORT } from './application/port/out/cross-domai
 import { AGENT_OS_REPOSITORY_PORT } from './application/port/out/repository/agent-os-repository.port';
 import { AGENT_INTERACTION_REPOSITORY } from './application/port/out/repository/agent-interaction-repository.port';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from './application/port/out/event/agent-conversation-live-publisher.port';
+import { INTERACTION_PRODUCT_ANALYTICS_PORT } from './application/port/out/event/interaction-product-analytics.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
@@ -64,6 +69,7 @@ import { AgentInlineRunReconciler } from './application/service/agent-inline-run
 import { AgentInteractionIdentityService } from './application/service/agent-interaction-identity.service';
 import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
 import { AgentAguiRunService } from './application/service/agent-agui-run.service';
+import { AgentAguiProducerCoordinator } from './application/service/agent-agui-producer-coordinator.service';
 import { AgentAguiRuntimeRegistry } from './application/service/agent-agui-runtime-registry.service';
 import { AgentInteractionPresentationService } from './application/service/agent-interaction-presentation.service';
 
@@ -76,7 +82,7 @@ const agentInteractionProviders = [
 ];
 
 @Module({
-  imports: [AutomationModule, ReadinessModule],
+  imports: [AutomationModule, ReadinessModule, DashboardModule],
   controllers: [
     AgentCatalogController,
     AgentRunRequestsController,
@@ -95,6 +101,7 @@ const agentInteractionProviders = [
     ...interactionEnvironmentProviders,
     AgentInteractionIdentityService,
     AgentAguiRunService,
+    AgentAguiProducerCoordinator,
     AgentAguiRuntimeRegistry,
     {
       // Provisional wiring: KID-24 will relocate this HTTP composition boundary.
@@ -106,6 +113,7 @@ const agentInteractionProviders = [
     AgentCatalogService,
     AgentCapabilityRegistry,
     AgentOsPlatformProbeCapabilityAdapter,
+    AnalyticsOverviewAgentCapabilityAdapter,
     AgentConversationService,
     AgentObservabilityService,
     AgentPlanValidator,
@@ -145,6 +153,22 @@ const agentInteractionProviders = [
       useClass: PrismaAgentInteractionRepository,
     },
     InProcessAgentConversationLivePublisher,
+    {
+      provide: InteractionProductAnalyticsAdapter,
+      inject: [EventEmitter2],
+      useFactory: (events: EventEmitter2) => {
+        const key = process.env.INTERACTION_ANALYTICS_HMAC_KEY;
+        if (!key) throw new Error('INTERACTION_ANALYTICS_HMAC_KEY_REQUIRED');
+        return new InteractionProductAnalyticsAdapter(
+          key,
+          async (event) => { events.emit('interaction.product.analytics', event); },
+        );
+      },
+    },
+    {
+      provide: INTERACTION_PRODUCT_ANALYTICS_PORT,
+      useExisting: InteractionProductAnalyticsAdapter,
+    },
     {
       provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
       useExisting: InProcessAgentConversationLivePublisher,

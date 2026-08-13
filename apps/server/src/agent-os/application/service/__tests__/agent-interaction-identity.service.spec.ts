@@ -9,6 +9,7 @@ import type {
   AgentSessionRecord,
   AuthorizedExecutionRecord,
   ConversationEventPage,
+  CurrentAgentExecution,
 } from '../../port/out/repository/agent-interaction-repository.port';
 import * as interactionTokens from '../agent-interaction.tokens';
 import { AgentInteractionIdentityService } from '../agent-interaction-identity.service';
@@ -124,6 +125,7 @@ interface BuildOptions {
   accessibleSession?: AgentSessionRecord | null;
   page?: ConversationEventPage;
   authorize?: () => Promise<AuthorizedExecutionRecord>;
+  currentExecution?: CurrentAgentExecution | null;
 }
 
 function buildService(options: BuildOptions = {}) {
@@ -139,6 +141,7 @@ function buildService(options: BuildOptions = {}) {
     readConversationEvents: vi.fn(async () => options.page ?? ({
       events: [authorization.userEvent], lastSequence: 1n, hasMore: false,
     })),
+    findAccessibleCurrentExecution: vi.fn(async () => options.currentExecution ?? null),
     authorizeExecution: vi.fn(options.authorize ?? (async () => authorization)),
     appendExecutionEvent: vi.fn(),
     markExecutionTerminal: vi.fn(),
@@ -379,6 +382,25 @@ describe('AgentInteractionIdentityService run intent', () => {
 });
 
 describe('AgentInteractionIdentityService connection authorization', () => {
+  it('grants only the canonical current running execution identity for reconnect and stop', async () => {
+    const currentExecution = {
+      organizationId: ORGANIZATION_ID, agentDefinitionKey: 'operator',
+      sessionId: session.id, executionId: 'execution-1', copilotThreadId: THREAD_ID,
+      aguiRunId: RUN_ID, runtimeType: 'copilotkit_agui', status: 'running', attempt: 2,
+    };
+    const { service } = buildService({ currentExecution });
+
+    await expect(service.authorizeConnection({
+      ...identity, copilotThreadId: THREAD_ID, cursor: null,
+    })).resolves.toMatchObject({
+      currentExecution: {
+        agentDefinitionKey: 'operator', sessionId: session.id,
+        executionId: 'execution-1', copilotThreadId: THREAD_ID,
+        aguiRunId: RUN_ID, status: 'running', attempt: 2,
+      },
+    });
+  });
+
   it('reads an active session from sequence zero and maps the strict wire envelope read-only', async () => {
     const { repository, service } = buildService();
     const result = await service.authorizeConnection({ ...identity, copilotThreadId: THREAD_ID, cursor: null });
@@ -386,6 +408,7 @@ describe('AgentInteractionIdentityService connection authorization', () => {
       ...identity, sessionId: session.id, afterSequence: 0n, limit: 500,
     });
     expect(result).toEqual({
+      currentExecution: null,
       session: {
         sessionId: session.id, copilotThreadId: THREAD_ID,
         primaryAgentDefinitionKey: 'operator', primaryAgentVersionId: VERSION_ID,

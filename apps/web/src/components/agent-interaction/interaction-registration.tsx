@@ -6,7 +6,17 @@ import { useAgentContext, useDefaultRenderTool } from '@copilotkit/react-core/v2
 import { projectDashboardContext } from './dashboard-context';
 import { InteractionResultRenderer } from './renderers';
 
-export function InteractionRegistration({ onSend }: { onSend?: (content: string) => void }) {
+export function InteractionRegistration({
+  onSend,
+  latestSuggestionMessageId,
+  toolMessageIdByCall,
+  threadId,
+}: {
+  onSend?: (content: string) => void;
+  latestSuggestionMessageId: string | null;
+  toolMessageIdByCall: Record<string, string>;
+  threadId: string;
+}) {
   const pathname = usePathname();
   const value = useMemo(() => projectDashboardContext({
     routeKey: routeKeyForPath(pathname),
@@ -20,16 +30,22 @@ export function InteractionRegistration({ onSend }: { onSend?: (content: string)
 
   useAgentContext({ description: '현재 KidItem 화면의 허용된 대시보드 컨텍스트', value });
   useDefaultRenderTool({
-    render: ({ name, status, result }) => {
+    render: ({ name, toolCallId, status, result }) => {
       if (status !== 'complete') return <p>{name} 실행 중</p>;
       if (!result) return <p>{name} 결과가 없습니다.</p>;
       try {
-        return <InteractionResultRenderer result={JSON.parse(result)} onSend={onSend} />;
+        return <InteractionResultRenderer
+          result={JSON.parse(result)}
+          onSend={onSend}
+          messageIdentity={toolMessageIdByCall[toolCallId] ?? null}
+          latestSuggestionMessageId={latestSuggestionMessageId}
+          threadId={threadId}
+        />;
       } catch {
         return <p>{result.slice(0, 2_000)}</p>;
       }
     },
-  }, [onSend]);
+  }, [latestSuggestionMessageId, onSend, threadId, toolMessageIdByCall]);
   return null;
 }
 

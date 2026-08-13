@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { CanonicalResourceRefSchema } from './resource-ref';
+import { InteractionUiResultSchema } from './ui';
 
 export { CanonicalResourceRefSchema } from './resource-ref';
 export type { CanonicalResourceRef } from './resource-ref';
@@ -150,12 +151,41 @@ export const AgentConversationEventTypeSchema = z.enum([
   'run_terminal',
 ]);
 
-export const MessageEventPayloadSchema = z
-  .object({
-    messageId: boundedIdentifierSchema,
-    content: boundedContentSchema,
-  })
-  .strict();
+const completeMessageEventPayloadSchema = z.object({
+  phase: z.literal('complete'),
+  messageId: boundedIdentifierSchema,
+  content: boundedContentSchema,
+}).strict();
+const startMessageEventPayloadSchema = z.object({
+  phase: z.literal('start'),
+  messageId: boundedIdentifierSchema,
+}).strict();
+const deltaMessageEventPayloadSchema = z.object({
+  phase: z.literal('delta'),
+  messageId: boundedIdentifierSchema,
+  content: boundedContentSchema,
+}).strict();
+const endMessageEventPayloadSchema = z.object({
+  phase: z.literal('end'),
+  messageId: boundedIdentifierSchema,
+}).strict();
+const legacyCompleteMessageEventPayloadSchema = z.object({
+  messageId: boundedIdentifierSchema,
+  content: boundedContentSchema,
+}).strict();
+
+export const MessageEventPayloadSchema = z.union([
+  completeMessageEventPayloadSchema,
+  startMessageEventPayloadSchema,
+  deltaMessageEventPayloadSchema,
+  endMessageEventPayloadSchema,
+  // Existing durable rows predate explicit phases and represent a complete message.
+  legacyCompleteMessageEventPayloadSchema,
+]);
+export const UserMessageEventPayloadSchema = z.union([
+  completeMessageEventPayloadSchema,
+  legacyCompleteMessageEventPayloadSchema,
+]);
 
 export const SystemNoticeEventPayloadSchema = z
   .object({
@@ -174,9 +204,23 @@ export const ToolActivityEventPayloadSchema = z
   })
   .strict();
 
-export const StateSnapshotEventPayloadSchema = z
+const toolResultStateSnapshotEventPayloadSchema = z
   .object({
-    snapshotType: stableCodeSchema,
+    snapshotType: z.literal('tool_result'),
+    snapshotVersion: z.literal(1),
+    data: z
+      .object({
+        messageId: boundedIdentifierSchema,
+        toolCallId: boundedIdentifierSchema,
+        result: InteractionUiResultSchema,
+      })
+      .strict(),
+  })
+  .strict();
+
+const genericStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: stableCodeSchema.refine((value) => value !== 'tool_result'),
     snapshotVersion: z.number().int().positive(),
     data: z
       .object({
@@ -185,6 +229,11 @@ export const StateSnapshotEventPayloadSchema = z
       .strict(),
   })
   .strict();
+
+export const StateSnapshotEventPayloadSchema = z.union([
+  toolResultStateSnapshotEventPayloadSchema,
+  genericStateSnapshotEventPayloadSchema,
+]);
 
 export const HitlRequestEventPayloadSchema = z
   .object({
@@ -230,7 +279,7 @@ const eventContentSchema = <
 
 const userMessageEventContentSchema = eventContentSchema(
   'user_message',
-  MessageEventPayloadSchema,
+  UserMessageEventPayloadSchema,
 );
 const assistantMessageEventContentSchema = eventContentSchema(
   'assistant_message',
@@ -333,6 +382,18 @@ export const AguiConnectionAuthorizationSchema = z
     replay: AgentConversationReplaySchema,
     liveJoinToken: z.string().min(32).max(4096).nullable(),
     liveJoinExpiresAt: z.string().datetime().nullable(),
+    currentExecution: z
+      .object({
+        agentDefinitionKey: z.string().min(1).max(128),
+        sessionId: z.string().min(1).max(128),
+        executionId: z.string().min(1).max(128),
+        copilotThreadId: z.string().min(1).max(256),
+        aguiRunId: z.string().min(1).max(256),
+        status: z.literal('running'),
+        attempt: z.number().int().positive(),
+      })
+      .strict()
+      .nullable(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -344,6 +405,17 @@ export const AguiConnectionAuthorizationSchema = z
         code: 'custom',
         message: 'live join is available only after replay history is complete',
         path: ['liveJoinToken'],
+      });
+    }
+    if (value.currentExecution && (
+      value.currentExecution.sessionId !== value.session.sessionId ||
+      value.currentExecution.copilotThreadId !== value.session.copilotThreadId ||
+      value.currentExecution.agentDefinitionKey !== value.session.primaryAgentDefinitionKey
+    )) {
+      context.addIssue({
+        code: 'custom',
+        message: 'current execution must match the authorized session',
+        path: ['currentExecution'],
       });
     }
   });

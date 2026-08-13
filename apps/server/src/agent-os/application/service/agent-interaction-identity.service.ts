@@ -11,7 +11,7 @@ import {
   DashboardContextSchema,
   InteractionBootstrapSchema,
   InteractionPrincipalSchema,
-  MessageEventPayloadSchema,
+  UserMessageEventPayloadSchema,
   type AguiConnectionAuthorization,
   type AguiRunAuthorization,
   type AguiRunIntent,
@@ -55,7 +55,7 @@ const UserEventSchema = z
   .object({
     externalEventId: z.string().min(1).max(128),
     schemaVersion: z.literal(1),
-    payload: MessageEventPayloadSchema,
+    payload: UserMessageEventPayloadSchema,
   })
   .strict();
 
@@ -369,6 +369,12 @@ export class AgentInteractionIdentityService {
           LIVE_JOIN_DOMAIN,
         )
       : null;
+    const currentExecution = await this.repository.findAccessibleCurrentExecution({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      sessionId: session.id,
+      copilotThreadId: session.copilotThreadId,
+    });
 
     return parseShared(AguiConnectionAuthorizationSchema, {
       session: sessionSummary(session, version.agentDefinitionKey),
@@ -392,6 +398,17 @@ export class AgentInteractionIdentityService {
       },
       liveJoinToken,
       liveJoinExpiresAt: liveJoinExpiresAt?.toISOString() ?? null,
+      currentExecution: currentExecution?.status === 'running'
+        ? {
+            agentDefinitionKey: currentExecution.agentDefinitionKey,
+            sessionId: currentExecution.sessionId,
+            executionId: currentExecution.executionId,
+            copilotThreadId: currentExecution.copilotThreadId,
+            aguiRunId: currentExecution.aguiRunId,
+            status: 'running',
+            attempt: currentExecution.attempt,
+          }
+        : null,
     });
   }
 

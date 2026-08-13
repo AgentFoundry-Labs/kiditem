@@ -28,6 +28,7 @@ import {
   type AgentInteractionRepositoryPort,
 } from '../../../application/port/out/repository/agent-interaction-repository.port';
 import { AgentInteractionIdentityService } from '../../../application/service/agent-interaction-identity.service';
+import { AgentAguiProducerCoordinator } from '../../../application/service/agent-agui-producer-coordinator.service';
 import { interactionHttpCall } from './interaction-http-error';
 import { InteractionGatewayGuard } from './interaction-gateway.guard';
 import type { Request, Response } from 'express';
@@ -61,6 +62,7 @@ export class AgentAguiController {
     private readonly repository: AgentInteractionRepositoryPort,
     @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
     private readonly publisher?: AgentConversationLivePublisherPort,
+    private readonly producers: AgentAguiProducerCoordinator = new AgentAguiProducerCoordinator(),
   ) {}
 
   @Get('health')
@@ -79,7 +81,10 @@ export class AgentAguiController {
   ): Promise<void> {
     const input = parseOfficialRunInput(body);
     await this.stream(
-      this.runner.run({ agentDefinitionKey, input }),
+      this.producers.attach(
+        `${agentDefinitionKey}:${input.threadId}:${input.runId}`,
+        () => this.runner.run({ agentDefinitionKey, input }),
+      ),
       request,
       response,
     );
@@ -131,10 +136,7 @@ export class AgentAguiController {
     response.setHeader('Connection', 'keep-alive');
     const iterator = iterable[Symbol.asyncIterator]();
     let closed = false;
-    request.once('close', () => {
-      closed = true;
-      void iterator.return?.();
-    });
+    request.once('close', () => { closed = true; });
     try {
       while (!closed) {
         const next = await iterator.next();
@@ -224,6 +226,26 @@ function replayEvent(
       if (content.eventType !== 'user_message' && content.eventType !== 'assistant_message') {
         throw new Error('Invalid canonical message event.');
       }
+      const phase = 'phase' in content.payload ? content.payload.phase : 'complete';
+      if (phase === 'start') {
+        return {
+          type: EventType.TEXT_MESSAGE_START,
+          messageId: content.payload.messageId,
+          role: event.eventType === 'user_message' ? 'user' : 'assistant',
+        };
+      }
+      if (phase === 'delta') {
+        if (!('content' in content.payload)) throw new Error('Invalid canonical message delta.');
+        return {
+          type: EventType.TEXT_MESSAGE_CONTENT,
+          messageId: content.payload.messageId,
+          delta: content.payload.content,
+        };
+      }
+      if (phase === 'end') {
+        return { type: EventType.TEXT_MESSAGE_END, messageId: content.payload.messageId };
+      }
+      if (!('content' in content.payload)) throw new Error('Invalid canonical complete message.');
       return {
         type: EventType.TEXT_MESSAGE_CHUNK,
         messageId: content.payload.messageId,

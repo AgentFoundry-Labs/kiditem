@@ -1,4 +1,5 @@
 import type { z } from 'zod';
+import type { InteractionUiResult } from '@kiditem/shared/agent-interaction';
 
 export type AgentCapabilityExecutionKind =
   | 'tool'
@@ -44,6 +45,7 @@ export interface AgentCapabilityExecutionResult {
   resourceType?: string | null;
   resourceId?: string | null;
   artifacts?: AgentCapabilityArtifactOutput[];
+  interactionUiResult?: InteractionUiResult;
 }
 
 export interface AgentCapabilityHandler<

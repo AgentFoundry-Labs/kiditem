@@ -109,11 +109,13 @@ implements AgentAguiRuntimeAdapter, OnModuleInit {
         decision.capabilityInput,
       );
       yield { type: EventType.TOOL_CALL_END, toolCallId };
-      const content = JSON.stringify({
-        resourceType: capabilityResult.resourceType ?? null,
-        resourceId: capabilityResult.resourceId ?? null,
-        outputSummary: capabilityResult.outputSummary ?? {},
-      });
+      if (!capabilityResult.interactionUiResult) {
+        throw new AgentOsRuntimeError(
+          'interaction_presentation_missing',
+          'The capability result has no server-owned interaction presentation.',
+        );
+      }
+      const content = JSON.stringify(capabilityResult.interactionUiResult);
       yield {
         type: EventType.TOOL_CALL_RESULT,
         messageId: randomUUID(),

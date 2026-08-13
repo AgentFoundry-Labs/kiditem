@@ -104,6 +104,7 @@ const envelope = (
 function connectionAuthorization(
   events = [envelope(1)],
   nextCursor: string | null = null,
+  currentExecution?: Record<string, unknown> | null,
 ) {
   return {
     session,
@@ -116,8 +117,14 @@ function connectionAuthorization(
     },
     liveJoinToken: nextCursor === null ? 'j'.repeat(64) : null,
     liveJoinExpiresAt: nextCursor === null ? '2026-08-14T00:00:15.000Z' : null,
+    currentExecution: currentExecution ?? null,
   };
 }
+
+const runningExecution = {
+  agentDefinitionKey: 'operator', sessionId: 'session-1', executionId: 'execution-1',
+  copilotThreadId: THREAD_ID, aguiRunId: RUN_ID, status: 'running', attempt: 1,
+};
 
 function controlHarness(): NestControlPort &
   Record<string, ReturnType<typeof vi.fn>> {
@@ -312,7 +319,7 @@ describe('CopilotKit native runtime routes', () => {
     const nextCursor = 'cursor-next-page-0001';
     control.authorizeConnection
       .mockResolvedValueOnce(connectionAuthorization([envelope(4)], nextCursor))
-      .mockResolvedValueOnce(connectionAuthorization([envelope(5)]));
+      .mockResolvedValueOnce(connectionAuthorization([envelope(5)], null, runningExecution));
     control.connectLive.mockReturnValue(
       of({ type: EventType.CUSTOM, name: 'kiditem.live', value: 'joined' }),
     );
@@ -376,6 +383,115 @@ describe('CopilotKit native runtime routes', () => {
     expect(control.connectLive).not.toHaveBeenCalled();
   });
 
+  it('replays one assistant message across page boundaries with ordered deltas', async () => {
+    const control = controlHarness();
+    control.authorizeConnection
+      .mockResolvedValueOnce(connectionAuthorization([
+        envelope(1, { payload: { phase: 'start', messageId: 'assistant-1' } }),
+        envelope(2, { payload: { phase: 'delta', messageId: 'assistant-1', content: '첫 ' } }),
+      ], 'next-page-cursor-01'))
+      .mockResolvedValueOnce(connectionAuthorization([
+        envelope(3, { payload: { phase: 'delta', messageId: 'assistant-1', content: '응답' } }),
+        envelope(4, { payload: { phase: 'end', messageId: 'assistant-1' } }),
+      ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const events = await readSseEvents(response);
+
+    expect(events.filter(({ type }) => type === EventType.TEXT_MESSAGE_START)).toHaveLength(1);
+    expect(events.filter(({ type }) => type === EventType.TEXT_MESSAGE_CONTENT))
+      .toEqual([expect.objectContaining({ delta: '첫 ' }), expect.objectContaining({ delta: '응답' })]);
+    expect(events.filter(({ type }) => type === EventType.TEXT_MESSAGE_END)).toHaveLength(1);
+  });
+
+  it('replays a durable tool result with its original Copilot message correlation', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'state_snapshot',
+        payload: {
+          snapshotType: 'tool_result',
+          snapshotVersion: 1,
+          data: {
+            messageId: 'tool-message-1',
+            toolCallId: 'tool-call-1',
+            result: {
+              kind: 'notice',
+              title: '완료',
+              body: '도구 실행이 완료되었습니다.',
+              tone: 'info',
+              textFallback: '도구 실행이 완료되었습니다.',
+            },
+          },
+        },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const events = await readSseEvents(response);
+
+    const toolResult = events.find(({ type }) => type === EventType.TOOL_CALL_RESULT);
+    expect(toolResult).toEqual(expect.objectContaining({
+      type: EventType.TOOL_CALL_RESULT,
+      messageId: 'tool-message-1',
+      toolCallId: 'tool-call-1',
+      role: 'tool',
+    }));
+    expect(JSON.parse((toolResult as { content: string }).content)).toEqual({
+        kind: 'notice',
+        title: '완료',
+        body: '도구 실행이 완료되었습니다.',
+        tone: 'info',
+        textFallback: '도구 실행이 완료되었습니다.',
+    });
+  });
+
+  it('reconnects an active canonical execution after gateway restart with an empty optimization map', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(
+      connectionAuthorization([envelope(1)], null, runningExecution),
+    );
+    control.connectLive.mockReturnValue(of({ type: EventType.CUSTOM, name: 'kiditem.live', value: 'restarted' }));
+    const restarted = createInteractionGateway(dependencies(control));
+
+    const response = await restarted.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const events = await readSseEvents(response);
+
+    expect(events).toContainEqual(expect.objectContaining({ name: 'kiditem.live', value: 'restarted' }));
+    expect(control.connectLive).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
+      agentDefinitionKey: 'operator', copilotThreadId: THREAD_ID,
+    }));
+  });
+
+  it('stops the canonical running execution after gateway restart without a local grant', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(
+      connectionAuthorization([], null, runningExecution),
+    );
+    const restarted = createInteractionGateway(dependencies(control));
+
+    const response = await restarted.handler(new Request(
+      `http://gateway.test/api/copilotkit/agent/operator/stop/${THREAD_ID}`,
+      { method: 'POST', headers: { cookie: COOKIE } },
+    ));
+
+    expect(await response.json()).toMatchObject({ stopped: true });
+    expect(control.stopRun).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
+      executionId: 'execution-1', aguiRunId: RUN_ID, sessionId: 'session-1',
+    }));
+  });
+
   it.each([
     ['gap', [envelope(1), envelope(3)]],
     ['duplicate', [envelope(1), envelope(1, { eventId: 'event-other' })]],
@@ -401,6 +517,9 @@ describe('CopilotKit native runtime routes', () => {
 
   it('native stop re-authorizes ownership and targets the exact active grant', async () => {
     const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(
+      connectionAuthorization([], null, runningExecution),
+    );
     const gateway = createInteractionGateway(dependencies(control));
     gateway.runner.registerActiveGrant({
       agentDefinitionKey: 'operator',
@@ -440,6 +559,7 @@ describe('CopilotKit native runtime routes', () => {
       runId: RUN_ID,
       authorization,
     });
+    control.stopRun.mockResolvedValueOnce(false);
     control.authorizeConnection.mockImplementationOnce(async () => {
       gateway.runner.registerActiveGrant({
         agentDefinitionKey: 'operator',
@@ -447,7 +567,7 @@ describe('CopilotKit native runtime routes', () => {
         runId: 'run-2',
         authorization: { ...authorization, executionId: 'execution-2' },
       });
-      return connectionAuthorization();
+      return connectionAuthorization([], null, runningExecution);
     });
 
     const response = await gateway.handler(
@@ -458,7 +578,9 @@ describe('CopilotKit native runtime routes', () => {
     );
 
     expect(await response.json()).toMatchObject({ stopped: false });
-    expect(control.stopRun).not.toHaveBeenCalled();
+    expect(control.stopRun).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
+      executionId: 'execution-1',
+    }));
   });
 
   it('denies cross-user stop when ownership authorization fails', async () => {

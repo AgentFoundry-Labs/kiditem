@@ -15,12 +15,20 @@ describe('AgentAguiController', () => {
     expect(controller.health()).toEqual({ status: 'ok' });
   });
 
-  it('streams official events as SSE and disconnect only closes the iterator', async () => {
+  it('detaches the response subscriber while the producer persists through terminal', async () => {
     let returned = false;
+    let releaseRuntime!: () => void;
+    const runtimeGate = new Promise<void>((resolve) => { releaseRuntime = resolve; });
+    const produced: string[] = [];
     const runner = {
       run: vi.fn(() => ({
         async *[Symbol.asyncIterator]() {
-          try { yield { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' }; }
+          try {
+            yield { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' };
+            await runtimeGate;
+            produced.push('terminal-persisted');
+            yield { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId: 'run-1' };
+          }
           finally { returned = true; }
         },
       })),
@@ -35,13 +43,21 @@ describe('AgentAguiController', () => {
       end: vi.fn(),
     };
 
-    await controller.run('operator', {
+    const run = controller.run('operator', {
       threadId: 'thread-1', runId: 'run-1', state: {}, messages: [], tools: [], context: [], forwardedProps: {},
     } as never, request as never, response as never);
 
+    await vi.waitFor(() => expect(response.write).toHaveBeenCalledOnce());
+    expect(returned).toBe(false);
+    releaseRuntime();
+    await run;
+    await vi.waitFor(() => expect(returned).toBe(true));
+
     expect(response.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
     expect(runner.stop).not.toHaveBeenCalled();
+    expect(produced).toEqual(['terminal-persisted']);
     expect(returned).toBe(true);
+    expect(response.write).toHaveBeenCalledOnce();
   });
 
   it('subscribes before authoritative catch-up so live join has no replay race', async () => {

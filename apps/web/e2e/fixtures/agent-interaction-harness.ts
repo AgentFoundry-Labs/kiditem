@@ -6,6 +6,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { EventType, type BaseEvent } from '@ag-ui/core';
+import { z } from 'zod';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import type { Page } from 'playwright/test';
@@ -19,6 +20,7 @@ import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os
 import { AGENT_INTERACTION_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-interaction-repository.port.js';
 import { AgentCapabilityRegistry } from '../../../server/dist/agent-os/application/service/agent-capability-registry.service.js';
 import { AgentAguiRunService } from '../../../server/dist/agent-os/application/service/agent-agui-run.service.js';
+import { AgentAguiProducerCoordinator } from '../../../server/dist/agent-os/application/service/agent-agui-producer-coordinator.service.js';
 import { AgentAguiRuntimeRegistry } from '../../../server/dist/agent-os/application/service/agent-agui-runtime-registry.service.js';
 import { AgentInteractionIdentityService } from '../../../server/dist/agent-os/application/service/agent-interaction-identity.service.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
@@ -32,6 +34,7 @@ import {
 import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
 import { PrismaAgentInteractionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-interaction.repository.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
+import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../../../server/dist/agent-os/application/port/out/event/interaction-product-analytics.port.js';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, OTHER_USER_ID, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../../server/dist/test-helpers/real-prisma.js';
 import type { AgentAguiRuntimeAdapter, AgentAguiRuntimeInput } from '../../../server/src/agent-os/application/port/out/runtime/agent-agui-runtime.port';
 import { stopTrackedChild } from './tracked-child';
@@ -61,18 +64,13 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
     yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: '재고 현황을 확인했습니다.' };
     yield { type: EventType.TEXT_MESSAGE_END, messageId };
     if (submitted.includes('새 대화')) {
+      const analytics = await input.invokeCapability('analytics.readOverview', { period: 'today' });
+      const sourcing = await input.invokeCapability('sourcing.retrieveWorkspaceEvidence', {
+        query: '재고 위험 소싱 근거', topK: 3,
+      });
       const results = [
-        {
-          kind: 'metric_group', title: '재고 요약',
-          items: [{ key: 'risk-count', label: '위험 상품', value: '1건', format: 'plain', trend: null }],
-          freshness: { observedAt: '2026-08-14T00:00:00.000Z', label: '테스트 시점' },
-          textFallback: '위험 상품은 한 건입니다.',
-        },
-        {
-          kind: 'resource_list', title: '소싱 후보',
-          items: [{ label: '연필 세트', description: '안전한 후보', resourceRef: { kind: 'sourcing_candidate', id: 'candidate-1', version: '1' } }],
-          textFallback: '소싱 후보 한 건입니다.',
-        },
+        analytics.interactionUiResult,
+        sourcing.interactionUiResult,
         {
           kind: 'suggested_replies', messageId,
           replies: [
@@ -86,8 +84,9 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
         }),
       ];
       for (const [index, result] of results.entries()) {
+        if (!result) throw new Error('missing projected acceptance result');
         const toolCallId = `${input.aguiRunId}-tool-${index}`;
-        yield { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: `acceptance.tool.${index}` };
+        yield { type: EventType.TOOL_CALL_START, toolCallId, toolCallName: index === 0 ? 'analytics.readOverview' : index === 1 ? 'sourcing.retrieveWorkspaceEvidence' : `acceptance.presentation.${index}` };
         yield { type: EventType.TOOL_CALL_ARGS, toolCallId, delta: '{}' };
         yield { type: EventType.TOOL_CALL_END, toolCallId };
         yield { type: EventType.TOOL_CALL_RESULT, messageId: `${toolCallId}-result`, toolCallId, content: JSON.stringify(result), role: 'tool' };
@@ -112,7 +111,8 @@ export async function createAgentInteractionAcceptanceHarness() {
   await prisma.$connect();
   await seedBaseFixture(prisma);
   await seedAgentVersion(prisma);
-  const nest = await startNest(prisma);
+  const analyticsEvents: unknown[] = [];
+  const nest = await startNest(prisma, analyticsEvents);
   const gatewayLog: string[] = [];
   const webLog: string[] = [];
   const gateway = await startGateway(gatewayLog);
@@ -132,7 +132,9 @@ export async function createAgentInteractionAcceptanceHarness() {
     throw new Error(`acceptance setup failed: ${String(error)}; web=${JSON.stringify(webLog.slice(-30))}; gateway=${JSON.stringify(gatewayLog.slice(-20))}`);
   }
 
-  return new AgentInteractionAcceptanceHarness(postgres, prisma, nest, gateway, web, gatewayLog, webLog);
+  return new AgentInteractionAcceptanceHarness(
+    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents,
+  );
 }
 
 class AgentInteractionAcceptanceHarness {
@@ -146,6 +148,7 @@ class AgentInteractionAcceptanceHarness {
     private readonly web: ChildProcess,
     private readonly gatewayLog: string[],
     private readonly webLog: string[],
+    private readonly analyticsEvents: unknown[],
   ) {}
 
   diagnostics() {
@@ -250,20 +253,20 @@ class AgentInteractionAcceptanceHarness {
   }
 
   async expectSafeAnalyticsAndSourcingRenderer(page: Page) {
-    await page.getByText('재고 요약').waitFor({ timeout: 10_000 });
-    await page.getByText('위험 상품', { exact: true }).waitFor({ timeout: 10_000 });
-    await page.getByText('연필 세트').waitFor({ timeout: 10_000 });
+    await page.getByText('운영 지표').waitFor({ timeout: 10_000 });
+    await page.getByText('품절 SKU', { exact: true }).waitFor({ timeout: 10_000 });
+    await page.getByText('근거 1').waitFor({ timeout: 10_000 });
     if (!this.selectedThreadId) throw new Error('missing selected thread for analytics');
     const session = await this.session(this.selectedThreadId);
-    const execution = await this.prisma.agentExecution.findFirstOrThrow({ where: { sessionId: session.id }, orderBy: { startedAt: 'desc' } });
-    const emitted: unknown[] = [];
-    const analytics = new InteractionProductAnalyticsAdapter('acceptance-analytics-hmac-key-value-0001', async (event) => { emitted.push(event); });
-    await analytics.record({
-      event: 'interaction_run_finished', organizationId: TEST_ORGANIZATION_ID,
-      sessionId: session.id, executionId: execution.id, agentDefinitionKey: 'operator',
-      surface: 'global_panel', durationMs: 10, outcome: 'completed', rendererKinds: ['metric_group', 'resource_list', 'suggested_replies', 'navigation'],
+    const actual = this.analyticsEvents.find((value) => {
+      const event = value as { sessionId?: unknown; rendererKinds?: unknown };
+      return event.sessionId === session.id &&
+        Array.isArray(event.rendererKinds) &&
+        event.rendererKinds.includes('metric_group') &&
+        event.rendererKinds.includes('resource_list');
     });
-    const serialized = JSON.stringify(emitted);
+    if (!actual) throw new Error('terminal flow did not emit product analytics');
+    const serialized = JSON.stringify(actual);
     for (const forbidden of [TEST_ORGANIZATION_ID, TEST_USER_ID, '연필 세트', '재고 현황을 확인했습니다.', 'cookie', 'token', 'dashboard']) {
       if (serialized.includes(forbidden)) throw new Error(`unsafe analytics field leaked: ${forbidden}`);
     }
@@ -350,12 +353,56 @@ class AgentInteractionAcceptanceHarness {
   }
 }
 
-async function startNest(prisma: PrismaClient): Promise<INestApplication> {
+function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void {
+  registry.register({
+    key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
+    inputSchema: z.object({ period: z.enum(['today', 'month']).optional() }).strict(),
+    outputSchema: z.object({
+      sales: z.object({ revenue: z.number(), orders: z.number() }).strict(),
+      inventory: z.object({ outOfStockSkus: z.number(), mappingAttentionSkus: z.number() }).strict(),
+      freshness: z.object({ lastSync: z.string().datetime().nullable(), confirmedUntil: z.string().nullable() }).strict(),
+    }).strict(),
+    sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
+    execute: async () => ({
+      resourceType: 'analytics_overview',
+      outputSummary: {
+        sales: { revenue: 12000, orders: 3 },
+        inventory: { outOfStockSkus: 1, mappingAttentionSkus: 0 },
+        freshness: { lastSync: '2026-08-14T00:00:00.000Z', confirmedUntil: '2026-08-13' },
+      },
+    }),
+  });
+  registry.register({
+    key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', executionKind: 'tool',
+    inputSchema: z.object({
+      query: z.string().min(1), topK: z.number().int().positive().optional(),
+    }).strict(),
+    outputSchema: z.object({
+      inputHash: z.string(), documentCount: z.number().int(),
+      citationIds: z.array(z.string()), dataGaps: z.array(z.string()),
+    }).strict(),
+    sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
+    execute: async () => ({
+      resourceType: 'sourcing_workspace_evidence', resourceId: 'a'.repeat(64),
+      outputSummary: {
+        inputHash: 'a'.repeat(64), documentCount: 1,
+        citationIds: ['document-1'], dataGaps: [],
+      },
+    }),
+  });
+}
+
+async function startNest(
+  prisma: PrismaClient,
+  analyticsEvents: unknown[],
+): Promise<INestApplication> {
   const repository = new PrismaAgentInteractionRepository(prisma as never);
   const publisher = new InProcessAgentConversationLivePublisher();
   const presentation = new AgentInteractionPresentationService();
   const runtimeRegistry = new AgentAguiRuntimeRegistry();
   runtimeRegistry.register('copilotkit_agui', new DeterministicAcceptanceRuntime(presentation));
+  const capabilityRegistry = new AgentCapabilityRegistry();
+  registerAcceptanceCapabilities(capabilityRegistry);
   const moduleRef = await Test.createTestingModule({
     controllers: [AgentInteractionBootstrapController, AgentInteractionControlController, AgentInteractionActionsController, AgentAguiController],
     providers: [
@@ -368,9 +415,18 @@ async function startNest(prisma: PrismaClient): Promise<INestApplication> {
       { provide: INTERACTION_REPLAY_CURSOR_HMAC_KEY, useValue: HMAC },
       { provide: AgentAguiRuntimeRegistry, useValue: runtimeRegistry },
       { provide: AgentInteractionPresentationService, useValue: presentation },
-      AgentCapabilityRegistry,
+      {
+        provide: InteractionProductAnalyticsAdapter,
+        useFactory: () => new InteractionProductAnalyticsAdapter(
+          'acceptance-analytics-hmac-key-value-0001',
+          async (event) => { analyticsEvents.push(event); },
+        ),
+      },
+      { provide: INTERACTION_PRODUCT_ANALYTICS_PORT, useExisting: InteractionProductAnalyticsAdapter },
+      { provide: AgentCapabilityRegistry, useValue: capabilityRegistry },
       AgentInteractionIdentityService,
       AgentAguiRunService,
+      AgentAguiProducerCoordinator,
       { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
       InteractionGatewayGuard,
     ],

@@ -8,6 +8,7 @@ import {
 import {
   AguiRunAuthorizationSchema,
   AgentConversationEventContentSchema,
+  InteractionUiResultSchema,
   type AgentConversationEventContent,
 } from '@kiditem/shared/agent-interaction';
 import {
@@ -28,6 +29,12 @@ import {
 import { AgentOsBoundaryError, AgentOsError } from '../../domain/agent-os.errors';
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from './agent-agui-runtime-registry.service';
+import { AgentInteractionPresentationService } from './agent-interaction-presentation.service';
+import {
+  INTERACTION_PRODUCT_ANALYTICS_PORT,
+  type InteractionProductAnalyticsPort,
+  type InteractionRendererKind,
+} from '../port/out/event/interaction-product-analytics.port';
 import type { AgentAguiRuntimeMessage } from '../port/out/runtime/agent-agui-runtime.port';
 
 const MODEL_CONTEXT_EVENT_LIMIT = 200;
@@ -41,6 +48,9 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     private readonly publisher: AgentConversationLivePublisherPort,
     private readonly runtimes: AgentAguiRuntimeRegistry,
     private readonly capabilities: AgentCapabilityRegistry,
+    private readonly presentation: AgentInteractionPresentationService = new AgentInteractionPresentationService(),
+    @Inject(INTERACTION_PRODUCT_ANALYTICS_PORT)
+    private readonly analytics: InteractionProductAnalyticsPort = { record: async () => false },
   ) {}
 
   async *run(request: AuthorizedAguiRunInput): AsyncIterable<BaseEvent> {
@@ -64,6 +74,15 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         'The authorized execution cannot be resolved.',
       );
     }
+    const currentExecution = await this.repository.findCurrentExecution({
+      executionId: runtimeContext.executionId,
+    });
+    if (!currentExecution || currentExecution.status !== 'running') {
+      throw boundary(
+        'INTERACTION_EXECUTION_NOT_RUNNING',
+        'The authorized execution is no longer current and running.',
+      );
+    }
     assertCorrelation(request.agentDefinitionKey, input, authorization, runtimeContext);
     const messages = await this.loadCanonicalMessages(input, runtimeContext);
     const runtime = this.runtimes.resolve(runtimeContext.runtimeType);
@@ -75,6 +94,8 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     }
 
     const state = new RuntimeEventState(runtimeContext);
+    const startedAt = Date.now();
+    const rendererKinds = new Set<InteractionRendererKind>();
     try {
       const stream = runtime.run({
         organizationId: runtimeContext.organizationId,
@@ -90,8 +111,11 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         capabilityKeys: [...runtimeContext.capabilityKeys],
         messages,
         dashboardContext: authorization.dashboardContext,
-        invokeCapability: (key, capabilityInput) =>
-          this.invokeCapability(runtimeContext, key, capabilityInput),
+        invokeCapability: async (key, capabilityInput) => {
+          const result = await this.invokeCapability(runtimeContext, key, capabilityInput);
+          if (result.interactionUiResult) rendererKinds.add(result.interactionUiResult.kind);
+          return result;
+        },
         recordUsage: (usage) => {
           if (
             !usage.provider.trim() ||
@@ -136,6 +160,10 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
             : {}),
         });
         await this.publishAfterCommit(saved).catch(() => undefined);
+        if (content.eventType === 'run_terminal') {
+          await this.recordAnalytics(runtimeContext, authorization.dashboardContext, startedAt,
+            content.payload.status, rendererKinds);
+        }
         yield event;
       }
       state.assertComplete();
@@ -158,13 +186,16 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         terminal: { status: 'failed', errorCode: code, finishedAt: new Date() },
       });
       await this.publishAfterCommit(saved).catch(() => undefined);
+      await this.recordAnalytics(runtimeContext, authorization.dashboardContext, startedAt,
+        'failed', rendererKinds);
       yield event;
     }
   }
 
   async stop(input: StopAuthorizedAguiRunInput): Promise<boolean> {
-    const current = await this.repository.findCurrentExecution({
-      executionId: input.executionId,
+    const current = await this.repository.findCurrentSessionExecution({
+      sessionId: input.sessionId,
+      copilotThreadId: input.copilotThreadId,
     });
     if (
       !current ||
@@ -202,7 +233,7 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
       submitted.id !== initial.externalEventId ||
       initial.eventType !== 'user_message' ||
       initialPayload.messageId !== submitted.id ||
-      initialPayload.content !== submitted.content
+      messageText(initialPayload) !== submitted.content
     ) {
       throw boundary(
         'INTERACTION_INITIAL_USER_EVENT_MISMATCH',
@@ -221,14 +252,42 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         'The canonical conversation exceeds the active context bound.',
       );
     }
-    return page.events.flatMap((event): AgentAguiRuntimeMessage[] => {
+    const messages: AgentAguiRuntimeMessage[] = [];
+    let openAssistant: { id: string; content: string } | null = null;
+    for (const event of page.events) {
       if (event.eventType === 'user_message' || event.eventType === 'assistant_message') {
         const payload = messageContent(event);
-        return [{
-          id: payload.messageId,
-          role: event.eventType === 'user_message' ? 'user' : 'assistant',
-          content: payload.content,
-        }];
+        const phase = messagePhase(payload);
+        if (event.eventType === 'user_message') {
+          if (openAssistant || phase === 'start' || phase === 'delta' || phase === 'end') {
+            throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical message streams are interleaved.');
+          }
+          messages.push({ id: payload.messageId, role: 'user', content: messageText(payload) });
+          continue;
+        }
+        if (phase === 'complete') {
+          if (openAssistant) throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical message streams are interleaved.');
+          messages.push({ id: payload.messageId, role: 'assistant', content: messageText(payload) });
+          continue;
+        }
+        if (phase === 'start') {
+          if (openAssistant) throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical message streams are interleaved.');
+          openAssistant = { id: payload.messageId, content: '' };
+          continue;
+        }
+        if (!openAssistant || openAssistant.id !== payload.messageId) {
+          throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical message stream ordering is invalid.');
+        }
+        if (phase === 'delta') {
+          openAssistant.content += messageText(payload);
+          continue;
+        }
+        if (!openAssistant.content) {
+          throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical assistant messages cannot be empty.');
+        }
+        messages.push({ id: openAssistant.id, role: 'assistant', content: openAssistant.content });
+        openAssistant = null;
+        continue;
       }
       if (event.eventType === 'state_snapshot') {
         const content = AgentConversationEventContentSchema.parse({
@@ -236,15 +295,23 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
           schemaVersion: event.schemaVersion,
           payload: event.payload,
         });
-        if (content.eventType !== 'state_snapshot') return [];
-        return [{
+        if (
+          content.eventType !== 'state_snapshot' ||
+          content.payload.snapshotType === 'tool_result' ||
+          !('content' in content.payload.data)
+        ) continue;
+        if (openAssistant) throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical message streams are interleaved.');
+        messages.push({
           id: event.externalEventId,
           role: 'tool',
           content: content.payload.data.content,
-        }];
+        });
       }
-      return [];
-    });
+    }
+    if (openAssistant) {
+      throw boundary('INTERACTION_MESSAGE_STREAM_INVALID', 'Canonical assistant message stream is incomplete.');
+    }
+    return messages;
   }
 
   private async invokeCapability(
@@ -282,7 +349,14 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
       input: capabilityInput,
     });
     if (result.outputSummary) handler.outputSchema.parse(result.outputSummary);
-    return result;
+    return {
+      ...result,
+      interactionUiResult: this.presentation.projectCapabilityResult({
+        organizationId: context.organizationId,
+        userId: context.userId,
+        sessionId: context.sessionId,
+      }, key, result),
+    };
   }
 
   private async publishAfterCommit(saved: {
@@ -297,6 +371,29 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
       eventId: saved.id,
       sequence: saved.sequence,
     });
+  }
+
+  private async recordAnalytics(
+    context: AgentExecutionRuntimeContext,
+    dashboardContext: unknown,
+    startedAt: number,
+    outcome: 'completed' | 'failed' | 'cancelled',
+    rendererKinds: Set<InteractionRendererKind>,
+  ): Promise<void> {
+    const surface = record(dashboardContext).routeKey === 'agent_os'
+      ? 'agent_os_workspace'
+      : 'global_panel';
+    await this.analytics.record({
+      event: 'interaction_run_finished',
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
+      executionId: context.executionId,
+      agentDefinitionKey: context.agentDefinitionKey,
+      surface,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      outcome,
+      rendererKinds: [...rendererKinds],
+    }).catch(() => false);
   }
 }
 
@@ -323,15 +420,15 @@ class RuntimeEventState {
         this.requireStarted();
         if (event.role !== 'assistant' || this.openMessages.has(event.messageId)) throw invalidEvent('Assistant message start is invalid.');
         this.openMessages.add(event.messageId);
-        return notice('agui.message_started', 'Assistant message started.');
+        return { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'start', messageId: event.messageId } };
       case EventType.TEXT_MESSAGE_CONTENT:
         this.requireStarted();
         if (!this.openMessages.has(event.messageId) || event.delta.length === 0) throw invalidEvent('Assistant message content is out of order.');
-        return { eventType: 'assistant_message', schemaVersion: 1, payload: { messageId: event.messageId, content: event.delta } };
+        return { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'delta', messageId: event.messageId, content: event.delta } };
       case EventType.TEXT_MESSAGE_END:
         this.requireStarted();
         if (!this.openMessages.delete(event.messageId)) throw invalidEvent('Assistant message end is out of order.');
-        return notice('agui.message_finished', 'Assistant message finished.');
+        return { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'end', messageId: event.messageId } };
       case EventType.TOOL_CALL_START:
         this.requireStarted();
         if (this.openTools.has(event.toolCallId)) throw invalidEvent('Tool call is duplicated.');
@@ -349,7 +446,15 @@ class RuntimeEventState {
         this.requireStarted();
         return {
           eventType: 'state_snapshot', schemaVersion: 1,
-          payload: { snapshotType: 'tool_result', snapshotVersion: 1, data: { content: event.content } },
+          payload: {
+            snapshotType: 'tool_result',
+            snapshotVersion: 1,
+            data: {
+              messageId: event.messageId,
+              toolCallId: event.toolCallId,
+              result: InteractionUiResultSchema.parse(JSON.parse(event.content)),
+            },
+          },
         };
       case EventType.RUN_FINISHED:
         this.assertTerminalCorrelation(event.threadId, event.runId);
@@ -459,6 +564,17 @@ function messageContent(event: { eventType: string; schemaVersion: number; paylo
     throw invalidEvent('Expected a canonical message event.');
   }
   return content.payload;
+}
+
+function messagePhase(payload: ReturnType<typeof messageContent>): 'complete' | 'start' | 'delta' | 'end' {
+  return 'phase' in payload ? payload.phase : 'complete';
+}
+
+function messageText(payload: ReturnType<typeof messageContent>): string {
+  if (!('content' in payload)) {
+    throw invalidEvent('Expected canonical message content.');
+  }
+  return payload.content;
 }
 
 function notice(code: string, content: string): AgentConversationEventContent {

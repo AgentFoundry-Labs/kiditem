@@ -90,6 +90,7 @@ function harness() {
       },
       liveJoinToken: 'j'.repeat(64),
       liveJoinExpiresAt: '2026-08-14T00:00:15.000Z',
+      currentExecution: null,
     }),
     health: vi.fn().mockResolvedValue({ status: 'ok' }),
   };

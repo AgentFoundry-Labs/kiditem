@@ -103,36 +103,30 @@ export class KidItemAgentRunner extends AgentRunner {
   async stop(request: AgentRunnerStopRequest): Promise<boolean | undefined> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const selected = this.active.get(request.threadId);
-    if (!selected || selected.agentDefinitionKey !== agentDefinitionKey) {
-      return false;
-    }
-
     const ownership = AguiConnectionAuthorizationSchema.parse(
       await this.control.authorizeConnection(context.request, {
         copilotThreadId: request.threadId,
         cursor: null,
       }),
     );
+    const canonical = ownership.currentExecution;
     if (
-      ownership.session.sessionId !==
-        selected.authorization.session.sessionId ||
-      ownership.session.copilotThreadId !== selected.threadId
+      !canonical ||
+      canonical.agentDefinitionKey !== agentDefinitionKey ||
+      canonical.copilotThreadId !== request.threadId
     ) {
       return false;
     }
 
-    // Close the await race: a prior stop request cannot cancel a newer grant.
-    if (this.active.get(request.threadId) !== selected) return false;
-
     const stopped = await this.control.stopRun(context.request, {
-      agentDefinitionKey: selected.agentDefinitionKey,
-      copilotThreadId: selected.threadId,
-      aguiRunId: selected.runId,
-      sessionId: selected.authorization.session.sessionId,
-      executionId: selected.authorization.executionId,
+      agentDefinitionKey: canonical.agentDefinitionKey,
+      copilotThreadId: canonical.copilotThreadId,
+      aguiRunId: canonical.aguiRunId,
+      sessionId: canonical.sessionId,
+      executionId: canonical.executionId,
     });
-    if (stopped && this.active.get(request.threadId) === selected) {
+    const selected = this.active.get(request.threadId);
+    if (stopped && selected?.authorization.executionId === canonical.executionId) {
       this.active.delete(request.threadId);
     }
     return stopped;
@@ -218,8 +212,8 @@ export class KidItemAgentRunner extends AgentRunner {
       }
       const afterSequence =
         previousSequence?.toString() ?? page.replay.lastSequence;
-      const active = this.active.get(input.threadId);
-      const liveEvents = active
+      const canonical = page.currentExecution;
+      const liveEvents = canonical?.agentDefinitionKey === input.agentDefinitionKey
         ? this.control.connectLive(input.request, {
           agentDefinitionKey: input.agentDefinitionKey,
           copilotThreadId: input.threadId,
@@ -229,7 +223,7 @@ export class KidItemAgentRunner extends AgentRunner {
         .pipe(
           map((rawEvent) => {
             const event = BaseEventSchema.parse(rawEvent);
-            assertLiveCorrelation(event, input.threadId, active?.runId);
+            assertLiveCorrelation(event, input.threadId, canonical.aguiRunId);
             return event;
           }),
         )
@@ -377,6 +371,18 @@ function conversationEnvelopeToAgui(
     case 'user_message':
     case 'assistant_message': {
       const role = event.eventType === 'user_message' ? 'user' : 'assistant';
+      const phase = 'phase' in event.payload ? event.payload.phase : 'complete';
+      if (phase === 'start') {
+        return [{ type: EventType.TEXT_MESSAGE_START, messageId: event.payload.messageId, role, rawEvent }];
+      }
+      if (phase === 'delta') {
+        if (!('content' in event.payload)) throw new Error('Invalid canonical message delta.');
+        return [{ type: EventType.TEXT_MESSAGE_CONTENT, messageId: event.payload.messageId, delta: event.payload.content, rawEvent }];
+      }
+      if (phase === 'end') {
+        return [{ type: EventType.TEXT_MESSAGE_END, messageId: event.payload.messageId, rawEvent }];
+      }
+      if (!('content' in event.payload)) throw new Error('Invalid canonical complete message.');
       return [
         {
           type: EventType.TEXT_MESSAGE_START,
@@ -398,6 +404,19 @@ function conversationEnvelopeToAgui(
       ];
     }
     case 'state_snapshot':
+      if (
+        event.payload.snapshotType === 'tool_result' &&
+        'result' in event.payload.data
+      ) {
+        return [{
+          type: EventType.TOOL_CALL_RESULT,
+          messageId: event.payload.data.messageId,
+          toolCallId: event.payload.data.toolCallId,
+          content: JSON.stringify(event.payload.data.result),
+          role: 'tool',
+          rawEvent,
+        }];
+      }
       return [
         {
           type: EventType.STATE_SNAPSHOT,

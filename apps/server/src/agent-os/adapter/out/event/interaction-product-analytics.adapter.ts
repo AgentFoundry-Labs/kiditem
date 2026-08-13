@@ -1,4 +1,5 @@
 import { createHmac } from 'node:crypto';
+import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import type {
   InteractionProductAnalyticsPort,
@@ -27,6 +28,7 @@ const inputSchema = z.object({
   rendererKinds: z.array(rendererKindSchema).max(6),
 }).strict();
 
+@Injectable()
 export class InteractionProductAnalyticsAdapter implements InteractionProductAnalyticsPort {
   constructor(
     private readonly organizationHmacKey: string,

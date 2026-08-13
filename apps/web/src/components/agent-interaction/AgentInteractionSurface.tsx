@@ -25,18 +25,21 @@ import { InteractionRegistration } from './interaction-registration';
 const SubmissionContext = createContext<{
   markSubmitted: () => void;
   registerSend: (send: ((content: string) => void) | null) => void;
+  threadId: string;
 } | null>(null);
 
 const ManagedChatView = Object.assign(function ManagedChatView(props: CopilotChatViewProps) {
   const markSubmitted = useContext(SubmissionContext);
   const draft = useInteractionStore((state) => state.draft);
   const setDraft = useInteractionStore((state) => state.setDraft);
+  const consumeLatestSuggestions = useInteractionStore((state) => state.consumeLatestSuggestions);
   const handleSubmit = useCallback((value: string) => {
     if (!value.trim()) return;
+    if (markSubmitted) consumeLatestSuggestions(markSubmitted.threadId);
     markSubmitted?.markSubmitted();
     setDraft('');
     props.onSubmitMessage?.(value);
-  }, [markSubmitted, props.onSubmitMessage, setDraft]);
+  }, [consumeLatestSuggestions, markSubmitted, props.onSubmitMessage, setDraft]);
   useEffect(() => {
     markSubmitted?.registerSend(handleSubmit);
     return () => markSubmitted?.registerSend(null);
@@ -100,11 +103,28 @@ function ReadyInteractionSurface({
   const submissionContext = useMemo(() => ({
     markSubmitted: conversation.markSubmitted,
     registerSend,
-  }), [conversation.markSubmitted, registerSend]);
+    threadId: conversation.threadId,
+  }), [conversation.markSubmitted, conversation.threadId, registerSend]);
   const { agent, isReady } = useAgent({
     agentId: conversation.agentId,
-    updates: [UseAgentUpdate.OnRunStatusChanged],
+    updates: [UseAgentUpdate.OnRunStatusChanged, UseAgentUpdate.OnMessagesChanged],
   });
+  const toolResultMessages = (agent.messages ?? []).filter((message) => (
+    message.role === 'tool' && typeof message.content === 'string'
+  ));
+  const toolMessageIdByCall = Object.fromEntries(toolResultMessages.flatMap((message) => (
+    'toolCallId' in message && typeof message.toolCallId === 'string'
+      ? [[message.toolCallId, message.id]]
+      : []
+  )));
+  const latestSuggestionMessageId = [...toolResultMessages].reverse().find((message) => {
+    try {
+      const parsed = JSON.parse(message.content as string) as { kind?: unknown };
+      return parsed.kind === 'suggested_replies';
+    } catch {
+      return false;
+    }
+  })?.id ?? null;
   const connectionLabel = errorMessage
     ? '연결 오류'
     : agent.isRunning
@@ -140,7 +160,12 @@ function ReadyInteractionSurface({
         </p>
       ) : null}
       <SubmissionContext.Provider value={submissionContext}>
-        <InteractionRegistration onSend={sendSuggestedReply} />
+        <InteractionRegistration
+          onSend={sendSuggestedReply}
+          latestSuggestionMessageId={latestSuggestionMessageId}
+          toolMessageIdByCall={toolMessageIdByCall}
+          threadId={conversation.threadId}
+        />
         <CopilotChat
           key={`${conversation.agentId}:${conversation.threadId}`}
           agentId={conversation.agentId}

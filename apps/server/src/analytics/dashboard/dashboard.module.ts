@@ -1,6 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../../prisma/prisma.module';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
 import { DashboardController } from './adapter/in/http/dashboard.controller';
 import { AnalyticsOverviewCapabilityAdapter } from './adapter/in/agent/analytics-overview-capability.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
@@ -47,7 +46,7 @@ const REPOSITORY_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [PrismaModule, AgentOsModule],
+  imports: [PrismaModule],
   controllers: [DashboardController],
   providers: [
     // adapter/out/repository
@@ -74,6 +73,6 @@ const REPOSITORY_PORT_BINDINGS = [
     // port bindings
     ...REPOSITORY_PORT_BINDINGS,
   ],
-  exports: [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT],
+  exports: [WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, ANALYTICS_OVERVIEW_CAPABILITY_PORT],
 })
 export class DashboardModule {}

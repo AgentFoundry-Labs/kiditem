@@ -4,6 +4,7 @@ import { MODULE_METADATA } from '@nestjs/common/constants';
 import { AgentOsModule } from '../agent-os.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { ReadinessModule } from '../../readiness/readiness.module';
+import { DashboardModule } from '../../analytics/dashboard/dashboard.module';
 import { AgentCatalogController } from '../adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from '../adapter/in/http/agent-approvals.controller';
 import { AgentConversationsController } from '../adapter/in/http/agent-conversations.controller';
@@ -39,6 +40,9 @@ import { AgentInteractionControlController } from '../adapter/in/http/agent-inte
 import { AgentAguiController } from '../adapter/in/http/agent-agui.controller';
 import { AgentInteractionActionsController } from '../adapter/in/http/agent-interaction-actions.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from '../adapter/in/agent/agent-os-platform-probe-capability.adapter';
+import { AnalyticsOverviewAgentCapabilityAdapter } from '../adapter/in/agent/analytics-overview-agent-capability.adapter';
+import { InteractionProductAnalyticsAdapter } from '../adapter/out/event/interaction-product-analytics.adapter';
+import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../application/port/out/event/interaction-product-analytics.port';
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event/agent-conversation-live-publisher.port';
 import { AGENT_AGUI_RUNNER_PORT } from '../application/port/in/agent-agui-runner.port';
@@ -64,6 +68,7 @@ describe('AgentOsModule wiring', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? [];
     expect(imports).toContain(AutomationModule);
     expect(imports).toContain(ReadinessModule);
+    expect(imports).toContain(DashboardModule);
   });
 
   it('registers the Agent OS HTTP route-family controllers', () => {
@@ -94,6 +99,7 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(AgentAguiRunService);
     expect(providers).toContain(AgentAguiRuntimeRegistry);
     expect(providers).toContain(AgentOsPlatformProbeCapabilityAdapter);
+    expect(providers).toContain(AnalyticsOverviewAgentCapabilityAdapter);
     expect(providers).toContain(InProcessAgentConversationLivePublisher);
     expect(providers).toContainEqual({
       provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
@@ -102,6 +108,10 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContainEqual({
       provide: AGENT_AGUI_RUNNER_PORT,
       useExisting: AgentAguiRunService,
+    });
+    expect(providers).toContainEqual({
+      provide: INTERACTION_PRODUCT_ANALYTICS_PORT,
+      useExisting: InteractionProductAnalyticsAdapter,
     });
     for (const token of [
       INTERACTION_CLOCK,

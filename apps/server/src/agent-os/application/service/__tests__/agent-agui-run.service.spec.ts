@@ -4,6 +4,7 @@ import type { AguiRunAuthorization } from '@kiditem/shared/agent-interaction';
 import { AgentCapabilityRegistry } from '../agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from '../agent-agui-runtime-registry.service';
 import { AgentAguiRunService } from '../agent-agui-run.service';
+import { AgentInteractionPresentationService } from '../agent-interaction-presentation.service';
 
 const authorization = (): AguiRunAuthorization => ({
   session: {
@@ -74,7 +75,12 @@ function setup(events: BaseEvent[] = [
     findCurrentExecution: vi.fn().mockResolvedValue({
       organizationId: 'org-1', sessionId: 'session-1', executionId: 'execution-1',
       copilotThreadId: 'thread-1', aguiRunId: 'run-1', status: 'running',
-      runtimeType: 'openai_responses', agentDefinitionKey: 'operator',
+      runtimeType: 'openai_responses', agentDefinitionKey: 'operator', attempt: 1,
+    }),
+    findCurrentSessionExecution: vi.fn().mockResolvedValue({
+      organizationId: 'org-1', sessionId: 'session-1', executionId: 'execution-1',
+      copilotThreadId: 'thread-1', aguiRunId: 'run-1', status: 'running',
+      runtimeType: 'openai_responses', agentDefinitionKey: 'operator', attempt: 1,
     }),
   };
   const publisher = {
@@ -91,8 +97,12 @@ function setup(events: BaseEvent[] = [
   };
   runtimes.register('openai_responses', runtime);
   const capabilities = new AgentCapabilityRegistry();
-  const service = new AgentAguiRunService(repository as never, publisher as never, runtimes, capabilities);
-  return { service, repository, publisher, runtime, capabilities, calls };
+  const analytics = { record: vi.fn().mockResolvedValue(true) };
+  const service = new AgentAguiRunService(
+    repository as never, publisher as never, runtimes, capabilities,
+    new AgentInteractionPresentationService(), analytics,
+  );
+  return { service, repository, publisher, runtime, capabilities, analytics, calls };
 }
 
 async function collect(iterable: AsyncIterable<BaseEvent>) {
@@ -103,7 +113,7 @@ async function collect(iterable: AsyncIterable<BaseEvent>) {
 
 describe('AgentAguiRunService', () => {
   it('uses canonical history and persists every normalized event before publishing/yielding', async () => {
-    const { service, repository, runtime, calls } = setup();
+    const { service, repository, runtime, analytics, calls } = setup();
     const events = await collect(service.run({ agentDefinitionKey: 'operator', input: runInput() }));
 
     expect(events[0]).toMatchObject({ type: 'RUN_STARTED', threadId: 'thread-1', runId: 'run-1' });
@@ -125,6 +135,62 @@ describe('AgentAguiRunService', () => {
       organizationId: 'org-1', executionId: 'execution-1', modelIdentity: 'gpt-5.2',
       provider: 'openai', inputTokens: 10, outputTokens: 5, costMicros: 12n, currency: 'USD',
     });
+    expect(analytics.record).toHaveBeenCalledWith(expect.objectContaining({
+      event: 'interaction_run_finished', organizationId: 'org-1',
+      sessionId: 'session-1', executionId: 'execution-1',
+      surface: 'global_panel', outcome: 'completed', rendererKinds: [],
+    }));
+  });
+
+  it('persists every assistant stream phase before yield and folds ordered deltas into one model turn', async () => {
+    const { service, repository, runtime } = setup([
+      { type: EventType.RUN_STARTED, threadId: 'thread-1', runId: 'run-1' },
+      { type: EventType.TEXT_MESSAGE_START, messageId: 'assistant-new', role: 'assistant' },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'assistant-new', delta: '첫 ' },
+      { type: EventType.TEXT_MESSAGE_CONTENT, messageId: 'assistant-new', delta: '응답' },
+      { type: EventType.TEXT_MESSAGE_END, messageId: 'assistant-new' },
+      { type: EventType.RUN_FINISHED, threadId: 'thread-1', runId: 'run-1' },
+    ]);
+    repository.readModelConversation.mockResolvedValueOnce({
+      events: [
+        { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'start', messageId: 'assistant-old' }, sequence: 1n },
+        { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'delta', messageId: 'assistant-old', content: '재고 ' }, sequence: 2n },
+        { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'delta', messageId: 'assistant-old', content: '요약' }, sequence: 3n },
+        { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'end', messageId: 'assistant-old' }, sequence: 4n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 5n },
+      ],
+      hasMore: false,
+    });
+
+    await collect(service.run({ agentDefinitionKey: 'operator', input: runInput() }));
+
+    expect(runtime.run).toHaveBeenCalledWith(expect.objectContaining({
+      messages: expect.arrayContaining([
+        { id: 'assistant-old', role: 'assistant', content: '재고 요약' },
+      ]),
+    }));
+    expect(repository.appendExecutionEvent.mock.calls.slice(1, 5).map(([input]) => input.payload))
+      .toEqual([
+        { phase: 'start', messageId: 'assistant-new' },
+        { phase: 'delta', messageId: 'assistant-new', content: '첫 ' },
+        { phase: 'delta', messageId: 'assistant-new', content: '응답' },
+        { phase: 'end', messageId: 'assistant-new' },
+      ]);
+  });
+
+  it('rejects incomplete or interleaved canonical assistant streams', async () => {
+    const { service, repository, runtime } = setup();
+    repository.readModelConversation.mockResolvedValueOnce({
+      events: [
+        { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'start', messageId: 'assistant-old' }, sequence: 1n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 2n },
+      ],
+      hasMore: false,
+    });
+
+    await expect(collect(service.run({ agentDefinitionKey: 'operator', input: runInput() })))
+      .rejects.toMatchObject({ code: 'INTERACTION_MESSAGE_STREAM_INVALID' });
+    expect(runtime.run).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -158,7 +224,11 @@ describe('AgentAguiRunService', () => {
       inputSchema: { parse: (value: unknown) => value } as never,
       outputSchema: { parse: (value: unknown) => value } as never,
       sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-      execute: vi.fn().mockResolvedValue({ outputSummary: { ok: true } }),
+      execute: vi.fn().mockResolvedValue({ outputSummary: {
+        sales: { revenue: 1000, orders: 1 },
+        inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
+        freshness: { lastSync: '2026-08-14T00:00:00.000Z', confirmedUntil: null },
+      } }),
     });
     const runtime = (service as never as { runtimes: AgentAguiRuntimeRegistry }).runtimes.resolve('openai_responses')!;
     await runtime.invokeCapabilityForTest?.({ key: 'analytics.readOverview', input: {} });
@@ -168,6 +238,15 @@ describe('AgentAguiRunService', () => {
         'analytics.writeOverview', {},
       ),
     ).rejects.toMatchObject({ code: 'INTERACTION_CAPABILITY_NOT_ALLOWED' });
+    await expect(
+      (service as never as { invokeCapability: Function }).invokeCapability(
+        {
+          organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1',
+          executionId: 'execution-1', capabilityKeys: ['analytics.readOverview'],
+        },
+        'analytics.readOverview', {},
+      ),
+    ).resolves.toMatchObject({ interactionUiResult: { kind: 'metric_group' } });
   });
 
   it('normalizes provider-specific failures into one durable RUN_ERROR terminal', async () => {
@@ -206,7 +285,11 @@ describe('AgentAguiRunService', () => {
     })).resolves.toBe(true);
     expect(runtime.stop).toHaveBeenCalledWith(expect.objectContaining({ executionId: 'execution-1' }));
 
-    repository.findCurrentExecution.mockResolvedValueOnce({ status: 'completed' });
+    repository.findCurrentSessionExecution.mockResolvedValueOnce({
+      organizationId: 'org-1', sessionId: 'session-1', executionId: 'execution-2',
+      copilotThreadId: 'thread-1', aguiRunId: 'run-2', status: 'running',
+      runtimeType: 'openai_responses', agentDefinitionKey: 'operator', attempt: 2,
+    });
     await expect(service.stop({
       agentDefinitionKey: 'operator', sessionId: 'session-1', executionId: 'execution-1',
       copilotThreadId: 'thread-1', aguiRunId: 'run-1',

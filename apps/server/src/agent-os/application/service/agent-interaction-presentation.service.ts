@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
+import { z } from 'zod';
 import {
   InteractionUiResultSchema,
   NavigationResultSchema,
@@ -33,6 +34,18 @@ export class AgentInteractionPresentationService {
       resourceRef: CanonicalResourceRef,
     ) => boolean = () => false,
   ) {}
+
+  projectCapabilityResult(
+    actor: InteractionActor,
+    capabilityKey: string,
+    executionResult: unknown,
+  ): InteractionUiResult {
+    const result = z.object({ outputSummary: z.record(z.unknown()) }).passthrough()
+      .parse(executionResult);
+    const projected = CAPABILITY_PROJECTORS[capabilityKey]?.(result.outputSummary, this.clock());
+    if (!projected) throw new AgentOsBoundaryError('INTERACTION_PRESENTATION_INVALID');
+    return this.present(actor, projected);
+  }
 
   present(actor: InteractionActor, raw: unknown): InteractionUiResult {
     if (!raw || typeof raw !== 'object' || (raw as { kind?: unknown }).kind !== 'navigation') {
@@ -95,3 +108,99 @@ export class AgentInteractionPresentationService {
     }
   }
 }
+
+type CapabilityProjector = (
+  summary: Record<string, unknown>,
+  now: Date,
+) => InteractionUiResult;
+
+const analyticsOverviewSchema = z.object({
+  sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),
+  inventory: z.object({
+    outOfStockSkus: z.number().int().nonnegative(),
+    mappingAttentionSkus: z.number().int().nonnegative(),
+  }).strict(),
+  freshness: z.object({
+    lastSync: z.string().datetime().nullable(),
+    confirmedUntil: z.string().nullable(),
+  }).strict(),
+}).strict();
+const sourcingEvidenceSchema = z.object({
+  inputHash: z.string().min(1).max(128),
+  documentCount: z.number().int().nonnegative(),
+  citationIds: z.array(z.string().min(1).max(128)).max(20),
+  dataGaps: z.array(z.string().min(1).max(200)).max(20),
+}).strict();
+const sourcingRunSchema = z.object({
+  runId: z.string().min(1).max(128),
+  status: z.enum(['complete', 'partial', 'failed']),
+  businessDate: z.string().min(1).max(32),
+  itemCount: z.number().int().nonnegative(),
+  warningCodes: z.array(z.string().min(1).max(128)).max(20),
+  validation: z.object({
+    itemCount: z.number().int().nonnegative(),
+    missingCount: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+
+const CAPABILITY_PROJECTORS: Readonly<Record<string, CapabilityProjector>> = {
+  'agent_os.platform_probe': (summary) => {
+    z.object({ status: z.literal('available') }).strict().parse(summary);
+    return InteractionUiResultSchema.parse({
+      kind: 'notice', tone: 'success', title: 'Agent OS 사용 가능',
+      body: 'Agent OS 읽기 전용 기능이 정상적으로 응답했습니다.',
+      textFallback: 'Agent OS 읽기 전용 기능을 사용할 수 있습니다.',
+    });
+  },
+  'analytics.readOverview': (summary, now) => {
+    const value = analyticsOverviewSchema.parse(summary);
+    return InteractionUiResultSchema.parse({
+      kind: 'metric_group', title: '운영 지표',
+      items: [
+        { key: 'revenue', label: '매출', value: value.sales.revenue, format: 'krw', trend: null },
+        { key: 'orders', label: '주문', value: value.sales.orders, format: 'number', trend: null },
+        { key: 'out_of_stock', label: '품절 SKU', value: value.inventory.outOfStockSkus, format: 'number', trend: null },
+        { key: 'mapping_attention', label: '매핑 확인 SKU', value: value.inventory.mappingAttentionSkus, format: 'number', trend: null },
+      ],
+      freshness: {
+        observedAt: value.freshness.lastSync ?? now.toISOString(),
+        label: value.freshness.confirmedUntil
+          ? `확정 ${value.freshness.confirmedUntil}`
+          : '현재 조회',
+      },
+      textFallback: `매출 ${value.sales.revenue}, 주문 ${value.sales.orders}, 품절 SKU ${value.inventory.outOfStockSkus}입니다.`,
+    });
+  },
+  'sourcing.retrieveWorkspaceEvidence': (summary) => {
+    const value = sourcingEvidenceSchema.parse(summary);
+    const citations = value.citationIds.length > 0
+      ? value.citationIds
+      : [value.inputHash];
+    return InteractionUiResultSchema.parse({
+      kind: 'resource_list', title: '소싱 근거',
+      items: citations.map((id, index) => ({
+        label: value.citationIds.length > 0 ? `근거 ${index + 1}` : '검색 근거 없음',
+        description: value.dataGaps[index] ?? null,
+        resourceRef: {
+          kind: value.citationIds.length > 0 ? 'sourcing_evidence' : 'sourcing_evidence_query',
+          id,
+          version: null,
+        },
+      })),
+      textFallback: `소싱 근거 문서 ${value.documentCount}건을 확인했습니다.`,
+    });
+  },
+  'sourcing.inspectRecommendationRun': (summary) => {
+    const value = sourcingRunSchema.parse(summary);
+    return InteractionUiResultSchema.parse({
+      kind: 'comparison', title: '소싱 추천 실행', columns: ['항목', '값'],
+      rows: [
+        { label: '상태', values: ['상태', value.status] },
+        { label: '기준일', values: ['기준일', value.businessDate] },
+        { label: '추천 수', values: ['추천 수', String(value.itemCount)] },
+        { label: '누락 수', values: ['누락 수', String(value.validation.missingCount)] },
+      ],
+      textFallback: `소싱 추천 실행 ${value.runId}은 ${value.status} 상태이며 ${value.itemCount}건입니다.`,
+    });
+  },
+};

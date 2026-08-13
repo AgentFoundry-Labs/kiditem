@@ -1,6 +1,5 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { z } from 'zod';
-import { AgentCapabilityRegistry } from '../../../../../agent-os/application/service/agent-capability-registry.service';
 import { DashboardContextService } from '../../../application/service/dashboard-context.service';
 import { DashboardInventoryService } from '../../../application/service/dashboard-inventory.service';
 import { DashboardSalesService } from '../../../application/service/dashboard-sales.service';
@@ -8,9 +7,7 @@ import type {
   AnalyticsOverview,
   AnalyticsOverviewCapabilityPort,
 } from '../../../application/port/in/analytics-overview-capability.port';
-import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 
-const InputSchema = z.object({ period: z.enum(['today', 'month']).optional() }).strict();
 const OutputSchema = z.object({
   sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),
   inventory: z.object({
@@ -23,21 +20,14 @@ const OutputSchema = z.object({
   }).strict(),
 }).strict();
 
-type OverviewInput = z.infer<typeof InputSchema>;
-
 @Injectable()
 export class AnalyticsOverviewCapabilityAdapter
-implements AnalyticsOverviewCapabilityPort, OnModuleInit {
+implements AnalyticsOverviewCapabilityPort {
   constructor(
-    private readonly registry: AgentCapabilityRegistry,
     private readonly context: DashboardContextService,
     private readonly sales: DashboardSalesService,
     private readonly inventory: DashboardInventoryService,
   ) {}
-
-  onModuleInit(): void {
-    this.registry.register(this.handler());
-  }
 
   async readOverview(input: {
     organizationId: string;
@@ -66,24 +56,4 @@ implements AnalyticsOverviewCapabilityPort, OnModuleInit {
     });
   }
 
-  private handler(): AgentCapabilityHandler<OverviewInput, AnalyticsOverview> {
-    return {
-      key: 'analytics.readOverview',
-      ownerDomain: 'analytics',
-      executionKind: 'tool',
-      inputSchema: InputSchema,
-      outputSchema: OutputSchema,
-      sideEffects: ['read'],
-      approvalRisk: 'none',
-      idempotencyKey: () => null,
-      execute: async ({ organizationId, input }) => ({
-        resourceType: 'analytics_overview',
-        outputSummary: await this.readOverview({
-          organizationId,
-          now: new Date(),
-          period: input.period,
-        }),
-      }),
-    };
-  }
 }

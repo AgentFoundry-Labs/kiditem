@@ -8,10 +8,15 @@ interface InteractionStoreState {
   selectedSessionId: string | null;
   selectedThreadId: string | null;
   draft: string;
+  latestSuggestionMessageByThread: Record<string, string>;
+  consumedSuggestions: Record<string, true>;
   setOpen: (isOpen: boolean) => void;
   selectAgent: (selectedAgentDefinitionKey: string) => void;
   selectSession: (selectedSessionId: string | null, selectedThreadId: string | null) => void;
   setDraft: (draft: string) => void;
+  registerLatestSuggestion: (threadId: string, messageId: string) => void;
+  consumeSuggestions: (threadId: string, messageId: string) => void;
+  consumeLatestSuggestions: (threadId: string) => void;
 }
 
 const stateOnly = {
@@ -20,6 +25,8 @@ const stateOnly = {
   selectedSessionId: null,
   selectedThreadId: null,
   draft: '',
+  latestSuggestionMessageByThread: {},
+  consumedSuggestions: {},
 } satisfies Pick<
   InteractionStoreState,
   | 'isOpen'
@@ -27,6 +34,8 @@ const stateOnly = {
   | 'selectedSessionId'
   | 'selectedThreadId'
   | 'draft'
+  | 'latestSuggestionMessageByThread'
+  | 'consumedSuggestions'
 >;
 
 export const useInteractionStore = create<InteractionStoreState>((set) => ({
@@ -38,6 +47,28 @@ export const useInteractionStore = create<InteractionStoreState>((set) => ({
     selectedThreadId,
   }),
   setDraft: (draft) => set({ draft }),
+  registerLatestSuggestion: (threadId, messageId) => set((state) => ({
+    latestSuggestionMessageByThread: {
+      ...state.latestSuggestionMessageByThread,
+      [threadId]: messageId,
+    },
+  })),
+  consumeSuggestions: (threadId, messageId) => set((state) => ({
+    consumedSuggestions: {
+      ...state.consumedSuggestions,
+      [`${threadId}:${messageId}`]: true,
+    },
+  })),
+  consumeLatestSuggestions: (threadId) => set((state) => {
+    const messageId = state.latestSuggestionMessageByThread[threadId];
+    if (!messageId) return state;
+    return {
+      consumedSuggestions: {
+        ...state.consumedSuggestions,
+        [`${threadId}:${messageId}`]: true,
+      },
+    };
+  }),
 }));
 
 export function resetInteractionStore(): void {

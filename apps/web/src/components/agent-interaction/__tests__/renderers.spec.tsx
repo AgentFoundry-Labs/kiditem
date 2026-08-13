@@ -6,20 +6,24 @@ import {
   InteractionResultRenderer,
   SuggestedReplies,
 } from '../renderers';
+import { resetInteractionStore, useInteractionStore } from '../interaction-store';
 
 const push = vi.hoisted(() => vi.fn());
 vi.mock('next/navigation', () => ({ useRouter: () => ({ push }) }));
 vi.mock('@/lib/api-client', () => ({ apiClient: { post: vi.fn() } }));
 
 describe('interaction renderers', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetInteractionStore();
+  });
 
   it('uses text fallback for an unknown kind without dynamic component authority', () => {
     renderWithQuery(<InteractionResultRenderer result={{
       kind: 'AdminPanel',
       component: 'DeleteEverything',
       textFallback: '지원하지 않는 응답입니다.',
-    }} />);
+    }} messageIdentity={null} latestSuggestionMessageId={null} threadId="thread-1" />);
     expect(screen.getByText('지원하지 않는 응답입니다.')).toBeVisible();
     expect(screen.queryByText('DeleteEverything')).not.toBeInTheDocument();
   });
@@ -32,10 +36,10 @@ describe('interaction renderers', () => {
       content: `질문 ${index}`,
     }));
     const { rerender } = render(
-      <SuggestedReplies replies={replies} isLatestMessage={false} onSend={send} />,
+      <SuggestedReplies replies={replies} isLatestMessage={false} onSend={send} threadId="thread-1" messageId="message-1" />,
     );
     expect(screen.queryByRole('button', { name: '추천 0' })).not.toBeInTheDocument();
-    rerender(<SuggestedReplies replies={replies} isLatestMessage onSend={send} />);
+    rerender(<SuggestedReplies replies={replies} isLatestMessage onSend={send} threadId="thread-1" messageId="message-1" />);
     fireEvent.click(screen.getByRole('button', { name: '추천 0' }));
     expect(send).toHaveBeenCalledWith('질문 0');
     expect(send).toHaveBeenCalledTimes(1);
@@ -52,13 +56,30 @@ describe('interaction renderers', () => {
         { id: '22222222-2222-4222-8222-222222222222', label: '상세 보기', content: '상세를 보여줘' },
       ],
       textFallback: '추천 질문이 있습니다.',
-    }} onSend={send} />);
+    }} onSend={send} messageIdentity="tool-message-1" latestSuggestionMessageId="tool-message-1" threadId="thread-1" />);
 
     fireEvent.click(screen.getByRole('button', { name: '후속 확인' }));
 
     expect(send).toHaveBeenCalledOnce();
     expect(send).toHaveBeenCalledWith('후속 확인해줘');
     expect(screen.queryByRole('button', { name: '상세 보기' })).not.toBeInTheDocument();
+  });
+
+  it('hides stale/replayed suggestions and shares consumption with free-form submit state', () => {
+    const result = {
+      kind: 'suggested_replies', messageId: 'assistant-message-1',
+      replies: [{ id: 'reply-1', label: '후속 확인', content: '후속 확인해줘' }],
+      textFallback: '추천 질문이 있습니다.',
+    };
+    const { rerender } = renderWithQuery(
+      <InteractionResultRenderer result={result} messageIdentity="tool-message-1" latestSuggestionMessageId="tool-message-2" threadId="thread-1" onSend={vi.fn()} />,
+    );
+    expect(screen.queryByRole('button', { name: '후속 확인' })).not.toBeInTheDocument();
+    rerender(<InteractionResultRenderer result={result} messageIdentity="tool-message-1" latestSuggestionMessageId="tool-message-1" threadId="thread-1" onSend={vi.fn()} />);
+    expect(screen.getByRole('button', { name: '후속 확인' })).toBeVisible();
+    useInteractionStore.getState().consumeLatestSuggestions('thread-1');
+    rerender(<InteractionResultRenderer result={result} messageIdentity="tool-message-1" latestSuggestionMessageId="tool-message-1" threadId="thread-1" onSend={vi.fn()} />);
+    expect(screen.queryByRole('button', { name: '후속 확인' })).not.toBeInTheDocument();
   });
 
   it('authorizes navigation with actionId only before pushing the allowlisted href', async () => {
@@ -72,7 +93,7 @@ describe('interaction renderers', () => {
       disabledReason: null,
       expiresAt: '2099-08-13T00:00:00.000Z',
       textFallback: '재고 작업으로 이동합니다.',
-    }} />);
+    }} messageIdentity={null} latestSuggestionMessageId={null} threadId="thread-1" />);
     fireEvent.click(screen.getByRole('button', { name: '재고 작업' }));
     await waitFor(() => expect(push).toHaveBeenCalledWith('/stock-ops'));
     expect(apiClient.post).toHaveBeenCalledWith(
@@ -91,7 +112,7 @@ describe('interaction renderers', () => {
       disabledReason: '접근 권한이 없습니다.',
       expiresAt: '2099-08-13T00:00:00.000Z',
       textFallback: 'AgentOS로 이동할 수 없습니다.',
-    }} />);
+    }} messageIdentity={null} latestSuggestionMessageId={null} threadId="thread-1" />);
     expect(screen.getByRole('button', { name: 'AgentOS' })).toBeDisabled();
     expect(screen.getByText('접근 권한이 없습니다.')).toBeVisible();
   });

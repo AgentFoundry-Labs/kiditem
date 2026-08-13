@@ -182,6 +182,26 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       executionId: authorized.execution.id,
       status: 'running',
     });
+    await expect(repository.findAccessibleCurrentExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      sessionId: authorized.session.id,
+      copilotThreadId: 'thread-runtime-context',
+    })).resolves.toMatchObject({
+      executionId: authorized.execution.id,
+      aguiRunId: 'run-runtime-context',
+      attempt: 1,
+    });
+    await expect(repository.findAccessibleCurrentExecution({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      sessionId: authorized.session.id,
+      copilotThreadId: 'thread-runtime-context',
+    })).resolves.toBeNull();
+    await expect(repository.findCurrentSessionExecution({
+      sessionId: authorized.session.id,
+      copilotThreadId: 'thread-runtime-context',
+    })).resolves.toMatchObject({ executionId: authorized.execution.id });
     await expect(repository.loadExecutionRuntimeContext({
       executionId: '20000000-0000-4000-8000-000000000099',
     })).resolves.toBeNull();

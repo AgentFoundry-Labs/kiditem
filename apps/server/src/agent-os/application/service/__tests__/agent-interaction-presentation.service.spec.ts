@@ -8,6 +8,35 @@ const actor = {
 };
 
 describe('AgentInteractionPresentationService', () => {
+  it.each([
+    ['agent_os.platform_probe', { outputSummary: { status: 'available' } }, 'notice'],
+    ['analytics.readOverview', { outputSummary: {
+      sales: { revenue: 12000, orders: 3 },
+      inventory: { outOfStockSkus: 2, mappingAttentionSkus: 1 },
+      freshness: { lastSync: '2026-08-13T00:00:00.000Z', confirmedUntil: '2026-08-13' },
+    } }, 'metric_group'],
+    ['sourcing.retrieveWorkspaceEvidence', { outputSummary: {
+      inputHash: 'a'.repeat(64), documentCount: 1, citationIds: ['document-1'], dataGaps: [],
+    } }, 'resource_list'],
+    ['sourcing.inspectRecommendationRun', { outputSummary: {
+      runId: 'run-1', status: 'complete', businessDate: '2026-08-13', itemCount: 4,
+      warningCodes: [], validation: { itemCount: 4, missingCount: 0 },
+    } }, 'comparison'],
+  ])('projects %s capability output to a fixed %s result', (key, result, kind) => {
+    const service = new AgentInteractionPresentationService();
+    expect(service.projectCapabilityResult(actor, key, result)).toMatchObject({
+      kind,
+      textFallback: expect.any(String),
+    });
+  });
+
+  it('rejects capabilities without a server-owned projector', () => {
+    const service = new AgentInteractionPresentationService();
+    expect(() => service.projectCapabilityResult(actor, 'admin.delete', {
+      outputSummary: { component: 'AdminPanel', url: 'https://attacker.example' },
+    })).toThrow('INTERACTION_PRESENTATION_INVALID');
+  });
+
   it('validates registered results and mints navigation authority server-side', () => {
     const service = new AgentInteractionPresentationService(
       () => new Date('2026-08-13T00:00:00.000Z'),

@@ -114,6 +114,36 @@ const executionSelect = {
   errorCode: true,
 } as const;
 
+const currentExecutionSelect = {
+  id: true,
+  organizationId: true,
+  sessionId: true,
+  copilotThreadId: true,
+  aguiRunId: true,
+  runtimeType: true,
+  status: true,
+  attempt: true,
+  agentVersion: { select: { agentDefinitionKey: true } },
+} as const;
+
+type CurrentExecutionRow = Prisma.AgentExecutionGetPayload<{
+  select: typeof currentExecutionSelect;
+}>;
+
+function mapCurrentExecution(execution: CurrentExecutionRow): CurrentAgentExecution {
+  return {
+    organizationId: execution.organizationId,
+    agentDefinitionKey: execution.agentVersion.agentDefinitionKey,
+    sessionId: execution.sessionId,
+    executionId: execution.id,
+    copilotThreadId: execution.copilotThreadId,
+    aguiRunId: execution.aguiRunId,
+    runtimeType: execution.runtimeType,
+    status: execution.status,
+    attempt: execution.attempt,
+  };
+}
+
 const eventSelect = {
   id: true,
   organizationId: true,
@@ -549,29 +579,45 @@ implements AgentInteractionRepositoryPort {
   }): Promise<CurrentAgentExecution | null> {
     const execution = await this.prisma.agentExecution.findUnique({
       where: { id: input.executionId },
-      select: {
-        id: true,
-        organizationId: true,
-        sessionId: true,
-        copilotThreadId: true,
-        aguiRunId: true,
-        runtimeType: true,
-        status: true,
-        agentVersion: { select: { agentDefinitionKey: true } },
-      },
+      select: currentExecutionSelect,
     });
-    return execution
-      ? {
-          organizationId: execution.organizationId,
-          agentDefinitionKey: execution.agentVersion.agentDefinitionKey,
-          sessionId: execution.sessionId,
-          executionId: execution.id,
-          copilotThreadId: execution.copilotThreadId,
-          aguiRunId: execution.aguiRunId,
-          runtimeType: execution.runtimeType,
-          status: execution.status,
-        }
-      : null;
+    return execution ? mapCurrentExecution(execution) : null;
+  }
+
+  async findAccessibleCurrentExecution(input: {
+    organizationId: string;
+    userId: string;
+    sessionId: string;
+    copilotThreadId: string;
+  }): Promise<CurrentAgentExecution | null> {
+    const execution = await this.prisma.agentExecution.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        copilotThreadId: input.copilotThreadId,
+        status: 'running',
+        session: { createdByUserId: input.userId },
+      },
+      select: currentExecutionSelect,
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+    });
+    return execution ? mapCurrentExecution(execution) : null;
+  }
+
+  async findCurrentSessionExecution(input: {
+    sessionId: string;
+    copilotThreadId: string;
+  }): Promise<CurrentAgentExecution | null> {
+    const execution = await this.prisma.agentExecution.findFirst({
+      where: {
+        sessionId: input.sessionId,
+        copilotThreadId: input.copilotThreadId,
+        status: 'running',
+      },
+      select: currentExecutionSelect,
+      orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+    });
+    return execution ? mapCurrentExecution(execution) : null;
   }
 
   async markExecutionTerminal(

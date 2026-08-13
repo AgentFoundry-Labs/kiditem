@@ -78,6 +78,7 @@ const connectionAuthorization = {
   replay: { ...replay, nextCursor: null },
   liveJoinToken: 'live-join-token-that-is-at-least-32-bytes',
   liveJoinExpiresAt: '2026-08-13T00:00:15.000Z',
+  currentExecution: null,
 } as const;
 
 describe('agent interaction contracts', () => {
@@ -413,6 +414,71 @@ describe('agent interaction contracts', () => {
     ).toThrow();
   });
 
+  it('requires durable message and tool-call correlation for tool results', () => {
+    const schema = exportedSchema('AgentConversationEventContentSchema');
+    expect(schema.parse({
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'tool_result',
+        snapshotVersion: 1,
+          data: {
+            messageId: 'tool-message-1',
+            toolCallId: 'tool-call-1',
+            result: {
+              kind: 'notice',
+              title: '완료',
+              body: '도구 실행이 완료되었습니다.',
+              tone: 'info',
+              textFallback: '도구 실행이 완료되었습니다.',
+            },
+        },
+      },
+    }).payload.data).toMatchObject({
+      messageId: 'tool-message-1',
+      toolCallId: 'tool-call-1',
+    });
+    expect(() => schema.parse({
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'tool_result',
+        snapshotVersion: 1,
+        data: {
+          result: {
+            kind: 'notice',
+            title: '완료',
+            body: '도구 실행이 완료되었습니다.',
+            tone: 'info',
+            textFallback: '도구 실행이 완료되었습니다.',
+          },
+        },
+      },
+    })).toThrow();
+  });
+
+  it('models assistant message streams as one start, ordered deltas, and one end', () => {
+    const schema = exportedSchema('AgentConversationEventContentSchema');
+    for (const payload of [
+      { phase: 'start', messageId: 'assistant-1' },
+      { phase: 'delta', messageId: 'assistant-1', content: '첫 ' },
+      { phase: 'delta', messageId: 'assistant-1', content: '응답' },
+      { phase: 'end', messageId: 'assistant-1' },
+    ]) {
+      expect(schema.parse({
+        eventType: 'assistant_message', schemaVersion: 1, payload,
+      }).payload).toEqual(payload);
+    }
+    expect(() => schema.parse({
+      eventType: 'assistant_message', schemaVersion: 1,
+      payload: { phase: 'end', messageId: 'assistant-1', content: 'forged' },
+    })).toThrow();
+    expect(() => schema.parse({
+      eventType: 'assistant_message', schemaVersion: 1,
+      payload: { phase: 'delta', messageId: 'assistant-1' },
+    })).toThrow();
+  });
+
   it('returns bounded replay with opaque cursors and lossless decimal sequences', () => {
     const schema = exportedSchema('AgentConversationReplaySchema');
 
@@ -491,6 +557,34 @@ describe('agent interaction contracts', () => {
     ]) {
       expect(() => schema.parse(invalidAuthorization)).toThrow();
     }
+  });
+
+  it('carries only the canonical current execution grant needed after a gateway restart', () => {
+    const parsed = AgentInteraction.AguiConnectionAuthorizationSchema.parse({
+      ...connectionAuthorization,
+      currentExecution: {
+        agentDefinitionKey: 'operator',
+        sessionId: 'session-1',
+        executionId: '11111111-1111-4111-8111-111111111111',
+        copilotThreadId: 'thread-1',
+        aguiRunId: 'run-1',
+        status: 'running',
+        attempt: 1,
+      },
+    });
+
+    expect(parsed.currentExecution).toEqual(expect.objectContaining({
+      executionId: '11111111-1111-4111-8111-111111111111',
+      status: 'running',
+      attempt: 1,
+    }));
+    expect(() => AgentInteraction.AguiConnectionAuthorizationSchema.parse({
+      ...connectionAuthorization,
+      currentExecution: {
+        ...parsed.currentExecution,
+        runtimeType: 'private-runtime',
+      },
+    })).toThrow();
   });
 
   it('removes all retired dual-lifecycle production identifiers', () => {

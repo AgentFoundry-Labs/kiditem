@@ -199,6 +199,7 @@ export interface CurrentAgentExecution {
   aguiRunId: string;
   runtimeType: string;
   status: string;
+  attempt: number;
 }
 
 interface AgentExecutionTerminalInputBase {
@@ -272,6 +273,16 @@ export interface AgentInteractionRepositoryPort {
   }): Promise<ModelConversationPage>;
   findCurrentExecution(input: {
     executionId: string;
+  }): Promise<CurrentAgentExecution | null>;
+  findAccessibleCurrentExecution(input: {
+    organizationId: string;
+    userId: string;
+    sessionId: string;
+    copilotThreadId: string;
+  }): Promise<CurrentAgentExecution | null>;
+  findCurrentSessionExecution(input: {
+    sessionId: string;
+    copilotThreadId: string;
   }): Promise<CurrentAgentExecution | null>;
   appendExecutionEvent(
     input: AppendExecutionEventInput,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import {
@@ -9,6 +9,7 @@ import {
   type SuggestedRepliesResult,
 } from '@kiditem/shared/agent-interaction';
 import { apiClient } from '@/lib/api-client';
+import { useInteractionStore } from './interaction-store';
 
 const ALLOWED_HREFS = new Set(['/dashboard', '/agent-os', '/sourcing-ai/recommendations', '/stock-ops']);
 
@@ -16,12 +17,23 @@ export function SuggestedReplies({
   replies,
   isLatestMessage,
   onSend,
+  threadId,
+  messageId,
 }: {
   replies: SuggestedRepliesResult['replies'];
   isLatestMessage: boolean;
   onSend: (content: string) => void;
+  threadId: string;
+  messageId: string;
 }) {
-  const [consumed, setConsumed] = useState(false);
+  const consumed = useInteractionStore((state) => Boolean(
+    state.consumedSuggestions[`${threadId}:${messageId}`],
+  ));
+  const registerLatestSuggestion = useInteractionStore((state) => state.registerLatestSuggestion);
+  const consumeSuggestions = useInteractionStore((state) => state.consumeSuggestions);
+  useEffect(() => {
+    if (isLatestMessage) registerLatestSuggestion(threadId, messageId);
+  }, [isLatestMessage, messageId, registerLatestSuggestion, threadId]);
   if (!isLatestMessage || consumed) return null;
   return (
     <div aria-label="추천 답변" className="flex flex-wrap gap-2">
@@ -30,7 +42,7 @@ export function SuggestedReplies({
           key={reply.id}
           type="button"
           onClick={() => {
-            setConsumed(true);
+            consumeSuggestions(threadId, messageId);
             onSend(reply.content);
           }}
           className="rounded-full border px-3 py-1.5 text-sm hover:bg-muted"
@@ -75,11 +87,15 @@ function fallbackFrom(value: unknown): string {
 export function InteractionResultRenderer({
   result,
   onSend,
-  isLatestMessage = true,
+  messageIdentity,
+  latestSuggestionMessageId,
+  threadId,
 }: {
   result: unknown;
   onSend?: (content: string) => void;
-  isLatestMessage?: boolean;
+  messageIdentity: string | null;
+  latestSuggestionMessageId: string | null;
+  threadId: string;
 }) {
   const parsed = InteractionUiResultSchema.safeParse(result);
   if (!parsed.success) return <p>{fallbackFrom(result)}</p>;
@@ -97,7 +113,13 @@ export function InteractionResultRenderer({
       return <NavigationRenderer result={value} />;
     case 'suggested_replies':
       return onSend ? (
-        <SuggestedReplies replies={value.replies} isLatestMessage={isLatestMessage} onSend={onSend} />
+        <SuggestedReplies
+          replies={value.replies}
+          isLatestMessage={messageIdentity !== null && messageIdentity === latestSuggestionMessageId}
+          onSend={onSend}
+          threadId={threadId}
+          messageId={messageIdentity ?? value.messageId}
+        />
       ) : <p>{value.textFallback}</p>;
   }
 }
