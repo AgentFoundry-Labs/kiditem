@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agents-hygiene.mjs',
+  'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
   'check-pr-reconstruction-contract.mjs',
@@ -63,6 +64,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   const undocumented = expected.filter((file) => !readme.includes(`scripts/${file}`));
 
   const missingPackageHooks = [];
+  if (!packageScripts['check:copilotkit-train']) {
+    missingPackageHooks.push('check:copilotkit-train');
+  }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
   }

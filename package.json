@@ -21,6 +21,7 @@
     "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
+    "check:copilotkit-train": "node scripts/check-copilotkit-train.mjs",
     "skills:profile": "node tools/codex/skills/update-project-skills/scripts/manage-skill-profile.mjs",
     "skills:hub": "node \"${AGENT_SKILL_HUB_ROOT:-$HOME/workspace/agent-skill-hub}/manage.mjs\"",
     "skills:update": "bash tools/codex/skills/update-project-skills/scripts/update-local-skills.sh",
