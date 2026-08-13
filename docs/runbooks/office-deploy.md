@@ -51,9 +51,12 @@ whose provisioning must be reproducible.
 
 The office lane is deliberately not blue-green because the host has tight disk
 capacity and retains local state. It uses a controlled recreate with automatic
-runtime-file restoration on a failed health check. An approved schema change is
-applied explicitly with `-ApplySchema`; database changes remain outside runtime
-rollback and must be assessed separately for every release.
+runtime-file restoration on an application-only failed health check. An
+approved schema change is applied explicitly with `-ApplySchema`; database
+changes remain outside runtime rollback and must be assessed separately for
+every release. An accepted-data-loss push uses the recovery state machine below
+and never automatically starts either runtime after a failed or indeterminate
+schema boundary.
 
 ## Promote The Office Branch
 
@@ -130,7 +133,41 @@ When a reviewed Prisma change is intentionally guarded by Prisma's generic data
 loss warning, add `-AcceptDataLoss` to the same deploy command and record the
 reason in the PR body and final report. This only appends
 `--accept-data-loss` to `npx prisma db push`; it never performs
-`--force-reset`.
+`--force-reset`. Also pass an existing, operator-approved NAS recovery
+directory. The script rejects a destructive deploy without it:
+
+```powershell
+$recoveryCopyDirectory = '\\<nas-host>\<backup-share>\kiditem\<full-sha>'
+New-Item -ItemType Directory -Force -Path $recoveryCopyDirectory | Out-Null
+& "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
+  -Operation Deploy `
+  -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
+  -ApplySchema `
+  -AcceptDataLoss `
+  -RecoveryCopyDirectory $recoveryCopyDirectory
+```
+
+This one command owns the destructive cutover ordering:
+
+1. Validate release, image, volume, disk, Compose, prior-manifest, and recovery
+   directory prerequisites.
+2. Stop API, worker, web, and nginx. Keep PostgreSQL and MinIO running and
+   healthy.
+3. With writers still stopped, create a custom-format PostgreSQL dump under
+   `C:\ProgramData\Kiditem\recovery`, require a non-empty
+   `pg_restore --list`, compute its SHA-256, copy it to the selected NAS
+   directory, and require the copy SHA-256 to match.
+4. Persist `deployments\recovery-required.json` with the dump SHA, local and
+   recovery-copy paths, candidate Git SHA, prior Git SHA, and exact prior
+   manifest SHA. The marker contains no credentials.
+5. Run Prisma schema push while writers remain stopped, then start and health
+   check the candidate. Keep the marker after success so runtime-only rollback
+   remains blocked across later operator sessions.
+
+Do not take manual row counts or a dump before invoking the command and treat
+them as cutover evidence: writes could occur afterward. The verified dump is
+the pre-drop recovery record for the destructive cutover. Record its SHA and
+recovery-copy path as reported by the operator command.
 
 If the release includes durable data migrations, run the approved phase order
 against the Office database with a fresh backup in place:
@@ -143,7 +180,8 @@ npm run data:migrate -- up --phase pre-schema --release-version <VERSION> --targ
   -Operation Deploy `
   -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json" `
   -ApplySchema `
-  -AcceptDataLoss
+  -AcceptDataLoss `
+  -RecoveryCopyDirectory $recoveryCopyDirectory
 
 npm run data:migrate -- up --phase post-schema --release-version <VERSION> --target office `
   --confirm APPLY_DATA_MIGRATIONS
@@ -278,8 +316,63 @@ guards, and swaps the current/previous manifest records:
 
 Rollback is valid for application regressions only. It does not undo Prisma schema changes,
 data migrations, marketplace writes, object-storage changes,
-or queued jobs. If a release changes the database incompatibly, block rollout
-until a separate data recovery or forward-fix plan is approved.
+or queued jobs. While `deployments\recovery-required.json` records a destructive
+schema boundary, runtime-only `Rollback` is blocked even after a successful
+candidate deploy. A successful later forward application deploy archives the
+marker because the destructive candidate is then the compatible rollback
+target.
+
+If a destructive schema push or subsequent candidate health/smoke check fails,
+the script stops API, worker, web, and nginx, retains PostgreSQL and MinIO, marks
+the state `recovery-required`, and does not invoke automatic runtime restoration.
+Do not use raw Compose commands to start either prior or candidate application
+containers. Restore the recorded database and prior runtime together using this
+procedure:
+
+```powershell
+# Read only the credential-free recovery identity and select its recorded dump.
+$state = Get-Content `
+  'C:\ProgramData\Kiditem\deployments\recovery-required.json' -Raw |
+  ConvertFrom-Json
+$dump = $state.recoveryCopyPath
+$priorManifest =
+  "C:\ProgramData\Kiditem\deployments\bundles\$($state.priorGitSha)\office-deployment.json"
+
+# Verify the exact recorded artifact before any database mutation.
+$actualSha = (Get-FileHash -LiteralPath $dump -Algorithm SHA256).Hash.ToLowerInvariant()
+if ($actualSha -ne $state.dumpSha256) { throw 'Recovery dump SHA256 mismatch.' }
+docker cp $dump kiditem-postgres:/tmp/kiditem-recovery.dump
+docker exec kiditem-postgres pg_restore --list /tmp/kiditem-recovery.dump
+if ($LASTEXITCODE -ne 0) { throw 'Recovery dump catalog verification failed.' }
+
+# With application writers still stopped, perform the reviewed full restore.
+docker exec kiditem-postgres psql --username=kiditem --dbname=postgres `
+  --set ON_ERROR_STOP=1 `
+  --command "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'kiditem' AND pid <> pg_backend_pid();"
+if ($LASTEXITCODE -ne 0) { throw 'Connection termination failed.' }
+docker exec kiditem-postgres dropdb --username=kiditem --if-exists kiditem
+if ($LASTEXITCODE -ne 0) { throw 'Database drop failed.' }
+docker exec kiditem-postgres createdb --username=kiditem --owner=kiditem kiditem
+if ($LASTEXITCODE -ne 0) { throw 'Database create failed.' }
+docker exec kiditem-postgres pg_restore --exit-on-error --no-owner `
+  --username=kiditem --dbname=kiditem /tmp/kiditem-recovery.dump
+if ($LASTEXITCODE -ne 0) { throw 'Database restore failed; keep writers stopped.' }
+
+# This identity-bound acknowledgement verifies the artifact and prior manifest,
+# starts the prior runtime, and clears the marker only after health/smoke pass.
+& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
+  -Operation CompleteRecovery `
+  -RecoveryArtifactPath $dump `
+  -RecoveredDatabaseDumpSha256 $state.dumpSha256 `
+  -RecoveredPriorManifestPath $priorManifest
+```
+
+`CompleteRecovery` does not restore the database. Its dump SHA parameter is the
+explicit assertion that the preceding restore used that exact artifact, not a
+generic override. It independently hashes and catalog-checks the artifact and
+verifies both the prior manifest file hash and prior Git SHA before starting the
+prior runtime. Any validation, health, or smoke failure leaves writers stopped
+and preserves the marker.
 
 ## Blockers
 
@@ -290,6 +383,8 @@ Stop without rebuilding, resetting, switching branches, or pruning volumes if:
 - a required env file, external volume, image, or OCI revision is missing;
 - disk remains below threshold after optional BuildKit cache pruning;
 - health, smoke, or automatic runtime restoration fails;
+- `deployments\recovery-required.json` exists and the requested operation is
+  not the documented identity-bound recovery or an allowed forward deploy;
 - the release requires a schema/data action that has not been explicitly
   approved.
 

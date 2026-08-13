@@ -2,12 +2,17 @@
 
 [CmdletBinding()]
 param(
-  [ValidateSet('Deploy', 'Status', 'Rollback')]
+  [ValidateSet('Deploy', 'Status', 'Rollback', 'CompleteRecovery')]
   [string]$Operation = 'Status',
   [string]$ManifestPath,
   [string]$RepoRoot = 'C:\workspace\kiditem',
   [string]$OfficeRoot = 'C:\ProgramData\Kiditem',
   [string]$DockerDataRoot = '',
+  [string]$RecoveryCopyDirectory = '',
+  [string]$RecoveryArtifactPath = '',
+  [ValidatePattern('^[0-9a-fA-F]{64}$')]
+  [string]$RecoveredDatabaseDumpSha256 = '',
+  [string]$RecoveredPriorManifestPath = '',
   [ValidateRange(5, 500)]
   [int]$MinimumFreeGb = 10,
   [switch]$PruneBuildCache,
@@ -26,6 +31,9 @@ $script:DeployEnvPath = Join-Path $OfficeRoot '.env.office.deploy'
 $script:DeploymentsRoot = Join-Path $OfficeRoot 'deployments'
 $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
 $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
+$script:RecoveryRoot = Join-Path $OfficeRoot 'recovery'
+$script:RecoveryStatePath = Join-Path $script:DeploymentsRoot 'recovery-required.json'
+$script:RecoveryHistoryRoot = Join-Path $script:DeploymentsRoot 'recovery-history'
 $script:ComposeArgs = @()
 
 function Invoke-Checked {
@@ -51,6 +59,78 @@ function Get-CheckedOutput {
     throw "$Program failed with exit code $LASTEXITCODE"
   }
   return (($output | Out-String).Trim())
+}
+
+function Get-FileSha256 {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
+    throw "Cannot hash missing file: $Path"
+  }
+  return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Read-RecoveryState {
+  if (-not (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf)) {
+    return $null
+  }
+
+  $state = Get-Content -LiteralPath $script:RecoveryStatePath -Raw | ConvertFrom-Json
+  if (
+    $state.schemaVersion -ne 1 -or
+    $state.status -notin @('prepared', 'schema-push-completed', 'recovery-required', 'deployed') -or
+    $state.candidateGitSha -notmatch '^[0-9a-f]{40}$' -or
+    $state.priorGitSha -notmatch '^[0-9a-f]{40}$' -or
+    $state.priorManifestSha256 -notmatch '^[0-9a-f]{64}$' -or
+    $state.dumpSha256 -notmatch '^[0-9a-f]{64}$'
+  ) {
+    throw "Office recovery state is invalid: $script:RecoveryStatePath"
+  }
+  return $state
+}
+
+function Save-RecoveryState {
+  param([Parameter(Mandatory = $true)][object]$State)
+
+  New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
+  $candidatePath = "$($script:RecoveryStatePath).candidate"
+  $State | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath $candidatePath -Encoding UTF8
+  Move-Item -LiteralPath $candidatePath -Destination $script:RecoveryStatePath -Force
+}
+
+function Archive-RecoveryState {
+  param([Parameter(Mandatory = $true)][string]$Reason)
+
+  if (-not (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf)) {
+    return
+  }
+
+  New-Item -ItemType Directory -Path $script:RecoveryHistoryRoot -Force | Out-Null
+  $safeReason = $Reason -replace '[^a-zA-Z0-9-]', '-'
+  $historyName = '{0}-{1}-{2}.json' -f (
+    Get-Date -Format 'yyyyMMdd-HHmmss'
+  ), $safeReason, ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  Copy-Item -LiteralPath $script:RecoveryStatePath -Destination (Join-Path $script:RecoveryHistoryRoot $historyName) -Force
+}
+
+function Set-RecoveryStateStatus {
+  param([Parameter(Mandatory = $true)][string]$Status)
+
+  $state = Read-RecoveryState
+  if ($null -eq $state) {
+    throw 'Cannot update missing Office recovery state.'
+  }
+  $state.status = $Status
+  if ($Status -eq 'schema-push-completed') {
+    $state.schemaPushCompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+  }
+  elseif ($Status -eq 'deployed') {
+    $state.deploymentCompletedAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+  }
+  elseif ($Status -eq 'recovery-required') {
+    $state.recoveryRequiredAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+  }
+  Save-RecoveryState $state
 }
 
 function Assert-LiveCheckout {
@@ -209,6 +289,110 @@ function Set-ComposeArguments {
   $script:ComposeArgs += @('--file', $script:ComposePath)
 }
 
+function Stop-ApplicationWriters {
+  Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
+}
+
+function Assert-OperationAllowedByRecoveryState {
+  param([Parameter(Mandatory = $true)][string]$RequestedOperation)
+
+  $state = Read-RecoveryState
+  if ($null -eq $state -or $RequestedOperation -in @('Status', 'CompleteRecovery')) {
+    return
+  }
+
+  if ($state.status -eq 'deployed' -and $RequestedOperation -eq 'Deploy') {
+    return
+  }
+
+  if ($state.status -eq 'deployed') {
+    throw "Runtime-only Rollback is blocked by destructive schema boundary $($state.candidateGitSha). Restore dump SHA256 $($state.dumpSha256) and complete identity-bound recovery instead."
+  }
+
+  throw "Office recovery is required for destructive schema boundary $($state.candidateGitSha) (state=$($state.status)). Deploy, Rollback, and application start are blocked. Restore dump SHA256 $($state.dumpSha256), then use -Operation CompleteRecovery with the matching artifact and prior manifest."
+}
+
+function New-DestructiveRecoveryArtifact {
+  param(
+    [Parameter(Mandatory = $true)][object]$CandidateManifest,
+    [Parameter(Mandatory = $true)][string]$RecoveryCopyDirectory
+  )
+
+  if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+    throw 'A destructive schema deploy requires a recorded current manifest for coupled database/runtime recovery.'
+  }
+  if (-not (Test-Path -LiteralPath $RecoveryCopyDirectory -PathType Container)) {
+    throw "Recovery copy directory does not exist: $RecoveryCopyDirectory"
+  }
+
+  $priorBundle = Read-DeploymentManifest $script:CurrentManifestPath
+  $priorManifestSha256 = Get-FileSha256 $script:CurrentManifestPath
+  $priorGitSha = $priorBundle.Manifest.gitSha
+  $resolvedCopyDirectory = (Resolve-Path -LiteralPath $RecoveryCopyDirectory).Path
+
+  New-Item -ItemType Directory -Path $script:RecoveryRoot -Force | Out-Null
+  $dumpName = '{0}-{1}-{2}.dump' -f (
+    Get-Date -Format 'yyyyMMdd-HHmmss'
+  ), $CandidateManifest.gitSha.Substring(0, 12), ([guid]::NewGuid().ToString('N').Substring(0, 8))
+  $containerDumpPath = "/tmp/$dumpName"
+  $localDumpPath = Join-Path $script:RecoveryRoot $dumpName
+  $copyDumpPath = Join-Path $resolvedCopyDirectory $dumpName
+  if ([System.IO.Path]::GetFullPath($copyDumpPath) -eq [System.IO.Path]::GetFullPath($localDumpPath)) {
+    throw 'RecoveryCopyDirectory must be separate from the local Office recovery directory.'
+  }
+  if ((Test-Path -LiteralPath $localDumpPath) -or (Test-Path -LiteralPath $copyDumpPath)) {
+    throw "Refusing to overwrite an existing recovery artifact named $dumpName."
+  }
+
+  try {
+    Invoke-Checked docker exec kiditem-postgres pg_dump --format=custom "--file=$containerDumpPath" --username=kiditem --dbname=kiditem
+    $catalog = Get-CheckedOutput docker exec kiditem-postgres pg_restore --list $containerDumpPath
+    if (-not $catalog) {
+      throw 'pg_restore --list returned an empty catalog for the quiesced database dump.'
+    }
+    Invoke-Checked docker cp "kiditem-postgres:$containerDumpPath" $localDumpPath
+  }
+  finally {
+    & docker exec kiditem-postgres rm -f $containerDumpPath *> $null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Could not remove temporary PostgreSQL dump $containerDumpPath from the container."
+    }
+  }
+
+  if (-not (Test-Path -LiteralPath $localDumpPath -PathType Leaf) -or (Get-Item -LiteralPath $localDumpPath).Length -le 0) {
+    throw 'The quiesced database dump is missing or empty.'
+  }
+  $localHash = (Get-FileHash -LiteralPath $localDumpPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  Copy-Item -LiteralPath $localDumpPath -Destination $copyDumpPath
+  $copyHash = (Get-FileHash -LiteralPath $copyDumpPath -Algorithm SHA256).Hash.ToLowerInvariant()
+  if ($copyHash -ne $localHash) {
+    throw "Recovery copy SHA256 mismatch for $copyDumpPath."
+  }
+
+  $state = [ordered]@{
+    schemaVersion = 1
+    status = 'prepared'
+    candidateGitSha = $CandidateManifest.gitSha
+    priorGitSha = $priorGitSha
+    priorManifestSha256 = $priorManifestSha256
+    dumpSha256 = $localHash
+    localArtifactPath = $localDumpPath
+    recoveryCopyPath = $copyDumpPath
+    createdAtUtc = (Get-Date).ToUniversalTime().ToString('o')
+    schemaPushCompletedAtUtc = $null
+    deploymentCompletedAtUtc = $null
+    recoveryRequiredAtUtc = $null
+  }
+
+  if (Test-Path -LiteralPath $script:RecoveryStatePath -PathType Leaf) {
+    Archive-RecoveryState 'superseded-by-new-quiesced-dump'
+  }
+  Save-RecoveryState $state
+  Write-Host "Quiesced recovery dump verified: SHA256 $localHash"
+  Write-Host "Recovery copy verified: $copyDumpPath"
+  return $state
+}
+
 function Get-ContainerState {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -325,13 +509,111 @@ function Restore-Transaction {
   }
 }
 
+function Complete-DatabaseRecovery {
+  param(
+    [Parameter(Mandatory = $true)][string]$RecoveryArtifactPath,
+    [Parameter(Mandatory = $true)][string]$RecoveredDatabaseDumpSha256,
+    [Parameter(Mandatory = $true)][string]$RecoveredPriorManifestPath
+  )
+
+  $state = Read-RecoveryState
+  if ($null -eq $state) {
+    throw 'No destructive schema recovery state exists to complete.'
+  }
+
+  Set-ComposeArguments
+  Stop-ApplicationWriters
+  Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres minio
+  Wait-ForContainerHealthy 'kiditem-postgres'
+  Wait-ForContainerHealthy 'kiditem-minio'
+
+  if (-not (Test-Path -LiteralPath $RecoveryArtifactPath -PathType Leaf)) {
+    throw "Recovery artifact does not exist: $RecoveryArtifactPath"
+  }
+  $expectedArtifactHash = $RecoveredDatabaseDumpSha256.ToLowerInvariant()
+  $actualArtifactHash = Get-FileSha256 $RecoveryArtifactPath
+  if ($expectedArtifactHash -ne $state.dumpSha256 -or $actualArtifactHash -ne $state.dumpSha256) {
+    throw "Recovery artifact SHA256 does not match recorded dump SHA256 $($state.dumpSha256)."
+  }
+
+  $verifyContainerPath = "/tmp/kiditem-recovery-verify-$([guid]::NewGuid().ToString('N')).dump"
+  try {
+    Invoke-Checked docker cp $RecoveryArtifactPath "kiditem-postgres:$verifyContainerPath"
+    $catalog = Get-CheckedOutput docker exec kiditem-postgres pg_restore --list $verifyContainerPath
+    if (-not $catalog) {
+      throw 'pg_restore --list returned an empty catalog for the supplied recovery artifact.'
+    }
+  }
+  finally {
+    & docker exec kiditem-postgres rm -f $verifyContainerPath *> $null
+    if ($LASTEXITCODE -ne 0) {
+      Write-Warning "Could not remove temporary recovery verification file $verifyContainerPath from the container."
+    }
+  }
+
+  $priorManifestHash = Get-FileSha256 $RecoveredPriorManifestPath
+  $priorBundle = Read-DeploymentManifest $RecoveredPriorManifestPath
+  if (
+    $priorManifestHash -ne $state.priorManifestSha256 -or
+    $priorBundle.Manifest.gitSha -ne $state.priorGitSha
+  ) {
+    throw 'Recovered prior manifest identity does not match the destructive schema recovery state.'
+  }
+
+  Assert-DiskCapacity
+  Assert-RuntimePrerequisites
+  Assert-ImageRevision $priorBundle.Manifest.apiImage $priorBundle.Manifest.gitSha
+  Assert-ImageRevision $priorBundle.Manifest.webImage $priorBundle.Manifest.gitSha
+
+  $priorSourceRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $state.priorGitSha)
+  $priorCompose = Join-Path $priorSourceRoot 'compose.office.yml'
+  $priorNginx = Join-Path $priorSourceRoot 'nginx.conf'
+  if (-not (Test-Path -LiteralPath $priorCompose -PathType Leaf) -or -not (Test-Path -LiteralPath $priorNginx -PathType Leaf)) {
+    throw "No archived prior runtime bundle exists for recovered manifest SHA $($state.priorGitSha)."
+  }
+
+  $recoveredDeployEnv = Join-Path $OfficeRoot '.env.office.deploy.recovered'
+  try {
+    Write-DeployEnv $recoveredDeployEnv $priorBundle.Manifest
+    Copy-Item -LiteralPath $priorCompose -Destination $script:ComposePath -Force
+    Copy-Item -LiteralPath $priorNginx -Destination (Join-Path $OfficeRoot 'nginx.conf') -Force
+    Move-Item -LiteralPath $recoveredDeployEnv -Destination $script:DeployEnvPath -Force
+    Set-ComposeArguments
+    Invoke-Checked docker @script:ComposeArgs config --quiet
+    Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
+    Wait-ForRuntime
+    Assert-SmokeTests
+
+    $priorBundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
+    if (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf) {
+      Remove-Item -LiteralPath $script:PreviousManifestPath -Force
+    }
+    Archive-RecoveryState 'recovered'
+    Remove-Item -LiteralPath $script:RecoveryStatePath -Force
+  }
+  catch {
+    $recoveryError = $_
+    try {
+      Stop-ApplicationWriters
+    }
+    catch {
+      Write-Warning "Could not confirm application writers are stopped after recovery completion failure: $($_.Exception.Message)"
+    }
+    throw $recoveryError
+  }
+
+  Write-Host "Office database/runtime recovery completed for prior manifest $($state.priorGitSha)."
+  Write-Host "Verified recovery dump SHA256: $($state.dumpSha256)"
+}
+
 function Install-Deployment {
   param(
     [Parameter(Mandatory = $true)][string]$TargetManifestPath,
     [Parameter(Mandatory = $true)][string]$ExpectedHead,
     [switch]$AllowAncestor,
     [switch]$ApplySchema,
-    [switch]$AcceptDataLoss
+    [switch]$AcceptDataLoss,
+    [string]$RecoveryCopyDirectory = ''
   )
 
   $bundle = Read-DeploymentManifest $TargetManifestPath
@@ -382,6 +664,7 @@ function Install-Deployment {
   }
 
   $candidateDeployEnv = Join-Path $OfficeRoot '.env.office.deploy.candidate'
+  $destructiveBoundaryEntered = $false
   try {
     Write-DeployEnv $candidateDeployEnv $manifest
     Copy-Item -LiteralPath $sourceCompose -Destination $script:ComposePath -Force
@@ -390,52 +673,88 @@ function Install-Deployment {
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
     if ($ApplySchema) {
-      Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
-      Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
-      Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres
+      Write-Warning 'Stopping application writers before the approved Prisma schema push.'
+      Stop-ApplicationWriters
+      Invoke-Checked docker @script:ComposeArgs up --detach --no-build postgres minio
       Wait-ForContainerHealthy 'kiditem-postgres'
+      Wait-ForContainerHealthy 'kiditem-minio'
+      if ($AcceptDataLoss) {
+        New-DestructiveRecoveryArtifact $manifest $RecoveryCopyDirectory | Out-Null
+        $destructiveBoundaryEntered = $true
+      }
       $schemaCommand = 'cd /app && npx prisma db push'
       if ($AcceptDataLoss) {
         $schemaCommand = "$schemaCommand --accept-data-loss"
       }
       Invoke-Checked docker @script:ComposeArgs run --rm --no-deps api sh -lc $schemaCommand
+      if ($destructiveBoundaryEntered) {
+        Set-RecoveryStateStatus 'schema-push-completed'
+      }
     }
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
     Wait-ForRuntime
     Assert-SmokeTests
+    if ($destructiveBoundaryEntered) {
+      Set-RecoveryStateStatus 'deployed'
+    }
+
+    if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
+      Copy-Item -LiteralPath $script:CurrentManifestPath -Destination $script:PreviousManifestPath -Force
+    }
+    $bundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
+    $historyName = '{0}-{1}.json' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $manifest.gitSha.Substring(0, 12)
+    $bundle.Raw | Set-Content -LiteralPath (Join-Path $script:DeploymentsRoot $historyName) -Encoding UTF8
+    $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
+    New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
+    $bundle.Raw | Set-Content -LiteralPath (Join-Path $archiveRoot 'office-deployment.json') -Encoding UTF8
+    $archivedCompose = Join-Path $archiveRoot 'compose.office.yml'
+    $archivedNginx = Join-Path $archiveRoot 'nginx.conf'
+    if (([System.IO.Path]::GetFullPath($sourceCompose)) -ne ([System.IO.Path]::GetFullPath($archivedCompose))) {
+      Copy-Item -LiteralPath $sourceCompose -Destination $archivedCompose -Force
+    }
+    if (([System.IO.Path]::GetFullPath($sourceNginx)) -ne ([System.IO.Path]::GetFullPath($archivedNginx))) {
+      Copy-Item -LiteralPath $sourceNginx -Destination $archivedNginx -Force
+    }
+
+    if (-not $destructiveBoundaryEntered) {
+      $activeBoundary = Read-RecoveryState
+      if ($null -ne $activeBoundary -and $activeBoundary.status -eq 'deployed') {
+        Archive-RecoveryState 'superseded-by-forward-deploy'
+        Remove-Item -LiteralPath $script:RecoveryStatePath -Force
+      }
+    }
+
+    Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
+    Write-Host "API image: $($manifest.apiImage)"
+    Write-Host "Web image: $($manifest.webImage)"
   }
   catch {
     $deploymentError = $_
-    try {
-      Restore-Transaction $backupRoot
+    if ($destructiveBoundaryEntered) {
+      try {
+        Stop-ApplicationWriters
+      }
+      catch {
+        Write-Warning "Could not confirm application writers are stopped after destructive schema deployment failure: $($_.Exception.Message)"
+      }
+      try {
+        Set-RecoveryStateStatus 'recovery-required'
+      }
+      catch {
+        Write-Warning "Could not update destructive schema recovery state: $($_.Exception.Message)"
+      }
+      Write-Warning "Destructive schema recovery is required. Application writers remain stopped; do not start prior or candidate runtime. Recovery state: $script:RecoveryStatePath"
     }
-    catch {
-      Write-Warning "Automatic runtime restore also failed: $($_.Exception.Message)"
+    else {
+      try {
+        Restore-Transaction $backupRoot
+      }
+      catch {
+        Write-Warning "Automatic runtime restore also failed: $($_.Exception.Message)"
+      }
     }
     throw $deploymentError
   }
-
-  if (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf) {
-    Copy-Item -LiteralPath $script:CurrentManifestPath -Destination $script:PreviousManifestPath -Force
-  }
-  $bundle.Raw | Set-Content -LiteralPath $script:CurrentManifestPath -Encoding UTF8
-  $historyName = '{0}-{1}.json' -f (Get-Date -Format 'yyyyMMdd-HHmmss'), $manifest.gitSha.Substring(0, 12)
-  $bundle.Raw | Set-Content -LiteralPath (Join-Path $script:DeploymentsRoot $historyName) -Encoding UTF8
-  $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $manifest.gitSha)
-  New-Item -ItemType Directory -Path $archiveRoot -Force | Out-Null
-  $bundle.Raw | Set-Content -LiteralPath (Join-Path $archiveRoot 'office-deployment.json') -Encoding UTF8
-  $archivedCompose = Join-Path $archiveRoot 'compose.office.yml'
-  $archivedNginx = Join-Path $archiveRoot 'nginx.conf'
-  if (([System.IO.Path]::GetFullPath($sourceCompose)) -ne ([System.IO.Path]::GetFullPath($archivedCompose))) {
-    Copy-Item -LiteralPath $sourceCompose -Destination $archivedCompose -Force
-  }
-  if (([System.IO.Path]::GetFullPath($sourceNginx)) -ne ([System.IO.Path]::GetFullPath($archivedNginx))) {
-    Copy-Item -LiteralPath $sourceNginx -Destination $archivedNginx -Force
-  }
-
-  Write-Host "Office deployment complete: $($manifest.gitSha) ($($manifest.appVersion))"
-  Write-Host "API image: $($manifest.apiImage)"
-  Write-Host "Web image: $($manifest.webImage)"
 }
 
 function Show-OfficeStatus {
@@ -454,6 +773,10 @@ function Show-OfficeStatus {
     Write-Host "Current API image: $($current.Manifest.apiImage)"
     Write-Host "Current web image: $($current.Manifest.webImage)"
   }
+  $recoveryState = Read-RecoveryState
+  if ($null -ne $recoveryState) {
+    Write-Warning "Destructive schema boundary state: $($recoveryState.status); candidate=$($recoveryState.candidateGitSha); prior=$($recoveryState.priorGitSha); dumpSha256=$($recoveryState.dumpSha256)"
+  }
   Invoke-Checked docker system df
 }
 
@@ -467,8 +790,21 @@ if ($ApplySchema -and $Operation -ne 'Deploy') {
 if ($AcceptDataLoss -and (-not $ApplySchema -or $Operation -ne 'Deploy')) {
   throw '-AcceptDataLoss is valid only with -Operation Deploy -ApplySchema.'
 }
+if ($ApplySchema -and $Operation -eq 'Deploy' -and -not $AcceptDataLoss -and $RecoveryCopyDirectory) {
+  throw '-RecoveryCopyDirectory is valid only with -Operation Deploy -ApplySchema -AcceptDataLoss.'
+}
+if ($AcceptDataLoss -and -not $RecoveryCopyDirectory) {
+  throw '-RecoveryCopyDirectory is required with -Operation Deploy -ApplySchema -AcceptDataLoss.'
+}
+if ($Operation -ne 'CompleteRecovery' -and ($RecoveryArtifactPath -or $RecoveredDatabaseDumpSha256 -or $RecoveredPriorManifestPath)) {
+  throw 'Recovery identity parameters are valid only with -Operation CompleteRecovery.'
+}
+if ($Operation -eq 'CompleteRecovery' -and (-not $RecoveryArtifactPath -or -not $RecoveredDatabaseDumpSha256 -or -not $RecoveredPriorManifestPath)) {
+  throw '-RecoveryArtifactPath, -RecoveredDatabaseDumpSha256, and -RecoveredPriorManifestPath are required with -Operation CompleteRecovery.'
+}
 
 $head = Assert-LiveCheckout
+Assert-OperationAllowedByRecoveryState $Operation
 
 switch ($Operation) {
   'Status' {
@@ -478,12 +814,15 @@ switch ($Operation) {
     if (-not $ManifestPath) {
       throw '-ManifestPath is required for Deploy.'
     }
-    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss
+    Install-Deployment $ManifestPath $head -ApplySchema:$ApplySchema -AcceptDataLoss:$AcceptDataLoss -RecoveryCopyDirectory $RecoveryCopyDirectory
   }
   'Rollback' {
     if (-not (Test-Path -LiteralPath $script:PreviousManifestPath -PathType Leaf)) {
       throw "No previous deployment manifest exists at $script:PreviousManifestPath"
     }
     Install-Deployment $script:PreviousManifestPath $head -AllowAncestor
+  }
+  'CompleteRecovery' {
+    Complete-DatabaseRecovery $RecoveryArtifactPath $RecoveredDatabaseDumpSha256 $RecoveredPriorManifestPath
   }
 }

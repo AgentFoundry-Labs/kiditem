@@ -74,9 +74,31 @@ it on the Office/home-server runtime itself.
 
 Office uses controlled recreate instead of blue-green deployment because the
 host has tight disk capacity and owns local state. The operator script restores
-the prior runtime files when candidate health fails. Runtime rollback does not
-undo Prisma schema changes, data migrations, marketplace writes, object-storage
-changes, or queued jobs.
+the prior runtime files when an application-only candidate health check fails.
+Runtime rollback does not undo Prisma schema changes, data migrations,
+marketplace writes, object-storage changes, or queued jobs.
+
+An accepted-data-loss schema deploy has a stricter state machine. The operator
+script stops API, worker, web, and nginx first while leaving PostgreSQL and
+MinIO running. In that quiesced state it creates a PostgreSQL custom-format
+dump, verifies its `pg_restore --list` catalog, hashes it with SHA-256, copies
+it to the operator-selected recovery directory, verifies the copy hash, and
+records the dump plus candidate/prior manifest identities in
+`deployments/recovery-required.json`. Only then may Prisma push the schema.
+Application writers stay stopped throughout this sequence.
+
+The marker survives a successful destructive deployment because a runtime-only
+rollback is still incompatible with the contracted database. A later successful
+forward application deployment makes the destructive candidate the safe runtime
+rollback target and archives the marker. If schema push or candidate health is
+failed or indeterminate, the marker changes to `recovery-required`; automatic
+runtime restoration is disabled and application writers remain stopped.
+`Deploy` and `Rollback` are then blocked. `CompleteRecovery` can clear the
+marker only after the operator restores the recorded dump manually and supplies
+the same dump SHA-256 plus the exact prior manifest. The script re-hashes and
+catalog-checks the artifact, verifies the prior manifest SHA and Git SHA, starts
+the prior runtime, and clears the marker only after health and smoke checks pass.
+It never claims to restore the database itself.
 
 ## Security Boundary
 
