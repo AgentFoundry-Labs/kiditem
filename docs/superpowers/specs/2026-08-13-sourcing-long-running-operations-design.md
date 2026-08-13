@@ -1,16 +1,17 @@
-# Sourcing Long-Running Operations and Snapshot-First UI Design
+# Sourcing Long-Running Operations, API Lifecycle, and Snapshot-First UI Design
 
 - Date: 2026-08-13
-- Status: Approved design baseline
+- Status: Approved design; written server-lifecycle revision pending final review
 - Tracking issue: KID-24
-- Classification: Operations platform extension with bounded Sourcing, Advertising,
-  Web, and KidItem OS consumers
+- Classification: Operations platform reconstruction with bounded Sourcing,
+  Advertising, Web, KidItem OS, and backend process-composition consumers
 - Scope: the 14 routes under `/sourcing-ai`, their long-running collection and
-  derived-snapshot actions, and the shared execution controls those actions use
+  derived-snapshot actions, the shared execution controls those actions use,
+  and the lifecycle of every `OperationRun` owned by the API server process
 - Data decision: additive `OperationRun` metadata and read-model endpoints; no
   backfill of sourcing observations, recommendations, or tracking history
-- Release decision: additive rollout by surface; never run a legacy path and a
-  replacement operation for the same user command
+- Release decision: additive rollout by surface; no lifecycle schema migration;
+  never run a legacy path and a replacement operation for the same user command
 
 ## 0. Executive decision
 
@@ -39,6 +40,12 @@ second sourcing queue:
 6. `partial` and `no_change` are terminal result outcomes of a `succeeded` run,
    not new top-level statuses. This preserves the existing Operations state
    machine and its consumers.
+7. The API server lifecycle and every `OperationRun` execution lifecycle end
+   together. Server shutdown or loss terminally cancels old active/waiting runs;
+   a later server process never reclaims, resumes, or requeues them.
+8. The HTTP API and Agent OS worker use separate Nest root modules. Only the API
+   root imports `OperationsModule` and owns operation creation, scheduling,
+   execution, startup cleanup, and shutdown cancellation.
 
 ## 1. Why this work is required
 
@@ -124,8 +131,8 @@ failure, or how cancellation fences late provider writes.
   two seconds and does not start external collection on mount.
 - Every active run exposes stage, elapsed time, numeric progress when known,
   cancel, and a terminal outcome.
-- Page refresh, route navigation, and MV3 service-worker restart do not lose the
-  canonical run state.
+- Page refresh, route navigation, and MV3 service-worker restart within one
+  accepting API lifecycle do not lose the canonical run state.
 - Provider/browser concurrency is bounded independently for Naver, Coupang,
   1688 Playwright, and snapshot computation.
 - A cancellation or expired fence stops further extension work and prevents a
@@ -134,6 +141,12 @@ failure, or how cancellation fences late provider writes.
   change have different contracts and UI copy.
 - Existing source-control, evidence, provenance, organization scope, and
   attempt-token rules remain mandatory.
+- Server startup is fail-closed: no HTTP listener, operation claim, scheduler
+  dispatch, browser runtime, or composite resume opens until old active/waiting
+  runs are terminally cancelled.
+- A server restart never revives a prior `OperationRun`. An operator retry of a
+  server-cancelled run always creates a new run and keeps the old row as audit
+  history.
 
 ### 2.2 Non-goals
 
@@ -143,6 +156,11 @@ failure, or how cancellation fences late provider writes.
 - redesigning the sourcing navigation or the 14 route information hierarchy;
 - changing provider accounts, credentials, host permissions, or login policy;
 - backfilling historical sourcing or Ads-owned tracking data;
+- persisting a server-lifecycle ID or adding a lifecycle schema migration in
+  the current single-API-instance deployment;
+- supporting multiple API replicas or rolling overlap between API processes;
+- automatically restarting, requeueing, reclaiming, or resuming work across a
+  server lifecycle boundary;
 - including KID-23 inventory UI work in this issue;
 - returning raw provider rows, HTML, payloads, tokens, or credentials in an
   `OperationRun.result`.
@@ -171,6 +189,11 @@ the sourcing data model.
 If a future implementation discovers a conflict, the source/evidence and
 organization contracts above win; KID-24 must be revised instead of bypassing
 them.
+
+This revision explicitly narrows the earlier lease/retry authority: leases and
+`maxAttempts` may recover an ordinary retryable failure only while the same API
+server lifecycle is accepting work. They do not authorize recovery across API
+server shutdown, crash, replacement, or startup.
 
 ## 4. Considered approaches
 
@@ -205,12 +228,42 @@ Partial completion is a domain result, not an execution phase. Adding a status
 would expand every Operations transition and consumer while still requiring a
 result summary. `succeeded + outcome=partial` is explicit and compatible.
 
+### 4.6 Selected: process-start cutoff without a lifecycle schema
+
+The API process obtains a database `clock_timestamp()` before accepting work.
+It terminally cancels every pre-existing active/waiting run at or before that
+cutoff, advances missed schedules without creating runs, and only then opens
+the operation gate. This matches the current single-API-instance deployment and
+adds no backfill or lifecycle table.
+
+### 4.7 Rejected for now: persisted lifecycle generation
+
+Tagging every run with a durable server generation would make overlapping API
+replicas explicit, but it requires schema, backfill, and ownership arbitration
+that the current deployment does not need. It becomes mandatory before API
+replicas or rolling overlap are introduced.
+
+### 4.8 Rejected: lease-based resurrection after server loss
+
+Reclaiming an expired `running` row, restoring a claimed row to `queued`, or
+decrementing its attempt hides the actual execution history and violates the
+approved operating model. Old rows remain durable audit records with a terminal
+server-lifecycle cancellation; retry is a new `OperationRun`.
+
+### 4.9 Rejected: deployment-script-only cleanup
+
+A deployment hook cannot cover local execution, process crashes, or a direct
+server restart. Lifecycle cleanup belongs inside the API application startup
+and shutdown boundary and must fail closed before the HTTP listener opens.
+
 ## 5. Target architecture
 
 ```mermaid
 flowchart LR
-  UI["Sourcing screen"] -->|"GET latest snapshot (deadline)"| Read["Owner read model"]
-  UI -->|"POST operation, 202 + runId"| Ops["Operations control plane"]
+  UI["Sourcing screen"] -->|"HTTP"| API["ApiApplicationModule"]
+  API --> Gate["OperationServerLifecycleService"]
+  Gate --> Ops["Operations control plane"]
+  API -->|"GET latest snapshot (deadline)"| Read["Owner read model"]
   Ops --> Lane["Resource-class worker slots"]
   Lane --> Domain["Sourcing/Ads domain handler"]
   Lane -->|"waiting_runtime"| Browser["KidItem OS browser runtime"]
@@ -221,6 +274,7 @@ flowchart LR
   Browser -->|"fenced heartbeat/report"| Ops
   Ops -->|"poll run"| UI
   Sink --> Read
+  AgentRoot["AgentWorkerApplicationModule\n(no Operations import)"] --> AgentOS["Agent OS runtime only"]
 ```
 
 ### 5.1 Command and read separation
@@ -276,10 +330,11 @@ change cannot alter the execution policy of an existing run.
 
 ### 5.3 Resource-class scheduling
 
-The worker replaces its single `busy` boolean with independent active slots.
+The operation worker inside the API process replaces its single `busy` boolean
+with independent active slots.
 The repository claims only the class for which a slot is available. Default
-limits are conservative and configurable as a validated JSON object on the
-worker process:
+limits are conservative and configurable as a validated JSON object on the API
+process:
 
 | Resource class      | Executor                     |                                                    Default capacity | Reason                                                               |
 | ------------------- | ---------------------------- | ------------------------------------------------------------------: | -------------------------------------------------------------------- |
@@ -290,7 +345,7 @@ worker process:
 | `extension_coupang` | server dispatch + KidItem OS | 4 dispatch slots; one active claim per environment in the extension | dispatch is short; the logged-in Wing browser is the scarce resource |
 
 The runtime parses `OPERATION_RESOURCE_CLASS_LIMITS` strictly. Unknown classes,
-zero/negative values, or malformed JSON fail worker startup. Definitions use
+zero/negative values, or malformed JSON fail API startup. Definitions use
 the defaults when the variable is absent. The system does not silently merge an
 unknown class into `default`.
 
@@ -298,7 +353,117 @@ The server worker launches up to the available slots without awaiting one
 class before polling another. Composite-child reconciliation has its own
 single-flight guard and cannot block run claims.
 
-### 5.4 Lease, cancellation, and deadlines
+### 5.4 Process composition and lifecycle ownership
+
+The API and Agent OS worker no longer bootstrap the same Nest root module.
+
+- `main.ts` bootstraps `ApiApplicationModule`. It owns HTTP controllers, domain
+  modules, `OperationsModule`, operation schedules, the resource-class worker,
+  browser runtime APIs, and `OperationServerLifecycleService`.
+- `worker.ts` bootstraps `AgentWorkerApplicationModule`. It contains only the
+  Agent OS runtime and the narrow infrastructure/runtime adapters that worker
+  requires. It has no HTTP controllers, global HTTP guards, `OperationsModule`,
+  operation scheduler, operation claim loop, or operation lifecycle hook.
+- Domain capabilities required by Agent OS are exposed through focused worker
+  composition modules rather than importing an entire HTTP/domain root that
+  transitively brings `OperationsModule` back into the worker.
+- Ownership is structural and covered by architecture tests. Environment flags
+  may enable a feature inside its owning root, but they never decide which
+  process owns the Operations lifecycle.
+
+The API process is the one lifecycle owner in the supported deployment. API
+replica overlap is prohibited. A future multi-API deployment requires the
+rejected persisted-generation design to be approved first.
+
+### 5.5 API server lifecycle gate
+
+`OperationServerLifecycleService` is the only Nest lifecycle hook that opens or
+closes operation intake. Worker and scheduler expose explicit start/stop
+methods; they do not independently install timers during module initialization.
+The gate has four states:
+
+```text
+BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED
+```
+
+Only `ACCEPTING` permits a user/schedule start, retry, server/browser claim,
+composite resume, or child creation. Other states reject new mutation with
+`503 operation_server_lifecycle_unavailable`. Heartbeats and reports remain
+attempt-token fenced; once cleanup clears the token, late work cannot publish a
+successful result.
+
+| State at lifecycle boundary                                         | State after cleanup | Audit rule                                        |
+| ------------------------------------------------------------------- | ------------------- | ------------------------------------------------- |
+| `queued`                                                            | `cancelled`         | preserve `attempts` even when it is zero          |
+| `waiting_runtime`                                                   | `cancelled`         | clear browser claim ownership; never reclaim      |
+| `waiting_dependency`                                                | `cancelled`         | preserve parent/child links; never resume         |
+| `running`                                                           | `cancelled`         | clear claim/token/lease; preserve attempt history |
+| `attention_required`, `succeeded`, `failed`, `cancelled`, `skipped` | unchanged           | already-terminal history is immutable             |
+
+#### Startup
+
+Before the HTTP listener, scheduler, worker, browser claim, or composite resume
+opens, the API process:
+
+1. reads a cutoff from PostgreSQL `clock_timestamp()`;
+2. terminally cancels every `OperationRun` from every owner domain whose status
+   is `queued`, `waiting_runtime`, `waiting_dependency`, or `running` and whose
+   `createdAt <= cutoff`;
+3. advances every enabled schedule with `nextRunAt <= cutoff` directly to its
+   first future occurrence without creating a run, including schedules whose
+   ordinary misfire policy is `catch_up_once`;
+4. verifies that no matching old run or missed schedule remains; and
+5. changes the gate to `ACCEPTING` and starts the scheduler and worker.
+
+Cleanup uses bounded batches of 100 with `FOR UPDATE SKIP LOCKED`, Prisma tagged
+SQL, and an exact `{ organizationId, runId }` mutation after selection. A zero
+row batch is not proof of completion: an `EXISTS` check detects rows hidden by a
+concurrent lock. If cleanup cannot reach zero within 30 seconds, or any database
+step fails, application initialization rejects and the HTTP listener never
+opens.
+
+#### Graceful shutdown
+
+The single lifecycle owner performs shutdown in this order:
+
+1. synchronously moves the gate to `STOPPING` and stops scheduler/worker intake;
+2. aborts in-flight start/claim transactions;
+3. runs a first all-domain active/waiting cancellation sweep, clearing attempt
+   tokens before any late handler report;
+4. aborts active handlers and waits at most five seconds for provider/browser
+   resource cleanup; and
+5. runs a final sweep to catch a start or claim that committed at the shutdown
+   boundary, then moves to `STOPPED`.
+
+The first and final sweeps use `operation_server_shutdown`. Startup cleanup of
+rows left by an abrupt process loss uses
+`operation_server_lifecycle_expired`. Both transitions set `finishedAt`, clear
+`claimedBy`, `attemptToken`, `claimedAt`, and `leaseExpiresAt`, and preserve
+`attempts`, `startedAt`, stage/counts, deadline, schedule, idempotency,
+parent/child references, and already committed immutable observations. Rows
+are never deleted.
+
+If a graceful-shutdown database step fails or remains locked beyond the
+five-second cleanup budget, the process records a lifecycle cleanup failure and
+exits without pretending cancellation succeeded. The next API process still
+cannot open until its startup cleanup reaches zero, so a residual row cannot
+resurrect.
+
+`attention_required`, `succeeded`, `failed`, `cancelled`, and `skipped` are
+already terminal audit outcomes and are not changed by lifecycle cleanup. A
+cancelled run is immutable. Operator retry creates a new `OperationRun`; it
+never reactivates the old row.
+
+An unexpected kill cannot run the graceful hook. Its memory work disappears
+with the process, and the next startup cleanup terminally cancels every old
+active/waiting row before opening. Expired `running` leases are never reclaimed
+by a later API process.
+
+Missed schedules never cross a server lifecycle boundary. Within one live
+`ACCEPTING` lifecycle, ordinary misfire and retry policies still apply; after a
+shutdown or crash, a schedule resumes only at its first future occurrence.
+
+### 5.6 Lease, cancellation, and deadlines
 
 Long execution is safe only if work and ownership stay fenced.
 
@@ -312,18 +477,20 @@ Long execution is safe only if work and ownership stay fenced.
   check it between batch items. A cancelled run may retain already committed,
   immutable observations, but it cannot publish a successful projection.
 - The first claim sets `deadlineAt` from the run's copied
-  `executionTimeoutMs`. A retry does not extend the original deadline without
-  an explicit new run.
+  `executionTimeoutMs`. An ordinary retry inside the same accepting API
+  lifecycle does not extend the original deadline. A retry after
+  server-lifecycle cancellation is an explicit new run with a new deadline.
 - A deadline abort transitions the fenced attempt to `failed` with
   `operation_deadline_exceeded`.
 - Browser runtime heartbeat/report rejects work past its deadline or after
   cancellation. The extension treats a fenced heartbeat as an abort, closes
   managed background tabs, and skips a terminal report from the stale attempt.
 - Operator retry of `attention_required` uses the existing retry endpoint and
-  attempt fencing. Automatic retry is limited by `maxAttempts` and never
+  attempt fencing only inside the same accepting lifecycle. Automatic retry is
+  limited by `maxAttempts`, never crosses a lifecycle boundary, and never
   retries authentication/CAPTCHA attention as if it were a transient error.
 
-### 5.5 Browser start acknowledgement and recovery
+### 5.7 Browser start acknowledgement and recovery
 
 The web start request never waits for `searchWingCatalogProducts` or another
 marketplace action. After the server returns the run, the page sends a
@@ -332,6 +499,10 @@ client deadline. The extension acknowledges `{ success: true, accepted: true }`
 immediately and starts `resumeOrTick(environmentId)` without holding the
 message response open. If the nudge is unavailable, the existing 30-second
 alarm remains the recovery path.
+
+This extension recovery exists only inside the same accepting API lifecycle.
+After API shutdown or replacement, the server-side run is cancelled and the
+alarm cannot reclaim or revive it.
 
 The service worker retains the runtime instance so the shared external
 dispatcher can call `wake`. The action carries no operation key, URL, token, or
@@ -354,7 +525,7 @@ and attention state. Raw marketplace rows are posted to an owner ingest API
 using the attempt token; the terminal operation report contains counts and
 safe references only.
 
-### 5.6 Progress and result contract
+### 5.8 Progress and result contract
 
 Every migrated operation reports code-owned stages. Examples include
 `loading_targets`, `waiting_browser`, `collecting_keyword`, `persisting`, and
@@ -513,9 +684,11 @@ The page uses separate labels for separate state:
 | failed                      | retain the previous snapshot and show retryable error; never replace it with an empty result |
 | request timeout             | stop the skeleton and show retry; do not leave “불러오는 중” indefinitely                    |
 
-Retry always creates or resumes a server run according to the operation policy;
-it does not replay a component-local loop. Run state is keyed by run ID, so a
-failure from an older run cannot overwrite a later success.
+Retry never replays a component-local loop. Within one accepting API lifecycle,
+an ordinary retry may use the existing run only where its operation policy
+allows it. A server-lifecycle-cancelled run is immutable, and its retry action
+starts a new run. Run state is keyed by run ID, so a failure from an older run
+cannot overwrite a later success.
 
 ## 8. Observability and performance gates
 
@@ -524,7 +697,9 @@ failure from an older run cannot overwrite a later success.
 Operations emits structured events without raw inputs/results:
 
 - `operation_started`, `operation_stage_changed`, `operation_completed`,
-  `operation_failed`, `operation_cancelled`, `operation_lease_lost`;
+  `operation_failed`, `operation_cancelled`, `operation_lease_lost`,
+  `operation_server_lifecycle_opened`, and
+  `operation_server_lifecycle_cleanup_failed`;
 - dimensions: `operationKey`, `definitionVersion`, `engineType`,
   `resourceClass`, `triggerSource`, `stage`, `outcome`, and bounded error code;
 - measurements: queue wait, execution duration, stage duration, accepted/failed
@@ -542,6 +717,9 @@ search terms and product rows are not metric labels.
 | Active feedback     | stage or queue state visible within 500 ms after start response                                |
 | Progress freshness  | a running batch updates heartbeat at least every lease/3 and stage/count at each unit boundary |
 | Cancellation        | fenced within one heartbeat interval; late report cannot change terminal state                 |
+| Lifecycle startup   | old active/waiting runs and missed schedules reach zero before HTTP listen                     |
+| Lifecycle shutdown  | intake closes first; handler cleanup is bounded to 5 s; final sweep catches boundary commits   |
+| No resurrection     | a second API boot never claims, resumes, or requeues a run from the first lifecycle            |
 | Resource isolation  | a blocked `playwright_1688` run does not prevent `naver_api` or `snapshot_compute` claim       |
 | Product history     | one bulk HTTP request and one bounded repository query, independent of card count              |
 | Terminal copy       | all-failed, partial, no-change, and complete fixtures render different messages                |
@@ -552,14 +730,18 @@ progress freshness, deadline behavior, and truthful outcomes are SLOs.
 
 ## 9. Rollout and rollback
 
-Implementation is additive and split into five program phases inside one KID-24
-integration PR. The accountable human explicitly approved this large-PR
+Implementation is staged inside one KID-24 integration PR. Resource metadata
+and read models are additive; the API/Agent worker root composition and server
+lifecycle behavior intentionally replace the shared-root and cross-lifecycle
+recovery behavior. The accountable human explicitly approved this large-PR
 exception on 2026-08-13. Each phase remains a reviewer-readable commit series
 and a Linear checkpoint; there are no child implementation issues or stacked
 PRs.
 
-1. **Execution safety and observability**: resource classes, lane worker,
-   heartbeat, deadline, stage/count fields, and regression tests.
+1. **Execution safety and observability**: separate API/Agent worker root
+   modules, the fail-closed lifecycle gate, server-bound cancellation,
+   resource classes, lane worker, heartbeat, deadline, stage/count fields, and
+   regression tests.
 2. **Deadline and snapshot-first reads**: web request deadline, bulk tracking
    history, removal of mount-triggered collections, truthful terminal copy.
 3. **Browser operation pilot**: immediate runtime nudge, operation/session
@@ -573,6 +755,17 @@ PRs.
 Rollout is per surface. A feature switch may choose legacy or operation-backed
 UI during a PR, but one user command must never start both. Rollback switches the
 surface back while preserving additive run rows and canonical observations.
+The first deployment intentionally terminally cancels every pre-existing
+active/waiting run and advances missed schedules without creating runs. There
+is no additional lifecycle backfill or lifecycle schema migration. The
+deployment remains one API instance; rolling overlap and replica scale-out are
+blocked until a persisted lifecycle-generation design exists.
+
+The PR updates `docs/ARCHITECTURE.md`, deployment architecture, and environment
+guidance because the top-level Nest composition changes. The release/data note
+states that cancelled rows remain audit history and operator retry creates a
+new run.
+
 After all callers are migrated, the static guard rejects reintroduction of:
 
 - `searchWingCatalogProducts` loops in React components;
@@ -588,6 +781,15 @@ After all callers are migrated, the static guard rejects reintroduction of:
   heartbeat/report, and unchanged status vocabulary;
 - Operations worker tests proving per-class isolation, bounded capacity, lease
   renewal, cancellation fencing, and deadline failure;
+- lifecycle-state tests proving only `ACCEPTING` admits starts, retries, claims,
+  child creation, schedule dispatch, and composite resume;
+- architecture tests proving `ApiApplicationModule` owns `OperationsModule`
+  and `AgentWorkerApplicationModule` cannot import it directly or transitively;
+- shutdown tests proving intake stops before cancellation, active handlers
+  receive abort, cleanup waits at most five seconds, and a final sweep catches
+  a start/claim committed at the boundary;
+- schedule tests proving lifecycle-missed occurrences advance to the first
+  future time without creating a run, including `catch_up_once` schedules;
 - extension tests proving immediate wake acknowledgement, exact handler
   registration, run/session ID equality, heartbeat fence abort, restart resume,
   and no raw result report;
@@ -605,6 +807,15 @@ all repository-required gates before review. Schema work additionally follows
 changes run `npm run dev:server` and confirm successful boot. Frontend changes
 run `npm run build --workspace=apps/web`. Extension changes run the exact Node
 test suites and `node --check` for modified worker scripts.
+
+PostgreSQL integration tests cover all owner domains and all four active/waiting
+statuses, cutoff equality, terminal-row preservation, attempt/stage/deadline and
+parent/child audit preservation, bounded batching, lock contention, and late
+browser reports. A Nest bootstrap integration holds a matching row lock beyond
+the 30-second cleanup budget and proves the API never listens. A process-root
+integration proves the Agent OS worker starts without reading or mutating
+`OperationRun`, while API startup cancels old runs before worker/scheduler
+intake. A two-boot regression proves no prior run resurrects.
 
 ### 10.3 Browser regression matrix
 
@@ -625,6 +836,14 @@ KID-24 is complete only when:
 - product tracking history is bulk-read;
 - every active run has bounded wait, stage/elapsed feedback, cancellation, and
   truthful terminal semantics;
+- API shutdown and replacement terminally cancel all active/waiting
+  `OperationRun` rows across owner domains without deleting rows, decrementing
+  attempts, or restoring `queued`;
+- startup cleanup and missed-schedule advancement complete before the HTTP
+  listener, scheduler, worker, browser claim, or composite resume opens;
+- a lifecycle-cancelled run never resumes; operator retry creates a new run;
+- API and Agent OS worker root modules are structurally separated, and only the
+  API root can own `OperationsModule`;
 - a Playwright stall cannot block unrelated resource classes;
 - the static guard, scoped tests, required builds, server boot, and full Chrome
   regression matrix pass;
