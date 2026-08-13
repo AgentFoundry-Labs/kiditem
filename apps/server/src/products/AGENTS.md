@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # products — Product Operations + Categories Compatibility
 
 `src/products/` owns canonical inventory-product (`MasterProduct`) operations,
@@ -79,6 +77,3 @@ owns physical stock quantities.
   overwrite a newer completed publication.
 - Thumbnail analysis quality grades remain AI registration evidence and are
   independent from automatic product ABC.
-- Category controllers receive `organizationId` from
-  `@CurrentOrganization()` and never accept tenant identity from clients.
-- Product and category mutations scope each resource by `{ id, organizationId }`.

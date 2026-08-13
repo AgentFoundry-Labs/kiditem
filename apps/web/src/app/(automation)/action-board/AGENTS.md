@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/action-board - Action Task Operations
 
 `action-board/` owns the action task work surface: scoped task lists, columns,

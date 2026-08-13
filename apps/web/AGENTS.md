@@ -1,110 +1,54 @@
 # apps/web — Next.js Frontend
 
-`apps/web/` is the Next.js frontend. It owns UI routes, client-side state,
-React Query data access, and browser-only integrations. It does not own backend
-API routes or database access.
+`apps/web/` owns UI routes, browser integrations, client UI state, and React
+Query access to NestJS APIs. Route groups document ownership but do not change
+URLs. Keep route code local until another route group genuinely consumes it;
+the nearest scoped guide owns route-specific composition.
 
-## Scoped Guide Discovery
+## Shared Ownership
 
-Do not rely on this file as a route index or on remembered route rules. Before
-editing a web file, use `rg --files -g AGENTS.md apps/web/src` and read every
-applicable guide in path order: `apps/web/AGENTS.md`, then any `AGENTS.md`
-under `src/app`, route group, route, or shared component/helper directory that
-contains the target file. Route groups do not affect URLs.
+- `src/components/`: UI shared by at least two route groups.
+- `components/providers/`: singleton app wiring and session/query providers.
+- `components/panel/`: live panel, SSE/backfill, store, and actions.
+- `components/ui/`: presentational primitives without API, auth, store, route,
+  or domain behavior.
+- `src/lib/`, `src/hooks/`, and `src/store/`: shared infrastructure,
+  cross-domain hooks, and global UI state. Store never caches server responses.
 
-When a change expands into another route group, shared frontend folder, or
-nested route, rerun discovery and read the newly applicable guide before
-editing there. Shared frontend guidance lives beside the owned surface:
-`src/components/AGENTS.md`, `src/hooks/AGENTS.md`, `src/lib/AGENTS.md`,
-`src/store/AGENTS.md`, and any nested `AGENTS.md` under those folders.
-Web `Folder Map` sections are intentionally sparse; use `rg --files` for route
-contents and keep local maps only when they encode ownership or exceptions.
+## API And State
 
-## Shared Frontend Boundaries
+- Backend data uses `apiClient`; use `fetchRaw()` only for blobs. Raw
+  `fetch` is not a backend client.
+- Inherit the root database and organization-scope prohibitions.
+- Server state uses React Query, domain hooks, and `queryKeys`. Poll with
+  `refetchInterval` and invalidate only affected families after mutation.
+- Panel is the existing SSE exception. A new realtime domain requires a scoped
+  design and instruction update.
+- Use focused shared types, `isApiError` for API failures, `sonner` for
+  user status, `cn()` plus semantic tokens for styles, Lucide for icons, and
+  shared formatting helpers.
 
-| Scope | Ownership |
-|---|---|
-| `src/components/` | App-wide components used by 2+ routes/groups. Keep route/domain UI route-local until it is truly shared. |
-| `components/providers/` | Singleton app wiring only: React Query client, global query error handling, auth session provider, devtools loading. |
-| `components/panel/` | Live notification/work panel, SSE client, fallback snapshot/backfill, panel store, and panel-specific alert/task actions. |
-| `components/ui/` | Presentational primitives only. No `apiClient`, React Query, auth, Zustand, route logic, or domain contracts. |
-| `src/lib/` | Shared frontend infrastructure and pure helpers: `apiClient`, `queryKeys`, error helpers, auth/session helpers, browser integration helpers. |
-| `src/hooks/` | Shared hooks used by 2+ domains. Server-state hooks use React Query and `queryKeys`. |
-| `src/store/` | Global client UI state only. No request/response caching; panel keeps its own colocated store. |
+## Auth And Transport
 
-## API + State Rules
+`lib/auth/session.ts` owns opaque local-session persistence;
+`AuthProvider.tsx` owns lifecycle, cross-tab propagation, expiry, extension
+sync, and redirect. `apiClient` attaches the bearer token and clears the
+session on `auth_required`; there is no refresh or 401 retry path. CopilotKit
+uses same-origin `/api/chat/copilot`; do not add a Next.js proxy for
+Nest-owned APIs.
 
-- All backend data flows through NestJS APIs via `apiClient`.
-- Use `apiClient.get/post/patch/delete`; use `apiClient.fetchRaw()` for blobs.
-- Do not use raw `fetch` for backend API calls.
-- Direct `API_BASE` usage is allowed only for non-fetch URL resolution.
-- Do not import Prisma, `pg`, server DB adapters, Supabase DB clients, or
-  direct DB clients.
-- Never send `organizationId` in query/body; backend session scope owns it.
-- Server state uses React Query. Prefer domain hooks and `queryKeys`.
-- Polling uses `refetchInterval`, not `setInterval`.
-- Mutations invalidate relevant query keys.
-- Zustand is only for client UI state, not request/response server state.
+## Change Boundaries
 
-## Types, Errors, Styling
-
-- Prefer focused shared subpaths such as `@kiditem/shared/inventory`.
-- Keep single-page props/types local unless 2+ components share them.
-- Branch API errors with `isApiError(err)`.
-- Use `sonner` toasts for user-facing success/error. Avoid `alert()` except
-  browser prompt/confirm flows.
-- Tailwind classes compose with `cn()` from `@/lib/utils`.
-- Prefer semantic CSS variables for edited UI:
-  `--surface`, `--surface-sunken`, `--surface-raised`, `--text-*`,
-  `--border*`, `--primary`, `--primary-soft`.
-- Lucide React is the icon library.
-- Formatting goes through helpers in `@/lib/utils`; avoid direct `Intl.*` or
-  `toLocaleString()` in UI code.
-
-## Auth + Chat Transport
-
-- Opaque local-session persistence is owned by `lib/auth/session.ts`; lifecycle,
-  cross-tab propagation, absolute expiry, extension sync, and login redirect
-  ownership belong to `components/providers/AuthProvider.tsx`.
-- `apiClient` attaches the bearer token and clears the local session on
-  `auth_required`. There is no refresh endpoint or 401 retry path; do not add
-  separate redirect/toast handling.
-- CopilotKit browser runtime calls same-origin `/api/chat/copilot`.
-  `next.config` rewrites it to Nest for local/dev. Do not add
-  `app/api/.../route.ts`.
-
-## Boundary Rules
-
-- Do not add substantial behavior to 700+ line components.
-- Changes to 500+ line components require explicit reconstruction
-  classification in review.
-- Split by pure helpers, presentational components, hooks, and orchestration
-  while keeping API behavior stable.
-- Default to polling. Panel is the SSE exception and uses `PanelSseClient`
-  with `credentials: 'include'`.
-- New SSE domains require a scoped plan and instruction update.
-- Update [`docs/ARCHITECTURE.md`](../../docs/ARCHITECTURE.md) when a PR adds a
-  route group, moves a route, or changes shared ownership.
-
-## Local Exceptions
-
-- `app/agent-os/` owns `/agent-os` and `/agent-os/network`, fullscreen
-  visualization surfaces with intentionally hard-coded dark/cyan styling.
-- `components/panel/` owns the live slide-out panel and SSE store.
-- `app/(inventory)/inventory/lib/barcode-print.ts` may use browser print APIs.
-- `app/settings/` may contain operational uploads, printer settings, and health
-  checks.
-- `app/login/` and `app/auth/` are auth shell/callback routes outside business
-  route groups.
+- Split large components along pure helpers, presentational UI, hooks, and
+  orchestration without changing API behavior.
+- Update [docs/ARCHITECTURE.md](../../docs/ARCHITECTURE.md) for route-group,
+  route, or shared-ownership changes.
+- Agent OS visualization, live panel, print helpers, operational settings, and
+  auth routes keep their documented special ownership; do not generalize them
+  into other route groups.
 
 ## Verification
 
-Route guides may omit local `Verification` when this app-level gate is enough.
-Add a local section only for route-specific tests, browser checks, or
-cross-layer contracts that would otherwise be easy to miss. When a local
-section lists narrow tests, run them before this app-level gate.
-
-```bash
-npm run build --workspace=apps/web
-npx vitest run
-```
+Run the nearest route tests or browser checks first, then inherit the root
+frontend build gate. Use `npx vitest run` when the change spans shared web
+behavior.

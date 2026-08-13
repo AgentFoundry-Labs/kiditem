@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # analytics — Reporting + Read Models
 
 `src/analytics/` owns dashboard, statistics, traffic, and supplier-stats read
@@ -65,12 +63,9 @@ Analytics may directly read:
 
 ## Boundary Rules
 
-- Controllers use `@CurrentOrganization()`.
-- ORM reads include `organizationId` on every tenant-owned table.
-- Raw SQL uses Prisma tagged templates and binds organization predicates on
-  every tenant-owned hop.
-- `@Body()` / `@Query()` organizationId is forbidden.
-- New raw SQL/report hydration belongs behind dashboard repository adapters.
+- Every tenant-owned table in an ORM or raw-SQL join remains
+  organization-fenced. New report hydration belongs behind dashboard
+  repository adapters.
 - Traffic upload operation alerts go through the traffic operation-alert port,
   not direct `OperationAlertService` injection.
 

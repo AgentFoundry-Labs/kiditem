@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/components/panel - Live Operations Panel
 
 `components/panel/` owns the global slide-out operations panel, alert rows,
@@ -39,9 +37,3 @@ fallback/recovery
 - Do not replace stream fallback with silent failure; snapshot/backfill behavior
   protects operators from stale panel state.
 - Do not import route-local APIs into panel components.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/components/panel
-```

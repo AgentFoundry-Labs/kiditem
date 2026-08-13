@@ -29,13 +29,3 @@ operations/
 ├── domain/                 # pure state-transition and scheduling policies
 └── operations.module.ts    # public platform wiring
 ```
-
-## Verification
-
-Run the focused suite first, then the server build and boot gate:
-
-```bash
-npm exec --workspace=apps/server vitest -- run src/operations
-npm run build --workspace=apps/server
-npm run dev:server
-```

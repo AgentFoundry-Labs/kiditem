@@ -2,7 +2,6 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   type CreateRunRequestRecordInput,
-  type FailClaimedRequestInput,
   type FindRequestsQuery,
   type MarkRequestStatusIfCurrentInput,
   type MarkRequestStatusInput,
@@ -126,9 +125,13 @@ export class AgentOsRequestRepository {
     workerId: string;
     now: Date;
     organizationId?: string | null;
+    excludedSources?: string[];
   }): Promise<AgentRunRequestRecord | null> {
     const orgPredicate = input.organizationId
       ? Prisma.sql`AND "organization_id" = ${input.organizationId}::uuid`
+      : Prisma.empty;
+    const excludedSourcePredicate = input.excludedSources?.length
+      ? Prisma.sql`AND "source" NOT IN (${Prisma.join(input.excludedSources)})`
       : Prisma.empty;
 
     const rows = await this.prisma.$queryRaw<RunRequestRow[]>`
@@ -139,6 +142,7 @@ export class AgentOsRequestRepository {
           AND "scheduled_for" <= ${input.now}
           AND "attempts" < "max_attempts"
           ${orgPredicate}
+          ${excludedSourcePredicate}
         ORDER BY "priority" DESC, "scheduled_for" ASC, "created_at" ASC
         FOR UPDATE SKIP LOCKED
         LIMIT 1
@@ -216,21 +220,6 @@ export class AgentOsRequestRepository {
       adapterType: session?.adapterType ?? instance?.adapterType ?? 'claude_local',
       taskKey: session?.taskKey ?? 'default',
       agentType: instance?.type ?? 'unknown',
-    });
-  }
-
-  async failClaimedRequest(input: FailClaimedRequestInput) {
-    await this.prisma.agentRunRequest.updateMany({
-      where: {
-        id: input.requestId,
-        organizationId: input.organizationId,
-      },
-      data: {
-        status: 'failed',
-        finishedAt: new Date(),
-        lastErrorCode: input.errorCode,
-        lastErrorMessage: input.errorMessage,
-      },
     });
   }
 

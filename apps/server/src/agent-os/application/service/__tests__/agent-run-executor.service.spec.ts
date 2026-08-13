@@ -115,14 +115,22 @@ function makeExecutor(options: {
   const repository = {
     claimNextRunRequest: vi.fn().mockResolvedValue(claimed),
     claimRunRequestById: vi.fn().mockResolvedValue(claimed),
+    findRunRequestById: vi.fn().mockResolvedValue(claimed),
     findInstanceById: vi.fn().mockResolvedValue(instance),
-    failClaimedRequest: vi.fn().mockResolvedValue(undefined),
-    createRunForRequest: vi.fn().mockResolvedValue(makeRun()),
+    failClaimedRequest: vi.fn().mockResolvedValue(true),
+    createRunForClaimedRequest: vi.fn().mockResolvedValue(makeRun()),
     appendRunEvent: vi.fn().mockResolvedValue(undefined),
-    finalizeRun: vi.fn().mockResolvedValue({
-      run: makeRun(),
-      requestStatus: 'succeeded',
-    }),
+    finalizeRun: vi.fn().mockImplementation(async (input) => ({
+      finalized: true,
+      run: makeRun({
+        status: input.status,
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+        errorCode: input.errorCode ?? null,
+        errorMessage: input.errorMessage ?? null,
+        output: input.output ?? null,
+      }),
+      requestStatus: input.nextRequestStatus ?? input.status,
+    })),
     markRequestStatus: vi.fn().mockResolvedValue(undefined),
   };
   const runtime = {
@@ -130,6 +138,7 @@ function makeExecutor(options: {
       if (options.runtimeError) throw options.runtimeError;
       return options.runtimeResult ?? { output: { ok: true } };
     }),
+    cancel: vi.fn().mockResolvedValue(true),
   };
   const eventEmitter = {
     emit: vi.fn(),
@@ -152,6 +161,41 @@ describe('AgentRunExecutor', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
+
+  it.each([
+    { status: 'cancelled' as const, reason: 'user_cancelled' },
+    { status: 'failed' as const, reason: 'process_interrupted' },
+  ])(
+    'does not run when atomic creation observes a $status request',
+    async ({ status, reason }) => {
+      const { executor, repository, runtime } = makeExecutor({});
+      repository.createRunForClaimedRequest.mockResolvedValue(null);
+      repository.findRunRequestById.mockResolvedValue(
+        makeClaimedRequest({ status }),
+      );
+
+      await expect(
+        executor.executeNext('worker-1', ORGANIZATION_ID),
+      ).resolves.toMatchObject({
+        executed: false,
+        requestId: REQUEST_ID,
+        reason,
+      });
+
+      expect(repository.findRunRequestById).toHaveBeenCalledWith({
+        organizationId: ORGANIZATION_ID,
+        requestId: REQUEST_ID,
+      });
+      expect(repository.createRunForClaimedRequest).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: ORGANIZATION_ID,
+          requestId: REQUEST_ID,
+        }),
+      );
+      expect(repository.appendRunEvent).not.toHaveBeenCalled();
+      expect(runtime.execute).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     {
@@ -194,7 +238,7 @@ describe('AgentRunExecutor', () => {
         errorCode: testCase.errorCode,
       }),
     );
-    expect(repository.createRunForRequest).not.toHaveBeenCalled();
+    expect(repository.createRunForClaimedRequest).not.toHaveBeenCalled();
     // Pre-run failures must still carry routing metadata so AI bridges can
     // correlate runtime_not_configured-style failures with their domain row.
     expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
@@ -210,6 +254,29 @@ describe('AgentRunExecutor', () => {
         sourceResourceId: null,
         requestedByUserId: null,
       }),
+    );
+  });
+
+  it('does not overwrite or publish cancellation when pre-run validation finishes late', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      instance: null,
+    });
+    repository.failClaimedRequest.mockResolvedValueOnce(false);
+    repository.findRunRequestById.mockResolvedValueOnce(
+      makeClaimedRequest({ status: 'cancelled' }),
+    );
+
+    await expect(
+      executor.executeNext('worker-1', ORGANIZATION_ID),
+    ).resolves.toMatchObject({
+      executed: false,
+      requestId: REQUEST_ID,
+      reason: 'user_cancelled',
+      errorCode: 'user_cancelled',
+    });
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
     );
   });
 
@@ -251,7 +318,7 @@ describe('AgentRunExecutor', () => {
         requestId: REQUEST_ID,
         errorCode: 'agent_definition_missing',
       });
-      expect(repository.createRunForRequest).not.toHaveBeenCalled();
+      expect(repository.createRunForClaimedRequest).not.toHaveBeenCalled();
       expect(runtime.execute).not.toHaveBeenCalled();
       expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
         AGENT_RUN_EVENTS.FINALIZED,
@@ -285,7 +352,10 @@ describe('AgentRunExecutor', () => {
       requestId: REQUEST_ID,
     });
     expect(repository.finalizeRun).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'succeeded' }),
+      expect.objectContaining({
+        status: 'succeeded',
+        nextRequestStatus: 'succeeded',
+      }),
     );
     expect(eventEmitter.emitAsync).toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
@@ -297,6 +367,36 @@ describe('AgentRunExecutor', () => {
         sourceResourceType: 'rule_set',
         sourceResourceId: 'rules-42',
         requestedByUserId: 'user-77',
+      }),
+    );
+  });
+
+  it('threads immutable caller context and definition assets into the runtime', async () => {
+    const { executor, runtime } = makeExecutor({
+      instance: makeInstance({ type: 'sourcing', adapterType: 'codex_cli' }),
+      claimed: makeClaimedRequest({
+        agentType: 'sourcing',
+        adapterType: 'codex_cli',
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        payload: { userMessage: '질문' },
+      }),
+    });
+    vi.stubEnv('AGENT_SOURCING_MODEL', 'gpt-5.6-sol');
+
+    await executor.executeRequest('inline-1', ORGANIZATION_ID, REQUEST_ID);
+
+    expect(runtime.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        conversationId: 'conversation-1',
+        requestedByUserId: 'user-1',
+        skillKeys: [
+          'sourcing.evidence-grounded-analysis',
+          'sourcing.collection-planning',
+          'sourcing.safe-review-handoff',
+        ],
+        outputSchemaPath:
+          'agent-config/schemas/sourcing-agent-answer.schema.json',
       }),
     );
   });
@@ -326,6 +426,7 @@ describe('AgentRunExecutor', () => {
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({
         status: 'failed',
+        nextRequestStatus: 'failed',
         errorCode: 'runtime_not_configured',
       }),
     );
@@ -380,9 +481,13 @@ describe('AgentRunExecutor', () => {
     });
     await executor.executeNext('worker-1', ORGANIZATION_ID);
 
-    expect(repository.markRequestStatus).toHaveBeenCalledWith(
-      expect.objectContaining({ status: 'pending' }),
+    expect(repository.finalizeRun).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: 'failed',
+        nextRequestStatus: 'pending',
+      }),
     );
+    expect(repository.markRequestStatus).not.toHaveBeenCalled();
     const finalizedEmits = eventEmitter.emitAsync.mock.calls.filter(
       ([eventName]: [string]) => eventName === AGENT_RUN_EVENTS.FINALIZED,
     );
@@ -395,14 +500,54 @@ describe('AgentRunExecutor', () => {
       runtimeResult: { output: { ok: true } },
     });
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
       run: makeRun({ status: 'succeeded' }),
       requestStatus: 'cancelled',
     });
 
-    await executor.executeNext('worker-1', ORGANIZATION_ID);
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
 
     expect(repository.finalizeRun).toHaveBeenCalledWith(
       expect.objectContaining({ requestId: REQUEST_ID, status: 'succeeded' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      reason: 'user_cancelled',
+      errorCode: 'user_cancelled',
+    });
+  });
+
+  it('does not publish success when restart reconciliation finalized the run as interrupted', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      runtimeResult: { output: { ok: true, stale: 'must-not-publish' } },
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
+      run: makeRun({
+        status: 'failed',
+        errorCode: 'process_interrupted',
+        errorMessage: 'Interrupted during restart reconciliation.',
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+      }),
+      requestStatus: 'failed',
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'process_interrupted',
+      errorCode: 'process_interrupted',
+    });
+    expect(repository.appendRunEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'run.succeeded' }),
     );
     expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
       AGENT_RUN_EVENTS.FINALIZED,
@@ -416,6 +561,7 @@ describe('AgentRunExecutor', () => {
       runtimeResult: { output: { status: 'waiting_approval' } },
     });
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: true,
       run: makeRun({ status: 'succeeded' }),
       requestStatus: 'requires_approval',
     });
@@ -442,6 +588,7 @@ describe('AgentRunExecutor', () => {
     });
     runtime.execute.mockRejectedValueOnce(new Error('provider timeout'));
     repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
       run: makeRun({ status: 'failed' }),
       requestStatus: 'cancelled',
     });
@@ -457,8 +604,46 @@ describe('AgentRunExecutor', () => {
     );
   });
 
-  it('waits for async finalized listeners before resolving a terminal success', async () => {
-    let sinkApplied = false;
+  it('does not overwrite a reconciliation failure after a late runtime failure', async () => {
+    const { executor, repository, eventEmitter } = makeExecutor({
+      claimed: makeClaimedRequest({ attempts: 1, maxAttempts: 3 }),
+      runtimeError: new Error('old runtime failed after restart'),
+    });
+    repository.finalizeRun.mockResolvedValueOnce({
+      finalized: false,
+      run: makeRun({
+        status: 'failed',
+        errorCode: 'process_interrupted',
+        errorMessage: 'Interrupted during restart reconciliation.',
+        finishedAt: new Date('2026-05-07T00:01:00.000Z'),
+      }),
+      requestStatus: 'failed',
+    });
+
+    const result = await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(result).toMatchObject({
+      executed: true,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'process_interrupted',
+      errorCode: 'process_interrupted',
+    });
+    expect(repository.markRequestStatus).not.toHaveBeenCalled();
+    expect(repository.appendRunEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: 'run.failed' }),
+    );
+    expect(eventEmitter.emitAsync).not.toHaveBeenCalledWith(
+      AGENT_RUN_EVENTS.FINALIZED,
+      expect.anything(),
+    );
+  });
+
+  it('does not wait for finalized alert listeners before resolving a terminal success', async () => {
+    let releaseListener = () => undefined;
+    const listenerBlocked = new Promise<unknown[]>((resolve) => {
+      releaseListener = () => resolve([]);
+    });
     const { executor, eventEmitter } = makeExecutor({
       claimed: makeClaimedRequest({
         agentType: 'rules_evaluation',
@@ -467,20 +652,24 @@ describe('AgentRunExecutor', () => {
         sourceResourceId: 'rules-inline',
       }),
     });
-    eventEmitter.emitAsync.mockImplementationOnce(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 1));
-      sinkApplied = true;
-      return [];
-    });
+    eventEmitter.emitAsync.mockReturnValueOnce(listenerBlocked);
 
-    const result = await executor.executeRequest(
+    let executionSettled = false;
+    const execution = executor.executeRequest(
       'agent-os-inline',
       ORGANIZATION_ID,
       REQUEST_ID,
-    );
+    ).then((result) => {
+      executionSettled = true;
+      return result;
+    });
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(executionSettled).toBe(true);
+    releaseListener();
+    const result = await execution;
 
     expect(result).toMatchObject({ executed: true, requestId: REQUEST_ID });
-    expect(sinkApplied).toBe(true);
   });
 
   describe('executeNextUnscoped', () => {
@@ -492,6 +681,7 @@ describe('AgentRunExecutor', () => {
         expect.objectContaining({
           workerId: 'worker-internal',
           organizationId: null,
+          excludedSources: ['sourcing_dashboard'],
         }),
       );
       expect(result.executed).toBe(true);
@@ -556,6 +746,35 @@ describe('AgentRunExecutor', () => {
         reason: 'organization_required',
       });
       expect(repository.claimNextRunRequest).not.toHaveBeenCalled();
+    });
+  });
+
+  it('keeps inline dashboard requests out of the scoped background claim', async () => {
+    const { executor, repository } = makeExecutor({ claimed: null });
+
+    await executor.executeNext('worker-1', ORGANIZATION_ID);
+
+    expect(repository.claimNextRunRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ excludedSources: ['sourcing_dashboard'] }),
+    );
+  });
+
+  it('cancels the active runtime through the runtime boundary', async () => {
+    const { executor, runtime } = makeExecutor({});
+
+    await expect(
+      executor.cancelActiveRuntime({
+        organizationId: ORGANIZATION_ID,
+        requestId: REQUEST_ID,
+        runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        reason: 'user_cancelled',
+      }),
+    ).resolves.toBe(true);
+    expect(runtime.cancel).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      requestId: REQUEST_ID,
+      runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      reason: 'user_cancelled',
     });
   });
 });

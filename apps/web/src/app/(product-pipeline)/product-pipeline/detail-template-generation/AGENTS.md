@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/detail-template-generation - Template Detail Generation
 
 `detail-template-generation/` owns detail-page generation from templates,
@@ -21,9 +19,3 @@ generation form/workflow hooks.
 - Do not mutate product workspace state except through explicit backend content
   workspace or generation endpoints.
 - Payload shape changes require checking backend DTOs and route tests together.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/detail-template-generation
-```

@@ -1,6 +1,7 @@
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
+  CancelAgentRuntimeInput,
 } from './agent-runtime.port';
 
 /**
@@ -24,4 +25,5 @@ import type {
  */
 export interface AgentTypeRuntimeHandler {
   execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult>;
+  cancel?(input: CancelAgentRuntimeInput): Promise<boolean>;
 }

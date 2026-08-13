@@ -145,6 +145,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       requestedByUserId: input.requestedByUserId ?? null,
       requestedByActorType: input.requestedByActorType ?? null,
       requestedByActorId: input.requestedByActorId ?? null,
+      maxAttempts: input.maxAttempts,
       payload: input.payload ?? {},
       scheduledFor: input.scheduledFor ?? new Date(),
     });
@@ -228,11 +229,10 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       });
     }
 
-    const cancelledRequest = await this.repository.markRequestStatusIfCurrent({
+    const cancelled = await this.repository.cancelRequestAndRun({
       organizationId: input.organizationId,
       requestId: request.id,
-      currentStatuses: CANCELLABLE_REQUEST_STATUSES,
-      status: 'cancelled',
+      currentRequestStatuses: CANCELLABLE_REQUEST_STATUSES,
       errorCode: 'user_cancelled',
       errorMessage: cancelReason(input.reason),
       payload: {
@@ -246,22 +246,17 @@ export class AgentRunCoordinator implements AgentRunnerPort {
         }),
       },
     });
-    if (!cancelledRequest) {
+    if (!cancelled) {
       return this.cancelResult({
         skippedRequests: 1,
       });
     }
 
-    const runningRun = await this.repository.findRunByRequestId({
-      organizationId: input.organizationId,
-      requestId: request.id,
-      status: ['running'],
-    });
-    if (runningRun) {
+    if (cancelled.run) {
       await this.repository.appendRunEvent({
         organizationId: input.organizationId,
-        runId: runningRun.id,
-        agentInstanceId: runningRun.agentInstanceId,
+        runId: cancelled.run.id,
+        agentInstanceId: cancelled.run.agentInstanceId,
         type: 'run.cancel_requested',
         message: cancelReason(input.reason),
         data: {
@@ -273,25 +268,25 @@ export class AgentRunCoordinator implements AgentRunnerPort {
             target: { targetType: 'agent_run_request', requestId: request.id },
             affected: {
               agentRunRequestIds: [request.id],
-              agentRunIds: [runningRun.id],
+              agentRunIds: [cancelled.run.id],
             },
             result: 'cancelled',
           }),
         },
-      });
-      await this.repository.finalizeRun({
-        organizationId: input.organizationId,
-        runId: runningRun.id,
-        requestId: request.id,
-        status: 'cancelled',
-        errorCode: 'user_cancelled',
-        errorMessage: cancelReason(input.reason),
-      });
+      }).catch(() => undefined);
+      await this.executor
+        ?.cancelActiveRuntime({
+          organizationId: input.organizationId,
+          requestId: request.id,
+          runId: cancelled.run.id,
+          reason: 'user_cancelled',
+        })
+        .catch(() => false);
     }
 
     return this.cancelResult({
       cancelledRequests: 1,
-      cancelledRuns: runningRun ? 1 : 0,
+      cancelledRuns: cancelled.run ? 1 : 0,
     });
   }
 
@@ -315,11 +310,11 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       return this.cancelResult({ skippedRequests: 1, skippedRuns: 1 });
     }
 
-    const cancelledRequest = await this.repository.markRequestStatusIfCurrent({
+    const cancelled = await this.repository.cancelRequestAndRun({
       organizationId: input.organizationId,
       requestId: request.id,
-      currentStatuses: CANCELLABLE_REQUEST_STATUSES,
-      status: 'cancelled',
+      expectedRunId: run.id,
+      currentRequestStatuses: CANCELLABLE_REQUEST_STATUSES,
       errorCode: 'user_cancelled',
       errorMessage: cancelReason(input.reason),
       payload: {
@@ -336,7 +331,7 @@ export class AgentRunCoordinator implements AgentRunnerPort {
         }),
       },
     });
-    if (!cancelledRequest) {
+    if (!cancelled || !cancelled.run) {
       return this.cancelResult({ skippedRequests: 1, skippedRuns: 1 });
     }
 
@@ -360,15 +355,15 @@ export class AgentRunCoordinator implements AgentRunnerPort {
           result: 'cancelled',
         }),
       },
-    });
-    await this.repository.finalizeRun({
-      organizationId: input.organizationId,
-      runId: run.id,
-      requestId: run.requestId,
-      status: 'cancelled',
-      errorCode: 'user_cancelled',
-      errorMessage: cancelReason(input.reason),
-    });
+    }).catch(() => undefined);
+    await this.executor
+      ?.cancelActiveRuntime({
+        organizationId: input.organizationId,
+        requestId: request.id,
+        runId: run.id,
+        reason: 'user_cancelled',
+      })
+      .catch(() => false);
 
     return this.cancelResult({
       cancelledRequests: 1,

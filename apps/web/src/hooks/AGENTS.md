@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/hooks - Shared React Hooks
 
 `src/hooks/` owns hooks used by multiple frontend domains. Route-local hooks
@@ -37,9 +35,3 @@ needs them.
 - Do not place single-page hooks here.
 - Do not use Zustand for server data in shared hooks.
 - Do not add browser-only side effects without guarding `typeof window`.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/hooks
-```

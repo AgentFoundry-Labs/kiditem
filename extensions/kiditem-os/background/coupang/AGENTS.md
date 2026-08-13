@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # coupang — Coupang Wing + Ad-Center Domain
 
 `extensions/kiditem-os/background/coupang/` collects Coupang Wing catalog and ad-center
@@ -30,7 +28,6 @@ supports explicit Wing page automation.
   start/status/chunk/finalize contract.
 - Authorization profiles use `kiditem_environment_profiles_v1` in
   `chrome.storage.local`; tokens and operational state stay environment-bound.
-- Do not send `organizationId`; backend auth resolves organization scope.
 
 ## Browser Boundary
 
@@ -82,7 +79,7 @@ supports explicit Wing page automation.
 
 ## Verification
 
-Inherits [`extensions/kiditem-os/AGENTS.md`](../../AGENTS.md#verification). The
+Inherits [`extensions/AGENTS.md`](../../../AGENTS.md#verification). The
 Coupang tests are the narrow gate for this domain:
 
 ```bash

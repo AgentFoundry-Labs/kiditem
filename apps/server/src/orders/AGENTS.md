@@ -1,93 +1,53 @@
-Consult this document first instead of relying on memorized knowledge.
+# orders — Orders, Returns, CS, And Reviews
 
-# orders — Orders, Returns, CS, Reviews
+`src/orders/` owns the channel-agnostic Order aggregate, returns, CS, reviews,
+record-only return transfers, Coupang directship collection conversion, and
+durable Sellpia transmission intents. Channels owns provider sync and actions;
+Inventory owns physical stock; Supply owns Rocket catalog/workbook evidence.
 
-`src/orders/` owns the channel-agnostic order spine and adjacent operational
-surfaces: orders, returns, CS, reviews, and return transfers. Return transfers
-are record-only; stock movement stays with inventory.
+## Identity And State
 
-## Owned Surfaces
+- `Order` is the aggregate and `OrderLineItem` is the channel SKU line.
+  Aggregate and line status remain independent.
+- Provider identity is stored as platform plus metadata; new channels add
+  adapters rather than channel-specific order tables.
+- Return transfers are Orders-owned operations even though their current Prisma
+  namespace is transitional; completion does not imply stock movement.
+- Sellpia transmission intents and reconciliation audit fence duplicate browser
+  submissions. They do not carry or finalize Inventory state.
 
-- Order actions/list/detail/stats under `/api/orders/*`
-- Return lifecycle under `/api/returns/*`
-- CS tickets under `/api/cs/*`
-- Reviews under orders-adjacent routes
-- Return transfer list/create/update under `/api/return-transfers/*`
-- Coupang Rocket PA collection and Sellpia workbook conversion at
-  `/api/orders/collection/coupang-directship/convert`
-- Durable Sellpia workbook submission intents under
-  `/api/orders/sellpia-transmissions/intents/*`
+The model authority is
+[prisma/models/orders.prisma](../../../../prisma/models/orders.prisma), with
+cross-cutting identities in
+[prisma/models/core.prisma](../../../../prisma/models/core.prisma).
+Action, collection, transmission, and reconciliation behavior is executable in
+[the Orders tests](__tests__/).
 
-## Main Data Models
+## Provider And Collection Contract
 
-- `Order` is the aggregate root.
-- `OrderLineItem` is the per-SKU line.
-- `OrderReturn` and `OrderReturnLineItem` model returns/exchanges.
-- `platform` stores channel identity; provider payloads live in `metadata`.
-- `ReturnTransfer` currently lives in the Inventory Prisma namespace, but this
-  module owns its HTTP/service surface.
-- Rocket PO catalog evidence and workbook workflow are not Orders-owned models.
-  Channels owns the account-scoped catalog publication, while Supply owns the
-  persisted workbook and its exact order-line links.
-- `SellpiaOrderTransmissionIntent` and its reconciliation audit are
-  Orders-owned duplicate-submission fences. They do not carry current Inventory
-  state; the legacy nullable `finalizedGeneration` column is not written by new
-  transmissions.
+- Provider actions delegate through Channels ports; Orders services do not call
+  marketplace HTTP APIs.
+- Prepare a stable transmission intent before irreversible Sellpia browser IO.
+  Observed acceptance finalizes it, explicit confirmed non-submission aborts
+  it, and privileged reconciliation is audited. Unknown outcomes remain
+  reconcilable and do not trigger Inventory work.
+- Directship conversion persists deterministic collection identities,
+  reconciles exact rows with the active Supply-owned Rocket workbook, and
+  exports every collected row for the selected transport. Unmatched rows remain
+  selectable.
+- Non-empty output carries the stable source-run/transport transmission key.
+  An empty SHIPMENT or MILKRUN probe persists no-match evidence and returns no
+  transmission key.
+- Provider rejection is returned as the provider error rather than translated
+  into an Inventory refresh or recovery action.
 
-## Provider Action Flow
+## Boundaries
 
-Provider-specific confirm, invoice, and return actions delegate through the
-channels provider boundary. Orders services must not call Coupang or other
-provider HTTP APIs directly.
-
-Sellpia workbook submission prepares a stable intent before the irreversible
-browser action. Provider acceptance finalizes it, explicit confirmed
-non-submission aborts it, and owner/admin reconciliation is audited. Neither
-prepare nor finalize checks stock or freshness, and no outcome requests an
-Inventory refresh. A provider rejection is returned to the operator as the
-Sellpia error rather than translated into an Inventory action.
-
-## Cross-Domain Ports
-
-- Channels writes orders/returns during marketplace sync.
-- Orders delegates marketplace provider actions through channels-owned
-  provider ports/adapters.
-- Inventory owns actual stock movement; return transfers in orders are
-  record-only.
-- Coupang directship conversion (`/api/orders/collection/coupang-directship/convert`)
-  persists the collection, reconciles rows against the active Supply-owned
-  Rocket workbook, and exports every collected row for the selected transport
-  to the Sellpia workbook. Exact matches receive workbook linkage; unmatched
-  rows remain in the operator-selectable file. The service returns a stable
-  transmission key derived from source import run and transport. An empty
-  SHIPMENT or MILKRUN probe still persists no-match evidence and returns HTTP
-  204 without a transmission key.
-
-## Boundary Rules
-
-- Order mutations stay on `POST /api/orders` with an action enum.
-- Returns and CS require pagination.
-- Date/time filters use ISO strings plus hour-boundary normalization.
-- Single-resource reads/writes use `findFirst({ id, organizationId })`.
-- `Order.status` is aggregate/UI status; `OrderLineItem.status` is line-level
-  status. Keep them independent.
-- New channels add `platform` values and channel adapters, not
-  channel-specific order tables.
-- Directship convert requires the selected Rocket channel account, persists
-  deterministic order/import identities, and links exact PO/product rows
-  through Supply reconciliation when a workbook matches. The selected transport
-  splits SHIPMENT vs MILKRUN output. Non-empty unmatched-only collection still
-  returns a Sellpia workbook; a transport with no collected rows returns 204 and
-  remains durable evidence for safe workflow abandonment.
-- `CreateCsBodyDto.productId` is only a backward-compatible alias for
-  `listingId`; new callers send `listingId`.
-- Sellpia transmission persistence is scoped by `{ organizationId, intentKey }`
-  and protected by an advisory transaction lock. Normal resolution is limited
-  to the creator; owner/admin authority is reserved for reconciliation.
-
-## Transitional Exceptions
-
-- Orders remains flat for channel-agnostic CRUD/actions. The Sellpia
-  transmission fence is the scoped port/adapter exception required by its
-  row-lock transaction. New provider APIs, Agent OS runtime, raw SQL reporting,
-  or cross-domain mutations require the same scoped boundary review.
+- Order mutations keep the existing action-enum endpoint; returns and CS remain
+  paginated.
+- Time filters use ISO values plus the established hour-boundary normalization.
+- Creator authority handles normal transmission resolution; owner/admin is
+  reserved for reconciliation.
+- Flat channel-agnostic CRUD remains acceptable. New provider IO, Agent OS
+  runtime, raw-SQL reporting, or cross-domain mutation requires a scoped
+  port/adapter boundary.

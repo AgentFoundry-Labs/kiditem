@@ -24,6 +24,13 @@ import { OperatorContextBuilder } from '../application/service/operator-context-
 import { OperatorDecisionExecutor } from '../application/service/operator-decision-executor.service';
 import { OperatorDecisionParser } from '../application/service/operator-decision-parser.service';
 import { AGENT_OS_LIVE_READINESS_PORT } from '../application/port/out/cross-domain/agent-os-live-readiness.port';
+import { AgentLocalCliRuntimeAdapter } from '../adapter/out/runtime/agent-local-cli-runtime.adapter';
+import { AgentLocalProcessRegistry } from '../adapter/out/runtime/agent-local-process-registry';
+import { KidItemMcpSessionAdapter } from '../adapter/out/runtime/kiditem-mcp-session.adapter';
+import { AgentInlineRunReconciler } from '../application/service/agent-inline-run-reconciler.service';
+import { AgentInteractionService } from '../application/service/agent-interaction.service';
+import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction.port';
+import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
 
 const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
@@ -82,5 +89,25 @@ describe('AgentOsModule wiring', () => {
     expect(exports).toContain(AgentOsMcpToolExecutor);
     expect(exports).toContain(OperatorDecisionExecutor);
     expect(exports).toContain(OperatorDecisionParser);
+  });
+
+  it('wires the generic local CLI interaction and interruption boundary', () => {
+    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AgentOsModule) ?? [];
+
+    expect(providers).toContain(AgentInteractionService);
+    expect(providers).toContain(AgentLocalCliRuntimeAdapter);
+    expect(providers).toContain(AgentLocalProcessRegistry);
+    expect(providers).toContain(KidItemMcpSessionAdapter);
+    expect(providers).toContain(AgentInlineRunReconciler);
+    expect(providers).toContainEqual({
+      provide: AGENT_INTERACTION_PORT,
+      useExisting: AgentInteractionService,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_MCP_SESSION_PORT,
+      useExisting: KidItemMcpSessionAdapter,
+    });
+    expect(exports).toContain(AGENT_INTERACTION_PORT);
   });
 });

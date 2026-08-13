@@ -5,9 +5,11 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 DEFAULT_ROOT="$(git -C "$SCRIPT_DIR" rev-parse --show-toplevel 2>/dev/null || pwd)"
 KIDITEM_ROOT="${KIDITEM_ROOT:-$DEFAULT_ROOT}"
 SKILLS_DIR="$KIDITEM_ROOT/.agents/skills"
-LOCK_FILE="$KIDITEM_ROOT/skills-lock.json"
-SOURCE_CACHE="$KIDITEM_ROOT/.agents/sources"
 SHARED_SKILLS_DIR="$KIDITEM_ROOT/tools/codex/skills"
+PROFILE_MANAGER="$SCRIPT_DIR/manage-skill-profile.mjs"
+PROFILE_MANIFEST="$KIDITEM_ROOT/tools/codex/skill-profiles.json"
+SKILL_HUB_ROOT="${AGENT_SKILL_HUB_ROOT:-$HOME/workspace/agent-skill-hub}"
+SKILL_HUB_MANAGER="$SKILL_HUB_ROOT/manage.mjs"
 CODEX_BIN="${CODEX_BIN:-/Applications/Codex.app/Contents/Resources/codex}"
 
 VERIFY_ONLY=0
@@ -17,15 +19,16 @@ usage() {
   cat <<'EOF'
 Usage: update-local-skills.sh [--verify-only] [--no-pull]
 
-Updates shared KidItem project-local Codex skills without installing global skills.
-Shared skill sources live in tools/codex/skills; .agents/ is local-only.
+Updates reusable hub exports and reapplies KidItem's active Codex skill profile.
+Source repositories live in the workspace hub; .agents/skills is discovery only.
 
-  --verify-only   Check links, lock coverage, and prompt scope only.
-  --no-pull       Rebuild/link from local source caches without network pulls.
+  --verify-only   Check hub exports, profile drift, links, and prompt scope.
+  --no-pull       Regenerate exports from existing source revisions.
 
 Optional environment:
-  KIDITEM_ROOT    Override the detected KidItem repo root.
-  CODEX_BIN       Override the Codex binary path.
+  KIDITEM_ROOT          Override the detected KidItem repository root.
+  AGENT_SKILL_HUB_ROOT  Override the reusable skill hub location.
+  CODEX_BIN             Override the Codex binary path.
 EOF
 }
 
@@ -51,15 +54,6 @@ require_file() {
   [ -f "$file" ] || { echo "Missing file: $file" >&2; exit 1; }
 }
 
-safe_repo_key() {
-  printf '%s' "$1" | tr '/:' '__'
-}
-
-hash_dir() {
-  local dir="$1"
-  (cd "$dir" && find . -type f -print0 | sort -z | xargs -0 shasum -a 256 | shasum -a 256 | awk '{print $1}')
-}
-
 git_summary() {
   local dir="$1"
   require_dir "$dir"
@@ -68,141 +62,70 @@ git_summary() {
   git -C "$dir" status --short --branch
 }
 
-ensure_github_repo() {
-  local source="$1"
-  local ref="${2:-main}"
-  local repo_key repo_dir
-
-  repo_key="$(safe_repo_key "$source")"
-  repo_dir="$SOURCE_CACHE/$repo_key"
-  mkdir -p "$SOURCE_CACHE"
-
-  if [ "$NO_PULL" -eq 0 ]; then
-    if [ -d "$repo_dir/.git" ]; then
-      run git -C "$repo_dir" fetch --depth 1 origin "$ref" >&2
-      run git -C "$repo_dir" reset --hard FETCH_HEAD >&2
-    else
-      rm -rf "$repo_dir"
-      run git clone --depth 1 --branch "$ref" "https://github.com/$source.git" "$repo_dir" >&2
-    fi
-  elif [ ! -d "$repo_dir/.git" ]; then
-    echo "Missing source cache for $source. Re-run without --no-pull." >&2
-    exit 1
-  fi
-
-  printf '%s\n' "$repo_dir"
-}
-
-copy_replace_dir() {
-  local src="$1"
-  local dst="$2"
-  local tmp="${dst}.tmp.$$"
-
-  require_dir "$src"
-  rm -rf "$tmp"
-  cp -R "$src" "$tmp"
-  if [ -L "$dst" ]; then
-    echo "Refusing to replace symlink with copied skill: $dst" >&2
-    rm -rf "$tmp"
-    exit 1
-  fi
-  rm -rf "$dst"
-  mv "$tmp" "$dst"
-}
-
-sync_shared_project_skills() {
-  local skill_dir name linked=0
+verify_shared_project_sources() {
+  local skill_dir name found=0
 
   require_dir "$SHARED_SKILLS_DIR"
-  mkdir -p "$SKILLS_DIR"
-
   log ""
-  log "== shared project skills =="
+  log "== shared project skill sources =="
   for skill_dir in "$SHARED_SKILLS_DIR"/*; do
     [ -f "$skill_dir/SKILL.md" ] || continue
     name="$(basename "$skill_dir")"
-    if [ -e "$SKILLS_DIR/$name" ] && [ ! -L "$SKILLS_DIR/$name" ]; then
-      echo "Local .agents skill conflicts with shared project skill: $SKILLS_DIR/$name" >&2
-      echo "Move or remove it, then rerun this script." >&2
-      exit 1
-    fi
-    ln -snf "$skill_dir" "$SKILLS_DIR/$name"
-    linked=$((linked + 1))
-    log "$name -> $skill_dir"
+    found=$((found + 1))
+    log "$name"
   done
-
-  [ "$linked" -gt 0 ] || {
+  [ "$found" -gt 0 ] || {
     echo "No shared project skills found in $SHARED_SKILLS_DIR" >&2
     exit 1
   }
 }
 
-locked_skill_rows() {
-  require_file "$LOCK_FILE"
-  node -e '
-const fs = require("fs");
-const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-for (const [name, item] of Object.entries(lock.skills || {})) {
-  if (item.sourceType !== "github") continue;
-  console.log([name, item.source, item.skillPath, item.ref || "main"].join("\t"));
-}
-' "$LOCK_FILE"
-}
-
-update_locked_github_skills() {
-  local hash_file="$1"
-  local name source skill_path ref repo_dir src_dir dst hash
-
-  require_file "$LOCK_FILE"
-  mkdir -p "$SOURCE_CACHE" "$SKILLS_DIR"
-  : > "$hash_file"
+verify_local_harness_layout() {
+  local stale_path
 
   log ""
-  log "== locked GitHub skills =="
-  while IFS=$'\t' read -r name source skill_path ref; do
-    [ -n "$name" ] || continue
-    repo_dir="$(ensure_github_repo "$source" "$ref")"
-    src_dir="$repo_dir/$(dirname "$skill_path")"
-    dst="$SKILLS_DIR/$name"
-    require_dir "$src_dir"
-    require_file "$src_dir/SKILL.md"
-    copy_replace_dir "$src_dir" "$dst"
-    hash="$(hash_dir "$dst")"
-    printf '%s\t%s\n' "$name" "$hash" >> "$hash_file"
-    log "Updated $name from $source/$skill_path"
-  done < <(locked_skill_rows)
+  log "== local harness layout =="
+  for stale_path in \
+    "$KIDITEM_ROOT/.agents/sources" \
+    "$KIDITEM_ROOT/.agents/catalog" \
+    "$KIDITEM_ROOT/.agents/tmp" \
+    "$KIDITEM_ROOT/.agents/understand-anything-plugin"; do
+    if [ -e "$stale_path" ] || [ -L "$stale_path" ]; then
+      echo "Legacy project-local skill residue must be removed: $stale_path" >&2
+      exit 1
+    fi
+  done
+  log "Project-local discovery contains no legacy source or cache roots."
 }
 
-update_lock_hashes() {
-  local hash_file="$1"
-  [ -s "$hash_file" ] || return 0
-
-  node -e '
-const fs = require("fs");
-const [lockPath, hashPath] = process.argv.slice(1);
-const lock = JSON.parse(fs.readFileSync(lockPath, "utf8"));
-const rows = fs.readFileSync(hashPath, "utf8").trim().split(/\n/).filter(Boolean);
-for (const row of rows) {
-  const [name, hash] = row.split(/\t/);
-  if (lock.skills && lock.skills[name]) {
-    lock.skills[name].computedHash = hash;
-    lock.skills[name].hashAlgorithm = "sha256-directory-v1";
-  }
-}
-fs.writeFileSync(lockPath, `${JSON.stringify(lock, null, 2)}\n`);
-' "$LOCK_FILE" "$hash_file"
-}
-
-verify_locked_skills() {
-  local name source skill_path ref
-
+update_skill_hub() {
+  require_file "$SKILL_HUB_MANAGER"
   log ""
-  log "== locked skill coverage =="
-  while IFS=$'\t' read -r name source skill_path ref; do
-    [ -n "$name" ] || continue
-    require_file "$SKILLS_DIR/$name/SKILL.md"
-    log "$name"
-  done < <(locked_skill_rows)
+  log "== reusable skill hub =="
+  if [ "$NO_PULL" -eq 1 ]; then
+    run node "$SKILL_HUB_MANAGER" update --no-pull
+  else
+    run node "$SKILL_HUB_MANAGER" update
+  fi
+}
+
+verify_skill_hub() {
+  require_file "$SKILL_HUB_MANAGER"
+  log ""
+  log "== reusable skill hub coverage =="
+  run node "$SKILL_HUB_MANAGER" verify
+}
+
+apply_active_profile() {
+  require_file "$PROFILE_MANIFEST"
+  require_file "$PROFILE_MANAGER"
+  run node "$PROFILE_MANAGER" apply --root "$KIDITEM_ROOT"
+}
+
+verify_active_profile() {
+  require_file "$PROFILE_MANIFEST"
+  require_file "$PROFILE_MANAGER"
+  run node "$PROFILE_MANAGER" verify --root "$KIDITEM_ROOT"
 }
 
 verify_shared_project_skills() {
@@ -226,34 +149,23 @@ verify_symlink_skills() {
   local link
 
   log ""
-  log "== symlink skill coverage =="
+  log "== active discovery links =="
   for link in "$SKILLS_DIR"/*; do
     [ -L "$link" ] || continue
-    if [ ! -f "$link/SKILL.md" ] && [ ! -d "$link" ]; then
-      echo "Broken skill symlink: $link -> $(readlink "$link")" >&2
-      exit 1
-    fi
+    require_file "$link/SKILL.md"
     log "$(basename "$link") -> $(readlink "$link")"
   done
 }
 
 report_local_only_skills() {
-  local skill name
+  local skill
 
   log ""
-  log "== local-only skills =="
+  log "== unmanaged discovery directories =="
   for skill in "$SKILLS_DIR"/*; do
     [ -d "$skill" ] || continue
     [ -L "$skill" ] && continue
-    name="$(basename "$skill")"
-    if node -e '
-const fs = require("fs");
-const lock = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
-process.exit(lock.skills && lock.skills[process.argv[2]] ? 0 : 1);
-' "$LOCK_FILE" "$name"; then
-      continue
-    fi
-    log "$name"
+    log "$(basename "$skill")"
   done
 }
 
@@ -262,40 +174,41 @@ verify_prompt_scope() {
 
   log ""
   log "== fresh Codex prompt scope =="
+  local kiditem_hits required_names name
+  kiditem_hits="$(cd "$KIDITEM_ROOT" && "$CODEX_BIN" debug prompt-input probe 2>/dev/null | perl -pe 's/\\n/\n/g' | grep -E '^- ' || true)"
+  required_names="$(node -e '
+const fs = require("fs");
+const manifest = JSON.parse(fs.readFileSync(process.argv[1], "utf8"));
+for (const selector of manifest.required || []) console.log(selector.split(":").slice(1).join(":"));
+' "$PROFILE_MANIFEST")"
 
-  local kiditem_hits
-  kiditem_hits="$(cd "$KIDITEM_ROOT" && "$CODEX_BIN" debug prompt-input probe 2>/dev/null | perl -pe 's/\\n/\n/g' | grep -E '^- (agents-md-audit|caveman|grill-me|improve-codebase-architecture|kiditem-market-sourcing-radar|supabase|supabase-postgres-best-practices|vercel-react-best-practices|update-project-skills)' | head -20 || true)"
-
-  if [ -n "$kiditem_hits" ]; then
-    log "KidItem sees project-local skills:"
-    echo "$kiditem_hits"
-  else
-    echo "KidItem fresh prompt did not show expected project-local skills." >&2
-    exit 1
-  fi
-
+  while IFS= read -r name; do
+    [ -n "$name" ] || continue
+    echo "$kiditem_hits" | grep -F -- "- $name" >/dev/null || {
+      echo "KidItem fresh prompt did not show required project-local skill: $name" >&2
+      exit 1
+    }
+  done <<< "$required_names"
   log "Prompt scope check passed for KidItem."
 }
 
 require_dir "$KIDITEM_ROOT"
 mkdir -p "$SKILLS_DIR"
-require_file "$LOCK_FILE"
 git_summary "$KIDITEM_ROOT"
-sync_shared_project_skills
-
-hash_file="$(mktemp /tmp/kiditem-skill-hashes.XXXXXX)"
-trap 'rm -f "$hash_file"' EXIT
+verify_local_harness_layout
+verify_shared_project_sources
 
 if [ "$VERIFY_ONLY" -eq 0 ]; then
-  update_locked_github_skills "$hash_file"
-  update_lock_hashes "$hash_file"
+  update_skill_hub
+  apply_active_profile
 fi
 
-verify_locked_skills
+verify_skill_hub
 verify_shared_project_skills
 verify_symlink_skills
 report_local_only_skills
+verify_active_profile
 verify_prompt_scope
 
 log ""
-log "Done. Start a fresh Codex session to refresh injected skill metadata."
+log "Done. Start a fresh Codex task to refresh injected skill metadata."

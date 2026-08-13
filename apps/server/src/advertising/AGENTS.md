@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # advertising — Ad Operations
 
 `src/advertising/` owns Coupang ad operations, keyword/SERP tracking,
@@ -113,17 +111,11 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 
 ## Boundary Rules
 
-- Application services are Prisma-free and depend on ports, not concrete
-  adapters.
-- `PrismaService` belongs under `adapter/out/repository/**`.
-- `domain/` is free of NestJS, Prisma, HTTP DTOs, and incoming adapters.
 - KST business date conversion goes through `toBusinessDate()`.
 - Period views derive from daily facts; ratios recompute from summed raw
   values and do not trust provider ratios.
 - `buildAdTargetKey()` is the only target-key builder and must fail if no
   stable identifier exists.
-- Every service method receives and scopes by `organizationId`; no default
-  organization lookup.
 
 ## Transitional Exceptions
 

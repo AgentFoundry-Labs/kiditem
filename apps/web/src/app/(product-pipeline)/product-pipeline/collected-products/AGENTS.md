@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/collected-products — Collected Product Workspace
 
 `app/(product-pipeline)/product-pipeline/collected-products/` owns the collected
@@ -78,7 +76,6 @@ listing/content-workspace identifiers.
   product-master delete APIs.
 - Thumbnail-only results must not create collected or registered inbox cards.
 - Product-less direct detail output must not appear as a collected-product card.
-- No direct DB access from frontend.
 - No editor localStorage persistence; GrapesJS storage is disabled.
 - Uploaded generic picker files remain base64/client-side unless the owning
   flow explicitly persists them.
@@ -94,14 +91,7 @@ listing/content-workspace identifiers.
 - Candidate registration-preparation/rejection changes require checking shared
   workspace headers and sourcing APIs together.
 
-## Verification
-
-For collected-products changes, run the narrow route suite first, then the web
-build:
-
-```bash
-npm exec --workspace=apps/web vitest -- run 'src/app/(product-pipeline)/product-pipeline/collected-products'
-```
+## Regression Focus
 
 Route href, editor bridge, registration-preparation, or deletion behavior
 changes need a focused regression spec for the changed workspace contract.

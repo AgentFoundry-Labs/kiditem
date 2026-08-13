@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/product-pipeline/_shared - Pipeline Shared UI and Helpers
 
 `product-pipeline/_shared/` owns code reused by multiple product-pipeline
@@ -23,9 +21,3 @@ hooks, route builders, preview helpers, and content workspace API wrappers.
 - Do not make generated content history a local source of truth.
 - Large editor behavior belongs in smaller helpers/components before adding new
   orchestration.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/_shared
-```

@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # web/detail-editor - Detail Page Editing Surface
 
 `_shared/components/detail-editor/` owns the large reusable detail page editing
@@ -23,9 +21,3 @@ helpers, editor data hooks, and direct detail generation helpers.
 - Do not add new model defaults; missing model/config selection must stay
   explicit.
 - Payload changes require checking backend AI/detail DTOs and tests together.
-
-## Verification
-
-```bash
-npm exec --workspace=apps/web vitest -- run src/app/\(product-pipeline\)/product-pipeline/_shared/components/detail-editor
-```

@@ -5,10 +5,11 @@
  * seed entrypoint before Office starts a new API image. The root
  * `scripts/seed-agent-os.ts` wrapper calls this module for local/dev usage.
  */
-import { config } from 'dotenv';
 import { resolve } from 'node:path';
+import { config } from 'dotenv';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
+import { resolveAgentRuntimeAssetsFromFilesystem } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
 import {
   listAgentDefinitions,
   resolveDefinitionDefaultModel,
@@ -34,6 +35,12 @@ export function createAgentOsSeedPrisma(): PrismaClient {
   return new PrismaClient({
     adapter: new PrismaPg({ connectionString }),
   });
+}
+
+export function resolveAgentOsRepositoryRoot(
+  moduleDirectory = __dirname,
+): string {
+  return resolve(moduleDirectory, '../../../..');
 }
 
 function resolveDefaultModel(definition: AgentDefinitionRecord): string {
@@ -127,6 +134,15 @@ export async function seedAgentOs(prisma: PrismaClient): Promise<AgentOsSeedResu
   const definitions = listAgentDefinitions();
   for (const definition of definitions) {
     resolveDefaultModel(definition);
+    if (definition.outputSchemaPath) {
+      await resolveAgentRuntimeAssetsFromFilesystem({
+        repositoryRoot: resolveAgentOsRepositoryRoot(),
+        agentType: definition.type,
+        promptPath: definition.promptPath,
+        skillKeys: definition.defaultSkillKeys,
+        outputSchemaPath: definition.outputSchemaPath,
+      });
+    }
   }
 
   let instances = 0;

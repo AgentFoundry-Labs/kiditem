@@ -178,12 +178,17 @@ describe('OperatorContextBuilder', () => {
     const sourcingAgent = context.allowedTargetAgents.find(
       (agent) => agent.type === 'sourcing',
     );
-    expect(sourcingAgent?.defaultSkillKeys).toContain('sourcing.magic_scraper');
+    expect(sourcingAgent?.defaultSkillKeys).not.toContain('sourcing.magic_scraper');
+    expect(sourcingAgent?.defaultSkillKeys).toEqual([
+      'sourcing.evidence-grounded-analysis',
+      'sourcing.collection-planning',
+      'sourcing.safe-review-handoff',
+    ]);
     expect(sourcingAgent?.skills).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          key: 'sourcing.magic_scraper',
-          mode: 'development_workflow',
+          key: 'sourcing.evidence-grounded-analysis',
+          mode: 'runtime_playbook',
         }),
       ]),
     );

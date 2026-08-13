@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # sourcing — Alibaba/1688 Sourcing Domain
 
 `extensions/kiditem-os/background/sourcing/` extracts Alibaba and 1688 product data plus
@@ -68,7 +66,7 @@ that contain `__tests__` or other `_`-prefixed committed paths.
 
 ## Verification
 
-Inherits [`extensions/kiditem-os/AGENTS.md`](../../AGENTS.md#verification). The
+Inherits [`extensions/AGENTS.md`](../../../AGENTS.md#verification). The
 sourcing tests are the narrow gate for this domain:
 
 ```bash

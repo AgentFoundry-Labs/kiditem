@@ -6,6 +6,7 @@ import {
 } from '../port/out/repository/agent-os-repository.port';
 import {
   AGENT_RUNTIME_PORT,
+  type CancelAgentRuntimeInput,
   type AgentRuntimePort,
 } from '../port/out/runtime/agent-runtime.port';
 import {
@@ -71,21 +72,17 @@ export class AgentRunExecutor {
     private readonly eventEmitter: EventEmitter2,
   ) {}
 
-  private async emitFinalized(event: AgentRunFinalizedEvent): Promise<void> {
-    try {
-      await this.eventEmitter.emitAsync(AGENT_RUN_EVENTS.FINALIZED, event);
-    } catch (err) {
-      // Finalized listeners are the owner-domain sink/reconcile hot path.
-      // Await them so inline execution can return only after immediate
-      // business projections have had a chance to apply, but never let a
-      // listener exception poison the durable Agent OS terminal state.
-      const target = event.runId
-        ? `run ${event.runId}`
-        : `request ${event.requestId}`;
-      this.logger.warn(
-        `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for ${target}: ${err}`,
-      );
-    }
+  private emitFinalized(event: AgentRunFinalizedEvent): void {
+    void this.eventEmitter
+      .emitAsync(AGENT_RUN_EVENTS.FINALIZED, event)
+      .catch((error: unknown) => {
+        const target = event.runId
+          ? `run ${event.runId}`
+          : `request ${event.requestId}`;
+        this.logger.warn(
+          `Failed to emit ${AGENT_RUN_EVENTS.FINALIZED} for ${target}: ${String(error)}`,
+        );
+      });
   }
 
   private async failBeforeRun(input: {
@@ -94,22 +91,44 @@ export class AgentRunExecutor {
     routing: ClaimedRoutingMetadata;
     errorCode: string;
     errorMessage: string;
-  }): Promise<void> {
-    await this.repository.failClaimedRequest({
+  }): Promise<AgentRunExecutorResult> {
+    const changed = await this.repository.failClaimedRequest({
       organizationId: input.organizationId,
       requestId: input.requestId,
       errorCode: input.errorCode,
       errorMessage: input.errorMessage,
     });
-    await this.emitFinalized({
+    if (changed) {
+      this.emitFinalized({
+        organizationId: input.organizationId,
+        requestId: input.requestId,
+        ...input.routing,
+        requestStatus: 'failed',
+        status: 'failed',
+        errorCode: input.errorCode,
+        errorMessage: input.errorMessage,
+      });
+      return {
+        executed: false,
+        requestId: input.requestId,
+        errorCode: input.errorCode,
+      };
+    }
+
+    const current = await this.repository.findRunRequestById({
       organizationId: input.organizationId,
       requestId: input.requestId,
-      ...input.routing,
-      requestStatus: 'failed',
-      status: 'failed',
-      errorCode: input.errorCode,
-      errorMessage: input.errorMessage,
     });
+    const reason =
+      current?.status === 'cancelled'
+        ? 'user_cancelled'
+        : 'process_interrupted';
+    return {
+      executed: false,
+      requestId: input.requestId,
+      reason,
+      errorCode: reason,
+    };
   }
 
   async executeNext(
@@ -123,6 +142,7 @@ export class AgentRunExecutor {
       workerId,
       now: new Date(),
       organizationId,
+      excludedSources: ['sourcing_dashboard'],
     });
 
     if (!claimed) {
@@ -174,6 +194,7 @@ export class AgentRunExecutor {
       workerId,
       now: new Date(),
       organizationId: null,
+      excludedSources: ['sourcing_dashboard'],
     });
     if (!claimed) {
       return { executed: false, reason: 'no_pending_request' };
@@ -191,34 +212,24 @@ export class AgentRunExecutor {
       id: claimed.agentInstanceId,
     });
     if (!instance) {
-      await this.failBeforeRun({
+      return this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         routing,
         errorCode: 'agent_instance_missing',
         errorMessage: 'Agent instance disappeared after request was queued.',
       });
-      return {
-        executed: false,
-        requestId: claimed.id,
-        errorCode: 'agent_instance_missing',
-      };
     }
 
     const definition = findAgentDefinitionByType(instance.type);
     if (!definition) {
-      await this.failBeforeRun({
+      return this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         routing,
         errorCode: 'agent_definition_missing',
         errorMessage: `No agent definition registered for type "${instance.type}".`,
       });
-      return {
-        executed: false,
-        requestId: claimed.id,
-        errorCode: 'agent_definition_missing',
-      };
     }
 
     const requestModelOverride =
@@ -232,18 +243,13 @@ export class AgentRunExecutor {
       requestOverride: requestModelOverride,
     });
     if (!model) {
-      await this.failBeforeRun({
+      return this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         routing,
         errorCode: 'model_required',
         errorMessage: 'Agent execution requires an explicit model.',
       });
-      return {
-        executed: false,
-        requestId: claimed.id,
-        errorCode: 'model_required',
-      };
     }
 
     const modelPlanResolution = resolveDefinitionModelPlan(definition, model);
@@ -251,23 +257,17 @@ export class AgentRunExecutor {
       const missingHint = modelPlanResolution.missingEnv
         ? ` Missing ${modelPlanResolution.missingEnv} for ${modelPlanResolution.missingRole} model.`
         : '';
-      await this.failBeforeRun({
+      return this.failBeforeRun({
         organizationId: claimed.organizationId,
         requestId: claimed.id,
         routing,
         errorCode: 'model_required',
         errorMessage: `Agent execution requires an explicit model plan.${missingHint}`,
       });
-      return {
-        executed: false,
-        requestId: claimed.id,
-        errorCode: 'model_required',
-      };
     }
 
     const promptPath = instance.promptPathOverride ?? definition.promptPath;
-
-    const run = await this.repository.createRunForRequest({
+    const run = await this.repository.createRunForClaimedRequest({
       organizationId: claimed.organizationId,
       agentInstanceId: instance.id,
       requestId: claimed.id,
@@ -279,6 +279,20 @@ export class AgentRunExecutor {
       taskKey: claimed.taskKey,
       input: claimed.payload,
     });
+    if (!run) {
+      const currentRequest = await this.repository.findRunRequestById({
+        organizationId: claimed.organizationId,
+        requestId: claimed.id,
+      });
+      return {
+        executed: false,
+        requestId: claimed.id,
+        reason:
+          currentRequest?.status === 'cancelled'
+            ? 'user_cancelled'
+            : 'process_interrupted',
+      };
+    }
 
     await this.repository.appendRunEvent({
       organizationId: run.organizationId,
@@ -306,6 +320,10 @@ export class AgentRunExecutor {
         model,
         modelPlan: modelPlanResolution.modelPlan,
         promptPath,
+        conversationId: claimed.conversationId,
+        requestedByUserId: claimed.requestedByUserId,
+        skillKeys: [...definition.defaultSkillKeys],
+        outputSchemaPath: definition.outputSchemaPath,
         input: claimed.payload,
         trustLevel: instance.trustLevel,
         runtimeConfig: { ...definition.defaultRuntimeConfig, ...instance.runtimeConfig },
@@ -316,6 +334,7 @@ export class AgentRunExecutor {
         runId: run.id,
         requestId: claimed.id,
         status: 'succeeded',
+        nextRequestStatus: 'succeeded',
         output: result.output,
         provider: result.provider ?? null,
         cost:
@@ -331,7 +350,25 @@ export class AgentRunExecutor {
               },
       });
 
-      if (finalized.requestStatus === 'cancelled') {
+      if (!finalized.finalized) {
+        const cancelled =
+          finalized.requestStatus === 'cancelled' ||
+          finalized.run.status === 'cancelled' ||
+          finalized.run.errorCode === 'user_cancelled';
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: cancelled ? 'user_cancelled' : 'process_interrupted',
+          errorCode: cancelled ? 'user_cancelled' : 'process_interrupted',
+        };
+      }
+
+      if (
+        finalized.requestStatus === 'cancelled' ||
+        finalized.run.status === 'cancelled' ||
+        finalized.run.errorCode === 'user_cancelled'
+      ) {
         await this.repository.appendRunEvent({
           organizationId: run.organizationId,
           runId: run.id,
@@ -339,10 +376,19 @@ export class AgentRunExecutor {
           type: 'run.finalized_after_cancel',
           data: { requestId: claimed.id, runtimeStatus: 'succeeded' },
         });
-        return { executed: true, requestId: claimed.id, runId: run.id };
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: 'user_cancelled',
+          errorCode: 'user_cancelled',
+        };
       }
 
-      if (finalized.requestStatus === 'requires_approval') {
+      if (
+        finalized.requestStatus === 'requires_approval' &&
+        finalized.run.status === 'succeeded'
+      ) {
         await this.repository.appendRunEvent({
           organizationId: run.organizationId,
           runId: run.id,
@@ -358,6 +404,19 @@ export class AgentRunExecutor {
         };
       }
 
+      if (
+        finalized.run.status !== 'succeeded' ||
+        finalized.requestStatus !== 'succeeded'
+      ) {
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: 'process_interrupted',
+          errorCode: 'process_interrupted',
+        };
+      }
+
       await this.repository.appendRunEvent({
         organizationId: run.organizationId,
         runId: run.id,
@@ -370,7 +429,7 @@ export class AgentRunExecutor {
         },
       });
 
-      await this.emitFinalized({
+      this.emitFinalized({
         organizationId: run.organizationId,
         requestId: claimed.id,
         runId: run.id,
@@ -384,6 +443,32 @@ export class AgentRunExecutor {
     } catch (error) {
       const errorCode = normalizeAgentErrorCode(error);
       const errorMessage = normalizeAgentErrorMessage(error);
+      const nextRequestStatus =
+        claimed.attempts >= claimed.maxAttempts ? 'failed' : 'pending';
+
+      const finalized = await this.repository.finalizeRun({
+        organizationId: run.organizationId,
+        runId: run.id,
+        requestId: claimed.id,
+        status: 'failed',
+        nextRequestStatus,
+        errorCode,
+        errorMessage,
+      });
+
+      if (!finalized.finalized) {
+        const cancelled =
+          finalized.requestStatus === 'cancelled' ||
+          finalized.run.status === 'cancelled' ||
+          finalized.run.errorCode === 'user_cancelled';
+        return {
+          executed: true,
+          requestId: claimed.id,
+          runId: run.id,
+          reason: cancelled ? 'user_cancelled' : 'process_interrupted',
+          errorCode: cancelled ? 'user_cancelled' : 'process_interrupted',
+        };
+      }
 
       await this.repository.appendRunEvent({
         organizationId: run.organizationId,
@@ -395,44 +480,10 @@ export class AgentRunExecutor {
         data: { errorCode },
       });
 
-      const finalized = await this.repository.finalizeRun({
-        organizationId: run.organizationId,
-        runId: run.id,
-        requestId: claimed.id,
-        status: 'failed',
-        errorCode,
-        errorMessage,
-      });
-
-      if (finalized.requestStatus === 'cancelled') {
-        await this.repository.appendRunEvent({
-          organizationId: run.organizationId,
-          runId: run.id,
-          agentInstanceId: instance.id,
-          type: 'run.finalized_after_cancel',
-          level: 'warning',
-          message: errorMessage,
-          data: { requestId: claimed.id, runtimeStatus: 'failed', errorCode },
-        });
-        return {
-          executed: true,
-          requestId: claimed.id,
-          runId: run.id,
-          errorCode,
-        };
-      }
-
-      if (claimed.attempts >= claimed.maxAttempts) {
-        await this.repository.markRequestStatus({
-          organizationId: claimed.organizationId,
-          requestId: claimed.id,
-          status: 'failed',
-          errorCode,
-          errorMessage,
-        });
+      if (finalized.requestStatus === 'failed') {
         // Emit FINALIZED only when the request itself is terminal — retries
         // (status: 'pending') will run again and emit on their final attempt.
-        await this.emitFinalized({
+        this.emitFinalized({
           organizationId: claimed.organizationId,
           requestId: claimed.id,
           runId: run.id,
@@ -442,14 +493,14 @@ export class AgentRunExecutor {
           errorCode,
           errorMessage,
         });
-      } else {
-        await this.repository.markRequestStatus({
-          organizationId: claimed.organizationId,
+      } else if (finalized.requestStatus !== 'pending') {
+        return {
+          executed: true,
           requestId: claimed.id,
-          status: 'pending',
-          errorCode,
-          errorMessage,
-        });
+          runId: run.id,
+          reason: 'process_interrupted',
+          errorCode: 'process_interrupted',
+        };
       }
 
       return {
@@ -467,5 +518,9 @@ export class AgentRunExecutor {
    */
   expectsAbort(error: unknown): boolean {
     return error instanceof AgentOsRuntimeError && error.code === 'aborted';
+  }
+
+  async cancelActiveRuntime(input: CancelAgentRuntimeInput): Promise<boolean> {
+    return this.runtime.cancel ? this.runtime.cancel(input) : false;
   }
 }

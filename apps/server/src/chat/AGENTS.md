@@ -1,5 +1,3 @@
-Consult this document first instead of relying on memorized knowledge.
-
 # chat — CopilotKit Runtime + Claude CLI Adapter
 
 `src/chat/` owns the CopilotKit runtime bridge, Claude CLI adapter, and
