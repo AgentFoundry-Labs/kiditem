@@ -54,4 +54,15 @@ describe("sourcing display-state reset migration", () => {
       "sourcing_1688_hot_product_daily_snapshots",
     );
   });
+
+  it("keeps the active evidence-run index in PostgreSQL canonical form", () => {
+    const schema = readFileSync(
+      resolve(import.meta.dirname, "../../prisma/models/sourcing.prisma"),
+      "utf8",
+    );
+
+    expect(schema).toContain(
+      `where: raw("((status)::text = ANY (ARRAY['collecting'::text, 'cancel_requested'::text]))")`,
+    );
+  });
 });
