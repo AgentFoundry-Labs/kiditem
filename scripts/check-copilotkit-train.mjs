@@ -35,6 +35,51 @@ export function assertPackageTrain(dependencies, lock) {
   }
 }
 
+function overridePackageName(key) {
+  return Object.keys(LOCKED_PACKAGES)
+    .concat('@copilotkit/react-ui')
+    .find((packageName) => key === packageName || key.startsWith(`${packageName}@`));
+}
+
+function assertOverrideTrain(overrides, lock) {
+  for (const [key, value] of Object.entries(overrides)) {
+    const packageName = overridePackageName(key);
+
+    if (packageName === '@copilotkit/react-ui') {
+      throw new Error('@copilotkit/react-ui was removed from the v2 train');
+    }
+
+    if (packageName) {
+      const version =
+        typeof value === 'object' && value !== null ? value['.'] : value;
+      if (version !== undefined) {
+        assertPackageTrain({ [packageName]: version }, lock);
+      }
+    }
+
+    if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+      assertOverrideTrain(value, lock);
+    }
+  }
+}
+
+function assertManifestGroup(manifestPath, groupName, values, lock) {
+  try {
+    if (groupName === 'overrides') {
+      assertOverrideTrain(values, lock);
+    } else {
+      assertPackageTrain(values, lock);
+    }
+  } catch (error) {
+    if (error instanceof Error) {
+      throw new Error(`${manifestPath} ${groupName}: ${error.message}`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+}
+
 export function loadPlatformLock(rootDir) {
   const lockPath = path.join(
     rootDir,
@@ -53,14 +98,18 @@ export function checkWorkspace(rootDir) {
     if (!existsSync(absolutePath)) continue;
 
     const manifest = JSON.parse(readFileSync(absolutePath, 'utf8'));
-    assertPackageTrain(
-      {
-        ...(manifest.dependencies ?? {}),
-        ...(manifest.devDependencies ?? {}),
-        ...(manifest.overrides ?? {}),
-      },
-      lock,
-    );
+    for (const groupName of [
+      'devDependencies',
+      'dependencies',
+      'overrides',
+    ]) {
+      assertManifestGroup(
+        manifestPath,
+        groupName,
+        manifest[groupName] ?? {},
+        lock,
+      );
+    }
   }
 }
 
