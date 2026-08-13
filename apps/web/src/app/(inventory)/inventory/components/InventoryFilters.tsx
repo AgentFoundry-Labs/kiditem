@@ -2,89 +2,80 @@
 
 import type { FormEvent } from 'react';
 import { Search } from 'lucide-react';
-import { SellpiaOutOfStockToggle } from '@/components/SellpiaOutOfStockToggle';
-import { cn } from '@/lib/utils';
 import type {
   InventorySkuStockStatus,
   SellpiaInventorySkuActiveStatus,
   SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
+import { cn } from '@/lib/utils';
 
-interface SellpiaInventoryFiltersProps {
+type InventoryLinkStatusFilter = SellpiaInventorySkuLinkStatus | 'all';
+
+interface InventoryFiltersProps {
   activeStatus: SellpiaInventorySkuActiveStatus;
-  linkStatus: SellpiaInventorySkuLinkStatus | 'all';
+  linkStatus: InventoryLinkStatusFilter;
   search: string;
   stockStatus: InventorySkuStockStatus;
-  includeOutOfStock: boolean;
   onActiveStatusChange: (value: SellpiaInventorySkuActiveStatus) => void;
-  onLinkStatusChange: (value: SellpiaInventorySkuLinkStatus | 'all') => void;
+  onLinkStatusChange: (value: InventoryLinkStatusFilter) => void;
   onSearchChange: (value: string) => void;
-  onSearchSubmit: (event: FormEvent) => void;
+  onSearchSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onStockStatusChange: (value: InventorySkuStockStatus) => void;
-  onIncludeOutOfStockChange: (value: boolean) => void;
 }
 
-const STOCK_FILTERS: Array<{
-  label: string;
-  value: InventorySkuStockStatus;
-}> = [
+const STOCK_FILTERS = [
   { label: '전체', value: 'all' },
   { label: '재고 있음', value: 'in_stock' },
   { label: '품절', value: 'out_of_stock' },
-];
+] satisfies Array<{ label: string; value: InventorySkuStockStatus }>;
 
-const ACTIVE_FILTERS: Array<{
-  label: string;
-  value: SellpiaInventorySkuActiveStatus;
-}> = [
+const ACTIVE_FILTERS = [
+  { label: '전체 상태', value: 'all' },
   { label: '활성', value: 'active' },
   { label: '비활성', value: 'inactive' },
-  { label: '전체 상태', value: 'all' },
-];
+] satisfies Array<{ label: string; value: SellpiaInventorySkuActiveStatus }>;
 
-const LINK_FILTERS: Array<{
-  label: string;
-  value: SellpiaInventorySkuLinkStatus | 'all';
-}> = [
+const LINK_FILTERS = [
   { label: '전체 연결', value: 'all' },
   { label: '연결됨', value: 'linked' },
   { label: '미연결', value: 'unlinked' },
-];
+] satisfies Array<{ label: string; value: InventoryLinkStatusFilter }>;
 
-export default function SellpiaInventoryFilters({
+export function InventoryFilters({
   activeStatus,
   linkStatus,
   search,
   stockStatus,
-  includeOutOfStock,
   onActiveStatusChange,
   onLinkStatusChange,
   onSearchChange,
   onSearchSubmit,
   onStockStatusChange,
-  onIncludeOutOfStockChange,
-}: SellpiaInventoryFiltersProps) {
+}: InventoryFiltersProps) {
   return (
-    <div className="space-y-3 rounded-xl border border-slate-200 bg-white p-4">
-      <form role="search" onSubmit={onSearchSubmit} className="relative">
-        <Search
-          size={15}
-          className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-        />
-        <input
-          type="search"
-          aria-label="Sellpia 재고 검색"
-          value={search}
-          onChange={(event) => onSearchChange(event.target.value)}
-          placeholder="상품코드 · 상품명 · 옵션명 · 바코드 검색"
-          className="h-10 w-full rounded-lg border border-slate-200 bg-slate-50 pl-9 pr-3 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
-        />
+    <div className="space-y-3 rounded-xl border border-[var(--border)] bg-[var(--surface)] p-4">
+      <form role="search" onSubmit={onSearchSubmit} className="flex gap-2">
+        <div className="relative min-w-64 flex-1">
+          <Search
+            aria-hidden="true"
+            className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--text-secondary)]"
+          />
+          <input
+            type="search"
+            aria-label="Sellpia 재고 검색"
+            value={search}
+            onChange={(event) => onSearchChange(event.target.value)}
+            placeholder="Sellpia 코드 · 상품명 · 옵션명 · 바코드 검색"
+            className="h-10 w-full rounded-lg border border-[var(--border)] bg-[var(--surface)] pl-9 pr-3 text-sm"
+          />
+        </div>
+        <button
+          type="submit"
+          className="rounded-lg bg-[var(--primary)] px-4 py-2 text-sm font-semibold text-white hover:bg-[var(--primary-hover)]"
+        >
+          검색
+        </button>
       </form>
-
-      <SellpiaOutOfStockToggle
-        checked={includeOutOfStock}
-        onCheckedChange={onIncludeOutOfStockChange}
-      />
 
       <div className="flex flex-wrap items-center gap-3 text-sm">
         <FilterGroup
@@ -105,9 +96,7 @@ export default function SellpiaInventoryFilters({
           selected={linkStatus}
           onChange={onLinkStatusChange}
         />
-        <span className="text-xs text-slate-500">
-          Sellpia 최신 전체 스냅샷 기준
-        </span>
+        <span className="text-xs text-[var(--text-secondary)]">Sellpia 최신 전체 스냅샷 기준</span>
       </div>
     </div>
   );

@@ -63,11 +63,11 @@ edit `currentStock` or release a final commitment merely to imitate shipment.
 
 ## One-Time Source Binding
 
-1. Open an authenticated KidItem operations screen and use the `재고 현황`
-   sync action. Matching views display the same shared state without replacing
-   the active matching-center UI. The physical stock entry is
-   `/inventory-hub?tab=status`; the complete read-only SKU collection is
-   `/inventory-hub?tab=sellpia-inventory`.
+1. Open the authenticated `/inventory-hub` workspace and use its Sellpia sync
+   action. The same tabless workspace owns physical stock, the complete
+   read-only SKU collection, URL-authoritative filters, and confirmed
+   destinations. Matching views display the shared state without replacing the
+   active matching-center UI.
 2. Confirm that the drawer shows origin `https://kiditem.sellpia.com` and
    account `kiditem`.
 3. As an owner or admin, choose **출처 연결 확인**.
@@ -119,7 +119,7 @@ navigation contract keeps those four active URLs independently reachable and
 does not change the server-owned TTL, lease, fence, or single-writer rules.
 
 Historical warning links such as `/stock-ops?tab=freshness` are compatibility
-ingress: `/stock-ops` redirects them to the owning `/inventory-hub` view. The
+ingress: `/stock-ops` redirects them to the owning `/inventory-hub` workspace. The
 independent `/stock-ops` route remains analysis-only and owns
 `product-outflow` and `channel-zero`; compatibility ingress does not transfer
 freshness ownership back to it.

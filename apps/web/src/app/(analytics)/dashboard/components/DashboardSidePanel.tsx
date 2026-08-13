@@ -95,7 +95,7 @@ function DashboardAlertRow({
   const [isCancelling, setIsCancelling] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const dismissPanelItem = usePanelStore((state) => state.dismissItem);
-  const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/inventory-hub?tab=status' : alert.type === 'minus_product' ? '/product-hub?tab=cleanup' : alert.type === 'ad_high' ? '/ad-ops' : undefined);
+  const href = alert.href ?? (alert.type === 'strategy_change' ? '/ad-ops' : alert.type === 'stock_low' ? '/inventory-hub' : alert.type === 'minus_product' ? '/product-hub?tab=cleanup' : alert.type === 'ad_high' ? '/ad-ops' : undefined);
   const statusLabel = alert.kind === 'operation' ? alertStatusLabel(alert.status) : null;
   const operationKey = operationKeyOf(alert);
   const browserCollectionRunId =

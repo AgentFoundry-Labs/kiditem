@@ -413,9 +413,9 @@ Notable route subtrees:
   `/product-hub` is the staged product operations center backed by the
   read-only Sellpia snapshot, `/product-hub/[id]` is the read-only snapshot
   detail, and `/product-hub/matching` is the Coupang ChannelSku
-  component-recipe workspace. `/inventory-hub?tab=sellpia-inventory` owns the
-  complete read-only Sellpia SKU table. Post-baseline Sellpia features may be
-  added without replacing or rearranging those layouts.
+  component-recipe workspace. `/inventory-hub` owns the tabless, complete
+  read-only Sellpia SKU workspace with inventory actions, URL-authoritative
+  filters, connection destinations, and transfer/return records.
 
 - `/rocket-orders` remains the preserved Rocket operations screen and is not a
   compatibility redirect. Its existing `납품 수량 판단 추후 연동` placeholder
@@ -423,10 +423,10 @@ Notable route subtrees:
   is the only operator-facing Rocket review route. `/purchase-orders` remains
   the general supplier purchase-order screen.
 
-- Current tab ownership is exact: `/inventory-hub` has `status` and
-  `sellpia-inventory`; `/stock-ops` has `product-outflow` and `channel-zero`.
-  Active Orders routes are independent workspaces and do not inherit tabs from
-  retired hub screens.
+- Current composition ownership is exact: `/inventory-hub` has no tabs and
+  owns one Sellpia inventory workspace; `/stock-ops` has `product-outflow` and
+  `channel-zero`. Active Orders routes are independent workspaces and do not
+  inherit tabs from retired hub screens.
 
 - `apps/web/src/app/(product-pipeline)/product-pipeline/collected-products`
   owns `/product-pipeline/collected-products`, the 1688/imported plus manual

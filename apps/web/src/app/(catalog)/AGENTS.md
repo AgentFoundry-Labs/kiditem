@@ -12,8 +12,8 @@ Sellpia consumption rules under `/product-hub`.
   only a derived summary.
 - Candidates and ranking are evidence, never confirmation.
 
-Product list/detail uses Products APIs. The Inventory-owned
-`/inventory-hub?tab=sellpia-inventory` reads the complete Sellpia collection.
+Product list/detail uses Products APIs. The Inventory-owned `/inventory-hub`
+reads the complete Sellpia collection in its tabless inventory workspace.
 Matching writes recipes through Products and never edits Sellpia stock, source
 price, or channel price. Identity is not inferred from display text, normalized
 name, barcode, or rank. Preserve confirmed recipes unless an operator submits

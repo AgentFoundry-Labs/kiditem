@@ -1,7 +1,6 @@
 import { render, screen } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { InventorySkuSnapshotSummary } from '@kiditem/shared/inventory';
-import { InventoryFilterTabs } from './InventoryFilterTabs';
 import { InventorySummaryCards } from './InventorySummaryCards';
 
 const summary: InventorySkuSnapshotSummary = {
@@ -37,49 +36,5 @@ describe('InventorySummaryCards', () => {
     const { container } = render(<InventorySummaryCards summary={summary} />);
 
     expect(container.querySelectorAll('[class*="dark:"]')).toHaveLength(0);
-  });
-});
-
-describe('InventoryFilterTabs', () => {
-  it('renders develop-style rectangular status filters', () => {
-    render(
-      <InventoryFilterTabs
-        filter="in_stock"
-        summary={summary}
-        onFilterChange={vi.fn()}
-      />,
-    );
-
-    expect(screen.getByRole('button', { name: '재고 있음 (8)' })).toHaveClass('bg-purple-600');
-    expect(screen.getByRole('button', { name: '재고 없음 (4)' })).toBeInTheDocument();
-    expect(screen.getAllByRole('button')).toHaveLength(3);
-  });
-
-  it('keeps the same border width across active and inactive filters', () => {
-    render(
-      <InventoryFilterTabs
-        filter="in_stock"
-        summary={summary}
-        onFilterChange={vi.fn()}
-      />,
-    );
-
-    for (const button of screen.getAllByRole('button')) {
-      expect(button).toHaveClass('border');
-    }
-  });
-
-  it('keeps inactive filter hover styling light-only', () => {
-    render(
-      <InventoryFilterTabs
-        filter="in_stock"
-        summary={summary}
-        onFilterChange={vi.fn()}
-      />,
-    );
-
-    const inactive = screen.getByRole('button', { name: '재고 없음 (4)' });
-    expect(inactive).toHaveClass('hover:bg-slate-50');
-    expect(inactive).not.toHaveClass('hover:bg-muted');
   });
 });
