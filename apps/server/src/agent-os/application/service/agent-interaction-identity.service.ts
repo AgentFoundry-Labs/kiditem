@@ -386,6 +386,7 @@ export class AgentInteractionIdentityService {
             eventId: event.id,
             sessionId: event.sessionId,
             executionId: event.executionId,
+            aguiRunId: event.aguiRunId,
             sequence: event.sequence.toString(),
             eventType: event.eventType,
             schemaVersion: event.schemaVersion,

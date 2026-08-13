@@ -95,6 +95,7 @@ const envelope = (
   eventId: `event-${sequence}`,
   sessionId: 'session-1',
   executionId: 'execution-1',
+  aguiRunId: RUN_ID,
   sequence: String(sequence),
   createdAt: `2026-08-14T00:00:0${Math.min(sequence, 9)}.000Z`,
   eventType: 'assistant_message' as const,
@@ -383,6 +384,76 @@ describe('CopilotKit native runtime routes', () => {
       delta: 'event 1',
     }));
     expect(control.connectLive).not.toHaveBeenCalled();
+  });
+
+  it.each(['completed', 'failed', 'cancelled'] as const)(
+    'replays a stored %s terminal with the exact original AG-UI run identity',
+    async (status) => {
+      const control = controlHarness();
+      control.authorizeConnection.mockResolvedValue(
+        connectionAuthorization([
+          envelope(1, {
+            executionId: 'execution-is-not-the-run-id',
+            aguiRunId: 'original-agui-run-id',
+            eventType: 'run_terminal',
+            payload: {
+              status,
+              errorCode: status === 'failed' ? 'runtime_failed' : null,
+            },
+          }),
+        ]),
+      );
+      const gateway = createInteractionGateway(dependencies(control));
+
+      const response = await gateway.handler(new Request(
+        'http://gateway.test/api/copilotkit/agent/operator/connect',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', cookie: COOKIE },
+          body: JSON.stringify(runInput({ messages: [] })),
+        },
+      ));
+      const terminal = (await readSseEvents(response)).at(-1);
+
+      expect(terminal).toMatchObject({
+        type: status === 'completed' ? EventType.RUN_FINISHED : EventType.RUN_ERROR,
+        threadId: THREAD_ID,
+        runId: 'original-agui-run-id',
+      });
+    },
+  );
+
+  it('keeps the stored terminal run identity stable across replay pages', async () => {
+    const control = controlHarness();
+    control.authorizeConnection
+      .mockResolvedValueOnce(connectionAuthorization(
+        [envelope(1)],
+        'next-page-cursor-terminal',
+      ))
+      .mockResolvedValueOnce(connectionAuthorization([
+        envelope(2, {
+          aguiRunId: 'original-paginated-run-id',
+          eventType: 'run_terminal',
+          payload: { status: 'completed', errorCode: null },
+        }),
+      ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', cookie: COOKIE },
+        body: JSON.stringify(runInput({ messages: [] })),
+      },
+    ));
+
+    expect((await readSseEvents(response)).at(-1)).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      threadId: THREAD_ID,
+      runId: 'original-paginated-run-id',
+    });
+    expect(control.authorizeConnection).toHaveBeenCalledTimes(2);
   });
 
   it('replays one assistant message across page boundaries with ordered deltas', async () => {

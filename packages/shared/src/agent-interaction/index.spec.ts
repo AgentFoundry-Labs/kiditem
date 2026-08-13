@@ -58,6 +58,7 @@ const userMessageEvent = {
   eventId: 'event-1',
   sessionId: 'session-1',
   executionId: 'execution-1',
+  aguiRunId: 'run-1',
   sequence: '1',
   eventType: 'user_message',
   schemaVersion: 1,
@@ -353,6 +354,23 @@ describe('agent interaction contracts', () => {
     for (const event of eventVariants) {
       expect(schema.parse(event)).toEqual(event);
     }
+  });
+
+  it('requires the canonical AG-UI run identity on terminal events', () => {
+    const schema = exportedSchema('AgentConversationEventEnvelopeSchema');
+
+    expect(() =>
+      schema.parse({
+        ...userMessageEvent,
+        aguiRunId: undefined,
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+    ).toThrow();
+
+    expect(
+      schema.parse({ ...userMessageEvent, aguiRunId: null }),
+    ).toEqual({ ...userMessageEvent, aguiRunId: null });
   });
 
   it('accepts only canonical positive decimal event sequences', () => {

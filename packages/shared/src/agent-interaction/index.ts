@@ -261,8 +261,14 @@ const conversationEventEnvelopeShape = {
   eventId: z.string().min(1),
   sessionId: z.string().min(1),
   executionId: z.string().min(1).nullable(),
+  aguiRunId: z.string().min(1).max(256).nullable(),
   sequence: positiveDecimalStringSchema,
   createdAt: z.string().datetime(),
+};
+
+const terminalConversationEventEnvelopeShape = {
+  ...conversationEventEnvelopeShape,
+  aguiRunId: z.string().min(1).max(256),
 };
 
 const eventContentSchema = <
@@ -334,7 +340,9 @@ export const AgentConversationEventEnvelopeSchema = z.discriminatedUnion(
     stateSnapshotEventContentSchema.extend(conversationEventEnvelopeShape),
     hitlRequestEventContentSchema.extend(conversationEventEnvelopeShape),
     hitlDecisionEventContentSchema.extend(conversationEventEnvelopeShape),
-    runTerminalEventContentSchema.extend(conversationEventEnvelopeShape),
+    runTerminalEventContentSchema.extend(
+      terminalConversationEventEnvelopeShape,
+    ),
   ],
 );
 

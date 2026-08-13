@@ -114,6 +114,7 @@ const authorization: AuthorizedExecutionRecord = {
   userEvent: {
     id: 'event-1', organizationId: ORGANIZATION_ID, sessionId: session.id,
     executionId: 'execution-1', externalEventId: userEvent.externalEventId,
+    aguiRunId: RUN_ID,
     sequence: 1n, eventType: 'user_message', schemaVersion: 1,
     payload: userEvent.payload, createdAt: NOW,
   },
@@ -419,6 +420,7 @@ describe('AgentInteractionIdentityService connection authorization', () => {
         sessionId: session.id,
         events: [{
           eventId: 'event-1', sessionId: session.id, executionId: 'execution-1',
+          aguiRunId: RUN_ID,
           sequence: '1', eventType: 'user_message', schemaVersion: 1,
           payload: userEvent.payload, createdAt: NOW.toISOString(),
         }],

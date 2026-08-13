@@ -377,6 +377,7 @@ function conversationEnvelopeToAgui(
     kiditemEventId: event.eventId,
     kiditemSessionId: event.sessionId,
     kiditemExecutionId: event.executionId,
+    kiditemAguiRunId: event.aguiRunId,
     kiditemSequence: event.sequence,
     schemaVersion: event.schemaVersion,
   };
@@ -442,21 +443,38 @@ function conversationEnvelopeToAgui(
         },
       ];
     case 'run_terminal':
+      if (!event.aguiRunId) {
+        throw new Error('Canonical terminal event has no AG-UI run correlation.');
+      }
       if (event.payload.status === 'failed') {
         return [
           {
             type: EventType.RUN_ERROR,
             message: 'The KidItem agent run failed.',
             code: event.payload.errorCode ?? 'agent_run_failed',
+            threadId,
+            runId: event.aguiRunId,
             rawEvent,
-          },
+          } as BaseEvent,
+        ];
+      }
+      if (event.payload.status === 'cancelled') {
+        return [
+          {
+            type: EventType.RUN_ERROR,
+            message: 'The KidItem agent run was cancelled.',
+            code: event.payload.errorCode ?? 'agent_run_cancelled',
+            threadId,
+            runId: event.aguiRunId,
+            rawEvent,
+          } as BaseEvent,
         ];
       }
       return [
         {
           type: EventType.RUN_FINISHED,
           threadId,
-          runId: event.executionId ?? event.eventId,
+          runId: event.aguiRunId,
           result: { status: event.payload.status },
           rawEvent,
         },

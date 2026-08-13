@@ -10,23 +10,28 @@ interface PublicAgentMessage {
 export function findLatestEligibleSuggestion(
   messages: readonly PublicAgentMessage[],
 ): { toolMessageId: string; sourceMessageId: string } | null {
-  const assistantMessageIds = new Set<string>();
+  let latestVisibleAssistantId: string | null = null;
   let eligible: { toolMessageId: string; sourceMessageId: string } | null = null;
   for (const message of messages) {
     if (message.role === 'assistant') {
-      assistantMessageIds.add(message.id);
-      if (hasVisibleContent(message.content)) eligible = null;
+      if (hasVisibleContent(message.content)) {
+        latestVisibleAssistantId = message.id;
+        eligible = null;
+      }
       continue;
     }
     if (message.role === 'user') {
-      if (hasVisibleContent(message.content)) eligible = null;
+      if (hasVisibleContent(message.content)) {
+        latestVisibleAssistantId = null;
+        eligible = null;
+      }
       continue;
     }
     if (message.role !== 'tool' || typeof message.content !== 'string') continue;
     const parsedJson = parseJson(message.content);
     const parsed = SuggestedRepliesResultSchema.safeParse(parsedJson);
     if (!parsed.success) continue;
-    if (!assistantMessageIds.has(parsed.data.messageId)) continue;
+    if (parsed.data.messageId !== latestVisibleAssistantId) continue;
     eligible = {
       toolMessageId: message.id,
       sourceMessageId: parsed.data.messageId,

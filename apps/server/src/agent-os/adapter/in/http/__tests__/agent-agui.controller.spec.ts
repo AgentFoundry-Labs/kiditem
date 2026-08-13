@@ -103,7 +103,8 @@ describe('AgentAguiController', () => {
         return {
           events: [{
             id: 'event-2', organizationId: 'org-1', sessionId: 'session-1',
-            executionId: 'execution-1', externalEventId: 'assistant-1', sequence: 2n,
+            executionId: 'execution-1', aguiRunId: 'run-1',
+            externalEventId: 'assistant-1', sequence: 2n,
             eventType: 'assistant_message', schemaVersion: 1,
             payload: { messageId: 'assistant-1', content: 'durable answer' },
             createdAt: new Date('2026-08-14T00:00:00.000Z'),

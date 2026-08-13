@@ -30,4 +30,12 @@ describe('suggestion chronology', () => {
       { id: 'tool-message-1', role: 'tool', toolCallId: 'tool-1', content: suggestion },
     ])).toBeNull();
   });
+
+  it('hides a late suggestion that references an older assistant response', () => {
+    expect(findLatestEligibleSuggestion([
+      { id: 'assistant-source-1', role: 'assistant', content: '첫 응답' },
+      { id: 'assistant-source-2', role: 'assistant', content: '최신 응답' },
+      { id: 'tool-message-1', role: 'tool', toolCallId: 'tool-1', content: suggestion },
+    ])).toBeNull();
+  });
 });
