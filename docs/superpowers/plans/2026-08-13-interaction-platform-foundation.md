@@ -23,6 +23,29 @@ Testcontainers, Zod, Vitest, CopilotKit `1.67.1`, AG-UI `0.0.57`
 
 ## Current Branch Baseline
 
+### Required predecessor integration
+
+KID-24 merges first. A KID-25 draft pull request may be opened with an explicit
+dependency marker. Before Foundation acceptance, Ready-for-review transition,
+or merge, update this branch onto the KID-24 squash merge in `develop` and
+resolve the shared Agent OS root files in favor of KID-24's process
+composition:
+
+- `AgentOsModule` is controller-free and may expose only controller-free core
+  providers needed by both API and Agent runtime graphs;
+- `AgentOsHttpModule` owns the existing Agent OS HTTP controllers plus the two
+  interaction controllers, identity service, gateway guard, and four
+  interaction environment-secret providers;
+- the Agent worker and MCP roots must not instantiate interaction HTTP
+  controllers or require gateway/principal/run-intent/replay HMAC secrets;
+- KID-24's API-owned Operations lifecycle and no-cross-boot-resurrection rules
+  remain unchanged; and
+- merge the shared environment runbook and architecture tests rather than
+  replacing KID-24's process-root guidance.
+
+Implementation may be developed on the current baseline, but module wiring is
+provisional until this predecessor gate passes.
+
 Already committed and retained or reconstructed as noted:
 
 - reconstruct `deploy/interaction-intelligence/platform-lock.json` as the
@@ -110,7 +133,8 @@ Classify it as:
 - `apps/server/src/agent-os/adapter/in/http/agent-interaction-control.controller.ts`:
   service-authenticated run/connection authorization and health.
 - Controller specs and `agent-os.module.wiring.spec.ts`: route, forwarding,
-  stable errors, and exact provider/controller registration.
+  stable errors, controller-free core ownership, and exact HTTP-wrapper
+  provider/controller registration.
 
 ### Durable guard
 
@@ -793,7 +817,12 @@ git commit -m "refactor: authorize session-backed interactions"
 - Modify: `apps/server/src/agent-os/adapter/in/http/dto/agent-interaction.dto.ts`
 - Modify: `apps/server/src/agent-os/adapter/in/http/interaction-gateway.guard.ts`
 - Modify: `apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts`
-- Modify: `apps/server/src/agent-os/agent-os.module.ts`
+- Modify after KID-24 merge: `apps/server/src/agent-os/agent-os-http.module.ts`
+- Modify only for a controller-free repository export when required:
+  `apps/server/src/agent-os/agent-os.module.ts`
+- Create: `apps/server/src/auth/decorators/service-auth.decorator.ts`
+- Modify: `apps/server/src/auth/guards/organization-scope.guard.ts`
+- Modify: `apps/server/src/auth/__tests__/organization-scope.guard.spec.ts`
 - Modify: `apps/server/vitest.config.ts`
 - Modify: `apps/server/vitest.config.integration.ts`
 - Modify: `docs/runbooks/environment-variables.md`
@@ -822,8 +851,10 @@ verify stable 400/401/403/409/503 mappings. Assert DTO whitelist strips or
 rejects `organizationId`, `userId`, `modelIdentity`, `policySnapshotId`,
 `sessionId`, and `capabilityKeys`.
 
-Wiring tests assert exact controllers/providers and absence of
-`AgentThreadBindingService` and `INTERACTION_THREAD_ID_HMAC_KEY`.
+Wiring tests assert the core module has no controllers, the HTTP wrapper owns
+the interaction controllers/providers, the Agent worker graph requires no
+interaction secrets, and `AgentThreadBindingService` plus
+`INTERACTION_THREAD_ID_HMAC_KEY` are absent.
 
 - [ ] **Step 2: Run controller/module suites and record RED**
 
@@ -881,9 +912,13 @@ npm exec --workspace=apps/server vitest -- run \
 npm run build --workspace=apps/server
 npm run check:idor
 npm run check:tenant-scope
+npm exec --workspace=apps/server vitest -- run \
+  src/__tests__/application-roots.architecture.spec.ts
 ```
 
-Expected: all PASS.
+Expected: all PASS after the KID-24 baseline is incorporated. The API graph
+contains interaction HTTP control; Agent worker and MCP graphs remain
+controller-free and boot without interaction HTTP secrets.
 
 - [ ] **Step 6: Commit HTTP and module wiring**
 
@@ -891,6 +926,10 @@ Expected: all PASS.
 git add apps/server/src/agent-os/adapter/in/http \
   apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts \
   apps/server/src/agent-os/agent-os.module.ts \
+  apps/server/src/agent-os/agent-os-http.module.ts \
+  apps/server/src/auth/decorators/service-auth.decorator.ts \
+  apps/server/src/auth/guards/organization-scope.guard.ts \
+  apps/server/src/auth/__tests__/organization-scope.guard.spec.ts \
   apps/server/vitest.config.ts apps/server/vitest.config.integration.ts \
   docs/runbooks/environment-variables.md
 git commit -m "feat: expose session interaction control"

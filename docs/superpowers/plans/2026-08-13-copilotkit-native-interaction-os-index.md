@@ -88,7 +88,20 @@ Testing Library, and Playwright
 - Accountable human: 차영훈 (`yhc125`).
 - Use the existing isolated worktree and branch
   `codex/kid-25-copilotkit-interaction-os`; do not create another worktree.
-- Use one pull request targeting `develop`. The four linked plans are ordered
+- KID-24 is the required merge predecessor. A KID-25 draft pull request may be
+  opened against `develop` with an explicit `Depends on KID-24` marker, but it
+  must not become ready or merge until KID-24 is in `develop` and this branch
+  has been updated onto that merged baseline.
+- Preserve KID-24's process-root contract during that update:
+  `AgentOsModule` stays controller-free, interaction HTTP controllers and their
+  auth-only secrets live in `AgentOsHttpModule`, and the Agent worker/MCP roots
+  must not instantiate HTTP guards or require interaction HMAC secrets.
+- KID-24's API-lifecycle ownership remains authoritative for every
+  Operations-backed Agent execution. KID-25 may correlate an execution to an
+  Operations run, but it must not restore a shared API/worker root, cross-boot
+  run resurrection, or a second run lifecycle.
+- Use one follow-up pull request targeting `develop`. The four linked plans are
+  ordered
   verification checkpoints, not PR boundaries.
 - This is the declared platform-boundary exception covering AgentOS,
   Operations, shared contracts, backend, web, schema, and deployment. Exclude
@@ -262,7 +275,9 @@ storage/replay operations, Office release integration, retention/deletion/legal
 hold, compatibility canaries, guarded migration, and deletion of every legacy
 conversation path.
 
-Execute Plans 1–4 in order. Within a plan, parallel work is allowed only for
+Execute Plans 1–4 in order. A draft PR may exist while KID-24 is active, but
+final integration and acceptance require its merged baseline. Within a plan,
+parallel work is allowed only for
 tasks with disjoint files and explicit contracts already committed by an
 earlier task. Cutover starts only after the session interaction and durable
 runtime acceptance gates pass.
@@ -325,8 +340,10 @@ npm run db:erd
 npm run check:schema-artifact-sync
 ```
 
-Expected: finite commands exit 0 and `dev:server` reaches normal Nest
-application readiness with `AgentOsModule` initialized, then is stopped.
+Expected: finite commands exit 0 and `dev:server` reaches normal Nest API
+readiness with `AgentOsHttpModule` initialized, then is stopped. The
+controller-free Agent worker root must also boot without interaction HTTP
+secrets or an Operations lifecycle owner.
 
 ## Global Stop Conditions
 
