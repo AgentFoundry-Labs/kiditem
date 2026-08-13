@@ -478,7 +478,7 @@ model SourcingEvidenceIngestionRun {
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
   @@unique([organizationId, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_idempotency_key")
-  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("status IN ('collecting', 'cancel_requested')"))
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_evidence_ingestion_runs_active_target_key", where: raw("((status)::text = ANY (ARRAY['collecting'::text, 'cancel_requested'::text]))"))
   @@index([triggeredByUserId])
   @@index([organizationId, status, startedAt], map: "sourcing_evidence_ingestion_runs_status_started_idx")
   @@index([organizationId, targetKey, startedAt], map: "sourcing_evidence_ingestion_runs_target_started_idx")
