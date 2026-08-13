@@ -85,10 +85,7 @@ model Order {
   channelAccount  ChannelAccount   @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems       OrderLineItem[]
-  shipments       Shipment[]
   returns         OrderReturn[]
-  unshippedItems  UnshippedItem[]
-  csRecords       CSRecord[]
 
   @@unique([id, organizationId])
   @@unique([organizationId, channelAccountId, externalOrderId])
@@ -131,8 +128,6 @@ model OrderLineItem {
   order           Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
   listingOption   ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   returnLineItems OrderReturnLineItem[]
-  shipmentItems   ShipmentItem[]
-  unshippedItems  UnshippedItem[]
 
   @@unique([id, organizationId])
   @@unique([orderId, externalLineId])
@@ -218,85 +213,6 @@ model OrderReturnLineItem {
 }
 
 /// @namespace Orders
-model Shipment {
-  id             String    @id @default(uuid()) @db.Uuid
-  organizationId String    @map("organization_id") @db.Uuid
-  orderId        String    @map("order_id") @db.Uuid
-  trackingNo     String?   @map("tracking_no")
-  courierCode    String?   @map("courier_code")
-  courierName    String?   @map("courier_name")
-  status         String    @default("ready")
-  shippedAt      DateTime? @map("shipped_at") @db.Timestamptz
-  deliveredAt    DateTime? @map("delivered_at") @db.Timestamptz
-  deliveryDays   Int?      @map("delivery_days")
-  warehouseId    String?   @map("warehouse_id") @db.Uuid
-  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order        Order          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  warehouse    Warehouse?     @relation(fields: [warehouseId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  items        ShipmentItem[]
-
-  @@unique([id, organizationId], map: "shipments_id_org_key")
-  @@index([organizationId])
-  @@index([organizationId, status])
-  @@index([orderId])
-  @@index([warehouseId])
-  @@map("shipments")
-}
-
-/// @namespace Orders
-/// @describe Order-line shipment detail.
-model ShipmentItem {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @map("organization_id") @db.Uuid
-  shipmentId      String   @map("shipment_id") @db.Uuid
-  orderLineItemId String   @map("order_line_item_id") @db.Uuid
-  quantity        Int
-  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  shipment      Shipment      @relation(fields: [shipmentId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem OrderLineItem @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([shipmentId, orderLineItemId])
-  @@index([organizationId])
-  @@index([shipmentId])
-  @@index([orderLineItemId])
-  @@map("shipment_items")
-}
-
-/// @namespace Orders
-model UnshippedItem {
-  id              String    @id @default(uuid()) @db.Uuid
-  organizationId  String    @map("organization_id") @db.Uuid
-  orderId         String    @map("order_id") @db.Uuid
-  orderLineItemId String    @map("order_line_item_id") @db.Uuid
-  productName     String    @map("product_name")
-  optionName      String?   @map("option_name")
-  externalSku     String?   @map("external_sku")
-  quantity        Int
-  orderDate       DateTime  @map("order_date") @db.Timestamptz
-  delayDays       Int       @default(0) @map("delay_days")
-  reason          String?
-  isNotified      Boolean   @default(false) @map("is_notified")
-  notifiedAt      DateTime? @map("notified_at") @db.Timestamptz
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
-
-  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order         Order         @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  orderLineItem OrderLineItem @relation(fields: [orderLineItemId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@index([organizationId])
-  @@index([orderId])
-  @@index([delayDays])
-  @@index([isNotified])
-  @@index([orderLineItemId])
-  @@map("unshipped_items")
-}
-
-/// @namespace Orders
 /// @describe 월별 정산 (예상 vs 실제 비교).
 model Settlement {
   id             String    @id @default(uuid()) @db.Uuid
@@ -321,36 +237,6 @@ model Settlement {
   @@unique([organizationId, period])
   @@index([organizationId])
   @@map("settlements")
-}
-
-/// @namespace Orders
-model CSRecord {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  orderId        String?  @map("order_id") @db.Uuid
-  listingId      String?  @map("listing_id") @db.Uuid
-  csType         String   @map("cs_type")
-  csStatus       String   @default("접수") @map("cs_status")
-  priority       String   @default("normal")
-  assignee       String?
-  content        String
-  resolution     String?
-  createdBy      String?  @map("created_by")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order        Order?          @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  listing      ChannelListing? @relation(fields: [listingId], references: [id], onDelete: SetNull)
-
-  @@index([organizationId])
-  @@index([organizationId, csStatus, createdAt])
-  @@index([orderId])
-  @@index([listingId])
-  @@index([csType])
-  @@index([csStatus])
-  @@index([createdAt])
-  @@map("cs_records")
 }
 
 /// @namespace Orders
