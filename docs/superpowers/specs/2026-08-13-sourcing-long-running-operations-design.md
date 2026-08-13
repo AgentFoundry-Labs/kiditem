@@ -1,8 +1,9 @@
 # Sourcing Long-Running Operations, API Lifecycle, and Snapshot-First UI Design
 
 - Date: 2026-08-13
-- Status: Approved design; written server-lifecycle revision pending final review
+- Status: Approved
 - Tracking issue: KID-24
+- Source baseline: `origin/develop@0c6485b7` after KID-23 PR #478
 - Classification: Operations platform reconstruction with bounded Sourcing,
   Advertising, Web, KidItem OS, and backend process-composition consumers
 - Scope: the 14 routes under `/sourcing-ai`, their long-running collection and
@@ -275,6 +276,7 @@ flowchart LR
   Ops -->|"poll run"| UI
   Sink --> Read
   AgentRoot["AgentWorkerApplicationModule\n(no Operations import)"] --> AgentOS["Agent OS runtime only"]
+  AgentOS -->|"bounded signed command"| API
 ```
 
 ### 5.1 Command and read separation
@@ -367,6 +369,24 @@ The API and Agent OS worker no longer bootstrap the same Nest root module.
 - Domain capabilities required by Agent OS are exposed through focused worker
   composition modules rather than importing an entire HTTP/domain root that
   transitively brings `OperationsModule` back into the worker.
+- `sourcing.refreshCollection` remains an Agent OS capability, but its MCP
+  child does not import or call `OperationRunService`. The trusted parent
+  issues a two-minute HMAC grant scoped to the exact organization, Agent OS
+  request, run, agent instance, and capability. The child presents only that
+  bounded grant to an API-internal collection-command endpoint. The API
+  verifies the signature and expiry with a timing-safe comparison, verifies
+  the same active Agent OS request/run tuple in PostgreSQL, derives the actor
+  and idempotency key from that persisted context, requires the lifecycle gate
+  to be `ACCEPTING`, and then starts a new operation through
+  `OPERATION_RUNNER_PORT`.
+- `AGENT_API_CAPABILITY_GRANT_SECRET` has at least 32 random UTF-8 bytes, stays
+  in the API/Agent worker parent environment, and is never copied into the
+  model CLI environment or MCP descriptor. The MCP entrypoint removes any
+  locally dotenv-loaded copy before creating its Nest context. The bounded
+  bearer may be replayed only during its two-minute lifetime, and replay
+  resolves the same operation via the derived idempotency key. Nginx returns
+  404 for `/api/internal/**`; direct container/localhost access still requires
+  the grant and database tuple.
 - Ownership is structural and covered by architecture tests. Environment flags
   may enable a feature inside its owning root, but they never decide which
   process owns the Operations lifecycle.
@@ -785,6 +805,11 @@ After all callers are migrated, the static guard rejects reintroduction of:
   child creation, schedule dispatch, and composite resume;
 - architecture tests proving `ApiApplicationModule` owns `OperationsModule`
   and `AgentWorkerApplicationModule` cannot import it directly or transitively;
+- internal-command tests proving an Agent MCP child can start
+  `sourcing.refreshCollection` only through the API with an unexpired,
+  capability-scoped grant and an active organization/request/run tuple, while
+  wrong-tenant, expired, forged, terminal-run, and non-accepting cases create
+  zero `OperationRun` rows;
 - shutdown tests proving intake stops before cancellation, active handlers
   receive abort, cleanup waits at most five seconds, and a final sweep catches
   a start/claim committed at the boundary;
@@ -844,6 +869,9 @@ KID-24 is complete only when:
 - a lifecycle-cancelled run never resumes; operator retry creates a new run;
 - API and Agent OS worker root modules are structurally separated, and only the
   API root can own `OperationsModule`;
+- the Agent OS `sourcing.refreshCollection` capability crosses that boundary
+  only through the bounded, tenant-verified API command grant and never through
+  a direct Operations import;
 - a Playwright stall cannot block unrelated resource classes;
 - the static guard, scoped tests, required builds, server boot, and full Chrome
   regression matrix pass;
