@@ -76,7 +76,7 @@ must also prove:
 - HITL resume without duplicate capability execution; and
 - exact-package upgrade canaries against retained KidItem event fixtures.
 
-The current workspace manifests still declare the legacy
-`1.66.2`/`0.0.53` train and `@copilotkit/react-ui`; dependency normalization
-belongs to the implementation plans. Until that migration lands, direct
-`npm run check:copilotkit-train` failure is expected and honest.
+Across the root, server, and web manifests, every direct CopilotKit declaration
+is now exact-pinned at `1.67.1` and every direct AG-UI declaration at `0.0.57`.
+The OSS source of truth is `deploy/interaction-gateway/platform-lock.json`, and
+`npm run check:copilotkit-train` passes against the normalized workspace.

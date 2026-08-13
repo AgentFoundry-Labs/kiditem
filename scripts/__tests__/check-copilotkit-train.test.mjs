@@ -206,17 +206,19 @@ test('keeps the temporary React UI dependency exact-pinned', () => {
 
 test('checkWorkspace scans all configured manifests and identifies the failing group', (t) => {
   const cases = [
-    ['package.json', 'dependencies'],
-    ['apps/web/package.json', 'devDependencies'],
-    ['apps/server/package.json', 'overrides'],
-    ['apps/interaction-gateway/package.json', 'dependencies'],
+    ['package.json', 'dependencies', '@copilotkit/react-core', '^1.67.1'],
+    ['apps/web/package.json', 'devDependencies', '@copilotkit/react-core', '^1.67.1'],
+    ['apps/server/package.json', 'overrides', '@copilotkit/react-core', '^1.67.1'],
+    ['apps/interaction-gateway/package.json', 'dependencies', '@copilotkit/react-core', '^1.67.1'],
+    ['package.json', 'optionalDependencies', '@copilotkit/runtime', '^1.67.1'],
+    ['package.json', 'peerDependencies', '@ag-ui/client', '0.0.56'],
   ];
 
-  for (const [manifestPath, group] of cases) {
+  for (const [manifestPath, group, packageName, version] of cases) {
     const manifests = validWorkspaceManifests();
     manifests[manifestPath] = {
       ...manifests[manifestPath],
-      [group]: { '@copilotkit/react-core': '^1.67.1' },
+      [group]: { [packageName]: version },
     };
     const rootDir = createWorkspace(t, manifests);
 
@@ -311,6 +313,35 @@ test('rejects excluded Enterprise and managed-thread production source', (t) => 
       new RegExp(name, 'i'),
     );
   }
+});
+
+test('allows ordinary Kubernetes and Helm mentions in production source', (t) => {
+  const rootDir = createWorkspace(t);
+  writeText(
+    rootDir,
+    'apps/interaction-gateway/src/deployment-target.ts',
+    [
+      'const target = "Kubernetes deployment";',
+      'const templateFormat = "Helm template";',
+    ].join('\n'),
+  );
+
+  assert.doesNotThrow(() => checkWorkspace(rootDir));
+});
+
+test('rejects Kubernetes and Helm version requirements in production source', (t) => {
+  const rootDir = createWorkspace(t);
+  writeText(
+    rootDir,
+    'apps/interaction-gateway/src/enterprise-requirements.ts',
+    'const requirements = { kubernetes: ">=1.28", helm: ">=3.12" };\n',
+  );
+
+  assertWorkspaceError(
+    rootDir,
+    'apps/interaction-gateway/src/enterprise-requirements.ts',
+    /Kubernetes/i,
+  );
 });
 
 test('rejects excluded Enterprise configuration in production manifests', (t) => {

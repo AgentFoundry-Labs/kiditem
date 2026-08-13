@@ -40,8 +40,10 @@ const EXCLUDED_PRODUCTION_RULES = Object.freeze([
   ['intelligenceApiKey', /\bintelligenceApiKey\b/i],
   ['COPILOTKIT_PUBLIC_API_KEY', /\bCOPILOTKIT_PUBLIC_API_KEY\b/],
   ['useThreads', /\buseThreads\b/],
-  ['Kubernetes', /\bkubernetes\b/i],
-  ['Helm', /\bhelm\b/i],
+  [
+    'Kubernetes/Helm requirement',
+    /\b(?:kubernetes|helm)\b(?:(?:["'`]\s*)?[:=]\s*["'`]?\s*|\s+)(?:[<>]=?|[~^])?\s*\d/i,
+  ],
   ['CopilotKitIntelligence', /\bCopilotKitIntelligence\b/],
   [
     'CopilotKit Enterprise configuration',
@@ -197,6 +199,8 @@ export function checkWorkspace(rootDir) {
     for (const groupName of [
       'devDependencies',
       'dependencies',
+      'optionalDependencies',
+      'peerDependencies',
       'overrides',
     ]) {
       assertManifestGroup(
