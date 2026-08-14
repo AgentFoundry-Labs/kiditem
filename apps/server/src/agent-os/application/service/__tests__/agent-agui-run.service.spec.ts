@@ -10,7 +10,6 @@ import {
   formatAgentSessionTaskName,
   OrganizationIdSchema,
 } from '@kiditem/shared/identifiers';
-import { AgentCapabilityRegistry } from '../agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from '../agent-agui-runtime-registry.service';
 import { AgentAguiRunService } from '../agent-agui-run.service';
 import { AgentInteractionPresentationService } from '../agent-interaction-presentation.service';
@@ -109,13 +108,21 @@ function setup(events: BaseEvent[] = [
     stop: vi.fn().mockResolvedValue(true),
   };
   runtimes.register('openai_responses', runtime);
-  const capabilities = new AgentCapabilityRegistry();
+  const capabilityInvocations = {
+    invoke: vi.fn().mockResolvedValue({
+      outputSummary: {
+        sales: { revenue: 1000, orders: 1 },
+        inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
+        freshness: { lastSync: '2026-08-14T00:00:00.000Z', confirmedUntil: null },
+      },
+    }),
+  };
   const analytics = { record: vi.fn().mockResolvedValue(true) };
   const service = new AgentAguiRunService(
-    repository as never, publisher as never, runtimes, capabilities,
+    repository as never, publisher as never, runtimes, capabilityInvocations as never,
     new AgentInteractionPresentationService(), analytics,
   );
-  return { service, repository, publisher, runtime, capabilities, analytics, calls };
+  return { service, repository, publisher, runtime, capabilityInvocations, analytics, calls };
 }
 
 async function collect(iterable: AsyncIterable<BaseEvent>) {
@@ -285,21 +292,8 @@ describe('AgentAguiRunService', () => {
     expect(runtime.run).not.toHaveBeenCalled();
   });
 
-  it('permits only policy-selected zero-risk read handlers', async () => {
-    const { service, capabilities } = setup();
-    capabilities.register({
-      key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
-      inputSchema: { parse: (value: unknown) => value } as never,
-      outputSchema: { parse: (value: unknown) => value } as never,
-      sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-      execute: vi.fn().mockResolvedValue({ outputSummary: {
-        sales: { revenue: 1000, orders: 1 },
-        inventory: { outOfStockSkus: 0, mappingAttentionSkus: 0 },
-        freshness: { lastSync: '2026-08-14T00:00:00.000Z', confirmedUntil: null },
-      } }),
-    });
-    const runtime = (service as never as { runtimes: AgentAguiRuntimeRegistry }).runtimes.resolve('openai_responses')!;
-    await runtime.invokeCapabilityForTest?.({ key: 'analytics.readOverview', input: {} });
+  it('uses the official canonical session capability port and projects only its result', async () => {
+    const { service, capabilityInvocations } = setup();
     await expect(
       (service as never as { invokeCapability: Function }).invokeCapability(
         { organizationId: 'org-1', sessionId: 'session-1', executionId: 'execution-1', capabilityKeys: ['analytics.readOverview'] },
@@ -310,11 +304,18 @@ describe('AgentAguiRunService', () => {
       (service as never as { invokeCapability: Function }).invokeCapability(
         {
           organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1',
-          executionId: 'execution-1', capabilityKeys: ['analytics.readOverview'],
+          sessionTaskId: 'task-1', executionId: 'execution-1', capabilityKeys: ['analytics.readOverview'],
+          agentDefinitionKey: 'operator', agentVersionId: 'version-1', policySnapshotId: 'policy-1',
         },
         'analytics.readOverview', {},
       ),
     ).resolves.toMatchObject({ interactionUiResult: { kind: 'metric_group' } });
+    expect(capabilityInvocations.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      capabilityKey: 'analytics.readOverview', input: {},
+      session: 'organizations/org-1/agentSessions/session-1',
+      task: 'organizations/org-1/agentSessions/session-1/tasks/task-1',
+      execution: 'organizations/org-1/agentSessions/session-1/executions/execution-1',
+    }));
   });
 
   it('normalizes provider-specific failures into one durable RUN_ERROR terminal', async () => {

@@ -57,6 +57,7 @@ import { AGENT_DURABLE_RUNTIME_ASSETS_PORT } from './application/port/out/runtim
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
 import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from './application/port/in/agent-capability-invocation.port';
 import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { AgentApprovalService } from './application/service/agent-approval.service';
 import { AgentCatalogService } from './application/service/agent-catalog.service';
@@ -95,6 +96,7 @@ import {
   AgentConversationModelViewService,
 } from './application/service/agent-conversation-model-view.service';
 import { AgentExecutionContextBuilder } from './application/service/agent-execution-context-builder.service';
+import { AgentSessionCapabilityInvocationService } from './application/service/agent-session-capability-invocation.service';
 import { AgentRuntimeAdapterRegistry } from './application/service/agent-runtime-adapter.registry';
 import { resolveAgentOsRepositoryRoot } from './seed-agent-os';
 
@@ -160,6 +162,7 @@ const agentInteractionProviders = [
     },
     AgentConversationModelViewService,
     AgentExecutionContextBuilder,
+    AgentSessionCapabilityInvocationService,
     AgentRuntimeAssetsStartupValidator,
     AgentRuntimeCatalogStartupValidator,
     {
@@ -252,6 +255,10 @@ const agentInteractionProviders = [
       useExisting: InProcessAgentConversationLivePublisher,
     },
     { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
+    {
+      provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+      useExisting: AgentSessionCapabilityInvocationService,
+    },
     { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
     {
       provide: AGENT_RUNTIME_ASSETS_PORT,
@@ -282,6 +289,7 @@ const agentInteractionProviders = [
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
+    AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
     AGENT_INTERACTION_REPOSITORY,
     AGENT_SESSION_CONTROL_REPOSITORY,
     AgentTaskDelegationService,

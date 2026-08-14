@@ -15,6 +15,13 @@ import {
   parseAgentExecutionName,
   parseAgentSessionName,
   parseAgentSessionTaskName,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  OrganizationIdSchema,
   ToolCallIdSchema,
 } from '@kiditem/shared/identifiers';
 import {
@@ -23,6 +30,10 @@ import {
   type AuthorizedAguiRunInput,
   type StopAuthorizedAguiRunInput,
 } from '../port/in/agent-agui-runner.port';
+import {
+  AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+  type AgentSessionCapabilityInvocationPort,
+} from '../port/in/agent-capability-invocation.port';
 import {
   AGENT_CONVERSATION_LIVE_PUBLISHER,
   type AgentConversationLivePublisherPort,
@@ -38,7 +49,6 @@ import {
   type AgentInteractionRepositoryPort,
 } from '../port/out/repository/agent-interaction-repository.port';
 import { AgentOsBoundaryError, AgentOsError } from '../../domain/agent-os.errors';
-import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from './agent-agui-runtime-registry.service';
 import { AgentInteractionPresentationService } from './agent-interaction-presentation.service';
 import type { AgentAguiRuntimeMessage } from '../port/out/runtime/agent-agui-runtime.port';
@@ -53,7 +63,8 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
     private readonly publisher: AgentConversationLivePublisherPort,
     private readonly runtimes: AgentAguiRuntimeRegistry,
-    private readonly capabilities: AgentCapabilityRegistry,
+    @Inject(AGENT_SESSION_CAPABILITY_INVOCATION_PORT)
+    private readonly capabilityInvocations: AgentSessionCapabilityInvocationPort,
     private readonly presentation: AgentInteractionPresentationService = new AgentInteractionPresentationService(),
     @Inject(INTERACTION_PRODUCT_ANALYTICS_PORT)
     private readonly analytics: InteractionProductAnalyticsPort = { record: async () => false },
@@ -337,30 +348,28 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         'The capability is absent from the immutable policy snapshot.',
       );
     }
-    const handler = this.capabilities.resolve(key);
-    if (
-      !handler ||
-      handler.approvalRisk !== 'none' ||
-      handler.sideEffects.length !== 1 ||
-      handler.sideEffects[0] !== 'read'
-    ) {
-      throw boundary(
-        'INTERACTION_CAPABILITY_NOT_ALLOWED',
-        'Only registered zero-risk read capabilities are allowed.',
-      );
+    const organizationId = OrganizationIdSchema.parse(context.organizationId);
+    const sessionId = AgentSessionIdSchema.parse(context.sessionId);
+    const sessionTaskId = AgentSessionTaskIdSchema.parse(context.sessionTaskId);
+    const executionId = AgentExecutionIdSchema.parse(context.executionId);
+    let result;
+    try {
+      result = await this.capabilityInvocations.invoke({
+        session: formatAgentSessionName(organizationId, sessionId),
+        task: formatAgentSessionTaskName(organizationId, sessionId, sessionTaskId),
+        execution: formatAgentExecutionName(organizationId, sessionId, executionId),
+        capabilityKey: key,
+        input: unsafeInput,
+      });
+    } catch (error) {
+      if (error instanceof AgentOsError || error instanceof AgentOsBoundaryError) {
+        throw boundary(
+          'INTERACTION_CAPABILITY_NOT_ALLOWED',
+          'The official Agent session capability invocation was denied.',
+        );
+      }
+      throw error;
     }
-    const capabilityInput = handler.inputSchema.parse(unsafeInput);
-    const result = await handler.execute({
-      organizationId: context.organizationId,
-      conversationId: context.sessionId,
-      agentInstanceId: context.sessionId,
-      agentType: context.agentDefinitionKey,
-      requestId: context.executionId,
-      runId: context.executionId,
-      requestedByUserId: context.userId,
-      input: capabilityInput,
-    });
-    if (result.outputSummary) handler.outputSchema.parse(result.outputSummary);
     return {
       ...result,
       interactionUiResult: this.presentation.projectCapabilityResult({

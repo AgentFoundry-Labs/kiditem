@@ -52,7 +52,9 @@ import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../application/port/out/even
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event/agent-conversation-live-publisher.port';
 import { AGENT_AGUI_RUNNER_PORT } from '../application/port/in/agent-agui-runner.port';
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../application/port/in/agent-capability-invocation.port';
 import { AgentAguiRunService } from '../application/service/agent-agui-run.service';
+import { AgentSessionCapabilityInvocationService } from '../application/service/agent-session-capability-invocation.service';
 import { AgentAguiRuntimeRegistry } from '../application/service/agent-agui-runtime-registry.service';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
 import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
@@ -112,6 +114,7 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(AgentInteractionIdentityService);
     expect(providers).toContain(InteractionGatewayGuard);
     expect(providers).toContain(AgentAguiRunService);
+    expect(providers).toContain(AgentSessionCapabilityInvocationService);
     expect(providers).toContain(AgentAguiRuntimeRegistry);
     expect(providers).toContain(AgentOsPlatformProbeCapabilityAdapter);
     expect(providers).toContain(AnalyticsOverviewAgentCapabilityAdapter);
@@ -123,6 +126,10 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContainEqual({
       provide: AGENT_AGUI_RUNNER_PORT,
       useExisting: AgentAguiRunService,
+    });
+    expect(providers).toContainEqual({
+      provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+      useExisting: AgentSessionCapabilityInvocationService,
     });
     expect(providers).toContainEqual({
       provide: INTERACTION_PRODUCT_ANALYTICS_PORT,
@@ -200,6 +207,7 @@ describe('AgentOsModule wiring', () => {
     expect(exports).toContain(AgentOsMcpToolExecutor);
     expect(exports).toContain(OperatorDecisionExecutor);
     expect(exports).toContain(OperatorDecisionParser);
+    expect(exports).toContain(AGENT_SESSION_CAPABILITY_INVOCATION_PORT);
   });
 
   it('wires the generic local CLI interaction and interruption boundary', () => {
