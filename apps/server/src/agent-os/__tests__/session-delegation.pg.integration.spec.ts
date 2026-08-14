@@ -9,7 +9,14 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
+import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
+import { CompositeOperationCoordinatorService } from '../../operations/application/service/composite-operation-coordinator.service';
+import { OperationHandlerRegistryService } from '../../operations/application/service/operation-handler-registry.service';
+import { OperationRunService } from '../../operations/application/service/operation-run.service';
 import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
+import { AgentSessionDelegationService } from '../application/service/agent-session-delegation.service';
+import { AgentSessionTaskDispatchService } from '../application/service/agent-session-task-dispatch.service';
+import { AGENT_OS_OPERATIONS } from '../domain/operation/agent-os.operations';
 
 const ROOT_VERSION_ID = '40000000-0000-4000-8000-000000000001';
 const CHILD_VERSION_ID = '40000000-0000-4000-8000-000000000002';
@@ -18,10 +25,23 @@ const CAPABILITY = 'sourcing.retrieveWorkspaceEvidence';
 
 let prisma: PrismaClient | null = null;
 let controls: PrismaAgentSessionControlRepository;
+let delegations: AgentSessionDelegationService;
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
   controls = new PrismaAgentSessionControlRepository(prisma as never);
+  const operationsRepository = new OperationRepositoryAdapter(prisma as never);
+  const registry = new OperationHandlerRegistryService();
+  registry.register(AGENT_OS_OPERATIONS[0], {} as never);
+  const operations = new OperationRunService(
+    registry,
+    operationsRepository,
+    new CompositeOperationCoordinatorService(registry, operationsRepository),
+  );
+  delegations = new AgentSessionDelegationService(
+    controls,
+    new AgentSessionTaskDispatchService(operations, controls),
+  );
   await prisma.$connect();
 });
 
@@ -35,27 +55,23 @@ beforeEach(async () => {
 });
 
 describe('durable session delegation', () => {
-  it('coalesces equal delegated children and rejects a cross-organization graph insert', async () => {
+  it('coalesces parallel service delegation through one durable OperationRun and rejects a cross-organization graph insert', async () => {
     const graph = await createRootGraph();
     const input = {
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
       parentTaskId: graph.taskId,
       parentExecutionId: graph.executionId,
-      fromAgentVersionId: ROOT_VERSION_ID,
-      toAgentVersionId: CHILD_VERSION_ID,
       targetAgentDefinitionKey: 'sourcing',
       objective: '소싱 근거를 검증한다',
       authoritySubset: [CAPABILITY],
-      depth: 1,
-      maxDepth: 2,
-      maxChildrenPerTask: 2,
       idempotencyKey: 'durable-delegation:source:1',
+      requestedByUserId: TEST_USER_ID,
     };
 
     const [first, repeated] = await Promise.all([
-      controls.createDelegatedTask(input),
-      controls.createDelegatedTask(input),
+      delegations.delegate(input),
+      delegations.delegate(input),
     ]);
 
     expect(repeated).toEqual(first);
@@ -67,6 +83,13 @@ describe('durable session delegation', () => {
     })).resolves.toBe(1);
     await expect(prisma!.agentExecution.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: graph.sessionId, sessionTaskId: first.childTaskId },
+    })).resolves.toBe(1);
+    await expect(prisma!.operationRun.count({
+      where: {
+        id: first.operationsRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'agent-os.execute-session-task',
+      },
     })).resolves.toBe(1);
 
     await expect(prisma!.agentSessionTask.create({

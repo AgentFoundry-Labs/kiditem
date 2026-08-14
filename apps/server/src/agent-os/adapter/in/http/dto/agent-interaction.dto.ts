@@ -57,3 +57,15 @@ export class AuthorizeInteractionConnectionDto {
   @MaxLength(4096)
   cursor?: string;
 }
+
+export class AuthorizeCurrentInteractionRunDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  agentDefinitionKey!: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  copilotThreadId!: string;
+}

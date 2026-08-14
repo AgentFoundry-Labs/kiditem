@@ -2,6 +2,7 @@ import { expect, test } from 'playwright/test';
 import { createAgentInteractionAcceptanceHarness } from '../fixtures/agent-interaction-harness';
 
 test('durable AgentOS session survives reload, reuses its canonical thread, and shares both surfaces', async ({ page }) => {
+  test.setTimeout(180_000);
   const browserErrors: string[] = [];
   page.on('pageerror', (error) => browserErrors.push(`pageerror:${error.message}`));
   page.on('console', (message) => {
@@ -24,6 +25,9 @@ test('durable AgentOS session survives reload, reuses its canonical thread, and 
     await harness.submit(page, '이전 대화를 이어서 답해줘');
     await harness.expectContinuation(firstThread);
     await harness.expectReplayLiveBoundary(firstThread);
+    await harness.expectDurableControlsAfterPanelClose(page);
+    await harness.expectActiveRunStopAfterGatewayRestart(page);
+    await harness.expectReplayAfterGatewayRestart(page, firstThread);
 
     const secondThread = await harness.startNewConversationAndSubmit(page, '별도의 새 대화');
     expect(secondThread).not.toBe(firstThread);

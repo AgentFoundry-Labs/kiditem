@@ -230,6 +230,17 @@ function buildService(options: BuildOptions = {}) {
       lastSequence: 1n,
       hasMore: false,
     })),
+    findAccessibleCurrentExecution: vi.fn(async () => ({
+      organizationId: ORGANIZATION_ID,
+      agentDefinitionKey: 'operator',
+      sessionId: SESSION_ID,
+      executionId: EXECUTION_ID,
+      copilotThreadId: THREAD_ID,
+      aguiRunId: RUN_ID,
+      runtimeType: activeVersion.runtimeType,
+      status: 'running',
+      attempt: 1,
+    })),
     authorizeExecution: vi.fn(options.authorize ?? (async () => authorized)),
     appendExecutionEvent: vi.fn(),
     markExecutionTerminal: vi.fn(),
@@ -500,6 +511,33 @@ describe('AgentInteractionIdentityService canonical session authorization', () =
       limit: 500,
     });
     expectNoWrites(repository);
+  });
+
+  it('resolves only the owner-authorized current execution for native gateway controls', async () => {
+    const { repository, service } = buildService();
+
+    await expect(service.authorizeCurrentRun({
+      ...identity,
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
+    })).resolves.toEqual({
+      session: sessionName,
+      execution: executionName,
+      aguiRunId: RUN_ID,
+    });
+    expect(repository.findAccessibleCurrentExecution).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      sessionId: SESSION_ID,
+      copilotThreadId: THREAD_ID,
+    });
+    expectNoWrites(repository);
+
+    await expect(service.authorizeCurrentRun({
+      ...identity,
+      agentDefinitionKey: 'sourcing',
+      copilotThreadId: THREAD_ID,
+    })).resolves.toBeNull();
   });
 
   it('uses a canonical replay cursor and rejects wrong ownership, expiry, and inactive sessions', async () => {

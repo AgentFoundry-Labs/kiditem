@@ -127,6 +127,54 @@ describe('AgentSessionRuntimeControlService', () => {
     expect(publisher.publish).not.toHaveBeenCalled();
   });
 
+  it('names durable artifact cards before canonical persistence', async () => {
+    const interactions = {
+      appendExecutionEvent: vi.fn(async (input) => ({
+        id: 'event-artifact',
+        organizationId: ORGANIZATION_ID,
+        sessionId: SESSION_ID,
+        executionId: EXECUTION_ID,
+        aguiRunId: null,
+        externalEventId: input.externalEventId,
+        sequence: 8n,
+        eventType: input.eventType,
+        schemaVersion: input.schemaVersion,
+        payload: input.payload,
+        createdAt: new Date('2026-08-14T00:00:00.000Z'),
+      })),
+    };
+    const service = new AgentSessionRuntimeControlService(
+      interactions as never,
+      { publish: vi.fn() } as never,
+      () => new Date('2026-08-14T00:00:00.000Z'),
+    );
+
+    await service.record({
+      organizationId: ORGANIZATION_ID,
+      session,
+      task,
+      execution,
+      attemptId: ATTEMPT_ID,
+      ordinal: 4,
+      event: {
+        kind: 'artifact',
+        artifactId: '00000000-0000-4000-8000-000000000005',
+        payload: {
+          artifactType: 'acceptance_report',
+          label: '검증 산출물',
+          sha256: 'd'.repeat(64),
+          navigationActionId: '00000000-0000-4000-8000-000000000006',
+        },
+      },
+    });
+
+    expect(interactions.appendExecutionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      payload: expect.objectContaining({
+        data: expect.objectContaining({ name: 'kiditem.ui.agent_artifact.v1' }),
+      }),
+    }));
+  });
+
   it('uses one stable terminal identity for a runtime attempt', async () => {
     const interactions = {
       appendExecutionEvent: vi.fn(async (input) => ({

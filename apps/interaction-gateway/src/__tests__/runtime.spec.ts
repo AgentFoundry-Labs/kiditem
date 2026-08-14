@@ -141,6 +141,11 @@ function controlHarness(): NestControlPort &
     prepareRunIntent: vi.fn().mockResolvedValue(intent),
     authorizeRun: vi.fn().mockResolvedValue(authorization),
     authorizeConnection: vi.fn().mockResolvedValue(connectionAuthorization()),
+    authorizeActiveRun: vi.fn().mockResolvedValue({
+      session: SESSION_NAME,
+      execution: EXECUTION_NAME,
+      aguiRunId: RUN_ID,
+    }),
     connectLive: vi.fn().mockReturnValue(of()),
     stopRun: vi.fn().mockResolvedValue(true),
     decideApproval: vi.fn().mockResolvedValue({ state: 'approved' }),
@@ -251,7 +256,7 @@ describe('AuthorizedAgentOsHttpAgent', () => {
     });
     const approvalId = '11111111-1111-4111-8111-111111111111';
 
-    const event = await lastValueFrom(agent.run(runInput({
+    const events = await lastValueFrom((agent.run(runInput({
       messages: [],
       resume: [{
         interruptId: approvalId,
@@ -264,7 +269,7 @@ describe('AuthorizedAgentOsHttpAgent', () => {
           idempotencyKey: '22222222-2222-4222-8222-222222222222',
         },
       }],
-    })) as unknown as BaseEvent);
+    })) as unknown as Observable<BaseEvent>).pipe(toArray()));
 
     expect(control.decideApproval).toHaveBeenCalledWith(
       expect.any(Request),
@@ -275,12 +280,19 @@ describe('AuthorizedAgentOsHttpAgent', () => {
       }),
     );
     expect(control.prepareRunIntent).not.toHaveBeenCalled();
-    expect(event).toMatchObject({
-      type: EventType.RUN_FINISHED,
-      threadId: THREAD_ID,
-      runId: RUN_ID,
-      outcome: { type: 'success' },
-    });
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: EventType.RUN_STARTED,
+        threadId: THREAD_ID,
+        runId: RUN_ID,
+      }),
+      expect.objectContaining({
+        type: EventType.RUN_FINISHED,
+        threadId: THREAD_ID,
+        runId: RUN_ID,
+        outcome: { type: 'success' },
+      }),
+    ]);
   });
 
   it.each(['intent', 'authorization'])(
@@ -419,6 +431,53 @@ describe('CopilotKit native runtime routes', () => {
     );
   });
 
+  it('frames stored replay with the original AG-UI run before each execution segment', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'user_message',
+        payload: { phase: 'complete', messageId: 'user-1', content: '첫 요청' },
+      }),
+      envelope(2),
+      envelope(3, {
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+      envelope(4, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: 'run-2',
+        eventType: 'user_message',
+        payload: { phase: 'complete', messageId: 'user-2', content: '다음 요청' },
+      }),
+      envelope(5, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: 'run-2',
+      }),
+      envelope(6, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: 'run-2',
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const events = await readSseEvents(response);
+    const firstRunStart = events.findIndex((event) => event.type === EventType.RUN_STARTED && event.runId === RUN_ID);
+    const firstTerminal = events.findIndex((event) => event.type === EventType.RUN_FINISHED && event.runId === RUN_ID);
+    const secondRunStart = events.findIndex((event) => event.type === EventType.RUN_STARTED && event.runId === 'run-2');
+
+    expect(firstRunStart).toBe(0);
+    expect(firstTerminal).toBeGreaterThan(firstRunStart);
+    expect(secondRunStart).toBeGreaterThan(firstTerminal);
+    expect(events.filter((event) => event.type === EventType.RUN_STARTED).map((event) => event.runId))
+      .toEqual([RUN_ID, 'run-2']);
+  });
+
   it('keeps a fresh client-only thread empty until its first authorized run', async () => {
     const control = controlHarness();
     control.authorizeConnection.mockRejectedValue(
@@ -515,7 +574,7 @@ describe('CopilotKit native runtime routes', () => {
     const control = controlHarness();
     control.authorizeConnection
       .mockResolvedValueOnce(connectionAuthorization(
-        [envelope(1)],
+        [envelope(1, { aguiRunId: 'original-paginated-run-id' })],
         'next-page-cursor-terminal',
       ))
       .mockResolvedValueOnce(connectionAuthorization([
@@ -757,6 +816,160 @@ describe('CopilotKit native runtime routes', () => {
     }));
   });
 
+  it('projects a delegated approval onto the already-active visible AG-UI run', async () => {
+    const control = controlHarness();
+    const approvalId = '33333333-3333-4333-8333-333333333333';
+    const approval = {
+      name: 'kiditem.ui.agent_approval.v1',
+      approvalId,
+      session: SESSION_NAME,
+      task: `${SESSION_NAME}/tasks/task-2`,
+      execution: SECOND_EXECUTION_NAME,
+      capabilityKey: 'inventory.adjust',
+      summary: '위임 작업의 승인이 필요합니다.',
+      resourceVersions: [],
+      expiresAt: '2026-08-14T01:00:00.000Z',
+    };
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'user_message',
+        payload: { phase: 'complete', messageId: 'user-1', content: '위임을 시작해줘' },
+      }),
+      envelope(2, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: 'child-run-2',
+        eventType: 'hitl_request',
+        payload: {
+          requestId: approvalId,
+          status: 'pending',
+          prompt: approval.summary,
+          approval,
+        },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const events = await readSseEvents(response);
+
+    expect(events.filter((event) => event.type === EventType.RUN_STARTED).map((event) => event.runId))
+      .toEqual([RUN_ID]);
+    expect(events).toContainEqual(expect.objectContaining({
+      type: EventType.RUN_FINISHED,
+      runId: RUN_ID,
+      outcome: expect.objectContaining({ type: 'interrupt' }),
+    }));
+  });
+
+  it('ends replay at an unresolved delegated approval instead of emitting a second terminal', async () => {
+    const control = controlHarness();
+    const approvalId = '44444444-4444-4444-8444-444444444444';
+    const approval = {
+      name: 'kiditem.ui.agent_approval.v1',
+      approvalId,
+      session: SESSION_NAME,
+      task: `${SESSION_NAME}/tasks/task-2`,
+      execution: SECOND_EXECUTION_NAME,
+      capabilityKey: 'inventory.adjust',
+      summary: '위임 작업의 승인이 필요합니다.',
+      resourceVersions: [],
+      expiresAt: '2026-08-14T01:00:00.000Z',
+    };
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'user_message',
+        payload: { phase: 'complete', messageId: 'user-1', content: '위임을 시작해줘' },
+      }),
+      envelope(2, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: 'child-run-2',
+        eventType: 'hitl_request',
+        payload: {
+          requestId: approvalId,
+          status: 'pending',
+          prompt: approval.summary,
+          approval,
+        },
+      }),
+      envelope(3, {
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const terminals = (await readSseEvents(response)).filter((event) => (
+      event.type === EventType.RUN_FINISHED || event.type === EventType.RUN_ERROR
+    ));
+
+    expect(terminals).toEqual([
+      expect.objectContaining({
+        type: EventType.RUN_FINISHED,
+        runId: RUN_ID,
+        outcome: expect.objectContaining({ type: 'interrupt' }),
+      }),
+    ]);
+  });
+
+  it('does not replay an approval that has a later canonical decision', async () => {
+    const control = controlHarness();
+    const approvalId = '55555555-5555-4555-8555-555555555555';
+    const approval = {
+      name: 'kiditem.ui.agent_approval.v1',
+      approvalId,
+      session: SESSION_NAME,
+      task: TASK_NAME,
+      execution: EXECUTION_NAME,
+      capabilityKey: 'inventory.adjust',
+      summary: '재고 수량을 조정합니다.',
+      resourceVersions: [],
+      expiresAt: '2026-08-14T01:00:00.000Z',
+    };
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'hitl_request',
+        payload: {
+          requestId: approvalId,
+          status: 'pending',
+          prompt: approval.summary,
+          approval,
+        },
+      }),
+      envelope(2, {
+        eventType: 'hitl_decision',
+        payload: { requestId: approvalId, decision: 'approved' },
+      }),
+      envelope(3, {
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const terminals = (await readSseEvents(response)).filter((event) => (
+      event.type === EventType.RUN_FINISHED || event.type === EventType.RUN_ERROR
+    ));
+
+    expect(terminals).toEqual([
+      expect.objectContaining({
+        type: EventType.RUN_FINISHED,
+        runId: RUN_ID,
+        result: { status: 'completed' },
+      }),
+    ]);
+  });
+
   it('keeps a later active execution live after replaying an earlier terminal run', async () => {
     const control = controlHarness();
     const laterRunId = 'run-2';
@@ -831,25 +1044,37 @@ describe('CopilotKit native runtime routes', () => {
     }));
   });
 
-  it('keeps isRunning bounded to the current process grant rather than replay authority', async () => {
+  it('reconstructs isRunning from a server-authorized current execution after gateway restart', async () => {
     const control = controlHarness();
+    const currentRun = vi.fn().mockResolvedValue({
+      session: SESSION_NAME,
+      execution: EXECUTION_NAME,
+      aguiRunId: RUN_ID,
+    });
+    (control as typeof control & { authorizeActiveRun: typeof currentRun })
+      .authorizeActiveRun = currentRun;
     const requestContext = new AsyncLocalStorage<never>();
     const runner = new KidItemAgentRunner(control, requestContext as never);
     const context = {
       request: request(), agentDefinitionKey: 'operator', replayCursor: null,
     };
     await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
-      .resolves.toBe(false);
-    runner.registerActiveGrant({
-      agentDefinitionKey: 'operator', threadId: THREAD_ID, runId: RUN_ID, authorization,
-    });
-    await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
       .resolves.toBe(true);
-    expect(control.authorizeConnection).not.toHaveBeenCalled();
+    expect(currentRun).toHaveBeenCalledWith(expect.any(Request), {
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
+    });
   });
 
-  it('does not derive stop authority from a replay response after gateway restart', async () => {
+  it('reconstructs exact stop authority after gateway restart without trusting replay data', async () => {
     const control = controlHarness();
+    const currentRun = vi.fn().mockResolvedValue({
+      session: SESSION_NAME,
+      execution: EXECUTION_NAME,
+      aguiRunId: RUN_ID,
+    });
+    (control as typeof control & { authorizeActiveRun: typeof currentRun })
+      .authorizeActiveRun = currentRun;
     const restarted = createInteractionGateway(dependencies(control));
 
     const response = await restarted.handler(new Request(
@@ -857,8 +1082,18 @@ describe('CopilotKit native runtime routes', () => {
       { method: 'POST', headers: { cookie: COOKIE } },
     ));
 
-    expect(await response.json()).toMatchObject({ stopped: false });
-    expect(control.stopRun).not.toHaveBeenCalled();
+    expect(await response.json()).toMatchObject({ stopped: true });
+    expect(currentRun).toHaveBeenCalledWith(expect.any(Request), {
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
+    });
+    expect(control.stopRun).toHaveBeenCalledWith(expect.any(Request), {
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
+      aguiRunId: RUN_ID,
+      session: SESSION_NAME,
+      execution: EXECUTION_NAME,
+    });
   });
 
   it.each([
@@ -886,9 +1121,6 @@ describe('CopilotKit native runtime routes', () => {
 
   it('native stop re-authorizes ownership and targets the exact active grant', async () => {
     const control = controlHarness();
-    control.authorizeConnection.mockResolvedValue(
-      connectionAuthorization([]),
-    );
     const gateway = createInteractionGateway(dependencies(control));
     gateway.runner.registerActiveGrant({
       agentDefinitionKey: 'operator',
@@ -906,7 +1138,7 @@ describe('CopilotKit native runtime routes', () => {
 
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ stopped: true });
-    expect(control.authorizeConnection).toHaveBeenCalledOnce();
+    expect(control.authorizeActiveRun).toHaveBeenCalledOnce();
     expect(control.stopRun).toHaveBeenCalledWith(
       expect.any(Request),
       expect.objectContaining({
@@ -961,7 +1193,7 @@ describe('CopilotKit native runtime routes', () => {
       runId: RUN_ID,
       authorization,
     });
-    control.authorizeConnection.mockRejectedValueOnce(
+    control.authorizeActiveRun.mockRejectedValueOnce(
       new GatewayControlError(403, 'interaction_connection_forbidden'),
     );
 

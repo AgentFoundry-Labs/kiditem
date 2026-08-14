@@ -9,7 +9,7 @@ import {
   RequestIdSchema,
 } from '@kiditem/shared/identifiers';
 import { EventType, type BaseEvent } from '@ag-ui/core';
-import { defer, of, switchMap, type Observable } from 'rxjs';
+import { defer, from, switchMap, type Observable } from 'rxjs';
 import { z } from 'zod';
 
 import type {
@@ -70,14 +70,21 @@ export class AuthorizedAgentOsHttpAgent extends HttpAgent {
           this.options.request,
           approvalResume,
         );
-        return {
-          type: EventType.RUN_FINISHED,
-          threadId: input.threadId,
-          runId: input.runId,
-          outcome: { type: 'success' },
-        } satisfies BaseEvent;
+        return [
+          {
+            type: EventType.RUN_STARTED,
+            threadId: input.threadId,
+            runId: input.runId,
+          },
+          {
+            type: EventType.RUN_FINISHED,
+            threadId: input.threadId,
+            runId: input.runId,
+            outcome: { type: 'success' },
+          },
+        ] satisfies BaseEvent[];
       }).pipe(
-        switchMap((event) => of(event)),
+        switchMap((events) => from(events)),
       ) as unknown as ReturnType<HttpAgent['run']>;
     }
     const dashboardContext = DashboardContextSchema.parse(

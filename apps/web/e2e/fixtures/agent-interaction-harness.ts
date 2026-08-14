@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ValidationPipe } from '@nestjs/common';
@@ -15,6 +15,7 @@ import { AgentAguiController } from '../../../server/dist/agent-os/adapter/in/ht
 import { AgentInteractionBootstrapController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-bootstrap.controller.js';
 import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-control.controller.js';
 import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-actions.controller.js';
+import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/agent-session.controller.js';
 import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction-gateway.guard.js';
 import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/agent-capability-invocation.port.js';
@@ -32,6 +33,12 @@ import {
 } from '../../../server/dist/agent-os/application/service/agent-interaction-identity.service.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
 import { AgentSessionCapabilityInvocationService } from '../../../server/dist/agent-os/application/service/agent-session-capability-invocation.service.js';
+import { AgentSessionApprovalService } from '../../../server/dist/agent-os/application/service/agent-session-approval.service.js';
+import { AgentSessionCancellationService } from '../../../server/dist/agent-os/application/service/agent-session-cancellation.service.js';
+import { AgentSessionDelegationService } from '../../../server/dist/agent-os/application/service/agent-session-delegation.service.js';
+import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/agent-session-execution.service.js';
+import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os/application/service/agent-session-runtime-control.service.js';
+import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/agent-session-task-dispatch.service.js';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -42,10 +49,28 @@ import {
 import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
 import { PrismaAgentInteractionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-interaction.repository.js';
 import { PrismaAgentSessionControlRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-session-control.repository.js';
+import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
+import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
+import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
+import { OperationRunService } from '../../../server/dist/operations/application/service/operation-run.service.js';
+import { AGENT_OS_OPERATIONS } from '../../../server/dist/agent-os/domain/operation/agent-os.operations.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../../../server/dist/agent-os/application/port/out/event/interaction-product-analytics.port.js';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, OTHER_USER_ID, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../../server/dist/test-helpers/real-prisma.js';
-import type { AgentAguiRuntimeAdapter, AgentAguiRuntimeInput } from '../../../server/src/agent-os/application/port/out/runtime/agent-agui-runtime.port';
+import {
+  formatAgentExecutionName,
+  formatAgentExecutionAttemptName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  formatAgentVersionName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
+import { AgentProgressEventSchema } from '@kiditem/shared/agent-interaction';
+import type {
+  AgentAguiRuntimeAdapter,
+  AgentAguiRuntimeInput,
+  AgentAguiRuntimeStopInput,
+} from '../../../server/src/agent-os/application/port/out/runtime/agent-agui-runtime.port';
 import { stopTrackedChild } from './tracked-child';
 
 const repoRoot = path.resolve(__dirname, '../../../..');
@@ -55,11 +80,374 @@ const GATEWAY_PORT = 4330;
 const SERVICE_SECRET = 'e2e-interaction-gateway-secret-value-0001';
 const HMAC = Buffer.from('e2e-interaction-hmac-secret-value-0000001');
 const AGENT_VERSION_ID = '10000000-0000-4000-8000-000000000001';
+const DELEGATE_VERSION_ID = '10000000-0000-4000-8000-000000000002';
 const PRIMARY_TOKEN = 'p'.repeat(43);
 const OTHER_TOKEN = 'o'.repeat(43);
 
+interface DurableControlGraph {
+  readonly copilotThreadId: string;
+  readonly sessionId: string;
+  readonly taskId: string;
+  readonly executionId: string;
+  readonly childTaskId: string;
+  readonly childExecutionId: string;
+  readonly childAttemptId: string;
+  readonly childOperationRunId: string;
+  readonly approvalId: string | null;
+  readonly staleApprovalId: string | null;
+}
+
+interface ActiveStopGraph {
+  readonly copilotThreadId: string;
+  readonly executionId: string;
+  readonly aguiRunId: string;
+}
+
+class AcceptanceDurableControlPlane {
+  private graph: DurableControlGraph | null = null;
+  private beginStarted = false;
+  private readyResolve: (() => void) | null = null;
+  private readyReject: ((reason: unknown) => void) | null = null;
+  private readonly ready = new Promise<void>((resolve, reject) => {
+    this.readyResolve = resolve;
+    this.readyReject = reject;
+  });
+  private continueResolve: (() => void) | null = null;
+  private progressResolve: (() => void) | null = null;
+  private progressReject: ((reason: unknown) => void) | null = null;
+  private readonly progressPersisted = new Promise<void>((resolve, reject) => {
+    this.progressResolve = resolve;
+    this.progressReject = reject;
+  });
+  private approvalResolve: (() => void) | null = null;
+  private approvalReject: ((reason: unknown) => void) | null = null;
+  private readonly approvalPersisted = new Promise<void>((resolve, reject) => {
+    this.approvalResolve = resolve;
+    this.approvalReject = reject;
+  });
+  private finishResolve: (() => void) | null = null;
+  private activeStop: ActiveStopGraph | null = null;
+  private activeStopResolve: (() => void) | null = null;
+  private activeStopReadyResolve: (() => void) | null = null;
+  private readonly activeStopReady = new Promise<void>((resolve) => {
+    this.activeStopReadyResolve = resolve;
+  });
+
+  constructor(
+    private readonly controls: PrismaAgentSessionControlRepository,
+    private readonly runtimeControl: AgentSessionRuntimeControlService,
+    private readonly delegations: AgentSessionDelegationService,
+    private readonly approvals: AgentSessionApprovalService,
+    private readonly presentation: AgentInteractionPresentationService,
+  ) {}
+
+  async begin(input: AgentAguiRuntimeInput): Promise<void> {
+    this.beginStarted = true;
+    try {
+    const organization = OrganizationIdSchema.parse(TEST_ORGANIZATION_ID);
+    const session = formatAgentSessionName(organization, input.sessionId as never);
+    const task = formatAgentSessionTaskName(organization, input.sessionId as never, input.sessionTaskId as never);
+    const execution = formatAgentExecutionName(organization, input.sessionId as never, input.executionId as never);
+    const delegated = await this.delegations.delegate({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      parentTaskId: input.sessionTaskId,
+      parentExecutionId: input.executionId,
+      targetAgentDefinitionKey: 'sourcing',
+      objective: '브라우저 durable 제어 검증',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      idempotencyKey: `acceptance:delegation:${input.executionId}`,
+      requestedByUserId: TEST_USER_ID,
+    });
+    const attempt = await this.controls.findAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      operationRunId: delegated.operationsRunId,
+    });
+    if (!attempt) throw new Error('durable acceptance child attempt was not reserved');
+    const activeAttempt = await this.controls.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      executionId: delegated.childExecutionId,
+      runtimeType: 'hermes_http',
+      operationRunId: delegated.operationsRunId,
+      idempotencyKey: `operation:${delegated.operationsRunId}`,
+    });
+    await this.controls.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      executionId: delegated.childExecutionId,
+      attemptId: activeAttempt.id,
+      runtimeType: 'hermes_http',
+      externalRunId: 'acceptance-external-child-run',
+      encryptedHandleRef: 'vault://acceptance-child-handle',
+      runtimeGeneration: 1,
+    });
+    await this.controls.transitionTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      taskId: delegated.childTaskId,
+      expectedState: 'queued',
+      state: 'running',
+    });
+    const childTask = formatAgentSessionTaskName(organization, input.sessionId as never, delegated.childTaskId as never);
+    const childExecution = formatAgentExecutionName(organization, input.sessionId as never, delegated.childExecutionId as never);
+    const childAttempt = formatAgentExecutionAttemptName(
+      organization,
+      input.sessionId as never,
+      delegated.childExecutionId as never,
+      activeAttempt.id as never,
+    );
+    const navigation = this.presentation.present({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      sessionId: input.sessionId,
+    }, {
+      kind: 'navigation',
+      routeKey: 'inventory_stock_ops',
+      resourceRef: null,
+      label: '산출물 열기',
+      disabledReason: null,
+      textFallback: '산출물 화면을 엽니다.',
+    });
+    if (navigation.kind !== 'navigation') throw new Error('durable acceptance navigation was not issued');
+    const artifact = await this.controls.appendArtifact({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      taskId: input.sessionTaskId,
+      executionId: input.executionId,
+      artifactType: 'acceptance_report',
+      storageReference: 'acceptance://artifact/report',
+      sha256: 'd'.repeat(64),
+      metadata: {},
+      idempotencyKey: `acceptance:artifact:${input.executionId}`,
+    });
+    const now = new Date().toISOString();
+    await this.runtimeControl.record({
+      organizationId: TEST_ORGANIZATION_ID,
+      session,
+      task,
+      execution,
+      attemptId: randomUUID(),
+      ordinal: 1,
+      event: { kind: 'progress', progress: 0.25, label: '패널 닫힘 전 진행 상황' },
+    });
+    await this.runtimeControl.record({
+      organizationId: TEST_ORGANIZATION_ID,
+      session,
+      task,
+      execution,
+      attemptId: randomUUID(),
+      ordinal: 2,
+      event: {
+        kind: 'delegation',
+        payload: {
+          name: 'kiditem.ui.agent_delegation.v1',
+          parentTask: task,
+          childTask,
+          fromAgentVersion: formatAgentVersionName('operator' as never, AGENT_VERSION_ID as never),
+          toAgentVersion: formatAgentVersionName('sourcing' as never, DELEGATE_VERSION_ID as never),
+          status: 'created',
+          createdAt: now,
+        },
+      },
+    });
+    await this.runtimeControl.record({
+      organizationId: TEST_ORGANIZATION_ID,
+      session,
+      task,
+      execution,
+      attemptId: randomUUID(),
+      ordinal: 3,
+      event: {
+        kind: 'artifact',
+        artifactId: artifact.id,
+        payload: {
+          name: 'kiditem.ui.agent_artifact.v1',
+          artifactType: 'acceptance_report',
+          label: '검증 산출물',
+          sha256: artifact.sha256,
+          navigationActionId: navigation.actionId,
+        },
+      },
+    });
+    this.graph = {
+      copilotThreadId: input.copilotThreadId,
+      sessionId: input.sessionId,
+      taskId: input.sessionTaskId,
+      executionId: input.executionId,
+      childTaskId: delegated.childTaskId,
+      childExecutionId: delegated.childExecutionId,
+      childAttemptId: activeAttempt.id,
+      childOperationRunId: delegated.operationsRunId,
+      approvalId: null,
+      staleApprovalId: null,
+    };
+    this.readyResolve?.();
+    await new Promise<void>((resolve) => { this.continueResolve = resolve; });
+    await this.runtimeControl.record({
+      organizationId: TEST_ORGANIZATION_ID,
+      session,
+      task,
+      execution,
+      attemptId: randomUUID(),
+      ordinal: 4,
+      event: { kind: 'progress', progress: 0.75, label: '패널 닫힘 후 진행 상황' },
+    });
+    this.progressResolve?.();
+    const waitingApprovalProgress = await this.runtimeControl.persist({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      executionId: delegated.childExecutionId,
+      externalEventId: `${activeAttempt.id}:acceptance:waiting-approval`,
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'agent_progress',
+        snapshotVersion: 1,
+        data: AgentProgressEventSchema.parse({
+          name: 'kiditem.ui.agent_progress.v1',
+          session,
+          task: childTask,
+          execution: childExecution,
+          status: 'waiting_approval',
+          progress: 0.5,
+          label: '위임 작업의 승인 대기',
+          updatedAt: new Date().toISOString(),
+        }),
+      },
+    });
+    await this.runtimeControl.publish(waitingApprovalProgress);
+    const approval = await this.approvals.request({
+      organizationId: TEST_ORGANIZATION_ID,
+      session,
+      task: childTask,
+      execution: childExecution,
+      attempt: childAttempt,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+      arguments: { query: 'durable acceptance' },
+      summary: '별도 승인이 필요한 durable 작업입니다.',
+      resourceVersions: [],
+      expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
+      idempotencyKey: `acceptance:approval:${delegated.childExecutionId}`,
+    });
+    await this.controls.transitionTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: input.sessionId,
+      taskId: delegated.childTaskId,
+      expectedState: 'running',
+      state: 'waiting_approval',
+    });
+    this.graph = { ...this.current(), approvalId: approval.approvalId };
+    this.approvalResolve?.();
+    await new Promise<void>((resolve) => { this.finishResolve = resolve; });
+    } catch (error) {
+      this.readyReject?.(error);
+      this.progressReject?.(error);
+      this.approvalReject?.(error);
+      throw error;
+    }
+  }
+
+  async waitUntilReady(): Promise<void> {
+    await Promise.race([
+      this.ready,
+      delay(10_000).then(() => {
+        throw new Error(
+          this.beginStarted
+            ? 'durable runtime did not reach the persisted control boundary'
+            : 'durable runtime never invoked the persisted control boundary',
+        );
+      }),
+    ]);
+  }
+
+  async continueAfterPanelClose(): Promise<void> {
+    const release = this.continueResolve;
+    this.continueResolve = null;
+    if (!release) throw new Error('durable runtime was not ready to continue');
+    release();
+    await Promise.race([
+      Promise.all([this.progressPersisted, this.approvalPersisted]),
+      delay(10_000).then(() => {
+        throw new Error('durable runtime did not persist progress after panel close');
+      }),
+    ]);
+  }
+
+  finishAfterApproval(): void {
+    const release = this.finishResolve;
+    this.finishResolve = null;
+    release?.();
+  }
+
+  async beginActiveStop(input: AgentAguiRuntimeInput): Promise<void> {
+    this.activeStop = {
+      copilotThreadId: input.copilotThreadId,
+      executionId: input.executionId,
+      aguiRunId: input.aguiRunId,
+    };
+    this.activeStopReadyResolve?.();
+    await new Promise<void>((resolve) => { this.activeStopResolve = resolve; });
+  }
+
+  async waitForActiveStop(): Promise<void> {
+    await Promise.race([
+      this.activeStopReady,
+      delay(10_000).then(() => {
+        throw new Error('durable active run did not reach the gateway stop boundary');
+      }),
+    ]);
+  }
+
+  currentActiveStop(): ActiveStopGraph {
+    if (!this.activeStop) throw new Error('durable active stop graph is not ready');
+    return this.activeStop;
+  }
+
+  stopActiveRun(input: AgentAguiRuntimeStopInput): boolean {
+    const active = this.activeStop;
+    if (
+      !active ||
+      active.copilotThreadId !== input.copilotThreadId ||
+      active.executionId !== input.executionId ||
+      active.aguiRunId !== input.aguiRunId
+    ) return false;
+    const resolve = this.activeStopResolve;
+    this.activeStopResolve = null;
+    if (!resolve) return false;
+    resolve();
+    return true;
+  }
+
+  async createExpiredApproval(): Promise<string> {
+    const graph = this.current();
+    const stale = await this.controls.requestApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.childTaskId,
+      executionId: graph.childExecutionId,
+      attemptId: graph.childAttemptId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+      argumentsHash: createHash('sha256').update('stale').digest('hex'),
+      resourceSnapshot: [],
+      expiresAt: new Date(Date.now() - 1_000),
+      idempotencyKey: `acceptance:approval:stale:${graph.childExecutionId}`,
+    });
+    this.graph = { ...graph, staleApprovalId: stale.id };
+    return stale.id;
+  }
+
+  current(): DurableControlGraph {
+    if (!this.graph) throw new Error('durable acceptance graph is not ready');
+    return this.graph;
+  }
+}
+
 class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
-  constructor(private readonly presentation: AgentInteractionPresentationService) {}
+  constructor(
+    private readonly presentation: AgentInteractionPresentationService,
+    private readonly durableControls: AcceptanceDurableControlPlane,
+  ) {}
 
   async *run(input: AgentAguiRuntimeInput): AsyncIterable<BaseEvent> {
     yield { type: EventType.RUN_STARTED, threadId: input.copilotThreadId, runId: input.aguiRunId };
@@ -72,6 +460,12 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
     yield { type: EventType.TEXT_MESSAGE_START, messageId, role: 'assistant' };
     yield { type: EventType.TEXT_MESSAGE_CONTENT, messageId, delta: '재고 현황을 확인했습니다.' };
     yield { type: EventType.TEXT_MESSAGE_END, messageId };
+    if (submitted.includes('durable 제어')) {
+      await this.durableControls.begin(input);
+    }
+    if (submitted.includes('gateway stop')) {
+      await this.durableControls.beginActiveStop(input);
+    }
     if (submitted.includes('새 대화')) {
       const analytics = await input.invokeCapability('analytics.readOverview', { period: 'today' });
       const sourcing = await input.invokeCapability('sourcing.retrieveWorkspaceEvidence', {
@@ -103,6 +497,10 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
     }
     yield { type: EventType.RUN_FINISHED, threadId: input.copilotThreadId, runId: input.aguiRunId };
   }
+
+  async stop(input: AgentAguiRuntimeStopInput): Promise<boolean> {
+    return this.durableControls.stopActiveRun(input);
+  }
 }
 
 export interface CanonicalCounts { sessions: number; executions: number; events: number; outbox: number }
@@ -113,6 +511,7 @@ export async function createAgentInteractionAcceptanceHarness() {
     .withDatabase('kiditem_test')
     .withUsername('kiditem_test')
     .withPassword('kiditem_test')
+    .withStartupTimeout(60_000)
     .start();
   process.env.DATABASE_URL = postgres.getConnectionUri();
   pushSchema(postgres);
@@ -121,7 +520,7 @@ export async function createAgentInteractionAcceptanceHarness() {
   await seedBaseFixture(prisma);
   await seedAgentVersion(prisma);
   const analyticsEvents: unknown[] = [];
-  const nest = await startNest(prisma, analyticsEvents);
+  const { app: nest, durableControls } = await startNest(prisma, analyticsEvents);
   const gatewayLog: string[] = [];
   const webLog: string[] = [];
   const gateway = await startGateway(gatewayLog);
@@ -142,7 +541,7 @@ export async function createAgentInteractionAcceptanceHarness() {
   }
 
   return new AgentInteractionAcceptanceHarness(
-    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents,
+    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls,
   );
 }
 
@@ -153,11 +552,12 @@ class AgentInteractionAcceptanceHarness {
     private readonly postgres: StartedPostgreSqlContainer,
     private readonly prisma: PrismaClient,
     private readonly nest: INestApplication,
-    private readonly gateway: ChildProcess,
+    private gateway: ChildProcess,
     private readonly web: ChildProcess,
     private readonly gatewayLog: string[],
     private readonly webLog: string[],
     private readonly analyticsEvents: unknown[],
+    private readonly durableControls: AcceptanceDurableControlPlane,
   ) {}
 
   diagnostics() {
@@ -178,8 +578,11 @@ class AgentInteractionAcceptanceHarness {
     await page.getByRole('button', { name: '퀵 메뉴 열기' }).click();
     await page.getByRole('button', { name: 'AgentOS 대화 열기' }).click();
     if (threadId) {
-      const session = await this.session(threadId);
-      await page.getByRole('button', { name: `세션 ${session.id} 열기` }).click();
+      const selectedIdentifier = await page.getByLabel('선택된 대화 식별자').textContent();
+      if (!selectedIdentifier?.includes(threadId)) {
+        const session = await this.session(threadId);
+        await page.getByRole('button', { name: `세션 ${session.id} 열기` }).click({ timeout: 10_000 });
+      }
     }
   }
 
@@ -242,6 +645,112 @@ class AgentInteractionAcceptanceHarness {
     if (new Set(sequences).size !== sequences.length || sequences.some((value, index) => value !== String(index + 1))) {
       throw new Error('replay/live boundary contains a gap or duplicate');
     }
+  }
+
+  async expectDurableControlsAfterPanelClose(page: Page) {
+    const threadId = await this.startDurableControlRun(page);
+    await this.durableControls.waitUntilReady();
+    let graph = this.durableControls.current();
+    if (graph.copilotThreadId !== threadId) {
+      throw new Error('durable control graph was attached to the wrong Copilot thread');
+    }
+    await page.getByRole('button', { name: 'AgentOS 대화 닫기' }).click();
+    await this.durableControls.continueAfterPanelClose();
+    graph = this.durableControls.current();
+    if (!graph.approvalId) throw new Error('durable approval was not persisted');
+
+    // The public gateway process has no authority map after this restart. The
+    // browser must reconnect from canonical state while the approval is still
+    // pending, then resolve that same persisted approval.
+    await this.restartGateway();
+    await page.reload();
+    await this.openPanel(page, threadId);
+    const progress = page.getByTestId(`agent-task-${graph.taskId}`)
+      .getByRole('progressbar');
+    await progress.waitFor({ timeout: 10_000 });
+    if (await progress.getAttribute('aria-valuenow') !== '75') {
+      throw new Error('progress produced after panel close was not replayed');
+    }
+    await page.getByLabel('Agent 위임').waitFor({ timeout: 10_000 });
+    const approvalCard = page.getByLabel('Agent 승인 요청');
+    await approvalCard.waitFor({ timeout: 10_000 });
+    await approvalCard.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await approvalCard.getByRole('button', { name: '승인' }).click({ timeout: 10_000 });
+    await this.waitForApprovalState(graph.approvalId, 'approved');
+    await this.waitForExecutionTerminal(graph.executionId);
+    const staleApprovalId = await this.durableControls.createExpiredApproval();
+
+    const childTaskCard = page.getByTestId(`agent-task-${graph.childTaskId}`);
+    await childTaskCard.evaluate((element) => element.scrollIntoView({ block: 'center' }));
+    await childTaskCard.getByRole('button', { name: '취소' }).click({ timeout: 10_000 });
+    await this.waitForOperationStatus(graph.childOperationRunId, 'cancelled');
+
+    const stale = await page.request.post(
+      `http://127.0.0.1:${NEST_PORT}/api/agent-os/sessions/${encodeURIComponent(graph.sessionId)}/approvals/${encodeURIComponent(staleApprovalId)}/decision`,
+      {
+        headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` },
+        data: { decision: 'approved', idempotencyKey: randomUUID() },
+      },
+    );
+    if (stale.ok()) throw new Error('expired approval was accepted');
+    await this.waitForApprovalState(staleApprovalId, 'expired');
+
+    await page.getByRole('button', { name: '검증 산출물 열기' }).click();
+    await page.waitForURL('**/stock-ops', { timeout: 10_000 });
+    const replayBefore = await this.counts();
+    await page.goto('/dashboard');
+    await this.openPanel(page, threadId);
+    await delay(500);
+    if (await page.getByLabel('Agent 승인 요청').count() !== 0) {
+      throw new Error('resolved durable approval was replayed as pending');
+    }
+    assertJson(await this.counts(), replayBefore, 'durable replay after panel close');
+  }
+
+  async expectActiveRunStopAfterGatewayRestart(page: Page) {
+    const before = await this.prisma.agentExecution.count();
+    await page.goto('/dashboard');
+    await this.openPanel(page);
+    await page.getByRole('button', { name: '새 대화' }).click();
+    const textbox = page.getByRole('textbox');
+    await textbox.fill('gateway stop 검증');
+    await textbox.press('Enter');
+    await this.waitForExecutionCount(before + 1);
+    await this.durableControls.waitForActiveStop();
+    const active = this.durableControls.currentActiveStop();
+    const beforeRestart = await this.prisma.agentExecution.findUniqueOrThrow({
+      where: { id: active.executionId },
+    });
+    if (beforeRestart.status !== 'running') {
+      throw new Error('gateway stop fixture was not canonically running before restart');
+    }
+
+    await this.restartGateway();
+    await page.reload();
+    await this.openPanel(page, active.copilotThreadId);
+    const response = await page.request.post(
+      `http://127.0.0.1:${GATEWAY_PORT}/api/copilotkit/agent/operator/stop/${encodeURIComponent(active.copilotThreadId)}`,
+      { headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` } },
+    );
+    if (!response.ok() || (await response.json() as { stopped?: unknown }).stopped !== true) {
+      throw new Error('gateway restart could not stop the canonical active run');
+    }
+    await this.waitForExecutionTerminal(active.executionId);
+  }
+
+  async restartGateway() {
+    const previous = this.gateway;
+    await stopTrackedChild(previous);
+    this.gateway = await startGateway(this.gatewayLog);
+    await waitForUrl(`http://127.0.0.1:${GATEWAY_PORT}/health/ready`);
+  }
+
+  async expectReplayAfterGatewayRestart(page: Page, threadId: string) {
+    const before = await this.counts();
+    await page.reload();
+    await this.openPanel(page, threadId);
+    await this.expectReplayWithoutWrites(threadId);
+    assertJson(await this.counts(), before, 'gateway restart replay wrote canonical rows');
   }
 
   async startNewConversationAndSubmit(page: Page, content: string) {
@@ -321,12 +830,14 @@ class AgentInteractionAcceptanceHarness {
   }
 
   async close() {
+    // Browser pages can retain an SSE connection through the gateway. Stop
+    // that owned boundary first so Nest shutdown cannot wait on the client.
+    await stopTrackedChild(this.gateway);
     await stopTrackedChild(this.web);
     await Promise.allSettled([
       this.nest.close(),
       this.prisma.$disconnect(),
     ]);
-    await stopTrackedChild(this.gateway);
     await this.postgres.stop();
   }
 
@@ -336,6 +847,37 @@ class AgentInteractionAcceptanceHarness {
       this.prisma.agentConversationEvent.count(), this.prisma.agentConversationOutbox.count(),
     ]);
     return { sessions, executions, events, outbox };
+  }
+
+  private async startDurableControlRun(page: Page): Promise<string> {
+    const before = await this.prisma.agentExecution.count();
+    await page.getByRole('button', { name: '새 대화' }).click();
+    const textbox = page.getByRole('textbox');
+    await textbox.fill('durable 제어 검증');
+    await textbox.press('Enter');
+    await this.waitForExecutionCount(before + 1);
+    const session = await this.prisma.agentSession.findFirst({ orderBy: { createdAt: 'desc' } });
+    if (!session) throw new Error('durable control run did not create a session');
+    this.selectedThreadId = session.copilotThreadId;
+    return session.copilotThreadId;
+  }
+
+  private async waitForApprovalState(approvalId: string, state: string) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const approval = await this.prisma.agentSessionApproval.findUnique({ where: { id: approvalId } });
+      if (approval?.state === state) return;
+      await delay(100);
+    }
+    throw new Error(`timed out waiting for approval ${approvalId} to become ${state}`);
+  }
+
+  private async waitForOperationStatus(operationRunId: string, status: string) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const operation = await this.prisma.operationRun.findUnique({ where: { id: operationRunId } });
+      if (operation?.status === status) return;
+      await delay(100);
+    }
+    throw new Error(`timed out waiting for operation ${operationRunId} to become ${status}`);
   }
 
   private session(copilotThreadId: string) {
@@ -359,6 +901,15 @@ class AgentInteractionAcceptanceHarness {
       await delay(100);
     }
     throw new Error('timed out waiting for terminal execution');
+  }
+
+  private async waitForExecutionTerminal(executionId: string) {
+    for (let attempt = 0; attempt < 80; attempt += 1) {
+      const execution = await this.prisma.agentExecution.findUnique({ where: { id: executionId } });
+      if (execution && execution.status !== 'running') return;
+      await delay(100);
+    }
+    throw new Error(`timed out waiting for execution ${executionId} to become terminal`);
   }
 }
 
@@ -404,20 +955,78 @@ function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void
 async function startNest(
   prisma: PrismaClient,
   analyticsEvents: unknown[],
-): Promise<INestApplication> {
+): Promise<{ app: INestApplication; durableControls: AcceptanceDurableControlPlane }> {
   const repository = new PrismaAgentInteractionRepository(prisma as never);
   const controls = new PrismaAgentSessionControlRepository(prisma as never);
   const publisher = new InProcessAgentConversationLivePublisher();
   const presentation = new AgentInteractionPresentationService();
+  const operationRepository = new OperationRepositoryAdapter(prisma as never);
+  const operationRegistry = new OperationHandlerRegistryService();
+  operationRegistry.register(AGENT_OS_OPERATIONS[0], {
+    execute: async () => ({ kind: 'completed', result: {} }),
+    cancel: async () => undefined,
+  } as never);
+  const operationCoordinator = new CompositeOperationCoordinatorService(
+    operationRegistry,
+    operationRepository,
+  );
+  const operations = new OperationRunService(
+    operationRegistry,
+    operationRepository,
+    operationCoordinator,
+  );
+  const dispatch = new AgentSessionTaskDispatchService(operations, controls);
+  const runtimeControl = new AgentSessionRuntimeControlService(
+    repository,
+    publisher,
+    () => new Date(),
+  );
+  let durableControls: AcceptanceDurableControlPlane | null = null;
+  const approvalRuntime = {
+    runtimeType: 'hermes_http',
+    capabilities: { detached: true, reconnect: true, interrupt: true, cancel: true, inspect: true },
+    start: async () => { throw new Error('acceptance approval runtime must reconnect'); },
+    inspect: async () => ({ status: 'running' as const }),
+    connect: async function* () {},
+    interrupt: async () => {
+      durableControls?.finishAfterApproval();
+    },
+    cancel: async () => undefined,
+  };
+  const approvals = new AgentSessionApprovalService(
+    controls,
+    runtimeControl,
+    { areCurrent: async () => true } as never,
+    { requireCompatible: () => approvalRuntime } as never,
+    operations,
+    () => new Date(),
+  );
+  const cancellations = new AgentSessionCancellationService(controls, operations);
+  const executions = new AgentSessionExecutionService(controls, dispatch);
+  const delegations = new AgentSessionDelegationService(controls, dispatch);
+  const createdDurableControls = new AcceptanceDurableControlPlane(
+    controls,
+    runtimeControl,
+    delegations,
+    approvals,
+    presentation,
+  );
+  durableControls = createdDurableControls;
   const runtimeRegistry = new AgentAguiRuntimeRegistry();
   runtimeRegistry.register(
     'copilotkit_agui',
-    new DeterministicAcceptanceRuntime(presentation),
+    new DeterministicAcceptanceRuntime(presentation, createdDurableControls),
   );
   const capabilityRegistry = new AgentCapabilityRegistry();
   registerAcceptanceCapabilities(capabilityRegistry);
   const moduleRef = await Test.createTestingModule({
-    controllers: [AgentInteractionBootstrapController, AgentInteractionControlController, AgentInteractionActionsController, AgentAguiController],
+    controllers: [
+      AgentInteractionBootstrapController,
+      AgentInteractionControlController,
+      AgentInteractionActionsController,
+      AgentAguiController,
+      AgentSessionController,
+    ],
     providers: [
       { provide: AGENT_INTERACTION_REPOSITORY, useValue: repository },
       { provide: AGENT_SESSION_CONTROL_REPOSITORY, useValue: controls },
@@ -444,6 +1053,9 @@ async function startNest(
         useExisting: AgentSessionCapabilityInvocationService,
       },
       AgentInteractionIdentityService,
+      { provide: AgentSessionApprovalService, useValue: approvals },
+      { provide: AgentSessionCancellationService, useValue: cancellations },
+      { provide: AgentSessionExecutionService, useValue: executions },
       AgentAguiRunService,
       AgentAguiProducerCoordinator,
       { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
@@ -484,7 +1096,7 @@ async function startNest(
     next();
   });
   await app.listen(NEST_PORT, '127.0.0.1');
-  return app;
+  return { app, durableControls: createdDurableControls };
 }
 
 async function startGateway(log: string[]): Promise<ChildProcess> {
@@ -578,6 +1190,47 @@ async function seedAgentVersion(prisma: PrismaClient) {
       runtimeType: 'copilotkit_agui',
       modelIdentity: 'fake-deterministic',
       capabilityKeys,
+      policyDocument: { authorityClass: 'read_only' },
+      delegation: {
+        role: 'orchestrator',
+        allowedAgentDefinitionKeys: ['sourcing'],
+        maxDepth: 1,
+        maxChildrenPerTask: 3,
+      },
+      limits: {
+        maxTurns: 20,
+        maxContextTokens: 8_192,
+        summaryTargetTokens: 512,
+      },
+      assets: {
+        prompt: {
+          path: 'agent-config/prompts/agents/manager.md',
+          sha256: 'a'.repeat(64),
+        },
+        summaryPrompt: {
+          path: 'agent-config/prompts/system/session-summary.md',
+          sha256: 'b'.repeat(64),
+        },
+        skills: [],
+        outputSchema: null,
+      },
+    },
+    activatedAt: new Date(),
+  } });
+  await prisma.agentVersion.create({ data: {
+    id: DELEGATE_VERSION_ID, agentDefinitionKey: 'sourcing', version: 1,
+    displayName: 'Sourcing', description: 'Durable acceptance delegate',
+    runtimeType: 'hermes_http', modelIdentity: 'fake-durable',
+    capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+    policyDocument: { authorityClass: 'read_only' },
+    manifestHash: 'f'.repeat(64),
+    runtimeManifest: {
+      schemaVersion: 1,
+      agentDefinitionKey: 'sourcing',
+      runtimeKind: 'agent',
+      runtimeType: 'hermes_http',
+      modelIdentity: 'fake-durable',
+      capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
       policyDocument: { authorityClass: 'read_only' },
       delegation: {
         role: 'leaf',

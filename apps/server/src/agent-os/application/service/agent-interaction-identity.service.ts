@@ -183,6 +183,11 @@ interface AuthorizeConnectionInput extends IdentityInput {
   cursor?: string | null;
 }
 
+interface AuthorizeCurrentRunInput extends IdentityInput {
+  agentDefinitionKey: string;
+  copilotThreadId: string;
+}
+
 export interface InteractionPrincipal {
   readonly principalKey: string;
 }
@@ -551,6 +556,79 @@ export class AgentInteractionIdentityService {
       replay,
       liveJoinToken,
       liveJoinExpiresAt: liveJoinExpiresAt?.toISOString() ?? null,
+    };
+  }
+
+  async authorizeCurrentRun(input: AuthorizeCurrentRunInput): Promise<{
+    session: string;
+    execution: string;
+    aguiRunId: string;
+  } | null> {
+    const organizationId = parseInput(
+      OrganizationIdSchema,
+      input.organizationId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const agentDefinitionKey = parseInput(
+      AgentDefinitionKeySchema,
+      input.agentDefinitionKey,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const copilotThreadId = parseInput(
+      CopilotThreadIdSchema,
+      input.copilotThreadId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const session = await this.repository.findAccessibleSession({
+      organizationId,
+      userId,
+      copilotThreadId,
+    });
+    if (
+      !session ||
+      session.lifecycle !== 'active' ||
+      session.organizationId !== organizationId ||
+      session.createdByUserId !== userId ||
+      session.copilotThreadId !== copilotThreadId
+    ) {
+      throw boundary(
+        'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+        'The requested Agent OS session is not active and accessible.',
+      );
+    }
+    const execution = await this.repository.findAccessibleCurrentExecution({
+      organizationId,
+      userId,
+      sessionId: session.id,
+      copilotThreadId,
+    });
+    if (
+      !execution ||
+      execution.status !== 'running' ||
+      execution.organizationId !== organizationId ||
+      execution.sessionId !== session.id ||
+      execution.copilotThreadId !== copilotThreadId ||
+      execution.agentDefinitionKey !== agentDefinitionKey
+    ) {
+      return null;
+    }
+    const sessionName = formatAgentSessionName(
+      organizationId,
+      AgentSessionIdSchema.parse(session.id),
+    );
+    return {
+      session: sessionName,
+      execution: formatAgentExecutionName(
+        organizationId,
+        AgentSessionIdSchema.parse(session.id),
+        AgentExecutionIdSchema.parse(execution.executionId),
+      ),
+      aguiRunId: AguiRunIdSchema.parse(execution.aguiRunId),
     };
   }
 

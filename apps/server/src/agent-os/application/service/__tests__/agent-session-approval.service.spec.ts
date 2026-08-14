@@ -67,6 +67,7 @@ function harness(overrides: { storedApproval?: Record<string, unknown>; current?
       event: { id: 'event-1', sequence: 9n },
       pointer: { organizationId: ORGANIZATION_ID, sessionId: SESSION_ID, eventId: 'event-1', sequence: 9n },
     }),
+    publish: vi.fn().mockResolvedValue(undefined),
   };
   const resources = { areCurrent: vi.fn().mockResolvedValue(overrides.current ?? true) };
   const runtime = { interrupt: vi.fn().mockResolvedValue(undefined) };
@@ -198,6 +199,35 @@ describe('AgentSessionApprovalService', () => {
     expect(rejected.operations.cancel).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID, runId: OPERATION_RUN_ID,
     }));
+  });
+
+  it('persists and publishes the canonical approval decision before resuming the runtime', async () => {
+    const accepted = harness();
+
+    await accepted.service.decide({
+      organizationId: ORGANIZATION_ID,
+      session,
+      approvalId: APPROVAL_ID,
+      actorId: 'user-1',
+      decision: 'approved',
+      argumentsHash: 'a'.repeat(64),
+      idempotencyKey: 'decision:canonical-event',
+    });
+
+    expect(accepted.runtimeControl.persist).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      sessionId: SESSION_ID,
+      executionId: EXECUTION_ID,
+      externalEventId: `${ATTEMPT_ID}:approval:${APPROVAL_ID}:decision:approved`,
+      eventType: 'hitl_decision',
+      schemaVersion: 1,
+      payload: { requestId: APPROVAL_ID, decision: 'approved' },
+    }));
+    expect(accepted.runtimeControl.publish).toHaveBeenCalledWith(expect.objectContaining({
+      pointer: expect.objectContaining({ eventId: 'event-1' }),
+    }));
+    expect(accepted.runtimeControl.persist.mock.invocationCallOrder[0])
+      .toBeLessThan(accepted.runtime.interrupt.mock.invocationCallOrder[0]);
   });
 
   it('rejects approval when the exact execution can no longer invoke that capability', async () => {

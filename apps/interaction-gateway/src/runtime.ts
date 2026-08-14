@@ -112,46 +112,31 @@ export class KidItemAgentRunner extends AgentRunner {
   async isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const active = this.active.get(request.threadId);
-    return Boolean(
-      active &&
-      active.agentDefinitionKey === agentDefinitionKey &&
-      active.threadId === request.threadId,
-    );
+    const active = await this.control.authorizeActiveRun(context.request, {
+      agentDefinitionKey,
+      copilotThreadId: request.threadId,
+    });
+    return active !== null;
   }
 
   async stop(request: AgentRunnerStopRequest): Promise<boolean | undefined> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const active = this.active.get(request.threadId);
-    if (
-      !active ||
-      active.agentDefinitionKey !== agentDefinitionKey ||
-      active.threadId !== request.threadId
-    ) {
-      return false;
-    }
-    const connection = AgentConversationConnectionAuthorizationSchema.parse(
-      await this.control.authorizeConnection(context.request, {
-        copilotThreadId: request.threadId,
-        cursor: null,
-      }),
-    );
-    if (
-      connection.authorization.session !== active.authorization.session
-    ) {
-      return false;
-    }
+    const active = await this.control.authorizeActiveRun(context.request, {
+      agentDefinitionKey,
+      copilotThreadId: request.threadId,
+    });
+    if (!active) return false;
 
     const stopped = await this.control.stopRun(context.request, {
       agentDefinitionKey,
       copilotThreadId: request.threadId,
-      aguiRunId: active.runId,
-      session: active.authorization.session,
-      execution: active.authorization.execution,
+      aguiRunId: active.aguiRunId,
+      session: active.session,
+      execution: active.execution,
     });
     const selected = this.active.get(request.threadId);
-    if (stopped && selected?.authorization.execution === active.authorization.execution) {
+    if (stopped && selected?.authorization.execution === active.execution) {
       this.active.delete(request.threadId);
     }
     return stopped;
@@ -173,10 +158,9 @@ export class KidItemAgentRunner extends AgentRunner {
     let cursor = input.cursor;
     let session: string | null = null;
     let previousSequence: bigint | null = null;
-    let replayTailTerminates = false;
     const seenCursors = new Set<string>();
     const seenEventIds = new Set<string>();
-    const replayEvents: BaseEvent[] = [];
+    const canonicalEvents: AgentConversationEventEnvelope[] = [];
 
     for (let pageNumber = 0; pageNumber < MAX_REPLAY_PAGES; pageNumber += 1) {
       const connection = AgentConversationConnectionAuthorizationSchema.parse(
@@ -220,14 +204,7 @@ export class KidItemAgentRunner extends AgentRunner {
         }
         seenEventIds.add(event.name);
         previousSequence = sequence;
-        replayEvents.push(...conversationEnvelopeToAgui(event, input.threadId));
-        // A terminal outcome belongs to one AG-UI execution, not to the
-        // whole durable session. Older completed runs remain in replay when a
-        // later execution is active. Only the final replayed event can close
-        // this reconnect stream.
-        replayTailTerminates = event.eventType === 'run_terminal' ||
-          (event.eventType === 'hitl_request' &&
-            event.payload.approval !== undefined);
+        canonicalEvents.push(event);
       }
 
       if (
@@ -246,8 +223,12 @@ export class KidItemAgentRunner extends AgentRunner {
         continue;
       }
 
-      if (replayTailTerminates) {
-        return { replayEvents, liveEvents: EMPTY };
+      const projected = projectCanonicalReplay(
+        canonicalEvents,
+        input.threadId,
+      );
+      if (projected.terminates) {
+        return { replayEvents: projected.events, liveEvents: EMPTY };
       }
       if (!connection.liveJoinToken) {
         throw new Error('Replay completed without a live-join grant.');
@@ -267,7 +248,7 @@ export class KidItemAgentRunner extends AgentRunner {
             return event;
           }),
         );
-      return { replayEvents, liveEvents };
+      return { replayEvents: projected.events, liveEvents };
     }
     throw new Error('Replay exceeded the bounded page limit.');
   }
@@ -284,6 +265,49 @@ export class KidItemAgentRunner extends AgentRunner {
     }
     return context.agentDefinitionKey;
   }
+}
+
+function projectCanonicalReplay(
+  events: readonly AgentConversationEventEnvelope[],
+  threadId: string,
+): { readonly events: BaseEvent[]; readonly terminates: boolean } {
+  const decisionSequences = new Map<string, bigint>();
+  for (const event of events) {
+    if (event.eventType === 'hitl_decision') {
+      decisionSequences.set(event.payload.requestId, BigInt(event.sequence));
+    }
+  }
+
+  let openReplayRunId: string | null = null;
+  let replayTailTerminates = false;
+  const replayEvents: BaseEvent[] = [];
+  for (const event of events) {
+    const decisionSequence = event.eventType === 'hitl_request' && event.payload.approval
+      ? decisionSequences.get(event.payload.requestId)
+      : undefined;
+    // A decision is canonical durable state. Do not revive an interrupt that
+    // has already been resolved by a later browser/device session.
+    if (decisionSequence !== undefined && decisionSequence > BigInt(event.sequence)) {
+      continue;
+    }
+    if (openReplayRunId === null && event.aguiRunId) {
+      replayEvents.push(replayRunStarted(event, threadId));
+      openReplayRunId = event.aguiRunId;
+    }
+    replayEvents.push(...conversationEnvelopeToAgui(
+      event,
+      threadId,
+      openReplayRunId ?? event.aguiRunId,
+    ));
+    const interrupt = event.eventType === 'hitl_request' &&
+      event.payload.approval !== undefined;
+    // A standard AG-UI interrupt terminates the visible run. The durable
+    // parent can finish only after the decision and will replay on reconnect.
+    if (interrupt) return { events: replayEvents, terminates: true };
+    replayTailTerminates = event.eventType === 'run_terminal';
+    if (replayTailTerminates) openReplayRunId = null;
+  }
+  return { events: replayEvents, terminates: replayTailTerminates };
 }
 
 function isFreshThreadConnectionDenial(error: unknown): boolean {
@@ -384,6 +408,7 @@ function assertLiveCorrelation(
 function conversationEnvelopeToAgui(
   event: AgentConversationEventEnvelope,
   threadId: string,
+  protocolRunId: string | null = event.aguiRunId,
 ): BaseEvent[] {
   const rawEvent = {
     kiditemEvent: event.name,
@@ -459,7 +484,7 @@ function conversationEnvelopeToAgui(
       ];
     }
     case 'run_terminal':
-      if (!event.aguiRunId) {
+      if (!protocolRunId) {
         throw new Error('Canonical terminal event has no AG-UI run correlation.');
       }
       if (event.payload.status === 'failed') {
@@ -469,7 +494,7 @@ function conversationEnvelopeToAgui(
             message: 'The KidItem agent run failed.',
             code: event.payload.errorCode ?? 'agent_run_failed',
             threadId,
-            runId: event.aguiRunId,
+            runId: protocolRunId,
             rawEvent,
           } as BaseEvent,
         ];
@@ -481,7 +506,7 @@ function conversationEnvelopeToAgui(
             message: 'The KidItem agent run was cancelled.',
             code: event.payload.errorCode ?? 'agent_run_cancelled',
             threadId,
-            runId: event.aguiRunId,
+            runId: protocolRunId,
             rawEvent,
           } as BaseEvent,
         ];
@@ -490,21 +515,21 @@ function conversationEnvelopeToAgui(
         {
           type: EventType.RUN_FINISHED,
           threadId,
-          runId: event.aguiRunId,
+          runId: protocolRunId,
           result: { status: event.payload.status },
           rawEvent,
         },
       ];
     case 'hitl_request':
       if (event.payload.approval) {
-        if (!event.aguiRunId) {
+        if (!protocolRunId) {
           throw new Error('Canonical approval interrupt has no AG-UI run correlation.');
         }
         return [
           {
             type: EventType.RUN_FINISHED,
             threadId,
-            runId: event.aguiRunId,
+            runId: protocolRunId,
             outcome: {
               type: 'interrupt',
               interrupts: [
@@ -530,6 +555,15 @@ function conversationEnvelopeToAgui(
         },
       ];
     case 'system_notice':
+      if (event.payload.code === 'agui.run_started') return [];
+      return [
+        {
+          type: EventType.CUSTOM,
+          name: `kiditem.${event.eventType}`,
+          value: event.payload,
+          rawEvent,
+        },
+      ];
     case 'tool_activity':
     case 'hitl_decision':
       return [
@@ -541,6 +575,28 @@ function conversationEnvelopeToAgui(
         },
       ];
   }
+}
+
+function replayRunStarted(
+  event: AgentConversationEventEnvelope,
+  threadId: string,
+): BaseEvent {
+  if (!event.aguiRunId) {
+    throw new Error('Canonical execution event has no AG-UI run correlation.');
+  }
+  return {
+    type: EventType.RUN_STARTED,
+    threadId,
+    runId: event.aguiRunId,
+    rawEvent: {
+      kiditemEvent: event.name,
+      kiditemSession: event.session,
+      kiditemExecution: event.execution,
+      kiditemAguiRunId: event.aguiRunId,
+      kiditemSequence: event.sequence,
+      schemaVersion: event.schemaVersion,
+    },
+  } as BaseEvent;
 }
 
 function durableActivitySnapshot(

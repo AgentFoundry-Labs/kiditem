@@ -16,6 +16,7 @@ import { ServiceAuth } from '../../../../auth/decorators/service-auth.decorator'
 import { SkipAuth } from '../../../../auth/decorators/skip-auth.decorator';
 import { AgentInteractionIdentityService } from '../../../application/service/agent-interaction-identity.service';
 import {
+  AuthorizeCurrentInteractionRunDto,
   AuthorizeInteractionConnectionDto,
   AuthorizeInteractionRunDto,
 } from './dto/agent-interaction.dto';
@@ -58,6 +59,20 @@ export class AgentInteractionControlController {
       });
       return AgentConversationConnectionAuthorizationSchema.parse(result);
     });
+  }
+
+  @Post('connections/current-run')
+  async authorizeCurrentRun(
+    @CurrentUser() user: AuthUser,
+    @CurrentOrganization() organizationId: string,
+    @Body() dto: AuthorizeCurrentInteractionRunDto,
+  ) {
+    return interactionHttpCall(() => this.identity.authorizeCurrentRun({
+      organizationId,
+      userId: user.id,
+      agentDefinitionKey: dto.agentDefinitionKey,
+      copilotThreadId: dto.copilotThreadId,
+    }));
   }
 
   @Get('health')

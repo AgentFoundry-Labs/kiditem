@@ -20,7 +20,7 @@ export function AgentInteractionPanel({ defaultOpen = false }: { defaultOpen?: b
       aria-label="AgentOS 대화"
       aria-modal="true"
       data-narrow-mode="fullscreen"
-      className="fixed inset-0 z-50 flex bg-background shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-xl sm:border-l sm:border-border"
+      className="fixed inset-0 z-50 flex overflow-hidden bg-background shadow-2xl sm:inset-y-0 sm:left-auto sm:right-0 sm:w-full sm:max-w-xl sm:border-l sm:border-border"
     >
       <button
         type="button"

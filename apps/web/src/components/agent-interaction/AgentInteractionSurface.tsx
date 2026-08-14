@@ -144,7 +144,7 @@ function ReadyInteractionSurface({
       data-interaction-surface={surface}
       data-thread-id={conversation.threadId}
       data-session={conversation.session?.name ?? ''}
-      className={`flex min-h-0 flex-1 flex-col ${props.className ?? ''}`}
+      className={`flex min-h-0 flex-1 flex-col overflow-hidden ${props.className ?? ''}`}
     >
       <output aria-label="선택된 대화 식별자" className="sr-only">
         {conversation.session ? `${conversation.session.name}:${conversation.threadId}` : conversation.threadId}
@@ -181,7 +181,7 @@ function ReadyInteractionSurface({
           onError={(event) => {
             if ('error' in event) onError(event.error.message);
           }}
-          className="min-h-0 flex-1"
+          className="h-full min-h-0 flex-1 overflow-hidden"
         />
       </SubmissionContext.Provider>
     </section>

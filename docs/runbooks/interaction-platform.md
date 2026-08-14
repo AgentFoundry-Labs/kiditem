@@ -78,10 +78,13 @@ The acceptance harness owns and stops only the exact child processes it starts.
 It uses disposable PostgreSQL 17 and a deterministic fake runtime, while keeping
 the real Nest, gateway, persistence, and browser boundaries.
 
-`smoke-official-recovery.mjs` refuses production-like environments. It runs the
-real PostgreSQL detached-runtime recovery test (including persisted opaque
-handle reuse and worker recreation) and the gateway restart/reconnect contract.
-It does not contact Hermes, Codex, Claude, or a production database/runtime.
+`smoke-official-recovery.mjs` refuses production-like environments. It builds
+the exact server, gateway, and web artifacts, then runs the real browser
+harness (gateway restart, reconnect, approval, cancel, and canonical resource
+correlation) plus the real PostgreSQL detached-runtime recovery suite
+(persisted opaque-handle reuse and Operations worker/runtime-adapter
+recreation). It does not contact Hermes, Codex, Claude, or a production
+database/runtime.
 
 ## KID-24 boundary caution
 

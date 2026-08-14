@@ -220,6 +220,7 @@ function eventContent(
           snapshotType: 'agent_artifact',
           snapshotVersion: 1,
           data: AgentArtifactCardSchema.parse({
+            name: 'kiditem.ui.agent_artifact.v1',
             artifactId: event.artifactId,
             session: input.session,
             task: input.task,

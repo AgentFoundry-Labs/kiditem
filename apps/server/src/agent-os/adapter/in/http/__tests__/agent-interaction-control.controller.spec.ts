@@ -13,6 +13,7 @@ import { SERVICE_AUTH_KEY } from '../../../../../auth/decorators/service-auth.de
 import { AgentOsBoundaryError } from '../../../../domain/agent-os.errors';
 import { AgentInteractionControlController } from '../agent-interaction-control.controller';
 import {
+  AuthorizeCurrentInteractionRunDto,
   AuthorizeInteractionConnectionDto,
   AuthorizeInteractionRunDto,
 } from '../dto/agent-interaction.dto';
@@ -78,6 +79,11 @@ const connectionAuthorization = {
   liveJoinToken: 'j'.repeat(64),
   liveJoinExpiresAt: '2026-08-14T00:00:15.000Z',
 };
+const currentRunAuthorization = {
+  session: SESSION_NAME,
+  execution: EXECUTION_NAME,
+  aguiRunId: RUN_ID,
+};
 
 const timingSafeEqual = vi.hoisted(() =>
   vi.fn((left: Buffer, right: Buffer) => left.equals(right)),
@@ -100,6 +106,7 @@ function harness() {
       dashboardContext,
     }),
     authorizeConnection: vi.fn().mockResolvedValue(connectionAuthorization),
+    authorizeCurrentRun: vi.fn().mockResolvedValue(currentRunAuthorization),
     health: vi.fn().mockResolvedValue({ status: 'ok' }),
   };
   return {
@@ -259,6 +266,25 @@ describe('interaction control DTO and controller boundary', () => {
       userId: USER_ID,
       copilotThreadId: THREAD_ID,
       cursor: 'c'.repeat(32),
+    });
+  });
+
+  it('returns a server-derived active execution grant only to the authenticated gateway and owner', async () => {
+    const { controller, identity } = harness();
+    const dto = Object.assign(new AuthorizeCurrentInteractionRunDto(), {
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
+    });
+
+    await expect(
+      controller.authorizeCurrentRun(user, ORGANIZATION_ID, dto),
+    ).resolves.toEqual(currentRunAuthorization);
+
+    expect(identity.authorizeCurrentRun).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      userId: USER_ID,
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
     });
   });
 

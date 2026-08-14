@@ -10,6 +10,9 @@ import {
   type InteractionBootstrap,
 } from '@kiditem/shared/agent-interaction';
 import {
+  AgentExecutionNameSchema,
+  AgentSessionNameSchema,
+  AguiRunIdSchema,
   parseAgentSessionName,
   type AgentExecutionName,
   type AgentSessionName,
@@ -21,6 +24,13 @@ import { z } from 'zod';
 const HealthSchema = z.object({ status: z.literal('ok') }).strict();
 const ApprovalDecisionResultSchema = z
   .object({ state: z.enum(['approved', 'rejected']) })
+  .strict();
+const CurrentInteractionRunSchema = z
+  .object({
+    session: AgentSessionNameSchema,
+    execution: AgentExecutionNameSchema,
+    aguiRunId: AguiRunIdSchema,
+  })
   .strict();
 const ErrorCodeSchema = z
   .string()
@@ -68,6 +78,8 @@ export interface StopRunInput {
   readonly execution: AgentExecutionName;
 }
 
+export type CurrentInteractionRun = z.infer<typeof CurrentInteractionRunSchema>;
+
 export interface DecideApprovalInput {
   readonly session: AgentSessionName;
   readonly approvalId: string;
@@ -89,6 +101,13 @@ export interface NestControlPort {
       readonly cursor?: string | null;
     },
   ): Promise<AgentConversationConnectionAuthorization>;
+  authorizeActiveRun(
+    request: Request,
+    input: {
+      readonly agentDefinitionKey: string;
+      readonly copilotThreadId: string;
+    },
+  ): Promise<CurrentInteractionRun | null>;
   connectLive(request: Request, input: ConnectLiveInput): Observable<BaseEvent>;
   stopRun(request: Request, input: StopRunInput): Promise<boolean>;
   decideApproval(
@@ -164,6 +183,23 @@ export class NestControlClient implements NestControlPort {
         ...this.serviceHeaders(),
       }),
       AgentConversationConnectionAuthorizationSchema,
+    );
+  }
+
+  authorizeActiveRun(
+    request: Request,
+    input: {
+      readonly agentDefinitionKey: string;
+      readonly copilotThreadId: string;
+    },
+  ): Promise<CurrentInteractionRun | null> {
+    return this.request(
+      '/api/agent-os/interaction/connections/current-run',
+      this.jsonRequest(input, {
+        ...this.browserHeaders(request),
+        ...this.serviceHeaders(),
+      }),
+      CurrentInteractionRunSchema.nullable(),
     );
   }
 

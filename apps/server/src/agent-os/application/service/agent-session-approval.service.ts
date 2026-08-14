@@ -233,8 +233,25 @@ export class AgentSessionApprovalService {
           actorType: 'human',
           actorId: input.actorId,
           idempotencyKey,
-        });
+    });
     if (decision.state !== input.decision) throw invalid('APPROVAL_STATE_INVALID');
+
+    // This event is the durable resolution of the visible interrupt. It must
+    // exist before runtime work resumes so a reconnect cannot show a resolved
+    // approval again after a browser or process restart.
+    const persistedDecision = await this.runtimeControl.persist({
+      organizationId: session.organization,
+      sessionId: session.session,
+      executionId: approval.executionId,
+      externalEventId: `${approval.attemptId}:approval:${approval.id}:decision:${decision.state}`,
+      eventType: 'hitl_decision',
+      schemaVersion: 1,
+      payload: {
+        requestId: RequestIdSchema.parse(approval.id),
+        decision: decision.state,
+      },
+    });
+    await this.runtimeControl.publish(persistedDecision);
 
     if (decision.state === 'rejected') {
       if (!approval.operationRunId) throw invalid('APPROVAL_OPERATION_MISSING');
