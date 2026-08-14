@@ -1,9 +1,13 @@
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import {
+  SourcingKeywordAnalysisInputSchema,
+  SourcingKeywordAnalysisSnapshotSchema,
+  type SourcingKeywordAnalysisInput,
+  type SourcingKeywordAnalysisSnapshot,
+} from '@kiditem/shared/sourcing';
 import { randomUUID } from 'node:crypto';
-import type { z } from 'zod';
 import { kstBusinessDate } from '../../../common/kst';
 import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
-import { SourcingKeywordAnalysisInputSchema } from '../../domain/operation/sourcing.operations';
 import {
   TREND_COLLECTION_REPOSITORY_PORT,
   type NaverPopularKeywordSnapshotRow,
@@ -49,19 +53,8 @@ const MAX_ANALYSIS_SEEDS = 12;
 const MAX_ANALYSIS_AUTOCOMPLETE_SEEDS = 5;
 const MAX_ANALYSIS_TREND_KEYWORDS = 40;
 
-type KeywordAnalysisInput = z.infer<typeof SourcingKeywordAnalysisInputSchema>;
-
-export interface NaverKeywordAnalysisSnapshotPayload extends Record<string, unknown> {
-  version: typeof KEYWORD_ANALYSIS_PROJECTION_VERSION;
-  generatedAt: string;
-  input: KeywordAnalysisInput;
-  result: {
-    popular: SearchNaverDatalabPopularKeywordsResult | null;
-    related: SearchNaverRelatedKeywordsResult | null;
-    autocomplete: SearchNaverAutocompleteKeywordsResult[];
-    trends: CompareNaverDatalabSearchTrendsResult | null;
-  };
-}
+type KeywordAnalysisInput = SourcingKeywordAnalysisInput;
+export type NaverKeywordAnalysisSnapshotPayload = SourcingKeywordAnalysisSnapshot;
 
 export interface NaverKeywordAnalysisCollectionControls {
   signal: AbortSignal;
@@ -108,12 +101,12 @@ export class NaverKeywordResearchService {
 
     await checkpointKeywordAnalysis(input);
     const capturedAt = new Date();
-    const payload: NaverKeywordAnalysisSnapshotPayload = {
+    const payload = SourcingKeywordAnalysisSnapshotSchema.parse({
       version: KEYWORD_ANALYSIS_PROJECTION_VERSION,
       generatedAt: capturedAt.toISOString(),
       input: normalized,
       result,
-    };
+    });
     const snapshot = await input.withinActiveOperationAttemptFence((transaction) =>
       this.snapshots.upsertInAttempt(transaction, {
         organizationId: input.organizationId,
@@ -147,7 +140,7 @@ export class NaverKeywordResearchService {
       projectionVersion: KEYWORD_ANALYSIS_PROJECTION_VERSION,
       inputHash: hashCollectionRequest(input),
     });
-    return snapshot ? snapshot.payload as NaverKeywordAnalysisSnapshotPayload : null;
+    return snapshot ? SourcingKeywordAnalysisSnapshotSchema.parse(snapshot.payload) : null;
   }
 
   getStatus(): NaverKeywordResearchStatus {

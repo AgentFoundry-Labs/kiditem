@@ -2,6 +2,7 @@ import { z } from 'zod';
 import {
   Sourcing1688ImageMatchInputSchema,
   Sourcing1688KeywordBatchInputSchema,
+  SourcingKeywordAnalysisInputSchema,
   SourcingKeywordSuggestionInputSchema,
   SourcingWingCatalogBatchInputSchema,
 } from '@kiditem/shared/sourcing';
@@ -66,31 +67,6 @@ export const SourcingRisingProductInputSchema = z
     limit: z.number().int().min(1).max(200).optional(),
   })
   .strict();
-
-/** Exact Naver collection input; UI reads the fenced owner snapshot only. */
-export const SourcingKeywordAnalysisInputSchema = z
-  .object({
-    action: z.enum(['trend_agent', 'popular', 'compare', 'related']),
-    keyword: z.string().trim().min(1).max(100).optional(),
-    keywords: z.array(z.string().trim().min(1).max(100)).min(1).max(50).optional(),
-    timeUnit: z.enum(['date', 'week', 'month']).default('date'),
-    gender: z.enum(['all', 'm', 'f']).default('all'),
-    age: z.string().trim().min(1).max(20).default('all'),
-    device: z.enum(['all', 'pc', 'mo']).default('all'),
-    selectedBoardKey: z.string().trim().min(1).max(60).default('all'),
-    rankLimit: z.number().int().min(1).max(100).default(20),
-    focusMode: z.enum(['all', 'toy_stationery', 'kids']).default('all'),
-    finalLimit: z.number().int().min(1).max(50).default(30),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.action === 'related' && !input.keyword) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'keyword_required', path: ['keyword'] });
-    }
-    if (input.action === 'compare' && !input.keywords?.length) {
-      context.addIssue({ code: z.ZodIssueCode.custom, message: 'keywords_required', path: ['keywords'] });
-    }
-  });
 
 export const SOURCING_DAILY_TREND_OPERATION = {
   key: 'sourcing.collect_daily_trends',

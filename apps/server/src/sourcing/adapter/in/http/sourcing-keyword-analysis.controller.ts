@@ -1,7 +1,7 @@
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
+import { SourcingKeywordAnalysisInputSchema } from '@kiditem/shared/sourcing';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { NaverKeywordResearchService } from '../../../application/service/naver-keyword-research.service';
-import { SourcingKeywordAnalysisInputSchema } from '../../../domain/operation/sourcing.operations';
 
 /** Read-only access to exact snapshots published by the keyword operation. */
 @Controller('sourcing/keyword-analysis')
