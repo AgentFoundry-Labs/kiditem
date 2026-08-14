@@ -113,8 +113,7 @@ function salesRow() {
       status: 'matched',
       sellpiaInventorySkuId: INVENTORY_SKU_ID,
       currentStock: 30,
-      activeCommitmentQuantity: 5,
-      availableStock: 25,
+      availableStock: 30,
       salesRowCount: 1,
       inventoryProduct: {
         masterProductId: MASTER_PRODUCT_ID,
@@ -188,7 +187,7 @@ describe('Sellpia product-sales inventory contracts', () => {
   it('rejects inconsistent matched availability', () => {
     expect(() => SellpiaProductInventoryResolutionSchema.parse({
       ...salesRow().inventoryResolution,
-      availableStock: 30,
+      availableStock: 29,
     })).toThrow(/availableStock/i);
   });
 

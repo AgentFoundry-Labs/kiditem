@@ -1,4 +1,4 @@
-import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-commitment';
+import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 export interface InventoryAvailabilityPort {
   findBySkuIds(input: {

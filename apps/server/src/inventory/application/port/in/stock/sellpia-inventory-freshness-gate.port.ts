@@ -6,7 +6,6 @@ export type SellpiaFreshCapacity = {
   inventorySkus: Array<{
     sellpiaInventorySkuId: string;
     currentStock: number;
-    activeCommitmentQuantity: number;
     availableStock: number;
     isActive: boolean;
   }>;

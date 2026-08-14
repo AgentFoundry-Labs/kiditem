@@ -30,22 +30,9 @@ import {
   type WingTrafficAggregationRepositoryPort,
   type WingTrafficMetrics,
 } from '../port/out/repository/wing-traffic-aggregation.repository.port';
-import {
-  ROCKET_REVENUE_REPOSITORY_PORT,
-  type RocketRevenueRepositoryPort,
-  type RocketDailyRow,
-  type RocketOrderRow,
-} from '../port/out/repository/rocket-revenue.repository.port';
 import { buildEffectivePeriod } from '../../domain/util/effective-period';
 import { reconcileCollectedAdSpend } from '../../domain/util/collected-ad-profit';
 import { pct1 } from '../../domain/util/percent';
-
-export interface RocketDailySalesResult {
-  year: number;
-  month: number;
-  days: RocketDailyRow[];
-  total: { revenue: number; poCount: number; itemQty: number };
-}
 
 /**
  * Dashboard sales summary.
@@ -79,8 +66,6 @@ export class DashboardSalesService {
     private readonly salesRepository: DashboardSalesRepositoryPort,
     @Inject(WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT)
     private readonly wingTrafficRepository: WingTrafficAggregationRepositoryPort,
-    @Inject(ROCKET_REVENUE_REPOSITORY_PORT)
-    private readonly rocketRevenue: RocketRevenueRepositoryPort,
   ) {}
 
   async getSummary(
@@ -118,11 +103,6 @@ export class DashboardSalesService {
         coupangAdsMonth,
         coupangAdsPrevMonth,
         latestWingDataDate,
-        latestRocketDataDate,
-        rocketMonth,
-        rocketPrevMonth,
-        rocketRange,
-        rocketPrevRange,
       ] = await Promise.all([
         this.profitCalculation.calculateForRange(organizationId, monthStart, monthEnd),
         this.profitCalculation.calculateForRange(organizationId, prevMonthDate, monthStart),
@@ -141,11 +121,6 @@ export class DashboardSalesService {
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, monthStart, monthEnd),
         this.wingTrafficRepository.aggregateCoupangAds(organizationId, prevMonthDate, monthStart),
         this.wingTrafficRepository.findLatestDataDate(organizationId),
-        this.rocketRevenue.findLatestDataDate(organizationId),
-        this.rocketRevenue.aggregateRevenue(organizationId, monthStart, monthEnd),
-        this.rocketRevenue.aggregateRevenue(organizationId, prevMonthDate, monthStart),
-        this.rocketRevenue.aggregateRevenue(organizationId, dateRange.start, dateRange.end),
-        this.rocketRevenue.aggregateRevenue(organizationId, dateRange.prevStart, dateRange.prevEnd),
       ]);
 
       const useWingMonthly = curMonth.revenue === 0 && wingTrafficMonth.hasData;
@@ -160,11 +135,8 @@ export class DashboardSalesService {
         wing?.lastSyncAt ?? null,
         wingTrafficMonth.lastObservedAt,
       );
-      const latestDataDate = pickLatest(latestWingDataDate, latestRocketDataDate);
-      const lastSyncAt = pickLatest(
-        pickLatest(wingLastSync, coupangAdsMonth.lastObservedAt),
-        rocketMonth.lastObservedAt,
-      );
+      const latestDataDate = latestWingDataDate;
+      const lastSyncAt = pickLatest(wingLastSync, coupangAdsMonth.lastObservedAt);
 
       this.logger.debug({
         msg: 'dashboard-sales.getSummary',
@@ -196,8 +168,6 @@ export class DashboardSalesService {
           wingTrafficMonth,
           wingTrafficPrevMonth,
           useWingMonthly,
-          rocketMonth.revenue,
-          rocketPrevMonth.revenue,
         ),
         topProducts: topProductRows,
         monthlyTrend,
@@ -209,8 +179,6 @@ export class DashboardSalesService {
           wingTrafficRange,
           wingTrafficPrevRange,
           useWingRange,
-          rocketRange.revenue,
-          rocketPrevRange.revenue,
         ),
         dailyRevenue: dailyRevenueRows,
         planAchievement: null,
@@ -227,58 +195,12 @@ export class DashboardSalesService {
           curMonth,
           wingTrafficMonth,
           coupangAdsMonth,
-          rocketMonth,
         ),
       } satisfies DashboardSalesSummary;
     } catch (error) {
       this.logger.error('Failed to get sales summary', error);
       throw new InternalServerErrorException('Failed to get sales summary');
     }
-  }
-
-  /**
-   * 쿠팡 로켓(발주) 일별 매출 — 매출분석 화면 상세 테이블/차트용.
-   * 발주확정 원천 발주를 해당 월(KST 발주일) 범위로 읽는다.
-   */
-  async getRocketDailySales(
-    organizationId: string,
-    year: number,
-    month: number,
-  ): Promise<RocketDailySalesResult> {
-    const monthStart = new Date(Date.UTC(year, month - 1, 1));
-    const monthEnd = new Date(Date.UTC(year, month, 1));
-    const days = await this.rocketRevenue.fetchDaily(organizationId, monthStart, monthEnd);
-    const total = days.reduce(
-      (acc, d) => ({
-        revenue: acc.revenue + d.revenue,
-        poCount: acc.poCount + d.poCount,
-        itemQty: acc.itemQty + d.itemQty,
-      }),
-      { revenue: 0, poCount: 0, itemQty: 0 },
-    );
-    return { year, month, days, total };
-  }
-
-  /**
-   * 특정 발주일(KST)의 로켓 발주확정 목록 + 품목(SKU) 내역 — 드릴다운용.
-   */
-  async getRocketOrders(organizationId: string, dateStr: string): Promise<RocketOrderRow[]> {
-    const date = new Date(dateStr + 'T00:00:00.000Z');
-    return this.rocketRevenue.fetchOrdersForDate(organizationId, date);
-  }
-
-  /**
-   * 기간(+상태) 로켓 발주 리스트 — 주문수집/물류 페이지의 발주 리스트용.
-   */
-  async getRocketOrdersList(
-    organizationId: string,
-    fromStr: string,
-    toStr: string,
-    status?: string,
-  ): Promise<RocketOrderRow[]> {
-    const from = new Date(fromStr + 'T00:00:00.000Z');
-    const to = new Date(new Date(toStr + 'T00:00:00.000Z').getTime() + 24 * 3600 * 1000);
-    return this.rocketRevenue.fetchOrders(organizationId, from, to, status);
   }
 
   // ── monthly mapping ─────────────────────────────────────────────────────
@@ -297,14 +219,11 @@ export class DashboardSalesService {
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
     useWing: boolean,
-    rocketRevenue = 0,
-    prevRocketRevenue = 0,
   ): DashboardSalesSummary['monthly'] {
-    // 윙/주문 기준 base 매출 (기존 로직 그대로) + 로켓(발주) 매출을 더해 total 구성.
     const wingRevenue = useWing ? wingCur.revenue : cur.revenue;
     const prevWingRevenue = useWing ? wingPrev.revenue : prev.revenue;
-    const revenue = wingRevenue + rocketRevenue;
-    const prevRevenue = prevWingRevenue + prevRocketRevenue;
+    const revenue = wingRevenue;
+    const prevRevenue = prevWingRevenue;
 
     // 로켓은 정산 데이터 부재 → profit 미반영(윙 fallback 정책 동일).
     const profit = useWing ? 0 : cur.netProfit;
@@ -321,7 +240,6 @@ export class DashboardSalesService {
     return {
       revenue,
       wingRevenue,
-      rocketRevenue,
       profit,
       adRate,
       prevRevenue,
@@ -367,13 +285,11 @@ export class DashboardSalesService {
     wingCur: WingTrafficMetrics,
     wingPrev: WingTrafficMetrics,
     useWing: boolean,
-    rocketRevenue = 0,
-    prevRocketRevenue = 0,
   ): NonNullable<DashboardSalesSummary['rangeKpi']> {
     const wingRevenue = useWing ? wingCur.revenue : cur.revenue;
     const prevWingRevenue = useWing ? wingPrev.revenue : prev.revenue;
-    const revenue = wingRevenue + rocketRevenue;
-    const prevRevenue = prevWingRevenue + prevRocketRevenue;
+    const revenue = wingRevenue;
+    const prevRevenue = prevWingRevenue;
     const profit = useWing ? 0 : cur.netProfit;
     const prevProfit = useWing ? 0 : prev.netProfit;
 
@@ -414,15 +330,14 @@ export class DashboardSalesService {
           1,
         );
         const end = new Date(start.getFullYear(), start.getMonth() + 1, 1);
-        const [m, wing, rocket, coupangAds] = await Promise.all([
+        const [m, wing, coupangAds] = await Promise.all([
           this.profitCalculation.calculateForRange(organizationId, start, end),
           this.wingTrafficRepository.aggregateTraffic(organizationId, start, end),
-          this.rocketRevenue.aggregateRevenue(organizationId, start, end),
           this.wingTrafficRepository.aggregateCoupangAds(organizationId, start, end),
         ]);
         const adjusted = reconcileCollectedAdSpend(m, coupangAds);
         const period = `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
-        const revenue = (adjusted.revenue > 0 ? adjusted.revenue : wing.revenue) + rocket.revenue;
+        const revenue = adjusted.revenue > 0 ? adjusted.revenue : wing.revenue;
         const profit = adjusted.revenue > 0 ? adjusted.netProfit : 0;
         return { period, revenue, profit, adCost: adjusted.adCost } satisfies MonthlyTrendItem;
       }),

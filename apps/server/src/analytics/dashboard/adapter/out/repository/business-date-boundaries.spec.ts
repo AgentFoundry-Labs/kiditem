@@ -1,6 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ProfitCalculationRepositoryAdapter } from './profit-calculation.repository.adapter';
-import { RocketRevenueRepositoryAdapter } from './rocket-revenue.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './wing-traffic-aggregation.repository.adapter';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
@@ -35,32 +34,6 @@ describe('dashboard business-date boundaries', () => {
       }),
     }));
     expect(accountFindMany).toHaveBeenCalledWith(expect.objectContaining({
-      where: expect.objectContaining({
-        businessDate: {
-          gte: new Date('2026-07-01T00:00:00.000Z'),
-          lt: new Date('2026-08-01T00:00:00.000Z'),
-        },
-      }),
-    }));
-  });
-
-  it('queries Rocket date facts with the same normalized month window', async () => {
-    const aggregate = vi.fn().mockResolvedValue({
-      _sum: {},
-      _max: { updatedAt: null },
-      _count: { _all: 0 },
-    });
-    const prisma = {
-      rocketSupplyDailySnapshot: { aggregate },
-    } as unknown as PrismaService;
-
-    await new RocketRevenueRepositoryAdapter(prisma).aggregateRevenue(
-      'organization-id',
-      JULY_START_KST,
-      AUGUST_START_KST,
-    );
-
-    expect(aggregate).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         businessDate: {
           gte: new Date('2026-07-01T00:00:00.000Z'),

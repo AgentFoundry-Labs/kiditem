@@ -7,10 +7,6 @@ import { ProfitLossService } from './services/profit-loss.service';
 import { SalesAnalysisController } from './controllers/sales-analysis.controller';
 import { SalesAnalysisService } from './services/sales-analysis.service';
 import { SalesAnalysisScraperService } from './services/sales-analysis-scraper.service';
-import { ManualLedgerController } from './manual-ledger/manual-ledger.controller';
-import { ManualLedgerService } from './manual-ledger/manual-ledger.service';
-import { ProcessingCostsController } from './processing-costs/processing-costs.controller';
-import { ProcessingCostsService } from './processing-costs/processing-costs.service';
 import { SupplierPaymentsController } from './supplier-payments/supplier-payments.controller';
 import { SupplierPaymentsService } from './supplier-payments/supplier-payments.service';
 import { SalesPlansController } from './sales-plans/sales-plans.controller';
@@ -31,8 +27,6 @@ import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/ma
   controllers: [
     ProfitLossController,
     SalesAnalysisController,
-    ManualLedgerController,
-    ProcessingCostsController,
     SupplierPaymentsController,
     SalesPlansController,
     SettlementsController,
@@ -41,8 +35,6 @@ import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from './application/port/in/ma
     ProfitLossService,
     SalesAnalysisService,
     SalesAnalysisScraperService,
-    ManualLedgerService,
-    ProcessingCostsService,
     SupplierPaymentsService,
     SalesPlansService,
     SettlementsService,

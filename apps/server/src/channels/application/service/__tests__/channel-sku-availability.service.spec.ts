@@ -49,8 +49,7 @@ function row(overrides: { masterProductId?: string | null; components?: unknown[
 function dependencies(rows = [row()], inventoryItems = [{
   sellpiaInventorySkuId: skuId,
   currentStock: 10,
-  activeCommitmentQuantity: 2,
-  availableStock: 8,
+  availableStock: 10,
   isActive: true,
   generation: '1',
 }]) {
@@ -79,8 +78,8 @@ describe('ChannelSkuAvailabilityService', () => {
     expect(result).toMatchObject({
       masterProductId,
       recipeStatus: 'matched',
-      sku: { id: optionId, mappingStatus: 'matched', sellableStock: 4 },
-      components: [{ quantity: 2, availableStock: 8, componentCapacity: 4, isBottleneck: true }],
+      sku: { id: optionId, mappingStatus: 'matched', sellableStock: 5 },
+      components: [{ quantity: 2, availableStock: 10, componentCapacity: 5, isBottleneck: true }],
     });
   });
 
@@ -92,7 +91,7 @@ describe('ChannelSkuAvailabilityService', () => {
     expect(result).toMatchObject({
       masterProductId: null,
       recipeStatus: 'matched',
-      sku: { mappingStatus: 'matched', sellableStock: 4 },
+      sku: { mappingStatus: 'matched', sellableStock: 5 },
     });
   });
 

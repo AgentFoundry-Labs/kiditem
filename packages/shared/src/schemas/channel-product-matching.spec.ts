@@ -4,6 +4,7 @@ import {
   ChannelProductCandidateListResponseSchema,
   ChannelProductMatchingCountsSchema,
   ChannelProductMatchingQueueResponseSchema,
+  ChannelOptionInventoryComponentSchema,
   ChannelRecipeSuggestionResponseSchema,
   LinkChannelListingProductInputSchema,
 } from './channel-product-matching';
@@ -16,6 +17,21 @@ const componentId = '55555555-5555-4555-8555-555555555555';
 const inventorySkuId = '66666666-6666-4666-8666-666666666666';
 
 describe('direct channel product and inventory matching contracts', () => {
+  it('requires physical availability to equal current stock', () => {
+    expect(ChannelOptionInventoryComponentSchema.safeParse({
+      id: componentId,
+      sellpiaInventorySkuId: inventorySkuId,
+      code: 'SP-100',
+      name: '낱개 재고',
+      optionName: null,
+      barcode: null,
+      currentStock: 85,
+      availableStock: 84,
+      isActive: true,
+      quantity: 10,
+    }).success).toBe(false);
+  });
+
   it('requires typed evidence for every product candidate', () => {
     expect(ChannelProductCandidateListResponseSchema.parse({
       items: [{

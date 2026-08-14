@@ -4,7 +4,7 @@ import type {
 } from '@kiditem/shared/dashboard';
 import type {
   InventoryAvailabilityBatch,
-} from '@kiditem/shared/inventory-commitment';
+} from '@kiditem/shared/inventory-availability';
 import { computeDeadStock, computeReorder } from './sellpia-product-sales.metrics';
 import {
   createSellpiaProductInventoryResolver,
@@ -174,7 +174,6 @@ export function projectSellpiaProductInventory(input: {
         status: 'matched',
         sellpiaInventorySkuId,
         currentStock: availability.currentStock,
-        activeCommitmentQuantity: availability.activeCommitmentQuantity,
         availableStock: availability.availableStock,
         salesRowCount: products.length,
         inventoryProduct: inventoryProduct

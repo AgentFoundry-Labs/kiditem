@@ -196,9 +196,9 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
-| `apps/server/src/finance` | Owner Domain | P&L, sales analysis, manual ledger, costs, payments, plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
-| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku reads, purchase freshness gate, and record-only transfer/picking/receipt capabilities. |
-| `apps/server/src/orders` | Owner Domain | Orders, returns, CS, reviews, return-transfer operations, durable Sellpia workbook submission idempotency/audit, and read-only canonical paid-order profitability evidence. |
+| `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
+| `apps/server/src/inventory` | Owner Domain | Sellpia-authoritative imports, freshness state, browser claim lease, full-snapshot validation/publication, physical SellpiaInventorySku availability, warehouse/transfer/return records, and matching/purchase-preview read boundaries. |
+| `apps/server/src/orders` | Owner Domain | Orders, returns, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/operations` | Platform | Code-owned operation catalog, schedules, top-level run ledger, engine dispatch, and browser-runtime leases. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/operation-cancellation` | Platform | Cross-owner durable cancellation endpoint and orchestration. |
@@ -225,7 +225,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
-| `apps/server/src/analytics/statistics` | Flat | read service. |
+| `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
 | `apps/server/src/analytics/traffic` | Flat | read service plus operator upload mutation lane. |
 | `apps/server/src/analytics/supplier-stats` | Flat | supplier report service. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
@@ -236,7 +236,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
-| `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, full-snapshot and capacity reads, narrow purchase gate, and record-only operation capabilities behind ports/adapters. |
+| `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
 | `apps/server/src/orders` | Flat | controllers/services/DTO plus folded order capabilities; Sellpia transmission fencing is a scoped `application/port` + `adapter/out/repository` sub-capability. |
 | `apps/server/src/organizations` | Flat | controller/service capability. |
 | `apps/server/src/operation-cancellation` | Hexagonal | HTTP endpoint plus application service; consumes Automation, Agent OS, and AI owner-side ports only. |
@@ -282,14 +282,14 @@ Initial domain capability targets:
 |---|---|---|---|---|
 | `sourcing` | Duplicate URL, source control, evidence run, LaunchCandidate, decision batch, candidate/preparation lookup and read context. | Product URL scrape, search result scrape, and deterministic evidence/decision evaluation. | Duplicate-check → fenced collection → immutable evidence → shadow decision → reviewed procurement intent or preparation → account registration. | Evidence append/finalize, immutable recommendation decision, candidate ingest/rejection, and preparation lifecycle/finalization. |
 | `ai` | Workspace/generation/detail-page read context. | OCR, image classification, image/text/detail generation, vision analysis. | Media generation jobs and candidate-to-listing content branching. | Generation output, asset usage, current-thumbnail, and workspace archive projections. |
-| `finance` | Margin, commission, cost, settlement, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Manual ledger entries, settlement/payment projections. |
+| `finance` | Live P&L, margin, commission, settlement, supplier-payment, and plan lookups. | Margin/category profitability calculations, pandas-style research adapters when needed. | Reconciliation and profitability analysis runs. | Sales-plan, settlement, and supplier-payment projections. |
 | `products` | Canonical inventory-product operations, direct channel-option inventory components, ABC explanation, and category compatibility reads. | Product validation and direct component-capacity projections. | MasterProduct lifecycle, ABC publication, complete option-component replacement, and listing-summary derivation. | MasterProduct and ChannelListingOptionInventoryComponent writes; never channel identity metadata or physical stock publication. |
 | `channels` | Channel account/listing/order/status, Wing/Rocket catalog identity, derived nullable MasterProduct summaries, and nullable SKU-availability reads. | Marketplace provider calls, listing validation, typed exact-evidence extraction, Wing/Coupang browser runtime steps, and direct option-component capacity calculation. | Product registration/listing sync, non-destructive catalog publication, and option-to-inventory correction flows. | Listing registration/update, option recipe matching, derived MasterProduct summary projection, and channel order/status ingestion; never physical stock publication. |
 | `rules` | Rule set and evaluation context reads. | Rule evaluation/suggestion tools that may invoke Agent OS from rules entrypoints. | Scheduled policy sweeps when deterministic. | Rule/action recommendation projection. |
 | `advertising` | Ad account/campaign/daily fact reads. | Scrape ingest normalization, strategy metrics calculations. | Daily fact ingest and deterministic alert workflows. | Ad fact/action/strategy projections. |
 | `supply` | Supplier, supplier-offer snapshot, procurement test intent, supplier-product, purchase-order, and submission-attempt reads. | Supplier matching, exact variant/tier/MOQ validation, deterministic Rocket capacity preview, and procurement calculation helpers. | Reviewed pre-purchase intent handoff, freshness-fenced purchase submission, and explicit provider reconciliation. | Immutable offer snapshot and proposed intent creation, supplier attach, purchase-order creation/update, and attempt terminal state; never recommendation scoring, freshness, or stock. |
-| `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku, warehouse, transfer, receipt, unshipped, and picking reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, and snapshot normalization. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only transfer/picking flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer. |
-| `orders` | Order, return, CS, review, return-transfer, and Sellpia transmission-intent reads. | Return/CS classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return, CS, and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
+| `inventory` | Sellpia freshness/source binding/current basis/history, physical SellpiaInventorySku availability, warehouse, transfer, and return reads. | Workbook parsing, bounded quality evaluation, freshness/lease policy, snapshot normalization, and physical-capacity projection for matching and preview consumers. | Browser claim/heartbeat/failure/cancel, atomic full-snapshot publication, and record-only retained transfer/return flows. | A completed valid Sellpia publication is the only physical `SellpiaInventorySku.currentStock` writer; public `availableStock` equals it. |
+| `orders` | Order, return, review, return-transfer, and Sellpia transmission-intent reads. | Return classification helpers, channel-agnostic order calculations, and deterministic submission-fence decisions. | Return and audited Sellpia workbook submission workflows. | Order/return status and Sellpia transmission-intent projections through Orders-owned commands; never freshness or stock. |
 
 Flat owner capabilities use this shape:
 
@@ -730,7 +730,7 @@ existing content asset, a succeeded generation candidate, or an external URL
 that first passes the guarded fetch/storage boundary. Asset deletion and GC
 must reject active generation usage or any thumbnail selection.
 
-## Sellpia Freshness, Common Commitments, And Channel Capacity (`0.1.19`–`0.1.22`)
+## Sellpia Freshness, Physical Availability, And Channel Capacity (`0.1.19`–`0.1.22`)
 
 Sellpia is the upstream stock authority. Inventory owns one persisted
 organization-scoped `SellpiaInventoryState`, the fixed source binding, server
@@ -752,7 +752,10 @@ not estimate, reserve, increment, or decrement it.
 | Sellpia order submission fence | `SellpiaOrderTransmissionIntent` / `SellpiaOrderTransmissionIntentReconciliation` | `sellpia_order_transmission_intents` / `sellpia_order_transmission_intent_reconciliations` | Orders-owned organization + stable workbook intent key. Prevents duplicate browser submission and audits explicit reconciliation without reading or advancing Inventory freshness. |
 | Rocket confirmation | `RocketPurchaseConfirmation` / `RocketPurchaseConfirmationLine` | `rocket_purchase_confirmations` / `rocket_purchase_confirmation_lines` | Organization + Rocket account + completed source run + UUID idempotency key; records every explicit line decision and confirmation/release actor. |
 | Rocket component allocation | `RocketPurchaseConfirmationAllocation` | `rocket_purchase_confirmation_allocations` | Immutable Supply audit snapshot for one confirmed line; not a second capacity ledger. |
-| Common inventory commitment | `InventoryCommitment` / `InventoryCommitmentAllocation` | `inventory_commitments` / `inventory_commitment_allocations` | Inventory-owned logical hold and component quantities. Active rows reduce common available capacity without writing physical stock; request rows may be replaced by final-order rows, released, or settled. |
+
+The commitment, Picking, Unshipped, and Sellpia receipt-batch application
+capabilities and persistence models are retired. Availability is physical:
+`availableStock === currentStock`.
 
 Freshness has four public states: `fresh`, `refresh_required`, `syncing`, and
 `failed`. A verified snapshot is fresh for strictly less than 10 minutes;
@@ -814,21 +817,22 @@ writer.
 Confirmed direct option components remain the capacity truth.
 Capacity is
 `min(floor(availableStock / quantity))`, where
-`availableStock = max(currentStock - activeCommitmentQuantity, 0)`; inactive components keep their stored
-rule visible in `needs_review` instead of being silently removed.
+`availableStock === currentStock`. Channels and Products obtain that value from
+Inventory's organization-scoped availability batch rather than reading stock
+from recipe persistence. An uncollected snapshot publishes no SKU availability;
+configured components therefore remain visible with zero stock, inactive state,
+and null capacity until collection. Inactive components keep their stored rule
+visible in `needs_review` instead of being silently removed.
 
-Rocket `0.1.19` introduced preview-only allocation. In `0.1.20`, a complete
+Rocket preview uses the same canonical physical availability batch. A complete
 extension collection also carries allowlisted official-workbook fields. Supply
-reruns the canonical preview under an organization lock, fences the Inventory
-generation and completed source artifact, verifies that the channel option and
-its direct component identities have not changed, and persists explicit line decisions plus immutable
-component allocations. In `0.1.21`, the same transaction creates an
-Inventory-owned `rocket_request` commitment. Active common commitments—not
-Supply allocation aggregation—are subtracted from every Inventory, Products,
-Channels, Analytics, and Rocket availability projection.
-Idempotent replay returns the existing record; input drift conflicts. An
-authenticated provisional release with an explicit reason restores capacity by
-status only.
+reruns the preview under an organization lock, fences the Inventory generation
+and completed source artifact, verifies that channel option and direct
+component identities have not changed, and persists explicit line decisions
+plus immutable component allocations. Those audit rows do not reserve capacity
+or change physical availability. Idempotent replay returns the existing record;
+input drift conflicts.
+
 Confirmation creates the official workbook in the browser after the server
 commit. It never submits to a marketplace provider or writes
 `SellpiaInventorySku.currentStock`.
@@ -837,20 +841,15 @@ Coupang PA collection belongs to Orders. The selected Rocket account and
 transport are validated, and `SourceImportRun`, `Order`, and `OrderLineItem`
 are persisted with deterministic identities. In the same Prisma transaction,
 Orders calls Supply's reconciliation port; Supply resolves exactly one active
-confirmation line by account/PO/product and asks Inventory to replace the
-request commitment with `rocket_final_order`. A barcode mismatch, ambiguous
-confirmation, capacity conflict, or persistence failure rolls back the entire
-import and no Sellpia workbook is returned. Replays are idempotent.
-
-A final-order commitment is not a physical stock decrement. After Sellpia
-shows the actual shipment in a strictly newer verified full snapshot, the
-operator settles that commitment; cancellation releases it with an audit
-reason. Settlement removes the logical hold while the newer `currentStock`
-already contains the physical decrease, preventing double subtraction.
+confirmation line by account/PO/product without mutating Inventory availability
+or physical stock. A barcode mismatch, ambiguous confirmation, or persistence
+failure rolls back the entire import and no Sellpia workbook is returned.
+Replays are idempotent. A later completed Sellpia snapshot remains the only
+source of any physical stock decrease.
 
 Analytics owns direct Sellpia SKU sales facts and depletion policy, but reads
-Inventory's common availability. Exact product code, exact option code, and a
-unique normalized barcode are deterministic resolution signals; missing,
+Inventory's canonical physical availability. Exact product code, exact option
+code, and a unique normalized barcode are deterministic resolution signals; missing,
 inactive, or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/

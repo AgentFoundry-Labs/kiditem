@@ -3,14 +3,12 @@ import {
   Package,
   PieChart,
   TrendingUp,
-  Truck,
   Users,
   type LucideIcon,
 } from 'lucide-react';
 import { z } from 'zod';
 import {
   StatisticsCategoryRowSchema,
-  StatisticsDeliveryResponseSchema,
   StatisticsGradeRowSchema,
   StatisticsOverviewSchema,
   StatisticsParetoResponseSchema,
@@ -20,7 +18,6 @@ import {
 import { apiClient } from '@/lib/api-client';
 import type {
   StatisticsCategoryRow,
-  StatisticsDeliveryResponse,
   StatisticsGradeRow,
   StatisticsOverview,
   StatisticsParetoResponse,
@@ -36,7 +33,6 @@ export type StatisticsTab =
   | 'overview'
   | 'products'
   | 'categories'
-  | 'delivery'
   | 'grades'
   | 'pareto'
   | 'repurchase';
@@ -45,7 +41,6 @@ export type StatisticsData = {
   overview?: StatisticsOverview;
   products?: StatisticsProductRow[];
   categories?: StatisticsCategoryRow[];
-  delivery?: StatisticsDeliveryResponse;
   grades?: StatisticsGradeRow[];
   pareto?: StatisticsParetoResponse;
   repurchase?: StatisticsRepurchaseResponse;
@@ -61,7 +56,6 @@ export const statisticsTabs: Array<{
   { key: 'overview', label: '전체 개요', icon: TrendingUp },
   { key: 'products', label: '제품별', icon: Package },
   { key: 'categories', label: '카테고리별', icon: BarChart3 },
-  { key: 'delivery', label: '배송/일별', icon: Truck },
   { key: 'grades', label: '등급별', icon: BarChart3 },
   { key: 'pareto', label: '매출 파레토', icon: PieChart },
   { key: 'repurchase', label: '재구매율', icon: Users },
@@ -91,13 +85,6 @@ export async function fetchStatisticsTab(
         categories: await apiClient.getParsed(
           `/api/statistics?type=categories&period=${period}`,
           CategoryRowsSchema,
-        ),
-      };
-    case 'delivery':
-      return {
-        delivery: await apiClient.getParsed(
-          `/api/statistics?type=delivery&period=${period}`,
-          StatisticsDeliveryResponseSchema,
         ),
       };
     case 'grades':

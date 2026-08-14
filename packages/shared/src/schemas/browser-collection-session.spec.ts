@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  BROWSER_COLLECTION_PRODUCERS,
   BrowserCollectionAttentionReasonSchema,
   BrowserCollectionCommandSchema,
   BrowserCollectionProducerSchema,
@@ -16,7 +17,6 @@ const RUN_ID = '00000000-0000-4000-8000-000000000001';
 
 const PRODUCERS = [
   'dashboard.wing_sales',
-  'dashboard.rocket_sales',
   'dashboard.coupang_ads',
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
@@ -34,8 +34,8 @@ const PRODUCERS = [
   'orders.mall',
   'orders.coupang_shipment_summary',
   'orders.coupang_rocket_po',
-  'orders.sellpia_manual_match',
   'inventory.sellpia',
+  'orders.sellpia_manual_match',
 ] as const;
 
 const STATES = [
@@ -107,6 +107,7 @@ describe('BrowserCollectionSessionViewSchema', () => {
   });
 
   it('accepts every approved producer', () => {
+    expect(BROWSER_COLLECTION_PRODUCERS).toEqual(PRODUCERS);
     for (const producer of PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);
     }
