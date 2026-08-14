@@ -15,12 +15,14 @@ import {
   SourcingWingCatalogFinalizeSchema,
   SourcingWingCatalogKeywordSchema,
   SourcingWingCatalogObservationBatchSchema,
+  SourcingKeywordSuggestionObservationBatchSchema,
 } from '@kiditem/shared/sourcing';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import { SourcingRecommendationService } from '../../../application/service/sourcing-recommendation.service';
 import { SourcingWingCatalogIngestService } from '../../../application/service/sourcing-wing-catalog-ingest.service';
+import { SourcingKeywordSuggestionService } from '../../../application/service/sourcing-keyword-suggestion.service';
 import { SourcingKeywordPreferenceService } from '../../../application/service/sourcing-keyword-preference.service';
 import {
   SourcingCoupangObservationDto,
@@ -34,6 +36,7 @@ export class SourcingWorkspaceController {
   constructor(
     private readonly recommendations: SourcingRecommendationService,
     private readonly wingCatalog: SourcingWingCatalogIngestService,
+    private readonly keywordSuggestions: SourcingKeywordSuggestionService,
     private readonly keywordPreferences: SourcingKeywordPreferenceService,
   ) {}
 
@@ -131,6 +134,41 @@ export class SourcingWorkspaceController {
       throw new BadRequestException('invalid_wing_catalog_keyword');
     }
     return this.wingCatalog.snapshot({
+      organizationId,
+      keyword: keyword.data,
+    });
+  }
+
+  @Post('browser-operations/:runId/keyword-suggestions')
+  ingestBrowserKeywordSuggestions(
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @Headers('x-operation-attempt-token') rawAttemptToken: string | undefined,
+    @Body() rawBody: unknown,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    const batch = parseStrictBody(
+      SourcingKeywordSuggestionObservationBatchSchema,
+      rawBody,
+      'invalid_keyword_suggestion_observations',
+    );
+    return this.keywordSuggestions.ingestBrowserBatch({
+      organizationId,
+      operationRunId: runId,
+      attemptToken: parseAttemptToken(rawAttemptToken),
+      batch,
+    });
+  }
+
+  @Get('keyword-suggestions')
+  getKeywordSuggestionSnapshot(
+    @Query('keyword') rawKeyword: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    const keyword = SourcingWingCatalogKeywordSchema.safeParse(rawKeyword);
+    if (!keyword.success) {
+      throw new BadRequestException('invalid_keyword_suggestion_keyword');
+    }
+    return this.keywordSuggestions.snapshot({
       organizationId,
       keyword: keyword.data,
     });

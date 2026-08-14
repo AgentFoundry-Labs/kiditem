@@ -47,14 +47,18 @@ export function useSourcingOperationAction<
   );
   const runQuery = useOperationRun(latestRunId);
 
-  const start = useCallback(async (): Promise<OperationRun> => {
+  const start = useCallback(async (
+    input: Readonly<Record<string, unknown>> = options.input,
+    snapshotQueryKeys: readonly QueryKey[] =
+      options.snapshotQueryKeys ?? [options.snapshotQueryKey],
+  ): Promise<OperationRun> => {
     const requestNumber = latestStartRequestRef.current + 1;
     latestStartRequestRef.current = requestNumber;
     const run = await startMutation.mutateAsync({
       operationKey: options.operationKey,
       input: {
         sourceSurface: 'domain_screen',
-        input: { ...options.input },
+        input: { ...input },
         idempotencyKey: options.idempotencyKey,
       },
     });
@@ -64,7 +68,7 @@ export function useSourcingOperationAction<
       latestRunIdRef.current = run.id;
       snapshotQueryKeysByRunIdRef.current.set(
         run.id,
-        options.snapshotQueryKeys ?? [options.snapshotQueryKey],
+        snapshotQueryKeys,
       );
       setLatestRunId(run.id);
     }

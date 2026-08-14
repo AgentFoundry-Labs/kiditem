@@ -40,6 +40,7 @@ import { SourcingExtensionIngestService } from "./application/service/sourcing-e
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
 import { SourcingKeywordPreferenceService } from "./application/service/sourcing-keyword-preference.service";
+import { SourcingKeywordSuggestionService } from "./application/service/sourcing-keyword-suggestion.service";
 import { SourcingWingCatalogIngestService } from "./application/service/sourcing-wing-catalog-ingest.service";
 import { ProductRegistrationService } from "./application/service/product-registration.service";
 import { SourcingMarketDiscoveryService } from "./application/service/sourcing-market-discovery.service";
@@ -60,6 +61,7 @@ import { NaverSearchAdKeywordAdapter } from "./adapter/out/naver/naver-search-ad
 import { SourcingAiWorkspaceArchiveAdapter } from "./adapter/out/ai/workspace-archive.adapter";
 import { SourcingCollectionSourceControlRepositoryAdapter } from "./adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingKeywordPreferenceRepositoryAdapter } from "./adapter/out/repository/sourcing-keyword-preference.repository.adapter";
+import { SourcingKeywordSuggestionRepositoryAdapter } from "./adapter/out/repository/sourcing-keyword-suggestion.repository.adapter";
 import { SourcingRecommendationSourceRepositoryAdapter } from "./adapter/out/repository/sourcing-recommendation-source.repository.adapter";
 import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-evidence-ledger.repository.adapter";
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
@@ -94,6 +96,7 @@ import { LIVE_COMMERCE_REPOSITORY_PORT } from "./application/port/out/repository
 import { PRODUCT_PREPARATION_REPOSITORY_PORT } from "./application/port/out/repository/product-preparation.repository.port";
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-keyword-preference.repository.port";
+import { SOURCING_KEYWORD_SUGGESTION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-keyword-suggestion.repository.port";
 import { SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-recommendation-source.repository.port";
 import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-evidence-ledger.repository.port";
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
@@ -168,6 +171,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingEntryRecommendationService,
     SourcingRecommendationService,
     SourcingKeywordPreferenceService,
+    SourcingKeywordSuggestionService,
     SourcingWingCatalogIngestService,
     SourcingAssistantService,
     SourcingExtensionIngestService,
@@ -192,6 +196,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingAiWorkspaceArchiveAdapter,
     SourcingCollectionSourceControlRepositoryAdapter,
     SourcingKeywordPreferenceRepositoryAdapter,
+    SourcingKeywordSuggestionRepositoryAdapter,
     SourcingRecommendationSourceRepositoryAdapter,
     SourcingEvidenceLedgerRepositoryAdapter,
     SourcingLaunchCandidateRepositoryAdapter,
@@ -252,6 +257,10 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     {
       provide: SOURCING_KEYWORD_PREFERENCE_REPOSITORY_PORT,
       useExisting: SourcingKeywordPreferenceRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_KEYWORD_SUGGESTION_REPOSITORY_PORT,
+      useExisting: SourcingKeywordSuggestionRepositoryAdapter,
     },
     {
       provide: SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT,

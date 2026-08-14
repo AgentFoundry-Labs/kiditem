@@ -25,4 +25,23 @@ describe('advertising browser operation definitions', () => {
       trackedProductIds: ['wing-1'],
     });
   });
+
+  it('registers the exact bounded competitor catalog operation contract', () => {
+    const definition = ADVERTISING_OPERATIONS.find(
+      (candidate) => candidate.key === 'advertising.collect_competitor_catalog',
+    );
+    expect(definition).toMatchObject({
+      engineType: 'browser',
+      ownerDomain: 'advertising',
+      resourceClass: 'extension_coupang',
+      maxAttempts: 3,
+      executionTimeoutMs: 15 * 60_000,
+      allowedTriggers: ['dashboard', 'domain_screen'],
+      scheduleSupported: false,
+    });
+    expect(definition?.inputSchema.parse({
+      target: 'seller_id',
+      sellerId: ' A00219251 ',
+    })).toEqual({ target: 'seller_id', sellerId: 'A00219251' });
+  });
 });

@@ -308,6 +308,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'wing-tracked-products', 'history', days] as const,
     wingCatalog: (keyword: string) =>
       [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
+    keywordSuggestions: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'keyword-suggestions', keyword.trim()] as const,
     naverRelatedKeywords: (keyword: string) =>
       [...queryKeys.sourcing.all, 'naver-related-keywords', keyword.trim()] as const,
     competitorCollectionStatus: (runId: string | null) =>

@@ -4,7 +4,7 @@ import { SOURCING_OPERATIONS } from '../../../../domain/operation/sourcing.opera
 import { SourcingBrowserOperationHandler } from '../sourcing-browser.operation-handler';
 
 describe('SourcingBrowserOperationHandler', () => {
-  it('registers only the exact Wing pilot and waits for the browser runtime', async () => {
+  it('registers the exact Wing and keyword browser operations and waits for the runtime', async () => {
     const registry = new OperationHandlerRegistryService();
     const handler = new SourcingBrowserOperationHandler(registry);
     handler.onModuleInit();
@@ -21,6 +21,9 @@ describe('SourcingBrowserOperationHandler', () => {
     });
     expect(registry.listDefinitions().map((item) => item.key)).toContain(
       'sourcing.collect_wing_catalog_batch',
+    );
+    expect(registry.listDefinitions().map((item) => item.key)).toContain(
+      'sourcing.collect_keyword_suggestions',
     );
     await expect(handler.execute({} as never)).resolves.toEqual({
       kind: 'waiting_runtime',

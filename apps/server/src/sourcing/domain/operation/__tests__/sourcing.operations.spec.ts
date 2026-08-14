@@ -9,4 +9,23 @@ describe('Sourcing Operations', () => {
       )?.allowedTriggers,
     ).toContain('agent');
   });
+
+  it('registers the exact keyword suggestion browser operation', () => {
+    const definition = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_keyword_suggestions',
+    );
+    expect(definition).toMatchObject({
+      engineType: 'browser',
+      ownerDomain: 'sourcing',
+      resourceClass: 'extension_coupang',
+      maxAttempts: 3,
+      executionTimeoutMs: 15 * 60_000,
+      allowedTriggers: ['dashboard', 'domain_screen'],
+      scheduleSupported: false,
+    });
+    expect(definition?.inputSchema.parse({
+      keyword: '  Ａ   Pencil ',
+      maxResults: 30,
+    })).toEqual({ keyword: 'A Pencil', maxResults: 30 });
+  });
 });

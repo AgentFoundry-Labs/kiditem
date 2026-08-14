@@ -8,7 +8,10 @@ import {
   OPERATION_HANDLER_REGISTRY_PORT,
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
-import { SOURCING_WING_CATALOG_OPERATION } from '../../../domain/operation/sourcing.operations';
+import {
+  SOURCING_KEYWORD_SUGGESTION_OPERATION,
+  SOURCING_WING_CATALOG_OPERATION,
+} from '../../../domain/operation/sourcing.operations';
 
 @Injectable()
 export class SourcingBrowserOperationHandler
@@ -21,6 +24,7 @@ export class SourcingBrowserOperationHandler
 
   onModuleInit(): void {
     this.registry.register(SOURCING_WING_CATALOG_OPERATION, this);
+    this.registry.register(SOURCING_KEYWORD_SUGGESTION_OPERATION, this);
   }
 
   async execute(

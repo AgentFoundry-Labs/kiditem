@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdvertisingCompetitorCatalogInputSchema,
+  AdvertisingCompetitorCatalogBatchSchema,
   AdvertisingTrackedWingProductsInputSchema,
+  SourcingKeywordSuggestionInputSchema,
+  SourcingKeywordSuggestionSnapshotSchema,
   SourcingWingCatalogBatchInputSchema,
   SourcingWingCatalogBatchResultSchema,
   SourcingWingCatalogFinalizeSchema,
@@ -200,5 +204,109 @@ describe('Wing catalog browser-operation contracts', () => {
       items: Array.from({ length: 401 }, () => observation),
       rejectedCount: 0,
     }).success).toBe(false);
+  });
+});
+
+describe('keyword and competitor browser-operation contracts', () => {
+  it('accepts one canonical keyword and at most 30 keyword suggestions', () => {
+    expect(SourcingKeywordSuggestionInputSchema.parse({
+      keyword: '  Ａ\u00a0  Pencil  ',
+      maxResults: 30,
+    })).toEqual({ keyword: 'A Pencil', maxResults: 30 });
+
+    for (const invalid of [
+      { keyword: '', maxResults: 30 },
+      { keyword: 'x', maxResults: 0 },
+      { keyword: 'x', maxResults: 31 },
+      { keyword: ['x'], maxResults: 30 },
+      { keyword: 'x', maxResults: 30, url: 'https://www.coupang.com' },
+      { keyword: 'x', maxResults: 30, action: 'search' },
+    ]) {
+      expect(SourcingKeywordSuggestionInputSchema.safeParse(invalid).success)
+        .toBe(false);
+    }
+
+    expect(SourcingKeywordSuggestionSnapshotSchema.parse({
+      keyword: ' Ａ Pencil ',
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      sourceKey: 'coupang.keyword_suggestion',
+      schemaVersion: 'coupang-keyword-suggestion/v1',
+      items: [{ rank: 1, keyword: '아동 연필', source: 'coupang-autocomplete' }],
+      productNameTokens: [{ keyword: '연필', count: 4 }],
+    }).keyword).toBe('A Pencil');
+    expect(SourcingKeywordSuggestionSnapshotSchema.safeParse({
+      keyword: 'x',
+      generatedAt: null,
+      sourceKey: 'coupang.keyword_suggestion',
+      schemaVersion: 'coupang-keyword-suggestion/v1',
+      items: Array.from({ length: 31 }, (_, index) => ({
+        rank: index + 1,
+        keyword: `k${index}`,
+        source: 'coupang-search-dom',
+      })),
+      productNameTokens: [],
+    }).success).toBe(false);
+  });
+
+  it('allows only a configured watchlist or one validated seller ID', () => {
+    expect(AdvertisingCompetitorCatalogInputSchema.parse({
+      target: 'configured_watchlist',
+    })).toEqual({ target: 'configured_watchlist' });
+    expect(AdvertisingCompetitorCatalogInputSchema.parse({
+      target: 'seller_id',
+      sellerId: ' A00219251 ',
+    })).toEqual({ target: 'seller_id', sellerId: 'A00219251' });
+
+    for (const invalid of [
+      {},
+      { target: 'seller_id' },
+      { target: 'seller_id', sellerId: 'https://shop.coupang.com/A00219251' },
+      { target: 'seller_id', sellerId: 'seller id' },
+      { target: 'configured_watchlist', sellerId: 'A00219251' },
+      { target: 'url', url: 'https://shop.coupang.com/A00219251' },
+      { target: 'configured_watchlist', action: 'collect' },
+    ]) {
+      expect(AdvertisingCompetitorCatalogInputSchema.safeParse(invalid).success)
+        .toBe(false);
+    }
+  });
+
+  it('bounds exact competitor catalog owner rows without permitting generic payloads', () => {
+    const catalog = {
+      keyword: '노루잡화점 크런치 슬랑이',
+      sellerId: 'A00219251',
+      sellerName: '도그블랑',
+      sellerStoreUrl: 'https://shop.coupang.com/A00219251',
+      totalProductCount: 1,
+      collectedProductCount: 1,
+      isTruncated: false,
+      sort: 'newest' as const,
+      capturedAt: '2026-08-14T00:00:30.000Z',
+      products: [{
+        sourceRank: 1,
+        productId: '123',
+        itemId: null,
+        vendorItemId: '456',
+        name: '슬랑이',
+        priceKrw: 12_000,
+        reviewCount: 4,
+        imageUrl: null,
+        link: 'https://www.coupang.com/vp/products/123',
+      }],
+    };
+    expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [catalog] }))
+      .toEqual({ catalogs: [catalog] });
+    for (const invalid of [
+      { catalogs: [] },
+      { catalogs: [{ ...catalog, sellerId: 'seller id' }] },
+      { catalogs: [{ ...catalog, sellerStoreUrl: 'https://example.com/A00219251' }] },
+      { catalogs: [{ ...catalog, products: [] }] },
+      { catalogs: [{ ...catalog, url: 'https://example.com' }] },
+      { catalogs: Array.from({ length: 21 }, () => catalog) },
+      { catalogs: [{ ...catalog, products: Array.from({ length: 101 }, () => catalog.products[0]) }] },
+    ]) {
+      expect(AdvertisingCompetitorCatalogBatchSchema.safeParse(invalid).success)
+        .toBe(false);
+    }
   });
 });

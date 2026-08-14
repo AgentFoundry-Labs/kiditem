@@ -4633,6 +4633,13 @@ const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
 const ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION_KEY =
   "advertising.refresh_tracked_wing_products";
 const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_IDS = 200;
+const SOURCING_KEYWORD_SUGGESTION_OPERATION_KEY =
+  "sourcing.collect_keyword_suggestions";
+const ADVERTISING_COMPETITOR_CATALOG_OPERATION_KEY =
+  "advertising.collect_competitor_catalog";
+const SOURCING_KEYWORD_SUGGESTION_MAX_RESULTS = 30;
+const ADVERTISING_COMPETITOR_CATALOG_MAX_TARGETS = 20;
+const ADVERTISING_COMPETITOR_CATALOG_MAX_PRODUCTS = 100;
 
 function parseSourcingWingCatalogOperationInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -5305,6 +5312,496 @@ async function runAdvertisingTrackedWingProductsOperation(operation) {
   }
 }
 
+function parseSourcingKeywordSuggestionOperationInput(input) {
+  if (
+    !input ||
+    typeof input !== "object" ||
+    Array.isArray(input) ||
+    typeof input.keyword !== "string" ||
+    !Number.isInteger(input.maxResults) ||
+    input.maxResults < 1 ||
+    input.maxResults > SOURCING_KEYWORD_SUGGESTION_MAX_RESULTS ||
+    Object.keys(input).some((key) => !["keyword", "maxResults"].includes(key))
+  ) {
+    throw new Error("keyword_suggestion_operation_input_invalid");
+  }
+  const [keyword] = KidItemWingKeywordContract.parseBatchKeywords(
+    [input.keyword],
+    1,
+    100,
+  );
+  return { keyword, maxResults: input.maxResults };
+}
+
+function parseAdvertisingCompetitorCatalogOperationInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("competitor_catalog_operation_input_invalid");
+  }
+  if (
+    input.target === "configured_watchlist" &&
+    Object.keys(input).every((key) => key === "target")
+  ) {
+    return { target: input.target };
+  }
+  if (
+    input.target === "seller_id" &&
+    typeof input.sellerId === "string" &&
+    /^[A-Za-z0-9_-]{1,80}$/.test(input.sellerId.trim()) &&
+    Object.keys(input).every((key) => ["target", "sellerId"].includes(key))
+  ) {
+    return { target: input.target, sellerId: input.sellerId.trim() };
+  }
+  throw new Error("competitor_catalog_operation_input_invalid");
+}
+
+function sanitizeKeywordSuggestionItems(items, maxResults) {
+  const sanitized = [];
+  const seen = new Set();
+  for (const candidate of Array.isArray(items) ? items : []) {
+    if (
+      !candidate ||
+      typeof candidate !== "object" ||
+      !["coupang-autocomplete", "coupang-search-dom"].includes(
+        candidate.source,
+      )
+    ) {
+      continue;
+    }
+    let keyword;
+    try {
+      [keyword] = KidItemWingKeywordContract.parseBatchKeywords(
+        [candidate.keyword],
+        1,
+        100,
+      );
+    } catch {
+      continue;
+    }
+    const identity = KidItemWingKeywordContract.identity(keyword);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    sanitized.push({
+      rank: sanitized.length + 1,
+      keyword,
+      source: candidate.source,
+    });
+    if (sanitized.length >= maxResults) break;
+  }
+  return sanitized;
+}
+
+function sanitizeKeywordSuggestionTokens(tokens, maxResults) {
+  const sanitized = [];
+  const seen = new Set();
+  for (const candidate of Array.isArray(tokens) ? tokens : []) {
+    if (!candidate || typeof candidate !== "object") continue;
+    let keyword;
+    try {
+      [keyword] = KidItemWingKeywordContract.parseBatchKeywords(
+        [candidate.keyword],
+        1,
+        100,
+      );
+    } catch {
+      continue;
+    }
+    const count = wingOperationBoundedInteger(candidate.count);
+    const identity = KidItemWingKeywordContract.identity(keyword);
+    if (count === null || count < 1 || seen.has(identity)) continue;
+    seen.add(identity);
+    sanitized.push({ keyword, count });
+    if (sanitized.length >= maxResults) break;
+  }
+  return sanitized;
+}
+
+async function runSourcingKeywordSuggestionOperation(operation) {
+  const input = parseSourcingKeywordSuggestionOperationInput(operation.input);
+  operation.signal?.throwIfAborted?.();
+  await operation.heartbeat({
+    progress: 0,
+    stage: "waiting_browser",
+    progressCurrent: 0,
+    progressTotal: 1,
+  });
+  let search;
+  try {
+    search = await raceWingCatalogOperationAbort(
+      searchCoupangKeywordSuggestions({
+        keyword: input.keyword,
+        maxResults: input.maxResults,
+        runId: operation.runId,
+        environmentId: operation.environmentId,
+      }),
+      operation.signal,
+    );
+  } catch (error) {
+    if (operation.signal?.aborted) throw operation.signal.reason || error;
+    return {
+      status: "failed",
+      errorCode: "keyword_suggestion_collection_failed",
+      errorMessage: "Keyword suggestion collection failed.",
+    };
+  }
+  operation.signal?.throwIfAborted?.();
+  if (search?.attentionRequired) {
+    return {
+      status: "attention_required",
+      attentionReason: "marketplace_login",
+    };
+  }
+  if (!search?.success) {
+    return {
+      status: "failed",
+      errorCode: "keyword_suggestion_collection_failed",
+      errorMessage: "Keyword suggestion collection failed.",
+    };
+  }
+  const items = sanitizeKeywordSuggestionItems(
+    search.items,
+    input.maxResults,
+  );
+  const productNameTokens = sanitizeKeywordSuggestionTokens(
+    search.productNameTokens,
+    input.maxResults,
+  );
+  const capturedAt = new Date().toISOString();
+  await operation.heartbeat({
+    progress: 0.8,
+    stage: "persisting",
+    progressCurrent: 0,
+    progressTotal: 1,
+  });
+  const persisted = await requestSourcingWingOperation(
+    operation,
+    `/api/sourcing/workspace/browser-operations/${encodeURIComponent(operation.runId)}/keyword-suggestions`,
+    { keyword: input.keyword, capturedAt, items, productNameTokens },
+  );
+  operation.signal?.throwIfAborted?.();
+  await operation.heartbeat({
+    progress: 1,
+    stage: "persisting",
+    progressCurrent: 1,
+    progressTotal: 1,
+  });
+  const accepted = Math.max(0, Number(persisted?.acceptedCount) || 0);
+  const duplicate = persisted?.duplicate === true ? 1 : 0;
+  const outcome = accepted > 0 ? "complete" : "no_change";
+  return {
+    status: "succeeded",
+    result: {
+      outcome,
+      summary: {
+        discovered: items.length,
+        accepted,
+        duplicate,
+        unchanged: Math.max(0, items.length - accepted),
+        failed: 0,
+      },
+      sources: [{
+        source: "coupang_keyword_suggestion",
+        outcome,
+        accepted,
+        failed: 0,
+      }],
+      snapshotGeneratedAt: capturedAt,
+    },
+  };
+}
+
+function isCompetitorOperationTarget(target) {
+  if (
+    !target ||
+    typeof target !== "object" ||
+    typeof target.sellerId !== "string" ||
+    !/^[A-Za-z0-9_-]{1,80}$/.test(target.sellerId.trim()) ||
+    typeof target.keyword !== "string" ||
+    typeof target.sellerStoreUrl !== "string"
+  ) {
+    return false;
+  }
+  try {
+    const parsed = new URL(target.sellerStoreUrl);
+    return parsed.protocol === "https:" && parsed.hostname === "shop.coupang.com";
+  } catch {
+    return false;
+  }
+}
+
+function boundedCompetitorText(value, maximum) {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim();
+  return normalized ? normalized.slice(0, maximum) : null;
+}
+
+function sanitizeAdvertisingCompetitorCatalog(catalog, target) {
+  if (!catalog || typeof catalog !== "object") return null;
+  const products = [];
+  for (const candidate of Array.isArray(catalog.products) ? catalog.products : []) {
+    if (!candidate || typeof candidate !== "object") continue;
+    const productId = boundedCompetitorText(candidate.productId, 200);
+    const itemId = boundedCompetitorText(candidate.itemId, 200);
+    const vendorItemId = boundedCompetitorText(candidate.vendorItemId, 200);
+    const name = boundedCompetitorText(candidate.name, 500);
+    if (!name || (!productId && !itemId && !vendorItemId)) continue;
+    products.push({
+      sourceRank:
+        wingOperationBoundedInteger(candidate.sourceRank) || products.length + 1,
+      productId,
+      itemId,
+      vendorItemId,
+      name,
+      priceKrw: wingOperationBoundedInteger(candidate.priceKrw),
+      reviewCount: wingOperationBoundedInteger(candidate.reviewCount),
+      imageUrl: boundedCompetitorText(candidate.imageUrl, 2000),
+      link: boundedCompetitorText(candidate.link, 2000),
+    });
+    if (products.length >= ADVERTISING_COMPETITOR_CATALOG_MAX_PRODUCTS) break;
+  }
+  if (products.length === 0) return null;
+  const capturedAt = Number.isFinite(Date.parse(String(catalog.capturedAt || "")))
+    ? new Date(catalog.capturedAt).toISOString()
+    : new Date().toISOString();
+  const totalProductCount = wingOperationBoundedInteger(catalog.totalProductCount);
+  return {
+    keyword: target.keyword,
+    sellerId: target.sellerId,
+    sellerName:
+      boundedCompetitorText(catalog.sellerName, 300) ||
+      boundedCompetitorText(target.sellerName, 300) ||
+      target.sellerId,
+    sellerStoreUrl: target.sellerStoreUrl,
+    totalProductCount,
+    collectedProductCount: products.length,
+    isTruncated:
+      catalog.isTruncated === true ||
+      (totalProductCount !== null && totalProductCount > products.length),
+    sort: "newest",
+    capturedAt,
+    products,
+  };
+}
+
+async function ensureAdvertisingCompetitorCatalogSession(operation, input) {
+  const existing = await collectionSessions.getOwned(
+    operation.runId,
+    operation.environmentId,
+  );
+  if (existing) {
+    if (
+      existing.producer !== "advertising.competitor_catalog" ||
+      existing.status !== "running"
+    ) {
+      throw new Error("competitor_catalog_operation_session_invalid");
+    }
+    return existing;
+  }
+  return collectionSessions.start({
+    runId: operation.runId,
+    environmentId: operation.environmentId,
+    producer: "advertising.competitor_catalog",
+    classification: "background_preferred",
+    restartStrategy: "extension",
+    inputIdentity: {
+      target: input.target,
+      ...(input.target === "seller_id" ? { sellerId: input.sellerId } : {}),
+      startedAt: Date.now(),
+    },
+  });
+}
+
+async function runAdvertisingCompetitorCatalogOperation(operation) {
+  const input = parseAdvertisingCompetitorCatalogOperationInput(operation.input);
+  await ensureAdvertisingCompetitorCatalogSession(operation, input);
+  operation.signal?.throwIfAborted?.();
+  let targets = await fetchCoupangCompetitorSellerTargets(
+    200,
+    operation.environmentId,
+  );
+  targets = (Array.isArray(targets) ? targets : [])
+    .filter(isCompetitorOperationTarget);
+  if (input.target === "seller_id") {
+    targets = targets.filter((target) => target.sellerId === input.sellerId);
+    if (targets.length !== 1) {
+      await collectionSessions.fail(operation.runId);
+      return {
+        status: "failed",
+        errorCode: "competitor_catalog_target_not_configured",
+        errorMessage: "The competitor seller is not configured for this organization.",
+      };
+    }
+  } else {
+    targets = targets.slice(0, ADVERTISING_COMPETITOR_CATALOG_MAX_TARGETS);
+  }
+  if (targets.length === 0) {
+    await collectionSessions.succeed(operation.runId);
+    return {
+      status: "succeeded",
+      result: {
+        outcome: "no_change",
+        summary: {
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          unchanged: 0,
+          failed: 0,
+        },
+        sources: [{
+          source: "competitor_catalog",
+          outcome: "no_change",
+          accepted: 0,
+          failed: 0,
+        }],
+      },
+    };
+  }
+
+  let tabId;
+  let keepAttentionTab = false;
+  let terminalSession = false;
+  let fenceLost = false;
+  let accepted = 0;
+  let failed = 0;
+  try {
+    const tab = await createTab({ url: targets[0].sellerStoreUrl, active: false });
+    tabId = tab?.id;
+    if (!Number.isInteger(tabId)) {
+      throw new Error("competitor_catalog_tab_unavailable");
+    }
+    if (typeof coupangEnvironment !== "undefined") {
+      await coupangEnvironment.bindTab(tabId, operation.environmentId);
+    }
+    await collectionSessions.attachTab(operation.runId, tab);
+    for (let index = 0; index < targets.length; index += 1) {
+      const target = targets[index];
+      operation.signal?.throwIfAborted?.();
+      await operation.heartbeat({
+        progress: index / targets.length,
+        stage: "collecting_seller",
+        progressCurrent: index,
+        progressTotal: targets.length,
+      });
+      let catalogs;
+      try {
+        catalogs = await raceWingCatalogOperationAbort(
+          collectCoupangSellerCatalogs(tabId, [target], 1),
+          operation.signal,
+        );
+      } catch (error) {
+        if (operation.signal?.aborted) throw operation.signal.reason || error;
+        failed += 1;
+        await collectionSessions.progress(operation.runId, {
+          current: index + 1,
+          total: targets.length,
+          completed: accepted,
+          failed,
+          label: target.sellerName || target.sellerId,
+        });
+        continue;
+      }
+      operation.signal?.throwIfAborted?.();
+      const sanitized = sanitizeAdvertisingCompetitorCatalog(
+        Array.isArray(catalogs) ? catalogs[0] : null,
+        target,
+      );
+      if (!sanitized) {
+        keepAttentionTab = true;
+        return {
+          status: "attention_required",
+          attentionReason: "marketplace_login",
+        };
+      }
+      const persisted = await requestSourcingWingOperation(
+        operation,
+        `/api/ads/competitors/browser-operations/${encodeURIComponent(operation.runId)}/catalogs`,
+        { catalogs: [sanitized] },
+      );
+      accepted += Math.max(0, Number(persisted?.captured) || 0);
+      failed += Math.max(0, Number(persisted?.ignored) || 0);
+      await collectionSessions.progress(operation.runId, {
+        current: index + 1,
+        total: targets.length,
+        completed: accepted,
+        failed,
+        label: target.sellerName || target.sellerId,
+      });
+      await operation.heartbeat({
+        progress: (index + 1) / targets.length,
+        stage: "persisting",
+        progressCurrent: index + 1,
+        progressTotal: targets.length,
+      });
+    }
+    if (accepted === 0 && failed === targets.length) {
+      await collectionSessions.fail(operation.runId);
+      terminalSession = true;
+      return {
+        status: "failed",
+        errorCode: "competitor_catalog_all_sellers_failed",
+        errorMessage: "Competitor catalog collection failed for every seller.",
+      };
+    }
+    const outcome = failed > 0
+      ? "partial"
+      : accepted === 0
+        ? "no_change"
+        : "complete";
+    await collectionSessions.succeed(operation.runId);
+    terminalSession = true;
+    return {
+      status: "succeeded",
+      result: {
+        outcome,
+        summary: {
+          discovered: targets.length,
+          accepted,
+          duplicate: 0,
+          unchanged: Math.max(0, targets.length - accepted - failed),
+          failed,
+        },
+        sources: [{
+          source: "competitor_catalog",
+          outcome,
+          accepted,
+          failed,
+          ...(failed > 0
+            ? { errorCode: "competitor_catalog_seller_failed" }
+            : {}),
+        }],
+        snapshotGeneratedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    fenceLost =
+      error?.status === 409 || error?.message === "operation_runtime_fence_lost";
+    if (!operation.signal?.aborted && !fenceLost) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+      terminalSession = true;
+    }
+    throw error;
+  } finally {
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      Number.isInteger(tabId)
+    ) {
+      await collectionSessions.detachTab(operation.runId, {
+        tabId,
+        closeManagedTab: true,
+      }).catch(() => undefined);
+    }
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      !terminalSession
+    ) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+    }
+  }
+}
+
 async function runAdvertisingProfitabilityOperation(operation) {
   const headers = {
     "Content-Type": "application/json",
@@ -5609,6 +6106,8 @@ KidItemDomains.register({
     "advertising.refresh_profitability_spend": runAdvertisingProfitabilityOperation,
     "advertising.refresh_tracked_wing_products": runAdvertisingTrackedWingProductsOperation,
     "sourcing.collect_wing_catalog_batch": runSourcingWingCatalogOperation,
+    "sourcing.collect_keyword_suggestions": runSourcingKeywordSuggestionOperation,
+    "advertising.collect_competitor_catalog": runAdvertisingCompetitorCatalogOperation,
   },
   capabilities: {
     profitabilityAdvertisingRefreshV1: true,

@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronUp, Filter, Loader2, Plus, RefreshCw, Search, TrendingUp, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
@@ -17,10 +18,10 @@ import {
   type NaverRelatedKeyword,
 } from '../../recommendations/lib/naver-keyword-api';
 import {
-  searchCoupangKeywordSuggestions,
-  type CoupangKeywordSuggestion,
-  type CoupangProductNameToken,
-} from '../lib/coupang-keyword-extension';
+  type SourcingInterestSource,
+  type SourcingKeywordSuggestionItem,
+  type SourcingKeywordSuggestionToken,
+} from '@kiditem/shared/sourcing';
 import { KeywordAnalysisWorkbench } from './KeywordAnalysisWorkbench';
 import { EmptyState, PopularKeywordCard } from './KeywordAnalysisPopularBoard';
 import { TrendComparePanel } from './KeywordAnalysisTrendPanel';
@@ -41,7 +42,6 @@ import {
   runTrendKeywordAgent,
   type TrendKeywordAgentResult,
 } from '../lib/trend-keyword-agent';
-import type { SourcingInterestSource } from '@kiditem/shared/sourcing';
 import { createKeywordInterestTarget } from '../../lib/sourcing-interest-target';
 import {
   useRemoveSourcingInterestTarget,
@@ -50,8 +50,14 @@ import {
   useSourcingInterestTargets,
   useSourcingKeywordPreferences,
 } from '../../hooks/use-sourcing-workspace';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import {
+  fetchCoupangKeywordSuggestionSnapshot,
+  keywordSuggestionSnapshotQueryKey,
+} from '../lib/coupang-keyword-snapshot-api';
 
-interface CoupangPopularKeyword extends CoupangKeywordSuggestion {
+interface CoupangPopularKeyword extends SourcingKeywordSuggestionItem {
   monthlyTotalSearchCount: number | null;
 }
 
@@ -59,12 +65,14 @@ const DEFAULT_RANK_LIMIT = '20';
 const normalizeExclude = (value: string) => value.replace(/\s+/g, '').toLowerCase();
 
 export function KeywordAnalysisPage() {
+  const [initialRouteState] = useState(readKeywordAnalysisRouteState);
   const [boards, setBoards] = useState<NaverDatalabPopularKeywordBoard[]>([]);
   const [timeUnit, setTimeUnit] = useState<NaverDatalabTimeUnit>('date');
   const [gender, setGender] = useState<'all' | NaverDatalabGender>('all');
   const [age, setAge] = useState('all');
   const [device, setDevice] = useState<'all' | NaverDatalabDevice>('all');
-  const [keywordQuery, setKeywordQuery] = useState('');
+  const [keywordQuery, setKeywordQuery] = useState(initialRouteState.keyword);
+  const [snapshotKeyword, setSnapshotKeyword] = useState(initialRouteState.keyword);
   const [selectedBoardKey, setSelectedBoardKey] = useState<BoardFilterKey>('all');
   const [rankLimit, setRankLimit] = useState(DEFAULT_RANK_LIMIT);
   const [focusMode, setFocusMode] = useState<FocusMode>('all');
@@ -79,16 +87,13 @@ export function KeywordAnalysisPage() {
   const [searchAdRelatedItems, setSearchAdRelatedItems] = useState<NaverRelatedKeyword[]>([]);
   const [relatedSearchItems, setRelatedSearchItems] = useState<NaverDatalabKeywordTrend[]>([]);
   const [autocompleteItems, setAutocompleteItems] = useState<NaverAutocompleteKeyword[]>([]);
-  const [coupangKeywordItems, setCoupangKeywordItems] = useState<CoupangPopularKeyword[]>([]);
-  const [coupangProductNameTokens, setCoupangProductNameTokens] = useState<CoupangProductNameToken[]>([]);
   const [loadingSearchAdRelated, setLoadingSearchAdRelated] = useState(false);
   const [loadingRelatedSearch, setLoadingRelatedSearch] = useState(false);
   const [loadingAutocomplete, setLoadingAutocomplete] = useState(false);
-  const [loadingCoupangKeywords, setLoadingCoupangKeywords] = useState(false);
   const [searchAdNotice, setSearchAdNotice] = useState<string | null>(null);
   const [relatedSearchNotice, setRelatedSearchNotice] = useState<string | null>(null);
   const [autocompleteNotice, setAutocompleteNotice] = useState<string | null>(null);
-  const [coupangKeywordNotice, setCoupangKeywordNotice] = useState<string | null>(null);
+  const [coupangOperationNotice, setCoupangOperationNotice] = useState<string | null>(null);
   const [trendAgentResult, setTrendAgentResult] = useState<TrendKeywordAgentResult | null>(null);
   const [trendAgentNotice, setTrendAgentNotice] = useState<string | null>(null);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
@@ -96,7 +101,44 @@ export function KeywordAnalysisPage() {
   const [showRecentKeywords, setShowRecentKeywords] = useState(true);
   const popularRequestIdRef = useRef(0);
   const relatedRequestIdRef = useRef(0);
-  const didAutoLoadKeywordAnalysisRef = useRef(false);
+  const operationKeyword = keywordQuery.trim() || snapshotKeyword;
+  const operationSnapshotQueryKey = useMemo(
+    () => keywordSuggestionSnapshotQueryKey(operationKeyword),
+    [operationKeyword],
+  );
+  const operationInput = useMemo(
+    () => ({ keyword: operationKeyword, maxResults: 30 }),
+    [operationKeyword],
+  );
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_keyword_suggestions',
+    input: operationInput,
+    snapshotQueryKey: operationSnapshotQueryKey,
+    initialRunId: initialRouteState.operationRunId,
+  });
+  const keywordSnapshotQuery = useQuery({
+    queryKey: keywordSuggestionSnapshotQueryKey(snapshotKeyword),
+    queryFn: () => fetchCoupangKeywordSuggestionSnapshot(snapshotKeyword),
+    placeholderData: (previous) => previous,
+  });
+  const coupangKeywordItems = useMemo<CoupangPopularKeyword[]>(
+    () => (keywordSnapshotQuery.data?.items ?? []).map((item) => ({
+      ...item,
+      monthlyTotalSearchCount: null,
+    })),
+    [keywordSnapshotQuery.data?.items],
+  );
+  const coupangProductNameTokens = keywordSnapshotQuery.data?.productNameTokens ?? [];
+  const loadingCoupangKeywords =
+    keywordSnapshotQuery.isFetching && keywordSnapshotQuery.data === undefined;
+  const coupangKeywordNotice = coupangOperationNotice
+    ?? (keywordSnapshotQuery.error instanceof Error
+      ? keywordSnapshotQuery.error.message
+      : keywordSnapshotQuery.data
+        ? keywordSnapshotQuery.data.items.length > 0
+          ? `저장된 쿠팡 키워드 ${formatNumber(keywordSnapshotQuery.data.items.length)}개를 표시합니다.`
+          : '저장된 쿠팡 키워드 스냅샷이 비어 있습니다.'
+        : null);
   const keywordPreferencesQuery = useSourcingKeywordPreferences();
   const saveKeywordPreference = useSaveSourcingKeywordPreference();
   const interestTargetsQuery = useSourcingInterestTargets();
@@ -305,16 +347,31 @@ export function KeywordAnalysisPage() {
     setSearchAdRelatedItems([]);
     setRelatedSearchItems([]);
     setAutocompleteItems([]);
-    setCoupangKeywordItems([]);
-    setCoupangProductNameTokens([]);
     setSearchAdNotice(null);
     setRelatedSearchNotice(null);
     setAutocompleteNotice(null);
-    setCoupangKeywordNotice(null);
     setLoadingSearchAdRelated(true);
     setLoadingRelatedSearch(false);
     setLoadingAutocomplete(true);
-    setLoadingCoupangKeywords(true);
+
+    setCoupangOperationNotice(null);
+    setSnapshotKeyword(normalizedKeyword);
+    void operation.start(
+      { keyword: normalizedKeyword, maxResults: 30 },
+      [keywordSuggestionSnapshotQueryKey(normalizedKeyword)],
+    ).then((run) => {
+      const params = new URLSearchParams(window.location.search);
+      params.set('keyword', normalizedKeyword);
+      params.set('operationRun', run.id);
+      window.history.replaceState(
+        {},
+        '',
+        `${window.location.pathname}?${params.toString()}`,
+      );
+    }).catch((error: unknown) => {
+      if (!isCurrentRequest()) return;
+      setCoupangOperationNotice(error instanceof Error ? error.message : String(error));
+    });
 
     void searchNaverAutocompleteKeywords({
       keyword: normalizedKeyword,
@@ -337,38 +394,6 @@ export function KeywordAnalysisPage() {
       })
       .finally(() => {
         if (isCurrentRequest()) setLoadingAutocomplete(false);
-      });
-
-    void searchCoupangKeywordSuggestions({
-      keyword: normalizedKeyword,
-      maxResults: 30,
-    })
-      .then(async (response) => {
-        if (!isCurrentRequest()) return;
-        const items = (response.items ?? []).filter((item) => item.keyword.trim().length > 0);
-        const searchCounts = await fetchSearchCountsForKeywords(items.map((item) => item.keyword).slice(0, 20))
-          .catch(() => new Map<string, number | null>());
-        if (!isCurrentRequest()) return;
-        const enrichedItems = items.map((item) => ({
-          ...item,
-          monthlyTotalSearchCount: searchCounts.get(compactKeyword(item.keyword)) ?? null,
-        }));
-        setCoupangKeywordItems(enrichedItems);
-        setCoupangProductNameTokens(response.productNameTokens ?? []);
-        setCoupangKeywordNotice(
-          enrichedItems.length > 0
-            ? `쿠팡 검색 페이지에서 인기 키워드 ${formatNumber(enrichedItems.length)}개를 가져오고 검색량을 매칭했습니다.`
-            : '쿠팡 인기 키워드가 비어 있습니다.',
-        );
-      })
-      .catch((error: unknown) => {
-        if (!isCurrentRequest()) return;
-        setCoupangKeywordItems([]);
-        setCoupangProductNameTokens([]);
-        setCoupangKeywordNotice(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (isCurrentRequest()) setLoadingCoupangKeywords(false);
       });
 
     let relatedItems: NaverRelatedKeyword[] = [];
@@ -513,12 +538,6 @@ export function KeywordAnalysisPage() {
     void loadRelatedKeywordData(keyword);
   };
 
-  useEffect(() => {
-    if (didAutoLoadKeywordAnalysisRef.current) return;
-    didAutoLoadKeywordAnalysisRef.current = true;
-    void loadPopularKeywords();
-  }, []);
-
   return (
     <main className="min-h-full bg-[var(--surface-sunken)] text-[var(--text-primary)]">
       <div className="flex w-full flex-col gap-5">
@@ -593,6 +612,15 @@ export function KeywordAnalysisPage() {
                 return Array.from(new Set(next)).slice(0, 5).join('\n');
               });
             }}
+          />
+
+          <SourcingOperationRunPanel
+            className="mx-auto mt-4 max-w-[1600px]"
+            run={operation.run}
+            onCancel={() => void operation.cancel()}
+            onRetryAttention={() => void operation.retryAttention()}
+            isCancelling={operation.isCancelling}
+            isRetrying={operation.isRetrying}
           />
 
           <InterestKeywordManager
@@ -822,7 +850,7 @@ function RelatedKeywordOverview({
   trendItems: NaverDatalabKeywordTrend[];
   autocompleteItems: NaverAutocompleteKeyword[];
   coupangKeywordItems: CoupangPopularKeyword[];
-  coupangProductNameTokens: CoupangProductNameToken[];
+  coupangProductNameTokens: SourcingKeywordSuggestionToken[];
   loading: boolean;
   searchAdNotice: string | null;
   trendNotice: string | null;
@@ -945,7 +973,7 @@ function SourceKeywordGrid({
   trendItems: NaverDatalabKeywordTrend[];
   autocompleteItems: NaverAutocompleteKeyword[];
   coupangKeywordItems: CoupangPopularKeyword[];
-  coupangProductNameTokens: CoupangProductNameToken[];
+  coupangProductNameTokens: SourcingKeywordSuggestionToken[];
   loading: boolean;
   searchAdNotice: string | null;
   trendNotice: string | null;
@@ -1400,39 +1428,22 @@ function problemNotice(notice: string | null) {
   return /필요|예전|실패|오류|미지원|타임아웃|닫혔|port|closed/i.test(notice) ? notice : null;
 }
 
-async function fetchSearchCountsForKeywords(keywords: string[]): Promise<Map<string, number | null>> {
-  const normalized = Array.from(new Set(keywords.map((keyword) => keyword.trim()).filter(Boolean))).slice(0, 20);
-  const counts = new Map<string, number | null>();
-  for (const batch of chunk(normalized, 5)) {
-    const response = await searchNaverRelatedKeywords({
-      seedKeywords: batch,
-      maxResults: 100,
-    });
-    for (const item of response.items) {
-      counts.set(compactKeyword(item.keyword), item.monthlyTotalSearchCount);
-    }
+function readKeywordAnalysisRouteState(): {
+  keyword: string;
+  operationRunId: string | null;
+} {
+  if (typeof window === 'undefined') {
+    return { keyword: '슬라임', operationRunId: null };
   }
-
-  const missingKeywords = normalized.filter((keyword) => !counts.has(compactKeyword(keyword)));
-  for (const keyword of missingKeywords) {
-    try {
-      const response = await searchNaverRelatedKeywords({
-        seedKeywords: [keyword],
-        maxResults: 100,
-      });
-      const exactItem = response.items.find((item) => compactKeyword(item.keyword) === compactKeyword(keyword));
-      counts.set(compactKeyword(keyword), exactItem?.monthlyTotalSearchCount ?? null);
-    } catch {
-      counts.set(compactKeyword(keyword), null);
-    }
-  }
-  return counts;
+  const params = new URLSearchParams(window.location.search);
+  const keyword = params.get('keyword')?.normalize('NFKC').trim() || '슬라임';
+  const runId = params.get('operationRun');
+  return {
+    keyword: keyword.slice(0, 100),
+    operationRunId:
+      runId !== null && OPERATION_RUN_ID_PATTERN.test(runId) ? runId : null,
+  };
 }
 
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let index = 0; index < items.length; index += size) {
-    chunks.push(items.slice(index, index + size));
-  }
-  return chunks;
-}
+const OPERATION_RUN_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;

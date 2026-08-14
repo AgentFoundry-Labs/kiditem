@@ -61,6 +61,7 @@ import { AdExecutionService } from "./application/service/ad-execution.service";
 import { AdConfigService } from "./application/service/ad-config.service";
 import { KeywordRankService } from "./application/service/keyword-rank.service";
 import { CompetitorTrackingService } from "./application/service/competitor-tracking.service";
+import { CompetitorCatalogOperationService } from "./application/service/competitor-catalog-operation.service";
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
 import { AdvertisingTrackedWingProductsOperationHandler } from "./adapter/in/operation/advertising-tracked-wing-products.operation-handler";
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
@@ -246,6 +247,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdConfigService,
     KeywordRankService,
     CompetitorTrackingService,
+    CompetitorCatalogOperationService,
     WingTrackedProductService,
     CoupangMomentumReadService,
     // application/service — ingest handlers
