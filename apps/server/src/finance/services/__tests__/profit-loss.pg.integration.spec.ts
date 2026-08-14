@@ -15,7 +15,7 @@ import {
 /**
  * Plan D.1 T6 — ProfitLossService PG integration (live aggregation).
  *
- * T5 が profit-loss.service.ts を ProfitLoss table read から
+ * T5 が profit-loss.service.ts を persisted P&L read から
  * Order + OrderLineItem + ChannelListingOption + component costs + daily ad facts + OrderReturnLineItem
  * への live aggregation に書き換えた。
  *

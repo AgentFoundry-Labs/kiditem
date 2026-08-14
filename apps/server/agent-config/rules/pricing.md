@@ -24,6 +24,8 @@ pricing specialist 에이전트가 참조하는 가격 최적화 규칙.
 - 프로모션 기간 중 가격 인하 금지
 
 ## 데이터 소스
-- products: sell_price, cost_price
-- profit_loss: profit_rate, revenue, ad_cost
-- ads: spend, roas
+- `GET /api/profit-loss`: 주문·라인·반품·리스팅 옵션·광고 fact의 실시간 손익 집계
+- `master_product_abc_evaluations`: 현재 기여이익/ABC 평가 근거
+- `channel_listing_options`: 활성 채널 판매가
+- `sellpia_inventory_skus`: 현재 공급가와 물리 재고
+- 광고 read model: spend, roas

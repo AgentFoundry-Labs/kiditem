@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { buildDashboardContext } from '../../domain/context';
 import { DashboardSalesService } from './dashboard-sales.service';
 import {
@@ -62,26 +62,11 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     });
     wing.findLatestDataDate.mockResolvedValue(null);
 
-    const rocket = {
-      findLatestDataDate: vi.fn().mockResolvedValue(null),
-      aggregateRevenue: vi.fn().mockResolvedValue({
-        revenue: 0,
-        poCount: 0,
-        itemQty: 0,
-        hasData: false,
-        lastObservedAt: null,
-      }),
-      fetchDaily: vi.fn().mockResolvedValue([]),
-      fetchOrdersForDate: vi.fn().mockResolvedValue([]),
-      fetchOrders: vi.fn().mockResolvedValue([]),
-    };
-
     const service = new DashboardSalesService(
       profit,
       wingAds,
       sales,
       wing,
-      rocket,
     );
     const result = await service.getSummary(
       buildDashboardContext('month', undefined, undefined, new Date('2026-07-18T03:00:00.000Z')),
@@ -89,6 +74,8 @@ describe('DashboardSalesService collected Coupang ad spend', () => {
     );
 
     expect(result.monthly.profit).toBe(20_000);
+    expect(result.monthly.revenue).toBe(100_000);
+    expect(result.monthly).not.toHaveProperty('rocketRevenue');
     expect(result.rangeKpi?.profit).toBe(20_000);
     expect(result.rangeKpi?.profitRate).toBe(20);
     expect(result.profitDetail).toEqual(expect.objectContaining({

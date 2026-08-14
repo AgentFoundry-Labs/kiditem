@@ -97,6 +97,15 @@ the prior runtime files when candidate health fails. Runtime rollback does not
 undo Prisma schema changes, data migrations, marketplace writes, object-storage
 changes, or queued jobs.
 
+An incompatible schema contraction uses a full-stop maintenance window instead
+of the normal runtime rollback path. Stop API, worker, web, and nginx before the
+final database dump; keep them stopped through the destructive schema push and
+relation verification. If the cutover fails, restore the verified pre-push dump
+before starting the previous manifest. The database backup and prior runtime
+are one recovery unit. The normal deployment wrapper is not used for this
+cutover because its application-only runtime restore cannot roll back the
+database.
+
 ## Security Boundary
 
 - Office environment files remain outside Git and are never workflow inputs.

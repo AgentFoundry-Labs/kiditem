@@ -3,7 +3,6 @@
 
   const DASHBOARD_PRODUCERS = new Set([
     "dashboard.wing_sales",
-    "dashboard.rocket_sales",
     "dashboard.coupang_ads",
     "dashboard.coupang_products",
     "dashboard.wing_kpi",

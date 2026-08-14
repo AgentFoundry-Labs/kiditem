@@ -1,23 +1,24 @@
 # inventory — Sellpia Snapshot And Inventory Operations
 
-`src/inventory/` owns the Sellpia-authoritative physical SKU snapshot,
-freshness/generation fencing, commitments for non-Rocket workflows, warehouses,
-transfers, picking, receipts, and shipment files. KidItem has no second mutable
-stock balance.
+`src/inventory/` owns Sellpia imports and authoritative physical SKU snapshots,
+freshness/generation fencing, warehouses, stock transfers, return records, and
+the Inventory availability boundaries consumed by matching and purchase
+preview workflows. KidItem has no second mutable stock balance.
 
 ## Identity And Ownership
 
 - `SellpiaInventorySku` is one provider product-code identity and
   `currentStock` is its physical quantity authority.
 - `SourceImportRun` owns source provenance, idempotency, and attempt fencing.
-- Commitments are auditable logical holds that reduce available capacity but do
-  not mutate physical stock. Rocket workbook workflows never use them.
-- Transfer, picking, return-transfer, warehouse, and receipt rows are operation
-  records; completing them does not change `currentStock`.
+- Public physical availability is exactly `availableStock === currentStock`.
+- Transfer, return-transfer, and warehouse rows are operation records;
+  completing them does not change `currentStock`.
+- Commitment, Picking, Unshipped, and Sellpia receipt-batch capabilities are
+  retired and their persistence models are absent.
 
 The full schema is
 [prisma/models/inventory.prisma](../../../../prisma/models/inventory.prisma).
-Publication, freshness, commitment, transfer, and controller boundaries are
+Publication, freshness, availability, transfer, and controller boundaries are
 executable in [the Inventory tests](__tests__/).
 
 ## Snapshot And Freshness Contract
@@ -27,16 +28,17 @@ executable in [the Inventory tests](__tests__/).
   marks absent known codes inactive with zero stock, and preserves identity and
   component references.
 - Automatic JSON collection and manual recovery uploads enter the same hash,
-  generation, quality, and publication path. Receipt uploads are separate.
+  generation, quality, and publication path.
 - Publication may update only Inventory-owned source facts and the one-to-one
   canonical owner provision required by that snapshot. It never translates
   source differences into channel, order, transfer, purchase, or Rocket writes.
 - Inventory owns freshness policy, generation high-water mark, source binding,
   browser lease, and advisory lock. Expired browser work follows the explicit
   retry policy; it is not silently reclaimed.
-- The freshness gate returns currentStock and active state from the same fenced
-  generation. Consumers may join/request a target generation but cannot control
-  leases or persistence.
+- The availability and freshness gates return `currentStock`, equal
+  `availableStock`, and active state from the same fenced generation. Before a
+  snapshot is collected, availability contains no SKU items. Consumers may
+  join/request a target generation but cannot control leases or persistence.
 - Public generation values are decimal strings and control authority derives
   from the authenticated actor without exposing owner IDs.
 
@@ -49,8 +51,7 @@ before changing refresh or Rocket interactions.
 ## Published Capabilities
 
 - Read-only physical-SKU identity and matching evidence.
-- Availability and commitment lifecycle, where available stock is physical
-  stock minus active logical holds, floored at zero.
+- Snapshot-aware physical availability where `availableStock === currentStock`.
 - Fresh-and-active capacity with same-generation gating.
 - Read-only Rocket workflow progress projected from Orders-owned transmission
   intents.
@@ -64,8 +65,8 @@ component relations; never infer them from codes, names, or barcodes.
 - Controllers depend on incoming ports; application and domain code follow the
   server adapter/purity rules. Prisma imports stay in repository adapters.
 - No receive, issue, adjust, reserve, release, restock, stock-ledger, or Rocket
-  event may write physical stock. Inventory commitments are the only logical
-  hold path and remain unavailable to Rocket.
+  event may write physical stock. No active logical-hold path reduces public
+  availability.
 - Route order keeps static paths before parameter routes.
 - Product operations enter through Products APIs. Ordinary Inventory reads and
   operation records do not mutate MasterProduct rows.

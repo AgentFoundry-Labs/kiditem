@@ -49,7 +49,6 @@ describe('master-product operations final schema contract', () => {
       'channelListings',
       'originChannelListing',
       'provenanceCandidate',
-      'processingCosts',
       'inventorySkus',
     ]);
     assert.match(master, /@@unique\(\[organizationId, code\]\)/);
@@ -157,7 +156,6 @@ describe('master-product operations final schema contract', () => {
       [supply, 'SupplierProduct'],
       [supply, 'PurchaseOrderItem'],
       [inventory, 'StockTransfer'],
-      [inventory, 'PickingItem'],
       [inventory, 'ReturnTransfer'],
     ];
     for (const [source, modelName] of references) {

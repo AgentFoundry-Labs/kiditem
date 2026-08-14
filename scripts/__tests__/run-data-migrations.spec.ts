@@ -31,7 +31,6 @@ describe("data migration registry", () => {
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.19:001_sellpia_inventory_freshness",
-      "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.24:001_dedupe_detail_page_artifacts",
       "v0.1.25:001_repair_ad_campaign_daily_business_dates",
       "v0.1.25:002_repair_coupang_ads_daily_conversions",
@@ -50,12 +49,11 @@ describe("data migration registry", () => {
         /backfill|normalize|rewrite|repoint|verify/.test(id),
       ),
     ).toEqual([
-      "v0.1.21:001_backfill_inventory_commitments",
       "v0.1.30:002_backfill_profitability_source_freshness",
     ]);
   });
 
-  it("registers the 0.1.25 ad campaign repairs and the 0.1.21 inventory commitment backfill", () => {
+  it("registers the current ad campaign and ABC migrations without the retired inventory commitment backfill", () => {
     const migrationIds = dataMigrations.map((migration) => migration.id);
 
     expect(migrationIds).toContain(
@@ -63,9 +61,6 @@ describe("data migration registry", () => {
     );
     expect(migrationIds).toContain(
       "v0.1.25:005_remove_ambiguous_ad_campaign_account_kpis",
-    );
-    expect(migrationIds).toContain(
-      "v0.1.21:001_backfill_inventory_commitments",
     );
     expect(migrationIds).toContain(
       "v0.1.26:001_initialize_master_product_abc_policy",
@@ -102,7 +97,7 @@ describe("data migration registry", () => {
     };
 
     expect(releaseVersions).toContain("0.1.19");
-    expect(releaseVersions).toContain("0.1.21");
+    expect(releaseVersions).not.toContain("0.1.21");
     expect(releaseVersions).not.toContain("0.1.22");
 
     // Migrations for the open release train carry the root VERSION in their

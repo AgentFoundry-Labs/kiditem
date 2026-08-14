@@ -85,7 +85,6 @@ export const queryKeys = {
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,
-    receiptBatches: () => [...queryKeys.inventory.all, 'sellpia-receipt-batches'] as const,
     // Sellpia 상품별 소진(재고 분석)
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>

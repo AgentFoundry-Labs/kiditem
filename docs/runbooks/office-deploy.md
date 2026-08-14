@@ -132,6 +132,41 @@ reason in the PR body and final report. This only appends
 `--accept-data-loss` to `npx prisma db push`; it never performs
 `--force-reset`.
 
+### Destructive Maintenance Window
+
+An incompatible schema contraction is a planned full-stop maintenance action,
+not a normal runtime rollout. Before taking the final row counts or dump, stop
+API, worker, web, and nginx with the current Office Compose configuration. Keep
+PostgreSQL and MinIO running, and do not restart any application container until
+the schema operation and post-push relation checks are complete.
+
+While application writers remain stopped:
+
+1. Record the reviewed release SHA, image manifest, accepted-data-loss approval,
+   and pre-drop row counts.
+2. Create a fresh custom-format PostgreSQL dump, verify `pg_restore --list`,
+   record its SHA-256, confirm the NAS copy has the same hash, and name the
+   restore owner.
+3. Stage the exact reviewed API/web digest refs and Compose/nginx files from the
+   downloaded bundle. Validate the Compose configuration, but do not start the
+   application services.
+4. Run `npx prisma db push --accept-data-loss` once from the candidate API image
+   with `docker compose run --rm --no-deps api`.
+5. Verify the retired and retained relations, then start and smoke-test the new
+   runtime with the reviewed Compose configuration.
+
+Do not use the normal `apply-deployment.ps1 -Operation Deploy` wrapper for this
+one incompatible cutover. Its runtime-file rollback is designed for application
+failures and is not a database rollback. The operator owns the full-stop
+sequence above and starts an application runtime only after the database shape
+has been accepted.
+
+If schema application or the new runtime fails, keep every application service
+stopped. Runtime-only `-Operation Rollback` is incompatible with the contracted
+database. Restore the verified pre-push database dump first, then start the
+previous manifest so the database and runtime are rolled back as one pair.
+Record the dump SHA, previous image digests, restore result, and smoke evidence.
+
 If the release includes durable data migrations, run the approved phase order
 against the Office database with a fresh backup in place:
 
@@ -276,10 +311,12 @@ guards, and swaps the current/previous manifest records:
 & C:\workspace\kiditem\deploy\office\apply-deployment.ps1 -Operation Rollback
 ```
 
-Rollback is valid for application regressions only. It does not undo Prisma schema changes,
-data migrations, marketplace writes, object-storage changes,
-or queued jobs. If a release changes the database incompatibly, block rollout
-until a separate data recovery or forward-fix plan is approved.
+Rollback is valid for application regressions only.
+Runtime-only rollback does not undo Prisma schema changes. It also does not
+undo data migrations, marketplace writes, object-storage changes, or queued
+jobs. After an incompatible schema change, never start the previous runtime
+against the changed database. Keep application services stopped and restore the
+verified database dump before starting the previous manifest.
 
 ## Blockers
 

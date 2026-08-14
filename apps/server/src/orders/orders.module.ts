@@ -7,8 +7,6 @@ import { OrdersController } from './controllers/orders.controller';
 import { OrdersService } from './services/orders.service';
 import { ReturnsController } from './controllers/returns.controller';
 import { ReturnsService } from './services/returns.service';
-import { CsController } from './controllers/cs.controller';
-import { CsService } from './services/cs.service';
 import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ReviewIngestService } from './services/review-ingest.service';
@@ -38,7 +36,6 @@ import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operati
     OrderCollectionController,
     OrderCollectionMallAccountController,
     ReturnsController,
-    CsController,
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
@@ -50,7 +47,6 @@ import { MarketplaceOrderCollectionOperationHandler } from './adapter/in/operati
     CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
     ReturnsService,
-    CsService,
     ReviewsService,
     ReviewIngestService,
     ReturnTransfersService,

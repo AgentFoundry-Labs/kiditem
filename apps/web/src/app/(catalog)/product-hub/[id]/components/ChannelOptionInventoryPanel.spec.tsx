@@ -32,7 +32,6 @@ const channelListings = [{
       optionName: null,
       barcode: null,
       currentStock: 85,
-      activeCommitmentQuantity: 0,
       availableStock: 85,
       isActive: true,
       quantity: 10,
