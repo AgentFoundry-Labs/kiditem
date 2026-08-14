@@ -1,5 +1,8 @@
 # CopilotKit-Native Interaction OS Execution Index Implementation Plan
 
+Last amended: 2026-08-14 — owner-port execution boundaries and canonical ID
+system propagated through Plans 1–4.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reconstruct KidItem AI interaction around one session-backed
@@ -12,7 +15,10 @@ replay, and reconnect state. A separately deployed stateless Interaction
 Gateway forwards only Nest-authorized AG-UI runs; the first submitted run
 atomically creates `AgentSession`, its root `AgentSessionTask`, context epoch,
 policy snapshot, execution, and first conversation event, while later runs
-reuse that session. Operations owns durable run envelopes and engine dispatch.
+reuse that session. Agent capabilities adapt authorized invocations into
+owning-domain input ports; Operations owns durable run envelopes and engine
+dispatch and invokes owner ports directly. Shared branded IDs and canonical
+resource names carry KidItem identity across those boundaries.
 
 **Tech Stack:** Node.js 22, TypeScript, Next.js App Router, React, NestJS,
 Prisma/PostgreSQL, CopilotKit OSS Runtime/React Core `1.67.1`, AG-UI `0.0.57`,
@@ -62,8 +68,22 @@ Testing Library, and Playwright
   one click creates exactly one visible user turn and consumes its siblings.
 - Frontend code reaches business data only through NestJS APIs and never
   imports Prisma, `pg`, Supabase, or another database client.
-- Deterministic automation never creates AgentOS work. LLM judgment starts in
-  AgentOS and may invoke Operations-owned deterministic capabilities.
+- Deterministic synchronous work invokes owning-domain input ports directly;
+  deterministic long-running work uses Operations without creating AgentOS
+  work. LLM judgment starts in AgentOS and may invoke owner-published
+  capabilities. Operations owns lifecycle, not business capabilities.
+- HTTP, CLI, Agent, and Operation entrypoints are incoming adapters. Input
+  ports are named for owning-domain use cases, never for caller type.
+- An Operations handler invokes its owner input port and never dispatches a
+  business command through `AgentCapabilityRegistry`. The AgentOS-owned
+  durable task operation may resume only the AgentOS task-execution use case.
+- The generic non-session `AgentRun` route is transitional only: deterministic
+  callers migrate to owner use cases/Operations and judgment callers migrate
+  to official AgentSession executions.
+- Physical database keys remain owner-private UUIDs; application IDs are
+  Zod-branded; HTTP, AG-UI, event, and cross-domain references use canonical
+  resource names. External protocol IDs, request IDs, idempotency keys,
+  sequences, tokens, and digests remain distinct types.
 - Missing model selection or a runtime that lacks required durability
   semantics is an explicit error; no silent model or runtime fallback exists.
 - Prisma uses `String` plus DTO/Zod/domain validation instead of native
@@ -163,11 +183,61 @@ capability claims from the browser.
 | `AgentPolicySnapshot` | AgentOS | Immutable grants and policy hash used by executions |
 | `AgentExecution` and usage | AgentOS | AG-UI/runtime/model/policy correlation, terminal state, cost |
 | Operation/run/checkpoint envelope | Operations | Dispatch, retry, checkpoint, cancellation, terminal state |
+| Business input port and domain policy | Owning business domain | Use-case semantics shared by HTTP, Agent, and Operation adapters |
+| Agent capability adapter | Owning business domain, registered by AgentOS | Policy-gated translation from Agent invocation into the owner input port |
 | Business facts and mutations | Owning domain | Organization-scoped source of truth |
 
 ## Cross-Plan Contract
 
-All four plans use these identifiers and nullability unchanged:
+All four plans use one identifier vocabulary. The implementation lives in the
+focused `@kiditem/shared/identifiers` subpath and is consumed by
+`@kiditem/shared/agent-interaction`; it is not exported from the shared root
+barrel.
+
+### Identifier classes
+
+| Class | Representation | Boundary rule |
+|---|---|---|
+| Storage key | Prisma `String @default(uuid()) @db.Uuid` | Private to the owner repository adapter; no public UUID-generation promise |
+| Logical ID | Zod-branded UUID/string/number | Used inside one owner application/domain; parsed at incoming adapters |
+| Resource name | Typed hierarchical string | Required at HTTP, AG-UI, event, and cross-domain boundaries |
+| Stable code key | Namespaced validated string | Agent definition, capability, operation, runtime, policy, and schema keys |
+| External protocol ID | Bounded opaque string | `copilotThreadId`, `aguiRunId`, `toolCallId`; never parsed as KidItem IDs |
+| Request ID | UUIDv4 | Transport correlation only, never a resource or idempotency identity |
+| Idempotency key | Bounded scoped key or canonical digest | Command identity; its scope is part of the uniqueness contract |
+| Sequence | Server-assigned bigint / canonical decimal string | Aggregate ordering; never inferred from UUID or timestamp order |
+| Token | High-entropy opaque bearer value | Short lived; persist only a digest/reference when necessary |
+| Digest | Canonical lowercase SHA-256 hex | Content/policy identity only |
+
+Resource names follow [AIP-122](https://google.aip.dev/122); resource types and
+patterns follow [AIP-123](https://google.aip.dev/123). They contain no `/api`
+prefix or API version and are never authorization by themselves:
+
+```text
+organizations/{organization}
+users/{user}
+agentDefinitions/{agentDefinitionKey}
+agentDefinitions/{agentDefinitionKey}/versions/{version}
+organizations/{organization}/agentSessions/{session}
+organizations/{organization}/agentSessions/{session}/tasks/{task}
+organizations/{organization}/agentSessions/{session}/executions/{execution}
+organizations/{organization}/agentSessions/{session}/executions/{execution}/attempts/{attempt}
+organizations/{organization}/agentSessions/{session}/events/{sequence}
+organizations/{organization}/operations/{operation}
+organizations/{organization}/operations/{operation}/checkpoints/{sequence}
+```
+
+The owner formats names from parent scope plus branded IDs and parses the exact
+expected resource type before authorization. It does not persist a redundant
+`name` column. Existing UUID rows are not rekeyed. `attempt` and event/checkpoint
+segments use their server-assigned ordinal where that ordinal is the logical
+identity. A row may still have a private UUID storage key.
+
+### Interaction wire contract
+
+These public field names and nullability are normative. Persistence and
+repository records may use branded `...Id` fields internally, but raw database
+IDs never substitute for these resource names:
 
 ```typescript
 type AgentSessionLifecycle =
@@ -179,11 +249,11 @@ type AgentSessionLifecycle =
 interface AgentCorrelation {
   copilotThreadId: string;
   aguiRunId: string;
-  executionId: string;
-  sessionId: string;
-  sessionTaskId: string;
-  attemptId: string | null;
-  operationsRunId: string | null;
+  session: AgentSessionName;
+  task: AgentSessionTaskName;
+  execution: AgentExecutionName;
+  attempt: AgentExecutionAttemptName | null;
+  operation: OperationRunName | null;
 }
 
 type AgentConversationEventType =
@@ -197,9 +267,9 @@ type AgentConversationEventType =
   | 'run_terminal';
 
 interface AgentConversationEventEnvelope {
-  eventId: string;
-  sessionId: string;
-  executionId: string | null;
+  name: AgentConversationEventName;
+  session: AgentSessionName;
+  execution: AgentExecutionName | null;
   sequence: string;
   eventType: AgentConversationEventType;
   schemaVersion: 1;
@@ -208,7 +278,7 @@ interface AgentConversationEventEnvelope {
 }
 
 interface AgentConversationReplay {
-  sessionId: string;
+  session: AgentSessionName;
   events: AgentConversationEventEnvelope[];
   nextCursor: string | null;
   lastSequence: string;
@@ -216,10 +286,9 @@ interface AgentConversationReplay {
 
 interface InteractionRunIntentClaims {
   version: 1;
-  organizationId: string;
-  userId: string;
-  agentDefinitionKey: string;
-  agentVersionId: string;
+  organization: OrganizationName;
+  user: UserName;
+  agentVersion: AgentVersionName;
   copilotThreadId: string;
   aguiRunId: string;
   dashboardContextHash: string;
@@ -229,20 +298,21 @@ interface InteractionRunIntentClaims {
 }
 ```
 
-Database IDs remain opaque strings in HTTP/AG-UI contracts.
 `copilotThreadId` and `aguiRunId` are external identifiers and are never parsed
 as KidItem database IDs. The UI may require a UUID-shaped Copilot thread ID
 only when the official CopilotKit API contract requires it.
-`attemptId` and `operationsRunId` are null for an execution that has not entered
-the durable runtime; once assigned they never change for that attempt/run.
-`operationsRunId` is the cross-plane wire field and contains `OperationRun.id`;
-the existing Prisma foreign-key field may remain singular `operationRunId`.
-Shared UI event schemas use the shorter wire field `taskId`; its value is
-always the same `AgentSessionTask.id` carried as `sessionTaskId` in run
-authorization and persistence ports.
+`attempt` and `operation` are null for an execution that has not entered the
+durable runtime; once assigned their resource names never change for that
+attempt/run. The existing Prisma fields may remain `attemptId` and
+`operationRunId` internally. Shared UI event schemas use `task` for the
+canonical `AgentSessionTask` resource name.
 Conversation `sequence` is a decimal string on the wire so PostgreSQL bigint
 ordering remains lossless in JavaScript. The server signs replay cursors; the
 browser never supplies a trusted sequence, organization, or ownership claim.
+`requestId` follows [AIP-155](https://google.aip.dev/155) and stays separate
+from command idempotency. Operations follow
+[AIP-151](https://google.aip.dev/151): the operation resource has metadata and
+eventually exactly one typed result or stable error.
 
 ## Plan Map And Required Order
 
@@ -252,7 +322,8 @@ Reconstructs the committed Enterprise-oriented lock into an OSS-only platform
 lock and reconstructs shared contracts, Prisma control/conversation state,
 repository transactions, run intents, authorization, replay access, HTTP
 guards, scanners, and Nest wiring around `AgentSession` as the only thread
-control root.
+control root. It also establishes branded logical IDs and canonical resource
+names before downstream plans publish wire contracts.
 
 ### 2. [Agent Session Interaction Vertical Slice](./2026-08-13-agent-session-interaction-vertical-slice.md)
 
@@ -266,14 +337,16 @@ browser acceptance.
 Consumes Plans 1 and 2 and produces task decomposition, Operations-backed
 durable execution, runtime adapters, approval/progress/artifact cards,
 reconnect, cancellation, and terminal reconciliation beneath the existing
-session root.
+session root. It removes the generic non-session AgentRun branch, keeps Agent
+capabilities as owner-domain incoming adapters, and keeps Operations handlers
+on owner use-case ports.
 
 ### 4. [Production Cutover And Legacy Deletion](./2026-08-13-interaction-os-cutover.md)
 
 Consumes all earlier plans and produces production-grade KidItem conversation
 storage/replay operations, Office release integration, retention/deletion/legal
 hold, compatibility canaries, guarded migration, and deletion of every legacy
-conversation path.
+conversation and generic AgentRun path without rekeying existing UUID rows.
 
 Execute Plans 1–4 in order. A draft PR may exist while KID-24 is active, but
 final integration and acceptance require its merged baseline. Within a plan,
@@ -310,6 +383,9 @@ data backfill and no version bump.
 | Empty surface/history/reconnect write nothing | service test | browser test | regression | production smoke |
 | First run creates session graph plus first event | real PostgreSQL | AG-UI test | regression | smoke |
 | Every execution owns session/task | schema + repository | regression | durable test | scanner |
+| Canonical resource names; no raw cross-boundary DB IDs | shared contract + scanner | gateway/UI | runtime/operations | cutover scanner |
+| Owner input ports shared by HTTP/Agent/Operation adapters | architecture contract | initial capability | full dispatch | scanner |
+| Operations never dispatch business work through Agent capability registry | service contract | regression | durable test | scanner |
 | Same thread in panel/workspace | connection contract | full test | progress test | smoke |
 | Mutation remains policy/HITL gated | policy contract | read slice | full matrix | smoke |
 | Browser/gateway/worker restart recovery | connection test | gateway | durable run | load/DR |
@@ -359,6 +435,12 @@ Stop instead of adding a compatibility layer when:
   decision;
 - a selected durable runtime cannot persist and inspect a handle after worker
   restart;
+- an HTTP, AG-UI, event, or cross-domain contract requires an untyped raw
+  database UUID instead of a canonical resource name;
+- deterministic work can run only by creating AgentOS state, or an Operations
+  worker must call the Agent capability registry to reach a business use case;
+- a legacy non-session AgentRun caller cannot be classified as deterministic
+  owner work or official session-based judgment;
 - a requirement would create a second user-visible transcript instead of the
   canonical AgentOS event store;
 - production would require permanent dual write; or
@@ -370,11 +452,13 @@ resumes.
 ## Completion Definition
 
 - [ ] Plan 1 proves atomic/idempotent first-run control plus first-event
-  creation and read-only bootstrap/replay behavior.
+  creation, read-only bootstrap/replay behavior, and the identifier/resource-
+  name contract.
 - [ ] Plan 2 proves global panel, first submit, same-session continuation, new
   conversation, reconnect, and safe read/render behavior.
 - [ ] Plan 3 proves policy-gated durable work survives browser, gateway, and
-  worker restarts with approval, retry, and cancellation.
+  worker restarts with approval, retry, and cancellation while preserving the
+  capability/use-case/operation dependency direction.
 - [ ] Plan 4 proves backup/restore, retention/deletion, upgrade canary,
   production ingress, and absence of legacy paths.
 - [ ] Architecture, environment, deployment, ownership, SBOM, license, and

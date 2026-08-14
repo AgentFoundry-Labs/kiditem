@@ -14,7 +14,9 @@ built in Foundation, and forwards only validated authorization to a Nest AG-UI
 agent. KidItem PostgreSQL supplies history and replay; one reusable React v2
 surface provides panel, reconnect, agent selection before first submit, typed
 renderers, suggested replies, and verified navigation without a legacy or
-vendor-side transcript store.
+vendor-side transcript store. Public KidItem references use the canonical
+resource names defined by Foundation; the gateway treats CopilotKit thread/run
+IDs as opaque external protocol identities.
 
 **Tech Stack:** Node.js 22, TypeScript, CopilotKit Runtime/React Core `1.67.1`,
 AG-UI client/core/encoder `0.0.57`, React 19, Next.js 16 App Router, NestJS 11,
@@ -45,9 +47,10 @@ Zod, RxJS, Vitest, Testing Library, Playwright
 
 ### AG-UI Operator and safe reads
 
-- `apps/server/src/agent-os/application/port/in/agent-agui-runner.port.ts`:
-  normalized AG-UI run/cancel contract.
-- `apps/server/src/agent-os/application/service/agent-agui-run.service.ts`:
+- `apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts`:
+  official session execution/connect/stop use case, named independently of
+  AG-UI/HTTP callers.
+- `apps/server/src/agent-os/application/service/agent-session-execution.service.ts`:
   policy-checked tool/model loop that durably appends normalized conversation
   events before emitting AG-UI.
 - `apps/server/src/agent-os/application/port/out/event/agent-conversation-live-publisher.port.ts`:
@@ -57,13 +60,14 @@ Zod, RxJS, Vitest, Testing Library, Playwright
   catch-up.
 - `apps/server/src/agent-os/adapter/in/http/agent-agui.controller.ts`: SSE AG-UI
   route and stop route.
-- `apps/server/src/analytics/dashboard/application/port/in/analytics-overview-capability.port.ts`:
-  owner-published read capability.
-- `apps/server/src/analytics/dashboard/adapter/in/agent/analytics-overview-capability.adapter.ts`:
-  bounded projection from existing dashboard services and registration in
+- `apps/server/src/analytics/dashboard/application/port/in/analytics-overview-read.port.ts`:
+  owner-published business read use case shared by all incoming adapters.
+- `apps/server/src/analytics/dashboard/adapter/in/agent/analytics-overview-agent.adapter.ts`:
+  bounded Agent-facing translation into the read port and registration in
   `AgentCapabilityRegistry`.
-- Existing `SourcingWorkspaceCapabilityAdapter`: reuse only the two registered
-  read handlers; do not add a parallel sourcing query implementation.
+- Refactor the existing sourcing Agent adapter to call its owner-published
+  workspace-read input port; reuse only the two registered read handlers and
+  do not add a parallel sourcing query implementation.
 
 ### Shared response vocabulary
 
@@ -72,6 +76,8 @@ Zod, RxJS, Vitest, Testing Library, Playwright
   result schemas.
 - Modify `packages/shared/package.json` and `tsup.config.ts`: keep everything
   beneath `@kiditem/shared/agent-interaction`; do not add a root export.
+- Consume `@kiditem/shared/identifiers` for canonical resource references and
+  opaque presentation-action references; do not define local UUID aliases.
 
 ### Shared web surface
 
@@ -393,9 +399,9 @@ git commit -m "feat: authorize copilotkit gateway runs"
 
 **Files:**
 
-- Create: `apps/server/src/agent-os/application/port/in/agent-agui-runner.port.ts`
-- Create: `apps/server/src/agent-os/application/service/__tests__/agent-agui-run.service.spec.ts`
-- Create: `apps/server/src/agent-os/application/service/agent-agui-run.service.ts`
+- Create: `apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts`
+- Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-execution.service.spec.ts`
+- Create: `apps/server/src/agent-os/application/service/agent-session-execution.service.ts`
 - Create: `apps/server/src/agent-os/application/port/out/event/agent-conversation-live-publisher.port.ts`
 - Create: `apps/server/src/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.ts`
 - Create: `apps/server/src/agent-os/adapter/out/event/__tests__/in-process-agent-conversation-live-publisher.adapter.spec.ts`
@@ -420,8 +426,8 @@ const events = await collect(service.run({
 expect(events[0]).toMatchObject({ type: 'RUN_STARTED', threadId: 'thread-1', runId: 'run-1' });
 expect(events.at(-1)).toMatchObject({ type: 'RUN_FINISHED', threadId: 'thread-1', runId: 'run-1' });
 expect(policy.authorizeCapability).toHaveBeenCalledWith(expect.objectContaining({
-  sessionId: 'session-1',
-  executionId: 'execution-1',
+  session: sessionName,
+  execution: executionName,
 }));
 expect(calls.slice(0, 2)).toEqual([
   'persist:RUN_STARTED',
@@ -445,7 +451,7 @@ the canonical repository and accepts only the current signed user event.
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/application/service/__tests__/agent-agui-run.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-session-execution.service.spec.ts \
   src/agent-os/adapter/out/event/__tests__/in-process-agent-conversation-live-publisher.adapter.spec.ts \
   src/agent-os/adapter/in/http/__tests__/agent-agui.controller.spec.ts
 ```
@@ -455,13 +461,13 @@ Expected: missing service/controller modules.
 - [ ] **Step 3: Define the incoming port and normalized loop**
 
 ```typescript
-export interface AgentAguiRunnerPort {
+export interface AgentSessionExecutionPort {
   run(input: AuthorizedAguiRunInput): AsyncIterable<BaseEvent>;
   stop(input: {
-    organizationId: string;
-    sessionId: string;
-    executionId: string;
-    copilotThreadId: string;
+    organization: OrganizationName;
+    session: AgentSessionName;
+    execution: AgentExecutionName;
+    copilotThreadId: CopilotThreadId;
   }): Promise<void>;
 }
 ```
@@ -479,7 +485,7 @@ one transaction. It preserves sequence, marks terminal state once, records
 usage, and never copies message text into task, usage, analytics, or audit
 records. The initial user event already written by `authorizeExecution` is
 verified by ID/hash and is not appended again. After commit, publish a
-content-free `{organizationId,sessionId,eventId,sequence}` pointer to the local
+content-free `{organization,session,event,sequence}` resource-name pointer to the local
 publisher; publisher failure does not roll back the event and the database
 catch-up path remains authoritative.
 
@@ -510,7 +516,7 @@ controller never derives organization or capabilities from URL/body values.
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/application/service/__tests__/agent-agui-run.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-session-execution.service.spec.ts \
   src/agent-os/adapter/out/event/__tests__/in-process-agent-conversation-live-publisher.adapter.spec.ts \
   src/agent-os/adapter/in/http/__tests__/agent-agui.controller.spec.ts \
   src/agent-os/__tests__/agent-os.module.wiring.spec.ts
@@ -524,9 +530,9 @@ Expected: all PASS.
 - [ ] **Step 6: Commit the AG-UI loop**
 
 ```bash
-git add apps/server/src/agent-os/application/port/in/agent-agui-runner.port.ts \
-  apps/server/src/agent-os/application/service/agent-agui-run.service.ts \
-  apps/server/src/agent-os/application/service/__tests__/agent-agui-run.service.spec.ts \
+git add apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts \
+  apps/server/src/agent-os/application/service/agent-session-execution.service.ts \
+  apps/server/src/agent-os/application/service/__tests__/agent-session-execution.service.spec.ts \
   apps/server/src/agent-os/adapter/in/http/agent-agui.controller.ts \
   apps/server/src/agent-os/adapter/in/http/__tests__/agent-agui.controller.spec.ts \
   apps/server/src/agent-os/agent-os.module.ts \
@@ -538,12 +544,12 @@ git commit -m "feat: stream policy-safe agent sessions"
 
 **Files:**
 
-- Create: `apps/server/src/analytics/dashboard/application/port/in/analytics-overview-capability.port.ts`
-- Create: `apps/server/src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-capability.adapter.spec.ts`
-- Create: `apps/server/src/analytics/dashboard/adapter/in/agent/analytics-overview-capability.adapter.ts`
+- Create: `apps/server/src/analytics/dashboard/application/port/in/analytics-overview-read.port.ts`
+- Create: `apps/server/src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-agent.adapter.spec.ts`
+- Create: `apps/server/src/analytics/dashboard/adapter/in/agent/analytics-overview-agent.adapter.ts`
 - Modify: `apps/server/src/analytics/dashboard/dashboard.module.ts`
 - Modify: `apps/server/src/analytics/dashboard/__tests__/dashboard.module.wiring.spec.ts`
-- Verify: `apps/server/src/sourcing/adapter/in/agent/sourcing-workspace-capability.adapter.ts`
+- Refactor: `apps/server/src/sourcing/adapter/in/agent/sourcing-workspace-agent.adapter.ts`
 - Verify: `apps/server/src/sourcing/__tests__/sourcing-capabilities.spec.ts`
 - Modify: `apps/server/src/agent-os/domain/agent-definition.registry.ts`
 - Modify: `apps/server/src/agent-os/domain/__tests__/agent-definition.registry.spec.ts`
@@ -575,7 +581,7 @@ payload. Existing sourcing tests must prove only
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-capability.adapter.spec.ts \
+  src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-agent.adapter.spec.ts \
   src/sourcing/__tests__/sourcing-capabilities.spec.ts \
   src/agent-os/domain/__tests__/agent-definition.registry.spec.ts
 ```
@@ -585,23 +591,26 @@ Expected: analytics adapter missing and Operator capability list mismatch.
 - [ ] **Step 3: Implement the owner-published analytics port**
 
 ```typescript
-export const ANALYTICS_OVERVIEW_CAPABILITY_PORT = Symbol(
-  'ANALYTICS_OVERVIEW_CAPABILITY_PORT',
+export const ANALYTICS_OVERVIEW_READ_PORT = Symbol(
+  'ANALYTICS_OVERVIEW_READ_PORT',
 );
 
-export interface AnalyticsOverviewCapabilityPort {
+export interface AnalyticsOverviewReadPort {
   readOverview(input: {
-    organizationId: string;
+    organizationId: OrganizationId;
     now: Date;
     period?: 'today' | 'month';
   }): Promise<AnalyticsOverview>;
 }
 ```
 
-The analytics-owned adapter composes existing Dashboard context/sales/inventory
-services, projects only normalized totals/warnings/freshness, and registers
-`analytics.readOverview` with `sideEffects=['read']` and
-`approvalRisk='none'`. It never imports AgentOS application services.
+The analytics owner implements this business read use case independently of
+its callers. The Agent incoming adapter derives organization from trusted
+invocation context, calls the read port, projects only normalized
+totals/warnings/freshness, and registers `analytics.readOverview` with
+`sideEffects=['read']` and `approvalRisk='none'`. It never imports AgentOS
+application services. HTTP or Operations adapters may call the same input port
+without routing through the Agent adapter.
 
 - [ ] **Step 4: Set the immutable Operator profile**
 
@@ -623,7 +632,7 @@ explicit, and missing configuration fails readiness.
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-capability.adapter.spec.ts \
+  src/analytics/dashboard/adapter/in/agent/__tests__/analytics-overview-agent.adapter.spec.ts \
   src/analytics/dashboard/__tests__/dashboard.module.wiring.spec.ts \
   src/sourcing/__tests__/sourcing-capabilities.spec.ts \
   src/agent-os/domain/__tests__/agent-definition.registry.spec.ts
@@ -684,7 +693,7 @@ Expected: missing module.
 ```typescript
 export const SuggestedRepliesResultSchema = z.object({
   kind: z.literal('suggested_replies'),
-  messageId: z.string().min(1),
+  messageId: AguiMessageIdSchema,
   replies: z.array(z.object({
     id: z.string().min(1),
     label: z.string().min(1).max(80),
@@ -695,7 +704,7 @@ export const SuggestedRepliesResultSchema = z.object({
 
 export const NavigationResultSchema = z.object({
   kind: z.literal('navigation'),
-  actionId: z.string().uuid(),
+  actionRef: PresentationActionRefSchema,
   routeKey: z.enum([
     'dashboard',
     'agent_os',
@@ -703,7 +712,7 @@ export const NavigationResultSchema = z.object({
     'sourcing_candidate',
     'inventory_stock_ops',
   ]),
-  resourceRef: CanonicalResourceRefSchema.nullable(),
+  resource: AllowedCanonicalResourceNameSchema.nullable(),
   label: z.string().min(1).max(80),
   disabledReason: z.string().min(1).max(200).nullable(),
   expiresAt: z.string().datetime(),
@@ -711,8 +720,12 @@ export const NavigationResultSchema = z.object({
 }).strict();
 ```
 
-Union the full vocabulary and infer types. Export it from the focused
-`agent-interaction` subpath only.
+`PresentationActionRefSchema` is a bounded opaque server-minted capability
+reference with expiry; it is not a resource ID and has no UUID contract. Store
+only its digest if the action must be persisted. Resource links use an
+allowlisted canonical resource-name union, not raw database IDs. Union the full
+vocabulary and infer types. Export it from the focused `agent-interaction`
+subpath only.
 
 - [ ] **Step 4: Run package gates**
 
@@ -794,11 +807,14 @@ Expected: missing modules.
 `useInteractionBootstrap` calls `apiClient.get`, parses
 `InteractionBootstrapSchema`, stores no server response in Zustand, and lets
 React Query own freshness. Local state contains only open/closed, selected
-agent before first submit, selected session/thread, and an unsent draft.
+agent before first submit, selected canonical session name/external thread,
+and an unsent draft. The web app treats resource names as typed opaque values;
+it never extracts UUID segments to make authorization or routing decisions.
 
 Do not mint a KidItem database ID. For a new conversation, generate one
 RFC4122 UUID with `crypto.randomUUID()` as the external AG-UI thread ID and
-hold it only in component state until the first run.
+hold it only in component state until the first run. This UUID shape is an
+external CopilotKit protocol requirement, not KidItem's resource-ID scheme.
 
 - [ ] **Step 4: Bridge KidItem history into React v2 OSS primitives**
 
@@ -954,7 +970,7 @@ Prove:
 - unknown tool kinds render text fallback, never dynamic components;
 - suggested replies show at most three, are latest-message-only, and one click
   sends one user turn while consuming siblings;
-- navigation submits only `actionId`, refetches server authorization, and calls
+- navigation submits only `actionRef`, refetches server authorization, and calls
   `router.push` with the returned allowlisted href;
 - expired/inaccessible actions remain disabled with visible reason;
 - dashboard context strips arbitrary DOM, hidden fields, raw URLs, org/role,
@@ -978,10 +994,11 @@ Expected: missing modules.
 - [ ] **Step 3: Implement server-minted presentation**
 
 The presentation service validates tool results against
-`InteractionUiResultSchema`, resolves route keys/resource refs through an
-allowlist, mints UUID action IDs with short expiry, and returns only typed
-results. The action controller receives `actionId`, derives actor/org from the
-session, revalidates resource access/version, and returns one allowlisted href.
+`InteractionUiResultSchema`, resolves route keys/resource names through an
+allowlist, mints opaque action references with short expiry, and returns only
+typed results. The action controller receives `actionRef`, derives actor/org
+from the authenticated session, parses the expected canonical resource type,
+revalidates resource access/version, and returns one allowlisted href.
 Navigation never creates an AgentExecution or task.
 
 - [ ] **Step 4: Implement registered web renderers**
@@ -1043,8 +1060,8 @@ Analytics events contain only:
 {
   event: 'interaction_run_finished',
   organizationHash: '8c1f1046219ddd216a023f792356ddf127fce372a6a36b47fe9ba1a9f371721d',
-  sessionId: 'session-1',
-  executionId: 'execution-1',
+  sessionHash: 'a71b...',
+  executionHash: 'c92d...',
   agentDefinitionKey: 'operator',
   surface: 'global_panel',
   durationMs: 1200,
@@ -1053,8 +1070,9 @@ Analytics events contain only:
 }
 ```
 
-The adapter test rejects message text, model output, resource names, raw IDs
-other than control correlation IDs, tokens, cookies, and dashboard payload.
+The adapter test rejects message text, model output, resource names, raw IDs,
+tokens, cookies, and dashboard payload. Analytics correlation uses dedicated
+HMAC digests and is never accepted back as an operational resource identity.
 
 Playwright covers: open panel → zero control writes; choose agent → zero
 writes; first send → exactly one session/root/epoch/policy/execution/user-event
@@ -1095,6 +1113,7 @@ started.
 ```bash
 npm run check:copilotkit-train
 npm run check:agent-interaction-lifecycle
+npm run check:identifier-contracts
 npm run build --workspace=packages/shared
 npm run build --workspace=apps/interaction-gateway
 npm run build --workspace=apps/server
@@ -1136,7 +1155,12 @@ git commit -m "feat: complete agent session interaction slice"
 - [ ] First submit creates one complete session graph, canonical user event,
   and outbox row; exact retry returns all of them.
 - [ ] Same-thread continuation and new-thread session behavior are proven.
+- [ ] Gateway, HTTP, AG-UI, UI resources, and analytics obey the identifier
+  taxonomy: canonical resource names, opaque external IDs/action references,
+  and HMAC-only analytics correlation.
 - [ ] Only policy-approved read handlers execute in this slice.
+- [ ] Agent capability adapters call owner input ports; no Operations path or
+  HTTP adapter calls the Agent capability registry as a business API.
 - [ ] CopilotKit OSS renders every user-visible message/event while the one
   durable copy lives in `AgentConversationEvent`; no legacy or vendor-side
   transcript remains.

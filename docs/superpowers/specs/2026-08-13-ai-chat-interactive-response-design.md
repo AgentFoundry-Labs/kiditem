@@ -1,6 +1,8 @@
 # KidItem CopilotKit-Native Interaction OS And AgentOS Design
 
 - Date: 2026-08-13
+- Last amended: 2026-08-14 — hexagonal capability/Operation boundary and
+  canonical identifier system
 - Status: Approved canonical design
 - Classification: greenfield AgentOS platform reconstruction with a shared web
   interaction surface
@@ -43,7 +45,15 @@ AgentOS becomes the control and reasoning plane behind that interaction:
 
 The Operations control plane continues to own generic schedules, run envelopes,
 and engine dispatch. Business domains continue to own their facts and
-mutations.
+mutations. Agent capabilities are incoming adapters to those owner-domain use
+cases; Operations handlers call owner input ports and never use the capability
+registry as a business API. Deterministic work needs no conversation, while
+LLM judgment always uses an official AgentSession execution.
+
+KidItem also adopts one explicit identifier system: native UUID storage keys,
+branded application IDs, hierarchical canonical resource names at public and
+cross-domain boundaries, and separate external/request/idempotency/sequence/
+token/digest identities. Existing UUID rows remain valid and are not rekeyed.
 
 The canonical protocol between CopilotKit and AgentOS is **AG-UI**. The
 canonical conversation store is **KidItem AgentOS backed by PostgreSQL**.
@@ -165,19 +175,34 @@ AgentOS Control Plane
        |                         |
        |                         +--> PostgreSQL
        |                              control · events · projections · outbox
-       v
-Operations durable execution
-  run envelope · checkpoint · retry · resume · cancel
        |
-       +--> Hermes adapter
-       +--> isolated Codex / Claude CLI adapters
-       +--> remote agent adapters
-             |
-             | scoped MCP / capabilities
-             v
-NestJS domain services
-  organization-scoped facts · deterministic actions · policy enforcement
+       +--> Agent capability incoming adapter
+       |       |
+       |       v
+       |    Owning-domain input port --> domain policy and facts
+       |                                 |              |
+       |                                 | synchronous  | durable request
+       |                                 v              v
+       |                              result        Operations
+       |
+       +--> AgentOS durable task request --> Operations
+                                               |
+                                               v
+                                  AgentOS task-execution input port
+                                               |
+                                               +--> Hermes adapter
+                                               +--> isolated CLI adapter
+                                               +--> remote agent adapter
 ~~~
+
+`Capability` and `Operation` are not competing execution abstractions. A
+capability is an AgentOS-facing incoming adapter to an owning-domain use case.
+An operation is a durable control resource for scheduling, leasing,
+checkpointing, retry, cancellation, and result reconciliation. An Operations
+handler invokes the owning use-case input port; it never routes a business
+command back through `AgentCapabilityRegistry`. AgentOS's own durable task
+operation may resume the AgentOS task-execution use case, but the operation
+handler itself does not become an Agent or dispatch arbitrary capabilities.
 
 ### 6.1 Interaction Gateway deployment
 
@@ -211,6 +236,8 @@ introduce a second browser-to-agent message protocol.
 | Session lifecycle and thread authorization | AgentOS AgentSession | CopilotKit metadata or browser state |
 | Task objective, delegation, authority, approval, and artifact linkage | AgentOS | Chat transcript |
 | Generic schedule, run envelope, and engine dispatch | Operations | CopilotKit OSS |
+| Business use case and capability contract | Owning NestJS domain | AgentOS or Operations |
+| Agent-facing capability registration | Owning-domain incoming adapter plus AgentOS registry | Operations worker |
 | Runtime-native execution state | Runtime adapter plus Operations envelope | React UI |
 | Domain facts and mutations | Owning NestJS domain | AgentOS transcript or CopilotKit state |
 | Product analytics | Analytics pipeline | AgentOS audit log |
@@ -220,6 +247,61 @@ Audit records remain a separate, purpose-limited projection containing hashes,
 identifiers, policy decisions, and tool evidence; they do not copy message
 history. CopilotKit OSS renders and emits the canonical KidItem records but is
 not another store.
+
+### 7.1 Identifier And Resource-Name System
+
+KidItem does not use one undifferentiated UUID string for every identity. The
+identity contract separates storage, logical, public, correlation, ordering,
+and security concerns:
+
+| Kind | Contract | Example / rule |
+|---|---|---|
+| Storage key | Native PostgreSQL UUID, private to the owning persistence adapter | Prisma keeps `String @default(uuid()) @db.Uuid`; UUID generation is not an API promise |
+| Logical ID | Zod-branded value owned by one domain | `AgentSessionId`, `OperationRunId`; parse at adapter boundaries and never use unchecked casts |
+| Canonical resource name | Stable hierarchical cross-boundary reference | `organizations/{organization}/agentSessions/{session}` |
+| Human-stable key | Namespaced code-owned identifier | Agent definition, capability, operation, and policy keys |
+| External protocol ID | Opaque value owned by another protocol | `copilotThreadId`, `aguiRunId`, `toolCallId`; never parse as a KidItem ID |
+| Request ID | Transport correlation only | UUIDv4 `requestId`; never reuse as a resource ID or idempotency key |
+| Idempotency key | Command identity scoped by owner and operation | Canonical digest or caller key plus explicit scope; not validated as a UUID |
+| Sequence | Server-assigned aggregate order | PostgreSQL `bigint`, decimal string on the wire; UUID/timestamp order is never canonical event order |
+| Token | Short-lived bearer proof | High-entropy opaque value; persist only a digest/reference when required |
+| Digest | Immutable content or policy identity | SHA-256 canonical hash; never treat as a resource ID |
+
+Canonical resource names follow Google [AIP-122](https://google.aip.dev/122),
+with resource types documented according to
+[AIP-123](https://google.aip.dev/123). They are identifiers, not URLs, and
+contain neither `/api` nor an API version. Initial patterns are:
+
+| Resource type | Canonical name pattern |
+|---|---|
+| `iam.kiditem.com/Organization` | `organizations/{organization}` |
+| `iam.kiditem.com/User` | `users/{user}` |
+| `agentos.kiditem.com/AgentDefinition` | `agentDefinitions/{agentDefinitionKey}` |
+| `agentos.kiditem.com/AgentVersion` | `agentDefinitions/{agentDefinitionKey}/versions/{version}` |
+| `agentos.kiditem.com/AgentSession` | `organizations/{organization}/agentSessions/{session}` |
+| `agentos.kiditem.com/AgentSessionTask` | `organizations/{organization}/agentSessions/{session}/tasks/{task}` |
+| `agentos.kiditem.com/AgentExecution` | `organizations/{organization}/agentSessions/{session}/executions/{execution}` |
+| `agentos.kiditem.com/AgentExecutionAttempt` | `organizations/{organization}/agentSessions/{session}/executions/{execution}/attempts/{attempt}` |
+| `agentos.kiditem.com/AgentConversationEvent` | `organizations/{organization}/agentSessions/{session}/events/{sequence}` |
+| `operations.kiditem.com/OperationRun` | `organizations/{organization}/operations/{operation}` |
+| `operations.kiditem.com/OperationCheckpoint` | `organizations/{organization}/operations/{operation}/checkpoints/{sequence}` |
+
+The database does not store a redundant `name` column. Owner projections build
+names from branded IDs and parent scope; incoming adapters parse the expected
+pattern and then reauthorize organization and parent-child relationships.
+Possessing a syntactically valid resource name grants no access. Resource IDs
+remain server-generated unless a create contract explicitly supports a
+caller-chosen stable ID as described by [AIP-133](https://google.aip.dev/133).
+Request identification follows [AIP-155](https://google.aip.dev/155), and an
+Operation remains a named long-running resource with metadata plus exactly one
+result or error as described by [AIP-151](https://google.aip.dev/151).
+
+This also follows the useful separation observed in the local Claude Code
+implementation: stable agent type, spawned agent/session identity, request
+correlation, transcript parentage, and short-lived attach handles are distinct
+types. KidItem adopts that separation, not Claude Code's local filesystem or
+prefix format. Type prefixes are allowed for ephemeral developer handles, but
+canonical persistent references use resource names.
 
 ## 8. Single Conversation Lifecycle
 
@@ -424,51 +506,56 @@ not model-authored business actions.
 The target control graph links durable control records to one canonical,
 append-only conversation event stream. Message content appears only in that
 stream; task, audit, policy, usage, and analytics records keep references or
-content-free evidence instead of copied transcripts. Names are conceptual until
-the schema implementation plan is approved.
+content-free evidence instead of copied transcripts. The `name` fields below
+are computed API projections; persistence keeps only branded UUID keys and
+parent relations.
 
 ~~~typescript
 interface AgentSession {
-  id: string;
-  organizationId: string;
+  id: AgentSessionId;
+  name: AgentSessionName;
+  organizationId: OrganizationId;
   copilotThreadId: string;
-  primaryAgentVersionId: string;
-  authorityProfileVersionId: string;
+  primaryAgentVersionId: AgentVersionId;
+  authorityProfileVersionId: AuthorityProfileVersionId;
   contextEpoch: number;
   status: 'active' | 'completed' | 'cancelled' | 'archived';
   createdByUserId: string;
 }
 
 interface AgentSessionTask {
-  id: string;
-  sessionId: string;
-  parentTaskId: string | null;
-  assignedAgentVersionId: string;
+  id: AgentSessionTaskId;
+  name: AgentSessionTaskName;
+  sessionId: AgentSessionId;
+  parentTaskId: AgentSessionTaskId | null;
+  assignedAgentVersionId: AgentVersionId;
   objective: string | null;
   isRoot: boolean;
-  operationsRunId: string | null;
+  operationRunId: OperationRunId | null;
   status: string;
 }
 
 interface AgentExecution {
-  id: string;
-  organizationId: string;
+  id: AgentExecutionId;
+  name: AgentExecutionName;
+  organizationId: OrganizationId;
   copilotThreadId: string;
-  sessionId: string;
-  sessionTaskId: string;
+  sessionId: AgentSessionId;
+  sessionTaskId: AgentSessionTaskId;
   aguiRunId: string;
   runtimeType: string;
   modelIdentity: string;
-  policySnapshotId: string;
+  policySnapshotId: AgentPolicySnapshotId;
   attempt: number;
   status: string;
 }
 
 interface AgentConversationEvent {
-  id: string;
-  organizationId: string;
-  sessionId: string;
-  executionId: string | null;
+  id: AgentConversationEventId;
+  name: AgentConversationEventName;
+  organizationId: OrganizationId;
+  sessionId: AgentSessionId;
+  executionId: AgentExecutionId | null;
   sequence: bigint;
   eventType: string;
   schemaVersion: number;
@@ -501,8 +588,10 @@ There is no separate pre-session binding. Context epochs, conversation events,
 and policy snapshots reference the session, and every execution has non-null
 session and task ownership.
 
-copilotThreadId, aguiRunId, sessionId, sessionTaskId, and executionId form the
-cross-plane correlation set.
+The public cross-plane correlation set is `copilotThreadId`, `aguiRunId`, and
+the canonical `session`, `task`, `execution`, optional `attempt`, and optional
+`operation` resource names. Repository ports may carry branded logical IDs,
+but raw database IDs do not escape as interchangeable strings.
 
 ## 13. AG-UI AgentOS Gateway
 
@@ -616,6 +705,43 @@ Official AgentOS tasks may outlive a browser connection or server process.
 
 The workflow engine is selected for durable semantics, not UI integration.
 AgentOS adapters keep the workflow choice invisible to CopilotKit.
+
+### 14.1 Capability, Use Case, And Operation Boundary
+
+The normative invocation flows are:
+
+~~~text
+HTTP / CLI / Agent capability adapter
+  -> owning-domain input port
+     -> domain policy
+        -> synchronous result
+        OR -> Operations request -> owner operation handler -> same input port
+
+Operations schedule / retry / worker
+  -> owner operation handler
+     -> owning-domain input port
+
+AgentOS durable task operation
+  -> AgentOS task-execution input port
+     -> runtime adapter
+        -> policy-approved Agent capability adapter
+           -> owning-domain input port
+~~~
+
+An input port is named for the business use case, never for HTTP, AgentOS, or
+Operations. Those callers are incoming adapters. Output ports represent what
+the application needs from repositories, providers, runtimes, event sinks, or
+other owner domains. This matches the practical Controller → Input Port →
+Domain → Output Port flow described in Kakao Style's
+[domain-driven hexagonal example](https://devblog.kakaostyle.com/ko/2025-03-21-1-domain-driven-hexagonal-architecture-by-example/).
+
+Deterministic work does not need a conversation. A synchronous deterministic
+request invokes the owner use case directly; a long-running deterministic
+request creates an Operation and is handled outside AgentOS. Work requiring
+LLM judgment starts as an official AgentSession execution. The former generic
+non-session `AgentRun` route is therefore not a permanent compatibility lane:
+each caller migrates to an owner-domain use case/Operation or to the official
+session execution path.
 
 ## 15. Runtime Adapter Contract
 
@@ -763,6 +889,8 @@ Management rules:
   history/replay, policies, tasks, approvals, artifacts, and audit.
 - NestJS domain capability endpoints/ports for scoped facts and mutations.
 - Operations endpoints/ports for run envelopes and engine dispatch.
+- Canonical resource-name parsing/formatting at HTTP, AG-UI, event, and
+  cross-domain boundaries; branded IDs inside owner application ports.
 
 ### 19.2 Removed target concepts
 
@@ -777,7 +905,10 @@ Management rules:
 - separate AgentOS and AI Chat message renderers;
 - a custom response envelope that duplicates AG-UI events;
 - direct business-data access from CopilotKit;
-- a compatibility Chatbot agent identity that diverges from Operator.
+- a compatibility Chatbot agent identity that diverges from Operator;
+- a generic non-session `AgentRun` execution route or an Operations worker that
+  dispatches through `AgentCapabilityRegistry`; and
+- raw UUID strings as an interchangeable public ID type.
 
 Legacy components may exist during cutover only. No new feature is added to
 them, and no permanent dual write is allowed.
@@ -830,6 +961,8 @@ storage or any Enterprise Intelligence service.
 - Render the same thread in a right-side panel and a dedicated AgentOS test
   workspace.
 - Add allowlisted shared dashboard context.
+- Publish branded logical-ID schemas and canonical resource-name contracts;
+  keep physical UUID keys private to persistence adapters.
 
 Exit: a user can open, close, reload, and resume a streamed KidItem-owned
 conversation rendered by CopilotKit OSS while keeping the dashboard visible.
@@ -859,6 +992,8 @@ creates exactly one resumable official session.
 - Render the same session thread in the global panel and AgentOS workspace.
 - Add explicit new-session behavior where a clean authority boundary is
   required.
+- Route Agent capabilities into owning-domain input ports. Route deterministic
+  long-running work into Operations without creating an AgentSession.
 
 Exit: every sent conversation has one canonical session and all elevated work
 retains explicit policy and approval boundaries.
@@ -885,6 +1020,10 @@ path.
   obsolete transient chats merely for compatibility.
 - Remove legacy chat APIs, polling, duplicate stores, renderers, and the
   divergent Chatbot identity.
+- Remove the generic non-session AgentRun path after deterministic callers use
+  owner-domain Operations and judgment callers use official sessions.
+- Replace raw cross-boundary database IDs with canonical resource names without
+  rekeying existing UUID rows.
 - Update docs/ARCHITECTURE.md, environment documentation, deployment contracts,
   and ownership maps in the same implementation train.
 - Run reconstruction and release-contract guards before deletion.
@@ -924,7 +1063,11 @@ Exit: no production conversational path bypasses CopilotKit or AG-UI.
 - enforce non-null execution session/task ownership;
 - reject cross-organization and cross-user references at repository and
   database boundaries; and
-- derive usage from the execution's canonical model identity.
+- derive usage from the execution's canonical model identity;
+- round-trip every canonical resource name and reject wrong resource types or
+  mismatched parent scope; and
+- prove that a syntactically valid resource name never bypasses organization
+  authorization.
 
 ### AG-UI conformance tests
 
@@ -1018,6 +1161,17 @@ applicable repository gates:
   approval, retry, and cancel.
 - Business authorization, domain facts, and mutations remain outside
   CopilotKit.
+- Owner input ports express business use cases; HTTP, Agent, and Operation
+  adapters call them without caller-specific port variants.
+- Capabilities never own durable execution and Operations never dispatch
+  business work through the Agent capability registry.
+- Deterministic synchronous work uses owner input ports, deterministic
+  long-running work uses Operations, and LLM judgment uses official
+  AgentSession execution; no generic non-session AgentRun lane remains.
+- Physical UUID keys stay persistence-private, application IDs are branded,
+  cross-boundary references are canonical resource names, external protocol
+  IDs remain opaque, and request/idempotency/sequence/token/digest identities
+  are not conflated.
 - Legacy chat APIs, polling, duplicate storage, and divergent renderers are
   removed after guarded cutover.
 - CopilotKit and AG-UI upgrades are exact-pinned, canaried, observable, and
@@ -1068,3 +1222,18 @@ durable work feel like leaving the current conversation.
 
 Rejected. The target is built independently, cut over behind contract guards,
 and obsolete paths are deleted.
+
+### One universal UUID or prefixed ID string
+
+Rejected because storage locality, public resource identity, request
+correlation, idempotency, event order, and bearer security have different
+semantics. Prefixing every UUID does not encode parent scope or authorization.
+KidItem keeps native UUID storage keys, branded logical types, hierarchical
+resource names, and separate protocol/security identifiers.
+
+### Treating Operations as an Agent capability runner
+
+Rejected because it reverses the hexagonal dependency and makes deterministic
+workers depend on AgentOS policy/routing infrastructure. Capabilities are
+Agent-facing adapters to owner use cases; Operations provides durable lifecycle
+and invokes owner input ports.

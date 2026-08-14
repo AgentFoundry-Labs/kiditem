@@ -4,7 +4,7 @@
 
 **Goal:** Manage immutable Agent definitions and versions, then execute every session task through a policy-derived, durable, resumable runtime without creating another conversation lifecycle or transcript store.
 
-**Architecture:** KidItem keeps deployable Agent definitions in the code-owned registry and publishes an immutable `AgentVersion` manifest that binds model, runtime, prompt, skills, capabilities, delegation limits, and hashes. Every run has separate session, task, execution, attempt, and runtime-handle identities. Capabilities are rebuilt from the selected version and policy snapshot for each execution; they are never inherited from the browser, parent agent, plugin, or runtime. Operations owns leases/checkpoints/dispatch, while AgentOS owns the task tree, delegation, policy, approval, artifacts, usage, and terminal reconciliation.
+**Architecture:** KidItem keeps deployable Agent definitions in the code-owned registry and publishes an immutable `AgentVersion` manifest that binds model, runtime, prompt, skills, capabilities, delegation limits, and hashes. Every run has separate branded session, task, execution, attempt, and runtime-handle identities and canonical cross-plane resource names. Capabilities are rebuilt from the selected version and policy snapshot for each execution; they are Agent-facing adapters into owner use cases and are never inherited from the browser, parent agent, plugin, or runtime. Operations owns leases/checkpoints/dispatch, while AgentOS owns the task tree, delegation, policy, approval, artifacts, usage, and terminal reconciliation. Operations handlers call owner input ports, never the Agent capability registry.
 
 **Tech Stack:** NestJS, Prisma/PostgreSQL, Operations lease worker, CopilotKit/AG-UI, Hermes HTTP/ACP, isolated Codex and Claude CLI processes, MCP, Zod, Vitest, Testcontainers, Playwright
 
@@ -38,6 +38,20 @@
 - Operations owns `OperationRun`, lease, attempt envelope, checkpoint,
   scheduling, dispatch, and cancellation transport. AgentOS owns task
   semantics and runtime-native handles.
+- The AgentOS-owned `agent-os.execute-session-task` Operation resumes the
+  AgentOS task-execution input port only. It does not itself invoke a business
+  capability. Business capability calls remain inside an authorized official
+  execution and enter the owning domain through its Agent incoming adapter.
+- A deterministic business operation executes through its owning-domain input
+  port and does not require an AgentSession. Its Operation handler must not
+  import `AgentCapabilityRegistry` or an AgentOS runtime service.
+- Remove the generic non-session AgentRun route. Classify each former caller as
+  owner-domain synchronous work, owner-domain durable Operation, or official
+  AgentSession judgment; there is no fourth compatibility path.
+- Consume Foundation's branded ID/resource-name contract. Internal repository
+  ports use branded IDs, cross-plane commands/events use canonical names,
+  external runtime handles stay opaque, and Operation/request/idempotency/
+  sequence/token identities remain distinct.
 - Runtime credentials and config homes are per execution, short-lived, and
   capability-scoped. They are never sent to the browser or stored in an
   `OperationRun.result` JSON object.
@@ -48,10 +62,18 @@ The implementation review of `/Users/dev125/workspace/claudecode` and the
 runtime/process implementation in `/Users/dev125/workspace/gstack` produced
 the following concrete decisions. These are translated to a multi-tenant
 server; they are not a request to copy either tool's local filesystem format.
+Identifier evidence came specifically from Claude Code's branded parsers in
+`src/types/ids.ts`, request/cancel correlation in `src/cli/structuredIO.ts`,
+session/message parentage in `src/utils/sessionStorage.ts`, agent aliases in
+`src/state/AppStateStore.ts`, and internal-only handle prefixes in its task and
+remote-agent paths.
 
 | Observed implementation pattern | KidItem decision |
 |---|---|
-| Agent definition and spawned Agent identity are separate (`agentType` versus per-spawn `agentId`/task/transcript metadata). | Keep `agentDefinitionKey`, immutable `agentVersionId`, `sessionTaskId`, `executionId`, `attemptId`, and runtime handle as distinct required identities. |
+| Agent definition and spawned Agent identity are separate (`agentType` versus per-spawn `agentId`/task/transcript metadata). | Keep the stable definition key, immutable version identity, session/task/execution/attempt resource names, and opaque runtime handle as distinct required identities. |
+| Claude Code brands/parses `SessionId` and `AgentId` instead of passing arbitrary strings. | Use the focused shared Zod identifier package and parse only at adapters; no generic `Id` alias or unchecked cast. |
+| Structured I/O carries `request_id` separately for request, cancellation, and response correlation. | Keep UUIDv4 request IDs separate from resources and scoped command idempotency keys. |
+| Local task/agent handles may be prefixed, while public remote IDs remain raw protocol values. | Prefixes are optional for ephemeral developer handles only; durable public KidItem references use hierarchical resource names. |
 | A worker's tools are rebuilt from its own Agent policy; parent approvals do not leak into the child. | Build every execution capability set only from `AgentVersion` plus `AgentPolicySnapshot`; delegation passes a subset request, never an inherited tool array. |
 | Third-party plugin Agents cannot silently add permission mode, hooks, or MCP servers. | Runtime adapters and future extension packages may declare transport capabilities only. Agent authority, hooks, capability handlers, and MCP exposure remain code-owned Nest registries. |
 | Agent definitions bind prompt, model, tools, skills, limits, isolation, and memory policy; invalid definitions are filtered or rejected. | Publish a strict, hashed runtime manifest and fail deployment readiness on any invalid active definition. Do not load production Agents from user/project markdown. |
@@ -76,6 +98,8 @@ server; they are not a request to copy either tool's local filesystem format.
 | `prisma/models/agents.prisma` | Authority profile, task delegation, attempt/handle, approval, artifact, and immutable version manifest |
 | `prisma/models/system.prisma` | Operations-owned checkpoints and task-keyed schedules |
 | `apps/server/src/agent-os/application/service/agent-execution-context-builder.service.ts` | Policy-derived execution context and capability set |
+| `apps/server/src/agent-os/application/port/in/agent-capability-invocation.port.ts` | Official session execution capability-invocation use case only |
+| `apps/server/src/agent-os/application/service/agent-session-capability-invocation.service.ts` | Exact version/policy/registry recheck and owner Agent-adapter dispatch; no legacy AgentRun branch |
 | `apps/server/src/agent-os/application/service/agent-session-delegation.service.ts` | Bounded, idempotent task delegation |
 | `apps/server/src/agent-os/application/service/agent-runtime-adapter.registry.ts` | Exact runtime lookup and capability matching |
 | `apps/server/src/agent-os/adapter/in/operation/agent-session-task.operation-handler.ts` | Durable task dispatch/recovery bridge |
@@ -248,14 +272,14 @@ git commit -m "feat: publish immutable agent runtime manifests"
 
 ```typescript
 expect(AgentProgressEventSchema.parse({
-  name: 'kiditem.ui.agent_progress.v1', sessionId: SESSION_ID,
-  taskId: TASK_ID, status: 'running', progress: 0.4,
+  schema: 'kiditem.ui.agent_progress.v1', session: SESSION_NAME,
+  task: TASK_NAME, status: 'running', progress: 0.4,
   label: '상품 근거 확인 중', updatedAt: NOW,
 }).status).toBe('running');
 
 expect(() => AgentApprovalCardSchema.parse({
-  name: 'kiditem.ui.agent_approval.v1', approvalId: APPROVAL_ID,
-  sessionId: SESSION_ID, taskId: TASK_ID, capabilityKey: 'supply.submit',
+  schema: 'kiditem.ui.agent_approval.v1', approval: APPROVAL_NAME,
+  session: SESSION_NAME, task: TASK_NAME, capabilityKey: 'supply.submit',
   summary: '발주 제출', resourceVersions: [], expiresAt: NOW,
   arbitraryEndpoint: '/api/private',
 })).toThrow();
@@ -284,14 +308,17 @@ Export strict schemas for:
 - `AgentProgressEventSchema` with queued/running/waiting_dependency/
   waiting_approval/paused/completed/failed/cancelled;
 - `AgentApprovalCardSchema` and `AgentApprovalDecisionSchema`;
-- `AgentArtifactCardSchema` using registered navigation action IDs, never URLs;
+- `AgentArtifactCardSchema` using opaque registered navigation action refs,
+  never URLs or raw database IDs;
 - `RetryAgentTaskSchema`, `ResumeAgentTaskSchema`, and
   `CancelAgentTaskSchema` with stable idempotency keys;
-- `AgentDelegationEventSchema` containing parent/child task IDs and immutable
+- `AgentDelegationEventSchema` containing parent/child task resource names and immutable
   from/to Agent version summaries.
 
-All schemas require session/task correlation, use bounded strings/arrays,
-contain no organization/user authority fields, and reject unknown keys.
+All schemas require canonical session/task/execution/attempt resource-name
+correlation, use bounded strings/arrays, contain no standalone organization/
+user authority fields, and reject unknown keys. Persistence adapters parse
+these names into branded IDs and recheck their complete parent scope.
 
 - [ ] **Step 4: Add the durable control graph**
 
@@ -316,7 +343,8 @@ the canonical `AgentConversationEvent` table introduced by Foundation.
 
 The port exposes task/delegation creation, attempt start/terminal, approval
 request/decision, artifact append, task/session transition, and scoped reads.
-Mutation methods accept `organizationId` and expected state. The adapter owns
+Mutation methods accept branded `organizationId` and owner record IDs plus
+expected state. The adapter owns
 transactions and converts unique races into stable idempotency conflicts.
 
 - [ ] **Step 6: Reach GREEN**
@@ -353,8 +381,11 @@ git commit -m "feat: persist durable agent session controls"
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-conversation-model-view.service.spec.ts`
 - Create: `apps/server/src/agent-os/application/service/agent-session-delegation.service.ts`
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-delegation.service.spec.ts`
+- Create: `apps/server/src/agent-os/application/port/in/agent-capability-invocation.port.ts`
+- Create: `apps/server/src/agent-os/application/service/agent-session-capability-invocation.service.ts`
+- Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-capability-invocation.service.spec.ts`
 - Modify: `apps/server/src/agent-os/application/service/agent-task-delegation.service.ts`
-- Modify: `apps/server/src/agent-os/application/service/agent-tool-router.service.ts`
+- Delete after caller migration: `apps/server/src/agent-os/application/service/agent-tool-router.service.ts`
 - Modify: `apps/server/src/agent-os/application/port/out/runtime/agent-runtime.port.ts`
 - Modify: `apps/server/src/agent-os/agent-os.module.ts`
 
@@ -388,6 +419,9 @@ authority-subset, cross-session parent, archived session, and concurrent
 duplicate tests. Add context tests for invalid event schema, presentation-only
 event exclusion, exact source-sequence ordering, context overflow, idempotent
 summary creation, summary source hash mismatch, and raw-history retention.
+Add a source/behavior test proving capability invocation requires the complete
+official `(organization, session, task, execution)` graph and that no
+non-session `AgentRun`, optional session, or live-policy fallback branch exists.
 
 - [ ] **Step 2: Run and record RED**
 
@@ -410,17 +444,17 @@ execution input hash and ignores browser-supplied prior history. It returns:
 
 ```typescript
 export interface AgentRuntimeExecutionContext {
-  organizationId: string;
-  sessionId: string;
-  sessionTaskId: string;
-  executionId: string;
-  attemptId: string;
+  organizationId: OrganizationId;
+  sessionId: AgentSessionId;
+  sessionTaskId: AgentSessionTaskId;
+  executionId: AgentExecutionId;
+  attemptId: AgentExecutionAttemptId;
   agentDefinitionKey: string;
-  agentVersionId: string;
+  agentVersionId: AgentVersionId;
   runtimeType: string;
   modelIdentity: string;
   capabilityKeys: string[];
-  policySnapshotId: string;
+  policySnapshotId: AgentPolicySnapshotId;
   promptPackage: ResolvedAgentRuntimeAssets;
   conversationView: {
     throughSequence: string;
@@ -443,8 +477,10 @@ cannot delete or overwrite raw events.
 Do not put browser-provided authority, inherited parent tools, database
 credentials, or free-form memory in this object. Conversation content is
 untrusted data from the canonical store, never policy. The capability router
-resolves every key against `AgentCapabilityRegistry` and rechecks policy
-immediately before invocation.
+resolves every key against `AgentCapabilityRegistry` and rechecks the exact
+immutable version plus session policy immediately before invocation. The
+registry returns an owner-published Agent incoming adapter; that adapter calls
+the owning-domain input port. No Operations handler uses this registry.
 
 - [ ] **Step 4: Implement bounded delegation**
 
@@ -461,13 +497,14 @@ npm exec --workspace=apps/server vitest -- run \
   src/agent-os/application/service/__tests__/agent-execution-context-builder.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-conversation-model-view.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-session-delegation.service.spec.ts \
-  src/agent-os/application/service/__tests__/agent-tool-router.service.spec.ts
+  src/agent-os/application/service/__tests__/agent-session-capability-invocation.service.spec.ts
 npm run build --workspace=apps/server
 npm run check:idor
 npm run check:tenant-scope
 ```
 
-Expected: all PASS; neither browser nor parent runtime expands child authority.
+Expected: all PASS; neither browser nor parent runtime expands child authority,
+and no non-session AgentRun can invoke a capability.
 
 - [ ] **Step 6: Commit execution policy**
 
@@ -582,11 +619,12 @@ git commit -m "refactor: require exact durable agent runtimes"
 
 Prove one `OperationRun` per task/execution idempotency key, monotonic immutable
 checkpoints, lease reclaim, reconnect instead of duplicate start, unknown
-handle failure, and terminal reconciliation.
+handle failure, terminal reconciliation, and absence of any
+`AgentCapabilityRegistry` dependency in the Operations handler.
 
 ```typescript
 const first = await dispatch.dispatch(taskInput());
-expect((await dispatch.dispatch(taskInput())).operationsRunId).toBe(first.operationsRunId);
+expect((await dispatch.dispatch(taskInput())).operation).toBe(first.operation);
 
 await handler.handle(expiredLeaseInput({ checkpoint: runtimeStarted(handle) }));
 expect(runtime.inspect).toHaveBeenCalledWith(handle);
@@ -610,22 +648,29 @@ Expected: missing operation/checkpoint behavior.
 export const AGENT_OS_OPERATIONS = [{
   key: 'agent-os.execute-session-task', version: 1,
   title: 'AgentOS session task execution', ownerDomain: 'agent-os',
-  engineType: 'agent_os', allowedTriggers: ['agent', 'schedule'],
+  engineType: 'agent_os', allowedTriggers: ['system', 'schedule'],
   scheduleSupported: true, maxAttempts: 5,
   inputSchema: z.object({
-    sessionId: z.string().uuid(), taskId: z.string().uuid(),
-    executionId: z.string().uuid(),
+    session: AgentSessionNameSchema,
+    task: AgentSessionTaskNameSchema,
+    execution: AgentExecutionNameSchema,
   }).strict(),
 }] as const satisfies readonly OperationDefinition[];
 ```
 
-Use `operationKey + taskId + executionId` as the idempotency boundary. A
-schedule resumes an existing task and never creates a session.
+Use `operationKey + task + execution` as the scoped idempotency boundary. The
+handler parses the canonical names, proves they share organization/session
+parents, and calls `AgentSessionExecutionPort`; it never invokes a business
+capability itself. A schedule resumes an existing task and never creates a
+session. A business domain that needs its own durable deterministic work
+registers an owner Operation whose handler calls that domain's input port,
+without passing through AgentOS.
 
 - [ ] **Step 4: Add Operations-owned checkpoints**
 
-`OperationRunCheckpoint` has organization/run, monotonic sequence, kind,
-structured state, and timestamp with unique `(operationRunId, sequence)`.
+`OperationRunCheckpoint` has branded organization/run IDs, a canonical
+Operation/Checkpoint name at boundaries, monotonic sequence, kind, structured
+state, and timestamp with unique `(operationRunId, sequence)`.
 The handler checkpoints before/after runtime start, handle persistence,
 validated interrupt/artifact boundaries, every 100 normalized events, and
 terminal state. Handle secrets live behind an encrypted reference.
@@ -654,7 +699,9 @@ npm run build --workspace=apps/server
 npm run check:directory-architecture
 ```
 
-Expected: all PASS; one external start survives worker recovery.
+Expected: all PASS; one external start survives worker recovery, the internal
+AgentOS Operation enters only the session-execution port, and no Operations
+source imports `AgentCapabilityRegistry`.
 
 - [ ] **Step 7: Commit durable dispatch**
 
@@ -802,15 +849,15 @@ git commit -m "feat: isolate codex and claude agent runtimes"
 
 **Files:**
 
-- Create: `apps/server/src/agent-os/application/service/official-agent-run.service.ts`
-- Create: `apps/server/src/agent-os/application/service/__tests__/official-agent-run.service.spec.ts`
+- Create: `apps/server/src/agent-os/application/service/agent-session-runtime-control.service.ts`
+- Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-runtime-control.service.spec.ts`
 - Create: `apps/server/src/agent-os/application/service/agent-session-approval.service.ts`
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-approval.service.spec.ts`
 - Create: `apps/server/src/agent-os/application/service/agent-session-cancellation.service.ts`
 - Create: `apps/server/src/agent-os/application/service/__tests__/agent-session-cancellation.service.spec.ts`
 - Create: `apps/server/src/agent-os/adapter/in/http/agent-session.controller.ts`
 - Create: `apps/server/src/agent-os/adapter/in/http/__tests__/agent-session.controller.spec.ts`
-- Modify: `apps/server/src/agent-os/application/service/agent-agui-run.service.ts`
+- Modify: `apps/server/src/agent-os/application/service/agent-session-execution.service.ts`
 - Modify: `apps/server/src/agent-os/agent-os.module.ts`
 
 - [ ] **Step 1: Write control RED tests**
@@ -834,7 +881,7 @@ open-interrupt tests.
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/application/service/__tests__/official-agent-run.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-session-runtime-control.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-session-approval.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-session-cancellation.service.spec.ts \
   src/agent-os/adapter/in/http/__tests__/agent-session.controller.spec.ts
@@ -865,7 +912,7 @@ server state machine allows it.
 
 ```bash
 npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/application/service/__tests__/official-agent-run.service.spec.ts \
+  src/agent-os/application/service/__tests__/agent-session-runtime-control.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-session-approval.service.spec.ts \
   src/agent-os/application/service/__tests__/agent-session-cancellation.service.spec.ts \
   src/agent-os/adapter/in/http/__tests__/agent-session.controller.spec.ts
@@ -995,9 +1042,11 @@ the global panel and workspace.
 
 The smoke refuses production, starts a task against the approved test runtime,
 restarts the Interaction Gateway and Operations worker, reconnects the same
-Copilot thread, resolves a test approval, and asserts these IDs remain
-correlated: `copilotThreadId`, `aguiRunId`, `sessionId`, `sessionTaskId`,
-`executionId`, `attemptId`, and `operationsRunId`.
+Copilot thread, resolves a test approval, and asserts the two opaque external
+IDs (`copilotThreadId`, `aguiRunId`) remain correlated with canonical
+`session`, `task`, `execution`, `attempt`, and `operation` resource names.
+Also assert request IDs and runtime handles are not accepted in any of those
+resource fields.
 
 - [ ] **Step 5: Run the complete runtime gates**
 
@@ -1012,6 +1061,7 @@ npm run check:conversation-boundary
 npm run check:copilotkit-train
 npm run check:idor
 npm run check:tenant-scope
+npm run check:identifier-contracts
 npm run check:conventions
 npm run build --workspace=packages/shared
 npm run build --workspace=apps/web
@@ -1038,7 +1088,9 @@ git commit -m "test: prove durable agent runtime recovery"
   authority.
 - [ ] A version hash binds runtime, model, policy, delegation, prompt, skills,
   output schema, and limits; changed content publishes a new immutable row.
-- [ ] Session, task, execution, attempt, and runtime-handle identities remain
+- [ ] Session, task, execution, attempt, and Operation use canonical resource
+  names across planes; branded storage IDs, external thread/run IDs, request
+  IDs, idempotency keys, sequences, tokens, digests, and runtime handles remain
   separate and fully correlated.
 - [ ] Every execution rebuilds its capability set from the exact Agent version
   and policy snapshot; browser and parent authority never leak.
@@ -1048,6 +1100,13 @@ git commit -m "test: prove durable agent runtime recovery"
   store is added; runtime events use `AgentConversationEvent`.
 - [ ] Operations owns leases/checkpoints/dispatch; AgentOS owns task,
   delegation, approval, artifacts, runtime policy, and reconciliation.
+- [ ] Agent capability adapters call owning-domain input ports. Deterministic
+  business Operations call those owner ports directly, the AgentOS task
+  Operation calls only the session-execution port, and no Operations handler
+  imports `AgentCapabilityRegistry`.
+- [ ] No generic non-session AgentRun execution path remains; every former
+  caller is classified as owner synchronous work, owner durable Operation, or
+  official AgentSession judgment.
 - [ ] Exact runtime selection fails on missing adapter/capability and never
   falls back or no-ops.
 - [ ] Hermes and supported CLIs use isolated execution homes, scoped MCP, and

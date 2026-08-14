@@ -4,15 +4,19 @@
 
 **Goal:** Operate the CopilotKit-native Interaction OS as a recoverable production platform, cut every product surface to it, and delete the legacy chat/transcript/polling system without permanent dual write.
 
-**Architecture:** KidItem PostgreSQL and Operations own production conversation
-durability, replay, retention, recovery, and observability; the Office release
+**Architecture:** AgentOS/PostgreSQL owns production conversation durability,
+replay, retention, recovery, and observability; Operations owns durable run
+envelopes/checkpoints but never the conversation or business capabilities. The Office release
 train builds and pins the stateless CopilotKit OSS Interaction Gateway beside
 API/web images. Cutover uses expand/prove/freeze/migrate/contract releases:
 scanners first prevent new legacy dependencies, selected continuing legacy
 `AgentConversation` work receives new AgentSession/event streams plus validated
 handoffs, legacy writes are frozen, all surfaces move, then obsolete
 APIs/models/renderers/identities are removed in a later contract release. The
-CopilotKit fork remains review-only lineage, never a floating dependency.
+generic non-session AgentRun lane is classified and deleted in the same
+contract train. Existing UUID rows are retained while public/cross-domain
+contracts cut to canonical resource names. The CopilotKit fork remains
+review-only lineage, never a floating dependency.
 
 **Tech Stack:** PostgreSQL, Prisma migrations, transactional outbox, optional
 ephemeral live fan-out, S3-compatible attachments/backups, Docker Compose,
@@ -38,6 +42,14 @@ compatibility canaries, NestJS, Next.js, Vitest, Playwright, k6
 - Migrated legacy work receives a new AgentSession with one canonical migration
   notice event and a server-validated current-state handoff; old transcript
   messages are never replayed into the new authority context.
+- Existing physical UUID keys are not rekeyed. Cutover projects canonical
+  resource names from owner scope plus existing IDs, converts public/cross-
+  domain contracts to those names, and keeps legacy identifiers only in
+  content-free migration mappings.
+- Freeze and Contract also remove the generic non-session AgentRun lane.
+  Deterministic callers migrate to owning-domain input ports/Operations;
+  judgment callers migrate to official AgentSession executions. Operations
+  handlers never dispatch through `AgentCapabilityRegistry`.
 - Schema contraction occurs in a release after production cutover evidence and rollback window, following the repository release-train procedure.
 - Office deployment remains GitHub Actions-only and uses immutable digest references for API, web, and Interaction Gateway.
 - `AgentFoundry-Labs/CopilotKit:main` must stay a fast-forwardable upstream mirror with zero KidItem commits.
@@ -105,7 +117,7 @@ Expected: FAIL because the service/port do not exist.
 
 ```typescript
 export const AgentSessionLifecycleCommandSchema = z.object({
-  sessionId: z.string().uuid(),
+  session: AgentSessionNameSchema,
   command: z.enum(['archive', 'delete', 'place_legal_hold', 'release_legal_hold']),
   reason: z.string().trim().min(1).max(500),
   idempotencyKey: z.string().min(20).max(200),
@@ -161,7 +173,8 @@ export interface AgentConversationLifecycleRepositoryPort {
 }
 ```
 
-The service derives actor/organization, selects `AgentSession` in that scope,
+The service derives actor/organization, parses the expected session resource
+name, revalidates its organization parent, selects `AgentSession` in that scope,
 and enforces lifecycle, legal hold, and retention. The Prisma adapter takes a
 full-scope advisory transaction lock, creates/reuses the lifecycle request,
 archives or deletes the canonical conversation events/projections/outbox and
@@ -596,11 +609,19 @@ git commit -m "test: gate interaction system cutover"
 
 **Interfaces:**
 - Consumes: legacy conversations/task sessions/runs/artifacts and the canonical
-  AgentOS session/event repository.
-- Produces: frozen legacy write path, idempotent mapping of continuing legacy
-  records to new session/task/event/handoff/artifact refs, verification report.
+  AgentOS session/event repository plus owning-domain Operations records.
+- Produces: frozen legacy write path, idempotent mapping of continuing judgment
+  work to canonical session/task/event/handoff/artifact resource names,
+  deterministic work classified to its owner use case/Operation, and a
+  verification report.
 
 - [ ] **Step 1: Write classification/idempotency tests**
+
+Classify execution semantics before lifecycle status. `requiresJudgment=true`
+may migrate to an official AgentSession; `requiresJudgment=false` must map to
+an owning-domain synchronous use case or durable Operation and must not create
+a conversation. An unknown classification is a stop condition, not a fallback
+legacy AgentRun.
 
 ```typescript
 it.each([
@@ -632,7 +653,7 @@ Set phase to `freeze`. Legacy create/send/retry/write routes return HTTP 410 wit
 
 - [ ] **Step 4: Implement migration without transcript copying**
 
-For each classified row in stable `(organizationId, legacyConversationId)` order:
+For each judgment row in stable `(organizationId, legacyConversationId)` order:
 
 1. revalidate organization membership/ownership and current domain resources;
 2. create or reuse one `AgentSession` with title `이관된 AgentOS 작업` and one
@@ -648,7 +669,16 @@ For each classified row in stable `(organizationId, legacyConversationId)` order
 6. map a live external runtime only if its adapter can inspect/reconnect; otherwise pause task with `MIGRATED_RUNTIME_RESTART_REQUIRED` and require explicit user resume;
 7. mark the new mapping complete and leave legacy rows frozen for rollback/export.
 
-Add `AgentLegacyMigrationMapping` with unique legacy record type/ID and new session/task/thread IDs. Do not store copied messages in it.
+For each deterministic legacy run, resolve its owning business use case and
+existing/new Operation correlation. Preserve owner facts and durable Operation
+state without creating `AgentSession`, `AgentSessionTask`, conversation event,
+or capability invocation. The Operations handler calls the owning-domain input
+port directly.
+
+Add `AgentLegacyMigrationMapping` with unique legacy record type/ID and either
+new canonical session/task names or a canonical Operation name, never both.
+Keep legacy IDs as bounded migration-source references/digests only. Do not
+store copied messages or duplicate resource-name columns in owner tables.
 
 - [ ] **Step 5: Implement dry-run/apply/verify migration CLI**
 
@@ -657,8 +687,10 @@ function used by its test as the dry-run preview, requires an explicit
 organization batch size in the migration definition, writes a content-free
 ledger report of counts/hashes, and stops on per-record validation failure.
 `scripts/verify-interaction-migration.ts` checks selected=mapped, unselected
-unmapped, one session/root/notice event per selected record, artifact hashes,
-zero copied legacy messages, and zero post-freeze legacy writes.
+unmapped, one session/root/notice event per selected judgment record, zero
+AgentSession rows for deterministic records, correct Operation/owner-port
+mapping, artifact hashes, zero copied legacy messages, and zero post-freeze
+legacy writes.
 
 - [ ] **Step 6: Run freeze and migration gates**
 
@@ -766,6 +798,20 @@ git commit -m "feat: cut ai surfaces to interaction os"
 - Delete: `apps/server/src/agent-os/application/service/agent-conversation.service.ts`
 - Delete: `apps/server/src/agent-os/application/service/__tests__/agent-conversation.service.spec.ts`
 - Delete: `apps/server/src/agent-os/application/port/in/agent-interaction.port.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/adapter/in/http/agent-run-requests.controller.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/adapter/in/http/agent-runs-query.controller.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/application/service/agent-run-coordinator.service.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/application/service/agent-run-executor.service.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/application/service/agent-run-worker.service.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/application/service/agent-tool-router.service.ts`
+- Modify/delete superseded legacy AgentRun schemas and Prisma models only after
+  the zero-consumer/data checks in this task.
 - Modify: `apps/server/src/app.module.ts`
 - Modify: `apps/server/src/agent-os/agent-os.module.ts`
 - Modify: `apps/server/src/agent-os/domain/agent-definition.registry.ts`
@@ -776,17 +822,27 @@ git commit -m "feat: cut ai surfaces to interaction os"
 
 **Interfaces:**
 - Consumes: one stable production release of cutover evidence, migration verification, rollback backup.
-- Produces: contract-phase backend with no generic chat API, transcript model, polling completion, divergent Chatbot identity, or superseded conversation service.
+- Produces: contract-phase backend with no generic chat API, transcript model,
+  polling completion, divergent Chatbot identity, superseded conversation
+  service, or generic non-session AgentRun execution path.
 
 - [ ] **Step 1: Change scanner fixture to require zero allowlist**
 
 Set phase to `contract`, remove temporary scanner allowlist entries, and run `npm run check:interaction-cutover`.
 
-Expected: FAIL listing exact legacy backend/web/model paths still present.
+Expected: FAIL listing exact legacy backend/web/model paths and non-session
+AgentRun callers still present.
 
 - [ ] **Step 2: Remove legacy HTTP/module/runtime paths**
 
 Delete the listed chat directory and AgentOS conversation controller/service/port. Remove `ChatModule` import from `AppModule`, legacy route registration, old conversation provider wiring, Claude chat environment variables, and old CLI adapter path. Keep only the isolated official runtime adapters from the official plan.
+
+Delete the generic run request/query/coordinator/executor/worker/router path
+after `rg`, dependency-graph, and migration evidence proves every caller is now
+an owner-domain synchronous use case, owner Operation, or official session
+execution. Keep the official session execution port and isolated durable
+runtime adapters. Do not rename a legacy AgentRun service and leave its
+optional-session behavior intact.
 
 - [ ] **Step 3: Remove Chatbot identity and compatibility resolution**
 
@@ -794,7 +850,12 @@ Delete `chat`/`Chatbot` definitions, seed compatibility alias, model env, catalo
 
 - [ ] **Step 4: Contract transcript and superseded run models**
 
-After the release-train backup and migration verification, create the registered schema migration that removes `AgentConversation`, `AgentMessage`, their relation fields, and database tables. Remove old polling-only relations/columns/controllers that have no consumer under `rg`/Knip and are superseded by `AgentSession`, `AgentSessionTask`, `AgentExecution`, attempts, approvals, artifacts, and Operations checkpoints. Do not delete capability definitions or domain audit records still referenced by the new authority path.
+After the release-train backup and migration verification, create the registered schema migration that removes `AgentConversation`, `AgentMessage`, their relation fields, and database tables. Remove old polling-only and generic non-session AgentRun relations/columns/controllers that have no consumer under `rg`/Knip and are superseded by `AgentSession`, `AgentSessionTask`, `AgentExecution`, attempts, approvals, artifacts, owner-domain Operations, and Operations checkpoints. Do not delete capability definitions or domain audit records still referenced by the new authority path.
+
+Do not rekey retained UUID rows. Public projections construct canonical
+resource names; internal repositories use branded IDs. Remove any redundant
+persisted `name` column or compatibility DTO that exposes a raw database UUID
+where the identifier contract requires a resource name.
 
 The migration asserts zero non-migrated continuing legacy records before `DROP TABLE`. It preserves content-free `AgentLegacyMigrationMapping` and tombstones for audit according to policy.
 
@@ -807,13 +868,17 @@ npm run db:push
 npx prisma generate
 npm run check:interaction-cutover
 npm run check:conversation-boundary
+npm run check:identifier-contracts
 npm run check:idor
 npm run check:tenant-scope
 npm run check:directory-architecture
 npm run dev:server
 ```
 
-Expected: all finite commands pass; server boots with no `/api/chat`, legacy conversation controller, transcript model, Chatbot identity, or route collision. Stop the watch process.
+Expected: all finite commands pass; server boots with no `/api/chat`, legacy
+conversation controller, transcript model, Chatbot identity, generic
+non-session AgentRun route, Operations→Agent capability dependency, or route
+collision. Stop the watch process.
 
 - [ ] **Step 6: Commit backend contraction**
 
@@ -929,9 +994,12 @@ In the isolated production-like environment:
    active run, resolve the durable task approval, and finish the task;
 6. run exact candidate upgrade canary and rollback to locked train;
 7. verify retention deletion and legal hold;
-8. verify all seven correlation IDs (`copilotThreadId`, `aguiRunId`,
-   `sessionId`, `sessionTaskId`, `executionId`, `attemptId`, and
-   `operationsRunId`) and zero duplicate event or capability invocation.
+8. verify opaque `copilotThreadId`/`aguiRunId` correlation with canonical
+   `session`, `task`, `execution`, `attempt`, and `operation` resource names,
+   and zero duplicate event or capability invocation;
+9. verify request IDs, idempotency keys, sequences, tokens, digests, runtime
+   handles, and legacy migration references cannot be substituted for resource
+   names.
 
 Record actual RPO/RTO and evidence links in `interaction-os-acceptance-2026-08.md`.
 
@@ -944,6 +1012,7 @@ npm run check:agents-hygiene
 npm run check:copilotkit-train
 npm run check:interaction-cutover
 npm run check:conversation-boundary
+npm run check:identifier-contracts
 npm run check:idor
 npm run check:tenant-scope
 npm run check:web-db-boundary
@@ -992,6 +1061,12 @@ git commit -m "docs: finalize interaction os operations"
   canonical notice event, and validated handoff, with no legacy transcript
   copy.
 - [ ] Contract phase contains no `/api/chat`, legacy polling, duplicate transcript model/renderer, direct runtime stream, or divergent Chatbot identity.
+- [ ] Contract phase contains no generic non-session AgentRun path; deterministic
+  work uses owner ports/Operations, judgment uses official sessions, and no
+  Operations handler imports the Agent capability registry.
+- [ ] Existing UUID rows were not rekeyed; canonical resource names are used at
+  public/cross-domain boundaries and all other identifier classes remain
+  separate.
 - [ ] Scanner allowlists are empty and CI/Office preflight enforce the boundary.
 - [ ] Single-lifecycle conversations and durable tasks pass production smoke, retention/deletion/legal hold, restart, approval, cancellation, and correlation verification.
 - [ ] Architecture, environment, deployment, ownership, cutover, upgrade, and DR docs match the final system.

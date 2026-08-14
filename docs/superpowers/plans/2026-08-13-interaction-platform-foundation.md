@@ -5,7 +5,8 @@
 **Goal:** Reconstruct the committed KID-25 interaction foundation so every
 submitted CopilotKit conversation starts as one KidItem-persisted,
 session-backed AgentOS execution while empty surfaces and reconnect remain
-read-only.
+read-only, with branded internal IDs and canonical resource names established
+before any downstream wire contract.
 
 **Architecture:** Replace the Enterprise-oriented lock with an OSS-only package
 train and keep the generic organization fences already committed. Replace the
@@ -14,7 +15,8 @@ control root, create a root task/context/policy/run/first-event graph plus
 outbox atomically under a full-scope PostgreSQL advisory lock, and authorize the
 separate gateway through a 30-second Nest-signed run intent. Reuse current
 uncommitted binding/identity/HTTP work only after tests prove it matches this
-contract.
+contract. Keep native Prisma UUIDs as private storage keys; publish hierarchical
+resource names rather than raw database IDs.
 
 **Tech Stack:** Node.js 22, TypeScript, NestJS, Prisma v7/PostgreSQL 17
 Testcontainers, Zod, Vitest, CopilotKit `1.67.1`, AG-UI `0.0.57`
@@ -83,13 +85,19 @@ Classify it as:
 
 ### Shared interaction contract
 
+- `packages/shared/src/identifiers/index.ts`: Zod-branded owner IDs,
+  canonical resource-name parsers/formatters, opaque external/request/
+  idempotency/token types, decimal sequence, and SHA-256 digest contracts.
+- `packages/shared/src/identifiers/index.spec.ts`: type/pattern round trips,
+  wrong-resource/parent rejection, and identifier-class separation.
 - `packages/shared/src/agent-interaction/index.ts`: bootstrap, session summary,
   run intent, run authorization, connection authorization, correlation, and
   dashboard-context, conversation-event, and replay schemas.
 - `packages/shared/src/agent-interaction/index.spec.ts`: strict/strip behavior,
   identity invariants, ISO timestamps, and forbidden retired fields.
-- `packages/shared/package.json` and `packages/shared/tsup.config.ts`: retain the
-  focused subpath only; do not expand root barrels.
+- `packages/shared/package.json` and `packages/shared/tsup.config.ts`: expose
+  focused `identifiers` and `agent-interaction` subpaths only; do not expand
+  root barrels.
 
 ### Session control persistence
 
@@ -136,13 +144,18 @@ Classify it as:
   stable errors, controller-free core ownership, and exact HTTP-wrapper
   provider/controller registration.
 
-### Durable guard
+### Durable guards
 
 - Create `scripts/check-agent-interaction-lifecycle.mjs`: reject retired
   lifecycle identifiers and nullable execution ownership in active source,
   schema, and active plans while excluding the approved spec's rejected-
   alternative discussion.
 - Create `scripts/__tests__/check-agent-interaction-lifecycle.test.mjs`.
+- Create `scripts/check-identifier-contracts.mjs`: reject raw database-ID
+  strings in public AgentOS/Operations contracts, unparsed resource names at
+  incoming adapters, UUID-shaped request/idempotency/token conflation, and
+  redundant persisted resource-name columns.
+- Create `scripts/__tests__/check-identifier-contracts.test.mjs`.
 - Modify root `package.json`, `scripts/README.md`, and
   `scripts/check-script-inventory.mjs` for the new entrypoint.
 
@@ -230,33 +243,42 @@ git add deploy/interaction-gateway/platform-lock.json \
 git commit -m "refactor: lock the CopilotKit OSS train"
 ```
 
-## Task 2: Replace Shared Dual-Lifecycle Contracts
+## Task 2: Define The ID System And Replace Shared Dual-Lifecycle Contracts
 
 **Files:**
 
+- Create: `packages/shared/src/identifiers/index.spec.ts`
+- Create: `packages/shared/src/identifiers/index.ts`
 - Modify: `packages/shared/src/agent-interaction/index.spec.ts`
 - Modify: `packages/shared/src/agent-interaction/index.ts`
-- Verify: `packages/shared/package.json`
-- Verify: `packages/shared/tsup.config.ts`
+- Modify: `packages/shared/package.json`
+- Modify: `packages/shared/tsup.config.ts`
 
-- [ ] **Step 1: Write the failing single-lifecycle contract tests**
+- [ ] **Step 1: Write failing identifier and single-lifecycle contract tests**
 
-Replace class/target/binding fixtures with this contract shape:
+First prove that branded IDs cannot be interchanged, resource names round-trip
+with their exact parent scope, a task from session B cannot parse as a child of
+session A, and an Operation name cannot parse as an AgentExecution name. Prove
+that `copilotThreadId`, `aguiRunId`, request ID, idempotency key, sequence,
+token, and digest use separate schemas. Then replace class/target/binding
+fixtures with the canonical resource-name contract.
+
+Use formatter-produced names in fixtures rather than raw database IDs:
 
 ```typescript
 const agent = {
   agentDefinitionKey: 'operator',
-  agentVersionId: 'version-1',
+  agentVersion: 'agentDefinitions/operator/versions/1',
   displayName: 'KidItem Operator',
   description: 'KidItem operations agent',
   isDefault: true,
 };
 
 const session = {
-  sessionId: 'session-1',
+  name: formatAgentSessionName({ organizationId, sessionId }),
   copilotThreadId: 'thread-1',
   primaryAgentDefinitionKey: 'operator',
-  primaryAgentVersionId: 'version-1',
+  primaryAgentVersion: 'agentDefinitions/operator/versions/1',
   lifecycle: 'active',
   updatedAt: '2026-08-13T00:00:00.000Z',
 };
@@ -280,8 +302,8 @@ Add assertions that authorization requires non-null session/root task:
 ```typescript
 expect(() => AguiRunAuthorizationSchema.parse({
   session,
-  sessionTaskId: null,
-  executionId: 'execution-1',
+  task: null,
+  execution: executionName,
   modelIdentity: 'gpt-5',
   runtimeType: 'ag_ui',
   policySnapshotId: 'policy-1',
@@ -292,16 +314,17 @@ expect(() => AguiRunAuthorizationSchema.parse({
 expect(AgentCorrelationSchema.parse({
   copilotThreadId: 'thread-1',
   aguiRunId: 'run-1',
-  executionId: 'execution-1',
-  sessionId: 'session-1',
-  sessionTaskId: 'task-1',
-  operationsRunId: null,
+  session: sessionName,
+  task: taskName,
+  execution: executionName,
+  attempt: null,
+  operation: null,
 })).toBeTruthy();
 
 expect(AgentConversationEventEnvelopeSchema.parse({
-  eventId: 'event-1',
-  sessionId: 'session-1',
-  executionId: 'execution-1',
+  name: formatAgentConversationEventName({ organizationId, sessionId, sequence: 1n }),
+  session: sessionName,
+  execution: executionName,
   sequence: '1',
   eventType: 'user_message',
   schemaVersion: 1,
@@ -321,29 +344,37 @@ Run:
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/agent-interaction/index.spec.ts
+npm exec --workspace=packages/shared vitest -- run src/identifiers/index.spec.ts
 ```
 
-Expected: FAIL because bootstrap still requires `threadTargets`, correlation
-permits null session/task, and retired exports remain.
+Expected: FAIL because identifier/resource-name schemas are absent, bootstrap
+still requires `threadTargets`, correlation permits null session/task, and
+retired exports remain.
 
-- [ ] **Step 3: Implement the minimal replacement schemas**
+- [ ] **Step 3: Implement identifier primitives and replacement schemas**
+
+Implement focused Zod schemas and inferred branded types for owner IDs,
+resource names, external IDs, request IDs, idempotency keys, decimal sequences,
+opaque tokens, and SHA-256 digests. Resource-name formatters accept branded IDs
+and parsers return branded parent/child components. Do not add TypeID prefixes,
+do not expose a generic `Id` alias, and do not export from the shared root.
 
 Define and infer only these public values:
 
 ```typescript
 export const AllowedAgentSchema = z.object({
   agentDefinitionKey: z.string().min(1),
-  agentVersionId: z.string().min(1),
+  agentVersion: AgentVersionNameSchema,
   displayName: z.string().min(1),
   description: z.string().min(1),
   isDefault: z.boolean(),
 }).strict();
 
 export const AgentSessionSummarySchema = z.object({
-  sessionId: z.string().min(1),
-  copilotThreadId: z.string().min(1),
+  name: AgentSessionNameSchema,
+  copilotThreadId: CopilotThreadIdSchema,
   primaryAgentDefinitionKey: z.string().min(1),
-  primaryAgentVersionId: z.string().min(1),
+  primaryAgentVersion: AgentVersionNameSchema,
   lifecycle: z.enum(['active', 'completed', 'cancelled', 'archived']),
   updatedAt: z.string().datetime(),
 }).strict();
@@ -357,8 +388,8 @@ export const InteractionBootstrapSchema = z.object({
 
 Keep `DashboardContextSchema`, but expose `AguiRunIntentSchema` with
 `runIntent`, `expiresAt`, `copilotThreadId`, and `aguiRunId`. Define
-`AguiRunAuthorizationSchema` with `session`, non-null `sessionTaskId`,
-`executionId`, model/runtime/policy IDs, positive `contextEpoch`, and parsed
+`AguiRunAuthorizationSchema` with `session`, non-null `task`, `execution`,
+model/runtime/policy identities, positive `contextEpoch`, and parsed
 dashboard context. Define version-1 discriminated conversation event payloads
 and a replay response whose bigint `sequence`/`lastSequence` values are decimal
 strings and whose `nextCursor` is opaque. Define read-only connection
@@ -375,19 +406,22 @@ Run:
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/agent-interaction/index.spec.ts
+npm exec --workspace=packages/shared vitest -- run src/identifiers/index.spec.ts
 npm run build --workspace=packages/shared
 npm run check:shared-root-imports
 npm run check:shared-interface-names
 ```
 
 Expected: focused tests and all gates PASS; public ESM/CJS import of
-`@kiditem/shared/agent-interaction` succeeds.
+`@kiditem/shared/identifiers` and `@kiditem/shared/agent-interaction` succeed.
 
 - [ ] **Step 5: Commit the contract replacement**
 
 ```bash
 git add packages/shared/src/agent-interaction/index.ts \
-  packages/shared/src/agent-interaction/index.spec.ts
+  packages/shared/src/agent-interaction/index.spec.ts \
+  packages/shared/src/identifiers packages/shared/package.json \
+  packages/shared/tsup.config.ts
 git commit -m "refactor: unify interaction session contracts"
 ```
 
@@ -557,8 +591,16 @@ execution→conversation-event, event→outbox, and execution→usage.
 no class field. Outbox rows carry no copied payload; consumers load the
 canonical event by composite organization relation.
 
-Keep authority-profile identity as a string in this foundation; do not add the
-full durable authority-profile model until the runtime plan requires it.
+These UUID columns are physical storage keys, not the public ID contract. Keep
+`@default(uuid()) @db.Uuid`, add no persisted resource-name column, and do not
+rekey existing rows. Repository records use branded `OrganizationId`,
+`UserId`, `AgentSessionId`, `AgentSessionTaskId`, `AgentExecutionId`, and
+related types. HTTP/event/cross-domain projections format canonical resource
+names from those IDs and their parent scope.
+
+Keep authority-profile identity as a validated branded logical string in this
+foundation; do not expose a generic raw string or add the full durable
+authority-profile model until the runtime plan requires it.
 
 - [ ] **Step 4: Define the narrow repository port**
 
@@ -566,19 +608,19 @@ Use these central methods:
 
 ```typescript
 export interface AuthorizeAgentExecutionInput {
-  organizationId: string;
-  userId: string;
-  copilotThreadId: string;
-  aguiRunId: string;
-  agentVersionId: string;
+  organizationId: OrganizationId;
+  userId: UserId;
+  copilotThreadId: CopilotThreadId;
+  aguiRunId: AguiRunId;
+  agentVersionId: AgentVersionId;
   runtimeType: string;
   modelIdentity: string;
-  authorityProfileVersionId: string;
+  authorityProfileVersionId: AuthorityProfileVersionId;
   capabilityKeys: string[];
   policyHash: string;
-  inputHash: string;
+  inputHash: Sha256Digest;
   userEvent: {
-    externalEventId: string;
+    externalEventId: ExternalEventId;
     schemaVersion: 1;
     payload: AgentUserMessageEventPayload;
   };
@@ -587,8 +629,8 @@ export interface AuthorizeAgentExecutionInput {
 export interface AgentInteractionRepositoryPort {
   listActiveAgentVersions(): Promise<ActiveAgentVersionRecord[]>;
   findActiveAgentVersion(input: FindActiveAgentVersionInput): Promise<ActiveAgentVersionRecord | null>;
-  listSessions(input: { organizationId: string; userId: string; limit: number }): Promise<AgentSessionRecord[]>;
-  findAccessibleSession(input: { organizationId: string; userId: string; copilotThreadId: string }): Promise<AgentSessionRecord | null>;
+  listSessions(input: { organizationId: OrganizationId; userId: UserId; limit: number }): Promise<AgentSessionRecord[]>;
+  findAccessibleSession(input: { organizationId: OrganizationId; userId: UserId; copilotThreadId: CopilotThreadId }): Promise<AgentSessionRecord | null>;
   readConversationEvents(input: ReadConversationEventsInput): Promise<ConversationEventPage>;
   authorizeExecution(input: AuthorizeAgentExecutionInput): Promise<AuthorizedExecutionRecord>;
   appendExecutionEvent(input: AppendExecutionEventInput): Promise<AgentConversationEventRecord>;
@@ -723,8 +765,9 @@ const authorization = await service.authorizeRun({
     payload: { messageId: 'message-1', content: '재고 현황 알려줘' },
   },
 });
-expect(authorization.session.sessionId).toBe('session-1');
-expect(authorization.sessionTaskId).toBe('task-1');
+expect(authorization.session.name).toBe(sessionName);
+expect(authorization.task).toBe(taskName);
+expect(authorization.execution).toBe(executionName);
 ```
 
 Add tamper, expiry, wrong thread/run/context, changed event ID/content/input
@@ -758,15 +801,15 @@ export const INTERACTION_REPLAY_CURSOR_HMAC_KEY = Symbol('INTERACTION_REPLAY_CUR
 Delete the thread-ID HMAC provider. Rename preparation HMAC to run-intent HMAC
 in code and environment documentation; do not keep an alias.
 
-Canonical JSON claims contain version, organization/user, agent definition and
-version, thread/run IDs, dashboard-context hash, policy hash, normalized user
-event `inputHash`, and `expiresAtMs`. Sign with HMAC-SHA256 and verify signature
+Canonical JSON claims contain version, canonical organization/user/AgentVersion
+resource names, opaque thread/run IDs, dashboard-context hash, policy hash,
+normalized user event `inputHash`, and `expiresAtMs`. Sign with HMAC-SHA256 and verify signature
 length before
 `timingSafeEqual`. Reject expiry at `<= now`.
 
 Replay cursors use a separate domain/key and canonical claims containing
-version, organization ID, user ID, session ID, decimal `afterSequence`, and a
-15-minute expiry. Connection authorization returns a separately domain-tagged
+version, canonical organization/user/session names, decimal `afterSequence`,
+and a 15-minute expiry. Connection authorization returns a separately domain-tagged
 15-second live-join token bound to the same scope and replay
 `lastSequence`. Both tokens are opaque, signed, repeatable only within their
 short expiry, and cause no server write when verified.
@@ -780,7 +823,9 @@ short expiry, and cause no server write when verified.
   a 30-second token; no write.
 - `authorizeRun`: verify/resubmit thread, run, context, event ID, schema, and
   canonical input hash; resolve the exact allowed version and policy; call
-  `authorizeExecution`; return non-null session/task/execution authorization.
+  `authorizeExecution`; return non-null canonical session/task/execution
+  authorization. Parse every signed resource name back to branded owner IDs
+  and recheck its parent scope before repository access.
 - `authorizeConnection`: call only `findAccessibleSession` and
   `readConversationEvents`, require active or allowed resumable lifecycle,
   verify/decode the opaque replay cursor, and return no execution or writes.
@@ -935,12 +980,14 @@ git add apps/server/src/agent-os/adapter/in/http \
 git commit -m "feat: expose session interaction control"
 ```
 
-## Task 6: Add The Retired-Lifecycle Regression Gate
+## Task 6: Add Lifecycle And Identifier Regression Gates
 
 **Files:**
 
 - Create: `scripts/check-agent-interaction-lifecycle.mjs`
 - Create: `scripts/__tests__/check-agent-interaction-lifecycle.test.mjs`
+- Create: `scripts/check-identifier-contracts.mjs`
+- Create: `scripts/__tests__/check-identifier-contracts.test.mjs`
 - Modify: `package.json`
 - Modify: `scripts/README.md`
 - Modify: `scripts/check-script-inventory.mjs`
@@ -968,6 +1015,19 @@ await expectScannerSuccess('session creation requires capability policy');
 Add the script to the inventory expectations before creating the script so
 the first inventory run fails.
 
+In the same RED batch, add identifier fixtures that reject:
+
+- a public AgentOS/Operations schema declaring `sessionId: z.string().uuid()`
+  or another raw database ID instead of a resource name;
+- a generic exported `type Id = string` or unchecked resource-name cast;
+- a request ID reused as an idempotency key or persisted resource ID;
+- UUID/timestamp sorting as canonical event order;
+- a persisted `name` column duplicating an ID-derived resource name; and
+- an Operations handler importing `AgentCapabilityRegistry`.
+
+Allow branded `...Id` types inside owner domain/repository ports, Prisma UUID
+storage columns, and explicit opaque external protocol IDs.
+
 - [ ] **Step 2: Run and record RED**
 
 ```bash
@@ -990,12 +1050,19 @@ encode current contracts. Exclude:
 Also parse `prisma/models/agents.prisma` and fail when `AgentExecution`
 declares nullable `sessionId` or `sessionTaskId`.
 
+The identifier scanner parses focused shared exports and boundary DTOs. It
+requires canonical names at HTTP, AG-UI, event, and cross-domain surfaces while
+allowing branded IDs inside an owner. It also enforces the hexagonal direction:
+Agent capability adapters and Operations handlers may share an owner input
+port, but Operations cannot call the Agent capability registry.
+
 - [ ] **Step 4: Run scanner gates**
 
 ```bash
 npm run test:scripts
 npm run check:scripts-inventory
 npm run check:agent-interaction-lifecycle
+npm run check:identifier-contracts
 npm run check:conventions
 ```
 
@@ -1006,6 +1073,8 @@ Expected: all PASS.
 ```bash
 git add package.json scripts/check-agent-interaction-lifecycle.mjs \
   scripts/__tests__/check-agent-interaction-lifecycle.test.mjs \
+  scripts/check-identifier-contracts.mjs \
+  scripts/__tests__/check-identifier-contracts.test.mjs \
   scripts/README.md scripts/check-script-inventory.mjs
 git commit -m "chore: guard single interaction lifecycle"
 ```
@@ -1022,6 +1091,7 @@ git commit -m "chore: guard single interaction lifecycle"
 
 ```bash
 npm exec --workspace=packages/shared vitest -- run src/agent-interaction/index.spec.ts
+npm exec --workspace=packages/shared vitest -- run src/identifiers/index.spec.ts
 npm exec --workspace=apps/server vitest -- run \
   src/agent-os/application/service/__tests__/agent-interaction-identity.service.spec.ts \
   src/agent-os/adapter/in/http/__tests__/agent-interaction-bootstrap.controller.spec.ts \
@@ -1049,6 +1119,7 @@ npm run check:copilotkit-train
 npm run check:idor
 npm run check:tenant-scope
 npm run check:agent-interaction-lifecycle
+npm run check:identifier-contracts
 npm run check:conventions
 ```
 

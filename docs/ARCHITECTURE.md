@@ -31,11 +31,12 @@ NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 ### Operation Control Plane And Manual Action Parity
 
 `apps/server/src/operations` is the platform control plane for operational
-work that needs a durable server-side run envelope: schedules, Agent OS tools,
-and Operation-backed manual actions. Operations owns the code-owned catalog,
+work that needs a durable server-side run envelope: schedules, requests
+originating from Agent capabilities, and Operation-backed manual actions.
+Operations owns the code-owned catalog,
 organization-scoped schedules, top-level `OperationRun` ledger, engine
 dispatch, and browser-runtime leases; it does not write canonical business
-rows.
+rows and does not own or execute Agent capabilities.
 
 Manual browser work has a stricter UI parity rule. The dashboard Agent OS
 button and its individual domain-screen button call the same shared frontend
@@ -44,17 +45,22 @@ defaults, empty-vs-login classification, persistence, generated artifacts, and
 browser-session alerts do not. A dashboard button must not replace an existing
 screen action with a count-only Operation handler.
 
+The KID-25 target dependency direction is:
+
 ```text
 dashboard button ─┐
                   ├─> shared manual action -> extension + owner API/sink
 domain button ────┘
 
-schedule / agent-os -> operations
-                       -> owner incoming capability
-                       -> automation workflow port | agent-os runner port
-                          | ai direct-job port
+schedule / agent request -> operations
+                            -> owner operation adapter
+                            -> owner input port
+                               | automation workflow port
+                               | agent-os task-execution port
+                               | ai direct-job port
 
 automation -X-> agent-os
+operations -X-> agent capability registry
 ```
 
 Trend collection and Sellpia refresh are Operation-backed shared manual
@@ -130,6 +136,39 @@ metadata carries the collection attempt and update timestamp; Automation
 rejects stale transitions and prevents a late running start from reopening a
 terminal alert. Only a verified HTTP 404 authorizes web start-then-update
 recovery.
+
+## Identifier And Resource-Name Architecture (KID-25 Target)
+
+KID-25 establishes this boundary before its public interaction/runtime
+contracts cut over. KidItem separates identity roles instead of exporting
+arbitrary UUID strings:
+
+- Prisma owner tables keep native UUID storage keys with
+  `@default(uuid()) @db.Uuid`; the UUID generation algorithm is private to
+  persistence and existing rows are not rekeyed.
+- Application/domain/repository code uses Zod-branded owner IDs from the
+  focused `@kiditem/shared/identifiers` contract. There is no generic `Id`
+  alias and adapters parse before use.
+- HTTP, AG-UI, event, and cross-domain references use typed hierarchical
+  resource names such as
+  `organizations/{organization}/agentSessions/{session}/tasks/{task}` and
+  `organizations/{organization}/operations/{operation}`. Resource names have
+  no `/api` prefix/version and are computed rather than persisted redundantly.
+- `copilotThreadId`, `aguiRunId`, provider IDs, browser collection run IDs,
+  runtime handles, and tool-call IDs are opaque external-protocol identities.
+  A UUID-shaped external value is not a KidItem database ID.
+- UUIDv4 request IDs correlate transport requests only. Scoped idempotency
+  keys identify commands. Bigint sequences order aggregate events. Opaque
+  tokens prove short-lived authority. SHA-256 digests identify canonical
+  content/policy. None is interchangeable with a resource name.
+- Parsing a resource name proves syntax and parent structure, not access.
+  Controllers still derive organization/actor from authentication and owner
+  services recheck the complete resource graph.
+
+AgentOS resource patterns and the Operation relationship are normative in the
+[Interaction OS design](docs/superpowers/specs/2026-08-13-ai-chat-interactive-response-design.md#71-identifier-and-resource-name-system).
+The scheme follows Google AIP-122/123/133/151/155 resource and request
+separation while retaining this repository's native Prisma UUID convention.
 
 ## Backend Directory Architecture
 
@@ -313,6 +352,15 @@ Incoming ports are never grouped by caller or entrypoint type. Folders such as
 `application/port/in/workflow/` are forbidden. HTTP, Agent, workflow, and CLI
 entrypoints live under `adapter/in/{http,agent,workflow,cli}/` and may call the
 same incoming capability Interface.
+
+An Agent capability is therefore an `adapter/in/agent` implementation that
+translates a policy-approved invocation into an owning-domain input port. It
+does not own the business use case or durable lifecycle. An Operation handler
+is another incoming adapter and calls the same owner input port when work needs
+lease/checkpoint/retry/cancel semantics. Operations handlers never call the
+Agent capability registry. The AgentOS-owned session-task Operation is narrow:
+it calls only AgentOS's task-execution input port, which may later invoke
+policy-approved Agent capability adapters as part of the official execution.
 
 Outgoing ports use these lane folders when the lane exists:
 
@@ -905,12 +953,22 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
   `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
 - Manager routes live under
   `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
-- Business domains depend on Agent OS ports such as `AgentRunnerPort`; they do
+- Business domains that require LLM judgment depend on official Agent OS use-
+  case ports such as `AgentSessionExecutionPort`; they do
   not import runtime services or adapters directly.
 - Automation workflows are deterministic and must not create Agent OS runs. If
   LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
   deterministic workflows through automation-owned incoming ports or registered
   workflow capabilities.
+- Agent capabilities are owner-domain incoming adapters. They call owner
+  business input ports and do not become Operation handlers or repositories.
+- Deterministic synchronous work calls the owner input port directly;
+  deterministic long-running work uses an owner Operation. Operations owns the
+  run envelope and invokes owner ports, never `AgentCapabilityRegistry`.
+- In the KID-25 target, generic non-session `AgentRun` execution is not a
+  supported lane. Existing
+  callers must migrate to an owner use case/Operation or to an official
+  `AgentSession` execution when LLM judgment is required.
 
 Agent OS remains the dashboard's top-level operational interface and its
 autonomous reasoning runtime. It does not make every operation an `AgentRun`:
@@ -926,10 +984,17 @@ the browser principal through Nest, forwards only the opaque authorized run, and
 joins replay to live events without copying a transcript into web state.
 CopilotKit Premium/Enterprise persistence is not part of this boundary.
 
+Public interaction/runtime correlation uses canonical `session`, `task`,
+`execution`, optional `attempt`, and optional `operation` resource names plus
+opaque `copilotThreadId`/`aguiRunId`. AgentOS repositories retain branded UUID
+IDs internally; replay sequence, request ID, idempotency key, live-join token,
+runtime handle, and content hash are separate identifier classes.
+
 The global authenticated panel and `/agent-os` workspace share one ephemeral
 selection store. React Query owns bootstrap freshness; CopilotKit/AG-UI owns
-in-memory messages and tool state. Navigation results contain an `actionId`,
-never a model-supplied URL; Nest reauthorizes the action and returns one
+in-memory messages and tool state. Navigation results contain an opaque,
+short-lived `actionRef`, never a model-supplied URL or database ID; Nest
+reauthorizes the action and returns one
 allowlisted route. The current controller providers are provisionally wired in
 `AgentOsModule` until the KID-24 long-running operation module boundary lands;
 that follow-up must move wiring without changing these ownership contracts.
