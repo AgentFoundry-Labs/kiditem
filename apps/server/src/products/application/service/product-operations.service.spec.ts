@@ -50,8 +50,7 @@ describe('ProductOperationsService', () => {
         items: [{
           sellpiaInventorySkuId: skuId,
           currentStock: 100,
-          activeCommitmentQuantity: 80,
-          availableStock: 20,
+          availableStock: 100,
           isActive: true,
           generation: '12',
         }],
@@ -102,7 +101,7 @@ describe('ProductOperationsService', () => {
     expect(result.items).toHaveLength(1);
     expect(result.total).toBe(2);
     expect(result.items[0]).toMatchObject({
-      inventoryUnits: 20,
+      inventoryUnits: 100,
       depletion: { needsReorder: true },
       visitorCount: 11,
       viewCount: 22,
@@ -122,6 +121,62 @@ describe('ProductOperationsService', () => {
       expect.objectContaining({ channelAccountName: 'Coupang Wing', count: 1 }),
       expect.objectContaining({ channelAccountName: 'Coupang Rocket', count: 1 }),
     ]));
+  });
+
+  it('counts only negative ABC contribution profit across the full pre-pagination result', async () => {
+    const repository = makeRepository();
+    const positive = rawListProduct(productId);
+    positive.abcEvaluation = {
+      abcGrade: 'A',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 12_000,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const zero = rawListProduct('00000000-0000-4000-8000-000000000097');
+    zero.abcEvaluation = {
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: 0,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const missing = rawListProduct('00000000-0000-4000-8000-000000000098');
+    missing.abcEvaluation = {
+      abcGrade: null,
+      calculationStatus: 'INSUFFICIENT_EVIDENCE',
+      weightedContributionProfit: null,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    const negative = rawListProduct('00000000-0000-4000-8000-000000000099');
+    negative.abcEvaluation = {
+      abcGrade: 'C',
+      calculationStatus: 'READY',
+      weightedContributionProfit: -12_000,
+      formula: null,
+      sourceFreshness: { evaluationCutoffDate: '2026-07-31' },
+    } as never;
+    repository.listProducts.mockResolvedValue({
+      items: [positive, zero, missing, negative],
+      page: 1,
+      limit: 1,
+      sellingChannelProducts: [],
+    });
+    const service = makeService(repository);
+
+    const result = await service.listProducts(organizationId, {
+      page: 1,
+      limit: 1,
+      periodDays: 30,
+      activeStatus: 'all',
+      adStatus: 'all',
+    });
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]?.id).toBe(positive.id);
+    expect(result.total).toBe(4);
+    expect(result.summary.negativeProfitCount).toBe(1);
   });
 
   it('uses the same inventory command predicates for counts and filtered product rows', async () => {
@@ -511,7 +566,6 @@ function inventoryAvailability(sellpiaInventorySkuId: string, availableStock: nu
   return {
     sellpiaInventorySkuId,
     currentStock: availableStock,
-    activeCommitmentQuantity: 0,
     availableStock,
     isActive: true,
     generation: '12',
@@ -586,7 +640,6 @@ function rawListProduct(id: string) {
         capturedAt: new Date('2026-08-01T00:00:00.000Z'),
       },
     },
-    profit: null,
     inventorySkuIds: [skuId],
     inventoryOptions: [{
       id: channelListingOptionId,

@@ -21,5 +21,6 @@ describe('SalesAnalysisPageContent', () => {
       'aria-selected',
       'true',
     );
+    expect(screen.queryByRole('tab', { name: '쿠팡 로켓' })).not.toBeInTheDocument();
   });
 });

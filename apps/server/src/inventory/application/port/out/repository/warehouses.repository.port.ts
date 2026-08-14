@@ -13,8 +13,6 @@ export type WarehouseRow = {
   createdAt: Date;
   updatedAt: Date;
 };
-export type WarehouseListItem = WarehouseRow & { shipmentCount: number };
-
 export type CreateWarehouseData = {
   name: string;
   code?: string;
@@ -28,7 +26,7 @@ export type CreateWarehouseData = {
 export type WarehouseUpdateData = Partial<CreateWarehouseData>;
 
 export interface WarehousesRepositoryPort {
-  listWarehouses(organizationId: string): Promise<WarehouseListItem[]>;
+  listWarehouses(organizationId: string): Promise<WarehouseRow[]>;
   findWarehouseById(id: string, organizationId: string): Promise<WarehouseRow | null>;
   createWarehouse(organizationId: string, data: CreateWarehouseData): Promise<WarehouseRow>;
   updateWarehouse(id: string, data: WarehouseUpdateData): Promise<WarehouseRow>;

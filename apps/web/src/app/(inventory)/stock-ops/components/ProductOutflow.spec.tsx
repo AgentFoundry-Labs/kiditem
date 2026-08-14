@@ -188,7 +188,6 @@ function row(
       status: 'matched',
       sellpiaInventorySkuId: `11111111-1111-4111-8111-${suffix.padEnd(12, '0').slice(0, 12)}`,
       currentStock: 10,
-      activeCommitmentQuantity: 0,
       availableStock: 10,
       salesRowCount: 1,
       inventoryProduct: {

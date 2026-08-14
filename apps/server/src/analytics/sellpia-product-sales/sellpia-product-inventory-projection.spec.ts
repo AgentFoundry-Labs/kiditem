@@ -23,8 +23,7 @@ describe('Sellpia product inventory projection', () => {
         items: [{
           sellpiaInventorySkuId: SKU_ID,
           currentStock: 100,
-          activeCommitmentQuantity: 80,
-          availableStock: 20,
+          availableStock: 100,
           isActive: true,
           generation: '12',
         }],
@@ -64,20 +63,19 @@ describe('Sellpia product inventory projection', () => {
       inventoryResolution: {
         status: 'matched',
         currentStock: 100,
-        activeCommitmentQuantity: 80,
-        availableStock: 20,
+        availableStock: 100,
         salesRowCount: 2,
         inventoryProduct: { masterProductId: '22222222-2222-4222-8222-222222222222', abcGrade: 'A' },
       },
-      monthsOfAvailableStockLeft: 0.4,
+      monthsOfAvailableStockLeft: 2,
       reorderPoint: 75,
-      needsReorder: true,
+      needsReorder: false,
     });
     expect(result.byProductKey.get('row-2')).toEqual(
       result.byProductKey.get('row-1'),
     );
     expect(result.summary).toMatchObject({
-      reorderCount: 1,
+      reorderCount: 0,
       matchedSalesRows: 2,
       matchedSkus: 1,
       unlinkedSkus: 0,
@@ -123,7 +121,6 @@ describe('Sellpia product inventory projection', () => {
         items: [{
           sellpiaInventorySkuId: SKU_ID,
           currentStock: 100,
-          activeCommitmentQuantity: 0,
           availableStock: 100,
           isActive: true,
           generation: '12',

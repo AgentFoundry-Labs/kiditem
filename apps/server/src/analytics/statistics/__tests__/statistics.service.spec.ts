@@ -13,9 +13,6 @@ function makePrisma() {
     channelListing: {
       count: vi.fn(),
     },
-    shipment: {
-      findMany: vi.fn(),
-    },
     order: {
       count: vi.fn(),
       findMany: vi.fn(),
@@ -311,53 +308,6 @@ describe('StatisticsService', () => {
             cumulativePercent: 100,
           },
         ],
-      });
-    });
-  });
-
-  describe('delivery', () => {
-    it('aggregates daily qty from Order.lineItems.quantity sum', async () => {
-      vi.useFakeTimers();
-      vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
-      prisma.shipment.findMany.mockResolvedValue([]);
-      prisma.order.findMany.mockResolvedValue([
-        {
-          orderedAt: new Date('2026-04-18T10:00:00.000Z'),
-          totalPrice: 10_000,
-          lineItems: [{ quantity: 2 }, { quantity: 3 }],
-        },
-        {
-          orderedAt: new Date('2026-04-18T11:00:00.000Z'),
-          totalPrice: 5_000,
-          lineItems: [{ quantity: 4 }],
-        },
-      ]);
-
-      const result = await service.delivery('organization-1', '2026-04');
-
-      expect(prisma.order.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: expect.objectContaining({
-            organizationId: 'organization-1',
-            status: { notIn: ['cancelled', 'returned'] },
-          }),
-          select: {
-            orderedAt: true,
-            totalPrice: true,
-            lineItems: { select: { quantity: true } },
-          },
-        }),
-      );
-      expect(result.totalShipments).toBe(0);
-      expect(result.avgDeliveryDays).toBe(0);
-      expect(result.courierDistribution).toEqual([]);
-      expect(result.daily).toHaveLength(30);
-      expect(result.daily.find((row) => row.date === '2026-04-18')).toEqual({
-        date: '2026-04-18',
-        count: 0,
-        orders: 2,
-        revenue: 15_000,
-        qty: 9,
       });
     });
   });

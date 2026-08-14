@@ -99,30 +99,21 @@
 
 ```sql
 SELECT
-  p.id, p.name, p.abc_grade, p.ad_tier,
-  p.cost_price, p.sell_price,
-  -- 손익
-  pl.revenue, pl.net_profit,
-  ROUND(pl.profit_rate * 100, 1) as profit_rate_pct,
-  pl.ad_cost, pl.order_count, pl.return_count,
-  CASE WHEN pl.revenue > 0 THEN ROUND(pl.ad_cost::decimal / pl.revenue * 100, 1) ELSE 0 END as ad_rate,
-  -- 재고
-  COALESCE(i.current_stock, 0) as current_stock,
-  COALESCE(i.daily_sales_avg, 0) as avg_daily_sales,
-  CASE
-    WHEN COALESCE(i.current_stock, 0) = 0 THEN 0
-    WHEN COALESCE(i.daily_sales_avg, 0) > 0 THEN ROUND(i.current_stock / i.daily_sales_avg)
-    ELSE 999
-  END as days_of_stock,
-  -- 리뷰
-  (SELECT COUNT(*) FROM reviews r WHERE r.product_id = p.id) as review_count,
-  -- 썸네일 CTR
-  (SELECT ROUND(t.ctr * 100, 2) FROM thumbnails t WHERE t.product_id = p.id ORDER BY t.measured_at DESC LIMIT 1) as thumbnail_ctr
-FROM products p
-LEFT JOIN profit_loss pl ON pl.product_id = p.id
-  AND pl.year = EXTRACT(YEAR FROM CURRENT_DATE)
-  AND pl.month = EXTRACT(MONTH FROM CURRENT_DATE)
-LEFT JOIN inventory i ON i.product_id = p.id
-WHERE p.organization_id = '{organizationId}' AND p.is_deleted = false
-ORDER BY p.name
+  mp.id, mp.name, mp.abc_grade, mp.ad_tier,
+  ev.weighted_contribution_profit,
+  sis.current_stock,
+  sis.current_stock AS available_stock
+FROM master_products mp
+LEFT JOIN master_product_abc_evaluations ev
+  ON ev.master_product_id = mp.id
+ AND ev.organization_id = mp.organization_id
+LEFT JOIN sellpia_inventory_skus sis
+  ON sis.master_product_id = mp.id
+ AND sis.organization_id = mp.organization_id
+WHERE mp.organization_id = '{organizationId}'
+  AND mp.is_active = true
+ORDER BY mp.name
 ```
+
+손익률·매출·광고비·주문·반품·리뷰·썸네일 지표는 저장된 P&L 테이블이
+아니라 organization-scoped Finance/Analytics API 및 read model에서 결합한다.

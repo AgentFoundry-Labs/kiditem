@@ -31,21 +31,21 @@ describe('direct channel option availability contracts', () => {
       masterProductId: productId,
       recipeStatus: 'matched',
       mappingStatus: 'matched',
-      sellableStock: 8,
+      sellableStock: 9,
       components: [component()],
     }));
 
-    expect(parsed.components[0]).toMatchObject({ quantity: 10, componentCapacity: 8, isBottleneck: true });
-    expect(parsed.sku.sellableStock).toBe(8);
+    expect(parsed.components[0]).toMatchObject({ quantity: 10, componentCapacity: 9, isBottleneck: true });
+    expect(parsed.sku.sellableStock).toBe(9);
   });
 
-  it('requires available stock to subtract active commitments', () => {
+  it('requires available stock to equal physical current stock', () => {
     expect(() => ChannelSkuAvailabilityItemSchema.parse(item({
       masterProductId: productId,
       recipeStatus: 'matched',
       mappingStatus: 'matched',
       sellableStock: 8,
-      components: [{ ...component(), activeCommitmentQuantity: 10, availableStock: 85 }],
+      components: [{ ...component(), availableStock: 85 }],
     }))).toThrow();
   });
 
@@ -81,12 +81,11 @@ function component() {
     optionName: null,
     barcode: null,
     currentStock: 90,
-    activeCommitmentQuantity: 5,
-    availableStock: 85,
+    availableStock: 90,
     purchasePrice: 1_000,
     isActive: true,
     quantity: 10,
-    componentCapacity: 8,
+    componentCapacity: 9,
     isBottleneck: true,
   };
 }

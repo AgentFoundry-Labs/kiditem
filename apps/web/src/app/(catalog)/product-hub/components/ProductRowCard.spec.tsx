@@ -60,6 +60,22 @@ describe('ProductRowCard', () => {
     expect(screen.queryByText('미수집')).not.toBeInTheDocument();
   });
 
+  it('renders weighted ABC contribution profit as the profitability metric', () => {
+    render(<ProductRowCard product={product()} />);
+
+    expect(screen.getByText('기여이익 120,000원')).toBeInTheDocument();
+    expect(screen.queryByText(/^이익 /)).not.toBeInTheDocument();
+  });
+
+  it('renders a dash when ABC contribution profit is absent', () => {
+    render(<ProductRowCard product={{
+      ...product(),
+      abcEvaluation: productAbcEvaluation({ weightedContributionProfit: null }),
+    }} />);
+
+    expect(screen.getByText('기여이익 —')).toBeInTheDocument();
+  });
+
   it('hides opaque category references and stock-basis labels from the product list', () => {
     render(<ProductRowCard product={{
       ...product(),
@@ -165,7 +181,6 @@ function product(): MasterProductOperationsListItem {
         capturedAt: '2026-08-01T00:00:00.000Z',
       },
     },
-    profit: null,
     contributionProfitVelocity30: 120_000,
     contributionMargin: 0.32,
   };

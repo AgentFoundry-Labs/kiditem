@@ -8,33 +8,24 @@ import { PrismaModule } from '../../prisma/prisma.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
 import { CoupangShipmentSummaryOperationHandler } from '../adapter/in/operation/coupang-shipment-summary.operation-handler';
 import { InventorySkuSnapshotController } from '../adapter/in/http/inventory-sku-snapshot.controller';
-import { PickingController } from '../adapter/in/http/picking.controller';
 import { SellpiaInventoryImportController } from '../adapter/in/http/sellpia-inventory-import.controller';
 import { SellpiaInventoryFreshnessController } from '../adapter/in/http/sellpia-inventory-freshness.controller';
-import { SellpiaReceiptBatchController } from '../adapter/in/http/sellpia-receipt-batch.controller';
 import { TransfersController } from '../adapter/in/http/transfers.controller';
-import { UnshippedController } from '../adapter/in/http/unshipped.controller';
 import { WarehousesController } from '../adapter/in/http/warehouses.controller';
-import { ConfirmedOrdersRepositoryAdapter } from '../adapter/out/repository/confirmed-orders.repository.adapter';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from '../adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
 import { SellpiaImportRunRepositoryAdapter } from '../adapter/out/repository/sellpia-import-run.repository.adapter';
 import { SellpiaSnapshotPublicationRepositoryAdapter } from '../adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
 import { SellpiaInventoryFreshnessRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from '../adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
-import { InventoryCommitmentRepositoryAdapter } from '../adapter/out/repository/inventory-commitment.repository.adapter';
+import { InventoryAvailabilityRepositoryAdapter } from '../adapter/out/repository/inventory-availability.repository.adapter';
 import { RocketWorkbookProgressRepositoryAdapter } from '../adapter/out/repository/rocket-workbook-progress.repository.adapter';
 import { SellpiaInventorySkuReadRepositoryAdapter } from '../adapter/out/repository/sellpia-inventory-sku-read.repository.adapter';
-import { PickingRepositoryAdapter } from '../adapter/out/repository/picking.repository.adapter';
-import { SellpiaReceiptBatchRepositoryAdapter } from '../adapter/out/repository/sellpia-receipt-batch.repository.adapter';
 import { TransfersRepositoryAdapter } from '../adapter/out/repository/transfers.repository.adapter';
-import { UnshippedRepositoryAdapter } from '../adapter/out/repository/unshipped.repository.adapter';
 import { WarehousesRepositoryAdapter } from '../adapter/out/repository/warehouses.repository.adapter';
 import { INVENTORY_SKU_SNAPSHOT_LIST_PORT } from '../application/port/in/stock/inventory-sku-snapshot-list.port';
 import { INVENTORY_AVAILABILITY_PORT } from '../application/port/in/stock/inventory-availability.port';
-import { INVENTORY_COMMITMENT_PORT } from '../application/port/in/stock/inventory-commitment.port';
 import { SELLPIA_INVENTORY_SKU_READ_PORT } from '../application/port/in/stock/sellpia-inventory-sku-read.port';
 import { SELLPIA_INVENTORY_IMPORT_PORT } from '../application/port/in/stock/sellpia-inventory-import.port';
-import { SELLPIA_RECEIPT_BATCH_PORT } from '../application/port/in/stock/sellpia-receipt-batch.port';
 import { SELLPIA_INVENTORY_FRESHNESS_PORT } from '../application/port/in/stock/sellpia-inventory-freshness.port';
 import { SELLPIA_INVENTORY_FRESHNESS_GATE_PORT } from '../application/port/in/stock/sellpia-inventory-freshness-gate.port';
 import { ROCKET_WORKBOOK_PROGRESS_PORT } from '../application/port/in/stock/rocket-workbook-progress.port';
@@ -42,22 +33,18 @@ import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from '../application/port/
 import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-import-run.repository.port';
 import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-snapshot-publication.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from '../application/port/out/repository/inventory-sku-snapshot-list.repository.port';
-import { INVENTORY_COMMITMENT_REPOSITORY_PORT } from '../application/port/out/repository/inventory-commitment.repository.port';
+import { INVENTORY_AVAILABILITY_REPOSITORY_PORT } from '../application/port/out/repository/inventory-availability.repository.port';
 import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-inventory-sku-read.repository.port';
-import { SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-receipt-batch.repository.port';
 import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from '../application/port/out/repository/rocket-workbook-progress.repository.port';
 import { InventorySkuSnapshotListService } from '../application/service/inventory-sku-snapshot-list.service';
-import { InventoryCommitmentService } from '../application/service/inventory-commitment.service';
+import { InventoryAvailabilityService } from '../application/service/inventory-availability.service';
 import { RocketWorkbookProgressService } from '../application/service/rocket-workbook-progress.service';
 import { SellpiaInventorySkuReadService } from '../application/service/sellpia-inventory-sku-read.service';
-import { PickingService } from '../application/service/picking.service';
 import { SellpiaInventoryImportService } from '../application/service/sellpia-inventory-import.service';
 import { SellpiaInventoryFileValidator } from '../application/service/sellpia-inventory-file.validator';
-import { SellpiaReceiptBatchService } from '../application/service/sellpia-receipt-batch.service';
 import { SellpiaInventoryFreshnessService } from '../application/service/sellpia-inventory-freshness.service';
 import { TransfersService } from '../application/service/transfers.service';
-import { UnshippedService } from '../application/service/unshipped.service';
 import { WarehousesService } from '../application/service/warehouses.service';
 import { InventoryModule } from '../inventory.module';
 
@@ -96,11 +83,8 @@ describe('InventoryModule authoritative capability wiring', () => {
       InventorySkuSnapshotController,
       SellpiaInventoryImportController,
       SellpiaInventoryFreshnessController,
-      SellpiaReceiptBatchController,
-      UnshippedController,
       WarehousesController,
       TransfersController,
-      PickingController,
       CoupangShipmentsController,
     ]));
   });
@@ -113,28 +97,21 @@ describe('InventoryModule authoritative capability wiring', () => {
       ConfirmedChannelComponentReferenceRepositoryAdapter,
       SellpiaInventoryFreshnessRepositoryAdapter,
       InventorySkuSnapshotListRepositoryAdapter,
-      InventoryCommitmentRepositoryAdapter,
+      InventoryAvailabilityRepositoryAdapter,
       RocketWorkbookProgressRepositoryAdapter,
       SellpiaInventorySkuReadRepositoryAdapter,
-      SellpiaReceiptBatchRepositoryAdapter,
-      UnshippedRepositoryAdapter,
       WarehousesRepositoryAdapter,
       TransfersRepositoryAdapter,
-      PickingRepositoryAdapter,
-      ConfirmedOrdersRepositoryAdapter,
       InventorySkuSnapshotListService,
-      InventoryCommitmentService,
+      InventoryAvailabilityService,
       RocketWorkbookProgressService,
       SellpiaInventorySkuReadService,
       SellpiaInventoryImportService,
       SellpiaInventoryFileValidator,
       SellpiaInventoryFreshnessService,
       CoupangShipmentSummaryOperationHandler,
-      SellpiaReceiptBatchService,
-      UnshippedService,
       WarehousesService,
       TransfersService,
-      PickingService,
     ]) {
       expect(providers).toContain(provider);
     }
@@ -160,18 +137,16 @@ describe('InventoryModule authoritative capability wiring', () => {
     });
   });
 
-  it('binds and exports common availability and commitment ownership', () => {
+  it('binds and exports physical availability ownership', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     expect(providers).toContainEqual({
-      provide: INVENTORY_COMMITMENT_REPOSITORY_PORT,
-      useExisting: InventoryCommitmentRepositoryAdapter,
+      provide: INVENTORY_AVAILABILITY_REPOSITORY_PORT,
+      useExisting: InventoryAvailabilityRepositoryAdapter,
     });
-    for (const port of [INVENTORY_AVAILABILITY_PORT, INVENTORY_COMMITMENT_PORT]) {
-      expect(providers).toContainEqual({
-        provide: port,
-        useExisting: InventoryCommitmentService,
-      });
-    }
+    expect(providers).toContainEqual({
+      provide: INVENTORY_AVAILABILITY_PORT,
+      useExisting: InventoryAvailabilityService,
+    });
   });
 
   it('binds and exports Rocket workbook progress without exposing persistence', () => {
@@ -188,7 +163,7 @@ describe('InventoryModule authoritative capability wiring', () => {
       .toContain(ROCKET_WORKBOOK_PROGRESS_PORT);
   });
 
-  it('keeps the Sellpia importer and receipt tracker isolated', () => {
+  it('keeps the Sellpia importer isolated', () => {
     const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
     expect(providers).toContainEqual({
       provide: SELLPIA_INVENTORY_IMPORT_PORT,
@@ -205,14 +180,6 @@ describe('InventoryModule authoritative capability wiring', () => {
     expect(providers).toContainEqual({
       provide: CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT,
       useExisting: ConfirmedChannelComponentReferenceRepositoryAdapter,
-    });
-    expect(providers).toContainEqual({
-      provide: SELLPIA_RECEIPT_BATCH_PORT,
-      useExisting: SellpiaReceiptBatchService,
-    });
-    expect(providers).toContainEqual({
-      provide: SELLPIA_RECEIPT_BATCH_REPOSITORY_PORT,
-      useExisting: SellpiaReceiptBatchRepositoryAdapter,
     });
   });
 
@@ -235,7 +202,6 @@ describe('InventoryModule authoritative capability wiring', () => {
       SELLPIA_INVENTORY_SKU_READ_PORT,
       SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
       INVENTORY_AVAILABILITY_PORT,
-      INVENTORY_COMMITMENT_PORT,
       ROCKET_WORKBOOK_PROGRESS_PORT,
     ]);
   });
@@ -249,11 +215,8 @@ describe('InventoryModule authoritative capability wiring', () => {
     expect(Reflect.getMetadata(PATH_KEY, InventorySkuSnapshotController)).toBe('inventory');
     expect(Reflect.getMetadata(PATH_KEY, SellpiaInventoryImportController)).toBe('inventory/sellpia-sync');
     expect(Reflect.getMetadata(PATH_KEY, SellpiaInventoryFreshnessController)).toBe('inventory/sellpia-freshness');
-    expect(Reflect.getMetadata(PATH_KEY, SellpiaReceiptBatchController)).toBe('inventory/sellpia-receipt-batches');
-    expect(Reflect.getMetadata(PATH_KEY, UnshippedController)).toBe('unshipped');
     expect(Reflect.getMetadata(PATH_KEY, WarehousesController)).toBe('warehouses');
     expect(Reflect.getMetadata(PATH_KEY, TransfersController)).toBe('stock-transfers');
-    expect(Reflect.getMetadata(PATH_KEY, PickingController)).toBe('picking');
     expect(Reflect.getMetadata(PATH_KEY, CoupangShipmentsController)).toBe('coupang-shipments');
   });
 });

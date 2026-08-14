@@ -9,7 +9,6 @@ import { DashboardAdRepositoryAdapter } from './adapter/out/repository/dashboard
 import { DashboardTrendRepositoryAdapter } from './adapter/out/repository/dashboard-trend.repository.adapter';
 import { WingTrafficAggregationRepositoryAdapter } from './adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from './adapter/out/repository/dashboard-inventory.repository.adapter';
-import { RocketRevenueRepositoryAdapter } from './adapter/out/repository/rocket-revenue.repository.adapter';
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from './application/port/in/analytics-overview-capability.port';
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from './application/port/out/repository/profit-calculation.repository.port';
 import { AD_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/ad-aggregation.repository.port';
@@ -19,7 +18,6 @@ import { DASHBOARD_AD_REPOSITORY_PORT } from './application/port/out/repository/
 import { DASHBOARD_TREND_REPOSITORY_PORT } from './application/port/out/repository/dashboard-trend.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from './application/port/out/repository/wing-traffic-aggregation.repository.port';
 import { DASHBOARD_INVENTORY_REPOSITORY_PORT } from './application/port/out/repository/dashboard-inventory.repository.port';
-import { ROCKET_REVENUE_REPOSITORY_PORT } from './application/port/out/repository/rocket-revenue.repository.port';
 import { DashboardContextService } from './application/service/dashboard-context.service';
 import { DashboardSalesService } from './application/service/dashboard-sales.service';
 import { DashboardAdService } from './application/service/dashboard-ad.service';
@@ -35,7 +33,6 @@ const repositoryAdapters = [
   DashboardTrendRepositoryAdapter,
   WingTrafficAggregationRepositoryAdapter,
   DashboardInventoryRepositoryAdapter,
-  RocketRevenueRepositoryAdapter,
 ];
 
 const repositoryPorts = [
@@ -47,7 +44,6 @@ const repositoryPorts = [
   { provide: DASHBOARD_TREND_REPOSITORY_PORT, useExisting: DashboardTrendRepositoryAdapter },
   { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
   { provide: DASHBOARD_INVENTORY_REPOSITORY_PORT, useExisting: DashboardInventoryRepositoryAdapter },
-  { provide: ROCKET_REVENUE_REPOSITORY_PORT, useExisting: RocketRevenueRepositoryAdapter },
 ];
 
 const dashboardServices = [

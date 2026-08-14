@@ -16,7 +16,6 @@
 | DataMigrationRun | `data_migration_runs` | 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다. |
 | FeatureGate | `feature_gates` | 피처 플래그. allowedOrganizations: string[] 로 회사별 enable. |
 | Marketplace | `marketplace` | type 으로 agent/workflow 카탈로그 통합. |
-| MigrationCheckpoint | `migration_checkpoints` | 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능. |
 | OperationRun | `operation_runs` | Organization-scoped top-level execution ledger for dashboard, domain, Agent OS, and scheduled work. |
 | OperationRunCheckpoint | `operation_run_checkpoints` | Immutable monotonic recovery checkpoint owned by an organization-scoped Operation run. |
 | OperationSchedule | `operation_schedules` | Organization-managed cron schedule for a code-owned operation definition. All schedules start disabled. |
@@ -150,17 +149,6 @@ erDiagram
     Int version
     Int installCount
     Boolean isPublished
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  MigrationCheckpoint {
-    String id PK
-    String scriptName
-    String stepName
-    String entityKey
-    String status
-    String error
-    Json payload
     DateTime createdAt
     DateTime updatedAt
   }

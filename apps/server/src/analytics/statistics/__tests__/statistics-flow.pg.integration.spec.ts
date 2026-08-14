@@ -1,4 +1,4 @@
-import { afterEach, beforeAll, beforeEach, afterAll, describe, expect, it, vi } from 'vitest';
+import { beforeAll, beforeEach, afterAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import { StatisticsService } from '../statistics.service';
@@ -44,10 +44,6 @@ describe('Statistics flow (PG integration)', () => {
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   async function seedStatisticsFixture(organizationId = TEST_ORGANIZATION_ID) {
@@ -142,7 +138,10 @@ describe('Statistics flow (PG integration)', () => {
         { quantity: 1, totalPrice: 12_000, optionId: optM1b, listingOptionId: listingL1b.id },
       ],
     });
-    await prisma.order.update({ where: { id: o1 }, data: { receiverName: 'A' } });
+    await prisma.order.update({
+      where: { id: o1 },
+      data: { receiverName: 'A' },
+    });
 
     const o2 = await seedOrderWithLineItems(prisma, {
       organizationId,
@@ -338,41 +337,6 @@ describe('Statistics flow (PG integration)', () => {
         cumulativePercent: 100,
       },
     ]);
-  });
-
-  it('delivery still aggregates quantity from order line items and excludes cancelled orders', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-04-19T00:00:00.000Z'));
-    await seedStatisticsFixture();
-
-    const result = await service.delivery(TEST_ORGANIZATION_ID, '2026-04');
-
-    expect(result.totalShipments).toBe(0);
-    expect(result.avgDeliveryDays).toBe(0);
-    expect(result.courierDistribution).toEqual([]);
-    expect(result.daily).toHaveLength(30);
-    expect(result.daily.find((row) => row.date === '2026-04-10')).toEqual({
-      date: '2026-04-10',
-      count: 0,
-      orders: 1,
-      revenue: 32_000,
-      qty: 3,
-    });
-    expect(result.daily.find((row) => row.date === '2026-04-12')).toEqual({
-      date: '2026-04-12',
-      count: 0,
-      orders: 1,
-      revenue: 15_000,
-      qty: 3,
-    });
-    expect(result.daily.find((row) => row.date === '2026-04-15')).toEqual({
-      date: '2026-04-15',
-      count: 0,
-      orders: 1,
-      revenue: 5_000,
-      qty: 1,
-    });
-    expect(result.daily.reduce((sum, row) => sum + row.qty, 0)).toBe(7);
   });
 
   it('repurchase keeps receiver-level and listing-level behavior on current schema', async () => {

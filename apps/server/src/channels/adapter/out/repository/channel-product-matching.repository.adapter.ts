@@ -5,12 +5,11 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { projectChannelOptionCapacity } from '../../../../products/domain/channel-option-capacity';
 import { inferRecipeQuantity } from '../../../domain/channel-recipe-suggestion';
 import { lockChannelListingRow } from './channel-listing-row-lock';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import type {
-  ChannelOptionMatchingQueueRow,
+  ChannelOptionMatchingRepositoryRow,
   ChannelProductMatchingQueueRow,
   ChannelProductMatchingRepositoryPort,
   ChannelAvailabilityRepositoryRow,
@@ -55,9 +54,7 @@ function listingInclude(organizationId: string) {
                 name: true,
                 optionName: true,
                 barcode: true,
-                currentStock: true,
                 purchasePrice: true,
-                isActive: true,
               },
             },
           },
@@ -464,9 +461,7 @@ implements ChannelProductMatchingRepositoryPort {
           name: component.sellpiaInventorySku.name,
           optionName: component.sellpiaInventorySku.optionName,
           barcode: component.sellpiaInventorySku.barcode,
-          currentStock: component.sellpiaInventorySku.currentStock,
           purchasePrice: component.sellpiaInventorySku.purchasePrice,
-          isActive: component.sellpiaInventorySku.isActive,
           quantity: component.quantity,
         })),
       })));
@@ -620,17 +615,7 @@ function toProductQueueRow(listing: ListingRow): ChannelProductMatchingQueueRow 
 function toOptionQueueRow(
   listing: ListingRow,
   option: OptionRow,
-): ChannelOptionMatchingQueueRow {
-  const projection = projectChannelOptionCapacity(
-    option.inventoryComponents.map((component) => ({
-      sellpiaInventorySkuId: component.sellpiaInventorySkuId,
-      currentStock: component.sellpiaInventorySku.currentStock,
-      activeCommitmentQuantity: 0,
-      availableStock: component.sellpiaInventorySku.currentStock,
-      quantity: component.quantity,
-      isActive: component.sellpiaInventorySku.isActive,
-    })),
-  );
+): ChannelOptionMatchingRepositoryRow {
   return {
     channelAccount: listing.channelAccount,
     listing: {
@@ -638,14 +623,11 @@ function toOptionQueueRow(
       externalId: listing.externalId,
       masterProductId: listing.masterProductId,
     },
-    option: optionIdentity(option),
-    capacity: projection.warningState === 'none'
-      ? projection.capacity
-      : null,
+    option: optionRecipeIdentity(option),
   };
 }
 
-function optionIdentity(option: OptionRow) {
+function optionRecipeIdentity(option: OptionRow) {
   return {
     id: option.id,
     externalOptionId: option.externalOptionId,
@@ -660,9 +642,6 @@ function optionIdentity(option: OptionRow) {
       name: component.sellpiaInventorySku.name,
       optionName: component.sellpiaInventorySku.optionName,
       barcode: component.sellpiaInventorySku.barcode,
-      currentStock: component.sellpiaInventorySku.currentStock,
-      availableStock: component.sellpiaInventorySku.currentStock,
-      isActive: component.sellpiaInventorySku.isActive,
       quantity: component.quantity,
     })),
   };
