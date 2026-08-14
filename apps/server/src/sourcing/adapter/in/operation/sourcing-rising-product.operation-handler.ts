@@ -15,6 +15,8 @@ import type {
   OperationHandlerResult,
 } from '../../../../common/operation-definition';
 
+const NORMAL_EMPTY_RESULT_GAP = 'no_rising_candidates';
+
 @Injectable()
 export class SourcingRisingProductOperationHandler
   implements OperationHandler, OnModuleInit
@@ -43,7 +45,10 @@ export class SourcingRisingProductOperationHandler
     );
     context.signal.throwIfAborted();
     const candidateCount = result.model.stats.candidateCount;
-    const failed = result.dataGaps.length;
+    const failed = result.dataGaps.reduce(
+      (count, gap) => gap === NORMAL_EMPTY_RESULT_GAP ? count : count + 1,
+      0,
+    );
     const outcome: SourcingOperationOutcome = failed > 0
       ? 'partial'
       : candidateCount === 0

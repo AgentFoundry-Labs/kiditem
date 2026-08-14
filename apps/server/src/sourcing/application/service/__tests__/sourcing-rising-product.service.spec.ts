@@ -56,6 +56,12 @@ describe('SourcingRisingProductService', () => {
     const detected = await service.detect({ organizationId: 'org-1', windowDays: 7 });
     const restored = await service.getLatest('org-1', 7);
 
+    expect(detected.dataGaps).toEqual([
+      'coupang_serp_history_missing',
+      'wing_sales_history_missing',
+      'naver_trend_history_missing',
+      'no_rising_candidates',
+    ]);
     expect(restored).toMatchObject({
       confidence: detected.confidence,
       dataGaps: detected.dataGaps,

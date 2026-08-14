@@ -83,11 +83,16 @@ describe('SourcingRisingProductOperationHandler', () => {
         businessDate: '2026-08-14',
         windowDays: 14,
         generatedAt: '2026-08-14T01:00:00.000Z',
-        confidence: 0.5,
-        dataGaps: ['raw provider gap detail', 'another raw gap'],
+        confidence: 0,
+        dataGaps: [
+          'coupang_serp_history_missing',
+          'wing_sales_history_missing',
+          'naver_trend_history_missing',
+          'no_rising_candidates',
+        ],
         model: {
-          candidates: [{ id: 'candidate-1' }, { id: 'candidate-2' }],
-          stats: { candidateCount: 2 },
+          candidates: [],
+          stats: { candidateCount: 0 },
         },
       }),
     };
@@ -103,17 +108,17 @@ describe('SourcingRisingProductOperationHandler', () => {
       result: {
         outcome: 'partial',
         summary: {
-          discovered: 2,
-          accepted: 2,
+          discovered: 0,
+          accepted: 0,
           duplicate: 0,
           unchanged: 0,
-          failed: 2,
+          failed: 3,
         },
         sources: [{
           source: 'rising_products',
           outcome: 'partial',
-          accepted: 2,
-          failed: 2,
+          accepted: 0,
+          failed: 3,
           errorCode: 'rising_data_gaps',
         }],
         snapshotGeneratedAt: '2026-08-14T01:00:00.000Z',
@@ -121,10 +126,10 @@ describe('SourcingRisingProductOperationHandler', () => {
     });
     if (execution.kind !== 'completed') throw new Error('expected completed result');
     expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
-    expect(JSON.stringify(execution.result)).not.toContain('raw provider gap');
+    expect(JSON.stringify(execution.result)).not.toContain('coupang_serp_history_missing');
   });
 
-  it('returns no_change when detection completes with no candidates or data gaps', async () => {
+  it('returns no_change when the service reports only the normal empty-candidate marker', async () => {
     const registry = new OperationHandlerRegistryService();
     const rising = {
       detect: vi.fn().mockResolvedValue({
@@ -132,7 +137,7 @@ describe('SourcingRisingProductOperationHandler', () => {
         windowDays: 14,
         generatedAt: '2026-08-14T01:00:00.000Z',
         confidence: 1,
-        dataGaps: [],
+        dataGaps: ['no_rising_candidates'],
         model: { candidates: [], stats: { candidateCount: 0 } },
       }),
     };
