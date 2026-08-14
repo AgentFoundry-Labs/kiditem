@@ -1,14 +1,18 @@
 import {
-  AguiConnectionAuthorizationSchema,
+  AgentConversationConnectionAuthorizationSchema,
   AguiRunAuthorizationSchema,
   AguiRunIntentSchema,
   InteractionBootstrapSchema,
-  type AguiConnectionAuthorization,
+  type AgentConversationConnectionAuthorization,
   type AguiRunAuthorization,
   type AguiRunIntent,
   type DashboardContext,
   type InteractionBootstrap,
 } from '@kiditem/shared/agent-interaction';
+import type {
+  AgentExecutionName,
+  AgentSessionName,
+} from '@kiditem/shared/identifiers';
 import { BaseEventSchema, type BaseEvent } from '@ag-ui/core';
 import { Observable } from 'rxjs';
 import { z } from 'zod';
@@ -24,6 +28,7 @@ export interface SubmittedUserEvent {
   readonly externalEventId: string;
   readonly schemaVersion: 1;
   readonly payload: {
+    readonly phase: 'complete';
     readonly messageId: string;
     readonly content: string;
   };
@@ -55,8 +60,8 @@ export interface StopRunInput {
   readonly agentDefinitionKey: string;
   readonly copilotThreadId: string;
   readonly aguiRunId: string;
-  readonly sessionId: string;
-  readonly executionId: string;
+  readonly session: AgentSessionName;
+  readonly execution: AgentExecutionName;
 }
 
 export interface NestControlPort {
@@ -72,7 +77,7 @@ export interface NestControlPort {
       readonly copilotThreadId: string;
       readonly cursor?: string | null;
     },
-  ): Promise<AguiConnectionAuthorization>;
+  ): Promise<AgentConversationConnectionAuthorization>;
   connectLive(request: Request, input: ConnectLiveInput): Observable<BaseEvent>;
   stopRun(request: Request, input: StopRunInput): Promise<boolean>;
   checkInteractionHealth(): Promise<void>;
@@ -136,14 +141,14 @@ export class NestControlClient implements NestControlPort {
       readonly copilotThreadId: string;
       readonly cursor?: string | null;
     },
-  ): Promise<AguiConnectionAuthorization> {
+  ): Promise<AgentConversationConnectionAuthorization> {
     return this.request(
       '/api/agent-os/interaction/connections/authorize',
       this.jsonRequest(input, {
         ...this.browserHeaders(request),
         ...this.serviceHeaders(),
       }),
-      AguiConnectionAuthorizationSchema,
+      AgentConversationConnectionAuthorizationSchema,
     );
   }
 
@@ -171,8 +176,8 @@ export class NestControlClient implements NestControlPort {
         {
           copilotThreadId: input.copilotThreadId,
           aguiRunId: input.aguiRunId,
-          sessionId: input.sessionId,
-          executionId: input.executionId,
+          session: input.session,
+          execution: input.execution,
         },
         this.serviceHeaders(),
       ),

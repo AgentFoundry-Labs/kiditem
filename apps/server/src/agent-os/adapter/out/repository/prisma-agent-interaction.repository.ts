@@ -5,6 +5,15 @@ import {
   AgentConversationEventContentSchema,
   type AgentConversationEventContent,
 } from '@kiditem/shared/agent-interaction';
+import {
+  AgentDefinitionKeySchema,
+  AgentSessionIdSchema,
+  AgentVersionKeySchema,
+  CopilotThreadIdSchema,
+  formatAgentSessionName,
+  formatAgentVersionName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
 import type {
@@ -215,22 +224,33 @@ implements AgentInteractionRepositoryPort {
       },
       select: {
         id: true,
+        organizationId: true,
         copilotThreadId: true,
-        primaryAgentVersionId: true,
         lifecycle: true,
         updatedAt: true,
-        primaryAgentVersion: { select: { agentDefinitionKey: true } },
+        primaryAgentVersion: {
+          select: { agentDefinitionKey: true, version: true },
+        },
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
       take: boundedLimit(input.limit, MAX_SESSION_LIST_LIMIT),
     });
 
     return sessions.map((session) => ({
-      sessionId: session.id,
-      copilotThreadId: session.copilotThreadId,
-      primaryAgentDefinitionKey:
+      name: formatAgentSessionName(
+        OrganizationIdSchema.parse(session.organizationId),
+        AgentSessionIdSchema.parse(session.id),
+      ),
+      copilotThreadId: CopilotThreadIdSchema.parse(session.copilotThreadId),
+      primaryAgentDefinitionKey: AgentDefinitionKeySchema.parse(
         session.primaryAgentVersion.agentDefinitionKey,
-      primaryAgentVersionId: session.primaryAgentVersionId,
+      ),
+      primaryAgentVersion: formatAgentVersionName(
+        AgentDefinitionKeySchema.parse(
+          session.primaryAgentVersion.agentDefinitionKey,
+        ),
+        AgentVersionKeySchema.parse(String(session.primaryAgentVersion.version)),
+      ),
       lifecycle: sessionLifecycle(session.lifecycle),
       updatedAt: session.updatedAt.toISOString(),
     }));

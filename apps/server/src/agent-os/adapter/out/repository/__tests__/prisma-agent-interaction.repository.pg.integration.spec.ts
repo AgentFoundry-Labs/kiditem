@@ -1,6 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { createHash } from 'node:crypto';
 import {
+  AgentDefinitionKeySchema,
+  AgentSessionIdSchema,
+  AgentVersionKeySchema,
+  formatAgentSessionName,
+  formatAgentVersionName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
+import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
   OTHER_USER_ID,
@@ -120,7 +128,11 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
         sequence: 1n,
         eventType: 'user_message',
         schemaVersion: 1,
-        payload: { messageId: 'message-1', content: '재고 현황 알려줘' },
+        payload: {
+          phase: 'complete',
+          messageId: 'message-1',
+          content: '재고 현황 알려줘',
+        },
       },
     });
     expect(first.rootTask.sessionId).toBe(first.session.id);
@@ -331,6 +343,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       userEvent: {
         ...input.userEvent,
         payload: {
+          phase: 'complete',
           content: input.userEvent.payload.content,
           messageId: input.userEvent.payload.messageId,
         },
@@ -424,6 +437,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       userEvent: {
         externalEventId: 'original-user-event',
         payload: {
+          phase: 'complete',
           messageId: 'original-user-event',
           content: '재고 현황 알려줘',
         },
@@ -446,7 +460,11 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
         externalEventId: `assistant-${index}`,
         eventType: 'assistant_message',
         schemaVersion: 1,
-        payload: { messageId: `assistant-${index}`, content: `answer-${index}` },
+        payload: {
+          phase: 'complete',
+          messageId: `assistant-${index}`,
+          content: `answer-${index}`,
+        },
       })));
 
     expect(appended.map((event) => event.sequence).sort(compareBigInt)).toEqual(
@@ -479,6 +497,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       eventType: 'assistant_message' as const,
       schemaVersion: 1 as const,
       payload: {
+        phase: 'complete' as const,
         messageId: 'original-assistant-event',
         content: 'original assistant content',
       },
@@ -507,6 +526,7 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     await expect(appendPromise).resolves.toMatchObject({
       externalEventId: 'original-assistant-event',
       payload: {
+        phase: 'complete',
         messageId: 'original-assistant-event',
         content: 'original assistant content',
       },
@@ -526,12 +546,20 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       externalEventId: 'assistant-retry',
       eventType: 'assistant_message' as const,
       schemaVersion: 1 as const,
-      payload: { messageId: 'assistant-retry', content: 'answer' },
+      payload: {
+        phase: 'complete' as const,
+        messageId: 'assistant-retry',
+        content: 'answer',
+      },
     };
     const event = await repository.appendExecutionEvent(input);
     const retry = await repository.appendExecutionEvent({
       ...input,
-      payload: { content: 'answer', messageId: 'assistant-retry' },
+      payload: {
+        phase: 'complete',
+        content: 'answer',
+        messageId: 'assistant-retry',
+      },
     });
 
     expect(retry.id).toBe(event.id);
@@ -540,7 +568,14 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       [{ ...input, executionId: null }, 'INTERACTION_EVENT_CONFLICT'],
       [{ ...input, eventType: 'system_notice' as const, payload: { code: 'changed', content: 'answer' } }, 'INTERACTION_EVENT_CONFLICT'],
       [{ ...input, schemaVersion: 2 }, 'INTERACTION_EVENT_ENVELOPE_INVALID'],
-      [{ ...input, payload: { messageId: 'assistant-retry', content: 'changed' } }, 'INTERACTION_EVENT_CONFLICT'],
+      [{
+        ...input,
+        payload: {
+          phase: 'complete',
+          messageId: 'assistant-retry',
+          content: 'changed',
+        },
+      }, 'INTERACTION_EVENT_CONFLICT'],
     ]) {
       await expect(repository.appendExecutionEvent(mismatch as never)).rejects.toMatchObject({
         code: expectedCode,
@@ -565,7 +600,11 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       label: 'unsupported event schema version',
       eventType: 'assistant_message',
       schemaVersion: 2,
-      payload: { messageId: 'unsupported-version', content: 'unsupported' },
+      payload: {
+        phase: 'complete',
+        messageId: 'unsupported-version',
+        content: 'unsupported',
+      },
     },
   ])('rejects $label before sequence allocation or storage', async (invalid) => {
     if (!prisma) throw new Error('Prisma test client was not initialized');
@@ -803,10 +842,32 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
     expect(Object.keys(listed[0]!).sort()).toEqual([
       'copilotThreadId',
       'lifecycle',
+      'name',
       'primaryAgentDefinitionKey',
-      'primaryAgentVersionId',
-      'sessionId',
+      'primaryAgentVersion',
       'updatedAt',
+    ]);
+    expect(listed).toEqual([
+      expect.objectContaining({
+        name: formatAgentSessionName(
+          OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+          AgentSessionIdSchema.parse(sessionC.session.id),
+        ),
+        primaryAgentVersion: formatAgentVersionName(
+          AgentDefinitionKeySchema.parse('operator'),
+          AgentVersionKeySchema.parse('1'),
+        ),
+      }),
+      expect.objectContaining({
+        name: formatAgentSessionName(
+          OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+          AgentSessionIdSchema.parse(sessionB.session.id),
+        ),
+        primaryAgentVersion: formatAgentVersionName(
+          AgentDefinitionKeySchema.parse('operator'),
+          AgentVersionKeySchema.parse('1'),
+        ),
+      }),
     ]);
     await expect(repository.listSessions({
       organizationId: TEST_ORGANIZATION_ID,
@@ -843,7 +904,11 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
         externalEventId: `replay-${index}`,
         eventType: 'assistant_message',
         schemaVersion: 1,
-        payload: { messageId: `replay-${index}`, content: `answer-${index}` },
+        payload: {
+          phase: 'complete',
+          messageId: `replay-${index}`,
+          content: `answer-${index}`,
+        },
       });
     }
     const before = await tableCounts(prisma);
@@ -1211,7 +1276,11 @@ function firstRunInput(overrides: {
     userEvent: {
       externalEventId,
       schemaVersion: 1 as const,
-      payload: { messageId: externalEventId, content: '재고 현황 알려줘' },
+      payload: {
+        phase: 'complete',
+        messageId: externalEventId,
+        content: '재고 현황 알려줘',
+      },
     },
   };
 }

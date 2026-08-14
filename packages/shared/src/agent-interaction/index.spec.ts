@@ -135,6 +135,7 @@ const event = <T extends Record<string, unknown>>(
     ),
     session: sessionName,
     execution: executionName,
+    aguiRunId: "agui-run-1",
     sequence: canonicalSequence,
     createdAt: "2026-08-13T00:00:00.000Z",
     ...overrides,
@@ -496,6 +497,7 @@ describe("agent interaction contracts", () => {
       }),
       event("3", {
         execution: null,
+        aguiRunId: null,
         eventType: "system_notice" as const,
         schemaVersion: 1 as const,
         payload: { code: "session_resumed", content: "세션이 재개되었습니다." },
@@ -578,7 +580,25 @@ describe("agent interaction contracts", () => {
         payload: { code: "wrong_payload", content: "not a message" },
       },
       { ...userMessageEvent, createdAt: "yesterday" },
-      { ...userMessageEvent, aguiRunId: "agui-run-1" },
+      { ...userMessageEvent, aguiRunId: null },
+      {
+        ...event("8", {
+          eventType: "run_terminal" as const,
+          schemaVersion: 1 as const,
+          payload: { status: "completed" as const, errorCode: null },
+        }),
+        aguiRunId: null,
+      },
+      {
+        ...event("3", {
+          execution: null,
+          aguiRunId: null,
+          eventType: "system_notice" as const,
+          schemaVersion: 1 as const,
+          payload: { code: "session_resumed", content: "세션이 재개되었습니다." },
+        }),
+        aguiRunId: "agui-run-1",
+      },
       { ...userMessageEvent, eventId: "legacy-event-row" },
       { ...userMessageEvent, sessionId: "legacy-session-row" },
       { ...userMessageEvent, executionId: "legacy-execution-row" },
@@ -770,6 +790,31 @@ describe("agent interaction contracts", () => {
       },
     ]) {
       expect(() => schema.parse(invalidAuthorization)).toThrow();
+    }
+  });
+
+  it("wraps a bounded canonical replay and live-join token without execution authority", () => {
+    const schema =
+      AgentInteraction.AgentConversationConnectionAuthorizationSchema;
+    const response = {
+      authorization: connectionAuthorization,
+      replay,
+      liveJoinToken: "live-join-token-012345678901234567890123456789",
+      liveJoinExpiresAt: "2026-08-13T00:00:15.000Z",
+    } as const;
+
+    expect(schema.parse(response)).toEqual(response);
+    for (const invalidResponse of [
+      { ...response, execution: executionName },
+      { ...response, currentExecution: { status: "running" } },
+      { ...response, liveJoinToken: null, liveJoinExpiresAt: response.liveJoinExpiresAt },
+      { ...response, replay: { ...replay, session: otherSessionName } },
+      {
+        ...response,
+        authorization: { ...connectionAuthorization, session: otherSessionName },
+      },
+    ]) {
+      expect(() => schema.parse(invalidResponse)).toThrow();
     }
   });
 

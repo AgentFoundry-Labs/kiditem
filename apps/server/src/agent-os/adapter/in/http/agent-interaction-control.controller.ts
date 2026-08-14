@@ -6,7 +6,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  AguiConnectionAuthorizationSchema,
+  AgentConversationConnectionAuthorizationSchema,
   AguiRunAuthorizationSchema,
   DashboardContextSchema,
 } from '@kiditem/shared/agent-interaction';
@@ -56,7 +56,7 @@ export class AgentInteractionControlController {
         copilotThreadId: dto.copilotThreadId,
         cursor: dto.cursor ?? null,
       });
-      return AguiConnectionAuthorizationSchema.parse(result);
+      return AgentConversationConnectionAuthorizationSchema.parse(result);
     });
   }
 

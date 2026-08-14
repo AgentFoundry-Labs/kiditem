@@ -27,7 +27,13 @@ export interface AuthorizedAgentOptions {
   readonly agentDefinitionKey: string;
   readonly privateAguiUrl: string;
   readonly serviceSecret: string;
-  readonly onAuthorized?: (authorization: AguiRunAuthorization) => void;
+  readonly onAuthorized?: (
+    authorization: AguiRunAuthorization,
+    correlation: {
+      readonly copilotThreadId: string;
+      readonly aguiRunId: string;
+    },
+  ) => void;
 }
 
 export class AuthorizedAgentOsHttpAgent extends HttpAgent {
@@ -64,7 +70,10 @@ export class AuthorizedAgentOsHttpAgent extends HttpAgent {
         dashboardContext,
         userEvent,
       });
-      this.options.onAuthorized?.(authorization);
+      this.options.onAuthorized?.(authorization, {
+        copilotThreadId: input.threadId,
+        aguiRunId: input.runId,
+      });
       return authorization;
     }).pipe(
       switchMap((authorization) => {
@@ -112,6 +121,10 @@ function normalizeSubmittedUserEvent(input: RunAgentInput): SubmittedUserEvent {
   return {
     externalEventId: message.id,
     schemaVersion: 1,
-    payload: { messageId: message.id, content: message.content },
+    payload: {
+      phase: 'complete',
+      messageId: message.id,
+      content: message.content,
+    },
   };
 }

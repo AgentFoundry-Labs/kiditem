@@ -270,6 +270,7 @@ interface AgentConversationEventEnvelope {
   name: AgentConversationEventName;
   session: AgentSessionName;
   execution: AgentExecutionName | null;
+  aguiRunId: string | null;
   sequence: string;
   eventType: AgentConversationEventType;
   schemaVersion: 1;
@@ -309,6 +310,8 @@ canonical `AgentSessionTask` resource name.
 Conversation `sequence` is a decimal string on the wire so PostgreSQL bigint
 ordering remains lossless in JavaScript. The server signs replay cursors; the
 browser never supplies a trusted sequence, organization, or ownership claim.
+`aguiRunId` is present exactly when `execution` is present and is required for
+terminal events, so persisted replay preserves the original AG-UI run identity.
 `requestId` follows [AIP-155](https://google.aip.dev/155) and stays separate
 from command idempotency. Operations follow
 [AIP-151](https://google.aip.dev/151): the operation resource has metadata and

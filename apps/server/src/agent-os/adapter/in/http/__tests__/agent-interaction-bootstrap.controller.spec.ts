@@ -13,6 +13,9 @@ const ORGANIZATION_ID = 'organization-1';
 const USER_ID = 'user-1';
 const THREAD_ID = 'thread-1';
 const RUN_ID = 'run-1';
+const SESSION_NAME =
+  'organizations/organization-1/agentSessions/session-1';
+const AGENT_VERSION_NAME = 'agentDefinitions/operator/versions/1';
 const user: AuthUser = {
   id: USER_ID,
   organizationId: ORGANIZATION_ID,
@@ -33,14 +36,18 @@ const dashboardContext = {
 const userEvent = {
   externalEventId: 'message-1',
   schemaVersion: 1 as const,
-  payload: { messageId: 'message-1', content: '재고를 확인해줘' },
+  payload: {
+    phase: 'complete' as const,
+    messageId: 'message-1',
+    content: '재고를 확인해줘',
+  },
 };
 const bootstrap = {
   defaultAgentDefinitionKey: 'operator',
   agents: [
     {
       agentDefinitionKey: 'operator',
-      agentVersionId: 'version-1',
+      agentVersion: AGENT_VERSION_NAME,
       displayName: 'Operator',
       description: 'KidItem Operator',
       isDefault: true,
@@ -48,10 +55,10 @@ const bootstrap = {
   ],
   sessions: [
     {
-      sessionId: 'session-1',
+      name: SESSION_NAME,
       copilotThreadId: THREAD_ID,
       primaryAgentDefinitionKey: 'operator',
-      primaryAgentVersionId: 'version-1',
+      primaryAgentVersion: AGENT_VERSION_NAME,
       lifecycle: 'active' as const,
       updatedAt: '2026-08-14T00:00:00.000Z',
     },

@@ -20,6 +20,17 @@ import { checkGatewayReadiness } from '../server.js';
 const THREAD_ID = 'thread-1';
 const RUN_ID = 'run-1';
 const COOKIE = 'kiditem_session=opaque';
+const SESSION_NAME =
+  'organizations/organization-1/agentSessions/session-1';
+const OTHER_SESSION_NAME =
+  'organizations/organization-1/agentSessions/session-other';
+const TASK_NAME =
+  'organizations/organization-1/agentSessions/session-1/tasks/task-1';
+const EXECUTION_NAME =
+  'organizations/organization-1/agentSessions/session-1/executions/execution-1';
+const SECOND_EXECUTION_NAME =
+  'organizations/organization-1/agentSessions/session-1/executions/execution-2';
+const AGENT_VERSION_NAME = 'agentDefinitions/operator/versions/1';
 
 const dashboardContext = {
   routeKey: 'global',
@@ -52,7 +63,7 @@ const bootstrap = {
   agents: [
     {
       agentDefinitionKey: 'operator',
-      agentVersionId: 'version-1',
+      agentVersion: AGENT_VERSION_NAME,
       displayName: 'Operator',
       description: 'KidItem Operator',
       isDefault: true,
@@ -68,19 +79,10 @@ const intent = {
   aguiRunId: RUN_ID,
 };
 
-const session = {
-  sessionId: 'session-1',
-  copilotThreadId: THREAD_ID,
-  primaryAgentDefinitionKey: 'operator',
-  primaryAgentVersionId: 'version-1',
-  lifecycle: 'active' as const,
-  updatedAt: '2026-08-14T00:00:00.000Z',
-};
-
 const authorization = {
-  session,
-  sessionTaskId: 'task-1',
-  executionId: 'execution-1',
+  session: SESSION_NAME,
+  task: TASK_NAME,
+  execution: EXECUTION_NAME,
   modelIdentity: 'model-1',
   runtimeType: 'runtime-1',
   policySnapshotId: 'policy-1',
@@ -92,42 +94,45 @@ const envelope = (
   sequence: number,
   overrides: Record<string, unknown> = {},
 ) => ({
-  eventId: `event-${sequence}`,
-  sessionId: 'session-1',
-  executionId: 'execution-1',
+  name: `organizations/organization-1/agentSessions/session-1/events/${sequence}`,
+  session: SESSION_NAME,
+  execution: EXECUTION_NAME,
   aguiRunId: RUN_ID,
   sequence: String(sequence),
   createdAt: `2026-08-14T00:00:0${Math.min(sequence, 9)}.000Z`,
   eventType: 'assistant_message' as const,
   schemaVersion: 1 as const,
-  payload: { messageId: `message-${sequence}`, content: `event ${sequence}` },
+  payload: {
+    phase: 'complete' as const,
+    messageId: `message-${sequence}`,
+    content: `event ${sequence}`,
+  },
   ...overrides,
 });
 
 function connectionAuthorization(
   events = [envelope(1)],
   nextCursor: string | null = null,
-  currentExecution?: Record<string, unknown> | null,
 ) {
   return {
-    session,
-    contextEpoch: 1,
+    authorization: {
+      session: SESSION_NAME,
+      contextEpoch: 1,
+      replay: {
+        nextCursor,
+        lastSequence: events.at(-1)?.sequence ?? '0',
+      },
+    },
     replay: {
-      sessionId: session.sessionId,
+      session: SESSION_NAME,
       events,
       nextCursor,
       lastSequence: events.at(-1)?.sequence ?? '0',
     },
     liveJoinToken: nextCursor === null ? 'j'.repeat(64) : null,
     liveJoinExpiresAt: nextCursor === null ? '2026-08-14T00:00:15.000Z' : null,
-    currentExecution: currentExecution ?? null,
   };
 }
-
-const runningExecution = {
-  agentDefinitionKey: 'operator', sessionId: 'session-1', executionId: 'execution-1',
-  copilotThreadId: THREAD_ID, aguiRunId: RUN_ID, status: 'running', attempt: 1,
-};
 
 function controlHarness(): NestControlPort &
   Record<string, ReturnType<typeof vi.fn>> {
@@ -221,7 +226,11 @@ describe('AuthorizedAgentOsHttpAgent', () => {
         userEvent: {
           externalEventId: 'message-1',
           schemaVersion: 1,
-          payload: { messageId: 'message-1', content: '재고를 확인해줘' },
+          payload: {
+            phase: 'complete',
+            messageId: 'message-1',
+            content: '재고를 확인해줘',
+          },
         },
       }),
     );
@@ -322,14 +331,11 @@ describe('CopilotKit native runtime routes', () => {
     const nextCursor = 'cursor-next-page-0001';
     control.authorizeConnection
       .mockResolvedValueOnce(connectionAuthorization([envelope(4)], nextCursor))
-      .mockResolvedValueOnce(connectionAuthorization([envelope(5)], null, runningExecution));
+      .mockResolvedValueOnce(connectionAuthorization([envelope(5)]));
     control.connectLive.mockReturnValue(
       of({ type: EventType.CUSTOM, name: 'kiditem.live', value: 'joined' }),
     );
     const gateway = createInteractionGateway(dependencies(control));
-    gateway.runner.registerActiveGrant({
-      agentDefinitionKey: 'operator', threadId: THREAD_ID, runId: RUN_ID, authorization,
-    });
     const response = await gateway.handler(
       new Request('http://gateway.test/api/copilotkit/agent/operator/connect', {
         method: 'POST',
@@ -368,6 +374,12 @@ describe('CopilotKit native runtime routes', () => {
 
   it('completes terminal replay without holding a live stream that blocks a later run', async () => {
     const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+    ]));
     const gateway = createInteractionGateway(dependencies(control));
     const response = await gateway.handler(
       new Request('http://gateway.test/api/copilotkit/agent/operator/connect', {
@@ -380,8 +392,9 @@ describe('CopilotKit native runtime routes', () => {
     const events = await readSseEvents(response);
 
     expect(events).toContainEqual(expect.objectContaining({
-      type: EventType.TEXT_MESSAGE_CONTENT,
-      delta: 'event 1',
+      type: EventType.RUN_FINISHED,
+      threadId: THREAD_ID,
+      runId: RUN_ID,
     }));
     expect(control.connectLive).not.toHaveBeenCalled();
   });
@@ -393,7 +406,6 @@ describe('CopilotKit native runtime routes', () => {
       control.authorizeConnection.mockResolvedValue(
         connectionAuthorization([
           envelope(1, {
-            executionId: 'execution-is-not-the-run-id',
             aguiRunId: 'original-agui-run-id',
             eventType: 'run_terminal',
             payload: {
@@ -530,7 +542,7 @@ describe('CopilotKit native runtime routes', () => {
   it('reconnects an active canonical execution after gateway restart with an empty optimization map', async () => {
     const control = controlHarness();
     control.authorizeConnection.mockResolvedValue(
-      connectionAuthorization([envelope(1)], null, runningExecution),
+      connectionAuthorization([envelope(1)]),
     );
     control.connectLive.mockReturnValue(of({ type: EventType.CUSTOM, name: 'kiditem.live', value: 'restarted' }));
     const restarted = createInteractionGateway(dependencies(control));
@@ -547,29 +559,25 @@ describe('CopilotKit native runtime routes', () => {
     }));
   });
 
-  it('derives isRunning from canonical authority after restart and returns false after terminal', async () => {
+  it('keeps isRunning bounded to the current process grant rather than replay authority', async () => {
     const control = controlHarness();
     const requestContext = new AsyncLocalStorage<never>();
     const runner = new KidItemAgentRunner(control, requestContext as never);
     const context = {
       request: request(), agentDefinitionKey: 'operator', replayCursor: null,
     };
-    control.authorizeConnection
-      .mockResolvedValueOnce(connectionAuthorization([], null, runningExecution))
-      .mockResolvedValueOnce(connectionAuthorization([], null, null));
-
-    await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
-      .resolves.toBe(true);
     await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
       .resolves.toBe(false);
-    expect(control.authorizeConnection).toHaveBeenCalledTimes(2);
+    runner.registerActiveGrant({
+      agentDefinitionKey: 'operator', threadId: THREAD_ID, runId: RUN_ID, authorization,
+    });
+    await expect(requestContext.run(context as never, () => runner.isRunning({ threadId: THREAD_ID })))
+      .resolves.toBe(true);
+    expect(control.authorizeConnection).not.toHaveBeenCalled();
   });
 
-  it('stops the canonical running execution after gateway restart without a local grant', async () => {
+  it('does not derive stop authority from a replay response after gateway restart', async () => {
     const control = controlHarness();
-    control.authorizeConnection.mockResolvedValue(
-      connectionAuthorization([], null, runningExecution),
-    );
     const restarted = createInteractionGateway(dependencies(control));
 
     const response = await restarted.handler(new Request(
@@ -577,16 +585,14 @@ describe('CopilotKit native runtime routes', () => {
       { method: 'POST', headers: { cookie: COOKIE } },
     ));
 
-    expect(await response.json()).toMatchObject({ stopped: true });
-    expect(control.stopRun).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
-      executionId: 'execution-1', aguiRunId: RUN_ID, sessionId: 'session-1',
-    }));
+    expect(await response.json()).toMatchObject({ stopped: false });
+    expect(control.stopRun).not.toHaveBeenCalled();
   });
 
   it.each([
     ['gap', [envelope(1), envelope(3)]],
-    ['duplicate', [envelope(1), envelope(1, { eventId: 'event-other' })]],
-    ['wrong session', [envelope(1, { sessionId: 'session-other' })]],
+    ['duplicate', [envelope(1), envelope(1)]],
+    ['wrong session', [envelope(1, { session: OTHER_SESSION_NAME })]],
     ['unknown version', [envelope(1, { schemaVersion: 2 })]],
   ])('rejects %s replay before live join', async (_name, events) => {
     const control = controlHarness();
@@ -609,7 +615,7 @@ describe('CopilotKit native runtime routes', () => {
   it('native stop re-authorizes ownership and targets the exact active grant', async () => {
     const control = controlHarness();
     control.authorizeConnection.mockResolvedValue(
-      connectionAuthorization([], null, runningExecution),
+      connectionAuthorization([]),
     );
     const gateway = createInteractionGateway(dependencies(control));
     gateway.runner.registerActiveGrant({
@@ -635,8 +641,8 @@ describe('CopilotKit native runtime routes', () => {
         agentDefinitionKey: 'operator',
         copilotThreadId: THREAD_ID,
         aguiRunId: RUN_ID,
-        executionId: 'execution-1',
-        sessionId: 'session-1',
+        execution: EXECUTION_NAME,
+        session: SESSION_NAME,
       }),
     );
   });
@@ -656,9 +662,9 @@ describe('CopilotKit native runtime routes', () => {
         agentDefinitionKey: 'operator',
         threadId: THREAD_ID,
         runId: 'run-2',
-        authorization: { ...authorization, executionId: 'execution-2' },
+        authorization: { ...authorization, execution: SECOND_EXECUTION_NAME },
       });
-      return connectionAuthorization([], null, runningExecution);
+      return connectionAuthorization([]);
     });
 
     const response = await gateway.handler(
@@ -670,7 +676,7 @@ describe('CopilotKit native runtime routes', () => {
 
     expect(await response.json()).toMatchObject({ stopped: false });
     expect(control.stopRun).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
-      executionId: 'execution-1',
+      execution: EXECUTION_NAME,
     }));
   });
 
@@ -721,7 +727,11 @@ describe('NestControlClient header boundary', () => {
     const userEvent = {
       externalEventId: 'message-1',
       schemaVersion: 1 as const,
-      payload: { messageId: 'message-1', content: '재고를 확인해줘' },
+      payload: {
+        phase: 'complete' as const,
+        messageId: 'message-1',
+        content: '재고를 확인해줘',
+      },
     };
 
     await client.prepareRunIntent(attackerRequest, {

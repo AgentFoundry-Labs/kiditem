@@ -11,6 +11,12 @@ import {
 } from '@nestjs/common';
 import { EventType, RunAgentInputSchema, type BaseEvent } from '@ag-ui/core';
 import { AgentConversationEventContentSchema } from '@kiditem/shared/agent-interaction';
+import {
+  AgentExecutionNameSchema,
+  AgentSessionNameSchema,
+  parseAgentExecutionName,
+  parseAgentSessionName,
+} from '@kiditem/shared/identifiers';
 import { z } from 'zod';
 import { ServiceAuth } from '../../../../auth/decorators/service-auth.decorator';
 import {
@@ -41,9 +47,19 @@ const ConnectSchema = z.object({
 const StopSchema = z.object({
   copilotThreadId: z.string().min(1),
   aguiRunId: z.string().min(1),
-  sessionId: z.string().min(1),
-  executionId: z.string().min(1),
-}).strict();
+  session: AgentSessionNameSchema,
+  execution: AgentExecutionNameSchema,
+}).strict().superRefine((input, context) => {
+  try {
+    parseAgentExecutionName(input.execution, input.session);
+  } catch {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['execution'],
+      message: 'execution must belong to the requested session',
+    });
+  }
+});
 const RUN_KEYS = new Set([
   'threadId', 'runId', 'parentRunId', 'state', 'messages', 'tools', 'context',
   'forwardedProps', 'resume',
@@ -121,8 +137,16 @@ export class AgentAguiController {
     @Body() body: unknown,
   ): Promise<{ stopped: boolean }> {
     const input = StopSchema.parse(body);
+    const session = parseAgentSessionName(input.session);
+    const execution = parseAgentExecutionName(input.execution, input.session);
     return interactionHttpCall(async () => ({
-      stopped: await this.runner.stop({ agentDefinitionKey, ...input }),
+      stopped: await this.runner.stop({
+        agentDefinitionKey,
+        copilotThreadId: input.copilotThreadId,
+        aguiRunId: input.aguiRunId,
+        sessionId: session.session,
+        executionId: execution.execution,
+      }),
     }));
   }
 

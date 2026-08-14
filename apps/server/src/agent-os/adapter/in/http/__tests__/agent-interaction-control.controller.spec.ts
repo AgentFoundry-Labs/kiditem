@@ -27,6 +27,12 @@ const ORGANIZATION_ID = 'organization-1';
 const USER_ID = 'user-1';
 const THREAD_ID = 'thread-1';
 const RUN_ID = 'run-1';
+const SESSION_NAME =
+  'organizations/organization-1/agentSessions/session-1';
+const TASK_NAME =
+  'organizations/organization-1/agentSessions/session-1/tasks/task-1';
+const EXECUTION_NAME =
+  'organizations/organization-1/agentSessions/session-1/executions/execution-1';
 const GATEWAY_SECRET = Buffer.from('gateway-secret-at-least-thirty-two-bytes');
 const dashboardContext = {
   routeKey: 'analytics.dashboard',
@@ -40,7 +46,11 @@ const dashboardContext = {
 const userEvent = {
   externalEventId: 'message-1',
   schemaVersion: 1 as const,
-  payload: { messageId: 'message-1', content: '재고를 확인해줘' },
+  payload: {
+    phase: 'complete' as const,
+    messageId: 'message-1',
+    content: '재고를 확인해줘',
+  },
 };
 const user: AuthUser = {
   id: USER_ID,
@@ -50,13 +60,23 @@ const user: AuthUser = {
   type: 'human',
   email: 'operator@test.local',
 };
-const session = {
-  sessionId: 'session-1',
-  copilotThreadId: THREAD_ID,
-  primaryAgentDefinitionKey: 'operator',
-  primaryAgentVersionId: 'version-1',
-  lifecycle: 'active' as const,
-  updatedAt: '2026-08-14T00:00:00.000Z',
+const connectionAuthorization = {
+  authorization: {
+    session: SESSION_NAME,
+    contextEpoch: 1,
+    replay: {
+      nextCursor: null,
+      lastSequence: '0',
+    },
+  },
+  replay: {
+    session: SESSION_NAME,
+    events: [],
+    nextCursor: null,
+    lastSequence: '0',
+  },
+  liveJoinToken: 'j'.repeat(64),
+  liveJoinExpiresAt: '2026-08-14T00:00:15.000Z',
 };
 
 const timingSafeEqual = vi.hoisted(() =>
@@ -70,28 +90,16 @@ vi.mock('node:crypto', async (importOriginal) => ({
 function harness() {
   const identity = {
     authorizeRun: vi.fn().mockResolvedValue({
-      session,
-      sessionTaskId: 'task-1',
-      executionId: 'execution-1',
+      session: SESSION_NAME,
+      task: TASK_NAME,
+      execution: EXECUTION_NAME,
       modelIdentity: 'openai:gpt-5',
       runtimeType: 'operator',
       policySnapshotId: 'policy-1',
       contextEpoch: 1,
       dashboardContext,
     }),
-    authorizeConnection: vi.fn().mockResolvedValue({
-      session,
-      contextEpoch: 1,
-      replay: {
-        sessionId: 'session-1',
-        events: [],
-        nextCursor: null,
-        lastSequence: '0',
-      },
-      liveJoinToken: 'j'.repeat(64),
-      liveJoinExpiresAt: '2026-08-14T00:00:15.000Z',
-      currentExecution: null,
-    }),
+    authorizeConnection: vi.fn().mockResolvedValue(connectionAuthorization),
     health: vi.fn().mockResolvedValue({ status: 'ok' }),
   };
   return {
@@ -235,14 +243,16 @@ describe('interaction control DTO and controller boundary', () => {
     });
   });
 
-  it('authorizes reconnect from the browser session, thread, and opaque cursor only', async () => {
+  it('returns only the bounded canonical replay connection contract', async () => {
     const { controller, identity } = harness();
     const dto = Object.assign(new AuthorizeInteractionConnectionDto(), {
       copilotThreadId: THREAD_ID,
       cursor: 'c'.repeat(32),
     });
 
-    await controller.authorizeConnection(user, ORGANIZATION_ID, dto);
+    await expect(
+      controller.authorizeConnection(user, ORGANIZATION_ID, dto),
+    ).resolves.toEqual(connectionAuthorization);
 
     expect(identity.authorizeConnection).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,

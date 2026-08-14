@@ -15,6 +15,31 @@ describe('AgentAguiController', () => {
     expect(controller.health()).toEqual({ status: 'ok' });
   });
 
+  it('parses canonical stop resource names before forwarding private owner IDs', async () => {
+    const runner = { stop: vi.fn().mockResolvedValue(true) };
+    const controller = new AgentAguiController(
+      runner as never,
+      {} as never,
+      {} as never,
+    );
+
+    await expect(
+      controller.stop('operator', {
+        copilotThreadId: 'thread-1',
+        aguiRunId: 'run-1',
+        session: 'organizations/org-1/agentSessions/session-1',
+        execution: 'organizations/org-1/agentSessions/session-1/executions/execution-1',
+      }),
+    ).resolves.toEqual({ stopped: true });
+    expect(runner.stop).toHaveBeenCalledWith({
+      agentDefinitionKey: 'operator',
+      copilotThreadId: 'thread-1',
+      aguiRunId: 'run-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+    });
+  });
+
   it('detaches the response subscriber while the producer persists through terminal', async () => {
     let returned = false;
     let releaseRuntime!: () => void;
@@ -106,7 +131,11 @@ describe('AgentAguiController', () => {
             executionId: 'execution-1', aguiRunId: 'run-1',
             externalEventId: 'assistant-1', sequence: 2n,
             eventType: 'assistant_message', schemaVersion: 1,
-            payload: { messageId: 'assistant-1', content: 'durable answer' },
+            payload: {
+              phase: 'complete',
+              messageId: 'assistant-1',
+              content: 'durable answer',
+            },
             createdAt: new Date('2026-08-14T00:00:00.000Z'),
           }],
           lastSequence: 2n,

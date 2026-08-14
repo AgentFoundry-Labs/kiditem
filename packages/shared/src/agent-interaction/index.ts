@@ -507,6 +507,7 @@ const conversationEventEnvelopeShape = {
   name: AgentConversationEventNameSchema,
   session: AgentSessionNameSchema,
   execution: AgentExecutionNameSchema.nullable(),
+  aguiRunId: AguiRunIdSchema.nullable(),
   sequence: PositiveDecimalSequenceSchema,
   createdAt: z.string().datetime(),
 };
@@ -552,6 +553,25 @@ export const AgentConversationEventEnvelopeSchema = z
         context,
         ["execution"],
         "execution must belong to the event session",
+      );
+    }
+    if (
+      (value.execution === null) !== (value.aguiRunId === null)
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["aguiRunId"],
+        "AG-UI run correlation must be present exactly for execution events",
+      );
+    }
+    if (
+      value.eventType === "run_terminal" &&
+      (value.execution === null || value.aguiRunId === null)
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["aguiRunId"],
+        "terminal events require an execution and its AG-UI run correlation",
       );
     }
   });
@@ -619,6 +639,34 @@ export const AguiConnectionAuthorizationSchema = z
   })
   .strict();
 
+export const AgentConversationConnectionAuthorizationSchema = z
+  .object({
+    authorization: AguiConnectionAuthorizationSchema,
+    replay: AgentConversationReplaySchema,
+    liveJoinToken: OpaqueShortLivedTokenSchema.nullable(),
+    liveJoinExpiresAt: z.string().datetime().nullable(),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    if (value.authorization.session !== value.replay.session) {
+      addCanonicalNameIssue(
+        context,
+        ["replay", "session"],
+        "replay must belong to the authorized session",
+      );
+    }
+    if (
+      (value.liveJoinToken === null) !==
+      (value.liveJoinExpiresAt === null)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["liveJoinToken"],
+        message: "live join token and expiry must be present together",
+      });
+    }
+  });
+
 export type AllowedAgent = z.infer<typeof AllowedAgentSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type InteractionBootstrap = z.infer<typeof InteractionBootstrapSchema>;
@@ -662,4 +710,7 @@ export type AgentConversationReplayRequest = z.infer<
 >;
 export type AguiConnectionAuthorization = z.infer<
   typeof AguiConnectionAuthorizationSchema
+>;
+export type AgentConversationConnectionAuthorization = z.infer<
+  typeof AgentConversationConnectionAuthorizationSchema
 >;

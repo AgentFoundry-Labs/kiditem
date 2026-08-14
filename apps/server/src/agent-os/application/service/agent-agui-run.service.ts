@@ -12,6 +12,12 @@ import {
   type AgentConversationEventContent,
 } from '@kiditem/shared/agent-interaction';
 import {
+  parseAgentExecutionName,
+  parseAgentSessionName,
+  parseAgentSessionTaskName,
+  ToolCallIdSchema,
+} from '@kiditem/shared/identifiers';
+import {
   AGENT_AGUI_RUNNER_PORT,
   type AgentAguiRunnerPort,
   type AuthorizedAguiRunInput,
@@ -56,17 +62,19 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
   async *run(request: AuthorizedAguiRunInput): AsyncIterable<BaseEvent> {
     const input = RunAgentInputSchema.parse(request.input);
     const forwarded = record(input.forwardedProps);
-    const authorization = AguiRunAuthorizationSchema.parse(
-      forwarded.kiditemAuthorization,
-    );
+    const authorization = parseAuthorization(forwarded.kiditemAuthorization);
     if (input.tools.length > 0) {
       throw boundary(
         'INTERACTION_BROWSER_AUTHORITY_REJECTED',
         'Browser-supplied tools cannot grant Agent OS authority.',
       );
     }
+    const authorizedExecution = parseAgentExecutionName(
+      authorization.execution,
+      authorization.session,
+    );
     const runtimeContext = await this.repository.loadExecutionRuntimeContext({
-      executionId: authorization.executionId,
+      executionId: authorizedExecution.execution,
     });
     if (!runtimeContext) {
       throw boundary(
@@ -461,7 +469,7 @@ class RuntimeEventState {
             snapshotVersion: 1,
             data: {
               messageId: event.messageId,
-              toolCallId: event.toolCallId,
+              toolCallId: ToolCallIdSchema.parse(event.toolCallId),
               result: InteractionUiResultSchema.parse(JSON.parse(event.content)),
             },
           },
@@ -510,15 +518,28 @@ function assertCorrelation(
   authorization: ReturnType<typeof AguiRunAuthorizationSchema.parse>,
   context: AgentExecutionRuntimeContext,
 ): void {
+  let session;
+  let task;
+  let execution;
+  try {
+    session = parseAgentSessionName(authorization.session);
+    task = parseAgentSessionTaskName(authorization.task, authorization.session);
+    execution = parseAgentExecutionName(
+      authorization.execution,
+      authorization.session,
+    );
+  } catch {
+    throw boundary(
+      'INTERACTION_AUTHORIZATION_MISMATCH',
+      'The AG-UI authorization does not contain a canonical control graph.',
+    );
+  }
   if (
     routeAgentDefinitionKey !== context.agentDefinitionKey ||
-    authorization.session.primaryAgentDefinitionKey !== context.agentDefinitionKey ||
-    authorization.session.sessionId !== context.sessionId ||
-    authorization.session.copilotThreadId !== context.copilotThreadId ||
-    authorization.session.primaryAgentVersionId !== context.agentVersionId ||
-    authorization.session.lifecycle !== context.lifecycle ||
-    authorization.sessionTaskId !== context.sessionTaskId ||
-    authorization.executionId !== context.executionId ||
+    session.organization !== context.organizationId ||
+    session.session !== context.sessionId ||
+    task.task !== context.sessionTaskId ||
+    execution.execution !== context.executionId ||
     authorization.runtimeType !== context.runtimeType ||
     authorization.modelIdentity !== context.modelIdentity ||
     authorization.policySnapshotId !== context.policySnapshotId ||
@@ -596,12 +617,31 @@ function tool(
   toolName: string,
   status: 'started' | 'completed',
 ): AgentConversationEventContent {
-  return { eventType: 'tool_activity', schemaVersion: 1, payload: { toolCallId, toolName, status } };
+  return {
+    eventType: 'tool_activity',
+    schemaVersion: 1,
+    payload: {
+      toolCallId: ToolCallIdSchema.parse(toolCallId),
+      toolName,
+      status,
+    },
+  };
 }
 
 function record(value: unknown): Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
+}
+
+function parseAuthorization(value: unknown): ReturnType<typeof AguiRunAuthorizationSchema.parse> {
+  try {
+    return AguiRunAuthorizationSchema.parse(value);
+  } catch {
+    throw boundary(
+      'INTERACTION_AUTHORIZATION_MISMATCH',
+      'The AG-UI authorization does not contain a valid canonical control graph.',
+    );
+  }
 }
 
 function stableErrorCode(error: unknown): string {

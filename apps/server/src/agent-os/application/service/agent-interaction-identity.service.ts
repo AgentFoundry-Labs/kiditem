@@ -2,29 +2,61 @@ import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
+  AgentConversationEventEnvelopeSchema,
+  AgentConversationReplaySchema,
   AguiConnectionAuthorizationSchema,
   AguiRunAuthorizationSchema,
   AguiRunIntentSchema,
-  AgentConversationEventEnvelopeSchema,
-  AgentSessionSummarySchema,
   AllowedAgentSchema,
   DashboardContextSchema,
   InteractionBootstrapSchema,
-  InteractionPrincipalSchema,
   UserMessageEventPayloadSchema,
+  type AgentConversationReplay,
   type AguiConnectionAuthorization,
   type AguiRunAuthorization,
   type AguiRunIntent,
   type AgentSessionSummary,
   type DashboardContext,
   type InteractionBootstrap,
-  type InteractionPrincipal,
 } from '@kiditem/shared/agent-interaction';
+import {
+  AgentDefinitionKeySchema,
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  AgentVersionKeySchema,
+  AgentVersionNameSchema,
+  AguiRunIdSchema,
+  CopilotThreadIdSchema,
+  formatAgentConversationEventName,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  formatAgentVersionName,
+  formatOrganizationName,
+  formatUserName,
+  NonNegativeDecimalSequenceSchema,
+  OrganizationIdSchema,
+  OrganizationNameSchema,
+  OpaqueReplayCursorSchema,
+  OpaqueShortLivedTokenSchema,
+  parseAgentSessionName,
+  parseAgentVersionName,
+  parseOrganizationName,
+  parseUserName,
+  PositiveDecimalSequenceSchema,
+  Sha256DigestSchema,
+  UserIdSchema,
+  UserNameSchema,
+} from '@kiditem/shared/identifiers';
 import {
   AGENT_INTERACTION_REPOSITORY,
   type ActiveAgentVersionRecord,
+  type AgentConversationEventRecord,
   type AgentInteractionRepositoryPort,
   type AgentSessionRecord,
+  type AuthorizedExecutionRecord,
+  type ConversationEventPage,
 } from '../port/out/repository/agent-interaction-repository.port';
 import { AgentOsBoundaryError } from '../../domain/agent-os.errors';
 import { listAgentDefinitions } from '../../domain/agent-definition.registry';
@@ -40,6 +72,7 @@ const RUN_INTENT_TTL_MS = 30_000;
 const LIVE_JOIN_TTL_MS = 15_000;
 const REPLAY_CURSOR_TTL_MS = 15 * 60_000;
 const REPLAY_LIMIT = 500;
+
 export const AUTHORITY_PROFILE_VERSION_ID = 'foundation_read_only_probe:v1';
 export const FOUNDATION_CAPABILITY_KEYS = [
   'agent_os.platform_probe',
@@ -47,6 +80,7 @@ export const FOUNDATION_CAPABILITY_KEYS = [
   'sourcing.retrieveWorkspaceEvidence',
   'sourcing.inspectRecommendationRun',
 ] as const;
+
 const RUN_INTENT_DOMAIN = 'kiditem.agent-os.run-intent.v1';
 const REPLAY_CURSOR_DOMAIN = 'kiditem.agent-os.replay-cursor.v1';
 const LIVE_JOIN_DOMAIN = 'kiditem.agent-os.live-join.v1';
@@ -62,27 +96,14 @@ const UserEventSchema = z
 const RunIntentClaimsSchema = z
   .object({
     version: z.literal(1),
-    organizationId: z.string().min(1),
-    userId: z.string().min(1),
-    agentDefinitionKey: z.string().min(1),
-    agentVersionId: z.string().min(1),
-    agentVersion: z.number().int().positive(),
-    runtimeType: z.string().min(1),
-    modelIdentity: z.string().min(1),
-    authorityProfileVersionId: z.literal(AUTHORITY_PROFILE_VERSION_ID),
-    capabilityKeys: z.tuple([
-      z.literal(FOUNDATION_CAPABILITY_KEYS[0]),
-      z.literal(FOUNDATION_CAPABILITY_KEYS[1]),
-      z.literal(FOUNDATION_CAPABILITY_KEYS[2]),
-      z.literal(FOUNDATION_CAPABILITY_KEYS[3]),
-    ]),
-    policyDocumentHash: z.string().regex(/^[a-f0-9]{64}$/),
-    policyHash: z.string().regex(/^[a-f0-9]{64}$/),
-    inputHash: z.string().regex(/^[a-f0-9]{64}$/),
-    dashboardContextHash: z.string().regex(/^[a-f0-9]{64}$/),
-    userEventHash: z.string().regex(/^[a-f0-9]{64}$/),
-    copilotThreadId: z.string().min(1),
-    aguiRunId: z.string().min(1),
+    organization: OrganizationNameSchema,
+    user: UserNameSchema,
+    agentVersion: AgentVersionNameSchema,
+    copilotThreadId: CopilotThreadIdSchema,
+    aguiRunId: AguiRunIdSchema,
+    dashboardContextHash: Sha256DigestSchema,
+    policyHash: Sha256DigestSchema,
+    inputHash: Sha256DigestSchema,
     expiresAtMs: z.number().int().positive(),
   })
   .strict();
@@ -90,27 +111,49 @@ const RunIntentClaimsSchema = z
 const ReplayCursorClaimsSchema = z
   .object({
     version: z.literal(1),
-    organizationId: z.string().min(1),
-    userId: z.string().min(1),
-    sessionId: z.string().min(1),
-    copilotThreadId: z.string().min(1),
-    afterSequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
+    organization: OrganizationNameSchema,
+    user: UserNameSchema,
+    session: z.string().min(1).max(512),
+    copilotThreadId: CopilotThreadIdSchema,
+    afterSequence: NonNegativeDecimalSequenceSchema,
     expiresAtMs: z.number().int().positive(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    try {
+      parseAgentSessionName(value.session, value.organization);
+    } catch {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['session'],
+        message: 'session must belong to the claimed organization',
+      });
+    }
+  });
 
 const LiveJoinClaimsSchema = z
   .object({
     version: z.literal(1),
-    organizationId: z.string().min(1),
-    userId: z.string().min(1),
-    sessionId: z.string().min(1),
-    copilotThreadId: z.string().min(1),
+    organization: OrganizationNameSchema,
+    user: UserNameSchema,
+    session: z.string().min(1).max(512),
+    copilotThreadId: CopilotThreadIdSchema,
     contextEpoch: z.number().int().positive(),
-    afterSequence: z.string().regex(/^(?:0|[1-9][0-9]*)$/),
+    afterSequence: NonNegativeDecimalSequenceSchema,
     expiresAtMs: z.number().int().positive(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    try {
+      parseAgentSessionName(value.session, value.organization);
+    } catch {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['session'],
+        message: 'session must belong to the claimed organization',
+      });
+    }
+  });
 
 type RunIntentClaims = z.infer<typeof RunIntentClaimsSchema>;
 
@@ -140,13 +183,29 @@ interface AuthorizeConnectionInput extends IdentityInput {
   cursor?: string | null;
 }
 
+export interface InteractionPrincipal {
+  readonly principalKey: string;
+}
+
 export interface AuthorizedLiveJoin {
-  organizationId: string;
-  userId: string;
-  sessionId: string;
-  copilotThreadId: string;
-  contextEpoch: number;
-  afterSequence: bigint;
+  readonly organizationId: string;
+  readonly userId: string;
+  readonly sessionId: string;
+  readonly copilotThreadId: string;
+  readonly contextEpoch: number;
+  readonly afterSequence: bigint;
+}
+
+/**
+ * Server-private composition of the narrow public connection grant and its
+ * bounded replay page. The public grant itself deliberately contains no
+ * execution authority; the private AG-UI boundary consumes this result.
+ */
+export interface AgentInteractionConnectionAuthorization {
+  readonly authorization: AguiConnectionAuthorization;
+  readonly replay: AgentConversationReplay;
+  readonly liveJoinToken: string | null;
+  readonly liveJoinExpiresAt: string | null;
 }
 
 @Injectable()
@@ -164,37 +223,64 @@ export class AgentInteractionIdentityService {
   ) {}
 
   resolvePrincipal(input: IdentityInput): InteractionPrincipal {
+    const organizationId = parseInput(
+      OrganizationIdSchema,
+      input.organizationId,
+      'INTERACTION_PRINCIPAL_INVALID',
+    );
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      'INTERACTION_PRINCIPAL_INVALID',
+    );
     const digest = createHmac('sha256', this.principalHmacKey)
       .update('kiditem.agent-os.principal.v1\0')
-      .update(canonicalJson([input.organizationId, input.userId]))
+      .update(canonicalJson([organizationId, userId]))
       .digest('base64url');
-    return parseShared(InteractionPrincipalSchema, {
-      principalKey: `ei_${digest}`,
-      organizationId: input.organizationId,
-      userId: input.userId,
-    });
+    return { principalKey: `ei_${digest}` };
   }
 
   async bootstrap(input: IdentityInput): Promise<InteractionBootstrap> {
     const versions = await this.allowedVersions();
-    const sessions = await this.repository.listSessions({ ...input, limit: 50 });
+    const sessions = await this.repository.listSessions({
+      organizationId: input.organizationId,
+      userId: input.userId,
+      limit: 50,
+    });
     return parseShared(InteractionBootstrapSchema, {
-      defaultAgentDefinitionKey: 'operator',
-      agents: versions.map((version) =>
-        parseShared(AllowedAgentSchema, {
-          agentDefinitionKey: version.agentDefinitionKey,
-          agentVersionId: version.id,
-          displayName: version.displayName,
-          description: version.description,
-          isDefault: version.agentDefinitionKey === 'operator',
-        }),
-      ),
+      defaultAgentDefinitionKey: AgentDefinitionKeySchema.parse('operator'),
+      agents: versions.map((version) => this.allowedAgent(version)),
       sessions,
     });
   }
 
   async prepareRunIntent(input: PrepareRunIntentInput): Promise<AguiRunIntent> {
-    const version = await this.requireAllowedVersion(input.agentDefinitionKey);
+    const organizationId = parseInput(
+      OrganizationIdSchema,
+      input.organizationId,
+      'INTERACTION_PRINCIPAL_INVALID',
+    );
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      'INTERACTION_PRINCIPAL_INVALID',
+    );
+    const definition = parseInput(
+      AgentDefinitionKeySchema,
+      input.agentDefinitionKey,
+      'AGENT_NOT_ALLOWED',
+    );
+    const copilotThreadId = parseInput(
+      CopilotThreadIdSchema,
+      input.copilotThreadId,
+      'INTERACTION_RUN_INTENT_MISMATCH',
+    );
+    const aguiRunId = parseInput(
+      AguiRunIdSchema,
+      input.aguiRunId,
+      'INTERACTION_RUN_INTENT_MISMATCH',
+    );
+    const version = await this.requireAllowedVersion(definition);
     const dashboardContext = parseInput(
       DashboardContextSchema,
       input.dashboardContext,
@@ -206,22 +292,23 @@ export class AgentInteractionIdentityService {
       'INTERACTION_USER_EVENT_INVALID',
     );
     const expiresAt = new Date(this.now().getTime() + RUN_INTENT_TTL_MS);
-    const claims = this.createRunIntentClaims(
-      input,
+    const claims = this.createRunIntentClaims({
+      organizationId,
+      userId,
+      copilotThreadId,
+      aguiRunId,
       version,
       dashboardContext,
       userEvent,
-      expiresAt.getTime(),
-    );
+      expiresAtMs: expiresAt.getTime(),
+    });
     return parseShared(AguiRunIntentSchema, {
-      runIntent: signClaims(
-        claims,
-        this.runIntentHmacKey,
-        RUN_INTENT_DOMAIN,
+      runIntent: OpaqueShortLivedTokenSchema.parse(
+        signClaims(claims, this.runIntentHmacKey, RUN_INTENT_DOMAIN),
       ),
       expiresAt: expiresAt.toISOString(),
-      copilotThreadId: input.copilotThreadId,
-      aguiRunId: input.aguiRunId,
+      copilotThreadId,
+      aguiRunId,
     });
   }
 
@@ -249,31 +336,56 @@ export class AgentInteractionIdentityService {
       input.userEvent,
       'INTERACTION_USER_EVENT_INVALID',
     );
-    this.assertRunIntentRequest(claims, input, dashboardContext, userEvent);
+    const copilotThreadId = parseInput(
+      CopilotThreadIdSchema,
+      input.copilotThreadId,
+      'INTERACTION_RUN_INTENT_MISMATCH',
+    );
+    const aguiRunId = parseInput(
+      AguiRunIdSchema,
+      input.aguiRunId,
+      'INTERACTION_RUN_INTENT_MISMATCH',
+    );
+    this.assertRunIntentRequest(
+      claims,
+      copilotThreadId,
+      aguiRunId,
+      dashboardContext,
+      userEvent,
+    );
 
-    const current = await this.repository.findActiveAgentVersion({
-      agentDefinitionKey: claims.agentDefinitionKey,
-      agentVersionId: claims.agentVersionId,
-    });
-    if (!current || !this.isAllowedVersion(current)) {
+    const organizationId = parseOrganizationName(claims.organization).organization;
+    const userId = parseUserName(claims.user).user;
+    const claimedVersion = await this.findVersionFromClaim(claims.agentVersion);
+    if (!claimedVersion) {
       throw boundary(
         'INTERACTION_RUN_INTENT_STATE_MISMATCH',
         'The approved agent version is no longer active.',
       );
     }
-    this.assertCurrentVersion(claims, current);
+    const parsedVersion = parseAgentVersionName(claims.agentVersion);
+    const version = await this.repository.findActiveAgentVersion({
+      agentDefinitionKey: parsedVersion.agentDefinitionKey,
+      agentVersionId: claimedVersion.id,
+    });
+    if (!version || !this.isAllowedVersion(version)) {
+      throw boundary(
+        'INTERACTION_RUN_INTENT_STATE_MISMATCH',
+        'The approved agent version is no longer active.',
+      );
+    }
+    this.assertCurrentVersion(claims, version);
 
     const authorized = await this.repository.authorizeExecution({
-      organizationId: claims.organizationId,
-      userId: claims.userId,
-      copilotThreadId: input.copilotThreadId,
-      aguiRunId: input.aguiRunId,
-      agentVersionId: current.id,
-      runtimeType: current.runtimeType,
-      modelIdentity: current.modelIdentity,
+      organizationId,
+      userId,
+      copilotThreadId,
+      aguiRunId,
+      agentVersionId: version.id,
+      runtimeType: version.runtimeType,
+      modelIdentity: version.modelIdentity,
       authorityProfileVersionId: AUTHORITY_PROFILE_VERSION_ID,
-      authorityProfilePolicyDocument:
-        foundationAuthorityProfilePolicyDocument(),
+      authorityProfilePolicyDocument: foundationAuthorityProfilePolicyDocument(),
       authorityProfilePolicyHash: foundationAuthorityProfilePolicyHash(),
       capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
       policyHash: claims.policyHash,
@@ -282,12 +394,30 @@ export class AgentInteractionIdentityService {
       currentResourceRefs: dashboardContext.resourceRefs,
       userEvent,
     });
-    this.assertAuthorizedRecord(authorized, claims, input);
+    this.assertAuthorizedRecord(authorized, {
+      organizationId,
+      userId,
+      copilotThreadId,
+      aguiRunId,
+      version,
+    });
 
+    const sessionName = formatAgentSessionName(
+      organizationId,
+      AgentSessionIdSchema.parse(authorized.session.id),
+    );
     return parseShared(AguiRunAuthorizationSchema, {
-      session: sessionSummary(authorized.session, claims.agentDefinitionKey),
-      sessionTaskId: authorized.rootTask.id,
-      executionId: authorized.execution.id,
+      session: sessionName,
+      task: formatAgentSessionTaskName(
+        organizationId,
+        AgentSessionIdSchema.parse(authorized.session.id),
+        AgentSessionTaskIdSchema.parse(authorized.rootTask.id),
+      ),
+      execution: formatAgentExecutionName(
+        organizationId,
+        AgentSessionIdSchema.parse(authorized.session.id),
+        AgentExecutionIdSchema.parse(authorized.execution.id),
+      ),
       modelIdentity: authorized.execution.modelIdentity,
       runtimeType: authorized.execution.runtimeType,
       policySnapshotId: authorized.policy.id,
@@ -298,25 +428,39 @@ export class AgentInteractionIdentityService {
 
   async authorizeConnection(
     input: AuthorizeConnectionInput,
-  ): Promise<AguiConnectionAuthorization> {
+  ): Promise<AgentInteractionConnectionAuthorization> {
+    const organizationId = parseInput(
+      OrganizationIdSchema,
+      input.organizationId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
+    const copilotThreadId = parseInput(
+      CopilotThreadIdSchema,
+      input.copilotThreadId,
+      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+    );
     const session = await this.repository.findAccessibleSession({
-      organizationId: input.organizationId,
-      userId: input.userId,
-      copilotThreadId: input.copilotThreadId,
+      organizationId,
+      userId,
+      copilotThreadId,
     });
     if (
       !session ||
       session.lifecycle !== 'active' ||
-      session.organizationId !== input.organizationId ||
-      session.createdByUserId !== input.userId ||
-      session.copilotThreadId !== input.copilotThreadId
+      session.organizationId !== organizationId ||
+      session.createdByUserId !== userId ||
+      session.copilotThreadId !== copilotThreadId
     ) {
       throw boundary(
         'INTERACTION_CONNECTION_NOT_AUTHORIZED',
         'The requested Agent OS session is not active and accessible.',
       );
     }
-
     const version = await this.repository.findActiveAgentVersion({
       agentDefinitionKey: 'operator',
       agentVersionId: session.primaryAgentVersionId,
@@ -327,95 +471,87 @@ export class AgentInteractionIdentityService {
         'The requested Agent OS session has no active agent version.',
       );
     }
+
+    const sessionName = formatAgentSessionName(
+      organizationId,
+      AgentSessionIdSchema.parse(session.id),
+    );
     const afterSequence = input.cursor
-      ? this.verifyReplayCursor(input.cursor, input, session)
+      ? this.verifyReplayCursor(input.cursor, {
+        organizationId,
+        userId,
+        copilotThreadId,
+        session,
+        sessionName,
+      })
       : 0n;
     const page = await this.repository.readConversationEvents({
-      organizationId: input.organizationId,
-      userId: input.userId,
+      organizationId,
+      userId,
       sessionId: session.id,
       afterSequence,
       limit: REPLAY_LIMIT,
     });
     const nextCursor = page.hasMore
-      ? signClaims(
+      ? OpaqueReplayCursorSchema.parse(
+        signClaims(
           {
             version: 1 as const,
-            organizationId: input.organizationId,
-            userId: input.userId,
-            sessionId: session.id,
-            copilotThreadId: input.copilotThreadId,
-            afterSequence: page.lastSequence.toString(),
+            organization: formatOrganizationName(organizationId),
+            user: formatUserName(userId),
+            session: sessionName,
+            copilotThreadId,
+            afterSequence: NonNegativeDecimalSequenceSchema.parse(
+              page.lastSequence.toString(),
+            ),
             expiresAtMs: this.now().getTime() + REPLAY_CURSOR_TTL_MS,
           },
           this.replayCursorHmacKey,
           REPLAY_CURSOR_DOMAIN,
-        )
+        ),
+      )
       : null;
     const liveJoinExpiresAt = page.hasMore
       ? null
       : new Date(this.now().getTime() + LIVE_JOIN_TTL_MS);
-    const liveJoinClaims = liveJoinExpiresAt
-      ? verifyLocalClaims(LiveJoinClaimsSchema, {
-          version: 1,
-          organizationId: input.organizationId,
-          userId: input.userId,
-          sessionId: session.id,
-          copilotThreadId: input.copilotThreadId,
-          contextEpoch: session.contextEpoch,
-          afterSequence: page.lastSequence.toString(),
-          expiresAtMs: liveJoinExpiresAt.getTime(),
-        })
-      : null;
-    const liveJoinToken = liveJoinClaims
-      ? signClaims(
-          liveJoinClaims,
+    const liveJoinToken = liveJoinExpiresAt
+      ? OpaqueShortLivedTokenSchema.parse(
+        signClaims(
+          {
+            version: 1 as const,
+            organization: formatOrganizationName(organizationId),
+            user: formatUserName(userId),
+            session: sessionName,
+            copilotThreadId,
+            contextEpoch: session.contextEpoch,
+            afterSequence: NonNegativeDecimalSequenceSchema.parse(
+              page.lastSequence.toString(),
+            ),
+            expiresAtMs: liveJoinExpiresAt.getTime(),
+          },
           this.replayCursorHmacKey,
           LIVE_JOIN_DOMAIN,
-        )
+        ),
+      )
       : null;
-    const currentExecution = await this.repository.findAccessibleCurrentExecution({
-      organizationId: input.organizationId,
-      userId: input.userId,
-      sessionId: session.id,
-      copilotThreadId: session.copilotThreadId,
-    });
-
-    return parseShared(AguiConnectionAuthorizationSchema, {
-      session: sessionSummary(session, version.agentDefinitionKey),
+    const replay = this.toReplay(organizationId, session, page, nextCursor);
+    const authorization = parseShared(AguiConnectionAuthorizationSchema, {
+      session: sessionName,
       contextEpoch: session.contextEpoch,
       replay: {
-        sessionId: session.id,
-        events: page.events.map((event) =>
-          parseShared(AgentConversationEventEnvelopeSchema, {
-            eventId: event.id,
-            sessionId: event.sessionId,
-            executionId: event.executionId,
-            aguiRunId: event.aguiRunId,
-            sequence: event.sequence.toString(),
-            eventType: event.eventType,
-            schemaVersion: event.schemaVersion,
-            payload: event.payload,
-            createdAt: event.createdAt.toISOString(),
-          }),
-        ),
         nextCursor,
-        lastSequence: page.lastSequence.toString(),
+        lastSequence: NonNegativeDecimalSequenceSchema.parse(
+          page.lastSequence.toString(),
+        ),
       },
+    });
+
+    return {
+      authorization,
+      replay,
       liveJoinToken,
       liveJoinExpiresAt: liveJoinExpiresAt?.toISOString() ?? null,
-      currentExecution: currentExecution?.status === 'running'
-        ? {
-            agentDefinitionKey: currentExecution.agentDefinitionKey,
-            sessionId: currentExecution.sessionId,
-            executionId: currentExecution.executionId,
-            copilotThreadId: currentExecution.copilotThreadId,
-            aguiRunId: currentExecution.aguiRunId,
-            status: 'running',
-            attempt: currentExecution.attempt,
-          }
-        : null,
-    });
+    };
   }
 
   async authorizeLiveJoin(input: {
@@ -437,8 +573,13 @@ export class AgentInteractionIdentityService {
         'The live join authorization has expired.',
       );
     }
+    const copilotThreadId = parseInput(
+      CopilotThreadIdSchema,
+      input.copilotThreadId,
+      'INTERACTION_LIVE_JOIN_MISMATCH',
+    );
     if (
-      claims.copilotThreadId !== input.copilotThreadId ||
+      claims.copilotThreadId !== copilotThreadId ||
       claims.afterSequence !== input.afterSequence.toString()
     ) {
       throw boundary(
@@ -446,14 +587,17 @@ export class AgentInteractionIdentityService {
         'The live join authorization does not match the requested cursor.',
       );
     }
+    const organizationId = parseOrganizationName(claims.organization).organization;
+    const userId = parseUserName(claims.user).user;
+    const parsedSession = parseAgentSessionName(claims.session, claims.organization);
     const session = await this.repository.findAccessibleSession({
-      organizationId: claims.organizationId,
-      userId: claims.userId,
-      copilotThreadId: claims.copilotThreadId,
+      organizationId,
+      userId,
+      copilotThreadId,
     });
     if (
       !session ||
-      session.id !== claims.sessionId ||
+      session.id !== parsedSession.session ||
       session.lifecycle !== 'active' ||
       session.contextEpoch !== claims.contextEpoch
     ) {
@@ -462,8 +606,13 @@ export class AgentInteractionIdentityService {
         'The live join session is no longer current.',
       );
     }
+    const definition = parseInput(
+      AgentDefinitionKeySchema,
+      input.agentDefinitionKey,
+      'INTERACTION_LIVE_JOIN_MISMATCH',
+    );
     const version = await this.repository.findActiveAgentVersion({
-      agentDefinitionKey: input.agentDefinitionKey,
+      agentDefinitionKey: definition,
       agentVersionId: session.primaryAgentVersionId,
     });
     if (!version || !this.isAllowedVersion(version)) {
@@ -473,10 +622,10 @@ export class AgentInteractionIdentityService {
       );
     }
     return {
-      organizationId: claims.organizationId,
-      userId: claims.userId,
-      sessionId: claims.sessionId,
-      copilotThreadId: claims.copilotThreadId,
+      organizationId,
+      userId,
+      sessionId: session.id,
+      copilotThreadId,
       contextEpoch: claims.contextEpoch,
       afterSequence: input.afterSequence,
     };
@@ -488,48 +637,61 @@ export class AgentInteractionIdentityService {
     return { status: 'ok' };
   }
 
-  private createRunIntentClaims(
-    input: PrepareRunIntentInput,
-    version: ActiveAgentVersionRecord,
-    dashboardContext: DashboardContext,
-    userEvent: z.infer<typeof UserEventSchema>,
-    expiresAtMs: number,
-  ): RunIntentClaims {
-    const dashboardContextHash = hashCanonical(dashboardContext);
-    const userEventHash = hashCanonical(userEvent);
+  private allowedAgent(version: ActiveAgentVersionRecord) {
+    const definition = AgentDefinitionKeySchema.parse(version.agentDefinitionKey);
+    return parseShared(AllowedAgentSchema, {
+      agentDefinitionKey: definition,
+      agentVersion: formatAgentVersionName(
+        definition,
+        AgentVersionKeySchema.parse(String(version.version)),
+      ),
+      displayName: version.displayName,
+      description: version.description,
+      isDefault: version.agentDefinitionKey === 'operator',
+    });
+  }
+
+  private createRunIntentClaims(input: {
+    organizationId: z.infer<typeof OrganizationIdSchema>;
+    userId: z.infer<typeof UserIdSchema>;
+    copilotThreadId: z.infer<typeof CopilotThreadIdSchema>;
+    aguiRunId: z.infer<typeof AguiRunIdSchema>;
+    version: ActiveAgentVersionRecord;
+    dashboardContext: DashboardContext;
+    userEvent: z.infer<typeof UserEventSchema>;
+    expiresAtMs: number;
+  }): RunIntentClaims {
+    const definition = AgentDefinitionKeySchema.parse(input.version.agentDefinitionKey);
     return verifyLocalClaims(RunIntentClaimsSchema, {
       version: 1,
-      organizationId: input.organizationId,
-      userId: input.userId,
-      agentDefinitionKey: version.agentDefinitionKey,
-      agentVersionId: version.id,
-      agentVersion: version.version,
-      runtimeType: version.runtimeType,
-      modelIdentity: version.modelIdentity,
-      authorityProfileVersionId: AUTHORITY_PROFILE_VERSION_ID,
-      capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
-      policyDocumentHash: hashCanonical(version.policyDocument),
-      policyHash: foundationPolicyHash(version),
-      inputHash: hashCanonical({ dashboardContext, userEvent }),
-      dashboardContextHash,
-      userEventHash,
+      organization: formatOrganizationName(input.organizationId),
+      user: formatUserName(input.userId),
+      agentVersion: formatAgentVersionName(
+        definition,
+        AgentVersionKeySchema.parse(String(input.version.version)),
+      ),
       copilotThreadId: input.copilotThreadId,
       aguiRunId: input.aguiRunId,
-      expiresAtMs,
+      dashboardContextHash: Sha256DigestSchema.parse(hashCanonical(input.dashboardContext)),
+      policyHash: Sha256DigestSchema.parse(foundationPolicyHash(input.version)),
+      inputHash: Sha256DigestSchema.parse(
+        hashCanonical({ dashboardContext: input.dashboardContext, userEvent: input.userEvent }),
+      ),
+      expiresAtMs: input.expiresAtMs,
     });
   }
 
   private assertRunIntentRequest(
     claims: RunIntentClaims,
-    input: AuthorizeRunInput,
+    copilotThreadId: z.infer<typeof CopilotThreadIdSchema>,
+    aguiRunId: z.infer<typeof AguiRunIdSchema>,
     dashboardContext: DashboardContext,
     userEvent: z.infer<typeof UserEventSchema>,
   ): void {
     if (
-      claims.copilotThreadId !== input.copilotThreadId ||
-      claims.aguiRunId !== input.aguiRunId ||
+      claims.copilotThreadId !== copilotThreadId ||
+      claims.aguiRunId !== aguiRunId ||
       claims.dashboardContextHash !== hashCanonical(dashboardContext) ||
-      claims.userEventHash !== hashCanonical(userEvent) ||
       claims.inputHash !== hashCanonical({ dashboardContext, userEvent })
     ) {
       throw boundary(
@@ -539,17 +701,28 @@ export class AgentInteractionIdentityService {
     }
   }
 
+  private async findVersionFromClaim(
+    agentVersionName: z.infer<typeof AgentVersionNameSchema>,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    const parsed = parseAgentVersionName(agentVersionName);
+    const match = (await this.allowedVersions()).find(
+      (version) =>
+        version.agentDefinitionKey === parsed.agentDefinitionKey &&
+        String(version.version) === parsed.version,
+    );
+    return match ?? null;
+  }
+
   private assertCurrentVersion(
     claims: RunIntentClaims,
     current: ActiveAgentVersionRecord,
   ): void {
+    const expectedVersion = formatAgentVersionName(
+      AgentDefinitionKeySchema.parse(current.agentDefinitionKey),
+      AgentVersionKeySchema.parse(String(current.version)),
+    );
     if (
-      claims.agentVersionId !== current.id ||
-      claims.agentDefinitionKey !== current.agentDefinitionKey ||
-      claims.agentVersion !== current.version ||
-      claims.runtimeType !== current.runtimeType ||
-      claims.modelIdentity !== current.modelIdentity ||
-      claims.policyDocumentHash !== hashCanonical(current.policyDocument) ||
+      claims.agentVersion !== expectedVersion ||
       claims.policyHash !== foundationPolicyHash(current)
     ) {
       throw boundary(
@@ -560,27 +733,32 @@ export class AgentInteractionIdentityService {
   }
 
   private assertAuthorizedRecord(
-    record: Awaited<ReturnType<AgentInteractionRepositoryPort['authorizeExecution']>>,
-    claims: RunIntentClaims,
-    input: AuthorizeRunInput,
+    record: AuthorizedExecutionRecord,
+    expected: {
+      organizationId: string;
+      userId: string;
+      copilotThreadId: string;
+      aguiRunId: string;
+      version: ActiveAgentVersionRecord;
+    },
   ): void {
     if (
-      record.session.organizationId !== claims.organizationId ||
-      record.session.createdByUserId !== claims.userId ||
-      record.session.copilotThreadId !== input.copilotThreadId ||
-      record.session.primaryAgentVersionId !== claims.agentVersionId ||
+      record.session.organizationId !== expected.organizationId ||
+      record.session.createdByUserId !== expected.userId ||
+      record.session.copilotThreadId !== expected.copilotThreadId ||
+      record.session.primaryAgentVersionId !== expected.version.id ||
       record.session.authorityProfileVersionId !== AUTHORITY_PROFILE_VERSION_ID ||
       record.rootTask.sessionId !== record.session.id ||
       record.execution.sessionId !== record.session.id ||
       record.execution.sessionTaskId !== record.rootTask.id ||
-      record.execution.copilotThreadId !== input.copilotThreadId ||
-      record.execution.aguiRunId !== input.aguiRunId ||
-      record.execution.agentVersionId !== claims.agentVersionId ||
-      record.execution.runtimeType !== claims.runtimeType ||
-      record.execution.modelIdentity !== claims.modelIdentity ||
+      record.execution.copilotThreadId !== expected.copilotThreadId ||
+      record.execution.aguiRunId !== expected.aguiRunId ||
+      record.execution.agentVersionId !== expected.version.id ||
+      record.execution.runtimeType !== expected.version.runtimeType ||
+      record.execution.modelIdentity !== expected.version.modelIdentity ||
       record.execution.policySnapshotId !== record.policy.id ||
       record.policy.sessionId !== record.session.id ||
-      record.policy.agentVersionId !== claims.agentVersionId ||
+      record.policy.agentVersionId !== expected.version.id ||
       record.policy.authorityProfileVersionId !== AUTHORITY_PROFILE_VERSION_ID
     ) {
       throw boundary(
@@ -592,8 +770,13 @@ export class AgentInteractionIdentityService {
 
   private verifyReplayCursor(
     cursor: string,
-    input: AuthorizeConnectionInput,
-    session: AgentSessionRecord,
+    input: {
+      organizationId: z.infer<typeof OrganizationIdSchema>;
+      userId: z.infer<typeof UserIdSchema>;
+      copilotThreadId: z.infer<typeof CopilotThreadIdSchema>;
+      session: AgentSessionRecord;
+      sessionName: string;
+    },
   ): bigint {
     const claims = verifyClaims(
       cursor,
@@ -602,21 +785,25 @@ export class AgentInteractionIdentityService {
       ReplayCursorClaimsSchema,
       'INTERACTION_REPLAY_CURSOR_INVALID',
     );
+    if (claims.expiresAtMs <= this.now().getTime()) {
+      throw boundary(
+        'INTERACTION_REPLAY_CURSOR_EXPIRED',
+        'The replay cursor has expired.',
+      );
+    }
+    const organization = parseOrganizationName(claims.organization).organization;
+    const user = parseUserName(claims.user).user;
+    const session = parseAgentSessionName(claims.session, claims.organization);
     if (
-      claims.organizationId !== input.organizationId ||
-      claims.userId !== input.userId ||
-      claims.sessionId !== session.id ||
+      organization !== input.organizationId ||
+      user !== input.userId ||
+      session.session !== input.session.id ||
+      claims.session !== input.sessionName ||
       claims.copilotThreadId !== input.copilotThreadId
     ) {
       throw boundary(
         'INTERACTION_REPLAY_CURSOR_MISMATCH',
         'The replay cursor does not belong to the requested session.',
-      );
-    }
-    if (claims.expiresAtMs <= this.now().getTime()) {
-      throw boundary(
-        'INTERACTION_REPLAY_CURSOR_EXPIRED',
-        'The replay cursor has expired.',
       );
     }
     try {
@@ -629,8 +816,52 @@ export class AgentInteractionIdentityService {
     }
   }
 
+  private toReplay(
+    organizationId: z.infer<typeof OrganizationIdSchema>,
+    session: AgentSessionRecord,
+    page: ConversationEventPage,
+    nextCursor: z.infer<typeof OpaqueReplayCursorSchema> | null,
+  ): AgentConversationReplay {
+    const sessionId = AgentSessionIdSchema.parse(session.id);
+    const sessionName = formatAgentSessionName(organizationId, sessionId);
+    return parseShared(AgentConversationReplaySchema, {
+      session: sessionName,
+      events: page.events.map((event) => this.toEnvelope(organizationId, sessionId, event)),
+      nextCursor,
+      lastSequence: NonNegativeDecimalSequenceSchema.parse(page.lastSequence.toString()),
+    });
+  }
+
+  private toEnvelope(
+    organizationId: z.infer<typeof OrganizationIdSchema>,
+    sessionId: z.infer<typeof AgentSessionIdSchema>,
+    event: AgentConversationEventRecord,
+  ) {
+    return parseShared(AgentConversationEventEnvelopeSchema, {
+      name: formatAgentConversationEventName(
+        organizationId,
+        sessionId,
+        PositiveDecimalSequenceSchema.parse(event.sequence.toString()),
+      ),
+      session: formatAgentSessionName(organizationId, sessionId),
+      execution: event.executionId === null
+        ? null
+        : formatAgentExecutionName(
+          organizationId,
+          sessionId,
+          AgentExecutionIdSchema.parse(event.executionId),
+        ),
+      aguiRunId: event.aguiRunId,
+      sequence: PositiveDecimalSequenceSchema.parse(event.sequence.toString()),
+      eventType: event.eventType,
+      schemaVersion: event.schemaVersion,
+      payload: event.payload,
+      createdAt: event.createdAt.toISOString(),
+    });
+  }
+
   private async requireAllowedVersion(
-    agentDefinitionKey: string,
+    agentDefinitionKey: z.infer<typeof AgentDefinitionKeySchema>,
   ): Promise<ActiveAgentVersionRecord> {
     const match = (await this.allowedVersions()).find(
       (version) => version.agentDefinitionKey === agentDefinitionKey,
@@ -639,15 +870,6 @@ export class AgentInteractionIdentityService {
       throw boundary(
         'AGENT_NOT_ALLOWED',
         'The requested interaction agent is not server-approved.',
-      );
-    }
-    if (
-      match.agentDefinitionKey === 'operator' &&
-      !hasExactFoundationCapabilities(match.capabilityKeys)
-    ) {
-      throw boundary(
-        'AGENT_POLICY_NOT_CONFIGURED',
-        'The active Operator AgentVersion does not declare the immutable foundation capability profile.',
       );
     }
     return match;
@@ -701,8 +923,7 @@ export class AgentInteractionIdentityService {
       }
     }
     if (
-      matched.filter((version) => version.agentDefinitionKey === 'operator')
-        .length !== 1
+      matched.filter((version) => version.agentDefinitionKey === 'operator').length !== 1
     ) {
       throw boundary(
         'AGENT_OPERATOR_NOT_CONFIGURED',
@@ -726,26 +947,11 @@ function definitionType(agentDefinitionKey: string): string {
   return agentDefinitionKey === 'operator' ? 'manager' : agentDefinitionKey;
 }
 
-function sessionSummary(
-  session: AgentSessionRecord,
-  primaryAgentDefinitionKey: string,
-): AgentSessionSummary {
-  return parseShared(AgentSessionSummarySchema, {
-    sessionId: session.id,
-    copilotThreadId: session.copilotThreadId,
-    primaryAgentDefinitionKey,
-    primaryAgentVersionId: session.primaryAgentVersionId,
-    lifecycle: session.lifecycle,
-    updatedAt: session.updatedAt.toISOString(),
-  });
-}
-
 function foundationPolicyHash(version: ActiveAgentVersionRecord): string {
   return hashCanonical({
     authorityProfileVersionId: AUTHORITY_PROFILE_VERSION_ID,
     capabilityKeys: FOUNDATION_CAPABILITY_KEYS,
     agentDefinitionKey: version.agentDefinitionKey,
-    agentVersionId: version.id,
     agentVersion: version.version,
     runtimeType: version.runtimeType,
     modelIdentity: version.modelIdentity,
@@ -800,11 +1006,7 @@ function sortCanonical(value: unknown): unknown {
   return value;
 }
 
-function signClaims(
-  claims: object,
-  key: Buffer,
-  domain: string,
-): string {
+function signClaims(claims: object, key: Buffer, domain: string): string {
   const encoded = Buffer.from(canonicalJson(claims)).toString('base64url');
   const signature = createHmac('sha256', key)
     .update(domain)

@@ -1,22 +1,35 @@
 import { EventType, type BaseEvent } from '@ag-ui/core';
 import { describe, expect, it, vi } from 'vitest';
 import type { AguiRunAuthorization } from '@kiditem/shared/agent-interaction';
+import {
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
 import { AgentCapabilityRegistry } from '../agent-capability-registry.service';
 import { AgentAguiRuntimeRegistry } from '../agent-agui-runtime-registry.service';
 import { AgentAguiRunService } from '../agent-agui-run.service';
 import { AgentInteractionPresentationService } from '../agent-interaction-presentation.service';
 
 const authorization = (): AguiRunAuthorization => ({
-  session: {
-    sessionId: 'session-1',
-    copilotThreadId: 'thread-1',
-    primaryAgentDefinitionKey: 'operator',
-    primaryAgentVersionId: 'version-1',
-    lifecycle: 'active',
-    updatedAt: '2026-08-14T00:00:00.000Z',
-  },
-  sessionTaskId: 'task-1',
-  executionId: 'execution-1',
+  session: formatAgentSessionName(
+    OrganizationIdSchema.parse('org-1'),
+    AgentSessionIdSchema.parse('session-1'),
+  ),
+  task: formatAgentSessionTaskName(
+    OrganizationIdSchema.parse('org-1'),
+    AgentSessionIdSchema.parse('session-1'),
+    AgentSessionTaskIdSchema.parse('task-1'),
+  ),
+  execution: formatAgentExecutionName(
+    OrganizationIdSchema.parse('org-1'),
+    AgentSessionIdSchema.parse('session-1'),
+    AgentExecutionIdSchema.parse('execution-1'),
+  ),
   modelIdentity: 'gpt-5.2',
   runtimeType: 'openai_responses',
   policySnapshotId: 'policy-1',
@@ -56,14 +69,14 @@ function setup(events: BaseEvent[] = [
       capabilityKeys: ['analytics.readOverview'],
       initialUserEvent: {
         id: 'event-user-1', externalEventId: 'message-1', eventType: 'user_message',
-        schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' },
+        schemaVersion: 1, payload: { phase: 'complete', messageId: 'message-1', content: '재고 위험을 알려줘' },
         sequence: 1n, createdAt: new Date('2026-08-14T00:00:00.000Z'),
       },
     }),
     readModelConversation: vi.fn().mockResolvedValue({
       events: [
-        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'old-user', content: 'canonical prior' }, sequence: 0n },
-        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 1n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { phase: 'complete', messageId: 'old-user', content: 'canonical prior' }, sequence: 0n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { phase: 'complete', messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 1n },
       ],
       hasMore: false,
     }),
@@ -212,7 +225,7 @@ describe('AgentAguiRunService', () => {
         { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'delta', messageId: 'assistant-old', content: '재고 ' }, sequence: 2n },
         { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'delta', messageId: 'assistant-old', content: '요약' }, sequence: 3n },
         { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'end', messageId: 'assistant-old' }, sequence: 4n },
-        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 5n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { phase: 'complete', messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 5n },
       ],
       hasMore: false,
     });
@@ -238,7 +251,7 @@ describe('AgentAguiRunService', () => {
     repository.readModelConversation.mockResolvedValueOnce({
       events: [
         { eventType: 'assistant_message', schemaVersion: 1, payload: { phase: 'start', messageId: 'assistant-old' }, sequence: 1n },
-        { eventType: 'user_message', schemaVersion: 1, payload: { messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 2n },
+        { eventType: 'user_message', schemaVersion: 1, payload: { phase: 'complete', messageId: 'message-1', content: '재고 위험을 알려줘' }, sequence: 2n },
       ],
       hasMore: false,
     });
@@ -252,7 +265,7 @@ describe('AgentAguiRunService', () => {
     ['route agent', { agentDefinitionKey: 'sourcing' }],
     ['thread', { input: { ...runInput(), threadId: 'other' } }],
     ['run', { input: { ...runInput(), runId: 'other' } }],
-    ['session', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), session: { ...authorization().session, sessionId: 'other' } } } } }],
+    ['session', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), session: formatAgentSessionName(OrganizationIdSchema.parse('org-1'), AgentSessionIdSchema.parse('other')) } } } }],
     ['model', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), modelIdentity: 'other' } } } }],
     ['policy', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), policySnapshotId: 'other' } } } }],
   ])('rejects mismatched %s correlation', async (_label, override) => {

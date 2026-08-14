@@ -12,7 +12,7 @@ import {
 } from '@copilotkit/runtime/v2';
 import { BaseEventSchema, EventType, type BaseEvent } from '@ag-ui/core';
 import {
-  AguiConnectionAuthorizationSchema,
+  AgentConversationConnectionAuthorizationSchema,
   AgentConversationEventEnvelopeSchema,
   InteractionBootstrapSchema,
   type AgentConversationEventEnvelope,
@@ -99,47 +99,46 @@ export class KidItemAgentRunner extends AgentRunner {
   async isRunning(request: AgentRunnerIsRunningRequest): Promise<boolean> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const ownership = AguiConnectionAuthorizationSchema.parse(
-      await this.control.authorizeConnection(context.request, {
-        copilotThreadId: request.threadId,
-        cursor: null,
-      }),
-    );
-    const canonical = ownership.currentExecution;
+    const active = this.active.get(request.threadId);
     return Boolean(
-      canonical &&
-      canonical.agentDefinitionKey === agentDefinitionKey &&
-      canonical.copilotThreadId === request.threadId,
+      active &&
+      active.agentDefinitionKey === agentDefinitionKey &&
+      active.threadId === request.threadId,
     );
   }
 
   async stop(request: AgentRunnerStopRequest): Promise<boolean | undefined> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const ownership = AguiConnectionAuthorizationSchema.parse(
+    const active = this.active.get(request.threadId);
+    if (
+      !active ||
+      active.agentDefinitionKey !== agentDefinitionKey ||
+      active.threadId !== request.threadId
+    ) {
+      return false;
+    }
+    const connection = AgentConversationConnectionAuthorizationSchema.parse(
       await this.control.authorizeConnection(context.request, {
         copilotThreadId: request.threadId,
         cursor: null,
       }),
     );
-    const canonical = ownership.currentExecution;
     if (
-      !canonical ||
-      canonical.agentDefinitionKey !== agentDefinitionKey ||
-      canonical.copilotThreadId !== request.threadId
+      connection.authorization.session !== active.authorization.session
     ) {
       return false;
     }
 
     const stopped = await this.control.stopRun(context.request, {
-      agentDefinitionKey: canonical.agentDefinitionKey,
-      copilotThreadId: canonical.copilotThreadId,
-      aguiRunId: canonical.aguiRunId,
-      sessionId: canonical.sessionId,
-      executionId: canonical.executionId,
+      agentDefinitionKey,
+      copilotThreadId: request.threadId,
+      aguiRunId: active.runId,
+      session: active.authorization.session,
+      execution: active.authorization.execution,
     });
     const selected = this.active.get(request.threadId);
-    if (stopped && selected?.authorization.executionId === canonical.executionId) {
+    if (stopped && selected?.authorization.execution === active.authorization.execution) {
       this.active.delete(request.threadId);
     }
     return stopped;
@@ -159,36 +158,43 @@ export class KidItemAgentRunner extends AgentRunner {
     readonly liveEvents: Observable<BaseEvent>;
   }> {
     let cursor = input.cursor;
-    let sessionId: string | null = null;
+    let session: string | null = null;
     let previousSequence: bigint | null = null;
+    let terminalReplayed = false;
     const seenCursors = new Set<string>();
     const seenEventIds = new Set<string>();
     const replayEvents: BaseEvent[] = [];
 
     for (let pageNumber = 0; pageNumber < MAX_REPLAY_PAGES; pageNumber += 1) {
-      const page = AguiConnectionAuthorizationSchema.parse(
+      const connection = AgentConversationConnectionAuthorizationSchema.parse(
         await this.control.authorizeConnection(input.request, {
           copilotThreadId: input.threadId,
           cursor,
         }),
       );
-      if (page.session.copilotThreadId !== input.threadId) {
-        throw new Error('Replay authorization returned the wrong thread.');
+      const page = connection.replay;
+      if (connection.authorization.session !== page.session) {
+        throw new Error('Replay authorization changed session ownership.');
       }
-      sessionId ??= page.session.sessionId;
       if (
-        page.session.sessionId !== sessionId ||
-        page.replay.sessionId !== sessionId
+        connection.authorization.replay.nextCursor !== page.nextCursor ||
+        connection.authorization.replay.lastSequence !== page.lastSequence
+      ) {
+        throw new Error('Replay authorization metadata is inconsistent.');
+      }
+      session ??= page.session;
+      if (
+        page.session !== session
       ) {
         throw new Error('Replay authorization changed session ownership.');
       }
 
-      for (const rawEvent of page.replay.events) {
+      for (const rawEvent of page.events) {
         const event = AgentConversationEventEnvelopeSchema.parse(rawEvent);
-        if (event.sessionId !== sessionId) {
+        if (event.session !== session) {
           throw new Error('Replay event belongs to another session.');
         }
-        if (seenEventIds.has(event.eventId)) {
+        if (seenEventIds.has(event.name)) {
           throw new Error('Replay contains a duplicate event identifier.');
         }
         const sequence = BigInt(event.sequence);
@@ -199,48 +205,49 @@ export class KidItemAgentRunner extends AgentRunner {
         } else if (sequence !== previousSequence + 1n) {
           throw new Error('Replay contains a gap or duplicate sequence.');
         }
-        seenEventIds.add(event.eventId);
+        seenEventIds.add(event.name);
         previousSequence = sequence;
         replayEvents.push(...conversationEnvelopeToAgui(event, input.threadId));
+        terminalReplayed ||= event.eventType === 'run_terminal';
       }
 
       if (
-        page.replay.events.length > 0 &&
-        page.replay.lastSequence !== previousSequence?.toString()
+        page.events.length > 0 &&
+        page.lastSequence !== previousSequence?.toString()
       ) {
         throw new Error('Replay last-sequence boundary is inconsistent.');
       }
 
-      if (page.replay.nextCursor !== null) {
-        if (seenCursors.has(page.replay.nextCursor)) {
+      if (page.nextCursor !== null) {
+        if (seenCursors.has(page.nextCursor)) {
           throw new Error('Replay cursor did not advance.');
         }
-        seenCursors.add(page.replay.nextCursor);
-        cursor = page.replay.nextCursor;
+        seenCursors.add(page.nextCursor);
+        cursor = page.nextCursor;
         continue;
       }
 
-      if (!page.liveJoinToken) {
+      if (terminalReplayed) {
+        return { replayEvents, liveEvents: EMPTY };
+      }
+      if (!connection.liveJoinToken) {
         throw new Error('Replay completed without a live-join grant.');
       }
       const afterSequence =
-        previousSequence?.toString() ?? page.replay.lastSequence;
-      const canonical = page.currentExecution;
-      const liveEvents = canonical?.agentDefinitionKey === input.agentDefinitionKey
-        ? this.control.connectLive(input.request, {
+        previousSequence?.toString() ?? page.lastSequence;
+      const liveEvents = this.control.connectLive(input.request, {
           agentDefinitionKey: input.agentDefinitionKey,
           copilotThreadId: input.threadId,
           afterSequence,
-          liveJoinToken: page.liveJoinToken,
+          liveJoinToken: connection.liveJoinToken,
         })
         .pipe(
           map((rawEvent) => {
             const event = BaseEventSchema.parse(rawEvent);
-            assertLiveCorrelation(event, input.threadId, canonical.aguiRunId);
+            assertLiveCorrelation(event, input.threadId);
             return event;
           }),
-        )
-        : EMPTY;
+        );
       return { replayEvents, liveEvents };
     }
     throw new Error('Replay exceeded the bounded page limit.');
@@ -278,11 +285,11 @@ export function createInteractionGateway(
           agentDefinitionKey: allowed.agentDefinitionKey,
           privateAguiUrl: dependencies.privateAguiUrl,
           serviceSecret: dependencies.serviceSecret,
-          onAuthorized: (authorization) => {
+          onAuthorized: (authorization, correlation) => {
             runner.registerActiveGrant({
               agentDefinitionKey: allowed.agentDefinitionKey,
-              threadId: authorization.session.copilotThreadId,
-              runId: currentRunId(requestContext),
+              threadId: correlation.copilotThreadId,
+              runId: correlation.aguiRunId,
               authorization,
             });
           },
@@ -314,17 +321,6 @@ export function createInteractionGateway(
   return { runtime, runner, handler };
 }
 
-function currentRunId(
-  requestContext: AsyncLocalStorage<GatewayRequestContext>,
-): string {
-  const context = requestContext.getStore();
-  const runId = context?.request.headers.get('x-kiditem-current-run-id');
-  if (!runId) {
-    throw new Error('Gateway run correlation is unavailable.');
-  }
-  return runId;
-}
-
 async function gatewayRequestContext(
   request: Request,
 ): Promise<GatewayRequestContext> {
@@ -332,7 +328,6 @@ async function gatewayRequestContext(
   const match = /\/agent\/([^/]+)\/(?:run|connect|stop\/[^/]+)$/.exec(path);
   const agentDefinitionKey = match?.[1] ? decodeURIComponent(match[1]) : null;
   let replayCursor: string | null = null;
-  let runId: string | null = null;
   if (request.method === 'POST' && /\/(?:run|connect)$/.test(path)) {
     const body: unknown = await request
       .clone()
@@ -340,7 +335,6 @@ async function gatewayRequestContext(
       .catch(() => null);
     if (body && typeof body === 'object') {
       const candidate = body as Record<string, unknown>;
-      if (typeof candidate.runId === 'string') runId = candidate.runId;
       const props = candidate.forwardedProps;
       if (props && typeof props === 'object') {
         const cursor = (props as Record<string, unknown>).kiditemReplayCursor;
@@ -349,23 +343,16 @@ async function gatewayRequestContext(
       }
     }
   }
-  const headers = new Headers(request.headers);
-  if (runId) headers.set('x-kiditem-current-run-id', runId);
-  const contextualRequest = new Request(request, { headers });
-  return { request: contextualRequest, agentDefinitionKey, replayCursor };
+  return { request, agentDefinitionKey, replayCursor };
 }
 
 function assertLiveCorrelation(
   event: BaseEvent,
   threadId: string,
-  runId: string | undefined,
 ): void {
   const candidate = event as BaseEvent & { threadId?: string; runId?: string };
   if (candidate.threadId !== undefined && candidate.threadId !== threadId) {
     throw new Error('Live event belongs to another thread.');
-  }
-  if (runId && candidate.runId !== undefined && candidate.runId !== runId) {
-    throw new Error('Live event belongs to another run.');
   }
 }
 
@@ -374,9 +361,9 @@ function conversationEnvelopeToAgui(
   threadId: string,
 ): BaseEvent[] {
   const rawEvent = {
-    kiditemEventId: event.eventId,
-    kiditemSessionId: event.sessionId,
-    kiditemExecutionId: event.executionId,
+    kiditemEvent: event.name,
+    kiditemSession: event.session,
+    kiditemExecution: event.execution,
     kiditemAguiRunId: event.aguiRunId,
     kiditemSequence: event.sequence,
     schemaVersion: event.schemaVersion,
