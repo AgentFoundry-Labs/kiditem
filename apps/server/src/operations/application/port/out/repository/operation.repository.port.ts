@@ -171,6 +171,11 @@ export interface OperationLifecycleBatchResult {
   remaining: boolean;
 }
 
+export interface OperationCompositeCancellationResult {
+  parent: OperationRunRecord;
+  children: OperationRunRecord[];
+}
+
 export interface OperationRunRepositoryPort {
   withActiveBrowserAttemptFence<T>(input: {
     organizationId: string;
@@ -205,6 +210,23 @@ export interface OperationRunRepositoryPort {
     expectedAttemptToken: string;
     child: Omit<CreateOperationRunRecord, 'signal'>;
   }): Promise<OperationRunRecord | null>;
+  createChildrenAndWaitForDependencies(input: {
+    signal: AbortSignal;
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    children: Array<Omit<CreateOperationRunRecord, 'signal'>>;
+  }): Promise<OperationRunRecord[] | null>;
+  cancelRunAndActiveChildren(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    parentRunId: string;
+    parentErrorCode: string | null;
+    parentErrorMessage: string | null;
+    childErrorCode: string;
+    childErrorMessage: string;
+    finishedAt: Date;
+  }): Promise<OperationCompositeCancellationResult | null>;
   listRuns(input: {
     organizationId: string;
     status?: OperationStatus;

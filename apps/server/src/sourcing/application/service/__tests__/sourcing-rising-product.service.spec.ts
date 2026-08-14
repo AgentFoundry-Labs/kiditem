@@ -2,6 +2,33 @@ import { describe, expect, it, vi } from 'vitest';
 import { SourcingRisingProductService } from '../sourcing-rising-product.service';
 
 describe('SourcingRisingProductService', () => {
+  it('keeps latest as a pure persisted read and exposes no latest-or-detect write path', async () => {
+    const snapshots = {
+      listRecent: vi.fn().mockResolvedValue([]),
+      upsert: vi.fn(),
+    };
+    const momentum = {
+      readSerpMomentum: vi.fn(),
+      readWingSalesMomentum: vi.fn(),
+    };
+    const trends = { findNaverKeywordHistory: vi.fn() };
+    const service = new SourcingRisingProductService(
+      momentum as never,
+      trends as never,
+      snapshots as never,
+    );
+
+    await expect(service.getLatest('org-1')).resolves.toBeNull();
+
+    expect(snapshots.listRecent).toHaveBeenCalledOnce();
+    expect(snapshots.upsert).not.toHaveBeenCalled();
+    expect(momentum.readSerpMomentum).not.toHaveBeenCalled();
+    expect(momentum.readWingSalesMomentum).not.toHaveBeenCalled();
+    expect(trends.findNaverKeywordHistory).not.toHaveBeenCalled();
+    expect((service as unknown as { latestOrDetect?: unknown }).latestOrDetect)
+      .toBeUndefined();
+  });
+
   it('round-trips persisted confidence and data gaps without recomputing them from a different model statistic', async () => {
     let persisted: Record<string, unknown> | null = null;
     const snapshots = {

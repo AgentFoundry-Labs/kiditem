@@ -64,6 +64,8 @@ import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repositor
 import { SourcingCollectionRepositoryAdapter } from "../adapter/out/repository/sourcing-collection.repository.adapter";
 import { Sourcing1688SearchResultRepositoryAdapter } from "../adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { Sourcing1688OperationHandler } from "../adapter/in/operation/sourcing-1688.operation-handler";
+import { SourcingTrendOperationHandler } from "../adapter/in/operation/sourcing-trend.operation-handler";
+import { SourcingRisingProductOperationHandler } from "../adapter/in/operation/sourcing-rising-product.operation-handler";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingCollectionOperationAdapter } from "../adapter/out/operations/sourcing-collection-operation.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
@@ -193,6 +195,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(Sourcing1688KeywordSearchService);
     expect(providers).toContain(Sourcing1688SearchResultService);
     expect(providers).toContain(Sourcing1688OperationHandler);
+    expect(providers).toContain(SourcingTrendOperationHandler);
+    expect(providers).toContain(SourcingRisingProductOperationHandler);
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);

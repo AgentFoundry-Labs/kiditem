@@ -302,6 +302,7 @@ export const queryKeys = {
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
     liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
+    risingProducts: () => [...queryKeys.sourcing.all, 'rising-products'] as const,
     wingTrackedProducts: () =>
       [...queryKeys.sourcing.all, 'wing-tracked-products'] as const,
     wingTrackedHistories: (days: number) =>

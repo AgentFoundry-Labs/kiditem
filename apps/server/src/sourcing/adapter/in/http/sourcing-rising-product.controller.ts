@@ -1,41 +1,54 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Headers,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+} from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
+import {
+  OPERATION_RUNNER_PORT,
+  type OperationRunnerPort,
+} from '../../../../operations/application/port/in/operation-runner.port';
 import { SourcingRisingProductService } from '../../../application/service/sourcing-rising-product.service';
 import { DetectRisingProductsDto } from './dto/sourcing-rising-product.dto';
+import type { AuthUser } from '../../../../auth/auth.types';
 
 @Controller('sourcing/rising-products')
 export class SourcingRisingProductController {
-  constructor(private readonly rising: SourcingRisingProductService) {}
+  constructor(
+    private readonly rising: SourcingRisingProductService,
+    @Inject(OPERATION_RUNNER_PORT)
+    private readonly operationRunner: OperationRunnerPort,
+  ) {}
 
-  /** Read today's/most-recent persisted rising-product result (no recompute). */
   @Get()
-  async latest(@CurrentOrganization() organizationId: string) {
+  latest(@CurrentOrganization() organizationId: string) {
     return this.rising.getLatest(organizationId);
   }
 
-  /** Recompute rising products from the latest SERP/Wing/trend snapshots and persist. */
   @Post('detect')
-  async detect(
+  @HttpCode(HttpStatus.ACCEPTED)
+  detect(
     @Body() body: DetectRisingProductsDto,
     @CurrentOrganization() organizationId: string,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
+    @CurrentUser() user: AuthUser,
   ) {
-    return this.rising.detect({
+    return this.operationRunner.start({
       organizationId,
-      windowDays: body.windowDays,
-      limit: body.limit,
-    });
-  }
-
-  /** Return the persisted result if present, else compute one. */
-  @Post('latest')
-  async latestOrDetect(
-    @Body() body: DetectRisingProductsDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.rising.latestOrDetect({
-      organizationId,
-      windowDays: body.windowDays,
-      limit: body.limit,
+      operationKey: 'sourcing.detect_rising_products',
+      triggerSource: 'domain_screen',
+      input: {
+        ...(body.windowDays === undefined ? {} : { windowDays: body.windowDays }),
+        ...(body.limit === undefined ? {} : { limit: body.limit }),
+      },
+      requestedByUserId: user.id,
+      idempotencyKey: idempotencyKey?.trim() || null,
     });
   }
 }

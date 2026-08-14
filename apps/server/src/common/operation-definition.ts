@@ -56,6 +56,7 @@ export type OperationHandlerResult =
   | { kind: 'delegated'; nativeRunType: string; nativeRunId: string }
   | { kind: 'waiting_runtime' }
   | { kind: 'waiting_dependency'; child: StartChildOperation }
+  | { kind: 'waiting_dependencies'; children: StartChildOperation[] }
   | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
   | { kind: 'failed'; code: string; message: string };
 

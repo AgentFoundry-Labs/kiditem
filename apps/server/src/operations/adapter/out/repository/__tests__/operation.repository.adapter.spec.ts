@@ -327,6 +327,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
           findFirst: vi.fn().mockResolvedValue({
             id: CHILD_ID,
             organizationId: ORG_ID,
+            parentRunId: RUN_ID,
           }),
           create,
         },

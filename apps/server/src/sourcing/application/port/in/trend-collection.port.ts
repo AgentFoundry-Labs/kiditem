@@ -1,11 +1,28 @@
 import type {
   TrendCollectResult,
   TrendCollectSource,
+  TrendSourceCollectResult,
 } from '../../service/trend-collect.service';
 
 export const TREND_COLLECTION_PORT = Symbol('TREND_COLLECTION_PORT');
 
+export interface TrendCollectionControls {
+  signal?: AbortSignal;
+  checkpoint?: (update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }) => Promise<void>;
+}
+
 export interface TrendCollectionPort {
+  collectSource(
+    organizationId: string,
+    source: TrendCollectSource,
+    triggeredByUserId?: string | null,
+    collectionRunKey?: string,
+    controls?: TrendCollectionControls,
+  ): Promise<TrendSourceCollectResult & { businessDate: string }>;
   collect(
     organizationId: string,
     sources?: TrendCollectSource[],

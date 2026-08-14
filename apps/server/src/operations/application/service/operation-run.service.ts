@@ -1,4 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
+import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 import type { OperationRun, OperationStatus } from '@kiditem/shared/operations';
 import type {
   CancelOperationRunCommand,
@@ -6,18 +13,11 @@ import type {
   OperationRunnerPort,
   StartOperationCommand,
 } from '../port/in/operation-runner.port';
-import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
-import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import {
-  COMPOSITE_OPERATION_COORDINATOR_PORT,
-  type CompositeOperationCoordinatorPort,
-} from '../port/in/composite-operation-coordinator.port';
-import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
@@ -109,6 +109,10 @@ export class OperationRunService implements OperationRunnerPort {
     }
 
     const reason = command.reason ?? 'operator_cancelled';
+    const cancelled = await this.compositeCoordinator.cancelChildren(existing, reason);
+    if (!cancelled) {
+      return this.toWire(await this.require(command.organizationId, command.runId));
+    }
     await this.registry.getHandler(existing.operationKey).cancel?.({
       runId: existing.id,
       organizationId: existing.organizationId,
@@ -116,18 +120,7 @@ export class OperationRunService implements OperationRunnerPort {
       reason,
       requestedByUserId: command.requestedByUserId,
     });
-    await this.compositeCoordinator.cancelChildren(existing, reason);
-
-    const cancelled = await this.repository.transition({
-      organizationId: command.organizationId,
-      runId: command.runId,
-      expectedStatuses: CANCELLABLE_OPERATION_STATUSES,
-      status: 'cancelled',
-      errorCode: command.reason ? 'cancelled_by_operator' : null,
-      errorMessage: command.reason ?? null,
-      finishedAt: new Date(),
-    });
-    return this.toWire(cancelled ?? (await this.require(command.organizationId, command.runId)));
+    return this.toWire(cancelled);
   }
 
   private async require(

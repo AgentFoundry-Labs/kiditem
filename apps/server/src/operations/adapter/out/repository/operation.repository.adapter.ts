@@ -19,11 +19,16 @@ import {
   readOperationLifecycleDatabaseTime,
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
-import { createFencedCompositeChild } from './operation-composite.repository';
+import {
+  cancelFencedCompositeRun,
+  createFencedCompositeChild,
+  createFencedCompositeChildren,
+} from './operation-composite.repository';
 import type {
   ActiveBrowserOperationAttemptRecord,
   CreateOperationRunRecord,
   OperationActiveAttemptTransition,
+  OperationCompositeCancellationResult,
   OperationLifecycleBatchResult,
   OperationRunRecord,
   OperationRunRepositoryPort,
@@ -467,6 +472,53 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       organizationId: child.organizationId,
       runId: child.runId,
     });
+  }
+
+  async createChildrenAndWaitForDependencies(input: {
+    signal: AbortSignal;
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    children: Array<Omit<CreateOperationRunRecord, 'signal'>>;
+  }): Promise<OperationRunRecord[] | null> {
+    const children = await createFencedCompositeChildren(this.prisma, input);
+    if (!children) return null;
+    const records = await Promise.all(children.map((child) => this.findRunById({
+      organizationId: child.organizationId,
+      runId: child.runId,
+    })));
+    if (records.some((record) => record === null)) {
+      throw new Error('operation_composite_child_missing');
+    }
+    return records as OperationRunRecord[];
+  }
+
+  async cancelRunAndActiveChildren(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    parentRunId: string;
+    parentErrorCode: string | null;
+    parentErrorMessage: string | null;
+    childErrorCode: string;
+    childErrorMessage: string;
+    finishedAt: Date;
+  }): Promise<OperationCompositeCancellationResult | null> {
+    const cancelled = await cancelFencedCompositeRun(this.prisma, input);
+    if (!cancelled) return null;
+    const [parent, ...children] = await Promise.all([
+      this.findRunById({
+        organizationId: cancelled.parent.organizationId,
+        runId: cancelled.parent.runId,
+      }),
+      ...cancelled.children.map((child) => this.findRunById({
+        organizationId: child.organizationId,
+        runId: child.runId,
+      })),
+    ]);
+    if (!parent || children.some((child) => child === null)) {
+      throw new Error('operation_composite_cancellation_record_missing');
+    }
+    return { parent, children: children as OperationRunRecord[] };
   }
 
   async listRuns(input: {

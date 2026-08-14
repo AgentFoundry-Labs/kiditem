@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { OperationDispatcherService } from '../operation-dispatcher.service';
+import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 
 const NOW = new Date('2026-08-13T01:02:03.000Z');
 
@@ -215,6 +215,48 @@ describe('OperationDispatcherService', () => {
     handlerResult.resolve(result);
     await dispatch;
 
+    expect(compositeCoordinator.waitForChild).not.toHaveBeenCalled();
+  });
+
+  it('hands a bounded multi-child dependency result to the atomic coordinator', async () => {
+    const children = [
+      {
+        operationKey: 'sourcing.collect_naver_trends',
+        input: { source: 'naver' },
+        idempotencyKey: `${run().id}:naver`,
+      },
+      {
+        operationKey: 'sourcing.collect_1688_trends',
+        input: { source: '1688' },
+        idempotencyKey: `${run().id}:1688`,
+      },
+    ];
+    const compositeCoordinator = {
+      waitForChild: vi.fn(),
+      waitForChildren: vi.fn().mockResolvedValue(undefined),
+    };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockResolvedValue({
+            kind: 'waiting_dependencies',
+            children,
+          }),
+        }),
+      } as never,
+      { transitionActiveAttempt: vi.fn() } as never,
+      compositeCoordinator as never,
+    );
+
+    await dispatcher.dispatch(run(), {
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+    });
+
+    expect(compositeCoordinator.waitForChildren).toHaveBeenCalledWith({
+      parent: expect.objectContaining({ id: run().id }),
+      children,
+    });
     expect(compositeCoordinator.waitForChild).not.toHaveBeenCalled();
   });
 

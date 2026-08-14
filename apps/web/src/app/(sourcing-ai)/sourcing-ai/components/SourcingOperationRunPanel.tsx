@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { OperationRun } from '@kiditem/shared/operations';
 import {
   Sourcing1688BatchResultSchema,
   SourcingOperationResultSchema,
   type SourcingOperationResult,
 } from '@kiditem/shared/sourcing';
+import type { OperationRun } from '@kiditem/shared/operations';
 
 const ACTIVE_STATUSES = new Set<OperationRun['status']>([
   'queued',
@@ -39,6 +39,14 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
   persisting_1688_keyword: '1688 키워드 결과 저장 중',
   matching_1688_images: '1688 이미지 매칭 중',
   persisting_1688_image_match: '1688 이미지 매칭 결과 저장 중',
+  collecting_source: '트렌드 소스 준비 중',
+  collecting_naver_popular: '네이버 인기 키워드 수집 중',
+  collecting_naver_searchad: '네이버 검색량 수집 중',
+  collecting_naver_datalab: '네이버 트렌드 수집 중',
+  collecting_1688_seed: '1688 트렌드 수집 중',
+  collecting_shorts: '쇼츠 트렌드 수집 중',
+  finalizing_source: '트렌드 소스 마무리 중',
+  reading_snapshots: '저장된 스냅샷 읽는 중',
   finalizing: '결과 마무리 중',
   completed: '작업 완료',
 };

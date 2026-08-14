@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQueryClient, type QueryKey } from '@tanstack/react-query';
-import type { OperationRun } from '@kiditem/shared/operations';
 import {
   useCancelOperationRun,
   useOperationRun,
@@ -10,6 +9,7 @@ import {
   useStartOperation,
 } from '@/hooks/useOperationRun';
 import { wakeBrowserOperationRuntime } from '@/lib/extension-bridge';
+import type { OperationRun } from '@kiditem/shared/operations';
 
 export interface UseSourcingOperationActionOptions<
   TInput extends Readonly<Record<string, unknown>>,
@@ -20,6 +20,7 @@ export interface UseSourcingOperationActionOptions<
   snapshotQueryKeys?: readonly QueryKey[];
   idempotencyKey?: string;
   initialRunId?: string | null;
+  wakeBrowserRuntime?: boolean;
 }
 
 export function useSourcingOperationAction<
@@ -62,7 +63,9 @@ export function useSourcingOperationAction<
         idempotencyKey: options.idempotencyKey,
       },
     });
-    void wakeBrowserOperationRuntime().catch(() => undefined);
+    if (options.wakeBrowserRuntime !== false) {
+      void wakeBrowserOperationRuntime().catch(() => undefined);
+    }
 
     if (latestStartRequestRef.current === requestNumber) {
       latestRunIdRef.current = run.id;
@@ -79,6 +82,7 @@ export function useSourcingOperationAction<
     options.operationKey,
     options.snapshotQueryKey,
     options.snapshotQueryKeys,
+    options.wakeBrowserRuntime,
     startMutation,
   ]);
 

@@ -1,13 +1,15 @@
 import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
-import type { OperationDefinition } from '../../../../../common/operation-definition';
-import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 import { CompositeOperationCoordinatorService } from '../composite-operation-coordinator.service';
 import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
+import type { OperationDefinition } from '../../../../../common/operation-definition';
+import type { OperationRunRecord } from '../../port/out/repository/operation.repository.port';
 
 const ORG_ID = '5e29b0f8-17be-4b95-9a16-5b9cfc952e99';
 const PARENT_ID = '4313fb12-dc40-4b51-881b-df83f6308b6d';
 const CHILD_ID = '4413fb12-dc40-4b51-881b-df83f6308b6d';
+const SECOND_CHILD_ID = '4513fb12-dc40-4b51-881b-df83f6308b6d';
+const THIRD_CHILD_ID = '4613fb12-dc40-4b51-881b-df83f6308b6d';
 
 const definition: OperationDefinition = {
   key: 'inventory.refresh_sellpia_snapshot',
@@ -76,6 +78,104 @@ function acceptingGate(): OperationLifecycleGateService {
 }
 
 describe('CompositeOperationCoordinatorService', () => {
+  it('atomically fences its parent, creates 2-20 distinct children, and waits for all dependencies', async () => {
+    const parent = run();
+    const definitions = [
+      {
+        ...definition,
+        key: 'sourcing.collect_naver_trends',
+        resourceClass: 'naver_api' as const,
+      },
+      {
+        ...definition,
+        key: 'sourcing.collect_1688_trends',
+        resourceClass: 'playwright_1688' as const,
+      },
+      {
+        ...definition,
+        key: 'sourcing.collect_shorts_trends',
+        resourceClass: 'default' as const,
+      },
+    ];
+    const repository = {
+      createChildrenAndWaitForDependencies: vi.fn().mockResolvedValue([
+        run({ id: CHILD_ID, parentRunId: parent.id, operationKey: definitions[0].key }),
+        run({ id: SECOND_CHILD_ID, parentRunId: parent.id, operationKey: definitions[1].key }),
+        run({ id: THIRD_CHILD_ID, parentRunId: parent.id, operationKey: definitions[2].key }),
+      ]),
+    };
+    const registry = {
+      getDefinition: vi.fn((key: string) => definitions.find((item) => item.key === key)),
+      parseInput: vi.fn((_key: string, input: Record<string, unknown>) => input),
+    };
+    const service = new CompositeOperationCoordinatorService(
+      registry as never,
+      repository as never,
+      acceptingGate(),
+    );
+    const children = definitions.map((item) => ({
+      operationKey: item.key,
+      input: { source: item.key.split('.')[1] },
+      idempotencyKey: `${parent.id}:${item.key}`,
+    }));
+
+    await service.waitForChildren({ parent, children });
+
+    expect(repository.createChildrenAndWaitForDependencies).toHaveBeenCalledOnce();
+    expect(repository.createChildrenAndWaitForDependencies).toHaveBeenCalledWith({
+      parentOrganizationId: ORG_ID,
+      parentRunId: PARENT_ID,
+      expectedAttemptToken: parent.attemptToken,
+      signal: expect.any(AbortSignal),
+      children: definitions.map((item) => expect.objectContaining({
+        organizationId: ORG_ID,
+        parentRunId: PARENT_ID,
+        operationKey: item.key,
+        resourceClass: item.resourceClass,
+        idempotencyKey: `${parent.id}:${item.key}`,
+      })),
+    });
+  });
+
+  it.each([
+    {
+      label: 'one child',
+      children: [{ operationKey: definition.key, input: {}, idempotencyKey: 'only-child' }],
+    },
+    {
+      label: 'duplicate operation keys',
+      children: [
+        { operationKey: definition.key, input: {}, idempotencyKey: 'child-a' },
+        { operationKey: definition.key, input: {}, idempotencyKey: 'child-b' },
+      ],
+    },
+    {
+      label: 'duplicate idempotency keys',
+      children: [
+        { operationKey: 'sourcing.collect_naver_trends', input: {}, idempotencyKey: 'same' },
+        { operationKey: 'sourcing.collect_1688_trends', input: {}, idempotencyKey: 'same' },
+      ],
+    },
+    {
+      label: 'twenty-one children',
+      children: Array.from({ length: 21 }, (_, index) => ({
+        operationKey: `sourcing.child_${index}`,
+        input: {},
+        idempotencyKey: `child-${index}`,
+      })),
+    },
+  ])('rejects an invalid multi-child contract: $label', async ({ children }) => {
+    const repository = { createChildrenAndWaitForDependencies: vi.fn() };
+    const service = new CompositeOperationCoordinatorService({
+      getDefinition: vi.fn().mockReturnValue(definition),
+      parseInput: vi.fn().mockReturnValue({ scope: 'full' }),
+    } as never, repository as never, acceptingGate());
+
+    await expect(service.waitForChildren({ parent: run(), children }))
+      .rejects.toThrow('operation_composite_children_invalid');
+    expect(repository.createChildrenAndWaitForDependencies).not.toHaveBeenCalled();
+  });
+
   it('atomically fences its parent, creates one child, and waits for dependency', async () => {
     const parent = run();
     const child = run({
@@ -180,13 +280,76 @@ describe('CompositeOperationCoordinatorService', () => {
     expect(transition).not.toHaveProperty('attemptDelta');
   });
 
+  it('waits until every child is terminal, then requeues once for all-settled aggregation', async () => {
+    const parent = run({ status: 'waiting_dependency', attemptToken: null, claimedBy: null });
+    const running = run({ id: CHILD_ID, parentRunId: PARENT_ID, status: 'running' });
+    const succeeded = run({ id: SECOND_CHILD_ID, parentRunId: PARENT_ID, status: 'succeeded' });
+    const failed = run({ id: THIRD_CHILD_ID, parentRunId: PARENT_ID, status: 'failed' });
+    const repository = {
+      listWaitingDependencyParents: vi.fn().mockResolvedValue([parent]),
+      listChildRuns: vi.fn()
+        .mockResolvedValueOnce([running, succeeded, failed])
+        .mockResolvedValueOnce([{ ...running, status: 'cancelled' }, succeeded, failed]),
+      transition: vi.fn().mockResolvedValue(parent),
+    };
+    const service = new CompositeOperationCoordinatorService({
+      getHandler: vi.fn().mockReturnValue({}),
+    } as never, repository as never, acceptingGate());
+
+    await service.resumeTerminalChildren(new Date('2026-08-01T01:00:00.000Z'));
+    expect(repository.transition).not.toHaveBeenCalled();
+
+    await service.resumeTerminalChildren(new Date('2026-08-01T01:00:01.000Z'));
+    expect(repository.transition).toHaveBeenCalledOnce();
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      runId: PARENT_ID,
+      expectedStatuses: ['waiting_dependency'],
+      status: 'queued',
+      signal: expect.any(AbortSignal),
+    }));
+  });
+
+  it('propagates attention only after every child is terminal', async () => {
+    const parent = run({ status: 'waiting_dependency', attemptToken: null, claimedBy: null });
+    const attention = run({
+      id: CHILD_ID,
+      parentRunId: PARENT_ID,
+      status: 'attention_required',
+      errorCode: 'child_attention',
+      errorMessage: 'Sign in required',
+    });
+    const succeeded = run({ id: SECOND_CHILD_ID, parentRunId: PARENT_ID, status: 'succeeded' });
+    const repository = {
+      listWaitingDependencyParents: vi.fn().mockResolvedValue([parent]),
+      listChildRuns: vi.fn().mockResolvedValue([attention, succeeded]),
+      transition: vi.fn().mockResolvedValue(parent),
+    };
+    const service = new CompositeOperationCoordinatorService({
+      getHandler: vi.fn().mockReturnValue({}),
+    } as never, repository as never, acceptingGate());
+
+    await service.resumeTerminalChildren(new Date('2026-08-01T01:00:00.000Z'));
+
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      runId: PARENT_ID,
+      expectedStatuses: ['waiting_dependency'],
+      status: 'attention_required',
+      errorCode: 'child_attention',
+      errorMessage: 'Sign in required',
+      signal: expect.any(AbortSignal),
+    }));
+  });
+
   it('cancels only the non-terminal children of the selected parent', async () => {
     const parent = run({ status: 'waiting_dependency', attemptToken: null, claimedBy: null });
     const child = run({ id: CHILD_ID, parentRunId: PARENT_ID, status: 'running' });
     const terminalChild = run({ id: '5513fb12-dc40-4b51-881b-df83f6308b6d', parentRunId: PARENT_ID, status: 'succeeded' });
     const repository = {
-      listChildRuns: vi.fn().mockResolvedValue([child, terminalChild]),
-      transition: vi.fn().mockResolvedValue(child),
+      cancelRunAndActiveChildren: vi.fn().mockResolvedValue({
+        parent: run({ status: 'cancelled' }),
+        children: [child],
+      }),
     };
     const service = new CompositeOperationCoordinatorService({
       getHandler: vi.fn().mockReturnValue({}),
@@ -194,11 +357,49 @@ describe('CompositeOperationCoordinatorService', () => {
 
     await service.cancelChildren(parent, 'operator_cancelled');
 
-    expect(repository.transition).toHaveBeenCalledTimes(1);
-    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+    expect(repository.cancelRunAndActiveChildren).toHaveBeenCalledOnce();
+    expect(repository.cancelRunAndActiveChildren).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,
-      runId: CHILD_ID,
-      status: 'cancelled',
+      parentRunId: PARENT_ID,
+      signal: expect.any(AbortSignal),
+    }));
+    expect(terminalChild.status).toBe('succeeded');
+  });
+
+  it('cancels every active child lane of the selected parent', async () => {
+    const parent = run({ status: 'waiting_dependency', attemptToken: null, claimedBy: null });
+    const statuses = [
+      'queued',
+      'waiting_runtime',
+      'waiting_dependency',
+      'running',
+      'attention_required',
+    ] as const;
+    const children = statuses.map((status, index) => run({
+      id: `00000000-0000-4000-8000-${String(index + 1).padStart(12, '0')}`,
+      parentRunId: PARENT_ID,
+      operationKey: `sourcing.child_${index}`,
+      status,
+    }));
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const repository = {
+      cancelRunAndActiveChildren: vi.fn().mockResolvedValue({
+        parent: run({ status: 'cancelled' }),
+        children,
+      }),
+    };
+    const service = new CompositeOperationCoordinatorService({
+      getHandler: vi.fn().mockReturnValue({ cancel }),
+    } as never, repository as never, acceptingGate());
+
+    await service.cancelChildren(parent, 'operator_cancelled');
+
+    expect(cancel).toHaveBeenCalledTimes(statuses.length);
+    expect(repository.cancelRunAndActiveChildren).toHaveBeenCalledWith(expect.objectContaining({
+      signal: expect.any(AbortSignal),
+      organizationId: ORG_ID,
+      parentRunId: PARENT_ID,
+      childErrorCode: 'cancelled_by_operator',
     }));
   });
 
@@ -210,6 +411,8 @@ describe('CompositeOperationCoordinatorService', () => {
       if (state === 'STOPPED') gate.finishStopping();
       const repository = {
         createChildAndWaitForDependency: vi.fn(),
+        createChildrenAndWaitForDependencies: vi.fn(),
+        cancelRunAndActiveChildren: vi.fn(),
         listWaitingDependencyParents: vi.fn(),
         transition: vi.fn(),
       };
@@ -226,9 +429,20 @@ describe('CompositeOperationCoordinatorService', () => {
           idempotencyKey: 'child-key',
         },
       })).rejects.toMatchObject({ status: 503 });
+      await expect(service.waitForChildren({
+        parent: run(),
+        children: [
+          { operationKey: 'sourcing.child_a', input: {}, idempotencyKey: 'child-a' },
+          { operationKey: 'sourcing.child_b', input: {}, idempotencyKey: 'child-b' },
+        ],
+      })).rejects.toMatchObject({ status: 503 });
       await expect(service.resumeTerminalChildren(new Date()))
         .rejects.toMatchObject({ status: 503 });
+      await expect(service.cancelChildren(run(), 'operator_cancelled'))
+        .rejects.toMatchObject({ status: 503 });
       expect(repository.createChildAndWaitForDependency).not.toHaveBeenCalled();
+      expect(repository.createChildrenAndWaitForDependencies).not.toHaveBeenCalled();
+      expect(repository.cancelRunAndActiveChildren).not.toHaveBeenCalled();
       expect(repository.listWaitingDependencyParents).not.toHaveBeenCalled();
       expect(repository.transition).not.toHaveBeenCalled();
     },

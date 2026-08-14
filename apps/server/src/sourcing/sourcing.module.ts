@@ -30,6 +30,7 @@ import { TrendCollectionController } from "./adapter/in/http/trend-collection.co
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { SourcingBrowserOperationHandler } from "./adapter/in/operation/sourcing-browser.operation-handler";
 import { Sourcing1688OperationHandler } from "./adapter/in/operation/sourcing-1688.operation-handler";
+import { SourcingRisingProductOperationHandler } from "./adapter/in/operation/sourcing-rising-product.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
@@ -194,6 +195,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingTrendOperationHandler,
     SourcingBrowserOperationHandler,
     Sourcing1688OperationHandler,
+    SourcingRisingProductOperationHandler,
     TrendQueryService,
     LiveCommerceService,
     ProductRegistrationService,

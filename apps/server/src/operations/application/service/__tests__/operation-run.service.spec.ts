@@ -1,16 +1,16 @@
 import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
-import type {
-  OperationDefinition,
-  OperationHandler,
-} from '../../../../../common/operation-definition';
+import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
+import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
+import { OperationRunService } from '../operation-run.service';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../../port/out/repository/operation.repository.port';
-import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
-import { OperationLifecycleGateService } from '../operation-lifecycle-gate.service';
-import { OperationRunService } from '../operation-run.service';
+import type {
+  OperationDefinition,
+  OperationHandler,
+} from '../../../../../common/operation-definition';
 
 const ORG_ID = '5e29b0f8-17be-4b95-9a16-5b9cfc952e99';
 const USER_ID = 'b223839e-0958-44e4-8238-fc4f5b7254ae';
@@ -112,6 +112,50 @@ function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
 }
 
 describe('OperationRunService', () => {
+  it('uses the atomic composite cancellation result without a separate parent transition', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, { ...handler, cancel });
+    const existing = makeRecord({ status: 'waiting_dependency' });
+    const cancelled = makeRecord({
+      status: 'cancelled',
+      finishedAt: new Date('2026-08-01T01:00:00Z'),
+      errorCode: 'cancelled_by_operator',
+      errorMessage: 'stop composite',
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(existing);
+    repository.transition = vi.fn();
+    const coordinator = {
+      ...compositeCoordinator,
+      cancelChildren: vi.fn().mockResolvedValue(cancelled),
+    };
+    const service = new OperationRunService(
+      registry,
+      repository,
+      coordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.cancel({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: USER_ID,
+      reason: 'stop composite',
+    })).resolves.toMatchObject({
+      status: 'cancelled',
+      error: { code: 'cancelled_by_operator', message: 'stop composite' },
+    });
+
+    expect(coordinator.cancelChildren).toHaveBeenCalledWith(existing, 'stop composite');
+    expect(repository.transition).not.toHaveBeenCalled();
+    expect(cancel).toHaveBeenCalledWith(expect.objectContaining({
+      runId: RUN_ID,
+      organizationId: ORG_ID,
+      reason: 'stop composite',
+    }));
+  });
+
   it('returns the same run for an idempotent start command', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

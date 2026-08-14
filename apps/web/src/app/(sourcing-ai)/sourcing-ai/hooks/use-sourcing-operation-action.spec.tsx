@@ -1,9 +1,9 @@
 import { createElement, type ReactNode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import type { OperationRun } from '@kiditem/shared/operations';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useSourcingOperationAction } from './use-sourcing-operation-action';
+import type { OperationRun } from '@kiditem/shared/operations';
 
 const mocks = vi.hoisted(() => ({
   start: vi.fn(),
@@ -134,6 +134,25 @@ describe('useSourcingOperationAction', () => {
     expect(started).toEqual(run);
     expect(mocks.start).toHaveBeenCalledTimes(1);
     expect(mocks.wake).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not wake a browser provider for a server-only operation lane', async () => {
+    mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction({
+      ...options,
+      operationKey: 'sourcing.detect_rising_products',
+      wakeBrowserRuntime: false,
+    }), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.start({ windowDays: 14 });
+    });
+
+    expect(mocks.start).toHaveBeenCalledTimes(1);
+    expect(mocks.wake).not.toHaveBeenCalled();
   });
 
   it('invalidates the snapshot exactly once after its latest run succeeds', async () => {

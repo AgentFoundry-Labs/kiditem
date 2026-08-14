@@ -1,15 +1,15 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import {
-  COMPOSITE_OPERATION_COORDINATOR_PORT,
-  type CompositeOperationCoordinatorPort,
-} from '../port/in/composite-operation-coordinator.port';
 
 export interface OperationDispatchControls {
   signal: AbortSignal;
@@ -113,6 +113,13 @@ export class OperationDispatcherService {
           await this.compositeCoordinator.waitForChild({
             parent: run,
             child: result.child,
+          });
+          return;
+        case 'waiting_dependencies':
+          controls.signal.throwIfAborted();
+          await this.compositeCoordinator.waitForChildren({
+            parent: run,
+            children: result.children,
           });
           return;
         case 'attention_required':

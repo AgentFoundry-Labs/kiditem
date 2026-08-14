@@ -1,16 +1,15 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
-import { toast } from 'sonner';
-import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
-  collectTrend,
   fetchTrendSeeds,
   type TrendCollectResult,
   type TrendSourceCollectResult,
@@ -21,17 +20,28 @@ import { TrendCollectionViews } from './TrendCollectionViews';
 
 const pressable =
   'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
+const DEFAULT_TREND_OPERATION_INPUT = {
+  sources: [...TREND_SOURCE_ORDER],
+} as const;
+const ACTIVE_OPERATION_STATUSES = new Set([
+  'queued',
+  'waiting_runtime',
+  'waiting_dependency',
+  'running',
+  'attention_required',
+]);
 
 /** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
-  const queryClient = useQueryClient();
   const [collectSources, setCollectSources] = useState<Set<TrendSource>>(
     new Set(TREND_SOURCE_ORDER),
   );
-  const [operationRunId, setOperationRunId] = useState<string | null>(null);
-  const [lastResult, setLastResult] = useState<TrendCollectResult | null>(null);
-  const terminalNotificationRunId = useRef<string | null>(null);
-  const operationRun = useOperationRun(operationRunId);
+  const trendOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: DEFAULT_TREND_OPERATION_INPUT,
+    snapshotQueryKey: queryKeys.sourcing.trend(),
+    wakeBrowserRuntime: false,
+  });
 
   const seedsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendSeeds(),
@@ -39,42 +49,9 @@ export function TrendCollectionSection() {
     staleTime: 60 * 1000,
   });
   const enabledSeedCount = (seedsQuery.data ?? []).filter((seed) => seed.enabled).length;
-
-  const collectMutation = useMutation({
-    mutationFn: () => collectTrend(
-      TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
-    ),
-    onSuccess: (run) => {
-      setOperationRunId(run.id);
-    },
-    onError: (error) => toast.error(error instanceof Error ? error.message : '트렌드 수집을 시작하지 못했습니다.'),
-  });
-
-  useEffect(() => {
-    const run = operationRun.data;
-    if (!run || !isTerminalOperationStatus(run.status) || terminalNotificationRunId.current === run.id) {
-      return;
-    }
-    terminalNotificationRunId.current = run.id;
-    if (run.status === 'succeeded') {
-      const result = toTrendCollectResult(run.result);
-      if (result) {
-        setLastResult(result);
-        const total = result.results.reduce((sum, item) => sum + item.collected, 0);
-        const failed = result.results.filter((item) => !item.ok);
-        if (failed.length === 0) {
-          toast.success(`트렌드 수집 완료 · ${formatNumber(total)}건 저장`);
-        } else {
-          toast.warning(`수집 완료 · ${failed.length}개 소스 실패 (${formatNumber(total)}건 저장)`);
-        }
-      } else {
-        toast.success('트렌드 수집이 완료되었습니다. 최신 데이터를 불러옵니다.');
-      }
-    } else {
-      toast.error(run.error?.message ?? '트렌드 수집이 완료되지 않았습니다.');
-    }
-    void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-  }, [operationRun.data, queryClient]);
+  const lastResult = trendOperation.run?.status === 'succeeded'
+    ? toTrendCollectResult(trendOperation.run.result)
+    : null;
 
   const toggleCollectSource = (source: TrendSource) => {
     setCollectSources((previous) => {
@@ -85,8 +62,9 @@ export function TrendCollectionSection() {
     });
   };
 
-  const running = collectMutation.isPending
-    || (operationRun.data !== undefined && !isTerminalOperationStatus(operationRun.data.status));
+  const running = trendOperation.isStarting
+    || (trendOperation.run !== null
+      && ACTIVE_OPERATION_STATUSES.has(trendOperation.run.status));
   const canCollect = collectSources.size > 0 && !running;
 
   return (
@@ -124,7 +102,9 @@ export function TrendCollectionSection() {
             </div>
             <button
               type="button"
-              onClick={() => collectMutation.mutate()}
+              onClick={() => void trendOperation.start({
+                sources: TREND_SOURCE_ORDER.filter((source) => collectSources.has(source)),
+              })}
               disabled={!canCollect}
               className={cn(
                 'inline-flex h-11 items-center justify-center gap-2 rounded-lg bg-purple-600 px-5 text-sm font-semibold text-white hover:bg-purple-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
@@ -135,6 +115,20 @@ export function TrendCollectionSection() {
               {running ? '수집 중…' : '트렌드 수집'}
             </button>
           </div>
+        </div>
+
+        <div className="mt-4">
+          <SourcingOperationRunPanel
+            run={trendOperation.run}
+            onCancel={async () => {
+              await trendOperation.cancel();
+            }}
+            onRetryAttention={async () => {
+              await trendOperation.retryAttention();
+            }}
+            isCancelling={trendOperation.isCancelling}
+            isRetrying={trendOperation.isRetrying}
+          />
         </div>
 
         {enabledSeedCount === 0 && !seedsQuery.isLoading && (

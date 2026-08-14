@@ -15,6 +15,14 @@ import type { SourcingCollectionCoordinator } from '../sourcing-collection-coord
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function seed(partial: Partial<TrendSeedRow> & { keyword: string }): TrendSeedRow {
   return {
     id: `seed-${partial.keyword}`,
@@ -198,6 +206,133 @@ describe('TrendCollectService', () => {
     expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledWith(
       expect.objectContaining({ signal: controller.signal }),
     );
+  });
+
+  it('maps Naver chunks with concurrency exactly two while preserving keyword order and checkpoints', async () => {
+    const keywords = Array.from({ length: 11 }, (_, index) => `키워드-${index}`);
+    ports.repository.listSeeds = vi.fn(async () => keywords.map((keyword) =>
+      seed({ keyword, sources: ['naver'] })));
+    const gates = [deferred(), deferred(), deferred()];
+    let active = 0;
+    let maxActive = 0;
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async (input) => {
+      const callIndex = vi.mocked(ports.keywordResearch.searchRelatedKeywords).mock.calls.length - 1;
+      active += 1;
+      maxActive = Math.max(maxActive, active);
+      await gates[callIndex].promise;
+      active -= 1;
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: input.seedKeywords,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: input.seedKeywords.map((keyword, index) => ({
+          keyword,
+          monthlyPcSearchCount: index,
+          monthlyMobileSearchCount: 100 + index,
+          monthlyTotalSearchCount: 100 + index * 2,
+          monthlyPcClickCount: null,
+          monthlyMobileClickCount: null,
+          monthlyTotalClickCount: null,
+          monthlyPcClickRate: null,
+          monthlyMobileClickRate: null,
+          averageAdRank: null,
+          competitionIndex: null,
+          raw: {},
+        })),
+      };
+    });
+    const checkpoint = vi.fn().mockResolvedValue(undefined);
+
+    const collection = ports.service.collectSource(
+      ORGANIZATION_ID,
+      'naver',
+      null,
+      'operation-run-1',
+      { signal: new AbortController().signal, checkpoint },
+    );
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
+    });
+    expect(maxActive).toBe(2);
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ seedKeywords: keywords.slice(0, 5) }),
+    );
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ seedKeywords: keywords.slice(5, 10) }),
+    );
+
+    gates[0].resolve();
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(3);
+    });
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({ seedKeywords: keywords.slice(10) }),
+    );
+    gates[1].resolve();
+    gates[2].resolve();
+
+    await expect(collection).resolves.toMatchObject({
+      businessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      source: 'naver',
+      ok: true,
+      collected: 11,
+    });
+    expect(maxActive).toBe(2);
+    expect(typedRows(ports, 'naver_keyword').map((row) => row.keyword)).toEqual(keywords);
+    expect(checkpoint).toHaveBeenCalledWith({
+      stage: 'collecting_naver_searchad',
+      progressCurrent: 0,
+      progressTotal: 3,
+    });
+    expect(checkpoint).toHaveBeenCalledWith({
+      stage: 'collecting_naver_searchad',
+      progressCurrent: 2,
+      progressTotal: 3,
+    });
+  });
+
+  it('does not start a third Naver chunk after either concurrent unit loses its signal', async () => {
+    const controller = new AbortController();
+    ports.repository.listSeeds = vi.fn(async () =>
+      Array.from({ length: 11 }, (_, index) =>
+        seed({ keyword: `키워드-${index}`, sources: ['naver'] }),
+      ),
+    );
+    const gates = [deferred(), deferred()];
+    ports.keywordResearch.searchRelatedKeywords = vi.fn(async (input) => {
+      const callIndex = vi.mocked(ports.keywordResearch.searchRelatedKeywords).mock.calls.length - 1;
+      await gates[callIndex].promise;
+      if (callIndex === 0) {
+        controller.abort(new Error('operation_attempt_fence_lost'));
+      }
+      return {
+        source: 'naver-searchad-keywordstool' as const,
+        seedKeywords: input.seedKeywords,
+        generatedAt: '2026-07-13T00:00:00.000Z',
+        items: [],
+      };
+    });
+
+    const collection = ports.service.collectSource(
+      ORGANIZATION_ID,
+      'naver',
+      null,
+      'operation-run-1',
+      { signal: controller.signal, checkpoint: vi.fn().mockResolvedValue(undefined) },
+    );
+    const rejected = expect(collection).rejects.toThrow('operation_attempt_fence_lost');
+    await vi.waitFor(() => {
+      expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
+    });
+    gates[0].resolve();
+    await vi.waitFor(() => expect(controller.signal.aborted).toBe(true));
+    gates[1].resolve();
+
+    await rejected;
+    expect(ports.keywordResearch.searchRelatedKeywords).toHaveBeenCalledTimes(2);
   });
 
   it('does not swallow an abort at the DataLab enrichment boundary', async () => {
