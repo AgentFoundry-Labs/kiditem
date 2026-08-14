@@ -21,6 +21,30 @@ import {
 } from "../identifiers";
 import * as AgentInteraction from "./index";
 
+const readPublicSourceTree = (
+  sourceUrl: URL,
+  visited = new Set<string>(),
+): string => {
+  if (visited.has(sourceUrl.href)) {
+    return "";
+  }
+  visited.add(sourceUrl.href);
+
+  const source = readFileSync(sourceUrl, "utf8");
+  const reExports = source.matchAll(
+    /export(?:\s+type)?\s*\{[\s\S]*?\}\s*from\s*["'](\.[^"']+)["']/g,
+  );
+  const reExportedSource = Array.from(reExports, (match) =>
+    readPublicSourceTree(new URL(`${match[1]}.ts`, sourceUrl), visited),
+  );
+
+  return [source, ...reExportedSource].join("\n");
+};
+
+const publicAgentInteractionSubpath: string =
+  "@kiditem/shared/agent-interaction";
+const publicIdentifiersSubpath: string = "@kiditem/shared/identifiers";
+
 const organization = OrganizationIdSchema.parse("legacy-organization-row");
 const agentDefinitionKey = AgentDefinitionKeySchema.parse("operator");
 const agentVersion = AgentVersionKeySchema.parse("2026.08.13");
@@ -154,6 +178,146 @@ describe("agent interaction contracts", () => {
     expect(context).toEqual(dashboardContext);
     expect(context).not.toHaveProperty("organizationId");
     expect(context).not.toHaveProperty("permissions");
+  });
+
+  it("re-exports durable runtime schemas with canonical correlation names only", async () => {
+    const PublicAgentInteraction = await import(publicAgentInteractionSubpath);
+    const PublicIdentifiers = await import(publicIdentifiersSubpath);
+    const publicOrganization = PublicIdentifiers.OrganizationIdSchema.parse(
+      "durable-organization-row",
+    );
+    const publicSessionId = PublicIdentifiers.AgentSessionIdSchema.parse(
+      "durable-session-row",
+    );
+    const publicTaskId =
+      PublicIdentifiers.AgentSessionTaskIdSchema.parse("durable-task-row");
+    const publicChildTaskId = PublicIdentifiers.AgentSessionTaskIdSchema.parse(
+      "durable-child-task-row",
+    );
+    const publicExecutionId = PublicIdentifiers.AgentExecutionIdSchema.parse(
+      "durable-execution-row",
+    );
+    const publicAgentDefinition =
+      PublicIdentifiers.AgentDefinitionKeySchema.parse("operator");
+    const publicAgentVersion =
+      PublicIdentifiers.AgentVersionKeySchema.parse("1");
+    const publicTargetDefinition =
+      PublicIdentifiers.AgentDefinitionKeySchema.parse("sourcing");
+    const publicTargetVersion =
+      PublicIdentifiers.AgentVersionKeySchema.parse("2");
+    const durableCorrelation = {
+      session: PublicIdentifiers.formatAgentSessionName(
+        publicOrganization,
+        publicSessionId,
+      ),
+      task: PublicIdentifiers.formatAgentSessionTaskName(
+        publicOrganization,
+        publicSessionId,
+        publicTaskId,
+      ),
+      execution: PublicIdentifiers.formatAgentExecutionName(
+        publicOrganization,
+        publicSessionId,
+        publicExecutionId,
+      ),
+    };
+    const progress = {
+      name: "kiditem.ui.agent_progress.v1",
+      ...durableCorrelation,
+      status: "running" as const,
+      progress: 0.4,
+      label: "상품 근거 확인 중",
+      updatedAt: "2026-08-14T00:00:00.000Z",
+    };
+
+    expect(
+      PublicAgentInteraction.AgentProgressEventSchema.parse(progress),
+    ).toEqual(progress);
+    expect(
+      PublicAgentInteraction.AgentApprovalCardSchema.parse({
+        name: "kiditem.ui.agent_approval.v1",
+        approvalId: "87c00f28-a6a5-4e3a-aef0-f6798d3a3aac",
+        ...durableCorrelation,
+        capabilityKey: "supply.submit",
+        summary: "발주 제출",
+        resourceVersions: [],
+        expiresAt: "2026-08-14T00:00:00.000Z",
+      }),
+    ).toMatchObject(durableCorrelation);
+    expect(
+      PublicAgentInteraction.AgentApprovalDecisionSchema.parse({
+        approvalId: "87c00f28-a6a5-4e3a-aef0-f6798d3a3aac",
+        ...durableCorrelation,
+        decision: "approved",
+        idempotencyKey: "durable-approval-1",
+      }),
+    ).toMatchObject(durableCorrelation);
+    expect(
+      PublicAgentInteraction.AgentArtifactCardSchema.parse({
+        name: "kiditem.ui.agent_artifact.v1",
+        artifactId: "df3edfa6-ce18-429b-9ef3-7e6c7fb7f709",
+        ...durableCorrelation,
+        artifactType: "report",
+        label: "소싱 보고서",
+        sha256: "a".repeat(64),
+        navigationActionId: "11111111-1111-4111-8111-111111111111",
+        createdAt: "2026-08-14T00:00:00.000Z",
+      }),
+    ).toMatchObject(durableCorrelation);
+
+    const durableTaskControl = {
+      session: durableCorrelation.session,
+      task: durableCorrelation.task,
+      idempotencyKey: "durable-control-1",
+    };
+    for (const [schema, expectedStatus] of [
+      [PublicAgentInteraction.RetryAgentTaskSchema, "failed"],
+      [PublicAgentInteraction.ResumeAgentTaskSchema, "paused"],
+      [PublicAgentInteraction.CancelAgentTaskSchema, "running"],
+    ] as const) {
+      expect(
+        schema.parse({ ...durableTaskControl, expectedStatus }),
+      ).toMatchObject(durableTaskControl);
+    }
+
+    expect(
+      PublicAgentInteraction.AgentDelegationEventSchema.parse({
+        name: "kiditem.ui.agent_delegation.v1",
+        session: durableCorrelation.session,
+        parentTask: durableCorrelation.task,
+        childTask: PublicIdentifiers.formatAgentSessionTaskName(
+          publicOrganization,
+          publicSessionId,
+          publicChildTaskId,
+        ),
+        fromAgentVersion: PublicIdentifiers.formatAgentVersionName(
+          publicAgentDefinition,
+          publicAgentVersion,
+        ),
+        toAgentVersion: PublicIdentifiers.formatAgentVersionName(
+          publicTargetDefinition,
+          publicTargetVersion,
+        ),
+        status: "created",
+        createdAt: "2026-08-14T00:00:00.000Z",
+      }),
+    ).toMatchObject({
+      session: durableCorrelation.session,
+      parentTask: durableCorrelation.task,
+    });
+
+    for (const rawField of [
+      { sessionId: "1d3ca687-ea5d-4199-a26c-df90ba387918" },
+      { taskId: "a49bc6cb-9b0d-4767-846f-e96eb91a14cf" },
+      { executionId: "7b24602d-f206-4dd5-9a11-f5b792ce4363" },
+    ]) {
+      expect(() =>
+        PublicAgentInteraction.AgentProgressEventSchema.parse({
+          ...progress,
+          ...rawField,
+        }),
+      ).toThrow();
+    }
   });
 
   it("uses canonical agent and session resource names", () => {
@@ -610,9 +774,8 @@ describe("agent interaction contracts", () => {
   });
 
   it("deletes retired dual-lifecycle exports and raw public fields from production source", () => {
-    const productionSource = readFileSync(
+    const productionSource = readPublicSourceTree(
       new URL("./index.ts", import.meta.url),
-      "utf8",
     );
     const retiredIdentifiers = [
       /\bInteractionClass(?:Schema)?\b/,
@@ -632,6 +795,9 @@ describe("agent interaction contracts", () => {
       /\battemptId\b/,
       /\boperationsRunId\b/,
       /\beventId\b/,
+      /\btaskId\b/,
+      /\bparentTaskId\b/,
+      /\bchildTaskId\b/,
     ];
 
     for (const retiredIdentifier of retiredIdentifiers) {
