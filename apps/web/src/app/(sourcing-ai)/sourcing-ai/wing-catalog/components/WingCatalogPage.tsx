@@ -31,9 +31,9 @@ import {
   resolveCoupangCatalogImageUrl,
   sortWingCatalogRows,
   type WingCatalogProduct,
-  type WingCatalogSearchResponse,
+  type WingCatalogSnapshotView,
   type WingCatalogSortKey,
-} from '../lib/wing-catalog-extension';
+} from '../lib/wing-catalog-presenter';
 import {
   fetchWingCatalogSnapshot,
   wingCatalogSnapshotQueryKey,
@@ -102,14 +102,12 @@ export function WingCatalogPage() {
     queryFn: () => fetchWingCatalogSnapshot(snapshotKeyword),
     placeholderData: (previous) => previous,
   });
-  const result = useMemo<WingCatalogSearchResponse | null>(() => {
+  const result = useMemo<WingCatalogSnapshotView | null>(() => {
     const snapshot = snapshotQuery.data;
     if (!snapshot) return null;
     return {
-      success: true,
       keyword: snapshot.keyword,
       rows: snapshot.items.map(toWingCatalogProduct),
-      total: snapshot.items.length,
       collectedCount: snapshot.items.length,
       endedAt: snapshot.generatedAt ? Date.parse(snapshot.generatedAt) : undefined,
       stopReason: snapshot.rejectedCount > 0 ? 'partial_snapshot' : 'persisted_snapshot',

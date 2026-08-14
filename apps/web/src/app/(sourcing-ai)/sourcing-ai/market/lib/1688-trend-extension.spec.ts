@@ -369,7 +369,7 @@ describe('1688 trend Chrome extension bridge', () => {
     }
   });
 
-  it('uses the server-owned operation run without adding a generic status card', () => {
+  it('uses the shared server-owned operation action and run panel', () => {
     const source = fs.readFileSync(
       path.resolve(
         'src/app/(sourcing-ai)/sourcing-ai/market/components/TrendCollectionSection.tsx',
@@ -377,13 +377,12 @@ describe('1688 trend Chrome extension bridge', () => {
       'utf8',
     );
 
-    expect(source).toContain('useOperationRun');
-    expect(source).toContain('setOperationRunId(run.id)');
-    expect(source).toContain('isTerminalOperationStatus');
-    expect(source).not.toContain("operationRun.data.status === 'waiting_runtime'");
+    expect(source).toContain('useSourcingOperationAction');
+    expect(source).toContain("operationKey: 'sourcing.collect_daily_trends'");
+    expect(source).toContain('trendOperation.start({');
+    expect(source).toContain('SourcingOperationRunPanel');
     expect(source).not.toContain('useBrowserCollectionSession');
     expect(source).not.toContain('BrowserCollectionRunControls');
     expect(source).not.toContain('recordMissingBrowserCollection');
-    expect(source).not.toContain('최대 2분');
   });
 });

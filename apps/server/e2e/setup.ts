@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { INestApplication, ValidationPipe } from '@nestjs/common';
-import { AppModule } from '../src/app.module';
+import { ApiApplicationModule } from '../src/api-application.module';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { GlobalExceptionFilter } from '../src/common/filters/global-exception.filter';
 import { createMockPrisma, TEST_USER_ID, TEST_ORGANIZATION_ID } from './helpers/mock-prisma';
@@ -33,7 +33,7 @@ export async function createApp() {
   mockPrisma = createMockPrisma();
 
   const module: TestingModule = await Test.createTestingModule({
-    imports: [AppModule],
+    imports: [ApiApplicationModule],
   })
     .overrideProvider(PrismaService)
     .useValue(mockPrisma)

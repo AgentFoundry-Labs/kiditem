@@ -5,10 +5,6 @@ import { CompetitorTrackingPage } from './CompetitorTrackingPage';
 import { fetchCompetitorTrackingOverview, autoConfigureCompetitorTrackers } from '../lib/competitor-tracking-api';
 import {
   detectCompetitorExtensionGate,
-  getCompetitorCollectionStatus,
-  getCompetitorSellerCollectionStatus,
-  runCompetitorCollection,
-  runCompetitorSellerCollection,
 } from '../lib/competitor-extension';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 
@@ -82,10 +78,6 @@ vi.mock('../lib/competitor-extension', async (importOriginal) => {
       extensionId: 'extension-id',
       version: '1.2.33',
     })),
-    getCompetitorCollectionStatus: vi.fn(),
-    getCompetitorSellerCollectionStatus: vi.fn(),
-    runCompetitorCollection: vi.fn(),
-    runCompetitorSellerCollection: vi.fn(),
   };
 });
 
@@ -148,17 +140,13 @@ describe('CompetitorTrackingPage browser operation', () => {
     window.history.replaceState({}, '', `/sourcing-ai/competitor-analysis?operationRun=${RUN_ID}`);
   });
 
-  it('reads the persisted overview and reconnects without starting or polling legacy collection', async () => {
+  it('reads the persisted overview and reconnects without starting collection', async () => {
     renderPage();
 
     await screen.findByText('판매자 상세');
     expect(fetchCompetitorTrackingOverview).toHaveBeenCalledWith(30);
     expect(start).not.toHaveBeenCalled();
     expect(autoConfigureCompetitorTrackers).not.toHaveBeenCalled();
-    expect(runCompetitorCollection).not.toHaveBeenCalled();
-    expect(runCompetitorSellerCollection).not.toHaveBeenCalled();
-    expect(getCompetitorCollectionStatus).not.toHaveBeenCalled();
-    expect(getCompetitorSellerCollectionStatus).not.toHaveBeenCalled();
     expect(detectCompetitorExtensionGate).toHaveBeenCalledTimes(1);
     expect(capturedOptions).toMatchObject({
       operationKey: 'advertising.collect_competitor_catalog',
@@ -180,7 +168,6 @@ describe('CompetitorTrackingPage browser operation', () => {
       [['sourcing', 'competitors', 30]],
     );
     expect(autoConfigureCompetitorTrackers).not.toHaveBeenCalled();
-    expect(runCompetitorCollection).not.toHaveBeenCalled();
   });
 
   it('starts one validated seller operation without sending its store URL', async () => {
@@ -195,6 +182,5 @@ describe('CompetitorTrackingPage browser operation', () => {
       [['sourcing', 'competitors', 30]],
     );
     expect(JSON.stringify(start.mock.calls[0]?.[0])).not.toContain('sellerStoreUrl');
-    expect(runCompetitorSellerCollection).not.toHaveBeenCalled();
   });
 });

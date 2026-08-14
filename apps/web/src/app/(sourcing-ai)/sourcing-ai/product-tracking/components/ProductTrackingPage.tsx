@@ -29,7 +29,7 @@ import {
 } from '../../lib/wing-tracking-api';
 import {
   resolveCoupangCatalogImageUrl,
-} from '../../wing-catalog/lib/wing-catalog-extension';
+} from '../../wing-catalog/lib/wing-catalog-presenter';
 import { buildCoupangProductUrl } from '../../wing-catalog/lib/wing-catalog-delivery';
 import {
   computeWindowTrend,

@@ -11,7 +11,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
-import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
+import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-presenter';
 import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
 import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
 import {

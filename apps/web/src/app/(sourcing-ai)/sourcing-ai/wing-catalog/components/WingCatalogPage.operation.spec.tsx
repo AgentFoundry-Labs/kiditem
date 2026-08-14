@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WingCatalogPage } from './WingCatalogPage';
 import { fetchWingCatalogSnapshot } from '../lib/wing-catalog-api';
-import { searchWingCatalogProducts } from '../lib/wing-catalog-extension';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import { searchNaverRelatedKeywords } from '../../recommendations/lib/naver-keyword-api';
 
@@ -23,11 +22,6 @@ vi.mock('../lib/wing-catalog-api', async (importOriginal) => {
       items: [],
     })),
   };
-});
-
-vi.mock('../lib/wing-catalog-extension', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/wing-catalog-extension')>();
-  return { ...actual, searchWingCatalogProducts: vi.fn() };
 });
 
 vi.mock('../../hooks/use-sourcing-operation-action', () => ({
@@ -85,7 +79,6 @@ describe('WingCatalogPage browser operation', () => {
     await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('슬라임'));
     await screen.findByText(/0개 상품 · persisted_snapshot/);
     expect(start).not.toHaveBeenCalled();
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
     expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
     expect(capturedOptions).toMatchObject({
       operationKey: 'sourcing.collect_wing_catalog_batch',
@@ -121,7 +114,7 @@ describe('WingCatalogPage browser operation', () => {
     );
   });
 
-  it('starts one durable operation from the explicit CTA and never calls the direct extension helper', async () => {
+  it('starts one durable operation from the explicit CTA', async () => {
     renderPage();
     fireEvent.change(screen.getByPlaceholderText('키워드 입력'), {
       target: { value: '클레이' },
@@ -135,7 +128,6 @@ describe('WingCatalogPage browser operation', () => {
         input: { keywords: ['클레이'], maxPages: 2, purpose: 'catalog_search' },
       }),
     );
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
     expect(window.location.search).toContain(
       'operationRun=10000000-0000-4000-8000-000000000001',
     );

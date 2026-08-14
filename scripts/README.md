@@ -29,6 +29,7 @@ npm run test:scripts
 | `scripts/check-queryraw-tenancy.sh` | raw SQL organization-scope scanner | `npm run check:idor` |
 | `scripts/check-raw-snapshot-read-models.sh` | raw snapshot read-model boundary scanner | `npm run check:raw-snapshot-read-models` |
 | `scripts/check-schema-artifact-sync.mjs` | Prisma schema changes must include full and domain ERD updates | `npm run check:schema-artifact-sync` |
+| `scripts/check-sourcing-long-running-actions.mjs` | sourcing collection must start through Operations, with persisted reads and no retired browser/HTTP collection helpers | `npm run check:sourcing-long-running-actions`, `docs/runbooks/sourcing-collection-operations.md` |
 | `scripts/check-script-inventory.mjs` | this inventory drift gate | `npm run check:scripts-inventory` |
 | `scripts/check-shared-interface-names.mjs` | shared public Zod contract naming ratchet | `npm run check:shared-interface-names` |
 | `scripts/check-shared-root-imports.sh` | shared root-barrel ratchet | `npm run check:shared-root-imports` |

@@ -123,12 +123,21 @@ these variables only enable the server processes that honor it.
 | `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
 | `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |
 | `OPERATION_RUN_LEASE_MS` | Operation worker/browser lease duration needs tuning | Operation worker and browser runtime API | Optional positive integer; defaults to `60000`. Extension heartbeats at no slower than one-third of the browser lease. |
+| `OPERATION_RESOURCE_CLASS_LIMITS` | API needs a non-default per-class capacity | API Operations worker | Optional complete JSON object. When absent, defaults are `default:2`, `naver_api:2`, `playwright_1688:1`, `snapshot_compute:2`, and `extension_coupang:4`. Every class must be present with a positive integer; unknown classes, zero/negative values, or malformed JSON fail API startup with `operation_resource_class_limits_invalid`. |
 
 Cron expressions use the standard five fields (`minute hour day-of-month month
 day-of-week`) and are evaluated in the schedule's explicit IANA timezone. The
 dashboard stores the cron, timezone, misfire policy, and enabled state per
 operation; disabling a schedule preserves its expression but sets its next run
 to `null`.
+
+Validate this value before an Office deployment without printing any protected
+environment file: compare the intended complete key set to the table above,
+then boot the isolated API. Do not use a partial JSON override: the parser does
+not merge omitted keys with defaults. A failed validation is fail-closed; keep
+the old runtime running and correct the configuration before attempting another
+API boot. Resource limits belong only to the API Operations owner, never the
+Agent worker or an MCP child.
 
 Web container, current Office shape:
 

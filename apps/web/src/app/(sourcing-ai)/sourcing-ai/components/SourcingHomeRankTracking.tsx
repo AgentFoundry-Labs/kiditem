@@ -2,7 +2,7 @@
 
 import { useMemo } from 'react';
 import Link from 'next/link';
-import { useQueries, useQuery } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Target, TrendingDown, TrendingUp } from 'lucide-react';
 import {
   CartesianGrid,
@@ -15,9 +15,10 @@ import {
   YAxis,
 } from 'recharts';
 import { formatNumber } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
 import { fetchMyProductRankChanges, type MyProductRankRow } from '../lib/coupang-rank-tracking-api';
 import {
-  fetchWingTrackedHistory,
+  fetchWingTrackedHistories,
   listWingTrackedProducts,
   type WingTrackedProduct,
 } from '../lib/wing-tracking-api';
@@ -111,19 +112,26 @@ function TrackedProductsPanel({ products }: { products: WingTrackedProduct[] }) 
 /** 추적 중인 상품(상위 5개)의 28일 판매량 추이 그래프. */
 function TrackedProductsChart({ products }: { products: WingTrackedProduct[] }) {
   const top = products.slice(0, 5);
-  const histories = useQueries({
-    queries: top.map((product) => ({
-      queryKey: ['wing-tracked-history', product.id],
-      queryFn: () => fetchWingTrackedHistory(product.id, 30),
-      staleTime: 5 * 60 * 1000,
-    })),
+  const { data: histories } = useQuery({
+    queryKey: queryKeys.sourcing.wingTrackedHistories(30),
+    queryFn: () => fetchWingTrackedHistories(30),
+    staleTime: 5 * 60 * 1000,
   });
+  const historiesByTrackedProductId = useMemo(
+    () => new Map(
+      (histories?.items ?? []).map((history) => [
+        history.trackedProductId,
+        history.points,
+      ]),
+    ),
+    [histories?.items],
+  );
 
   const { data, series } = useMemo(() => {
     const byDate = new Map<string, Record<string, number | string>>();
     const lines: Array<{ key: string; name: string; color: string }> = [];
     top.forEach((product, index) => {
-      const points = histories[index]?.data?.points ?? [];
+      const points = historiesByTrackedProductId.get(product.id) ?? [];
       if (points.length === 0) return;
       const key = `p${index}`;
       lines.push({
@@ -143,8 +151,7 @@ function TrackedProductsChart({ products }: { products: WingTrackedProduct[] }) 
       String(a.date).localeCompare(String(b.date)),
     );
     return { data: rows, series: lines };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [histories.map((h) => h.dataUpdatedAt).join(','), products]);
+  }, [historiesByTrackedProductId, products]);
 
   return (
     <div className="border-t border-slate-200 p-4">

@@ -6,7 +6,7 @@ import { ArrowRight, ShoppingCart } from 'lucide-react';
 import { formatKRW, formatNumber } from '@/lib/utils';
 import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
 import { toTodayRecommendationRows } from '../lib/sourcing-recommendation-presenter';
-import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-extension';
+import { resolveCoupangCatalogImageUrl } from '../wing-catalog/lib/wing-catalog-presenter';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 import { SourcingReadState } from './SourcingReadState';
 

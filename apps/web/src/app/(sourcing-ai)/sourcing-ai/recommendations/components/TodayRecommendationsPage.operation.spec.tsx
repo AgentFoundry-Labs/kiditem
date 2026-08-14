@@ -2,7 +2,6 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TodayRecommendationsPage } from './TodayRecommendationsPage';
-import { searchWingCatalogProducts } from '../../wing-catalog/lib/wing-catalog-extension';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 
 const start = vi.fn(async () => ({ id: '10000000-0000-4000-8000-000000000001' }));
@@ -18,11 +17,6 @@ vi.mock('../../hooks/use-sourcing-operation-action', () => ({
     isRetrying: false,
   })),
 }));
-
-vi.mock('../../wing-catalog/lib/wing-catalog-extension', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../wing-catalog/lib/wing-catalog-extension')>();
-  return { ...actual, searchWingCatalogProducts: vi.fn() };
-});
 
 vi.mock('../../market/lib/trend-collection-api', () => ({
   fetchPopularKeywordBoards: vi.fn(async () => ({ boards: [] })),
@@ -53,7 +47,6 @@ describe('TodayRecommendationsPage Wing operation', () => {
     renderPage();
 
     expect(start).not.toHaveBeenCalled();
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '직접 편집' }));
     fireEvent.change(screen.getByRole('textbox'), {
       target: {
@@ -74,6 +67,5 @@ describe('TodayRecommendationsPage Wing operation', () => {
         purpose: 'recommendation_validation',
       },
     }));
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
   });
 });

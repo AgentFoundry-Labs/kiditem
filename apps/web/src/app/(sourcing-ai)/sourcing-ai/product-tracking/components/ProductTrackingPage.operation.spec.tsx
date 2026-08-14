@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { searchWingCatalogProducts } from '../../wing-catalog/lib/wing-catalog-extension';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import { ProductTrackingPage } from './ProductTrackingPage';
 
@@ -30,11 +29,6 @@ vi.mock('../../hooks/use-sourcing-operation-action', () => ({
     isRetrying: false,
   })),
 }));
-
-vi.mock('../../wing-catalog/lib/wing-catalog-extension', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../wing-catalog/lib/wing-catalog-extension')>();
-  return { ...actual, searchWingCatalogProducts: vi.fn() };
-});
 
 vi.mock('./WingTrackedHistoryChart', () => ({
   WingTrackedHistoryChart: () => <div>history chart</div>,
@@ -83,7 +77,6 @@ describe('ProductTrackingPage Wing operation', () => {
 
     await screen.findByText('추적 상품 1');
     expect(start).not.toHaveBeenCalled();
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '지표 새로고침' }));
 
     await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
@@ -101,7 +94,6 @@ describe('ProductTrackingPage Wing operation', () => {
         queryKeys.sourcing.wingTrackedHistories(30),
       ],
     }));
-    expect(searchWingCatalogProducts).not.toHaveBeenCalled();
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 });

@@ -93,6 +93,12 @@ catches single-segment paths and fails as a bad candidate UUID.
   `SUPPLY_SOURCING_PROCUREMENT_PORT`; sourcing must not mutate supply models
   directly.
 
+## Operation-Backed Collection
+
+Explicit screen -> Operations -> owner handler; mount/read/navigation starts no
+work. Browser requires fenced owner ingest; Operations owns no canonical rows.
+No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
+
 ## Scrape Runtime
 
 `/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. Handler

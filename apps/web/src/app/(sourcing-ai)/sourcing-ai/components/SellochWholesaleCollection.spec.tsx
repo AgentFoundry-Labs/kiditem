@@ -4,10 +4,6 @@ import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
 
 const mocks = vi.hoisted(() => ({
-  imageStatus: vi.fn(),
-  imageSearch: vi.fn(),
-  keywordStatus: vi.fn(),
-  keywordSearch: vi.fn(),
   operationStart: vi.fn(),
   operationCancel: vi.fn(),
   operationRetry: vi.fn(),
@@ -102,17 +98,7 @@ vi.mock('../lib/coupang-1688-matching', () => ({
   selectBestImageSearchOffer: (offers: unknown[]) => offers[0] ?? null,
 }));
 
-vi.mock('../lib/1688-image-search-api', () => ({
-  get1688ImageSearchStatus: mocks.imageStatus,
-  search1688ByImage: mocks.imageSearch,
-}));
-
-vi.mock('../lib/1688-keyword-search-api', () => ({
-  get1688KeywordSearchStatus: mocks.keywordStatus,
-  search1688ByKeyword: mocks.keywordSearch,
-}));
-
-vi.mock('../wing-catalog/lib/wing-catalog-extension', () => ({
+vi.mock('../wing-catalog/lib/wing-catalog-presenter', () => ({
   resolveCoupangCatalogImageUrl: (path: string | null) =>
     path ? `https://img.example.test${path}` : null,
 }));
@@ -151,8 +137,6 @@ describe('wholesale route-entry Operation boundaries', () => {
     render(<SellochWholesaleKeywordSearch />);
 
     expect(mocks.operationStart).not.toHaveBeenCalled();
-    expect(mocks.keywordStatus).not.toHaveBeenCalled();
-    expect(mocks.keywordSearch).not.toHaveBeenCalled();
     expect(mocks.useOperation).toHaveBeenLastCalledWith(expect.objectContaining({
       operationKey: 'sourcing.search_1688_keyword_batch',
       input: {
@@ -163,15 +147,12 @@ describe('wholesale route-entry Operation boundaries', () => {
     fireEvent.click(screen.getByRole('button', { name: '상위 6개 검색' }));
 
     expect(mocks.operationStart).toHaveBeenCalledTimes(1);
-    expect(mocks.keywordSearch).not.toHaveBeenCalled();
   });
 
   it('starts one bounded image batch only from the explicit whole-collection CTA', () => {
     render(<SellochWholesaleCoupangMatches />);
 
     expect(mocks.operationStart).not.toHaveBeenCalled();
-    expect(mocks.imageStatus).not.toHaveBeenCalled();
-    expect(mocks.imageSearch).not.toHaveBeenCalled();
     expect(mocks.useOperation).toHaveBeenLastCalledWith(expect.objectContaining({
       operationKey: 'sourcing.match_wholesale_images',
       input: { targetIds: imageMatches.map((match) => match.id) },
@@ -180,7 +161,6 @@ describe('wholesale route-entry Operation boundaries', () => {
     fireEvent.click(screen.getByRole('button', { name: '전체 수집' }));
 
     expect(mocks.operationStart).toHaveBeenCalledTimes(1);
-    expect(mocks.imageSearch).not.toHaveBeenCalled();
   });
 
   it('keeps persisted keyword and image observations visible beside an active run', () => {

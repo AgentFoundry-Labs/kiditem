@@ -44,3 +44,14 @@ module map instead of duplicating every handler in this guide.
   database boundaries.
 - Never persist or commit tokens, cookies, credentials, or copied marketplace
   sessions.
+- Operation-backed browser work uses OperationRun.id as its collection-session
+  identity. Claim only the exact registered producer/environment, heartbeat and
+  report with the current attempt token, and stop/close owned background tabs
+  when the fence is lost or the API lifecycle is not ACCEPTING.
+- The extension is never a canonical Sourcing or Ads writer. Post raw provider
+  rows only to the fenced owner ingest API; terminal operation reports contain
+  safe counts/references, never raw rows or credentials.
+- One environment has one active browser claim for extension_coupang work.
+  Attention is a human login/OTP/CAPTCHA state, not an automatic retry. A
+  lifecycle-cancelled run is not resumed or reactivated after maintenance; a
+  later explicit retry receives a new run identity.

@@ -25,8 +25,6 @@ describe('SourcingRisingProductService', () => {
     expect(momentum.readSerpMomentum).not.toHaveBeenCalled();
     expect(momentum.readWingSalesMomentum).not.toHaveBeenCalled();
     expect(trends.findNaverKeywordHistory).not.toHaveBeenCalled();
-    expect((service as unknown as { latestOrDetect?: unknown }).latestOrDetect)
-      .toBeUndefined();
   });
 
   it('round-trips persisted confidence and data gaps without recomputing them from a different model statistic', async () => {

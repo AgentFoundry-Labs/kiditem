@@ -94,6 +94,20 @@ projections share the same compact row presentation, with no separate Agent OS
 or `내 작업` card section. Manual shipment and Rocket actions publish distinct
 browser collection producers so their titles and return links remain stable.
 
+Sourcing has one exact ownership flow:
+
+```text
+sourcing screen -> Operations start/read -> owner operation handler
+browser handler -> KidItem OS claim -> fenced owner ingest
+owner snapshot -> sourcing screen
+Operations never owns sourcing or Ads canonical rows
+```
+
+Operations provides the run envelope, resource-class dispatch, lifecycle gate,
+and browser lease only. The Sourcing or Advertising owner handler writes its
+own canonical observations and exposes its own read model; no raw
+`OperationRun.result` becomes a canonical row.
+
 ## Monorepo Shape
 
 ```
@@ -185,6 +199,7 @@ their implementation structures are listed in the Backend Implementation Map.
 
 | Path | Kind | Ownership / Surfaces |
 |---|---|---|
+| `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |

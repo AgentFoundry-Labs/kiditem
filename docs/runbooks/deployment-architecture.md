@@ -41,6 +41,30 @@ worker container enables it with `AGENT_RUNTIME_WORKER_ENABLED=1`. The API has
 a 10-second stop grace period, and its health check allows a 60-second startup
 period for fail-closed lifecycle cleanup before it is considered unhealthy.
 
+Only the API application graph reaches OperationsModule; ApiApplicationModule
+owns OperationRun creation, scheduling, resource-class dispatch, browser
+claims, startup cleanup, and shutdown cancellation. AgentWorkerApplicationModule
+and MCP roots are Agent-runtime-only: they cannot import OperationsModule or
+query/mutate OperationRun. A bounded Agent command reaches the one API owner
+instead.
+
+The API lifecycle is code-owned:
+
+```text
+BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED
+```
+
+Before HTTP listening, the API obtains the database clock and has at most 30
+seconds to cancel old active/waiting runs and advance missed schedules. Those
+rows receive operation_server_lifecycle_expired. On graceful shutdown it first
+closes intake, then has at most 5 seconds for the first/final cancellation
+sweeps and handler cleanup; those rows receive operation_server_shutdown. A
+cleanup failure logs operation_server_lifecycle_cleanup_failed and leaves the
+next API boot fail-closed until its own startup sweep reaches zero. Maintenance,
+restart, replacement, and an expired lease never reactivate, reclaim, or
+requeue a cancelled row; a deliberate operator retry creates a new run only
+after a single API is ACCEPTING.
+
 The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
 proxying. Container-local access to an internal Agent command still requires a
 valid bounded capability grant.

@@ -16,7 +16,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-} from '../../wing-catalog/lib/wing-catalog-extension';
+} from '../../wing-catalog/lib/wing-catalog-presenter';
 import { fetchPopularKeywordBoards } from '../../market/lib/trend-collection-api';
 import { popularKeywordSuggestions } from '../../lib/popular-keyword-suggestions';
 import {

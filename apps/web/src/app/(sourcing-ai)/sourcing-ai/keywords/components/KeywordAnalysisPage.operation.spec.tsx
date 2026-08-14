@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { KeywordAnalysisPage } from './KeywordAnalysisPage';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { searchCoupangKeywordSuggestions } from '../lib/coupang-keyword-extension';
 import { fetchCoupangKeywordSuggestionSnapshot } from '../lib/coupang-keyword-snapshot-api';
 import {
   compareNaverDatalabSearchTrends,
@@ -29,11 +28,6 @@ vi.mock('../lib/coupang-keyword-snapshot-api', async (importOriginal) => {
       productNameTokens: [],
     })),
   };
-});
-
-vi.mock('../lib/coupang-keyword-extension', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../lib/coupang-keyword-extension')>();
-  return { ...actual, searchCoupangKeywordSuggestions: vi.fn() };
 });
 
 vi.mock('../../hooks/use-sourcing-operation-action', () => ({
@@ -118,7 +112,6 @@ describe('KeywordAnalysisPage browser operation', () => {
       expect(fetchCoupangKeywordSuggestionSnapshot).toHaveBeenCalledWith('슬라임');
     });
     expect(start).not.toHaveBeenCalled();
-    expect(searchCoupangKeywordSuggestions).not.toHaveBeenCalled();
     expect(searchNaverDatalabPopularKeywords).not.toHaveBeenCalled();
     expect(searchNaverAutocompleteKeywords).not.toHaveBeenCalled();
     expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
@@ -131,7 +124,7 @@ describe('KeywordAnalysisPage browser operation', () => {
     });
   });
 
-  it('starts exactly one operation with the event keyword and never calls the legacy extension', async () => {
+  it('starts exactly one operation with the explicit event keyword', async () => {
     renderPage();
     const input = screen.getByPlaceholderText('키워드를 입력해주세요');
     fireEvent.change(input, { target: { value: '  클레이  ' } });
@@ -142,7 +135,6 @@ describe('KeywordAnalysisPage browser operation', () => {
       { keyword: '클레이', maxResults: 30 },
       [['sourcing', 'keyword-suggestions', '클레이']],
     );
-    expect(searchCoupangKeywordSuggestions).not.toHaveBeenCalled();
     expect(window.location.search).toContain(`operationRun=${RUN_ID}`);
     expect(window.location.search).toContain('keyword=%ED%81%B4%EB%A0%88%EC%9D%B4');
   });

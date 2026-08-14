@@ -11,8 +11,6 @@ import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "./sourcing-agent-api-collection.module";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
-import { Sourcing1688ImageSearchController } from "./adapter/in/http/sourcing-1688-image-search.controller";
-import { Sourcing1688KeywordSearchController } from "./adapter/in/http/sourcing-1688-keyword-search.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
@@ -153,8 +151,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingTiktokCcTrendExtensionController,
     SourcingLiveCommerceExtensionController,
     SourcingKeywordResearchController,
-    Sourcing1688ImageSearchController,
-    Sourcing1688KeywordSearchController,
     Sourcing1688SearchResultController,
     SourcingAgentRagController,
     SourcingRisingProductController,

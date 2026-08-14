@@ -25,6 +25,7 @@ import { SourcingCollectionOperationAdapter } from '../sourcing/adapter/out/oper
 import { SourcingCollectionApiCommandAdapter } from '../sourcing/adapter/out/http/sourcing-collection-api-command.adapter';
 import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
 import { AI_DIRECT_JOB_WAKE_PORT } from '../ai/application/port/out/runtime';
+import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ProviderLike = Function | { provide?: unknown };
 type ModuleLike =
@@ -229,5 +230,9 @@ describe('application root topology', () => {
     });
 
     expect(imports).toEqual([]);
+  });
+
+  it('rejects retired root imports, Operations reachability, and lifecycle identifiers in production source', () => {
+    expect(inspectStaticApplicationRootPolicy(SERVER_SRC)).toEqual([]);
   });
 });
