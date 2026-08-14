@@ -37,7 +37,9 @@ function activeAttempt(
 describe('OperationAttemptVerifierService', () => {
   let repository: Pick<
     OperationRunRepositoryPort,
-    'findActiveBrowserAttempt' | 'withActiveBrowserAttemptFence'
+    | 'findActiveBrowserAttempt'
+    | 'withActiveBrowserAttemptFence'
+    | 'withActiveDomainAttemptFence'
   >;
   let lifecycleGate: Pick<OperationLifecycleGateService, 'assertAccepting'>;
   let service: OperationAttemptVerifierService;
@@ -47,6 +49,11 @@ describe('OperationAttemptVerifierService', () => {
       findActiveBrowserAttempt: vi.fn().mockResolvedValue(activeAttempt()),
       withActiveBrowserAttemptFence: vi.fn(async (_input, operation) =>
         operation(activeAttempt(), {})),
+      withActiveDomainAttemptFence: vi.fn(async (_input, operation) =>
+        operation(activeAttempt({
+          engineType: 'domain',
+          operationKey: 'sourcing.collect_taobao_live',
+        }), {})),
     };
     lifecycleGate = { assertAccepting: vi.fn() };
     service = new OperationAttemptVerifierService(
@@ -102,6 +109,28 @@ describe('OperationAttemptVerifierService', () => {
       transaction,
     );
     expect(lifecycleGate.assertAccepting).toHaveBeenCalledTimes(3);
+  });
+
+  it('keeps domain canonical commits inside the exact active attempt transaction', async () => {
+    const transaction = { opaque: true };
+    vi.mocked(repository.withActiveDomainAttemptFence).mockImplementation(
+      async (_input, operation) => operation(activeAttempt({
+        engineType: 'domain',
+        operationKey: 'sourcing.collect_taobao_live',
+      }), transaction),
+    );
+    const commit = vi.fn(async (_attempt, opaqueTransaction) => opaqueTransaction);
+
+    await expect(service.withActiveDomainAttemptFence({
+      organizationId: ORGANIZATION_ID,
+      runId: RUN_ID,
+      expectedOperationKey: 'sourcing.collect_taobao_live',
+      attemptToken: ATTEMPT_TOKEN,
+    }, commit)).resolves.toBe(transaction);
+    expect(commit).toHaveBeenCalledWith(
+      expect.objectContaining({ operationKey: 'sourcing.collect_taobao_live' }),
+      transaction,
+    );
   });
 
   it('exports both the verifier port and service from Operations', () => {

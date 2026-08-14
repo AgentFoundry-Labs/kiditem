@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
 import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
+import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
@@ -69,8 +70,10 @@ import { Sourcing1688OperationHandler } from "../adapter/in/operation/sourcing-1
 import { SourcingTrendOperationHandler } from "../adapter/in/operation/sourcing-trend.operation-handler";
 import { SourcingLiveCommerceOperationHandler } from "../adapter/in/operation/sourcing-live-commerce.operation-handler";
 import { SourcingRisingProductOperationHandler } from "../adapter/in/operation/sourcing-rising-product.operation-handler";
+import { SourcingShadowSignalOperationHandler } from "../adapter/in/operation/sourcing-shadow-signal.operation-handler";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingCollectionOperationAdapter } from "../adapter/out/operations/sourcing-collection-operation.adapter";
+import { MarketShadowOperationAdapter } from "../adapter/out/operations/market-shadow-operation.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
@@ -84,6 +87,7 @@ import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-co
 import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
 import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
+import { MARKET_SHADOW_OPERATION_PORT } from "../application/port/out/cross-domain/market-shadow-operation.port";
 import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
@@ -147,6 +151,7 @@ function sourcingProviders(): unknown[] {
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? []),
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? []),
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentApiCollectionModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingShadowOperationModule) ?? []),
   ];
 }
 
@@ -205,6 +210,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingTrendOperationHandler);
     expect(providers).toContain(SourcingLiveCommerceOperationHandler);
     expect(providers).toContain(SourcingRisingProductOperationHandler);
+    expect(providers).toContain(SourcingShadowSignalOperationHandler);
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
@@ -281,6 +287,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingWorkspaceCapabilityAdapter);
     expect(providers).toContain(SourcingAgentWorkspaceCapabilityService);
     expect(providers).toContain(SourcingCollectionOperationAdapter);
+    expect(providers).toContain(MarketShadowOperationAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(Direct1688ImageSearchAdapter);
     expect(providers).toContain(Direct1688KeywordSearchAdapter);
@@ -335,6 +342,13 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(shadowCapabilityBinding?.useExisting).toBe(
       MarketShadowSignalCapabilityAdapter,
     );
+    const shadowOperationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === MARKET_SHADOW_OPERATION_PORT,
+    );
+    expect(shadowOperationBinding?.useExisting).toBe(MarketShadowOperationAdapter);
     const listingPrepBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -613,6 +627,7 @@ describe("SourcingModule canonical owner wiring", () => {
       Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
     expect(imports).toContain(SourcingAgentRuntimeModule);
     expect(imports).toContain(SourcingAgentApiCollectionModule);
+    expect(imports).toContain(SourcingShadowOperationModule);
     expect(imports).toContain(ChannelsModule);
     expect(imports).toContain(SupplyModule);
   });

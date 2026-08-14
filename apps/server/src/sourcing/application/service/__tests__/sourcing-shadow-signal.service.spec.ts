@@ -156,6 +156,49 @@ describe('SourcingShadowSignalService', () => {
     expect(snapshots.finalizeDaily).not.toHaveBeenCalled();
   });
 
+  it('does not claim a canonical snapshot when cancellation arrives while loading server-owned seeds', async () => {
+    const controller = new AbortController();
+    vi.mocked(trends.listSeeds).mockImplementation(async () => {
+      controller.abort(new Error('operation_cancelled'));
+      return [];
+    });
+
+    await expect(service.collect(ORGANIZATION_ID, NOW, {
+      signal: controller.signal,
+      checkpoint: vi.fn(async () => undefined),
+      withinActiveOperationAttemptFence: vi.fn(async (commit) => commit({})),
+    })).rejects.toThrow('operation_cancelled');
+
+    expect(snapshots.claimDailyInAttempt).not.toHaveBeenCalled();
+    expect(snapshots.claimDaily).not.toHaveBeenCalled();
+    expect(provider.fetchTrending).not.toHaveBeenCalled();
+  });
+
+  it('does not finalize a canonical snapshot when cancellation occurs after the provider resolves', async () => {
+    const controller = new AbortController();
+    vi.mocked(provider.fetchTrending).mockImplementation(async () => {
+      controller.abort(new Error('operation_cancelled'));
+      return {
+        source: 'google-trends-rss',
+        generatedAt: NOW.toISOString(),
+        items: [],
+      };
+    });
+
+    await expect((service.collect as (...args: unknown[]) => Promise<unknown>)(
+      ORGANIZATION_ID,
+      NOW,
+      {
+        signal: controller.signal,
+        checkpoint: vi.fn(async () => undefined),
+        commitWithinActiveOperationAttempt: vi.fn(async (commit) => commit({})),
+      },
+    )).rejects.toThrow('operation_cancelled');
+
+    expect(snapshots.finalizeDailyInAttempt).not.toHaveBeenCalled();
+    expect(snapshots.finalizeDaily).not.toHaveBeenCalled();
+  });
+
   it('finalizes a partial snapshot and redacts secrets when Google fails', async () => {
     vi.mocked(provider.fetchTrending).mockRejectedValue(
       new Error('Authorization: super-secret-token upstream failed'),
@@ -310,10 +353,15 @@ describe('SourcingShadowSignalService', () => {
 
 function snapshotRepository(): MarketShadowSnapshotRepositoryPort {
   return {
+    claimDailyInAttempt: vi.fn(async (_transaction, input) => ({
+      claimed: true,
+      row: row(input.payload),
+    })),
     claimDaily: vi.fn(async (input) => ({
       claimed: true,
       row: row(input.payload),
     })),
+    finalizeDailyInAttempt: vi.fn(async (_transaction, input) => row(input.payload)),
     finalizeDaily: vi.fn(async (input) => row(input.payload)),
     listRecent: vi.fn(async () => []),
   };

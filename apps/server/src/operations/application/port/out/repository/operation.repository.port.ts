@@ -5,7 +5,10 @@ import type {
   OperationStatus,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
-import type { ActiveBrowserAttemptTransaction } from '../../active-browser-attempt-transaction';
+import type {
+  ActiveBrowserAttemptTransaction,
+  ActiveOperationAttemptTransaction,
+} from '../../active-browser-attempt-transaction';
 
 export const OPERATION_REPOSITORY_PORT = Symbol('OPERATION_REPOSITORY_PORT');
 
@@ -70,6 +73,8 @@ export interface ActiveBrowserOperationAttemptRecord {
   leaseExpiresAt: Date;
   deadlineAt: Date;
 }
+
+export type ActiveDomainOperationAttemptRecord = ActiveBrowserOperationAttemptRecord;
 
 export interface CreateOperationRunRecord {
   signal: AbortSignal;
@@ -185,6 +190,15 @@ export interface OperationRunRepositoryPort {
   }, operation: (
     attempt: ActiveBrowserOperationAttemptRecord,
     transaction: ActiveBrowserAttemptTransaction,
+  ) => Promise<T>): Promise<T | null>;
+  withActiveDomainAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveDomainOperationAttemptRecord,
+    transaction: ActiveOperationAttemptTransaction,
   ) => Promise<T>): Promise<T | null>;
   findActiveBrowserAttempt(input: {
     organizationId: string;

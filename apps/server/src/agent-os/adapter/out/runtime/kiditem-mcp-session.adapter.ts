@@ -6,7 +6,10 @@ import type {
   AgentMcpSessionDescriptor,
   AgentMcpSessionPort,
 } from '../../../application/port/out/runtime/agent-mcp-session.port';
-import { AgentApiCapabilityGrantService } from '../../../application/service/agent-api-capability-grant.service';
+import {
+  AGENT_API_CAPABILITIES,
+  AgentApiCapabilityGrantService,
+} from '../../../application/service/agent-api-capability-grant.service';
 
 const COMPILED_ENTRY =
   'apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js';
@@ -79,6 +82,7 @@ export class KidItemMcpSessionAdapter implements AgentMcpSessionPort {
       requestId: input.requestId,
       runId: input.runId,
       agentInstanceId: input.agentInstanceId,
+      capabilities: AGENT_API_CAPABILITIES,
     });
     return {
       name: 'kiditem',

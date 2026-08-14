@@ -2,12 +2,14 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
+  Optional,
   UnauthorizedException,
 } from '@nestjs/common';
 import type { Request } from 'express';
 import {
   AGENT_API_CAPABILITY,
   AgentApiCapabilityGrantService,
+  type AgentApiCapability,
   type AgentApiCapabilityPrincipal,
 } from '../../../application/service/agent-api-capability-grant.service';
 
@@ -17,7 +19,11 @@ export interface AgentApiCapabilityRequest extends Request {
 
 @Injectable()
 export class AgentApiCapabilityGrantGuard implements CanActivate {
-  constructor(private readonly grants: AgentApiCapabilityGrantService) {}
+  constructor(
+    private readonly grants: AgentApiCapabilityGrantService,
+    @Optional()
+    private readonly capability: AgentApiCapability = AGENT_API_CAPABILITY,
+  ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
     const request = context.switchToHttp().getRequest<AgentApiCapabilityRequest>();
@@ -32,7 +38,7 @@ export class AgentApiCapabilityGrantGuard implements CanActivate {
     request.agentApiCapabilityPrincipal =
       await this.grants.verifyAndAuthorize({
         token: match[1]!,
-        capability: AGENT_API_CAPABILITY,
+        capability: this.capability,
       });
     return true;
   }

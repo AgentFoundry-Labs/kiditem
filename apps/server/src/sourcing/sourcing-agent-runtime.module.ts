@@ -3,15 +3,11 @@ import { AgentOsModule } from '../agent-os/agent-os.module';
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { MarketShadowSignalCapabilityAdapter } from './adapter/in/agent/market-shadow-signal-capability.adapter';
 import { SourcingListingPrepCapabilityAdapter } from './adapter/in/agent/sourcing-listing-prep-capability.adapter';
 import { SourcingScrapeUrlCapabilityAdapter } from './adapter/in/agent/sourcing-scrape-url-capability.adapter';
 import { SourcingWorkspaceCapabilityAdapter } from './adapter/in/agent/sourcing-workspace-capability.adapter';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
-import { GoogleTrendsRssAdapter } from './adapter/out/google-trends/google-trends-rss.adapter';
-import { LinkfoxEchotikShadowAdapter } from './adapter/out/linkfox/linkfox-echotik-shadow.adapter';
-import { MarketShadowSnapshotRepositoryAdapter } from './adapter/out/repository/market-shadow-snapshot.repository.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
 import { SourcingRecommendationRepositoryAdapter } from './adapter/out/repository/sourcing-recommendation.repository.adapter';
@@ -21,18 +17,12 @@ import { SourcingWorkspaceSnapshotRepositoryAdapter } from './adapter/out/reposi
 import { TrendCollectionRepositoryAdapter } from './adapter/out/repository/trend-collection.repository.adapter';
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SourcingRuntimeHandler } from './adapter/out/runtime/sourcing-runtime.handler';
-import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from './application/port/in/capability/market-shadow-capability.port';
 import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from './application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from './application/port/in/capability/sourcing-agent-workspace-capability.port';
 import { SOURCING_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
-import {
-  LINKFOX_ECHOTIK_SHADOW_PORT,
-  MARKET_SHADOW_SIGNAL_PORT,
-} from './application/port/out/provider/market-shadow-signal.port';
-import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from './application/port/out/repository/market-shadow-snapshot.repository.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from './application/port/out/repository/sourcing-interest-target.repository.port';
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from './application/port/out/repository/sourcing-recommendation.repository.port';
@@ -46,7 +36,6 @@ import { SourcingAgentRagService } from './application/service/sourcing-agent-ra
 import { SourcingAgentWorkspaceCapabilityService } from './application/service/sourcing-agent-workspace-capability.service';
 import { SourcingReviewService } from './application/service/sourcing-review.service';
 import { SourcingScrapeResultService } from './application/service/sourcing-scrape-result.service';
-import { SourcingShadowSignalService } from './application/service/sourcing-shadow-signal.service';
 import { SourcingValidationService } from './application/service/sourcing-validation.service';
 
 @Module({
@@ -62,17 +51,12 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     SourcingAgentWorkspaceCapabilityService,
     SourcingReviewService,
     SourcingScrapeResultService,
-    SourcingShadowSignalService,
     SourcingValidationService,
-    MarketShadowSignalCapabilityAdapter,
     SourcingListingPrepCapabilityAdapter,
     SourcingScrapeUrlCapabilityAdapter,
     SourcingWorkspaceCapabilityAdapter,
     SourcingAgentGatewayAdapter,
     SourcingOperationAlertAdapter,
-    GoogleTrendsRssAdapter,
-    LinkfoxEchotikShadowAdapter,
-    MarketShadowSnapshotRepositoryAdapter,
     SourcingCandidateRepositoryAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
@@ -82,10 +66,6 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     TrendCollectionRepositoryAdapter,
     SourcingPlaywrightRuntimeHandler,
     SourcingRuntimeHandler,
-    {
-      provide: MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
-      useExisting: MarketShadowSignalCapabilityAdapter,
-    },
     {
       provide: SOURCING_LISTING_PREP_CAPABILITY_PORT,
       useExisting: SourcingListingPrepCapabilityAdapter,
@@ -128,21 +108,14 @@ import { SourcingValidationService } from './application/service/sourcing-valida
       useExisting: SourcingWorkspaceSnapshotRepositoryAdapter,
     },
     {
-      provide: MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
-      useExisting: MarketShadowSnapshotRepositoryAdapter,
-    },
-    {
       provide: TREND_COLLECTION_REPOSITORY_PORT,
       useExisting: TrendCollectionRepositoryAdapter,
     },
-    { provide: MARKET_SHADOW_SIGNAL_PORT, useExisting: GoogleTrendsRssAdapter },
-    { provide: LINKFOX_ECHOTIK_SHADOW_PORT, useExisting: LinkfoxEchotikShadowAdapter },
   ],
   exports: [
     SourcingAgentCommandService,
     SourcingAgentRagService,
     SourcingReviewService,
-    SourcingShadowSignalService,
     SourcingValidationService,
     SOURCING_AGENT_GATEWAY_PORT,
     SOURCING_OPERATION_ALERT_PORT,
@@ -152,7 +125,6 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     SOURCING_VALIDATION_REPOSITORY_PORT,
     SOURCING_REVIEW_REPOSITORY_PORT,
     SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
-    MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT,
     TREND_COLLECTION_REPOSITORY_PORT,
   ],
 })

@@ -7,6 +7,7 @@ import {
 import {
   OPERATION_ATTEMPT_VERIFIER_PORT,
   type ActiveBrowserOperationAttemptContext,
+  type ActiveDomainOperationAttemptContext,
   type OperationAttemptVerifierPort,
 } from '../port/in/operation-attempt-verifier.port';
 import {
@@ -14,7 +15,10 @@ import {
   type ActiveBrowserOperationAttemptRecord,
   type OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
-import type { ActiveBrowserAttemptTransaction } from '../port/active-browser-attempt-transaction';
+import type {
+  ActiveBrowserAttemptTransaction,
+  ActiveOperationAttemptTransaction,
+} from '../port/active-browser-attempt-transaction';
 import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 
 const OPERATION_ATTEMPT_CLOCK = Symbol('OPERATION_ATTEMPT_CLOCK');
@@ -53,6 +57,31 @@ export class OperationAttemptVerifierService
     );
     if (result === null) {
       throw new ConflictException('browser_runtime_fence_lost');
+    }
+    return result;
+  }
+
+  async withActiveDomainAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveDomainOperationAttemptContext,
+    transaction: ActiveOperationAttemptTransaction,
+  ) => Promise<T>): Promise<T> {
+    this.lifecycleGate.assertAccepting();
+    const result = await this.repository.withActiveDomainAttemptFence(
+      input,
+      async (attempt, transaction) => {
+        this.lifecycleGate.assertAccepting();
+        const value = await operation(toContext(attempt), transaction);
+        this.lifecycleGate.assertAccepting();
+        return value;
+      },
+    );
+    if (result === null) {
+      throw new ConflictException('operation_attempt_fence_lost');
     }
     return result;
   }

@@ -213,6 +213,32 @@ describe('InternalSourcingCollectionController', () => {
 });
 
 describe('AgentApiCapabilityGrantGuard', () => {
+  it('passes an explicitly selected shadow capability to grant verification', async () => {
+    const grants = {
+      verifyAndAuthorize: vi.fn().mockResolvedValue(PRINCIPAL),
+    };
+    const request: Record<string, unknown> = {
+      headers: { authorization: 'Bearer bounded-shadow-grant' },
+    };
+    const Guard = AgentApiCapabilityGrantGuard as unknown as new (
+      ...arguments_: unknown[]
+    ) => AgentApiCapabilityGrantGuard;
+    const guard = new Guard(
+      grants,
+      'sourcing.collect_shadow_signals',
+    );
+
+    await expect(
+      guard.canActivate({
+        switchToHttp: () => ({ getRequest: () => request }),
+      } as never),
+    ).resolves.toBe(true);
+    expect(grants.verifyAndAuthorize).toHaveBeenCalledWith({
+      token: 'bounded-shadow-grant',
+      capability: 'sourcing.collect_shadow_signals',
+    });
+  });
+
   it('authorizes only the bearer and attaches the persisted principal', async () => {
     const grants = {
       verifyAndAuthorize: vi.fn().mockResolvedValue(PRINCIPAL),

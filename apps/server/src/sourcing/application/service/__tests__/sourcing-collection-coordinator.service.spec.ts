@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type {
   ClaimAuthorizedRunInput,
@@ -36,6 +37,13 @@ function repository(): SourcingCollectionRepositoryPort {
     claimAuthorizedRun: vi.fn(),
     resumeAuthorizedRun: vi.fn(),
     checkpoint: vi.fn(async () => 'continue' as const),
+    commitInAttempt: vi.fn(async () => ({
+      kind: 'committed',
+      runId: permit.runId,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      staleDiscardedCount: 0,
+    } as const)),
     commit: vi.fn(async () => ({
       kind: 'committed',
       runId: permit.runId,
@@ -132,6 +140,62 @@ describe('SourcingCollectionCoordinator', () => {
     } as never, provider)).rejects.toThrow('operation_cancelled');
 
     expect(provider).toHaveBeenCalledTimes(1);
+    expect(collectionRepository.commit).not.toHaveBeenCalled();
+  });
+
+  it('uses the active OperationRun transaction instead of a standalone canonical commit', async () => {
+    const collectionRepository = repository();
+    vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
+      kind: 'claimed',
+      permit,
+    });
+    const transaction = { opaque: true };
+    const commitWithinActiveOperationAttempt = vi.fn(async (commit) => commit(transaction));
+    const provider = vi.fn(async () => ({
+      observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {},
+    }));
+    const coordinator = new SourcingCollectionCoordinator(collectionRepository);
+
+    await expect(coordinator.execute({
+      ...request,
+      commitWithinActiveOperationAttempt,
+    } as never, provider)).resolves.toMatchObject({ kind: 'committed' });
+
+    expect(commitWithinActiveOperationAttempt).toHaveBeenCalledOnce();
+    expect(collectionRepository.commitInAttempt).toHaveBeenCalledWith(
+      transaction,
+      expect.objectContaining({ permit }),
+    );
+    expect(collectionRepository.commit).not.toHaveBeenCalled();
+  });
+
+  it('does not write when the final active OperationRun fence is lost after a checkpoint', async () => {
+    const collectionRepository = repository();
+    vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
+      kind: 'claimed',
+      permit,
+    });
+    const events: string[] = [];
+    const operationCheckpoint = vi.fn(async () => {
+      events.push('checkpoint');
+    });
+    const commitWithinActiveOperationAttempt = vi.fn(async () => {
+      events.push('fence_lost');
+      throw new ConflictException('operation_attempt_fence_lost');
+    });
+    const provider = vi.fn(async () => ({
+      observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {},
+    }));
+    const coordinator = new SourcingCollectionCoordinator(collectionRepository);
+
+    await expect(coordinator.execute({
+      ...request,
+      operationCheckpoint,
+      commitWithinActiveOperationAttempt,
+    } as never, provider)).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(events.slice(-2)).toEqual(['checkpoint', 'fence_lost']);
+    expect(collectionRepository.commitInAttempt).not.toHaveBeenCalled();
     expect(collectionRepository.commit).not.toHaveBeenCalled();
   });
 

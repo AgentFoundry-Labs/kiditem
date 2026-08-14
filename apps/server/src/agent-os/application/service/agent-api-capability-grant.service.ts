@@ -16,12 +16,39 @@ import {
 } from '../port/out/repository/agent-os-repository.port';
 
 export const AGENT_API_CAPABILITY_GRANT_TTL_MS = 120_000;
-export const AGENT_API_CAPABILITY = 'sourcing.refreshCollection' as const;
+export const AGENT_API_COLLECTION_CAPABILITY = 'sourcing.refreshCollection' as const;
+export const AGENT_API_SHADOW_COLLECTION_CAPABILITY =
+  'sourcing.collect_shadow_signals' as const;
+/** Backward-compatible name for the original collection-only internal route. */
+export const AGENT_API_CAPABILITY = AGENT_API_COLLECTION_CAPABILITY;
+export const AGENT_API_CAPABILITIES = [
+  AGENT_API_COLLECTION_CAPABILITY,
+  AGENT_API_SHADOW_COLLECTION_CAPABILITY,
+] as const;
+export type AgentApiCapability = (typeof AGENT_API_CAPABILITIES)[number];
 
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_PAYLOAD_LENGTH = 2_048;
 const INVALID_GRANT = 'agent_api_capability_grant_invalid';
 const UNAUTHORIZED_GRANT = 'agent_api_capability_grant_unauthorized';
+
+const AgentApiCapabilitySchema = z.enum(AGENT_API_CAPABILITIES);
+const AgentApiCapabilityListSchema = z
+  .array(AgentApiCapabilitySchema)
+  .min(1)
+  .max(AGENT_API_CAPABILITIES.length)
+  .superRefine((capabilities, context) => {
+    const normalized = normalizeCapabilities(capabilities);
+    if (
+      normalized.length !== capabilities.length
+      || normalized.some((capability, index) => capabilities[index] !== capability)
+    ) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'agent_api_capability_grant_capabilities_invalid',
+      });
+    }
+  });
 
 const AgentApiCapabilityGrantClaimsSchema = z
   .object({
@@ -31,7 +58,7 @@ const AgentApiCapabilityGrantClaimsSchema = z
     requestId: z.string().uuid(),
     runId: z.string().uuid(),
     agentInstanceId: z.string().uuid(),
-    capabilities: z.tuple([z.literal(AGENT_API_CAPABILITY)]),
+    capabilities: AgentApiCapabilityListSchema,
     issuedAt: z.number().int().nonnegative(),
     expiresAt: z.number().int().positive(),
     nonce: z.string().uuid(),
@@ -69,6 +96,7 @@ export class AgentApiCapabilityGrantService {
     requestId: string;
     runId: string;
     agentInstanceId: string;
+    capabilities?: readonly AgentApiCapability[];
     now?: Date;
   }): string {
     const secret = this.secret();
@@ -80,7 +108,9 @@ export class AgentApiCapabilityGrantService {
       requestId: input.requestId,
       runId: input.runId,
       agentInstanceId: input.agentInstanceId,
-      capabilities: [AGENT_API_CAPABILITY],
+      capabilities: AgentApiCapabilityListSchema.parse(
+        input.capabilities ?? [AGENT_API_CAPABILITY],
+      ),
       issuedAt,
       expiresAt: issuedAt + AGENT_API_CAPABILITY_GRANT_TTL_MS,
       nonce: this.nonce(),
@@ -93,11 +123,12 @@ export class AgentApiCapabilityGrantService {
 
   async verifyAndAuthorize(input: {
     token: string;
-    capability: typeof AGENT_API_CAPABILITY;
+    capability: AgentApiCapability;
     now?: Date;
   }): Promise<AgentApiCapabilityPrincipal> {
-    if (input.capability !== AGENT_API_CAPABILITY) throw invalidGrant();
+    if (!AGENT_API_CAPABILITIES.includes(input.capability)) throw invalidGrant();
     const claims = this.verify(input.token, input.now ?? this.clock());
+    if (!claims.capabilities.includes(input.capability)) throw invalidGrant();
 
     const request = await this.repository.findRunRequestById({
       organizationId: claims.organizationId,
@@ -211,6 +242,14 @@ function fixedOrderJson(claims: AgentApiCapabilityGrantClaims): string {
     expiresAt: claims.expiresAt,
     nonce: claims.nonce,
   });
+}
+
+function normalizeCapabilities(
+  capabilities: readonly AgentApiCapability[],
+): AgentApiCapability[] {
+  return AGENT_API_CAPABILITIES.filter((capability) =>
+    capabilities.includes(capability),
+  );
 }
 
 function sign(payload: string, secret: Buffer): Buffer {

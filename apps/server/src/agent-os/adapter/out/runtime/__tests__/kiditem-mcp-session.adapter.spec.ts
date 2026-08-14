@@ -87,6 +87,10 @@ describe('KidItemMcpSessionAdapter', () => {
       requestId: 'request-1',
       runId: 'run-1',
       agentInstanceId: 'instance-1',
+      capabilities: [
+        'sourcing.refreshCollection',
+        'sourcing.collect_shadow_signals',
+      ],
     });
     expect(descriptor.env).not.toHaveProperty(
       'AGENT_API_CAPABILITY_GRANT_SECRET',

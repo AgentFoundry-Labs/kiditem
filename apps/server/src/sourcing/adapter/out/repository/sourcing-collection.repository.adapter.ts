@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
-import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
+import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
 import {
   isActiveCollectionStatus,
@@ -38,7 +38,7 @@ export class SourcingCollectionRepositoryAdapter
   }
 
   async claimAuthorizedRunInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult> {
     validateClaim(input);
@@ -174,7 +174,7 @@ export class SourcingCollectionRepositoryAdapter
   }
 
   async claimRecoverableRunInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimRecoverableRunResult> {
     validateClaim(input);
@@ -325,7 +325,7 @@ export class SourcingCollectionRepositoryAdapter
   }
 
   async commitInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: CommitAuthorizedCollectionInput,
   ): Promise<CommitAuthorizedCollectionResult> {
     return this.commitTx(asTransaction(transaction), input);
@@ -434,7 +434,7 @@ export class SourcingCollectionRepositoryAdapter
 type Transaction = Prisma.TransactionClient;
 
 function asTransaction(
-  transaction: ActiveBrowserAttemptTransaction,
+  transaction: ActiveOperationAttemptTransaction,
 ): Transaction {
   return transaction as unknown as Transaction;
 }

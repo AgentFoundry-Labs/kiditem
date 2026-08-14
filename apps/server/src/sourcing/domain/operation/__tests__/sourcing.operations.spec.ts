@@ -164,4 +164,19 @@ describe('Sourcing Operations', () => {
     expect(definition?.inputSchema.safeParse({ windowDays: 1 }).success).toBe(false);
     expect(definition?.inputSchema.safeParse({ limit: 201 }).success).toBe(false);
   });
+
+  it('registers shadow signal collection as an exact fenced snapshot-compute operation', () => {
+    const definition = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_shadow_signals',
+    );
+
+    expect(definition).toMatchObject({
+      engineType: 'domain',
+      ownerDomain: 'sourcing',
+      resourceClass: 'snapshot_compute',
+      allowedTriggers: ['dashboard', 'domain_screen', 'agent'],
+      scheduleSupported: false,
+    });
+    expect(definition?.inputSchema.parse({})).toEqual({});
+  });
 });

@@ -13,6 +13,11 @@ import {
   type SourcingCollectionPermit,
   type SourcingCollectionRepositoryPort,
 } from '../port/out/repository/sourcing-collection.repository.port';
+import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
+
+export type ActiveOperationAttemptCommitFence = <T>(
+  commit: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+) => Promise<T>;
 
 export type ExecuteSourcingCollectionInput = ClaimAuthorizedRunInput & {
   /** v2 extension posts may commit only a permit issued before browser IO. */
@@ -20,6 +25,8 @@ export type ExecuteSourcingCollectionInput = ClaimAuthorizedRunInput & {
   /** Operation-owned cancellation/fence checked before provider work and commit. */
   signal?: AbortSignal;
   operationCheckpoint?: () => Promise<void>;
+  /** Atomically fences the final canonical write to an active OperationRun attempt. */
+  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
 };
 
 export type SourcingAuthorizedCollector = (context: {
@@ -83,7 +90,25 @@ export class SourcingCollectionCoordinator {
     await checkpointOperation(input);
     await checkpoint();
     await checkpointOperation(input);
-    return mapCommit(await this.repository.commit({ permit: claim.permit, output }));
+    if (!input.commitWithinActiveOperationAttempt) {
+      return mapCommit(await this.repository.commit({ permit: claim.permit, output }));
+    }
+
+    let committed: CommitAuthorizedCollectionResult;
+    try {
+      committed = await input.commitWithinActiveOperationAttempt((transaction) =>
+        this.repository.commitInAttempt(transaction, {
+          permit: claim.permit,
+          output,
+        }));
+    } catch (error: unknown) {
+      await this.repository.fail({
+        permit: claim.permit,
+        error: normalizeCollectionError(error),
+      }).catch(() => undefined);
+      throw error;
+    }
+    return mapCommit(committed);
   }
 
   async issuePermit(input: ClaimAuthorizedRunInput): Promise<SourcingCollectionPermit> {

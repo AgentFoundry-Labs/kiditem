@@ -190,7 +190,17 @@ function findEffectBodies(source) {
 
     const callback = source.slice(opening + 1, closing);
     const arrow = callback.indexOf('=>');
-    if (arrow === -1) continue;
+    if (arrow === -1) {
+      // Keep this intentionally narrow: direct `useEffect(function () { ... })`
+      // is equivalent to the supported block-bodied arrow form. Aliased hooks
+      // and arbitrary callback expressions remain outside this scanner's scope.
+      const functionCallback = /^\s*(?:async\s+)?function(?:\s+[A-Za-z_$][\w$]*)?\s*\([^)]*\)\s*\{/.exec(callback);
+      if (!functionCallback) continue;
+      const bodyStart = callback.indexOf('{', functionCallback.index);
+      const bodyEnd = findMatchingDelimiter(callback, bodyStart, '{', '}');
+      if (bodyEnd !== -1) bodies.push(callback.slice(bodyStart + 1, bodyEnd));
+      continue;
+    }
     const afterArrow = callback.slice(arrow + 2).trimStart();
     if (afterArrow.startsWith('{')) {
       const bodyEnd = findMatchingDelimiter(afterArrow, 0, '{', '}');
@@ -216,6 +226,19 @@ function collectionOperationBindings(source) {
   // this hook. Nested/computed patterns require a parser and are not inferred.
   const destructured = /\b(?:const|let)\s+\{([^{}]*)\}\s*=\s*useSourcingOperationAction\s*\(/g;
   while ((match = destructured.exec(source))) {
+    for (const binding of match[1].split(',')) {
+      const parsed = /^\s*start\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/.exec(binding);
+      if (parsed) startBindings.push(parsed[1] ?? 'start');
+    }
+  }
+
+  // Also cover a simple destructure from a previously recognized hook result:
+  // `const operation = useSourcingOperationAction(...); const { start } = operation;`.
+  // Nested/computed patterns and arbitrary object aliases remain outside scope.
+  const knownOperationBindings = new Set(objectBindings);
+  const indirectDestructured = /\b(?:const|let)\s+\{([^{}]*)\}\s*=\s*([A-Za-z_$][\w$]*)\s*;?/g;
+  while ((match = indirectDestructured.exec(source))) {
+    if (!knownOperationBindings.has(match[2])) continue;
     for (const binding of match[1].split(',')) {
       const parsed = /^\s*start\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/.exec(binding);
       if (parsed) startBindings.push(parsed[1] ?? 'start');
@@ -261,6 +284,11 @@ function hasLegacyDirectCollectionPost(source) {
     new RegExp(`@Post\\s*\\(\\s*['\"]${route}['\"]\\s*\\)`).test(source)
       && new RegExp(`\\bthis\\.[A-Za-z_$][\\w$]*\\.${method}\\s*\\(`).test(source),
   );
+}
+
+function hasDirectShadowSignalCollection(source) {
+  return /\bSourcingShadowSignalService\b/.test(source)
+    && /\bthis\.[A-Za-z_$][\w$]*\.collect\s*\(/.test(source);
 }
 
 function externalMessageListenerBodies(source) {
@@ -358,6 +386,16 @@ export function analyzeSourcingLongRunningActions({
         'legacy_direct_collection_post',
         file.path,
         'Collection starts and owner ingest must use fixed Operations routes, not legacy direct POST endpoints.',
+      ));
+    }
+    if (
+      (file.path.includes('/adapter/in/http/') || file.path.includes('/adapter/in/agent/'))
+      && hasDirectShadowSignalCollection(file.source)
+    ) {
+      findings.push(finding(
+        'direct_shadow_signal_collection_from_entrypoint',
+        file.path,
+        'Shadow provider collection and canonical snapshot writes belong only to the exact Operation handler.',
       ));
     }
     if (/\blatestOrDetect\b/.test(file.source)) {

@@ -1,4 +1,7 @@
-import type { ActiveBrowserAttemptTransaction } from '../active-browser-attempt-transaction';
+import type {
+  ActiveBrowserAttemptTransaction,
+  ActiveOperationAttemptTransaction,
+} from '../active-browser-attempt-transaction';
 
 export const OPERATION_ATTEMPT_VERIFIER_PORT = Symbol(
   'OPERATION_ATTEMPT_VERIFIER_PORT',
@@ -15,6 +18,8 @@ export interface ActiveBrowserOperationAttemptContext {
   deadlineAt: Date;
 }
 
+export type ActiveDomainOperationAttemptContext = ActiveBrowserOperationAttemptContext;
+
 export interface OperationAttemptVerifierPort {
   withActiveBrowserAttemptFence<T>(input: {
     organizationId: string;
@@ -24,6 +29,15 @@ export interface OperationAttemptVerifierPort {
   }, operation: (
     attempt: ActiveBrowserOperationAttemptContext,
     transaction: ActiveBrowserAttemptTransaction,
+  ) => Promise<T>): Promise<T>;
+  withActiveDomainAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveDomainOperationAttemptContext,
+    transaction: ActiveOperationAttemptTransaction,
   ) => Promise<T>): Promise<T>;
   verifyActiveBrowserAttempt(input: {
     organizationId: string;

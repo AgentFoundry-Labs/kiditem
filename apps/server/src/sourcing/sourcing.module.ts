@@ -9,6 +9,7 @@ import { OperationsModule } from "../operations/operations.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "./sourcing-agent-api-collection.module";
+import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
@@ -140,6 +141,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     AgentOsModule,
     SourcingAgentRuntimeModule,
     SourcingAgentApiCollectionModule,
+    SourcingShadowOperationModule,
     AiModule,
     AdvertisingModule,
     ChannelsModule,

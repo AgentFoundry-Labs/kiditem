@@ -83,7 +83,7 @@ test('rejects an expression-body operation start inside a sourcing effect', () =
   );
 });
 
-test('rejects destructured operation-start aliases inside block and expression sourcing effects', () => {
+test('rejects direct and indirect destructured operation-start aliases inside sourcing effects', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [
       {
@@ -94,13 +94,36 @@ test('rejects destructured operation-start aliases inside block and expression s
         path: 'apps/web/src/app/(sourcing-ai)/destructured-expression.tsx',
         source: fixture('rejected-destructured-expression-collection-effect.tsx'),
       },
+      {
+        path: 'apps/web/src/app/(sourcing-ai)/indirect-destructured-expression.tsx',
+        source: fixture('rejected-indirect-destructured-expression-collection-effect.tsx'),
+      },
     ],
     sourcingServerSources: [],
   });
 
   assert.deepEqual(
     result.findings.map((finding) => finding.rule),
-    ['collection_start_in_effect', 'collection_start_in_effect'],
+    [
+      'collection_start_in_effect',
+      'collection_start_in_effect',
+      'collection_start_in_effect',
+    ],
+  );
+});
+
+test('rejects a function-expression operation start inside a sourcing effect', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/function-expression.tsx',
+      source: fixture('rejected-function-expression-collection-effect.tsx'),
+    }],
+    sourcingServerSources: [],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['collection_start_in_effect'],
   );
 });
 
@@ -203,6 +226,21 @@ test('rejects legacy direct collection POST endpoints while allowing typed snaps
   assert.deepEqual(
     result.findings.map((finding) => finding.rule),
     ['legacy_direct_collection_post'],
+  );
+});
+
+test('rejects a direct shadow provider-and-snapshot collection facade outside its exact operation handler', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [],
+    sourcingServerSources: [{
+      path: 'apps/server/src/sourcing/adapter/in/http/direct-shadow-signal.controller.ts',
+      source: fixture('direct-shadow-signal.controller.ts'),
+    }],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['direct_shadow_signal_collection_from_entrypoint'],
   );
 });
 

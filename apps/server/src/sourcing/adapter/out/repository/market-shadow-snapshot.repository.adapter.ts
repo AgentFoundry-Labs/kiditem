@@ -7,6 +7,12 @@ import {
   type MarketShadowSnapshotRow,
 } from '../../../application/port/out/repository/market-shadow-snapshot.repository.port';
 import type { Prisma } from '@prisma/client';
+import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
+
+type SnapshotTransaction = Pick<
+  PrismaService,
+  '$queryRaw' | 'sourcingWorkspaceSnapshot'
+>;
 
 @Injectable()
 export class MarketShadowSnapshotRepositoryAdapter
@@ -19,7 +25,28 @@ export class MarketShadowSnapshotRepositoryAdapter
     businessDate: Date;
     payload: Record<string, unknown>;
   }): Promise<MarketShadowSnapshotClaimResult> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.claimDailyTx(tx, input));
+  }
+
+  async claimDailyInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotClaimResult> {
+    return this.claimDailyTx(asTransaction(transaction), input);
+  }
+
+  private async claimDailyTx(
+    tx: SnapshotTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotClaimResult> {
       const lockKey = [
         MARKET_SHADOW_SNAPSHOT_SCOPE,
         input.organizationId,
@@ -64,7 +91,6 @@ export class MarketShadowSnapshotRepositoryAdapter
         claimed: true,
         row: toRow(created),
       };
-    });
   }
 
   async finalizeDaily(input: {
@@ -72,7 +98,29 @@ export class MarketShadowSnapshotRepositoryAdapter
     businessDate: Date;
     payload: Record<string, unknown>;
   }): Promise<MarketShadowSnapshotRow> {
-    const existing = await this.prisma.sourcingWorkspaceSnapshot.findUnique({
+    return this.finalizeDailyTx(this.prisma, input);
+  }
+
+  async finalizeDailyInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotRow> {
+    return this.finalizeDailyTx(asTransaction(transaction), input);
+  }
+
+  private async finalizeDailyTx(
+    tx: Pick<PrismaService, 'sourcingWorkspaceSnapshot'>,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotRow> {
+    const existing = await tx.sourcingWorkspaceSnapshot.findUnique({
       where: {
           organizationId_scope_businessDate_projectionVersion_inputHash: {
             organizationId: input.organizationId,
@@ -90,7 +138,7 @@ export class MarketShadowSnapshotRepositoryAdapter
       );
     }
 
-    const updated = await this.prisma.sourcingWorkspaceSnapshot.update({
+    const updated = await tx.sourcingWorkspaceSnapshot.update({
       where: {
           organizationId_scope_businessDate_projectionVersion_inputHash: {
             organizationId: input.organizationId,
@@ -131,6 +179,12 @@ export class MarketShadowSnapshotRepositoryAdapter
     });
     return rows.map(toRow);
   }
+}
+
+function asTransaction(
+  transaction: ActiveOperationAttemptTransaction,
+): SnapshotTransaction {
+  return transaction as unknown as SnapshotTransaction;
 }
 
 function toInputJsonObject(payload: Record<string, unknown>): Prisma.InputJsonObject {

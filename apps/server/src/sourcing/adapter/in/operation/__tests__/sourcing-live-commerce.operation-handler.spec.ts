@@ -11,9 +11,12 @@ describe('SourcingLiveCommerceOperationHandler', () => {
       productCount: 5,
       warnings: ['provider_rate_limited'],
     });
+    const withActiveDomainAttemptFence = vi.fn(async (_input, commit) =>
+      commit({} as never, { opaque: true } as never));
     const handler = new SourcingLiveCommerceOperationHandler(
       registry,
       { collectTaobao } as never,
+      { withActiveDomainAttemptFence } as never,
     );
     handler.onModuleInit();
     const controller = new AbortController();
@@ -29,6 +32,7 @@ describe('SourcingLiveCommerceOperationHandler', () => {
       operationKey: 'sourcing.collect_taobao_live',
       input: { liveIds: ['123', '456'] },
       runId: 'run-a',
+      attemptToken: 'attempt-a',
       signal: controller.signal,
       checkpoint,
     } as never)).resolves.toEqual({
@@ -57,13 +61,23 @@ describe('SourcingLiveCommerceOperationHandler', () => {
     }, 'operation:run-a', {
       signal: controller.signal,
       checkpoint: expect.any(Function),
+      commitWithinActiveOperationAttempt: expect.any(Function),
     });
+    const controls = collectTaobao.mock.calls[0]?.[3];
+    await controls?.commitWithinActiveOperationAttempt(async (transaction) => transaction);
+    expect(withActiveDomainAttemptFence).toHaveBeenCalledWith({
+      organizationId: 'org-a',
+      runId: 'run-a',
+      expectedOperationKey: 'sourcing.collect_taobao_live',
+      attemptToken: 'attempt-a',
+    }, expect.any(Function));
   });
 
   it('rejects another operation key instead of becoming a generic live-action bridge', async () => {
     const handler = new SourcingLiveCommerceOperationHandler(
       new OperationHandlerRegistryService(),
       { collectTaobao: vi.fn() } as never,
+      { withActiveDomainAttemptFence: vi.fn() } as never,
     );
 
     await expect(handler.execute({ operationKey: 'sourcing.other' } as never))

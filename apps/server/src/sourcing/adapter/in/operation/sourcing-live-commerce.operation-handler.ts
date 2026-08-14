@@ -9,6 +9,10 @@ import {
   OPERATION_HANDLER_REGISTRY_PORT,
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
+import {
+  OPERATION_ATTEMPT_VERIFIER_PORT,
+  type OperationAttemptVerifierPort,
+} from '../../../../operations/application/port/in/operation-attempt-verifier.port';
 import { LiveCommerceService } from '../../../application/service/live-commerce.service';
 import { SOURCING_TAOBAO_LIVE_OPERATION } from '../../../domain/operation/sourcing.operations';
 
@@ -24,6 +28,8 @@ export class SourcingLiveCommerceOperationHandler
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
     private readonly registry: OperationHandlerRegistryPort,
     private readonly liveCommerce: LiveCommerceService,
+    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
+    private readonly attemptVerifier: OperationAttemptVerifierPort,
   ) {}
 
   onModuleInit(): void {
@@ -48,6 +54,13 @@ export class SourcingLiveCommerceOperationHandler
           progressCurrent: 0,
           progressTotal: 1,
         }),
+        commitWithinActiveOperationAttempt: (commit) =>
+          this.attemptVerifier.withActiveDomainAttemptFence({
+            organizationId: context.organizationId,
+            runId: context.runId,
+            expectedOperationKey: SOURCING_TAOBAO_LIVE_OPERATION.key,
+            attemptToken: context.attemptToken,
+          }, (_attempt, transaction) => commit(transaction)),
       },
     );
     context.signal.throwIfAborted();

@@ -160,4 +160,17 @@ describe('LiveCommerceService', () => {
     expect(toy!.totalSales).toBe(400);
     expect(result.keywords.some((k) => k.sampleTitles.includes('不锈钢保温杯'))).toBe(false);
   });
+
+  it('keeps distinct source/broadcast/product composite identities separate', async () => {
+    const capturedAt = new Date('2026-07-13T05:00:00.000Z');
+    ports.repository.findProductSnapshots = vi.fn(async () => [
+      { source: 'douyin', broadcastId: 'a', productId: 'bc', businessDate: capturedAt, capturedAt, rank: 1, title: '儿童玩具', priceCny: 12, salesCount: 10, imageUrl: null, sourceUrl: null },
+      { source: 'douyin', broadcastId: 'ab', productId: 'c', businessDate: capturedAt, capturedAt, rank: 1, title: '儿童玩具', priceCny: 12, salesCount: 10, imageUrl: null, sourceUrl: null },
+    ] as never);
+
+    const result = await ports.service.keywordDigest(ORGANIZATION_ID, { days: 7 });
+    const toy = result.keywords.find((keyword) => keyword.keyword === '완구');
+
+    expect(toy).toEqual(expect.objectContaining({ productCount: 2, broadcastCount: 2 }));
+  });
 });

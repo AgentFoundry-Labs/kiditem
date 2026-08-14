@@ -36,7 +36,10 @@ import type {
   OperationScheduleRecord,
   UpsertOperationScheduleRecord,
 } from '../../../application/port/out/repository/operation.repository.port';
-import type { ActiveBrowserAttemptTransaction } from '../../../application/port/active-browser-attempt-transaction';
+import type {
+  ActiveBrowserAttemptTransaction,
+  ActiveOperationAttemptTransaction,
+} from '../../../application/port/active-browser-attempt-transaction';
 
 const runInclude = {
   requestedBy: {
@@ -250,6 +253,37 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     attempt: ActiveBrowserOperationAttemptRecord,
     transaction: ActiveBrowserAttemptTransaction,
   ) => Promise<T>): Promise<T | null> {
+    return this.withActiveAttemptFence({
+      ...input,
+      expectedEngineType: 'browser',
+    }, operation);
+  }
+
+  async withActiveDomainAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveBrowserOperationAttemptRecord,
+    transaction: ActiveOperationAttemptTransaction,
+  ) => Promise<T>): Promise<T | null> {
+    return this.withActiveAttemptFence({
+      ...input,
+      expectedEngineType: 'domain',
+    }, operation);
+  }
+
+  private async withActiveAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+    expectedEngineType: 'browser' | 'domain';
+  }, operation: (
+    attempt: ActiveBrowserOperationAttemptRecord,
+    transaction: ActiveOperationAttemptTransaction,
+  ) => Promise<T>): Promise<T | null> {
     return this.prisma.$transaction(async (transaction) => {
       // Organization-scoped raw lock: this Operation row is always the first
       // lock in browser publication transactions so cancellation linearizes.
@@ -296,7 +330,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       if (
         !now
         || row.operationKey !== input.expectedOperationKey
-        || row.engineType !== 'browser'
+        || row.engineType !== input.expectedEngineType
         || row.status !== 'running'
         || row.attemptToken !== input.attemptToken
         || !row.startedAt
@@ -310,7 +344,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         runId: row.runId,
         organizationId: row.organizationId,
         operationKey: row.operationKey,
-        engineType: 'browser',
+        engineType: input.expectedEngineType,
         status: 'running',
         attemptToken: row.attemptToken,
         input: requiredRecord(row.input),
@@ -321,7 +355,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
       };
       return operation(
         attempt,
-        transaction as unknown as ActiveBrowserAttemptTransaction,
+        transaction as unknown as ActiveOperationAttemptTransaction,
       );
     });
   }

@@ -87,6 +87,32 @@ function claimsFrom(token: string): AgentApiCapabilityGrantClaims {
 }
 
 describe('AgentApiCapabilityGrantService', () => {
+  it('issues and authorizes an explicitly selected shadow-collection capability only', async () => {
+    const repo = repository();
+    const grants = service(repo);
+    const token = grants.issue({
+      organizationId: ORG_ID,
+      requestId: REQUEST_ID,
+      runId: RUN_ID,
+      agentInstanceId: AGENT_ID,
+      capabilities: ['sourcing.collect_shadow_signals'],
+    } as never);
+
+    expect(claimsFrom(token).capabilities).toEqual([
+      'sourcing.collect_shadow_signals',
+    ]);
+    await expect(grants.verifyAndAuthorize({
+      token,
+      capability: 'sourcing.collect_shadow_signals' as never,
+      now: NOW,
+    })).resolves.toMatchObject({ organizationId: ORG_ID });
+    await expect(grants.verifyAndAuthorize({
+      token,
+      capability: 'sourcing.refreshCollection',
+      now: NOW,
+    })).rejects.toThrow('agent_api_capability_grant_invalid');
+  });
+
   it('issues a fixed-order two-minute grant and authorizes the persisted active tuple', async () => {
     const repo = repository();
     const grants = service(repo);

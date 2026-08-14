@@ -10,7 +10,7 @@ import type {
   LiveCommerceProductSnapshotUpsert,
 } from './live-commerce.repository.port';
 import type { AppendSourcingEvidenceObservationCommand } from './sourcing-evidence-ledger.repository.port';
-import type { ActiveBrowserAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
+import type { ActiveOperationAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
 
 export const SOURCING_COLLECTION_REPOSITORY_PORT = Symbol(
   'SourcingCollectionRepositoryPort',
@@ -134,15 +134,15 @@ export interface FailAuthorizedCollectionInput {
 
 export interface SourcingCollectionRepositoryPort {
   claimAuthorizedRunInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult>;
   claimRecoverableRunInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimRecoverableRunResult>;
   commitInAttempt(
-    transaction: ActiveBrowserAttemptTransaction,
+    transaction: ActiveOperationAttemptTransaction,
     input: CommitAuthorizedCollectionInput,
   ): Promise<CommitAuthorizedCollectionResult>;
   claimAuthorizedRun(

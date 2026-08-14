@@ -20,9 +20,18 @@ import { SourcingRuntimeHandler } from '../sourcing/adapter/out/runtime/sourcing
 import { OrderAgentRuntimeHandler } from '../supply/adapter/out/runtime/order-agent-runtime.handler';
 import { SourcingAgentApiCollectionModule } from '../sourcing/sourcing-agent-api-collection.module';
 import { SourcingAgentMcpCollectionModule } from '../sourcing/sourcing-agent-mcp-collection.module';
+import { SourcingAgentShadowOperationModule } from '../sourcing/sourcing-agent-shadow-operation.module';
+import { SourcingShadowOperationModule } from '../sourcing/sourcing-shadow-operation.module';
 import { InternalSourcingCollectionController } from '../sourcing/adapter/in/http/internal-sourcing-collection.controller';
+import { InternalMarketShadowOperationController } from '../sourcing/adapter/in/http/internal-market-shadow-operation.controller';
 import { SourcingCollectionOperationAdapter } from '../sourcing/adapter/out/operations/sourcing-collection-operation.adapter';
 import { SourcingCollectionApiCommandAdapter } from '../sourcing/adapter/out/http/sourcing-collection-api-command.adapter';
+import { MarketShadowOperationAdapter } from '../sourcing/adapter/out/operations/market-shadow-operation.adapter';
+import { MarketShadowOperationApiCommandAdapter } from '../sourcing/adapter/out/http/market-shadow-operation-api-command.adapter';
+import { SourcingShadowSignalService } from '../sourcing/application/service/sourcing-shadow-signal.service';
+import { GoogleTrendsRssAdapter } from '../sourcing/adapter/out/google-trends/google-trends-rss.adapter';
+import { LinkfoxEchotikShadowAdapter } from '../sourcing/adapter/out/linkfox/linkfox-echotik-shadow.adapter';
+import { MarketShadowSnapshotRepositoryAdapter } from '../sourcing/adapter/out/repository/market-shadow-snapshot.repository.adapter';
 import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
 import { AI_DIRECT_JOB_WAKE_PORT } from '../ai/application/port/out/runtime';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
@@ -190,6 +199,31 @@ describe('application root topology', () => {
     expect(apiProviders).not.toContain(SourcingCollectionApiCommandAdapter);
     expect(mcpProviders).toContain(SourcingCollectionApiCommandAdapter);
     expect(mcpProviders).not.toContain(SourcingCollectionOperationAdapter);
+  });
+
+  it('keeps Shadow collection direct ownership in API and uses only the strict API command in Agent roots', () => {
+    const apiProviders: ProviderLike[] =
+      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingShadowOperationModule) ?? [];
+    const agentProviders: ProviderLike[] =
+      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingAgentShadowOperationModule) ?? [];
+    expect(Reflect.getMetadata(
+      MODULE_METADATA.CONTROLLERS,
+      SourcingShadowOperationModule,
+    )).toEqual([InternalMarketShadowOperationController]);
+    expect(apiProviders).toContain(MarketShadowOperationAdapter);
+    expect(apiProviders).toContain(SourcingShadowSignalService);
+    expect(agentProviders).toContain(MarketShadowOperationApiCommandAdapter);
+    expect(agentProviders).not.toContain(MarketShadowOperationAdapter);
+
+    for (const root of [AgentWorkerApplicationModule, AgentMcpApplicationModule]) {
+      const rootProviders = providers(root);
+      expect(rootProviders).toContain(MarketShadowOperationApiCommandAdapter);
+      expect(rootProviders).not.toContain(MarketShadowOperationAdapter);
+      expect(rootProviders).not.toContain(SourcingShadowSignalService);
+      expect(rootProviders).not.toContain(GoogleTrendsRssAdapter);
+      expect(rootProviders).not.toContain(LinkfoxEchotikShadowAdapter);
+      expect(rootProviders).not.toContain(MarketShadowSnapshotRepositoryAdapter);
+    }
   });
 
   it('gives Nest lifecycle ownership only to the Operations server lifecycle service', () => {

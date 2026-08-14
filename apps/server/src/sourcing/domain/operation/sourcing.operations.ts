@@ -58,6 +58,8 @@ export const SourcingTaobaoLiveInputSchema = z
   })
   .strict();
 
+const SourcingShadowSignalInputSchema = z.object({}).strict();
+
 export const SourcingRisingProductInputSchema = z
   .object({
     windowDays: z.number().int().min(2).max(60).optional(),
@@ -163,6 +165,20 @@ export const SOURCING_TAOBAO_LIVE_OPERATION = {
   inputSchema: SourcingTaobaoLiveInputSchema,
 } as const satisfies OperationDefinition;
 
+export const SOURCING_SHADOW_SIGNAL_OPERATION = {
+  key: 'sourcing.collect_shadow_signals',
+  version: 1,
+  title: '시장 shadow 신호 수집',
+  ownerDomain: 'sourcing',
+  engineType: 'domain',
+  allowedTriggers: ['dashboard', 'domain_screen', 'agent'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'snapshot_compute',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: SourcingShadowSignalInputSchema,
+} as const satisfies OperationDefinition;
+
 export const SOURCING_RISING_PRODUCT_OPERATION = {
   key: 'sourcing.detect_rising_products',
   version: 1,
@@ -251,6 +267,7 @@ export const SOURCING_OPERATIONS = [
   SOURCING_TIKTOK_CC_TREND_OPERATION,
   SOURCING_LIVE_COMMERCE_URL_OPERATION,
   SOURCING_TAOBAO_LIVE_OPERATION,
+  SOURCING_SHADOW_SIGNAL_OPERATION,
   SOURCING_RISING_PRODUCT_OPERATION,
   SOURCING_WING_CATALOG_OPERATION,
   SOURCING_KEYWORD_SUGGESTION_OPERATION,
