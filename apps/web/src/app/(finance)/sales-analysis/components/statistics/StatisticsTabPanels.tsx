@@ -1,5 +1,4 @@
 import { CategoriesPanel } from './CategoriesPanel';
-import { DeliveryPanel } from './DeliveryPanel';
 import { GradesPanel } from './GradesPanel';
 import { OverviewPanel } from './OverviewPanel';
 import { ParetoPanel } from './ParetoPanel';
@@ -38,10 +37,6 @@ export function StatisticsTabPanels({
           page={page}
           onPageChange={onPageChange}
         />
-      ) : null;
-    case 'delivery':
-      return data.delivery ? (
-        <DeliveryPanel delivery={data.delivery} page={page} onPageChange={onPageChange} />
       ) : null;
     case 'grades':
       return data.grades ? <GradesPanel grades={data.grades} /> : null;

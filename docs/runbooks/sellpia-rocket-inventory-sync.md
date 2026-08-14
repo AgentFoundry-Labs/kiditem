@@ -146,10 +146,10 @@ shell or expose a duplicate Rocket review workspace under `/purchase-orders`.
 
 ## Record-Only Operations
 
-`StockTransfer`, `PickingItem`, `ReturnTransfer`, and receipt/upload records may
-reference physical `SellpiaInventorySku` identities. Their status changes do not
-write `currentStock`. The next completed Sellpia full snapshot is the evidence
-for a real-world stock change.
+`StockTransfer` and `ReturnTransfer` records may reference physical
+`SellpiaInventorySku` identities. Their status changes do not write
+`currentStock`. The next completed Sellpia full snapshot is the evidence for a
+real-world stock change.
 
 ## Forbidden Actions
 
@@ -214,14 +214,14 @@ any marketplace provider/physical-stock side effect is reachable.
 ## Final Report Format
 
 ```text
-Release: 0.1.21
+Release: <root VERSION>
 Rocket account/vendor: <sanitized account id>; matched <yes/no>
 Collection: complete <yes/no>; list pages <n>; details <n>; failed <count>; truncated <yes/no>
 Catalog publication: <new|duplicate>; rows <count>
 Sellpia freshness generation: <decimal string>
 Preview: rows <count>; blocked <count>; edited bounds verified <yes/no>
 Confirmation: <not executed|active id>; idempotent <yes/no>; shortage reasons <verified/not applicable>
-Common commitment: <request|final|released|settled>; current/active/available <n/n/n>
+Physical availability: current/available <n/n>; equal <yes/no>
 PA reconciliation: <not executed|committed import id>; replay <not tested|idempotent>
 Workbook: <not generated|downloaded>; rows <count>
 Provider/physical-stock actions invoked: 0

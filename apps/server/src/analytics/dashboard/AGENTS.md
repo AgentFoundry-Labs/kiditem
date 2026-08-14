@@ -55,6 +55,9 @@ dashboard/
   recalculates contribution profit or owns ABC policy mutations.
 - Thumbnail analysis quality grades remain AI-owned product-registration
   evidence and are not a fallback or input for inventory ABC.
+- Rocket sales splits use Sellpia daily sales facts. `/rocket-orders` uses the
+  current Rocket PO catalog; there is no `dashboard.rocket_sales` source.
+- Delivery Statistics is retired and has no Order-backed replacement.
 
 ## Transitional Exceptions
 

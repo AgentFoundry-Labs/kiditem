@@ -252,7 +252,6 @@ export const MasterProductOperationsListItemSchema =
       traffic: ProductOperationsMetricFreshnessSchema,
       advertising: ProductOperationsMetricFreshnessSchema,
     }).strict(),
-    profit: z.number().int().nullable(),
     contributionProfitVelocity30: z.number().finite().nullable(),
     contributionMargin: z.number().finite().nullable(),
   });
@@ -364,7 +363,15 @@ export const ProductChannelListingSummarySchema = z.object({
       availableStock: z.number().int().nonnegative(),
       isActive: z.boolean(),
       quantity: z.number().int().positive(),
-    }).strict()).max(50),
+    }).strict().superRefine((component, ctx) => {
+      if (component.availableStock !== component.currentStock) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['availableStock'],
+          message: 'availableStock must equal currentStock',
+        });
+      }
+    })).max(50),
   }).strict()),
 }).strict();
 export type ProductChannelListingSummary = z.infer<

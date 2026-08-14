@@ -1,7 +1,6 @@
 import type {
-  ChannelProductMatchingQueueResponse,
+  ChannelProductMatchingCounts,
   ChannelProductMatchingQueueRow,
-  ChannelOptionMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
 import type { ChannelProductCandidate } from '../../../../domain/channel-product-candidate-ranking';
 
@@ -52,11 +51,41 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
     name: string;
     optionName: string | null;
     barcode: string | null;
-    currentStock: number;
     purchasePrice: number | null;
-    isActive: boolean;
     quantity: number;
   }>;
+}>;
+
+export type ChannelOptionMatchingRepositoryRow = Readonly<{
+  channelAccount: { id: string; channel: string; name: string };
+  listing: {
+    id: string;
+    externalId: string;
+    masterProductId: string | null;
+  };
+  option: {
+    id: string;
+    externalOptionId: string;
+    itemName: string | null;
+    sellerSku: string | null;
+    barcode: string | null;
+    updatedAt: Date;
+    inventoryComponents: ReadonlyArray<{
+      id: string;
+      sellpiaInventorySkuId: string;
+      code: string;
+      name: string;
+      optionName: string | null;
+      barcode: string | null;
+      quantity: number;
+    }>;
+  };
+}>;
+
+export type ChannelProductMatchingRepositoryQueue = Readonly<{
+  products: ChannelProductMatchingQueueRow[];
+  options: ChannelOptionMatchingRepositoryRow[];
+  counts: ChannelProductMatchingCounts;
 }>;
 
 export const CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT = Symbol(
@@ -67,7 +96,7 @@ export interface ChannelProductMatchingRepositoryPort {
   listQueue(
     organizationId: string,
     query: ChannelProductMatchingQuery,
-  ): Promise<ChannelProductMatchingQueueResponse>;
+  ): Promise<ChannelProductMatchingRepositoryQueue>;
   getProductCandidateContext(
     organizationId: string,
     channelListingId: string,
@@ -98,6 +127,5 @@ export interface ChannelProductMatchingRepositoryPort {
 }
 
 export type {
-  ChannelOptionMatchingQueueRow,
   ChannelProductMatchingQueueRow,
 };

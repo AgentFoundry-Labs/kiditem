@@ -130,10 +130,15 @@
       "import": "./dist/channel-sku-availability.js",
       "require": "./dist/channel-sku-availability.cjs"
     },
-    "./inventory-commitment": {
-      "types": "./dist/inventory-commitment.d.ts",
-      "import": "./dist/inventory-commitment.js",
-      "require": "./dist/inventory-commitment.cjs"
+    "./inventory-availability": {
+      "types": "./dist/inventory-availability.d.ts",
+      "import": "./dist/inventory-availability.js",
+      "require": "./dist/inventory-availability.cjs"
+    },
+    "./channel-option-capacity": {
+      "types": "./dist/channel-option-capacity.d.ts",
+      "import": "./dist/channel-option-capacity.js",
+      "require": "./dist/channel-option-capacity.cjs"
     },
     "./product-operations": {
       "types": "./dist/product-operations.d.ts",
@@ -342,8 +347,11 @@
       "channel-sku-availability": [
         "dist/channel-sku-availability.d.ts"
       ],
-      "inventory-commitment": [
-        "dist/inventory-commitment.d.ts"
+      "inventory-availability": [
+        "dist/inventory-availability.d.ts"
+      ],
+      "channel-option-capacity": [
+        "dist/channel-option-capacity.d.ts"
       ],
       "product-operations": [
         "dist/product-operations.d.ts"

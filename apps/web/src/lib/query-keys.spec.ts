@@ -153,6 +153,7 @@ describe('product operations query keys', () => {
 describe('Sellpia authoritative inventory query keys', () => {
   it('does not expose the retired internal product-option key family', () => {
     expect(queryKeys).not.toHaveProperty('productOptions');
+    expect(queryKeys.inventory).not.toHaveProperty('receiptBatches');
   });
 
   it('keeps snapshots, assets, history, and availability in independently invalidatable families', () => {

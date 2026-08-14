@@ -41,8 +41,8 @@ owns physical stock quantities.
   organization-owned Sellpia SKU IDs with positive integer quantities. An empty
   replacement explicitly clears the composition. Physical stock is never
   mutated by this endpoint.
-- Capacity is derived from the option's direct components using common
-  `availableStock`; physical stock and commitments remain Inventory-owned.
+- Capacity is derived from the option's direct components using Inventory's
+  physical `availableStock === currentStock` projection.
 - Product-level inventory is the owned source SKU of the canonical
   MasterProduct. Channel options are consumers of that inventory product;
   Products never creates a second ledger.

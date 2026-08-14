@@ -354,9 +354,6 @@ erDiagram
 | ChannelListing | listing | referenced by external | Channels | ChannelListingDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelListingOptionDailySnapshot |
 | ChannelListing | listing | referenced by external | Channels | ChannelScrapeSnapshot |
-| ChannelListing | listing | referenced by external | Finance | GradeHistory |
-| ChannelListing | listing | referenced by external | Finance | ProfitLoss |
-| ChannelListing | listing | referenced by external | Orders | CSRecord |
 | ChannelListing | listing | referenced by external | Orders | Review |
 | ChannelListing | sourceCandidate | references external | Sourcing | SourcingCandidate |
 | ChannelListingOption | channelListingOption | referenced by external | Supply | RocketPurchaseConfirmationLine |
@@ -367,7 +364,6 @@ erDiagram
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
 | ChannelListingOption | listingOption | referenced by external | Orders | OrderReturnLineItem |
 | ChannelListingOptionInventoryComponent | sellpiaInventorySku | references external | Inventory | SellpiaInventorySku |
-| MasterProduct | master | referenced by external | Finance | ProcessingCost |
 | MasterProduct | masterProduct | referenced by external | Inventory | SellpiaInventorySku |
 | MasterProduct | provenanceMasterProduct | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Advertising | AdAction |
@@ -432,31 +428,18 @@ erDiagram
 | Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
 | Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
-| Organization | organization | referenced by external | Channels | RocketPurchaseOrder |
-| Organization | organization | referenced by external | Channels | RocketSupplyDailySnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
 | Organization | organization | referenced by external | Channels | SellpiaManualMatchSnapshot |
 | Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
 | Organization | organization | referenced by external | Channels | SellpiaSalesDailySnapshot |
-| Organization | organization | referenced by external | Finance | GradeHistory |
-| Organization | organization | referenced by external | Finance | ManualLedger |
-| Organization | organization | referenced by external | Finance | ProcessingCost |
-| Organization | organization | referenced by external | Finance | ProfitLoss |
 | Organization | organization | referenced by external | Finance | SalesPlan |
 | Organization | organization | referenced by external | Inventory | CoupangShipmentDateSummary |
-| Organization | organization | referenced by external | Inventory | InventoryCommitment |
-| Organization | organization | referenced by external | Inventory | InventoryCommitmentAllocation |
-| Organization | organization | referenced by external | Inventory | PickingItem |
-| Organization | organization | referenced by external | Inventory | PickingList |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | SellpiaInventorySku |
 | Organization | organization | referenced by external | Inventory | SellpiaInventoryState |
-| Organization | organization | referenced by external | Inventory | SellpiaReceiptUploadBatch |
-| Organization | organization | referenced by external | Inventory | StockAudit |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
 | Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
-| Organization | organization | referenced by external | Orders | CSRecord |
 | Organization | organization | referenced by external | Orders | Order |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
 | Organization | organization | referenced by external | Orders | OrderReturn |
@@ -465,9 +448,6 @@ erDiagram
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
-| Organization | organization | referenced by external | Orders | Shipment |
-| Organization | organization | referenced by external | Orders | ShipmentItem |
-| Organization | organization | referenced by external | Orders | UnshippedItem |
 | Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceBroadcastDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
@@ -546,14 +526,12 @@ erDiagram
 | User | createdByUser | referenced by external | AI | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
 | User | creator | referenced by external | AgentOS | AgentSession |
-| User | creator | referenced by external | Inventory | InventoryCommitment |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
-| User | releaser | referenced by external | Inventory | InventoryCommitment |
 | User | releaser | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
@@ -566,7 +544,6 @@ erDiagram
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
 | User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
-| User | settler | referenced by external | Inventory | InventoryCommitment |
 | User | triggeredByUser | referenced by external | AgentOS | WorkflowRun |
 | User | triggeredByUser | referenced by external | AI | ContentGeneration |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |

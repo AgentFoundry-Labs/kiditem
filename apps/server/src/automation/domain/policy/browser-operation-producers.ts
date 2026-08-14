@@ -24,10 +24,6 @@ const COLLECTION_PRODUCERS = new Map<
   CollectionProducerDefinition
 >([
   ['dashboard.wing_sales', { title: '쿠팡 Wing 데이터 수집', href: '/dashboard' }],
-  [
-    'dashboard.rocket_sales',
-    { title: '쿠팡 로켓 매출 수집', href: '/sales-analysis?tab=rocket-daily' },
-  ],
   ['dashboard.coupang_ads', { title: '쿠팡 광고 데이터 수집', href: '/ad-ops' }],
   [
     'dashboard.coupang_products',

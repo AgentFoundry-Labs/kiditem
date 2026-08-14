@@ -141,7 +141,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 2 } });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
     expect(await adapter.downloadWorkbook({
       organizationId: TEST_ORGANIZATION_ID,
       exportId: first.exportId,
@@ -181,7 +180,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
     expect(await prisma.rocketPurchaseConfirmationAllocation.aggregate({
       _sum: { quantity: true },
     })).toEqual({ _sum: { quantity: 4 } });
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('rejects a stale inventory generation without creating a confirmation', async () => {
@@ -225,7 +223,6 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     await expect(adapter.exportWorkbook(input)).rejects.toThrow(/recipe/i);
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
-    expect(await prisma.inventoryCommitment.count()).toBe(0);
   });
 
   it('allows a new export after the previous workflow completed', async () => {

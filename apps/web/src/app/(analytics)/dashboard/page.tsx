@@ -160,7 +160,7 @@ export default function Dashboard() {
   useEffect(() => {
     if (!salesBaseline?.trafficKpi?.needsScrape) return;
     const source = salesBaseline?.effectivePeriod?.revenueSource;
-    if (source === 'wing' || source === 'mixed' || source === 'orders' || source === 'rocket' || source === 'wing_rocket') return;
+    if (source === 'wing' || source === 'mixed' || source === 'orders') return;
     const COOLDOWN_KEY = 'kiditem_wing_scrape_triggered';
     const lastTrigger = safeStorageGet('local', COOLDOWN_KEY);
     if (lastTrigger && Date.now() - Number(lastTrigger) < 30 * 60 * 1000) return; // 30분 쿨다운
@@ -249,9 +249,9 @@ export default function Dashboard() {
   const prevProfitRate = rk?.prevProfitRate ?? (salesBaseline.monthly.prevRevenue > 0 ? (salesBaseline.monthly.prevProfit / salesBaseline.monthly.prevRevenue) * 100 : 0);
   const kpiAdRate = rkAd?.adRate ?? salesBaseline.monthly.adRate;
   const kpiPrevAdRate = rkAd?.prevAdRate ?? salesBaseline.monthly.prevAdRate;
-  // 윙/로켓 분리 표시 — headline(kpiRevenue)은 합산, 아래 라인에서 채널별로 분해.
+  // Dashboard revenue is selected Order/Wing revenue. Channel splits come
+  // only from Sellpia daily facts when that coverage is ready.
   const wingRevenue = effectiveSales?.monthly?.wingRevenue ?? salesBaseline.monthly.wingRevenue ?? kpiRevenue;
-  const rocketRevenue = effectiveSales?.monthly?.rocketRevenue ?? salesBaseline.monthly.rocketRevenue ?? 0;
   const adRateChange = rkAd?.adRateChange ?? (kpiPrevAdRate > 0 ? kpiAdRate - kpiPrevAdRate : 0);
 
   const revenueGoal = Math.max(kpiPrevRevenue * 1.15, 1000000);
@@ -282,10 +282,6 @@ export default function Dashboard() {
   const adSource = effectivePeriod?.adSource ?? adBaseline.effectivePeriod?.adSource ?? 'orders';
   const revenueSourceLabel =
     revenueSource === 'wing' ? 'Wing 매출 기준'
-    : revenueSource === 'rocket' ? '로켓 발주 기준'
-    : revenueSource === 'wing_rocket' ? 'Wing + 로켓'
-    : revenueSource === 'mixed' && rocketRevenue > 0 && wingRevenue > 0 ? '주문 + Wing + 로켓'
-    : revenueSource === 'mixed' && rocketRevenue > 0 ? '주문 + 로켓'
     : revenueSource === 'mixed' ? '주문 + Wing'
     : revenueSource === 'orders' ? '주문 기준'
     : '데이터 대기';
@@ -327,7 +323,7 @@ export default function Dashboard() {
   const displayProfitRate = sellpiaHasData ? spProfitRate : profitRate;
   // 카드 표시값: 셀피아 데이터가 있으면 셀피아 기준으로 통일(로켓/기타몰/합계가 서로 맞음).
   const displayRevenue = sellpiaHasData ? spTotal : kpiRevenue;
-  const displayRocket = sellpiaHasData ? spRocket : rocketRevenue;
+  const displayRocket = sellpiaHasData ? spRocket : 0;
   const displayOthers = sellpiaHasData ? spOthers : wingRevenue;
   const displayRevAchieve = revenueGoal > 0 ? Math.min(Math.round((displayRevenue / revenueGoal) * 100), 999) : 0;
   const displayRevPct = revenueGoal > 0 ? Math.min((displayRevenue / revenueGoal) * 100, 100) : 0;
@@ -466,7 +462,7 @@ export default function Dashboard() {
               <span className="text-lg font-semibold text-blue-600/60">원</span>
             </div>
             {!sellpiaHasData && <div className="text-sm text-slate-500">이전 {formatKRW(kpiPrevRevenue)}원</div>}
-            {(sellpiaHasData || wingRevenue > 0 || rocketRevenue > 0) && (
+            {sellpiaHasData && (
               <div className="mt-2 grid grid-cols-2 gap-2">
                 <Link
                   href={`${salesAnalysisHref}&channel=others`}

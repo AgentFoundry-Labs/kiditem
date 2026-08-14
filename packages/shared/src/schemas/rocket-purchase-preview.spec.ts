@@ -462,7 +462,6 @@ describe('Rocket purchase preview contract', () => {
       optionName: null,
       quantity: 1,
       currentStock: 5,
-      activeCommitmentQuantity: 1,
       availableStock: 4,
       isActive: true,
     })).toThrow();

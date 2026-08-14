@@ -10,7 +10,6 @@
 | Model | Table | Description |
 |---|---|---|
 | CoupangDirectPoSnapshot | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
-| CSRecord | `cs_records` | - |
 | Order | `orders` | 채널-agnostic 주문 aggregate. Coupang 등 채널별 raw payload 는 metadata Json. 라인 아이템은 OrderLineItem. |
 | OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | OrderReturn | `order_returns` | 채널-agnostic 반품 aggregate. 반품 item 은 OrderReturnLineItem 으로 정규화. type=RETURN/EXCHANGE 구분 first-class. |
@@ -19,9 +18,6 @@
 | SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
 | SellpiaOrderTransmissionIntentReconciliation | `sellpia_order_transmission_intent_reconciliations` | Append-only owner/admin audit for resolving an ambiguous Sellpia order transmission outcome. |
 | Settlement | `settlements` | 월별 정산 (예상 vs 실제 비교). |
-| Shipment | `shipments` | - |
-| ShipmentItem | `shipment_items` | Order-line shipment detail. |
-| UnshippedItem | `unshipped_items` | - |
 
 ## Mermaid ER Diagram
 
@@ -42,21 +38,6 @@ erDiagram
     Int orderAmount
     Json itemsJson
     DateTime collectedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  CSRecord {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String listingId FK
-    String csType
-    String csStatus
-    String priority
-    String assignee
-    String content
-    String resolution
-    String createdBy
     DateTime createdAt
     DateTime updatedAt
   }
@@ -197,56 +178,11 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  Shipment {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String trackingNo
-    String courierCode
-    String courierName
-    String status
-    DateTime shippedAt
-    DateTime deliveredAt
-    Int deliveryDays
-    String warehouseId FK
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ShipmentItem {
-    String id PK
-    String organizationId FK
-    String shipmentId FK
-    String orderLineItemId FK
-    Int quantity
-    DateTime createdAt
-  }
-  UnshippedItem {
-    String id PK
-    String organizationId FK
-    String orderId FK
-    String orderLineItemId FK
-    String productName
-    String optionName
-    String externalSku
-    Int quantity
-    DateTime orderDate
-    Int delayDays
-    String reason
-    Boolean isNotified
-    DateTime notifiedAt
-    DateTime createdAt
-  }
-  Order o|--o{ CSRecord : "order"
   Order ||--o{ OrderLineItem : "order"
   Order o|--o{ OrderReturn : "order"
-  Order ||--o{ Shipment : "order"
-  Order ||--o{ UnshippedItem : "order"
   OrderLineItem o|--o{ OrderReturnLineItem : "orderLineItem"
-  OrderLineItem ||--o{ ShipmentItem : "orderLineItem"
-  OrderLineItem ||--o{ UnshippedItem : "orderLineItem"
   OrderReturn ||--o{ OrderReturnLineItem : "return"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
-  Shipment ||--o{ ShipmentItem : "shipment"
 ```
 
 ## External References
@@ -254,8 +190,6 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | CoupangDirectPoSnapshot | organization | references external | Core | Organization |
-| CSRecord | listing | references external | Core | ChannelListing |
-| CSRecord | organization | references external | Core | Organization |
 | Order | channelAccount | references external | Core | ChannelAccount |
 | Order | organization | references external | Core | Organization |
 | Order | sourceImportRun | references external | Core | SourceImportRun |
@@ -272,7 +206,3 @@ erDiagram
 | SellpiaOrderTransmissionIntentReconciliation | organization | references external | Core | Organization |
 | SellpiaOrderTransmissionIntentReconciliation | reconciler | references external | Core | User |
 | Settlement | organization | references external | Core | Organization |
-| Shipment | organization | references external | Core | Organization |
-| Shipment | warehouse | references external | Inventory | Warehouse |
-| ShipmentItem | organization | references external | Core | Organization |
-| UnshippedItem | organization | references external | Core | Organization |

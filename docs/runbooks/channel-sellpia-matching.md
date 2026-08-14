@@ -107,7 +107,7 @@ identity, or component quantity.
 For one option's confirmed active component list:
 
 ```text
-availableStock = max(currentStock - activeCommitmentQuantity, 0)
+availableStock = currentStock
 componentCapacity = floor(availableStock / component.quantity)
 optionCapacity = minimum componentCapacity
 ```

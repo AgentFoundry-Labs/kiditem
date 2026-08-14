@@ -314,24 +314,6 @@ model SystemSetting {
 }
 
 /// @namespace System
-/// @describe 이관 스크립트 체크포인트 (Plan C 용). 이관 완료 후 drop 가능.
-model MigrationCheckpoint {
-  id         String   @id @default(uuid()) @db.Uuid
-  scriptName String   @map("script_name")
-  stepName   String   @map("step_name")
-  entityKey  String   @map("entity_key")
-  status     String
-  error      String?
-  payload    Json?
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  @@unique([scriptName, stepName, entityKey])
-  @@index([scriptName, status])
-  @@map("migration_checkpoints")
-}
-
-/// @namespace System
 /// @describe 운영 data migration ledger. Schema-only db push와 별도로 영속 데이터 보정 실행 여부를 기록한다.
 model DataMigrationRun {
   migrationId      String    @id @map("migration_id")

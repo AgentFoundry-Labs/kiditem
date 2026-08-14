@@ -59,7 +59,6 @@ const state = vi.hoisted(() => ({
         traffic: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         advertising: { status: 'MISSING' as const, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       },
-      profit: null,
       contributionProfitVelocity30: null,
       contributionMargin: null,
     }],

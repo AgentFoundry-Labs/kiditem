@@ -18,8 +18,8 @@ import {
 } from '../../test-helpers/real-prisma';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/repository/product-operations.repository.adapter';
 import { ProductOperationsService } from '../application/service/product-operations.service';
-import { InventoryCommitmentRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-commitment.repository.adapter';
-import { InventoryCommitmentService } from '../../inventory/application/service/inventory-commitment.service';
+import { InventoryAvailabilityRepositoryAdapter } from '../../inventory/adapter/out/repository/inventory-availability.repository.adapter';
+import { InventoryAvailabilityService } from '../../inventory/application/service/inventory-availability.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/repository/product-operations-data-status.repository.adapter';
@@ -34,8 +34,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const prismaService = prisma as unknown as PrismaService;
     service = new ProductOperationsService(
       new ProductOperationsRepositoryAdapter(prismaService),
-      new InventoryCommitmentService(
-        new InventoryCommitmentRepositoryAdapter(prismaService),
+      new InventoryAvailabilityService(
+        new InventoryAvailabilityRepositoryAdapter(prismaService),
       ),
       {
         findByMasterProductIds: async () => new Map(),
@@ -428,7 +428,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     })).toEqual({ id: product.id });
   });
 
-  it('preserves physical stock while common commitments reduce option capacity', async () => {
+  it('uses physical stock for option capacity without mutating it', async () => {
     const { product, options } = await linkedProductWithOptions('KI-COMMITTED', 1);
     const sku = await inventorySku('SP-COMMITTED', 100, true, TEST_ORGANIZATION_ID, product.id);
     await service.replaceChannelOptionInventory(
@@ -436,38 +436,16 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       options[0]!.id,
       { components: [{ sellpiaInventorySkuId: sku.id, quantity: 2 }] },
     );
-    const commitment = await prisma.inventoryCommitment.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        kind: 'rocket_request',
-        sourceId: randomUUID(),
-        businessKey: `coupang-rocket:test:${randomUUID()}`,
-        unitQuantity: 80,
-        status: 'active',
-        inventoryGeneration: 1n,
-        createdBy: TEST_USER_ID,
-      },
-    });
-    await prisma.inventoryCommitmentAllocation.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        commitmentId: commitment.id,
-        sellpiaInventorySkuId: sku.id,
-        unitsPerItem: 1,
-        quantity: 80,
-      },
-    });
-
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
 
     expect(detail).toMatchObject({
-      inventoryUnits: 20,
+      inventoryUnits: 100,
       inventoryStatus: 'sellable',
       channelListings: [{ options: [{
-        capacity: 10,
+        capacity: 50,
         inventoryComponents: [{
           currentStock: 100,
-          availableStock: 20,
+          availableStock: 100,
           quantity: 2,
         }],
       }] }],
@@ -651,13 +629,19 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         adSpend: 5_000,
       },
     });
-    await prisma.profitLoss.create({
+    await prisma.masterProductAbcEvaluation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        year: now.getUTCFullYear(),
-        month: now.getUTCMonth() + 1,
-        netProfit: 12_000,
+        masterProductId: withFacts.id,
+        calculationStatus: 'INSUFFICIENT_EVIDENCE',
+        weightedContributionProfit: -12_000,
+        evaluationCutoffDate: now,
+        sellpiaSourceStatus: 'READY',
+        advertisingSourceStatus: 'READY',
+        ordersSourceStatus: 'NOT_APPLIED',
+        mappingSourceStatus: 'READY',
+        costComponentsJson: automaticCostComponents(),
+        calculatedAt: now,
       },
     });
 
@@ -665,6 +649,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1,
       limit: 50,
       periodDays: 7,
+      activeStatus: 'all',
     });
     const byId = new Map(page.items.map((item) => [item.id, item]));
     expect(byId.get(withoutFacts.id)).toMatchObject({
@@ -672,7 +657,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       orderCount: null,
       salesAmount: null,
       adSpend: null,
-      profit: null,
+      abcEvaluation: null,
     });
     expect(byId.get(withFacts.id)).toMatchObject({
       channelCount: 1,
@@ -684,8 +669,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       salesQuantity: null,
       salesAmount: 40_000,
       adSpend: 5_000,
-      profit: 12_000,
+      abcEvaluation: { weightedContributionProfit: -12_000 },
     });
+    expect(page.summary.negativeProfitCount).toBe(1);
   });
 
   async function linkedProductWithOptions(code: string, optionCount: number) {

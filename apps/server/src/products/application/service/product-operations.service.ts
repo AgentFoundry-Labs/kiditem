@@ -282,7 +282,9 @@ function summarizeProducts(
       if (!counts.abcFormula && evaluation.formula) counts.abcFormula = evaluation.formula;
     }
     counts.inventoryStatusCounts[product.inventoryStatus] += 1;
-    if (product.profit !== null && product.profit < 0) {
+    if (evaluation?.weightedContributionProfit !== null
+      && evaluation?.weightedContributionProfit !== undefined
+      && evaluation.weightedContributionProfit < 0) {
       counts.negativeProfitCount += 1;
     }
     if (matchesInventoryFocus(product, 'imminent')) {

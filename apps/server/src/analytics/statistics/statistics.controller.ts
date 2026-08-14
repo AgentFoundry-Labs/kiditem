@@ -21,8 +21,6 @@ export class StatisticsController {
         return this.statisticsService.products(organizationId, period);
       case 'categories':
         return this.statisticsService.categories(organizationId, period);
-      case 'delivery':
-        return this.statisticsService.delivery(organizationId, period);
       case 'grades':
         return this.statisticsService.grades(organizationId, period);
       case 'pareto':
