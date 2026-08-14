@@ -421,7 +421,7 @@ describe('AgentInteractionIdentityService canonical session authorization', () =
       execution: executionName,
       modelIdentity: activeVersion.modelIdentity,
       runtimeType: activeVersion.runtimeType,
-      policySnapshotId: 'policy-row-1',
+      policyHash: 'a'.repeat(64),
       contextEpoch: 1,
       dashboardContext,
     });

@@ -186,6 +186,7 @@ export interface AgentExecutionRuntimeContext {
   runtimeType: string;
   modelIdentity: string;
   policySnapshotId: string;
+  policyHash: string;
   contextEpoch: number;
   lifecycle: AgentSessionSummary['lifecycle'];
   capabilityKeys: string[];

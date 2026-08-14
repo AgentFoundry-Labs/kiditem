@@ -1,4 +1,11 @@
 import { z } from 'zod';
+import {
+  AgentExecutionNameSchema,
+  AgentSessionNameSchema,
+  AgentSessionTaskNameSchema,
+  parseAgentExecutionName,
+  parseAgentSessionTaskName,
+} from '@kiditem/shared/identifiers';
 import type { OperationDefinition } from '../../../common/operation-definition';
 
 export const AGENT_SESSION_TASK_OPERATION_KEY =
@@ -6,11 +13,27 @@ export const AGENT_SESSION_TASK_OPERATION_KEY =
 
 export const AgentSessionTaskOperationInputSchema = z
   .object({
-    sessionId: z.string().uuid(),
-    taskId: z.string().uuid(),
-    executionId: z.string().uuid(),
+    session: AgentSessionNameSchema,
+    task: AgentSessionTaskNameSchema,
+    execution: AgentExecutionNameSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((input, context) => {
+    for (const [field, parse] of [
+      ['task', () => parseAgentSessionTaskName(input.task, input.session)],
+      ['execution', () => parseAgentExecutionName(input.execution, input.session)],
+    ] as const) {
+      try {
+        parse();
+      } catch {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [field],
+          message: `${field} must belong to the operation session`,
+        });
+      }
+    }
+  });
 
 export const AGENT_OS_OPERATIONS = [
   {

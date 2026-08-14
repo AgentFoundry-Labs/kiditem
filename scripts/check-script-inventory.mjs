@@ -10,6 +10,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
+  'check-identifier-contracts.mjs',
   'check-pr-reconstruction-contract.mjs',
   'check-pr-release-contract.mjs',
   'check-queryraw-tenancy.sh',
@@ -86,6 +87,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (!packageScripts['check:shared-interface-names']) {
     missingPackageHooks.push('check:shared-interface-names');
   }
+  if (packageScripts['check:identifier-contracts'] !== 'node scripts/check-identifier-contracts.mjs') {
+    missingPackageHooks.push('check:identifier-contracts');
+  }
   if (!packageScripts['test:scripts']) {
     missingPackageHooks.push('test:scripts');
   }
@@ -100,6 +104,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:shared-interface-names')) {
     missingPackageHooks.push('check:conventions -> check:shared-interface-names');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:identifier-contracts')) {
+    missingPackageHooks.push('check:conventions -> check:identifier-contracts');
   }
 
   return { unexpected, missing, undocumented, missingPackageHooks };

@@ -420,7 +420,7 @@ export class AgentInteractionIdentityService {
       ),
       modelIdentity: authorized.execution.modelIdentity,
       runtimeType: authorized.execution.runtimeType,
-      policySnapshotId: authorized.policy.id,
+      policyHash: authorized.policy.policyHash,
       contextEpoch: authorized.contextEpoch,
       dashboardContext,
     });

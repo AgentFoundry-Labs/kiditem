@@ -85,7 +85,7 @@ const authorization = {
   execution: EXECUTION_NAME,
   modelIdentity: 'model-1',
   runtimeType: 'runtime-1',
-  policySnapshotId: 'policy-1',
+  policyHash: 'a'.repeat(64),
   contextEpoch: 1,
   dashboardContext,
 };

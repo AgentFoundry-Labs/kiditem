@@ -542,7 +542,7 @@ function assertCorrelation(
     execution.execution !== context.executionId ||
     authorization.runtimeType !== context.runtimeType ||
     authorization.modelIdentity !== context.modelIdentity ||
-    authorization.policySnapshotId !== context.policySnapshotId ||
+    authorization.policyHash !== context.policyHash ||
     authorization.contextEpoch !== context.contextEpoch ||
     input.threadId !== context.copilotThreadId ||
     input.runId !== context.aguiRunId

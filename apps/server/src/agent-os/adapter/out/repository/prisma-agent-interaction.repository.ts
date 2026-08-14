@@ -541,7 +541,7 @@ implements AgentInteractionRepositoryPort {
             lifecycle: true,
           },
         },
-        policySnapshot: { select: { capabilityKeys: true } },
+        policySnapshot: { select: { capabilityKeys: true, policyHash: true } },
         agentVersion: { select: { agentDefinitionKey: true } },
       },
     });
@@ -570,6 +570,7 @@ implements AgentInteractionRepositoryPort {
       runtimeType: execution.runtimeType,
       modelIdentity: execution.modelIdentity,
       policySnapshotId: execution.policySnapshotId,
+      policyHash: execution.policySnapshot.policyHash,
       contextEpoch: execution.session.contextEpoch,
       lifecycle: sessionLifecycle(execution.session.lifecycle),
       capabilityKeys: parseCapabilityKeys(execution.policySnapshot.capabilityKeys),

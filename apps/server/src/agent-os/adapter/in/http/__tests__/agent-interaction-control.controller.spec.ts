@@ -95,7 +95,7 @@ function harness() {
       execution: EXECUTION_NAME,
       modelIdentity: 'openai:gpt-5',
       runtimeType: 'operator',
-      policySnapshotId: 'policy-1',
+      policyHash: 'a'.repeat(64),
       contextEpoch: 1,
       dashboardContext,
     }),

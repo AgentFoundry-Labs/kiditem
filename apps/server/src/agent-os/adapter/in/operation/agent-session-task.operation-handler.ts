@@ -1,5 +1,10 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
+import {
+  parseAgentExecutionName,
+  parseAgentSessionName,
+  parseAgentSessionTaskName,
+} from '@kiditem/shared/identifiers';
 import type {
   OperationCancelContext,
   OperationHandler,
@@ -65,6 +70,13 @@ const TerminalCheckpointStateSchema = z
   })
   .strict();
 
+interface SessionTaskOperationInput {
+  readonly organizationId: string;
+  readonly sessionId: string;
+  readonly taskId: string;
+  readonly executionId: string;
+}
+
 @Injectable()
 export class AgentSessionTaskOperationHandler
   implements OperationHandler, OnModuleInit
@@ -93,13 +105,14 @@ export class AgentSessionTaskOperationHandler
   async execute(
     operation: OperationHandlerContext,
   ): Promise<OperationHandlerResult> {
-    const input = AgentSessionTaskOperationInputSchema.parse(operation.input);
+    const input = parseOperationInput(operation.input);
     const execution = await this.executions.loadExecutionRuntimeContext({
       executionId: input.executionId,
     });
     if (
       !execution ||
       execution.organizationId !== operation.organizationId ||
+      input.organizationId !== operation.organizationId ||
       execution.sessionId !== input.sessionId ||
       execution.sessionTaskId !== input.taskId
     ) {
@@ -216,7 +229,7 @@ export class AgentSessionTaskOperationHandler
 
   private async consume(
     operation: OperationHandlerContext,
-    input: z.infer<typeof AgentSessionTaskOperationInputSchema>,
+    input: SessionTaskOperationInput,
     attemptId: string,
     runtime: AgentDurableRuntimeAdapter,
     handle: RuntimeHandle,
@@ -292,7 +305,7 @@ export class AgentSessionTaskOperationHandler
 
   private async finalize(
     operation: OperationHandlerContext,
-    input: z.infer<typeof AgentSessionTaskOperationInputSchema>,
+    input: SessionTaskOperationInput,
     attemptId: string,
     handle: RuntimeHandle,
     status: 'completed' | 'failed' | 'cancelled',
@@ -387,6 +400,19 @@ export class AgentSessionTaskOperationHandler
   }
 }
 
+function parseOperationInput(value: unknown): SessionTaskOperationInput {
+  const input = AgentSessionTaskOperationInputSchema.parse(value);
+  const session = parseAgentSessionName(input.session);
+  const task = parseAgentSessionTaskName(input.task, input.session);
+  const execution = parseAgentExecutionName(input.execution, input.session);
+  return {
+    organizationId: session.organization,
+    sessionId: session.session,
+    taskId: task.task,
+    executionId: execution.execution,
+  };
+}
+
 function handleFromState(state: Record<string, unknown>): RuntimeHandle | null {
   const parsed = RuntimeHandleSchema.safeParse(state.runtimeHandle);
   return parsed.success ? parsed.data : null;
@@ -433,7 +459,7 @@ function failure(code: string): OperationHandlerResult {
 
 function terminalCheckpointResult(
   state: Record<string, unknown>,
-  input: z.infer<typeof AgentSessionTaskOperationInputSchema>,
+  input: SessionTaskOperationInput,
   runtimeType: string,
 ): OperationHandlerResult {
   const terminal = TerminalCheckpointStateSchema.parse(state);

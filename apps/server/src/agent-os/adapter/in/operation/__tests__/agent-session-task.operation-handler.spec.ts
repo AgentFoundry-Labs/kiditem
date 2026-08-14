@@ -1,9 +1,34 @@
 import { describe, expect, it, vi } from 'vitest';
+import {
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
+import { AgentSessionTaskOperationInputSchema } from '../../../../domain/operation/agent-os.operations';
 import { AgentSessionTaskOperationHandler } from '../agent-session-task.operation-handler';
 
 const SESSION_ID = '00000000-0000-4000-8000-000000000001';
 const TASK_ID = '00000000-0000-4000-8000-000000000002';
 const EXECUTION_ID = '00000000-0000-4000-8000-000000000003';
+const ORGANIZATION_ID = 'org-1';
+const SESSION_NAME = formatAgentSessionName(
+  OrganizationIdSchema.parse(ORGANIZATION_ID),
+  AgentSessionIdSchema.parse(SESSION_ID),
+);
+const TASK_NAME = formatAgentSessionTaskName(
+  OrganizationIdSchema.parse(ORGANIZATION_ID),
+  AgentSessionIdSchema.parse(SESSION_ID),
+  AgentSessionTaskIdSchema.parse(TASK_ID),
+);
+const EXECUTION_NAME = formatAgentExecutionName(
+  OrganizationIdSchema.parse(ORGANIZATION_ID),
+  AgentSessionIdSchema.parse(SESSION_ID),
+  AgentExecutionIdSchema.parse(EXECUTION_ID),
+);
 
 const handle = {
   runtimeType: 'hermes_http', executionId: EXECUTION_ID, attemptId: 'attempt-1',
@@ -18,14 +43,14 @@ const runtimeHandleCheckpoint = {
   generation: handle.generation,
 };
 const executionContext = {
-  organizationId: 'org-1', sessionId: SESSION_ID, sessionTaskId: TASK_ID, executionId: EXECUTION_ID, attemptId: 'attempt-1',
+  organizationId: ORGANIZATION_ID, sessionId: SESSION_ID, sessionTaskId: TASK_ID, executionId: EXECUTION_ID, attemptId: 'attempt-1',
   agentDefinitionKey: 'operator', agentVersionId: 'version-1', runtimeType: 'hermes_http', modelIdentity: 'gpt-test',
   capabilityKeys: [], policySnapshotId: 'policy-1', promptPackage: {}, conversationView: { throughSequence: '1', summary: null, turns: [] },
   currentInput: {}, currentResourceRefs: [],
 };
 const operation = {
-  runId: 'operation-1', organizationId: 'org-1', operationKey: 'agent-os.execute-session-task', triggerSource: 'agent' as const,
-  input: { sessionId: SESSION_ID, taskId: TASK_ID, executionId: EXECUTION_ID },
+  runId: 'operation-1', organizationId: ORGANIZATION_ID, operationKey: 'agent-os.execute-session-task', triggerSource: 'agent' as const,
+  input: { session: SESSION_NAME, task: TASK_NAME, execution: EXECUTION_NAME },
   requestedByUserId: null, scheduleId: null, parentRunId: null, attemptToken: 'attempt-token-1',
 };
 
@@ -75,6 +100,18 @@ function harness(options: { checkpoint?: Record<string, unknown>; inspection?: R
 }
 
 describe('AgentSessionTaskOperationHandler', () => {
+  it('requires canonical operation resource names with one matching session parent', () => {
+    expect(AgentSessionTaskOperationInputSchema.parse(operation.input)).toEqual(operation.input);
+    expect(() => AgentSessionTaskOperationInputSchema.parse({
+      ...operation.input,
+      task: formatAgentSessionTaskName(
+        OrganizationIdSchema.parse(ORGANIZATION_ID),
+        AgentSessionIdSchema.parse('00000000-0000-4000-8000-000000000099'),
+        AgentSessionTaskIdSchema.parse(TASK_ID),
+      ),
+    })).toThrow();
+  });
+
   it('persists a new opaque handle before consuming runtime events', async () => {
     const { handler, runtime, order } = harness();
     await expect(handler.execute(operation)).resolves.toEqual({

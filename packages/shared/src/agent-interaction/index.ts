@@ -213,7 +213,7 @@ export const AguiRunAuthorizationSchema = z
     execution: AgentExecutionNameSchema,
     modelIdentity: z.string().min(1),
     runtimeType: z.string().min(1),
-    policySnapshotId: z.string().min(1),
+    policyHash: Sha256DigestSchema,
     contextEpoch: z.number().int().positive(),
     dashboardContext: DashboardContextSchema,
   })

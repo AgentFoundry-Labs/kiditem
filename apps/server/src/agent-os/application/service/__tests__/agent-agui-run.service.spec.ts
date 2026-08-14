@@ -32,7 +32,7 @@ const authorization = (): AguiRunAuthorization => ({
   ),
   modelIdentity: 'gpt-5.2',
   runtimeType: 'openai_responses',
-  policySnapshotId: 'policy-1',
+  policyHash: 'a'.repeat(64),
   contextEpoch: 1,
   dashboardContext: {
     routeKey: 'dashboard',
@@ -65,7 +65,7 @@ function setup(events: BaseEvent[] = [
       sessionId: 'session-1', sessionTaskId: 'task-1', executionId: 'execution-1',
       copilotThreadId: 'thread-1', aguiRunId: 'run-1', agentVersionId: 'version-1',
       runtimeType: 'openai_responses', modelIdentity: 'gpt-5.2',
-      policySnapshotId: 'policy-1', contextEpoch: 1, lifecycle: 'active',
+      policySnapshotId: 'policy-1', policyHash: 'a'.repeat(64), contextEpoch: 1, lifecycle: 'active',
       capabilityKeys: ['analytics.readOverview'],
       initialUserEvent: {
         id: 'event-user-1', externalEventId: 'message-1', eventType: 'user_message',
@@ -267,7 +267,7 @@ describe('AgentAguiRunService', () => {
     ['run', { input: { ...runInput(), runId: 'other' } }],
     ['session', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), session: formatAgentSessionName(OrganizationIdSchema.parse('org-1'), AgentSessionIdSchema.parse('other')) } } } }],
     ['model', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), modelIdentity: 'other' } } } }],
-    ['policy', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), policySnapshotId: 'other' } } } }],
+    ['policy', { input: { ...runInput(), forwardedProps: { kiditemAuthorization: { ...authorization(), policyHash: 'b'.repeat(64) } } } }],
   ])('rejects mismatched %s correlation', async (_label, override) => {
     const { service, runtime } = setup();
     const request = { agentDefinitionKey: 'operator', input: runInput(), ...override } as never;

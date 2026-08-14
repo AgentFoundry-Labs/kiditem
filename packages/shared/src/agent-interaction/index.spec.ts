@@ -117,7 +117,7 @@ const runAuthorization = {
   execution: executionName,
   modelIdentity: "gpt-5",
   runtimeType: "ag_ui",
-  policySnapshotId: "policy-snapshot-1",
+  policyHash: "a".repeat(64),
   contextEpoch: 1,
   dashboardContext,
 } as const;
@@ -417,7 +417,7 @@ describe("agent interaction contracts", () => {
       { ...runAuthorization, execution: otherExecutionName },
       { ...runAuthorization, modelIdentity: "" },
       { ...runAuthorization, runtimeType: "" },
-      { ...runAuthorization, policySnapshotId: "" },
+      { ...runAuthorization, policyHash: "" },
       { ...runAuthorization, contextEpoch: 0 },
       { ...runAuthorization, sessionTaskId: "legacy-task-row" },
       { ...runAuthorization, executionId: "legacy-execution-row" },
@@ -776,7 +776,7 @@ describe("agent interaction contracts", () => {
       { ...connectionAuthorization, executionId: "legacy-execution-row" },
       { ...connectionAuthorization, currentExecution: { status: "running" } },
       { ...connectionAuthorization, modelIdentity: "gpt-5" },
-      { ...connectionAuthorization, policySnapshotId: "policy-snapshot-1" },
+      { ...connectionAuthorization, policyHash: "a".repeat(64) },
       {
         ...connectionAuthorization,
         replay: { ...connectionAuthorization.replay, afterSequence: "1" },
