@@ -663,18 +663,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg.action === "searchWingCatalogProducts") {
-    searchWingCatalogProducts(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "Wing 카탈로그 검색 실패",
-        }),
-      );
-    return true;
-  }
-
   if (msg.action === "deleteWingProduct") {
     deleteWingProduct(msg)
       .then((result) => sendResponse(result))
@@ -689,18 +677,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       .then((result) => sendResponse(result))
       .catch((e) =>
         sendResponse({ ok: false, error: e?.message || "WING 상품등록 페이지 열기 실패" }),
-      );
-    return true;
-  }
-
-  if (msg.action === "searchCoupangKeywordSuggestions") {
-    searchCoupangKeywordSuggestions(msg)
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          error: e?.message || "쿠팡 인기 키워드 수집 실패",
-        }),
       );
     return true;
   }

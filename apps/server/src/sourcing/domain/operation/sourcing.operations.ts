@@ -17,7 +17,9 @@ const SourcingTrendSourceInputSchema = z.object({}).strict();
 
 export const Sourcing1688TrendInputSchema = z
   .object({
-    keywords: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
+    // The parent captures the server-owned target set at child creation. An
+    // empty snapshot is a valid no-work browser run; a missing one is not.
+    keywords: z.array(z.string().trim().min(1).max(120)).max(20),
   })
   .strict();
 
@@ -48,7 +50,11 @@ export const SourcingLiveCommerceUrlInputSchema = z
 export const SourcingTaobaoLiveInputSchema = z
   .object({
     liveIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
-    queryDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+    queryDate: z.string()
+      .trim()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .transform((value) => value.replaceAll('-', ''))
+      .optional(),
   })
   .strict();
 

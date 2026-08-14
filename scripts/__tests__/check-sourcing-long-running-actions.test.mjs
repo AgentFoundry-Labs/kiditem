@@ -83,6 +83,27 @@ test('rejects an expression-body operation start inside a sourcing effect', () =
   );
 });
 
+test('rejects destructured operation-start aliases inside block and expression sourcing effects', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [
+      {
+        path: 'apps/web/src/app/(sourcing-ai)/destructured-block.tsx',
+        source: fixture('rejected-destructured-collection-effect.tsx'),
+      },
+      {
+        path: 'apps/web/src/app/(sourcing-ai)/destructured-expression.tsx',
+        source: fixture('rejected-destructured-expression-collection-effect.tsx'),
+      },
+    ],
+    sourcingServerSources: [],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['collection_start_in_effect', 'collection_start_in_effect'],
+  );
+});
+
 test('rejects retired direct helpers and product-tracking useQueries', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [
@@ -182,5 +203,21 @@ test('rejects legacy direct collection POST endpoints while allowing typed snaps
   assert.deepEqual(
     result.findings.map((finding) => finding.rule),
     ['legacy_direct_collection_post'],
+  );
+});
+
+test('rejects an approved-origin Coupang external source-collection bridge', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [],
+    sourcingServerSources: [],
+    extensionSources: [{
+      path: 'extensions/kiditem-os/background/coupang/worker.js',
+      source: fixture('retired-coupang-external-source-bridge.js'),
+    }],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['retired_external_source_collection_bridge'],
   );
 });

@@ -99,17 +99,46 @@ describe('LiveCommerceService', () => {
     }));
 
     const result = await ports.service.collectTaobao(ORGANIZATION_ID, {
-      queryDate: '20260714',
+      queryDate: '2026-07-14',
       liveIds: ['tb-live-1'],
     });
 
     expect(result).toEqual(expect.objectContaining({ broadcastCount: 1, productCount: 1 }));
+    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
+      queryDate: '20260714',
+    }));
     expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', broadcastId: 'tb-live-1' }),
     ]);
     expect(typedRows(ports, 'live_commerce_product')).toEqual([
       expect.objectContaining({ organizationId: ORGANIZATION_ID, source: 'taobao', productId: 'tb-item-1' }),
     ]);
+  });
+
+  it('does not publish Taobao snapshots when an operation aborts after the provider resolves', async () => {
+    const controller = new AbortController();
+    const checkpoint = vi.fn(async () => undefined);
+    ports.taobao.collect = vi.fn(async () => {
+      controller.abort(new Error('operation_cancelled'));
+      return {
+        rooms: [],
+        products: [],
+        warnings: [],
+      };
+    });
+
+    await expect((ports.service.collectTaobao as never)(
+      ORGANIZATION_ID,
+      { queryDate: '2026-08-14' },
+      'operation:run-a',
+      { signal: controller.signal, checkpoint },
+    )).rejects.toThrow('operation_cancelled');
+
+    expect(ports.taobao.collect).toHaveBeenCalledWith(expect.objectContaining({
+      queryDate: '20260814',
+      signal: controller.signal,
+    }));
+    expect(ports.collectionOutputs).toEqual([]);
   });
 
   it('derives stationery/toy trend keywords from live product titles across sources', async () => {

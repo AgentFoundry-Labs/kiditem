@@ -16,6 +16,8 @@ describe('SourcingLiveCommerceOperationHandler', () => {
       { collectTaobao } as never,
     );
     handler.onModuleInit();
+    const controller = new AbortController();
+    const checkpoint = vi.fn(async () => undefined);
 
     expect(registry.getDefinition('sourcing.collect_taobao_live')).toMatchObject({
       engineType: 'domain',
@@ -27,6 +29,8 @@ describe('SourcingLiveCommerceOperationHandler', () => {
       operationKey: 'sourcing.collect_taobao_live',
       input: { liveIds: ['123', '456'] },
       runId: 'run-a',
+      signal: controller.signal,
+      checkpoint,
     } as never)).resolves.toEqual({
       kind: 'completed',
       result: {
@@ -50,7 +54,10 @@ describe('SourcingLiveCommerceOperationHandler', () => {
     expect(collectTaobao).toHaveBeenCalledWith('org-a', {
       liveIds: ['123', '456'],
       queryDate: undefined,
-    }, 'operation:run-a');
+    }, 'operation:run-a', {
+      signal: controller.signal,
+      checkpoint: expect.any(Function),
+    });
   });
 
   it('rejects another operation key instead of becoming a generic live-action bridge', async () => {

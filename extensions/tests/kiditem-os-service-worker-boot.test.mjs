@@ -24,11 +24,13 @@ const manifest = JSON.parse(
 
 function createFakeChrome() {
   const storage = {};
+  const createdTabs = [];
   const externalMessageListeners = [];
   const connectExternalListeners = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
   return {
     storage,
+    createdTabs,
     externalMessageListeners,
     connectExternalListeners,
     chrome: {
@@ -76,6 +78,7 @@ function createFakeChrome() {
       },
       tabs: {
         async create(properties) {
+          createdTabs.push(properties);
           return { id: 1, windowId: 1, ...properties };
         },
         async get(id) {
@@ -256,6 +259,36 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+});
+
+test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 시작할 수 없다', () => {
+  const { fake, context } = bootServiceWorker();
+
+  for (const action of [
+    'searchWingCatalogProducts',
+    'searchCoupangKeywordSuggestions',
+  ]) {
+    let keptAlive = 0;
+    for (const listener of fake.externalMessageListeners) {
+      const result = listener(
+        { action, keyword: '문구', maxPages: 1 },
+        { url: 'http://localhost:3000/sourcing-ai/wing-catalog' },
+        () => {},
+      );
+      if (result === true) keptAlive += 1;
+    }
+    assert.equal(keptAlive, 0, `${action}: exact OperationRun handler만 source work를 시작한다`);
+  }
+
+  assert.deepEqual(fake.createdTabs, []);
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_wing_catalog_batch'),
+    'function',
+  );
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_keyword_suggestions'),
+    'function',
+  );
 });
 
 test('수익성 광고비 갱신은 정확한 브라우저 operation key로만 등록된다', () => {

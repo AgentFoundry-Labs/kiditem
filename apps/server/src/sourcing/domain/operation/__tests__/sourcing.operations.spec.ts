@@ -82,6 +82,17 @@ describe('Sourcing Operations', () => {
       .toBe(false);
     expect(taobao?.inputSchema.parse({ liveIds: ['123', '456'] }))
       .toEqual({ liveIds: ['123', '456'] });
+    expect(taobao?.inputSchema.parse({ queryDate: '2026-08-14' }))
+      .toEqual({ queryDate: '20260814' });
+  });
+
+  it('requires an immutable 1688 keyword snapshot for every browser run', () => {
+    const trend1688 = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_1688_trends',
+    );
+
+    expect(trend1688?.inputSchema.parse({ keywords: [] })).toEqual({ keywords: [] });
+    expect(trend1688?.inputSchema.safeParse({}).success).toBe(false);
   });
 
   it('registers the exact keyword suggestion browser operation', () => {

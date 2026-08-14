@@ -35,6 +35,7 @@ export function useSourcingOperationAction<
   );
   const latestRunIdRef = useRef<string | null>(options.initialRunId ?? null);
   const latestStartRequestRef = useRef(0);
+  const latestRetryRequestRef = useRef(0);
   const invalidatedRunIdsRef = useRef(new Set<string>());
   const snapshotQueryKeysByRunIdRef = useRef(
     new Map<string, readonly QueryKey[]>(
@@ -55,6 +56,7 @@ export function useSourcingOperationAction<
   ): Promise<OperationRun> => {
     const requestNumber = latestStartRequestRef.current + 1;
     latestStartRequestRef.current = requestNumber;
+    latestRetryRequestRef.current += 1;
     const run = await startMutation.mutateAsync({
       operationKey: options.operationKey,
       input: {
@@ -91,10 +93,36 @@ export function useSourcingOperationAction<
     return runId === null ? null : cancelMutation.mutateAsync(runId);
   }, [cancelMutation]);
 
-  const retryAttention = useCallback(async (): Promise<unknown | null> => {
+  const retryAttention = useCallback(async (): Promise<OperationRun | null> => {
     const runId = latestRunIdRef.current;
-    return runId === null ? null : retryMutation.mutateAsync(runId);
-  }, [retryMutation]);
+    if (runId === null) return null;
+
+    const requestNumber = latestRetryRequestRef.current + 1;
+    latestRetryRequestRef.current = requestNumber;
+    const replacement = await retryMutation.mutateAsync(runId);
+    if (
+      latestRetryRequestRef.current === requestNumber
+      && latestRunIdRef.current === runId
+    ) {
+      latestRunIdRef.current = replacement.id;
+      snapshotQueryKeysByRunIdRef.current.set(
+        replacement.id,
+        snapshotQueryKeysByRunIdRef.current.get(runId)
+          ?? options.snapshotQueryKeys
+          ?? [options.snapshotQueryKey],
+      );
+      setLatestRunId(replacement.id);
+      if (options.wakeBrowserRuntime !== false) {
+        void wakeBrowserOperationRuntime().catch(() => undefined);
+      }
+    }
+    return replacement;
+  }, [
+    options.snapshotQueryKey,
+    options.snapshotQueryKeys,
+    options.wakeBrowserRuntime,
+    retryMutation,
+  ]);
 
   useEffect(() => {
     const run = runQuery.data;

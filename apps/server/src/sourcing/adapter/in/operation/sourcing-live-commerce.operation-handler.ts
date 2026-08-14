@@ -34,12 +34,24 @@ export class SourcingLiveCommerceOperationHandler
     if (context.operationKey !== SOURCING_TAOBAO_LIVE_OPERATION.key) {
       throw new Error('live_commerce_operation_key_invalid');
     }
+    context.signal.throwIfAborted();
+    await context.checkpoint({ stage: 'collecting_source', progressCurrent: 0, progressTotal: 1 });
     const input = normalizeTaobaoInput(context.input);
     const collected = await this.liveCommerce.collectTaobao(
       context.organizationId,
       input,
       `operation:${context.runId}`,
+      {
+        signal: context.signal,
+        checkpoint: () => context.checkpoint({
+          stage: 'persisting',
+          progressCurrent: 0,
+          progressTotal: 1,
+        }),
+      },
     );
+    context.signal.throwIfAborted();
+    await context.checkpoint({ stage: 'finalizing', progressCurrent: 1, progressTotal: 1 });
     const accepted = collected.broadcastCount + collected.productCount;
     const failed = collected.warnings.length > 0 ? 1 : 0;
     const outcome = failed > 0 ? 'partial' : accepted === 0 ? 'no_change' : 'complete';
@@ -77,6 +89,8 @@ function normalizeTaobaoInput(value: unknown): {
     liveIds: Array.isArray(input.liveIds)
       ? input.liveIds.filter((item): item is string => typeof item === 'string')
       : [],
-    queryDate: typeof input.queryDate === 'string' ? input.queryDate : undefined,
+    queryDate: typeof input.queryDate === 'string'
+      ? input.queryDate.trim().replaceAll('-', '')
+      : undefined,
   };
 }

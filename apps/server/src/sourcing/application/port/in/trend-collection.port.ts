@@ -16,6 +16,11 @@ export interface TrendCollectionControls {
 }
 
 export interface TrendCollectionPort {
+  /** Server-owned 1688 targets used to create an immutable browser child input. */
+  list1688Targets(organizationId: string): Promise<Array<{
+    label: string;
+    keyword: string;
+  }>>;
   collectSource(
     organizationId: string,
     source: TrendCollectSource,

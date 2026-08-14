@@ -41,6 +41,11 @@ test('sourcing collection runs are exact browser Operations, not external action
   );
   assert.match(worker, /function bindOperationAbort\(/);
   assert.match(worker, /operation_runtime_fence_lost/);
+  assert.doesNotMatch(
+    worker,
+    /resolve1688OperationKeywords|\/sourcing\/trend\/1688-targets/,
+    'the browser must use the immutable OperationRun keyword snapshot, not current mutable seeds',
+  );
   assert.match(worker, /trendCollector\.cancel\(operation\.runId, operation\.environmentId\)/);
   assert.match(worker, /tiktokCcCollector\.cancel\(operation\.runId, operation\.environmentId\)/);
   assert.match(worker, /liveCommerceCollector\.cancel\(operation\.runId, operation\.environmentId\)/);

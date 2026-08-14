@@ -363,16 +363,17 @@ describe('BrowserOperationRuntimeService', () => {
       findRunById: vi.fn().mockResolvedValue(current),
       transition: vi.fn(),
     } as unknown as OperationRunRepositoryPort;
+    const replacement = { id: 'new-run-id', status: 'queued' };
     const runner = {
-      start: vi.fn().mockResolvedValue({ id: 'new-run-id', status: 'queued' }),
+      start: vi.fn().mockResolvedValue(replacement),
     };
     const service = makeService(repository, acceptingGate(), runner);
 
-    await service.retry({
+    await expect(service.retry({
       organizationId: ORG_ID,
       runId: RUN_ID,
       requestedByUserId: 'user-id',
-    });
+    })).resolves.toBe(replacement);
 
     expect(runner.start).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORG_ID,

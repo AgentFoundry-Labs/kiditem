@@ -173,6 +173,7 @@ describe('EntryRecommendationBoard review state', () => {
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
     expect(operationMocks.useAction).toHaveBeenCalledWith(expect.objectContaining({
       operationKey: 'sourcing.collect_1688_trends',
+      input: { keywords: ['미수집 키워드'] },
       snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
     }));
 

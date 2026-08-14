@@ -40,9 +40,6 @@ function createHarness(input: Record<string, unknown> = { keywords: ['儿童笔�
       staleDiscardedCount: 0,
     })),
   };
-  const trends = {
-    list1688Targets: vi.fn(async () => [{ label: '어린이 필통', keyword: '儿童笔袋' }]),
-  };
   const recommendations = {
     refresh: vi.fn(async () => ({ data: { runId: 'recommendation-run-1' } })),
   };
@@ -52,7 +49,6 @@ function createHarness(input: Record<string, unknown> = { keywords: ['儿童笔�
   const service = new SourcingBrowserTrendOperationService(
     verifier as never,
     collections as never,
-    trends as never,
     recommendations as never,
     recommendationRuns as never,
   );
@@ -60,7 +56,6 @@ function createHarness(input: Record<string, unknown> = { keywords: ['儿童笔�
     service,
     verifier,
     collections,
-    trends,
     recommendations,
     recommendationRuns,
     transaction,
@@ -145,6 +140,33 @@ describe('SourcingBrowserTrendOperationService', () => {
 
     expect(harness.collections.claimAuthorizedRunInAttempt).not.toHaveBeenCalled();
     expect(harness.recommendations.refresh).not.toHaveBeenCalled();
+  });
+
+  it('treats a pre-snapshot 1688 run as a deterministic input failure instead of re-reading changed targets as a fence loss', async () => {
+    const collections = {
+      claimAuthorizedRunInAttempt: vi.fn(),
+      commitInAttempt: vi.fn(),
+    };
+    const service = new SourcingBrowserTrendOperationService(
+      {
+        withActiveBrowserAttemptFence: vi.fn(async (_fence, callback) => callback({ input: {} }, {})),
+      } as never,
+      collections as never,
+      { refresh: vi.fn() } as never,
+      { publishStagedRunInAttempt: vi.fn() } as never,
+    );
+
+    await expect(service.ingest1688({
+      organizationId: ORGANIZATION_ID,
+      operationRunId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      batch: {
+        keywords: [{ keyword: '儿童笔袋', items: [] }],
+      },
+    })).rejects.toThrow('1688_browser_operation_snapshot_required');
+
+    expect(collections.claimAuthorizedRunInAttempt).not.toHaveBeenCalled();
+    expect(collections.commitInAttempt).not.toHaveBeenCalled();
   });
 
   it('fences TikTok typed snapshot ingestion with its exact browser operation key', async () => {

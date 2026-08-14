@@ -35,6 +35,15 @@ const RETIRED_DIRECT_EXTENSION_ACTIONS = [
   'collectLiveCommerceUrl',
 ];
 
+// These calls used to bypass OperationRun creation from an approved web
+// origin. They are intentionally checked only inside an external-message
+// listener, so the exact browser-operation handlers may continue to use the
+// underlying collectors.
+const RETIRED_EXTERNAL_SOURCE_BRIDGES = [
+  ['searchWingCatalogProducts', 'searchWingCatalogProducts'],
+  ['searchCoupangKeywordSuggestions', 'searchCoupangKeywordSuggestions'],
+];
+
 function repoRoot() {
   return path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 }
@@ -197,11 +206,22 @@ function findEffectBodies(source) {
 }
 
 function collectionOperationBindings(source) {
-  const bindings = [];
+  const objectBindings = [];
+  const startBindings = [];
   const pattern = /\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*useSourcingOperationAction\s*\(/g;
   let match;
-  while ((match = pattern.exec(source))) bindings.push(match[1]);
-  return bindings;
+  while ((match = pattern.exec(source))) objectBindings.push(match[1]);
+
+  // Documented scope: a direct `start` destructure (optionally aliased) from
+  // this hook. Nested/computed patterns require a parser and are not inferred.
+  const destructured = /\b(?:const|let)\s+\{([^{}]*)\}\s*=\s*useSourcingOperationAction\s*\(/g;
+  while ((match = destructured.exec(source))) {
+    for (const binding of match[1].split(',')) {
+      const parsed = /^\s*start\s*(?::\s*([A-Za-z_$][\w$]*))?\s*$/.exec(binding);
+      if (parsed) startBindings.push(parsed[1] ?? 'start');
+    }
+  }
+  return { objectBindings, startBindings };
 }
 
 function finding(rule, file, detail) {
@@ -243,9 +263,32 @@ function hasLegacyDirectCollectionPost(source) {
   );
 }
 
+function externalMessageListenerBodies(source) {
+  const bodies = [];
+  const pattern = /\bchrome\.runtime\.onMessageExternal\.addListener\s*\(/g;
+  let match;
+  while ((match = pattern.exec(source))) {
+    const opening = source.indexOf('(', match.index);
+    const closing = findMatchingDelimiter(source, opening, '(', ')');
+    if (closing === -1) continue;
+    bodies.push(source.slice(opening + 1, closing));
+  }
+  return bodies;
+}
+
+function hasRetiredExternalSourceBridge(source) {
+  return externalMessageListenerBodies(source).some((listener) =>
+    RETIRED_EXTERNAL_SOURCE_BRIDGES.some(([action, helper]) =>
+      new RegExp(`\\b(?:msg|message)\\.action\\s*===\\s*['\"]${action}['\"]`).test(listener)
+        && hasCall(listener, helper),
+    ),
+  );
+}
+
 export function analyzeSourcingLongRunningActions({
   webSources,
   sourcingServerSources,
+  extensionSources = [],
 }) {
   const findings = [];
 
@@ -284,8 +327,10 @@ export function analyzeSourcingLongRunningActions({
 
     const operationBindings = collectionOperationBindings(file.source);
     for (const effectBody of findEffectBodies(file.source)) {
-      const startsOperation = operationBindings.some((binding) =>
+      const startsOperation = operationBindings.objectBindings.some((binding) =>
         new RegExp(`\\b${binding}\\.start\\s*\\(`).test(effectBody),
+      ) || operationBindings.startBindings.some((binding) =>
+        hasCall(effectBody, binding),
       );
       const callsRetiredHelper = RETIRED_DIRECT_EXTENSION_HELPERS.some((helper) =>
         hasCall(effectBody, helper),
@@ -331,6 +376,16 @@ export function analyzeSourcingLongRunningActions({
     }
   }
 
+  for (const file of extensionSources) {
+    if (hasRetiredExternalSourceBridge(file.source)) {
+      findings.push(finding(
+        'retired_external_source_collection_bridge',
+        file.path,
+        'Approved web origins may start sourcing only through an exact OperationRun, never a direct external collector action.',
+      ));
+    }
+  }
+
   return { findings };
 }
 
@@ -339,6 +394,13 @@ function main() {
   const result = analyzeSourcingLongRunningActions({
     webSources: collectProductionSources(root, 'apps/web/src/app/(sourcing-ai)'),
     sourcingServerSources: collectProductionSources(root, 'apps/server/src/sourcing'),
+    extensionSources: [{
+      path: 'extensions/kiditem-os/background/coupang/worker.js',
+      source: readFileSync(
+        path.join(root, 'extensions/kiditem-os/background/coupang/worker.js'),
+        'utf8',
+      ),
+    }],
   });
 
   if (result.findings.length === 0) {

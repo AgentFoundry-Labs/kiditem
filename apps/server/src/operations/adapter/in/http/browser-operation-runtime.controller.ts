@@ -58,13 +58,13 @@ export class BrowserOperationRuntimeController {
   }
 
   @Post('runs/:runId/retry')
-  @HttpCode(HttpStatus.NO_CONTENT)
+  @HttpCode(HttpStatus.OK)
   async retry(
     @Param('runId', new ParseUUIDPipe()) runId: string,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
-  ): Promise<void> {
-    await this.runtime.retry({
+  ) {
+    return this.runtime.retry({
       organizationId,
       runId,
       requestedByUserId: user.id,

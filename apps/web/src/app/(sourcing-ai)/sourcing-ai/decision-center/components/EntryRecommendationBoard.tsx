@@ -198,9 +198,7 @@ export function EntryRecommendationBoard() {
     [interestKeywords, interestTargets, missingInterestKeywordIdentities],
   );
   const interestOperationInput = useMemo(
-    () => interestOperationKeywords.length > 0
-      ? { keywords: interestOperationKeywords }
-      : {},
+    () => ({ keywords: interestOperationKeywords }),
     [interestOperationKeywords],
   );
   const interestCollectionOperation = useSourcingOperationAction({

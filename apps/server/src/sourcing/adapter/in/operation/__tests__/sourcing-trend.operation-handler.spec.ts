@@ -129,6 +129,9 @@ function setup(input?: {
       ok: true,
       collected: 12,
     }),
+    list1688Targets: vi.fn().mockResolvedValue([
+      { label: '어린이 필통', keyword: '儿童笔袋' },
+    ]),
   };
   const coordinator = {
     listChildren: vi.fn().mockResolvedValue(input?.children ?? []),
@@ -170,7 +173,7 @@ describe('SourcingTrendOperationHandler', () => {
         },
         {
           operationKey: 'sourcing.collect_1688_trends',
-          input: {},
+          input: { keywords: ['儿童笔袋'] },
           idempotencyKey: `${RUN_ID}:sourcing.collect_1688_trends`,
         },
         {
@@ -182,6 +185,32 @@ describe('SourcingTrendOperationHandler', () => {
     });
     expect(collector.collect).not.toHaveBeenCalled();
     expect(collector.collectSource).not.toHaveBeenCalled();
+    expect(collector.list1688Targets).toHaveBeenCalledWith(ORGANIZATION_ID);
+  });
+
+  it('captures the server-owned 1688 target set once in the daily child before mutable seeds can change', async () => {
+    const { handler, collector } = setup();
+    collector.list1688Targets.mockResolvedValueOnce([
+      { label: '문구', keyword: '文具' },
+      { label: '완구', keyword: '儿童玩具' },
+    ]);
+
+    const execution = await handler.execute(operationContext({
+      input: { sources: ['1688'] },
+    }));
+    collector.list1688Targets.mockResolvedValueOnce([
+      { label: '변경된 시드', keyword: '변경됨' },
+    ]);
+
+    expect(execution).toEqual({
+      kind: 'waiting_dependency',
+      child: {
+        operationKey: 'sourcing.collect_1688_trends',
+        input: { keywords: ['文具', '儿童玩具'] },
+        idempotencyKey: `${RUN_ID}:sourcing.collect_1688_trends`,
+      },
+    });
+    expect(collector.list1688Targets).toHaveBeenCalledTimes(1);
   });
 
   it('preserves the one-child dependency result for a single selected source', async () => {

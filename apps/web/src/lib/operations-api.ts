@@ -43,8 +43,12 @@ export const operationsApi = {
     return OperationRunSchema.parse(raw);
   },
 
-  retryBrowserRun: (runId: string) =>
-    apiClient.post<unknown>(`/api/operation-runtime/browser/runs/${runId}/retry`),
+  async retryBrowserRun(runId: string): Promise<OperationRun> {
+    const raw = await apiClient.post<unknown>(
+      `/api/operation-runtime/browser/runs/${runId}/retry`,
+    );
+    return OperationRunSchema.parse(raw);
+  },
 
   listSchedules: () =>
     apiClient.getParsed('/api/operation-schedules', OperationScheduleListResponseSchema),

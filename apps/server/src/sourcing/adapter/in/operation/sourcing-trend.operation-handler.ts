@@ -18,6 +18,7 @@ import {
 } from '../../../application/port/in/trend-collection.port';
 import {
   SOURCING_SERVER_TREND_OPERATIONS,
+  Sourcing1688TrendInputSchema,
 } from '../../../domain/operation/sourcing.operations';
 import type { TrendCollectSource } from '../../../application/service/trend-collect.service';
 import type { OperationRunRecord } from '../../../../operations/application/port/out/repository/operation.repository.port';
@@ -85,7 +86,9 @@ export class SourcingTrendOperationHandler
       parentRunId: context.runId,
     });
     if (children.length === 0) {
-      const planned = sources.map((source) => childFor(context.runId, source));
+      const planned = await Promise.all(
+        sources.map((source) => this.childFor(context, source)),
+      );
       return planned.length === 1
         ? { kind: 'waiting_dependency', child: planned[0] }
         : { kind: 'waiting_dependencies', children: planned };
@@ -110,6 +113,20 @@ export class SourcingTrendOperationHandler
       kind: 'completed',
       result: aggregateSourceResults(summaries),
     };
+  }
+
+  private async childFor(
+    context: OperationHandlerContext,
+    source: TrendCollectSource,
+  ): Promise<StartChildOperation> {
+    if (source !== '1688') return childFor(context.runId, source, {});
+
+    context.signal.throwIfAborted();
+    const targets = await this.trendCollection.list1688Targets(context.organizationId);
+    context.signal.throwIfAborted();
+    return childFor(context.runId, source, {
+      keywords: immutable1688KeywordSnapshot(targets),
+    });
   }
 
   private async collectSource(
@@ -156,13 +173,31 @@ export class SourcingTrendOperationHandler
   }
 }
 
-function childFor(parentRunId: string, source: TrendCollectSource): StartChildOperation {
+function childFor(
+  parentRunId: string,
+  source: TrendCollectSource,
+  input: Record<string, unknown>,
+): StartChildOperation {
   const operationKey = OPERATION_KEY_BY_SOURCE[source];
   return {
     operationKey,
-    input: {},
+    input,
     idempotencyKey: `${parentRunId}:${operationKey}`,
   };
+}
+
+function immutable1688KeywordSnapshot(targets: Array<{ keyword: string }>): string[] {
+  const identities = new Set<string>();
+  const keywords: string[] = [];
+  for (const target of targets) {
+    const keyword = target.keyword.normalize('NFKC').trim().replace(/\s+/gu, ' ');
+    if (!keyword) continue;
+    const identity = keyword.toLocaleLowerCase('en-US');
+    if (identities.has(identity)) continue;
+    identities.add(identity);
+    keywords.push(keyword);
+  }
+  return Sourcing1688TrendInputSchema.parse({ keywords }).keywords;
 }
 
 function normalizeSources(value: unknown): TrendCollectSource[] {

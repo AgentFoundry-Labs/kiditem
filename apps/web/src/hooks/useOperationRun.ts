@@ -78,11 +78,16 @@ export function useRetryBrowserOperationRun() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: operationsApi.retryBrowserRun,
-    onSuccess: (_response, runId) =>
-      Promise.all([
+    onSuccess: (replacementRun, runId) => {
+      queryClient.setQueryData(
+        queryKeys.operations.run(replacementRun.id),
+        replacementRun,
+      );
+      return Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.run(runId) }),
         queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() }),
-      ]),
+      ]);
+    },
   });
 }
 

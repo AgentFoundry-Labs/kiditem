@@ -111,6 +111,30 @@ describe('SourcingCollectionCoordinator', () => {
     expect(provider).not.toHaveBeenCalled();
   });
 
+  it('does not commit a provider result when the operation signal aborts after provider IO', async () => {
+    const collectionRepository = repository();
+    vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
+      kind: 'claimed',
+      permit,
+    });
+    const controller = new AbortController();
+    const provider = vi.fn(async () => {
+      controller.abort(new Error('operation_cancelled'));
+      return {
+        observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {},
+      };
+    });
+    const coordinator = new SourcingCollectionCoordinator(collectionRepository);
+
+    await expect(coordinator.execute({
+      ...request,
+      signal: controller.signal,
+    } as never, provider)).rejects.toThrow('operation_cancelled');
+
+    expect(provider).toHaveBeenCalledTimes(1);
+    expect(collectionRepository.commit).not.toHaveBeenCalled();
+  });
+
   it('uses only a pre-issued permit when an extension v2 commit requires one', async () => {
     const collectionRepository = repository();
     vi.mocked(collectionRepository.resumeAuthorizedRun).mockResolvedValue({

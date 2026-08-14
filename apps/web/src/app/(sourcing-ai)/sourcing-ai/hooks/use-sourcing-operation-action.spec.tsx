@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   retry: vi.fn(),
   run: undefined as unknown,
+  observedRunId: null as string | null,
   wake: vi.fn(),
 }));
 
@@ -21,7 +22,10 @@ vi.mock('@/hooks/useOperationRun', () => ({
   useStartOperation: () => ({ mutateAsync: mocks.start, isPending: false }),
   useCancelOperationRun: () => ({ mutateAsync: mocks.cancel, isPending: false }),
   useRetryBrowserOperationRun: () => ({ mutateAsync: mocks.retry, isPending: false }),
-  useOperationRun: () => ({ data: mocks.run, isLoading: false, isError: false }),
+  useOperationRun: (runId: string | null) => {
+    mocks.observedRunId = runId;
+    return { data: mocks.run, isLoading: false, isError: false };
+  },
 }));
 
 const RUN_A = '11111111-1111-4111-8111-111111111111';
@@ -92,6 +96,7 @@ describe('useSourcingOperationAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.run = undefined;
+    mocks.observedRunId = null;
     mocks.wake.mockResolvedValue(true);
   });
 
@@ -301,6 +306,7 @@ describe('useSourcingOperationAction', () => {
 
   it('cancels and retries only the latest owned run', async () => {
     mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
+    mocks.retry.mockResolvedValueOnce(operationRun(RUN_B, 'queued'));
     const client = makeClient();
     const { result } = renderHook(() => useSourcingOperationAction(options), {
       wrapper: wrapper(client),
@@ -314,5 +320,54 @@ describe('useSourcingOperationAction', () => {
 
     expect(mocks.cancel).toHaveBeenCalledWith(RUN_A);
     expect(mocks.retry).toHaveBeenCalledWith(RUN_A);
+  });
+
+  it('adopts the replacement run from one attention retry so polling leaves the old run', async () => {
+    mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
+    mocks.retry.mockResolvedValueOnce(operationRun(RUN_B, 'queued'));
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction(options), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.start();
+      await result.current.retryAttention();
+    });
+
+    expect(mocks.retry).toHaveBeenCalledTimes(1);
+    expect(mocks.retry).toHaveBeenCalledWith(RUN_A);
+    expect(result.current.runId).toBe(RUN_B);
+    expect(mocks.observedRunId).toBe(RUN_B);
+  });
+
+  it('does not let a stale attention retry replace a newer started run', async () => {
+    let resolveRetry!: (run: OperationRun) => void;
+    const retry = new Promise<OperationRun>((resolve) => {
+      resolveRetry = resolve;
+    });
+    mocks.start
+      .mockResolvedValueOnce(operationRun(RUN_A, 'queued'))
+      .mockResolvedValueOnce(operationRun(RUN_B, 'queued'));
+    mocks.retry.mockReturnValueOnce(retry);
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction(options), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await result.current.start();
+    });
+    const pendingRetry = result.current.retryAttention();
+    await act(async () => {
+      await result.current.start();
+    });
+    await act(async () => {
+      resolveRetry(operationRun('33333333-3333-4333-8333-333333333333', 'queued'));
+      await pendingRetry;
+    });
+
+    expect(result.current.runId).toBe(RUN_B);
+    expect(mocks.observedRunId).toBe(RUN_B);
   });
 });

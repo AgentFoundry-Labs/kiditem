@@ -239,8 +239,7 @@ function normalize1688OperationInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
     throw new Error("1688_operation_input_invalid");
   }
-  if (input.keywords === undefined) return [];
-  if (!Array.isArray(input.keywords) || input.keywords.length < 1 || input.keywords.length > 20) {
+  if (!Array.isArray(input.keywords) || input.keywords.length > 20) {
     throw new Error("1688_operation_input_invalid");
   }
   const keywords = input.keywords.map((value) => text(value, ""));
@@ -248,24 +247,6 @@ function normalize1688OperationInput(input) {
     throw new Error("1688_operation_input_invalid");
   }
   return keywords;
-}
-
-async function resolve1688OperationKeywords(operation) {
-  const config = await backendRequestConfig(operation.environmentId);
-  if (!config.ok) throw new Error("1688_operation_auth_unavailable");
-  assertOperationActive(operation);
-  const response = await config.request(`${config.apiBase}/sourcing/trend/1688-targets`, {
-    method: "GET",
-    headers: config.headers,
-    signal: operation.signal,
-  });
-  assertOperationActive(operation);
-  if (!response.ok) throw new Error(`1688_operation_targets_http_${response.status}`);
-  const body = await response.json().catch(() => ({}));
-  const keywords = Array.isArray(body?.targets)
-    ? body.targets.map((target) => text(target?.keyword, "")).filter(Boolean)
-    : [];
-  return [...new Set(keywords)].slice(0, 20);
 }
 
 function normalizeTiktokOperationInput(input) {
@@ -297,8 +278,7 @@ async function runSourcing1688TrendOperation(operation) {
     progressCurrent: 0,
     progressTotal: 1,
   });
-  let keywords = normalize1688OperationInput(operation.input);
-  if (keywords.length === 0) keywords = await resolve1688OperationKeywords(operation);
+  const keywords = normalize1688OperationInput(operation.input);
   if (keywords.length === 0) return operationResult("1688", 0, 0);
   const started = await trendCollector.start(
     keywords,

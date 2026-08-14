@@ -1,4 +1,4 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
 import {
   OPERATION_ATTEMPT_VERIFIER_PORT,
@@ -28,7 +28,6 @@ import {
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
 import { SourcingRecommendationService } from './sourcing-recommendation.service';
-import { TrendCollectService } from './trend-collect.service';
 
 const TREND_1688_OPERATION_KEY = 'sourcing.collect_1688_trends';
 const TIKTOK_CC_OPERATION_KEY = 'sourcing.collect_tiktok_cc_trends';
@@ -91,7 +90,6 @@ export class SourcingBrowserTrendOperationService {
     private readonly attemptVerifier: OperationAttemptVerifierPort,
     @Inject(SOURCING_COLLECTION_REPOSITORY_PORT)
     private readonly collections: SourcingCollectionRepositoryPort,
-    private readonly trends: TrendCollectService,
     private readonly recommendations: SourcingRecommendationService,
     @Inject(SOURCING_RECOMMENDATION_REPOSITORY_PORT)
     private readonly recommendationRuns: SourcingRecommendationRepositoryPort,
@@ -114,13 +112,12 @@ export class SourcingBrowserTrendOperationService {
       async (attempt, transaction) => {
         const operationInput = Sourcing1688TrendInputSchema.safeParse(attempt.input);
         if (!operationInput.success) {
-          throw new ConflictException('1688_browser_operation_input_mismatch');
+          // A run created before immutable target snapshots is invalid input,
+          // not a fence loss. The browser runtime can therefore report a
+          // deterministic terminal failure instead of waiting for its deadline.
+          throw new BadRequestException('1688_browser_operation_snapshot_required');
         }
-        const expectedKeywords = operationInput.data.keywords
-          ? normalizeKeywordSet(operationInput.data.keywords)
-          : normalizeKeywordSet(
-              (await this.trends.list1688Targets(input.organizationId)).map((target) => target.keyword),
-            );
+        const expectedKeywords = normalizeKeywordSet(operationInput.data.keywords);
         if (!sameKeywordSet(expectedKeywords, batch.keywords.map((item) => item.keyword))) {
           throw new ConflictException('1688_browser_operation_input_mismatch');
         }

@@ -23,6 +23,7 @@ import type {
   BrowserOperationClaim,
   BrowserOperationHeartbeatRequest,
   BrowserOperationReportRequest,
+  OperationRun,
 } from '@kiditem/shared/operations';
 
 @Injectable()
@@ -134,7 +135,7 @@ export class BrowserOperationRuntimeService {
     organizationId: string;
     runId: string;
     requestedByUserId: string;
-  }): Promise<void> {
+  }): Promise<OperationRun> {
     this.lifecycleGate.assertAccepting();
     const current = await this.repository.findRunById({
       organizationId: input.organizationId,
@@ -145,7 +146,7 @@ export class BrowserOperationRuntimeService {
       throw new BadRequestException('browser_operation_not_retryable');
     }
     this.lifecycleGate.assertAccepting();
-    await this.runner.start({
+    return this.runner.start({
       organizationId: input.organizationId,
       operationKey: current.operationKey,
       triggerSource: 'dashboard',
