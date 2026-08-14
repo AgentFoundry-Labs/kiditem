@@ -43,8 +43,9 @@ export const officialInteractionActivityRenderers: ReactActivityMessageRenderer<
   )),
 ];
 
-export function OfficialInteractionInterrupts() {
+export function OfficialInteractionInterrupts({ agentId }: { agentId: string }) {
   useInterrupt({
+    agentId,
     enabled: (event) => approvalFromInterrupt(event.value) !== null,
     render: ({ interrupt, event, resolve }) => {
       const approval = approvalFromInterrupt(interrupt ?? event.value);

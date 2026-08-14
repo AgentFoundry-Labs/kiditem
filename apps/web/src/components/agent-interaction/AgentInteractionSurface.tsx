@@ -166,7 +166,7 @@ function ReadyInteractionSurface({
         </p>
       ) : null}
       <SubmissionContext.Provider value={submissionContext}>
-        <OfficialInteractionInterrupts />
+        <OfficialInteractionInterrupts agentId={conversation.agentId} />
         <InteractionRegistration
           onSend={sendSuggestedReply}
           latestSuggestionMessageId={latestSuggestionMessageId}

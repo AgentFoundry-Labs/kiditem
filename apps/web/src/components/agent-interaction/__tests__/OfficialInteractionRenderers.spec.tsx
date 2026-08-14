@@ -120,10 +120,12 @@ describe('official durable interaction renderers', () => {
 
   it('uses the standard CopilotKit interrupt boundary for a parsed approval and keeps expiry disabled', async () => {
     const resolve = vi.fn().mockResolvedValue(undefined);
-    render(<OfficialInteractionInterrupts />);
+    render(<OfficialInteractionInterrupts agentId="operator" />);
     const config = interruptConfig.current as {
+      agentId: string;
       render: (props: Record<string, unknown>) => ReactElement;
     };
+    expect(config.agentId).toBe('operator');
     const card = config.render({
       event: { name: 'on_interrupt', value: { id: approval.approvalId, metadata: { approval } } },
       interrupt: { id: approval.approvalId, metadata: { approval } },
