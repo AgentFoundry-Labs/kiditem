@@ -166,7 +166,12 @@ export class SourcingShadowSignalService {
       : await this.snapshots.claimDaily(claimInput);
     if (!claim.claimed) return { claimed: false, snapshot: claim.row };
 
-    await checkpointShadowCollection(controls);
+    await this.checkpointClaimOrAbandon(
+      controls,
+      organizationId,
+      businessDate,
+      claim.row,
+    );
 
     const linkfoxRequest = linkfoxPilot.status === 'armed' && this.linkfox
       ? this.linkfox.fetchNewProductRank({
@@ -266,17 +271,73 @@ export class SourcingShadowSignalService {
       now,
       errors,
     });
-    await checkpointShadowCollection(controls);
+    await this.checkpointClaimOrAbandon(
+      controls,
+      organizationId,
+      businessDate,
+      claim.row,
+    );
     const finalizeInput = {
       organizationId,
       businessDate,
       payload,
     };
-    const snapshot = controls.withinActiveOperationAttemptFence
-      ? await controls.withinActiveOperationAttemptFence((transaction) =>
-        this.snapshots.finalizeDailyInAttempt(transaction, finalizeInput))
-      : await this.snapshots.finalizeDaily(finalizeInput);
+    const snapshot = await this.finalizeClaimedSnapshot(
+      controls,
+      claim.row,
+      finalizeInput,
+    );
     return { claimed: true, snapshot };
+  }
+
+  private async checkpointClaimOrAbandon(
+    controls: MarketShadowCollectionControls,
+    organizationId: string,
+    businessDate: Date,
+    claim: MarketShadowSnapshotRow,
+  ): Promise<void> {
+    try {
+      await checkpointShadowCollection(controls);
+    } catch (error) {
+      await this.abandonClaim(organizationId, businessDate, claim);
+      throw error;
+    }
+  }
+
+  private async finalizeClaimedSnapshot(
+    controls: MarketShadowCollectionControls,
+    claim: MarketShadowSnapshotRow,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotRow> {
+    if (!controls.withinActiveOperationAttemptFence) {
+      return this.snapshots.finalizeDaily(input);
+    }
+
+    try {
+      return await controls.withinActiveOperationAttemptFence((transaction) =>
+        this.snapshots.finalizeDailyInAttempt(transaction, input));
+    } catch (error) {
+      // A transaction may reject after the callback and roll its terminal
+      // update back. The exact collecting predicate keeps a committed result.
+      await this.abandonClaim(input.organizationId, input.businessDate, claim);
+      throw error;
+    }
+  }
+
+  private async abandonClaim(
+    organizationId: string,
+    businessDate: Date,
+    claim: MarketShadowSnapshotRow,
+  ): Promise<void> {
+    await this.snapshots.abandonDailyClaim({
+      organizationId,
+      businessDate,
+      snapshotId: claim.id,
+    });
   }
 
   async listRecent(

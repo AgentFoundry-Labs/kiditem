@@ -38,6 +38,16 @@ export interface MarketShadowSnapshotRepositoryPort {
     payload: Record<string, unknown>;
   }): Promise<MarketShadowSnapshotClaimResult>;
 
+  /**
+   * Releases only the exact collecting marker claimed by a fenced operation
+   * that lost its attempt before it could publish a terminal snapshot.
+   */
+  abandonDailyClaim(input: {
+    organizationId: string;
+    businessDate: Date;
+    snapshotId: string;
+  }): Promise<0 | 1>;
+
   finalizeDailyInAttempt(
     transaction: ActiveOperationAttemptTransaction,
     input: {

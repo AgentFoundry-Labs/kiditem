@@ -80,12 +80,23 @@ describe('agent definition registry', () => {
       ]),
     );
     expect(sourcing?.defaultToolPolicies.map((policy) => policy.toolKey)).toEqual([
+      'market.collect_shadow_signals',
       'sourcing.retrieveWorkspaceEvidence',
       'sourcing.inspectRecommendationRun',
       'sourcing.refreshCollection',
       'sourcing.refreshValidation',
       'sourcing.scrapeUrlWorkflow',
     ]);
+    expect(
+      sourcing?.defaultToolPolicies.find(
+        (policy) => policy.toolKey === 'market.collect_shadow_signals',
+      ),
+    ).toMatchObject({
+      effect: 'allow',
+      approvalMode: 'none',
+      dryRunMode: 'optional',
+      constraints: {},
+    });
     expect(
       sourcing?.defaultToolPolicies.find(
         (policy) => policy.toolKey === 'sourcing.scrapeUrlWorkflow',

@@ -47,50 +47,75 @@ export class MarketShadowSnapshotRepositoryAdapter
       payload: Record<string, unknown>;
     },
   ): Promise<MarketShadowSnapshotClaimResult> {
-      const lockKey = [
-        MARKET_SHADOW_SNAPSHOT_SCOPE,
-        input.organizationId,
-        input.businessDate.toISOString().slice(0, 10),
-      ].join(':');
+    await lockDailySnapshot(tx, input.organizationId, input.businessDate);
 
-      await tx.$queryRaw<Array<{ lock: string }>>`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-        FROM (SELECT ${input.organizationId}::uuid AS organization_id) AS tenant
-        WHERE organization_id = ${input.organizationId}::uuid
-      `;
-
-      const existing = await tx.sourcingWorkspaceSnapshot.findUnique({
-        where: {
-          organizationId_scope_businessDate_projectionVersion_inputHash: {
-            organizationId: input.organizationId,
-            scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
-            businessDate: input.businessDate,
-            projectionVersion: 'legacy',
-            inputHash: '',
-          },
-        },
-      });
-      if (existing) {
-        return {
-          claimed: false,
-          row: toRow(existing),
-        };
-      }
-
-      const created = await tx.sourcingWorkspaceSnapshot.create({
-        data: {
+    const existing = await tx.sourcingWorkspaceSnapshot.findUnique({
+      where: {
+        organizationId_scope_businessDate_projectionVersion_inputHash: {
           organizationId: input.organizationId,
           scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
           businessDate: input.businessDate,
           projectionVersion: 'legacy',
           inputHash: '',
-          payload: toInputJsonObject(input.payload),
         },
-      });
+      },
+    });
+    if (existing) {
       return {
-        claimed: true,
-        row: toRow(created),
+        claimed: false,
+        row: toRow(existing),
       };
+    }
+
+    const created = await tx.sourcingWorkspaceSnapshot.create({
+      data: {
+        organizationId: input.organizationId,
+        scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        businessDate: input.businessDate,
+        projectionVersion: 'legacy',
+        inputHash: '',
+        payload: toInputJsonObject(input.payload),
+      },
+    });
+    return {
+      claimed: true,
+      row: toRow(created),
+    };
+  }
+
+  async abandonDailyClaim(input: {
+    organizationId: string;
+    businessDate: Date;
+    snapshotId: string;
+  }): Promise<0 | 1> {
+    return this.prisma.$transaction((tx) =>
+      this.abandonDailyClaimTx(tx, input));
+  }
+
+  private async abandonDailyClaimTx(
+    tx: SnapshotTransaction,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      snapshotId: string;
+    },
+  ): Promise<0 | 1> {
+    await lockDailySnapshot(tx, input.organizationId, input.businessDate);
+    const result = await tx.sourcingWorkspaceSnapshot.deleteMany({
+      where: {
+        id: input.snapshotId,
+        organizationId: input.organizationId,
+        scope: MARKET_SHADOW_SNAPSHOT_SCOPE,
+        businessDate: input.businessDate,
+        projectionVersion: 'legacy',
+        inputHash: '',
+        payload: {
+          path: ['result', 'status'],
+          equals: 'collecting',
+        },
+      },
+    });
+    return result.count === 1 ? 1 : 0;
   }
 
   async finalizeDaily(input: {
@@ -175,10 +200,32 @@ export class MarketShadowSnapshotRepositoryAdapter
       orderBy: {
         businessDate: 'desc',
       },
-      take: input.limit,
+      // One active marker can occupy the newest slot while a run is fenced.
+      take: input.limit + 1,
     });
-    return rows.map(toRow);
+    return rows
+      .map(toRow)
+      .filter((row) => !isCollectingMarker(row.payload))
+      .slice(0, input.limit);
   }
+}
+
+async function lockDailySnapshot(
+  tx: Pick<PrismaService, '$queryRaw'>,
+  organizationId: string,
+  businessDate: Date,
+): Promise<void> {
+  const lockKey = [
+    MARKET_SHADOW_SNAPSHOT_SCOPE,
+    organizationId,
+    businessDate.toISOString().slice(0, 10),
+  ].join(':');
+
+  await tx.$queryRaw<Array<{ lock: string }>>`
+    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
+    FROM (SELECT ${organizationId}::uuid AS organization_id) AS tenant
+    WHERE organization_id = ${organizationId}::uuid
+  `;
 }
 
 function asTransaction(
@@ -246,4 +293,14 @@ function jsonRecord(value: Prisma.JsonValue): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function isCollectingMarker(payload: Record<string, unknown>): boolean {
+  const result = payload.result;
+  return Boolean(
+    result
+      && typeof result === 'object'
+      && !Array.isArray(result)
+      && (result as Record<string, unknown>).status === 'collecting',
+  );
 }

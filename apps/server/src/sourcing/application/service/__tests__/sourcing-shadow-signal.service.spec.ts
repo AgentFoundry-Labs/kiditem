@@ -176,6 +176,8 @@ describe('SourcingShadowSignalService', () => {
 
   it('does not finalize a canonical snapshot when cancellation occurs after the provider resolves', async () => {
     const controller = new AbortController();
+    const abandonDailyClaim = vi.mocked(snapshots.abandonDailyClaim);
+    abandonDailyClaim.mockResolvedValue(1);
     vi.mocked(provider.fetchTrending).mockImplementation(async () => {
       controller.abort(new Error('operation_cancelled'));
       return {
@@ -191,12 +193,100 @@ describe('SourcingShadowSignalService', () => {
       {
         signal: controller.signal,
         checkpoint: vi.fn(async () => undefined),
-        commitWithinActiveOperationAttempt: vi.fn(async (commit) => commit({})),
+        withinActiveOperationAttemptFence: vi.fn(async (commit) => commit({})),
       },
     )).rejects.toThrow('operation_cancelled');
 
     expect(snapshots.finalizeDailyInAttempt).not.toHaveBeenCalled();
     expect(snapshots.finalizeDaily).not.toHaveBeenCalled();
+    expect(abandonDailyClaim).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'snapshot-1',
+    });
+  });
+
+  it('abandons only the claimed collecting marker when the final active fence is lost, so a later explicit operation can claim', async () => {
+    let marker: MarketShadowSnapshotRow | null = null;
+    let nextMarkerId = 1;
+    type StagedAttemptTransaction = {
+      stagedFinalPayload?: Record<string, unknown>;
+    };
+    const publishedSnapshots: Record<string, unknown>[] = [];
+    const abandonDailyClaim = vi.mocked(snapshots.abandonDailyClaim);
+    abandonDailyClaim.mockImplementation(async (input: {
+      organizationId: string;
+      businessDate: Date;
+      snapshotId: string;
+    }) => {
+      const isExactCollectingMarker = marker
+        && marker.id === input.snapshotId
+        && marker.organizationId === input.organizationId
+        && marker.businessDate.getTime() === input.businessDate.getTime()
+        && (marker.payload.result as { status?: string } | undefined)?.status
+          === 'collecting';
+      if (!isExactCollectingMarker) return 0 as const;
+      marker = null;
+      return 1 as const;
+    });
+    vi.mocked(snapshots.claimDailyInAttempt).mockImplementation(async (_transaction, input) => {
+      if (marker) return { claimed: false, row: marker };
+      marker = {
+        ...row(input.payload),
+        id: `marker-${nextMarkerId++}`,
+      };
+      return { claimed: true, row: marker };
+    });
+    vi.mocked(snapshots.finalizeDailyInAttempt).mockImplementation(
+      async (transaction, input) => {
+        (transaction as StagedAttemptTransaction).stagedFinalPayload = input.payload;
+        return row(input.payload);
+      },
+    );
+
+    let fenceCalls = 0;
+    const losingFence = vi.fn(async (
+      commit: (transaction: StagedAttemptTransaction) => Promise<unknown>,
+    ) => {
+      fenceCalls += 1;
+      const transaction: StagedAttemptTransaction = {};
+      const result = await commit(transaction);
+      if (fenceCalls === 1) return result;
+      throw new Error('operation_attempt_fence_lost');
+    });
+
+    await expect(service.collect(ORGANIZATION_ID, NOW, {
+      withinActiveOperationAttemptFence: losingFence,
+    })).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(provider.fetchTrending).toHaveBeenCalledTimes(1);
+    expect(snapshots.finalizeDailyInAttempt).toHaveBeenCalledTimes(1);
+    expect(publishedSnapshots).toEqual([]);
+    expect(abandonDailyClaim).toHaveBeenCalledTimes(1);
+    expect(abandonDailyClaim).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      businessDate: BUSINESS_DATE,
+      snapshotId: 'marker-1',
+    });
+    expect(marker).toBeNull();
+    expect(snapshots.claimDailyInAttempt).toHaveBeenCalledTimes(1);
+
+    const laterExplicitOperation = await service.collect(ORGANIZATION_ID, NOW, {
+      withinActiveOperationAttemptFence: vi.fn(async (commit) => {
+        const transaction: StagedAttemptTransaction = {};
+        const result = await commit(transaction);
+        if (transaction.stagedFinalPayload) {
+          publishedSnapshots.push(transaction.stagedFinalPayload);
+        }
+        return result;
+      }),
+    });
+
+    expect(laterExplicitOperation.claimed).toBe(true);
+    expect(snapshots.claimDailyInAttempt).toHaveBeenCalledTimes(2);
+    expect(snapshots.finalizeDailyInAttempt).toHaveBeenCalledTimes(2);
+    expect(publishedSnapshots).toHaveLength(1);
+    expect(abandonDailyClaim).toHaveBeenCalledTimes(1);
   });
 
   it('finalizes a partial snapshot and redacts secrets when Google fails', async () => {
@@ -214,6 +304,7 @@ describe('SourcingShadowSignalService', () => {
       source: 'google-trends-rss',
       message: 'Authorization=[REDACTED] upstream failed',
     }]);
+    expect(snapshots.abandonDailyClaim).not.toHaveBeenCalled();
   });
 
   it('clamps recent reads to a 30-day KST business-date window', async () => {
@@ -361,6 +452,7 @@ function snapshotRepository(): MarketShadowSnapshotRepositoryPort {
       claimed: true,
       row: row(input.payload),
     })),
+    abandonDailyClaim: vi.fn(async () => 1 as const),
     finalizeDailyInAttempt: vi.fn(async (_transaction, input) => row(input.payload)),
     finalizeDaily: vi.fn(async (input) => row(input.payload)),
     listRecent: vi.fn(async () => []),

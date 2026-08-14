@@ -29,6 +29,7 @@ type AgentDefinitionSeed = Omit<
 
 const SOURCING_TOOL_POLICIES: AgentDefinitionToolPolicyRecord[] = [
   ...[
+    'market.collect_shadow_signals',
     'sourcing.retrieveWorkspaceEvidence',
     'sourcing.inspectRecommendationRun',
     'sourcing.refreshCollection',

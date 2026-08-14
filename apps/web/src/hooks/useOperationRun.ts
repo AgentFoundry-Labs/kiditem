@@ -1,6 +1,11 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryKey,
+} from '@tanstack/react-query';
 import type {
   OperationRun,
   UpsertOperationScheduleRequest,
@@ -83,12 +88,17 @@ export function useRetryBrowserOperationRun() {
         queryKeys.operations.run(replacementRun.id),
         replacementRun,
       );
-      return Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.operations.run(runId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() }),
-      ]);
+      invalidateAfterRetry(queryClient, queryKeys.operations.run(runId));
+      invalidateAfterRetry(queryClient, queryKeys.operations.runs());
     },
   });
+}
+
+function invalidateAfterRetry(
+  queryClient: ReturnType<typeof useQueryClient>,
+  queryKey: QueryKey,
+) {
+  void queryClient.invalidateQueries({ queryKey }).catch(() => undefined);
 }
 
 export function useUpsertOperationSchedule() {
