@@ -2,6 +2,7 @@
 // (`CoupangWingTrackedProduct`, `CoupangWingTrackedProductDailySnapshot`).
 // WingTrackedProductService depends on this contract; the Prisma-backed adapter
 // lives in `adapter/out/repository/wing-tracked-product.repository.adapter.ts`.
+import type { ActiveBrowserAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
 
 export const WING_TRACKED_PRODUCT_REPOSITORY_PORT = Symbol(
   'WingTrackedProductRepositoryPort',
@@ -92,6 +93,12 @@ export interface WingTrackedProductRepositoryPort {
     rows: UpsertWingSnapshotByProductIdInput[],
     organizationId: string,
   ): Promise<number>;
+  /** Browser owner publication under the Operations-owned active-attempt transaction. */
+  upsertSnapshotsByProductIdInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    rows: UpsertWingSnapshotByProductIdInput[],
+    organizationId: string,
+  ): Promise<{ captured: number; ignored: number }>;
   /** 한 추적상품(id, org 스코프)의 최근 days 일 스냅샷 — businessDate asc. */
   findHistory(
     id: string,

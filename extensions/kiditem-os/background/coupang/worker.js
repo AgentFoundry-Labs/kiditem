@@ -4630,6 +4630,9 @@ const SOURCING_WING_CATALOG_OPERATION_KEY =
   "sourcing.collect_wing_catalog_batch";
 const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
 const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
+const ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION_KEY =
+  "advertising.refresh_tracked_wing_products";
+const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_IDS = 200;
 
 function parseSourcingWingCatalogOperationInput(input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) {
@@ -4660,6 +4663,56 @@ function parseSourcingWingCatalogOperationInput(input) {
     100,
   );
   return { keywords, maxPages: input.maxPages, purpose: input.purpose };
+}
+
+function parseAdvertisingTrackedWingProductsOperationInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("tracked_wing_operation_input_invalid");
+  }
+  if (
+    !Array.isArray(input.keywords) ||
+    input.keywords.length < 1 ||
+    input.keywords.length > SOURCING_WING_CATALOG_MAX_KEYWORDS ||
+    !Number.isInteger(input.maxPages) ||
+    input.maxPages < 1 ||
+    input.maxPages > WING_CATALOG_MAX_PAGES ||
+    input.purpose !== "tracked_metrics" ||
+    !Array.isArray(input.trackedProductIds) ||
+    input.trackedProductIds.length < 1 ||
+    input.trackedProductIds.length > ADVERTISING_TRACKED_WING_PRODUCTS_MAX_IDS ||
+    Object.keys(input).some(
+      (key) =>
+        !["keywords", "maxPages", "purpose", "trackedProductIds"].includes(
+          key,
+        ),
+    )
+  ) {
+    throw new Error("tracked_wing_operation_input_invalid");
+  }
+  const keywords = KidItemWingKeywordContract.parseBatchKeywords(
+    input.keywords,
+    SOURCING_WING_CATALOG_MAX_KEYWORDS,
+    100,
+  );
+  const trackedProductIds = input.trackedProductIds.map((productId) => {
+    if (typeof productId !== "string") {
+      throw new Error("tracked_wing_operation_input_invalid");
+    }
+    const value = productId.trim();
+    if (!value || value.length > 200) {
+      throw new Error("tracked_wing_operation_input_invalid");
+    }
+    return value;
+  });
+  if (new Set(trackedProductIds).size !== trackedProductIds.length) {
+    throw new Error("tracked_wing_operation_input_invalid");
+  }
+  return {
+    keywords,
+    maxPages: input.maxPages,
+    purpose: input.purpose,
+    trackedProductIds,
+  };
 }
 
 function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
@@ -4701,6 +4754,28 @@ function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
         : String(row.deliveryInfo).slice(0, 1000),
     sourceKeyword,
     capturedAt,
+  };
+}
+
+function toAdvertisingTrackedWingSnapshot(row, sourceKeyword) {
+  return {
+    productId: String(row.productId),
+    sourceKeyword,
+    salePriceKrw: wingOperationBoundedInteger(row.salePrice),
+    ratingCount: wingOperationBoundedInteger(row.ratingCount),
+    ratingAverage: wingOperationBoundedNumber(row.rating, 0, 5),
+    pvLast28Day: wingOperationBoundedInteger(row.pvLast28Day),
+    salesLast28d: wingOperationBoundedInteger(row.salesLast28d),
+    estimatedRevenue28d: wingOperationBoundedNumber(
+      row.estimatedRevenue28d,
+      0,
+      2147483647,
+    ),
+    conversionRate28d: wingOperationBoundedNumber(
+      row.conversionRate28d,
+      0,
+      1,
+    ),
   };
 }
 
@@ -4984,6 +5059,241 @@ async function runSourcingWingCatalogOperation(operation) {
     }
     // Abort cleanup is owned by the runtime, which cancels the exact session
     // and closes its managed tab before suppressing the stale report.
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      !terminalSession
+    ) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+    }
+  }
+}
+
+async function ensureAdvertisingTrackedWingOperationSession(operation, input) {
+  const existing = await collectionSessions.getOwned(
+    operation.runId,
+    operation.environmentId,
+  );
+  if (existing) {
+    if (
+      existing.producer !== "advertising.wing_tracked_products" ||
+      existing.status !== "running"
+    ) {
+      throw new Error("tracked_wing_operation_session_invalid");
+    }
+    return existing;
+  }
+  return collectionSessions.start({
+    runId: operation.runId,
+    environmentId: operation.environmentId,
+    producer: "advertising.wing_tracked_products",
+    classification: "background_preferred",
+    restartStrategy: "extension",
+    inputIdentity: {
+      purpose: input.purpose,
+      keywordCount: input.keywords.length,
+      trackedProductCount: input.trackedProductIds.length,
+      maxPages: input.maxPages,
+      startedAt: Date.now(),
+    },
+  });
+}
+
+async function runAdvertisingTrackedWingProductsOperation(operation) {
+  const input = parseAdvertisingTrackedWingProductsOperationInput(
+    operation.input,
+  );
+  await ensureAdvertisingTrackedWingOperationSession(operation, input);
+  operation.signal?.throwIfAborted?.();
+  const trackedProductIds = new Set(input.trackedProductIds);
+  const keywordResults = [];
+  let collectionTabId;
+  let keepAttentionTab = false;
+  let terminalSession = false;
+  let fenceLost = false;
+
+  try {
+    for (let index = 0; index < input.keywords.length; index += 1) {
+      const keyword = input.keywords[index];
+      await operation.heartbeat({
+        progress: index / input.keywords.length,
+        stage: "collecting_keyword",
+        progressCurrent: index,
+        progressTotal: input.keywords.length,
+      });
+      operation.signal?.throwIfAborted?.();
+
+      let search;
+      try {
+        search = await searchWingCatalogProducts({
+          keyword,
+          maxPages: input.maxPages,
+          collectionRunId: operation.runId,
+          ...(Number.isInteger(collectionTabId) ? { collectionTabId } : {}),
+          environmentId: operation.environmentId,
+          signal: operation.signal,
+        });
+      } catch (error) {
+        if (operation.signal?.aborted) throw operation.signal.reason || error;
+        keywordResults.push({
+          keyword,
+          outcome: "failed",
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          failed: 1,
+          errorCode: "tracked_wing_keyword_failed",
+        });
+        await operation.heartbeat({
+          progress: (index + 1) / input.keywords.length,
+          stage: "collecting_keyword",
+          progressCurrent: index + 1,
+          progressTotal: input.keywords.length,
+        });
+        continue;
+      }
+
+      if (Number.isInteger(search?.tabId)) collectionTabId = search.tabId;
+      if (search?.attentionRequired) {
+        keepAttentionTab = true;
+        return {
+          status: "attention_required",
+          attentionReason: "marketplace_login",
+        };
+      }
+      if (!search?.success) {
+        keywordResults.push({
+          keyword,
+          outcome: "failed",
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          failed: 1,
+          errorCode: "tracked_wing_keyword_failed",
+        });
+        await operation.heartbeat({
+          progress: (index + 1) / input.keywords.length,
+          stage: "collecting_keyword",
+          progressCurrent: index + 1,
+          progressTotal: input.keywords.length,
+        });
+        continue;
+      }
+
+      operation.signal?.throwIfAborted?.();
+      const items = (Array.isArray(search.rows) ? search.rows : [])
+        .slice(0, SOURCING_WING_CATALOG_MAX_ITEMS)
+        .filter(
+          (row) =>
+            row &&
+            row.productId != null &&
+            trackedProductIds.has(String(row.productId)),
+        )
+        .map((row) => toAdvertisingTrackedWingSnapshot(row, keyword));
+      const ingest = await requestSourcingWingOperation(
+        operation,
+        `/api/ads/wing-tracked-products/browser-operations/${encodeURIComponent(operation.runId)}/snapshots`,
+        { items },
+      );
+      const accepted = Math.max(0, Number(ingest?.captured) || 0);
+      const ignored = Math.max(0, Number(ingest?.ignored) || 0);
+      keywordResults.push({
+        keyword,
+        outcome: accepted > 0 ? "complete" : "no_change",
+        discovered: items.length,
+        accepted,
+        duplicate: 0,
+        failed: 0,
+      });
+      await collectionSessions.progress(operation.runId, {
+        current: index + 1,
+        total: input.keywords.length,
+        completed: keywordResults.filter((result) => result.failed === 0).length,
+        failed: keywordResults.filter((result) => result.failed > 0).length,
+        label: ignored > 0 ? `${keyword} (${ignored} ignored)` : keyword,
+      });
+      await operation.heartbeat({
+        progress: (index + 1) / input.keywords.length,
+        stage: "collecting_keyword",
+        progressCurrent: index + 1,
+        progressTotal: input.keywords.length,
+      });
+    }
+
+    operation.signal?.throwIfAborted?.();
+    const discovered = keywordResults.reduce(
+      (total, result) => total + result.discovered,
+      0,
+    );
+    const accepted = keywordResults.reduce(
+      (total, result) => total + result.accepted,
+      0,
+    );
+    const failed = keywordResults.reduce(
+      (total, result) => total + result.failed,
+      0,
+    );
+    if (failed === keywordResults.length) {
+      await collectionSessions.fail(operation.runId);
+      terminalSession = true;
+      return {
+        status: "failed",
+        errorCode: "tracked_wing_all_keywords_failed",
+        errorMessage: "Tracked Wing collection failed for every keyword.",
+      };
+    }
+    const outcome = failed > 0
+      ? "partial"
+      : accepted === 0
+        ? "no_change"
+        : "complete";
+    await collectionSessions.succeed(operation.runId);
+    terminalSession = true;
+    return {
+      status: "succeeded",
+      result: {
+        outcome,
+        summary: {
+          discovered,
+          accepted,
+          duplicate: 0,
+          unchanged: Math.max(0, discovered - accepted),
+          failed,
+        },
+        sources: [
+          {
+            source: "tracked_wing_products",
+            outcome,
+            accepted,
+            failed,
+            ...(failed > 0 ? { errorCode: "tracked_wing_keyword_failed" } : {}),
+          },
+        ],
+        keywords: keywordResults,
+        snapshotGeneratedAt: new Date().toISOString(),
+      },
+    };
+  } catch (error) {
+    fenceLost =
+      error?.status === 409 || error?.message === "operation_runtime_fence_lost";
+    if (!operation.signal?.aborted && !fenceLost) {
+      await collectionSessions.fail(operation.runId).catch(() => undefined);
+      terminalSession = true;
+    }
+    throw error;
+  } finally {
+    if (
+      !operation.signal?.aborted &&
+      !fenceLost &&
+      !keepAttentionTab &&
+      Number.isInteger(collectionTabId)
+    ) {
+      await collectionSessions.detachTab(operation.runId, {
+        tabId: collectionTabId,
+        closeManagedTab: true,
+      }).catch(() => undefined);
+    }
     if (
       !operation.signal?.aborted &&
       !fenceLost &&
@@ -5297,6 +5607,7 @@ KidItemDomains.register({
   },
   operations: {
     "advertising.refresh_profitability_spend": runAdvertisingProfitabilityOperation,
+    "advertising.refresh_tracked_wing_products": runAdvertisingTrackedWingProductsOperation,
     "sourcing.collect_wing_catalog_batch": runSourcingWingCatalogOperation,
   },
   capabilities: {

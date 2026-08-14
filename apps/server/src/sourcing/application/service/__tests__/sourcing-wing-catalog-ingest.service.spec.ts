@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { SourcingWingCatalogIngestService } from '../sourcing-wing-catalog-ingest.service';
 import type { SourcingCollectionCoordinator } from '../sourcing-collection-coordinator.service';
 import type { SourcingRecommendationService } from '../sourcing-recommendation.service';
+import type { SourcingValidationService } from '../sourcing-validation.service';
 import type { OperationAttemptVerifierPort } from '../../../../operations/application/port/in/operation-attempt-verifier.port';
 import type { SourcingRecommendationSourceRepositoryPort } from '../../port/out/repository/sourcing-recommendation-source.repository.port';
 import type { SourcingRecommendationRepositoryPort } from '../../port/out/repository/sourcing-recommendation.repository.port';
@@ -41,6 +42,12 @@ function recommendationRuns(): SourcingRecommendationRepositoryPort {
     createOrGet: vi.fn(),
     publishStagedRunInAttempt: vi.fn(async () => 'published'),
   } as unknown as SourcingRecommendationRepositoryPort;
+}
+
+function validations(): SourcingValidationService {
+  return {
+    refreshForRun: vi.fn(async () => ({ status: 'ready' })),
+  } as unknown as SourcingValidationService;
 }
 
 function sources(
@@ -145,7 +152,9 @@ function durableFinalizeRepository() {
   };
 }
 
-function finalizationInput(purpose: 'catalog_search' | 'recommendation_validation') {
+function finalizationInput(
+  purpose: 'catalog_search' | 'market_analysis' | 'recommendation_validation',
+) {
   return {
     organizationId: ORGANIZATION_ID,
     operationRunId: RUN_ID,
@@ -201,6 +210,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       durableFinalizeRepository() as never,
       recommendationRuns(),
+      validations(),
     );
 
     await service.ingest({
@@ -282,6 +292,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     const browserBatchInput = {
@@ -365,6 +376,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
     const batch = {
       keyword: 'a pencil',
@@ -418,6 +430,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     await expect(firstService.finalizeBrowserOperation(
@@ -438,6 +451,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     await expect(resumedService.finalizeBrowserOperation(
@@ -479,6 +493,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     const first = service.finalizeBrowserOperation(finalizationInput('recommendation_validation'));
@@ -497,6 +512,71 @@ describe('SourcingWingCatalogIngestService', () => {
     expect(repository.commitInAttempt).toHaveBeenCalledTimes(1);
   });
 
+  it('refreshes market and recommendation-validation owner projections exactly once before fenced publication', async () => {
+    const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
+    const recommendations = {
+      refresh: vi.fn(async () => ({
+        status: 'ready',
+        data: { runId: FINALIZE_MARKER_ID },
+      })),
+    } as unknown as SourcingRecommendationService;
+
+    const marketRepository = durableFinalizeRepository();
+    const marketValidation = validations();
+    const marketRuns = recommendationRuns();
+    const marketService = new SourcingWingCatalogIngestService(
+      coordinator,
+      recommendations,
+      verifier('market_analysis'),
+      sources(),
+      marketRepository as never,
+      marketRuns,
+      marketValidation,
+    );
+    await marketService.finalizeBrowserOperation(finalizationInput('market_analysis'));
+    await marketService.finalizeBrowserOperation(finalizationInput('market_analysis'));
+
+    expect(recommendations.refresh).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: `wing-operation:${RUN_ID}:market-refresh`,
+      deferPublication: true,
+    });
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+    expect(marketValidation.refreshForRun).not.toHaveBeenCalled();
+    expect(marketRuns.publishStagedRunInAttempt).toHaveBeenCalledTimes(1);
+
+    vi.mocked(recommendations.refresh).mockClear();
+    const validationRepository = durableFinalizeRepository();
+    const validationService = validations();
+    const validationRuns = recommendationRuns();
+    const validationWingService = new SourcingWingCatalogIngestService(
+      coordinator,
+      recommendations,
+      verifier('recommendation_validation'),
+      sources(),
+      validationRepository as never,
+      validationRuns,
+      validationService,
+    );
+    await validationWingService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    );
+    await validationWingService.finalizeBrowserOperation(
+      finalizationInput('recommendation_validation'),
+    );
+
+    expect(recommendations.refresh).toHaveBeenCalledTimes(1);
+    expect(validationService.refreshForRun).toHaveBeenCalledTimes(1);
+    expect(validationService.refreshForRun).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: FINALIZE_MARKER_ID,
+      limit: 50,
+    });
+    expect(validationRuns.publishStagedRunInAttempt).toHaveBeenCalledTimes(1);
+    expect(validationRepository.commitInAttempt).toHaveBeenCalledTimes(1);
+  });
+
   it('does not rerun a completed refresh and finalizes non-refresh purposes without refresh', async () => {
     const coordinator = { execute: vi.fn() } as unknown as SourcingCollectionCoordinator;
     const repository = durableFinalizeRepository();
@@ -513,6 +593,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     await recommendationService.finalizeBrowserOperation(
@@ -531,6 +612,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       noRefreshRepository as never,
       recommendationRuns(),
+      validations(),
     );
     await expect(noRefreshService.finalizeBrowserOperation(
       finalizationInput('catalog_search'),
@@ -548,6 +630,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sources(),
       repository as never,
       recommendationRuns(),
+      validations(),
     );
 
     await expect(service.finalizeBrowserOperation({
@@ -582,6 +665,7 @@ describe('SourcingWingCatalogIngestService', () => {
       sourceRepository,
       durableFinalizeRepository() as never,
       recommendationRuns(),
+      validations(),
     );
 
     await expect(service.snapshot({ organizationId: ORGANIZATION_ID, keyword: ' 슬라임 ' }))

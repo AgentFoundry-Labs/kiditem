@@ -1,15 +1,14 @@
 'use client';
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import Link from 'next/link';
-import { AlertCircle, BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
+import { BarChart3, CheckCircle2, Clock3, Loader2, PackageSearch, PlayCircle, TrendingUp } from 'lucide-react';
 import { cn, formatKRW, formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
 } from '../wing-catalog/lib/wing-catalog-extension';
 import { fetchPopularKeywordBoards } from '../market/lib/trend-collection-api';
 import { popularKeywordSuggestions } from '../lib/popular-keyword-suggestions';
@@ -20,11 +19,10 @@ import {
   type RecommendationGrade,
   type TodayRecommendationRow,
 } from '../recommendations/lib/today-recommendations';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import {
-  useIngestSourcingCoupangObservations,
-  useSourcingRecommendations,
-} from '../hooks/use-sourcing-workspace';
+import { useSourcingRecommendations } from '../hooks/use-sourcing-workspace';
+import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
 
 const MARKET_ANALYSIS_KEYWORD_LIMIT = 12;
 const MARKET_ANALYSIS_MAX_PAGES = 1;
@@ -32,12 +30,6 @@ const MARKET_ANALYSIS_MAX_PAGES = 1;
 interface SellochMarketAnalysisPageProps {
   compact?: boolean;
 }
-
-type MarketAnalysisProgress = {
-  current: number;
-  total: number;
-  keyword: string;
-};
 
 export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnalysisPageProps) {
   const recommendationsQuery = useSourcingRecommendations('today');
@@ -56,12 +48,22 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
     ),
     [popularKeywordsQuery.data],
   );
-  const ingestObservations = useIngestSourcingCoupangObservations();
-  const [isRunning, setIsRunning] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-  const [errors, setErrors] = useState<string[]>([]);
-  const [progress, setProgress] = useState<MarketAnalysisProgress>({ current: 0, total: 0, keyword: '' });
-  const cancelRef = useRef(false);
+  const [inputError, setInputError] = useState<string | null>(null);
+  const operationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(popularKeywords, MARKET_ANALYSIS_KEYWORD_LIMIT),
+    [popularKeywords],
+  );
+  const operationInput = useMemo(() => ({
+    keywords: operationKeywords,
+    maxPages: MARKET_ANALYSIS_MAX_PAGES,
+    purpose: 'market_analysis' as const,
+  }), [operationKeywords]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey: queryKeys.sourcing.all,
+  });
+  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
   const summary = buildRecommendationSummary(rows);
   const opportunities = buildRisingKeywordOpportunities(rows).slice(0, compact ? 4 : 8);
   const topProducts = sortMarketProducts(rows).slice(0, compact ? 8 : 24);
@@ -73,100 +75,31 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
   const priceBuckets = buildPriceBuckets(rows);
   const reviewBuckets = buildReviewBuckets(rows);
 
-  const runMarketAnalysis = useCallback(async () => {
+  const runMarketAnalysis = useCallback(() => {
     if (popularKeywordsQuery.isLoading) {
-      setErrors(['키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.']);
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
       return;
     }
     if (popularKeywordsQuery.error) {
-      setErrors(['키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.']);
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
       return;
     }
-
-    const keywords = popularKeywords;
-
-    if (keywords.length === 0) {
-      setNotice(null);
-      setErrors(['키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.']);
+    if (operationKeywords.length === 0) {
+      setInputError('키워드 분석에서 순위 갱신을 먼저 실행해야 시장분석 후보를 만들 수 있습니다.');
       return;
     }
-
-    cancelRef.current = false;
-    setIsRunning(true);
-    setNotice(null);
-    setErrors([]);
-    setProgress({ current: 0, total: keywords.length, keyword: '' });
-
-    const nextErrors: string[] = [];
-    let ingestedCount = 0;
-
-    for (let index = 0; index < keywords.length; index += 1) {
-      if (cancelRef.current) break;
-      const keyword = keywords[index];
-      setProgress({ current: index + 1, total: keywords.length, keyword });
-
-      try {
-        const response = await searchWingCatalogProducts({
-          keyword,
-          maxPages: MARKET_ANALYSIS_MAX_PAGES,
-        });
-        const capturedAt = new Date().toISOString();
-        const observations = (response.rows ?? []).map((product) => ({
-          productId: product.productId,
-          itemId: product.itemId,
-          vendorItemId: product.vendorItemId,
-          productName: product.productName,
-          sourceKeyword: keyword,
-          salePriceKrw: product.salePrice,
-          ratingCount: product.ratingCount,
-          ratingAverage: product.rating,
-          viewsLast28d: product.pvLast28Day,
-          salesLast28d: product.salesLast28d,
-          capturedAt,
-        }));
-        for (const items of chunk(observations, 100)) {
-          if (cancelRef.current) break;
-          await ingestObservations.mutateAsync({
-            idempotencyKey: createSecureRandomUuid(),
-            items,
-          });
-          ingestedCount += items.length;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        nextErrors.push(`${keyword}: ${message}`);
-        setErrors([...nextErrors]);
-        if (message.includes('확장프로그램') || message.includes('Wing 로그인')) break;
-      }
-
-      await sleep(700);
-    }
-
-    if (ingestedCount > 0) {
-      setNotice(`시장분석 후보 ${formatNumber(ingestedCount)}개를 오늘의 추천으로 보냈습니다.`);
-    } else if (!cancelRef.current && nextErrors.length === 0) {
-      setNotice('Wing 검증 결과로 추천할 상품이 아직 없습니다.');
-    }
-
-    setIsRunning(false);
-    setProgress((current) => ({ ...current, keyword: cancelRef.current ? '중단됨' : '완료' }));
-  }, [ingestObservations, popularKeywords, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
-
-  const cancelMarketAnalysis = useCallback(() => {
-    cancelRef.current = true;
-    setIsRunning(false);
-  }, []);
+    setInputError(null);
+    void operation.start();
+  }, [operation, operationKeywords.length, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
 
   if (rows.length === 0) {
     return (
       <EmptyMarketState
         compact={compact}
-        errors={errors}
+        inputError={inputError}
         isRunning={isRunning}
-        notice={notice}
-        onCancel={cancelMarketAnalysis}
+        operation={operation}
         onRun={runMarketAnalysis}
-        progress={progress}
       />
     );
   }
@@ -205,7 +138,15 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
             </Link>
           </div>
         </div>
-        <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} />
+        {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
+        <SourcingOperationRunPanel
+          className="mt-4"
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         <div className="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
           <SummaryMetric icon={PackageSearch} label="분석 상품" value={`${formatNumber(summary.totalCandidates)}개`} caption="중복 제거 후" />
@@ -248,20 +189,16 @@ export function SellochMarketAnalysisPage({ compact = false }: SellochMarketAnal
 
 function EmptyMarketState({
   compact,
-  errors,
+  inputError,
   isRunning,
-  notice,
-  onCancel,
+  operation,
   onRun,
-  progress,
 }: {
   compact: boolean;
-  errors: string[];
+  inputError: string | null;
   isRunning: boolean;
-  notice: string | null;
-  onCancel: () => void;
+  operation: ReturnType<typeof useSourcingOperationAction>;
   onRun: () => void;
-  progress: MarketAnalysisProgress;
 }) {
   return (
     <section className="rounded-lg border border-[var(--border,#e2e8f0)] bg-[var(--surface,white)] p-8 text-center shadow-sm">
@@ -283,70 +220,26 @@ function EmptyMarketState({
             {isRunning ? <Loader2 size={16} className="animate-spin" /> : <PlayCircle size={16} />}
             시장분석 시작
           </button>
-          {isRunning ? (
-            <button
-              type="button"
-              onClick={onCancel}
-              className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)]"
-            >
-              중단
-            </button>
-          ) : (
+          {!isRunning ? (
             <Link
               href="/sourcing-ai/keywords"
               className="inline-flex h-11 items-center justify-center rounded-lg border border-[var(--border,#e2e8f0)] bg-white px-5 text-sm font-black text-[var(--text-secondary,#475569)] transition hover:border-[#ffb89f] hover:text-[#d94112]"
             >
               키워드 분석 확인
             </Link>
-          )}
+          ) : null}
         </div>
       )}
-      <MarketRunFeedback errors={errors} isRunning={isRunning} notice={notice} progress={progress} centered />
+      {inputError ? <p className="mt-4 text-sm font-bold text-red-700">{inputError}</p> : null}
+      <SourcingOperationRunPanel
+        className="mt-4 text-left"
+        run={operation.run}
+        onCancel={() => { void operation.cancel(); }}
+        onRetryAttention={() => { void operation.retryAttention(); }}
+        isCancelling={operation.isCancelling}
+        isRetrying={operation.isRetrying}
+      />
     </section>
-  );
-}
-
-function MarketRunFeedback({
-  centered = false,
-  errors,
-  isRunning,
-  notice,
-  progress,
-}: {
-  centered?: boolean;
-  errors: string[];
-  isRunning: boolean;
-  notice: string | null;
-  progress: MarketAnalysisProgress;
-}) {
-  if (!isRunning && !notice && errors.length === 0) return null;
-
-  return (
-    <div className={cn('mt-4 space-y-2 text-sm font-bold', centered && 'mx-auto max-w-xl text-left')}>
-      {isRunning && (
-        <div className="rounded-lg bg-[var(--surface-sunken,#f8fafc)] px-4 py-3 text-[var(--text-secondary,#475569)]">
-          <div className="flex items-center justify-between gap-3">
-            <span>{progress.keyword ? `${progress.keyword} 검증 중` : '시장분석 준비 중'}</span>
-            <span>{formatNumber(progress.current)} / {formatNumber(progress.total)}</span>
-          </div>
-          <div className="mt-2 h-2 overflow-hidden rounded-full bg-white">
-            <div
-              className="h-full rounded-full bg-[#ff5a1f]"
-              style={{ width: `${progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 8}%` }}
-            />
-          </div>
-        </div>
-      )}
-      {notice && (
-        <p className="rounded-lg bg-green-50 px-4 py-3 text-green-700">{notice}</p>
-      )}
-      {errors.slice(0, 3).map((error) => (
-        <p key={error} className="flex items-start gap-2 rounded-lg bg-red-50 px-4 py-3 text-red-700">
-          <AlertCircle size={16} className="mt-0.5 shrink-0" />
-          <span>{error}</span>
-        </p>
-      ))}
-    </div>
   );
 }
 
@@ -604,16 +497,10 @@ function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
   return row.salesLast3d;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, ms);
-  });
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let offset = 0; offset < items.length; offset += size) {
-    chunks.push(items.slice(offset, offset + size));
-  }
-  return chunks;
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }

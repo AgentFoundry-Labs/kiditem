@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, Query } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Headers, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { z } from 'zod';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   WingTrackedProductService,
@@ -40,19 +41,27 @@ export class WingTrackedProductController {
     );
   }
 
-  @Post('snapshots')
-  ingest(
+  @Post('browser-operations/:runId/snapshots')
+  ingestBrowserSnapshots(
+    @Param('runId', new ParseUUIDPipe()) runId: string,
+    @Headers('x-operation-attempt-token') rawAttemptToken: string | undefined,
     @Body() body: IngestWingSnapshotsDto,
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.service.ingestSnapshots(
-      body.items.map((item) => ({
+    const attemptToken = z.string().uuid().safeParse(rawAttemptToken);
+    if (!attemptToken.success) {
+      throw new BadRequestException('invalid_operation_attempt_token');
+    }
+    return this.service.ingestBrowserSnapshots({
+      organizationId,
+      operationRunId: runId,
+      attemptToken: attemptToken.data,
+      items: body.items.map((item) => ({
         productId: item.productId,
         sourceKeyword: item.sourceKeyword ?? null,
         ...metricsFromDto(item),
       })),
-      organizationId,
-    );
+    });
   }
 
   @Get('history')

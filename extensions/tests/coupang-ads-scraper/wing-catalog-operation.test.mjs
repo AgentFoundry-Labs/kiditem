@@ -133,7 +133,7 @@ function createHarness(options = {}) {
   });
   context.globalThis = context;
   vm.runInContext(
-    `${keywordContractSource}\n${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;`,
+    `${keywordContractSource}\n${operationSource()}\nglobalThis.runWingCatalogOperation = runSourcingWingCatalogOperation;\nglobalThis.runTrackedWingOperation = runAdvertisingTrackedWingProductsOperation;`,
     context,
   );
   const operation = {
@@ -159,6 +159,80 @@ test('registers only the exact Wing catalog browser operation key', () => {
     /"sourcing\.collect_wing_catalog_batch": runSourcingWingCatalogOperation/,
   );
   assert.doesNotMatch(source, /sourcing\.(?:generic|url|action).*runSourcingWingCatalogOperation/);
+});
+
+test('registers the exact Ads tracked-products browser operation without generic aliases', () => {
+  assert.match(
+    source,
+    /"advertising\.refresh_tracked_wing_products": runAdvertisingTrackedWingProductsOperation/,
+  );
+  assert.doesNotMatch(
+    source,
+    /advertising\.(?:generic|url|action).*runAdvertisingTrackedWingProductsOperation/,
+  );
+});
+
+test('tracked-products operation posts only matched rows to the token-fenced Ads sink and returns no rows', async () => {
+  const harness = createHarness({
+    search: async ({ keyword }) => ({
+      success: true,
+      tabId: 77,
+      rows: [row(keyword, 'wing-1'), row(keyword, 'outside-tracker')],
+    }),
+    fetchResponse: ({ path, body }) => {
+      assert.match(path, /\/api\/ads\/wing-tracked-products\/browser-operations\/.+\/snapshots$/);
+      return new Response(JSON.stringify({ captured: body.items.length, ignored: 0 }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  harness.operation.input = {
+    keywords: ['  Ａ   Pencil  ', '키워드'],
+    maxPages: 2,
+    purpose: 'tracked_metrics',
+    trackedProductIds: ['wing-1'],
+  };
+
+  const outcome = await harness.context.runTrackedWingOperation(harness.operation);
+
+  assert.equal(harness.searches.length, 2);
+  assert.equal(harness.sessionCalls.filter(([name]) => name === 'start').length, 1);
+  assert.deepEqual(harness.requests.map(({ body }) => body.items.map(({ productId }) => productId)), [
+    ['wing-1'],
+    ['wing-1'],
+  ]);
+  assert.ok(harness.requests.every(({ init }) =>
+    init.headers['x-operation-attempt-token'] === harness.operation.attemptToken));
+  assert.equal(outcome.status, 'succeeded');
+  assert.equal(outcome.result.outcome, 'complete');
+  assert.equal(outcome.result.summary.accepted, 2);
+  assert.equal(JSON.stringify(outcome).includes('A Pencil 상품'), false);
+});
+
+test('tracked-products operation reports all-failed and abort suppresses stale Ads writes', async () => {
+  const allFailed = createHarness({ search: async () => ({ success: false, error: 'boom' }) });
+  allFailed.operation.input = {
+    keywords: ['A', 'B'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'],
+  };
+  const failed = await allFailed.context.runTrackedWingOperation(allFailed.operation);
+  assert.equal(failed.status, 'failed');
+  assert.equal(allFailed.requests.length, 0);
+
+  const controller = new AbortController();
+  const aborted = createHarness({
+    search: async () => {
+      controller.abort(new Error('cancelled'));
+      return { success: true, tabId: 77, rows: [row('A', 'wing-1')] };
+    },
+  });
+  aborted.operation.signal = controller.signal;
+  aborted.operation.input = {
+    keywords: ['A', 'B'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'],
+  };
+  await assert.rejects(aborted.context.runTrackedWingOperation(aborted.operation), /cancelled/);
+  assert.equal(aborted.requests.length, 0);
+  assert.equal(aborted.searches.length, 1);
 });
 
 test('uses one focused keyword contract helper loaded before the Coupang worker', async () => {

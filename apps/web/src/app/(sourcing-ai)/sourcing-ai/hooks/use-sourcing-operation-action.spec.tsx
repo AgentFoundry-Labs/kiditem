@@ -216,6 +216,33 @@ describe('useSourcingOperationAction', () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(1));
   });
 
+  it('invalidates every owner snapshot key exactly once for the latest successful run', async () => {
+    mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
+    const client = makeClient();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+    const productKey = ['sourcing', 'wing-tracked-products'] as const;
+    const historyKey = ['sourcing', 'wing-tracked-products', 'history', 30] as const;
+    const view = renderHook(() => useSourcingOperationAction({
+      ...options,
+      snapshotQueryKeys: [productKey, historyKey],
+    }), {
+      wrapper: wrapper(client),
+    });
+
+    await act(async () => {
+      await view.result.current.start();
+    });
+    mocks.run = operationRun(RUN_A, 'succeeded');
+    view.rerender();
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledTimes(2));
+    expect(invalidate).toHaveBeenNthCalledWith(1, { queryKey: productKey });
+    expect(invalidate).toHaveBeenNthCalledWith(2, { queryKey: historyKey });
+
+    view.rerender();
+    expect(invalidate).toHaveBeenCalledTimes(2);
+  });
+
   it('cancels and retries only the latest owned run', async () => {
     mocks.start.mockResolvedValueOnce(operationRun(RUN_A, 'queued'));
     const client = makeClient();

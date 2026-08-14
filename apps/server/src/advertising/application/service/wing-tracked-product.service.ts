@@ -1,4 +1,12 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  AdvertisingTrackedWingProductsInputSchema,
+  sourcingWingCatalogKeywordIdentity,
+} from '@kiditem/shared/sourcing';
+import {
+  OPERATION_ATTEMPT_VERIFIER_PORT,
+  type OperationAttemptVerifierPort,
+} from '../../../operations/application/port/in/operation-attempt-verifier.port';
 import { currentBusinessDate } from '../../domain/business-date';
 import {
   WING_TRACKED_PRODUCT_REPOSITORY_PORT,
@@ -33,6 +41,8 @@ export class WingTrackedProductService {
   constructor(
     @Inject(WING_TRACKED_PRODUCT_REPOSITORY_PORT)
     private readonly repo: WingTrackedProductRepositoryPort,
+    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
+    private readonly attemptVerifier: OperationAttemptVerifierPort,
   ) {}
 
   list(organizationId: string): Promise<WingTrackedProductWithLatest[]> {
@@ -74,24 +84,48 @@ export class WingTrackedProductService {
     return rows.find((row) => row.id === tracker.id) ?? { ...tracker, latestSnapshot: null };
   }
 
-  /** 카탈로그 검색 결과 중 추적 중인 상품들의 오늘 지표를 스냅샷으로 적재. */
-  async ingestSnapshots(
-    items: IngestWingSnapshotItem[],
-    organizationId: string,
-  ): Promise<{ captured: number }> {
-    const capturedAt = new Date();
-    const businessDate = currentBusinessDate();
-    const captured = await this.repo.upsertSnapshotsByProductId(
-      items.map((item) => ({
-        productId: item.productId,
-        businessDate,
-        sourceKeyword: item.sourceKeyword ?? null,
-        capturedAt,
-        ...snapshotValues(item),
-      })),
-      organizationId,
-    );
-    return { captured };
+  async ingestBrowserSnapshots(input: {
+    organizationId: string;
+    operationRunId: string;
+    attemptToken: string;
+    items: IngestWingSnapshotItem[];
+  }): Promise<{ captured: number; ignored: number }> {
+    return this.attemptVerifier.withActiveBrowserAttemptFence({
+      organizationId: input.organizationId,
+      runId: input.operationRunId,
+      expectedOperationKey: 'advertising.refresh_tracked_wing_products',
+      attemptToken: input.attemptToken,
+    }, async (attempt, transaction) => {
+      const operationInput = AdvertisingTrackedWingProductsInputSchema.safeParse(
+        attempt.input,
+      );
+      if (!operationInput.success) {
+        throw new ConflictException('tracked_wing_operation_input_invalid');
+      }
+      const allowedProductIds = new Set(operationInput.data.trackedProductIds);
+      const allowedKeywords = new Set(
+        operationInput.data.keywords.map(sourcingWingCatalogKeywordIdentity),
+      );
+      if (input.items.some((item) =>
+        !allowedProductIds.has(item.productId)
+        || !item.sourceKeyword
+        || !allowedKeywords.has(sourcingWingCatalogKeywordIdentity(item.sourceKeyword)))) {
+        throw new ConflictException('tracked_wing_operation_input_mismatch');
+      }
+      const capturedAt = new Date();
+      const businessDate = currentBusinessDate();
+      return this.repo.upsertSnapshotsByProductIdInAttempt(
+        transaction,
+        input.items.map((item) => ({
+          productId: item.productId,
+          businessDate,
+          sourceKeyword: item.sourceKeyword ?? null,
+          capturedAt,
+          ...snapshotValues(item),
+        })),
+        input.organizationId,
+      );
+    });
   }
 
   async remove(id: string, organizationId: string): Promise<{ id: string }> {

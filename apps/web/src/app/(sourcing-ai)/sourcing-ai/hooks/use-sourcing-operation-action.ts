@@ -17,6 +17,7 @@ export interface UseSourcingOperationActionOptions<
   operationKey: string;
   input: TInput;
   snapshotQueryKey: QueryKey;
+  snapshotQueryKeys?: readonly QueryKey[];
   idempotencyKey?: string;
   initialRunId?: string | null;
 }
@@ -35,9 +36,12 @@ export function useSourcingOperationAction<
   const latestStartRequestRef = useRef(0);
   const invalidatedRunIdsRef = useRef(new Set<string>());
   const snapshotQueryKeysByRunIdRef = useRef(
-    new Map<string, QueryKey>(
+    new Map<string, readonly QueryKey[]>(
       options.initialRunId
-        ? [[options.initialRunId, options.snapshotQueryKey]]
+        ? [[
+            options.initialRunId,
+            options.snapshotQueryKeys ?? [options.snapshotQueryKey],
+          ]]
         : [],
     ),
   );
@@ -58,7 +62,10 @@ export function useSourcingOperationAction<
 
     if (latestStartRequestRef.current === requestNumber) {
       latestRunIdRef.current = run.id;
-      snapshotQueryKeysByRunIdRef.current.set(run.id, options.snapshotQueryKey);
+      snapshotQueryKeysByRunIdRef.current.set(
+        run.id,
+        options.snapshotQueryKeys ?? [options.snapshotQueryKey],
+      );
       setLatestRunId(run.id);
     }
     return run;
@@ -67,6 +74,7 @@ export function useSourcingOperationAction<
     options.input,
     options.operationKey,
     options.snapshotQueryKey,
+    options.snapshotQueryKeys,
     startMutation,
   ]);
 
@@ -91,9 +99,11 @@ export function useSourcingOperationAction<
     }
 
     invalidatedRunIdsRef.current.add(run.id);
-    const snapshotQueryKey = snapshotQueryKeysByRunIdRef.current.get(run.id);
-    if (snapshotQueryKey) {
-      void queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
+    const snapshotQueryKeys = snapshotQueryKeysByRunIdRef.current.get(run.id);
+    if (snapshotQueryKeys) {
+      for (const snapshotQueryKey of snapshotQueryKeys) {
+        void queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
+      }
     }
   }, [queryClient, runQuery.data]);
 

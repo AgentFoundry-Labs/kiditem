@@ -8,10 +8,10 @@ import {
   OPERATION_HANDLER_REGISTRY_PORT,
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
-import { ADVERTISING_PROFITABILITY_OPERATION } from '../../../domain/operation/advertising.operations';
+import { ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION } from '../../../domain/operation/advertising.operations';
 
 @Injectable()
-export class AdvertisingProfitabilityOperationHandler
+export class AdvertisingTrackedWingProductsOperationHandler
 implements OperationHandler, OnModuleInit {
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
@@ -19,7 +19,7 @@ implements OperationHandler, OnModuleInit {
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(ADVERTISING_PROFITABILITY_OPERATION, this);
+    this.registry.register(ADVERTISING_TRACKED_WING_PRODUCTS_OPERATION, this);
   }
 
   async execute(_context: OperationHandlerContext): Promise<OperationHandlerResult> {

@@ -40,6 +40,7 @@ import {
 } from './sourcing-collection-mappers';
 import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
 import { SourcingRecommendationService } from './sourcing-recommendation.service';
+import { SourcingValidationService } from './sourcing-validation.service';
 
 const WING_OPERATION_KEY = 'sourcing.collect_wing_catalog_batch';
 
@@ -61,6 +62,7 @@ export class SourcingWingCatalogIngestService {
     private readonly collectionRepository: SourcingCollectionRepositoryPort,
     @Inject(SOURCING_RECOMMENDATION_REPOSITORY_PORT)
     private readonly recommendationRuns: SourcingRecommendationRepositoryPort,
+    private readonly validations: SourcingValidationService,
   ) {}
 
   async ingest(input: SourcingWingCatalogIngestInput) {
@@ -151,15 +153,25 @@ export class SourcingWingCatalogIngestService {
     let recommendationRunId: string | null = null;
     try {
       if (shouldRefresh) {
+        const effectName = finalization.purpose === 'market_analysis'
+          ? 'market-refresh'
+          : 'recommendation-refresh';
         const staged = await this.recommendations.refresh({
           organizationId: input.organizationId,
           limit: 50,
-          idempotencyKey: `wing-operation:${input.operationRunId}:recommendation-refresh`,
+          idempotencyKey: `wing-operation:${input.operationRunId}:${effectName}`,
           deferPublication: true,
         });
         recommendationRunId = staged.data?.runId ?? null;
         if (!recommendationRunId) {
           throw new ConflictException('wing_catalog_recommendation_stage_missing');
+        }
+        if (finalization.purpose === 'recommendation_validation') {
+          await this.validations.refreshForRun({
+            organizationId: input.organizationId,
+            recommendationRunId,
+            limit: 50,
+          });
         }
       }
       await this.attemptVerifier.withActiveBrowserAttemptFence({
@@ -538,5 +550,5 @@ function assertExactFinalization(
 function purposeRequiresRecommendationRefresh(
   purpose: SourcingWingCatalogPurpose,
 ): boolean {
-  return purpose === 'recommendation_validation';
+  return purpose === 'market_analysis' || purpose === 'recommendation_validation';
 }

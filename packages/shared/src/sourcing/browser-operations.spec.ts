@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  AdvertisingTrackedWingProductsInputSchema,
   SourcingWingCatalogBatchInputSchema,
   SourcingWingCatalogBatchResultSchema,
   SourcingWingCatalogFinalizeSchema,
@@ -41,6 +42,29 @@ const observation = {
 } as const;
 
 describe('Wing catalog browser-operation contracts', () => {
+  it('accepts only an exact bounded tracked-products batch', () => {
+    expect(AdvertisingTrackedWingProductsInputSchema.parse({
+      keywords: ['  Ａ   Pencil  ', '키워드'],
+      maxPages: 2,
+      purpose: 'tracked_metrics',
+      trackedProductIds: ['wing-1', 'wing-2'],
+    })).toEqual({
+      keywords: ['A Pencil', '키워드'],
+      maxPages: 2,
+      purpose: 'tracked_metrics',
+      trackedProductIds: ['wing-1', 'wing-2'],
+    });
+
+    for (const invalid of [
+      { keywords: ['x'], maxPages: 2, purpose: 'catalog_search', trackedProductIds: ['wing-1'] },
+      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: [] },
+      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1', 'wing-1'] },
+      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'], url: 'https://wing.coupang.com' },
+    ]) {
+      expect(AdvertisingTrackedWingProductsInputSchema.safeParse(invalid).success).toBe(false);
+    }
+  });
+
   it('accepts only a strict bounded batch input and trims keywords', () => {
     expect(SourcingWingCatalogBatchInputSchema.parse({
       keywords: ['  슬라임  ', '클레이'],

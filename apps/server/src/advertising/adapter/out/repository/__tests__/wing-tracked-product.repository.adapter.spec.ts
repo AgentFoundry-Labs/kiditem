@@ -67,3 +67,54 @@ describe('WingTrackedProductRepositoryAdapter.findBulkHistory', () => {
     ]);
   });
 });
+
+describe('WingTrackedProductRepositoryAdapter.upsertSnapshotsByProductIdInAttempt', () => {
+  it('uses only the opaque transaction and filters the exact organization-enabled tracker set', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'tracker-1', productId: 'wing-1' }]);
+    const upsert = vi.fn().mockResolvedValue({});
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const transaction = {
+      coupangWingTrackedProduct: { findMany, updateMany },
+      coupangWingTrackedProductDailySnapshot: { upsert },
+    };
+    const defaultFindMany = vi.fn();
+    const adapter = new WingTrackedProductRepositoryAdapter({
+      coupangWingTrackedProduct: { findMany: defaultFindMany },
+    } as never);
+    const capturedAt = new Date('2026-08-14T03:00:00.000Z');
+    const rows = ['wing-1', 'wing-disabled'].map((productId) => ({
+      productId,
+      businessDate: new Date('2026-08-14T00:00:00.000Z'),
+      sourceKeyword: 'A Pencil',
+      capturedAt,
+      salePriceKrw: null,
+      ratingCount: null,
+      ratingAverage: null,
+      pvLast28Day: null,
+      salesLast28d: null,
+      estimatedRevenue28d: null,
+      conversionRate28d: null,
+    }));
+
+    await expect(adapter.upsertSnapshotsByProductIdInAttempt(
+      transaction as never,
+      rows,
+      ORGANIZATION_ID,
+    )).resolves.toEqual({ captured: 1, ignored: 1 });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: ORGANIZATION_ID,
+        enabled: true,
+        productId: { in: ['wing-1', 'wing-disabled'] },
+      },
+      select: { id: true, productId: true },
+    });
+    expect(upsert).toHaveBeenCalledTimes(1);
+    expect(updateMany).toHaveBeenCalledWith({
+      where: { id: { in: ['tracker-1'] }, organizationId: ORGANIZATION_ID, enabled: true },
+      data: { lastCapturedAt: capturedAt },
+    });
+    expect(defaultFindMany).not.toHaveBeenCalled();
+  });
+});

@@ -62,6 +62,7 @@ import { AdConfigService } from "./application/service/ad-config.service";
 import { KeywordRankService } from "./application/service/keyword-rank.service";
 import { CompetitorTrackingService } from "./application/service/competitor-tracking.service";
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
+import { AdvertisingTrackedWingProductsOperationHandler } from "./adapter/in/operation/advertising-tracked-wing-products.operation-handler";
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { AdCampaignIngestHandler } from "./application/service/ad-campaign-ingest.handler";
 import { AdKeywordIngestHandler } from "./application/service/ad-keyword-ingest.handler";
@@ -256,6 +257,7 @@ const REPOSITORY_PORT_BINDINGS = [
     RawScrapeIngestHandler,
     TrafficIngestHandler,
     AdvertisingProfitabilityOperationHandler,
+    AdvertisingTrackedWingProductsOperationHandler,
     ProfitabilityAdRefreshService,
     {
       provide: PROFITABILITY_AD_REFRESH_PORT,

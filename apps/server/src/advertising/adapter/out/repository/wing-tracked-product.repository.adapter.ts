@@ -9,6 +9,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import type {
   UpsertWingSnapshotByProductIdInput,
   UpsertWingTrackedProductInput,
@@ -95,21 +96,44 @@ export class WingTrackedProductRepositoryAdapter
     rows: UpsertWingSnapshotByProductIdInput[],
     organizationId: string,
   ): Promise<number> {
-    if (rows.length === 0) return 0;
+    return (await this.upsertSnapshots(this.prisma, rows, organizationId)).captured;
+  }
+
+  async upsertSnapshotsByProductIdInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    rows: UpsertWingSnapshotByProductIdInput[],
+    organizationId: string,
+  ): Promise<{ captured: number; ignored: number }> {
+    return this.upsertSnapshots(
+      transaction as unknown as Prisma.TransactionClient,
+      rows,
+      organizationId,
+    );
+  }
+
+  private async upsertSnapshots(
+    client: Pick<Prisma.TransactionClient,
+      'coupangWingTrackedProduct' | 'coupangWingTrackedProductDailySnapshot'>,
+    rows: UpsertWingSnapshotByProductIdInput[],
+    organizationId: string,
+  ): Promise<{ captured: number; ignored: number }> {
+    if (rows.length === 0) return { captured: 0, ignored: 0 };
     const productIds = [...new Set(rows.map((row) => row.productId))];
-    const trackers = await this.prisma.coupangWingTrackedProduct.findMany({
-      where: { organizationId, productId: { in: productIds } },
+    const trackers = await client.coupangWingTrackedProduct.findMany({
+      where: { organizationId, enabled: true, productId: { in: productIds } },
       select: { id: true, productId: true },
     });
     const trackerByProductId = new Map(trackers.map((t) => [t.productId, t.id]));
-    if (trackerByProductId.size === 0) return 0;
+    if (trackerByProductId.size === 0) {
+      return { captured: 0, ignored: rows.length };
+    }
 
     const touchedTrackerIds = new Set<string>();
     let processed = 0;
     for (const row of rows) {
       const trackedProductId = trackerByProductId.get(row.productId);
       if (!trackedProductId) continue;
-      await this.prisma.coupangWingTrackedProductDailySnapshot.upsert({
+      await client.coupangWingTrackedProductDailySnapshot.upsert({
         where: {
           trackedProductId_businessDate: {
             trackedProductId,
@@ -136,12 +160,12 @@ export class WingTrackedProductRepositoryAdapter
 
     if (touchedTrackerIds.size > 0) {
       const capturedAt = rows[0].capturedAt;
-      await this.prisma.coupangWingTrackedProduct.updateMany({
-        where: { id: { in: [...touchedTrackerIds] }, organizationId },
+      await client.coupangWingTrackedProduct.updateMany({
+        where: { id: { in: [...touchedTrackerIds] }, organizationId, enabled: true },
         data: { lastCapturedAt: capturedAt },
       });
     }
-    return processed;
+    return { captured: processed, ignored: rows.length - processed };
   }
 
   async findHistory(

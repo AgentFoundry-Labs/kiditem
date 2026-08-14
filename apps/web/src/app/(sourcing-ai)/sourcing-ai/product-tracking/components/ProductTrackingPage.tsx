@@ -19,20 +19,16 @@ import {
 } from 'lucide-react';
 import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
-import { isChromeExtensionRuntimeAvailable } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
   deleteWingTrackedProduct,
   fetchWingTrackedHistories,
-  ingestWingTrackedSnapshots,
   listWingTrackedProducts,
-  type IngestWingSnapshotItem,
   type WingTrackedProduct,
   type WingTrackedSnapshot,
 } from '../../lib/wing-tracking-api';
 import {
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
 } from '../../wing-catalog/lib/wing-catalog-extension';
 import { buildCoupangProductUrl } from '../../wing-catalog/lib/wing-catalog-delivery';
 import {
@@ -43,8 +39,11 @@ import {
   type WindowTrend,
 } from '../lib/wing-tracking-score';
 import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryChart';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 
-const TRACKED_QUERY_KEY = ['wing-tracked-products'];
+const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
 
 interface RankedProduct {
   product: WingTrackedProduct;
@@ -56,7 +55,6 @@ interface RankedProduct {
 export function ProductTrackingPage() {
   const queryClient = useQueryClient();
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   const [windowDays, setWindowDays] = useState<TrackingWindow>(7);
 
   const { data: products = [], isLoading } = useQuery({
@@ -95,29 +93,40 @@ export function ProductTrackingPage() {
       toast.error(isApiError(error) ? error.message : '추적 해제에 실패했습니다'),
   });
 
-  const handleRefresh = async () => {
-    if (products.length === 0) return;
-    if (!isChromeExtensionRuntimeAvailable()) {
-      toast.error('지표 갱신은 Chrome 확장에서 실행됩니다', {
-        description: 'Chrome에서 이 페이지를 열고 다시 시도하세요.',
-      });
+  const enabledProducts = useMemo(
+    () => products.filter((product) => product.enabled),
+    [products],
+  );
+  const operationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      enabledProducts.map((product) => product.sourceKeyword),
+      12,
+    ),
+    [enabledProducts],
+  );
+  const operationInput = useMemo(() => ({
+    keywords: operationKeywords,
+    maxPages: 2,
+    purpose: 'tracked_metrics' as const,
+    trackedProductIds: enabledProducts.map((product) => product.productId).slice(0, 200),
+  }), [enabledProducts, operationKeywords]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'advertising.refresh_tracked_wing_products',
+    input: operationInput,
+    snapshotQueryKey: TRACKED_QUERY_KEY,
+    snapshotQueryKeys: [
+      TRACKED_QUERY_KEY,
+      queryKeys.sourcing.wingTrackedHistories(30),
+    ],
+  });
+  const refreshing = operation.isStarting || isActiveOperation(operation.run?.status);
+
+  const handleRefresh = () => {
+    if (operationKeywords.length === 0 || operationInput.trackedProductIds.length === 0) {
+      toast.error('갱신할 키워드가 있는 활성 추적 상품이 없습니다');
       return;
     }
-    setRefreshing(true);
-    try {
-      const captured = await refreshTrackedMetrics(products);
-      await queryClient.invalidateQueries({ queryKey: TRACKED_QUERY_KEY });
-      await queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.wingTrackedHistories(30),
-      });
-      toast.success(
-        captured > 0 ? `${captured}개 상품 지표를 갱신했습니다` : '갱신할 지표를 찾지 못했습니다',
-      );
-    } catch (error) {
-      toast.error(isApiError(error) ? error.message : '지표 갱신에 실패했습니다');
-    } finally {
-      setRefreshing(false);
-    }
+    void operation.start();
   };
 
   const keywordCount = useMemo(
@@ -156,6 +165,14 @@ export function ProductTrackingPage() {
             </button>
           </div>
         </header>
+
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         {isLoading ? (
           <div className="flex h-64 items-center justify-center text-[var(--text-tertiary)]">
@@ -504,35 +521,10 @@ function shortDate(businessDate: string): string {
   return businessDate.slice(5, 10);
 }
 
-/** 추적 상품들의 sourceKeyword 를 재검색해 카탈로그 최신 지표를 스냅샷으로 적재. */
-async function refreshTrackedMetrics(products: WingTrackedProduct[]): Promise<number> {
-  const keywords = [...new Set(products.map((product) => product.sourceKeyword).filter(isNonEmpty))];
-  const trackedProductIds = new Set(products.map((product) => product.productId));
-  const items: IngestWingSnapshotItem[] = [];
-
-  for (const keyword of keywords) {
-    const response = await searchWingCatalogProducts({ keyword, maxPages: 2 });
-    for (const row of response.rows ?? []) {
-      if (!trackedProductIds.has(row.productId)) continue;
-      items.push({
-        productId: row.productId,
-        sourceKeyword: keyword,
-        salePriceKrw: row.salePrice,
-        ratingCount: row.ratingCount,
-        ratingAverage: row.rating,
-        pvLast28Day: row.pvLast28Day,
-        salesLast28d: row.salesLast28d,
-        estimatedRevenue28d: row.estimatedRevenue28d,
-        conversionRate28d: row.conversionRate28d,
-      });
-    }
-  }
-
-  if (items.length === 0) return 0;
-  const result = await ingestWingTrackedSnapshots(items);
-  return result.captured;
-}
-
-function isNonEmpty(value: string | null): value is string {
-  return typeof value === 'string' && value.trim().length > 0;
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }

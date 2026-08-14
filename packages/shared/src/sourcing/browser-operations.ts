@@ -50,6 +50,40 @@ export const SourcingWingCatalogBatchInputSchema = z
     });
   });
 
+export const AdvertisingTrackedWingProductsInputSchema = z
+  .object({
+    keywords: z.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
+    maxPages: z.number().int().min(1).max(5),
+    purpose: z.literal('tracked_metrics'),
+    trackedProductIds: z.array(z.string().trim().min(1).max(200)).min(1).max(200),
+  })
+  .strict()
+  .superRefine((value, context) => {
+    const keywordIdentities = new Set<string>();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (keywordIdentities.has(identity)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['keywords', index],
+          message: 'Wing catalog keywords must be unique after normalization.',
+        });
+      }
+      keywordIdentities.add(identity);
+    });
+    const productIds = new Set<string>();
+    value.trackedProductIds.forEach((productId, index) => {
+      if (productIds.has(productId)) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['trackedProductIds', index],
+          message: 'Tracked product IDs must be unique.',
+        });
+      }
+      productIds.add(productId);
+    });
+  });
+
 export const SourcingWingCatalogObservationSchema = z
   .object({
     productId: z.string().trim().min(1).max(200),
@@ -121,6 +155,9 @@ export type SourcingWingCatalogPurpose = z.infer<
 >;
 export type SourcingWingCatalogBatchInput = z.infer<
   typeof SourcingWingCatalogBatchInputSchema
+>;
+export type AdvertisingTrackedWingProductsInput = z.infer<
+  typeof AdvertisingTrackedWingProductsInputSchema
 >;
 export type SourcingWingCatalogObservation = z.infer<
   typeof SourcingWingCatalogObservationSchema
