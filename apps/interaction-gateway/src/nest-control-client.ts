@@ -9,15 +9,19 @@ import {
   type DashboardContext,
   type InteractionBootstrap,
 } from '@kiditem/shared/agent-interaction';
-import type {
-  AgentExecutionName,
-  AgentSessionName,
+import {
+  parseAgentSessionName,
+  type AgentExecutionName,
+  type AgentSessionName,
 } from '@kiditem/shared/identifiers';
 import { BaseEventSchema, type BaseEvent } from '@ag-ui/core';
 import { Observable } from 'rxjs';
 import { z } from 'zod';
 
 const HealthSchema = z.object({ status: z.literal('ok') }).strict();
+const ApprovalDecisionResultSchema = z
+  .object({ state: z.enum(['approved', 'rejected']) })
+  .strict();
 const ErrorCodeSchema = z
   .string()
   .min(1)
@@ -64,6 +68,13 @@ export interface StopRunInput {
   readonly execution: AgentExecutionName;
 }
 
+export interface DecideApprovalInput {
+  readonly session: AgentSessionName;
+  readonly approvalId: string;
+  readonly decision: 'approved' | 'rejected';
+  readonly idempotencyKey: string;
+}
+
 export interface NestControlPort {
   bootstrap(request: Request): Promise<InteractionBootstrap>;
   prepareRunIntent(
@@ -80,6 +91,10 @@ export interface NestControlPort {
   ): Promise<AgentConversationConnectionAuthorization>;
   connectLive(request: Request, input: ConnectLiveInput): Observable<BaseEvent>;
   stopRun(request: Request, input: StopRunInput): Promise<boolean>;
+  decideApproval(
+    request: Request,
+    input: DecideApprovalInput,
+  ): Promise<{ state: 'approved' | 'rejected' }>;
   checkInteractionHealth(): Promise<void>;
   checkPrivateAguiHealth(): Promise<void>;
 }
@@ -184,6 +199,24 @@ export class NestControlClient implements NestControlPort {
       z.object({ stopped: z.boolean() }).strict(),
     );
     return result.stopped;
+  }
+
+  decideApproval(
+    request: Request,
+    input: DecideApprovalInput,
+  ): Promise<{ state: 'approved' | 'rejected' }> {
+    const { session } = parseAgentSessionName(input.session);
+    return this.request(
+      `/api/agent-os/sessions/${encodeURIComponent(session)}/approvals/${encodeURIComponent(input.approvalId)}/decision`,
+      this.jsonRequest(
+        {
+          decision: input.decision,
+          idempotencyKey: input.idempotencyKey,
+        },
+        this.browserHeaders(request),
+      ),
+      ApprovalDecisionResultSchema,
+    );
   }
 
   async checkInteractionHealth(): Promise<void> {

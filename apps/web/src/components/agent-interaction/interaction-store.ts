@@ -5,14 +5,14 @@ import { create } from 'zustand';
 interface InteractionStoreState {
   isOpen: boolean;
   selectedAgentDefinitionKey: string | null;
-  selectedSessionId: string | null;
+  selectedSessionName: string | null;
   selectedThreadId: string | null;
   draft: string;
   latestSuggestionMessageByThread: Record<string, string>;
   consumedSuggestions: Record<string, true>;
   setOpen: (isOpen: boolean) => void;
   selectAgent: (selectedAgentDefinitionKey: string) => void;
-  selectSession: (selectedSessionId: string | null, selectedThreadId: string | null) => void;
+  selectSession: (selectedSessionName: string | null, selectedThreadId: string | null) => void;
   setDraft: (draft: string) => void;
   registerLatestSuggestion: (threadId: string, messageId: string) => void;
   consumeSuggestions: (threadId: string, messageId: string) => void;
@@ -22,7 +22,7 @@ interface InteractionStoreState {
 const stateOnly = {
   isOpen: false,
   selectedAgentDefinitionKey: null,
-  selectedSessionId: null,
+  selectedSessionName: null,
   selectedThreadId: null,
   draft: '',
   latestSuggestionMessageByThread: {},
@@ -31,7 +31,7 @@ const stateOnly = {
   InteractionStoreState,
   | 'isOpen'
   | 'selectedAgentDefinitionKey'
-  | 'selectedSessionId'
+  | 'selectedSessionName'
   | 'selectedThreadId'
   | 'draft'
   | 'latestSuggestionMessageByThread'
@@ -42,8 +42,8 @@ export const useInteractionStore = create<InteractionStoreState>((set) => ({
   ...stateOnly,
   setOpen: (isOpen) => set({ isOpen }),
   selectAgent: (selectedAgentDefinitionKey) => set({ selectedAgentDefinitionKey }),
-  selectSession: (selectedSessionId, selectedThreadId) => set({
-    selectedSessionId,
+  selectSession: (selectedSessionName, selectedThreadId) => set({
+    selectedSessionName,
     selectedThreadId,
   }),
   setDraft: (draft) => set({ draft }),

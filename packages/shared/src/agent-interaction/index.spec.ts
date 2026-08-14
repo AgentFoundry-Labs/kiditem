@@ -558,6 +558,46 @@ describe("agent interaction contracts", () => {
     }
   });
 
+  it("binds a durable approval interrupt to its exact canonical approval card", () => {
+    const approvalId = "11111111-1111-4111-8111-111111111111";
+    const approval = {
+      name: "kiditem.ui.agent_approval.v1",
+      approvalId,
+      session: sessionName,
+      task: taskName,
+      execution: executionName,
+      capabilityKey: "inventory.adjust",
+      summary: "재고 수량을 조정합니다.",
+      resourceVersions: [],
+      expiresAt: "2026-08-14T01:00:00.000Z",
+    };
+    const parsed = AgentInteraction.AgentConversationEventContentSchema.parse({
+      eventType: "hitl_request",
+      schemaVersion: 1,
+      payload: {
+        requestId: approvalId,
+        status: "pending",
+        prompt: approval.summary,
+        approval,
+      },
+    });
+
+    expect(parsed).toMatchObject({
+      eventType: "hitl_request",
+      payload: { requestId: approvalId, approval },
+    });
+    expect(() => AgentInteraction.AgentConversationEventContentSchema.parse({
+      eventType: "hitl_request",
+      schemaVersion: 1,
+      payload: {
+        requestId: "22222222-2222-4222-8222-222222222222",
+        status: "pending",
+        prompt: approval.summary,
+        approval,
+      },
+    })).toThrow();
+  });
+
   it("rejects event resource/parent mismatches, invalid schema versions, and raw event fields", () => {
     const schema = AgentInteraction.AgentConversationEventEnvelopeSchema;
 

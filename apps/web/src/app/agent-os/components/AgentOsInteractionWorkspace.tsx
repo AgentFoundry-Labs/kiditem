@@ -18,7 +18,7 @@ export function AgentOsInteractionWorkspace({ open, onClose }: { open: boolean; 
         </button>
       </div>
       <AgentInteractionProvider>
-        <AgentInteractionSurface className="min-h-0 flex-1" />
+        <AgentInteractionSurface surface="agentos_workspace" className="min-h-0 flex-1" />
       </AgentInteractionProvider>
     </section>
   );

@@ -1,4 +1,4 @@
-import { ZodType, ZodError } from 'zod';
+import { ZodType, ZodTypeDef, ZodError } from 'zod';
 import { getApiBase } from './api';
 import { ApiError } from './api-error';
 import { clearAuthSession, getAuthSession } from './auth/session';
@@ -159,7 +159,10 @@ export const apiClient = {
    * GET + Zod parse at the client boundary (Plan D spec § I1).
    * Surfaces API schema drift as a runtime ZodError rather than a silent type cast.
    */
-  getParsed: async <T>(path: string, schema: ZodType<T>): Promise<T> => {
+  getParsed: async <Output, Input>(
+    path: string,
+    schema: ZodType<Output, ZodTypeDef, Input>,
+  ): Promise<Output> => {
     const raw = await request<unknown>(path);
     try {
       return schema.parse(raw);

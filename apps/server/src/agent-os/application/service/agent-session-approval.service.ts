@@ -163,6 +163,7 @@ export class AgentSessionApprovalService {
         requestId: RequestIdSchema.parse(approval.id),
         status: 'pending',
         prompt: approvalCard.summary,
+        approval: approvalCard,
       },
     });
     return { approvalId: approval.id, argumentsHash, persistedEvents: [card, interrupt] };

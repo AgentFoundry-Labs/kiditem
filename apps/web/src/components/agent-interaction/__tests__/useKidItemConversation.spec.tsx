@@ -34,7 +34,7 @@ describe('useKidItemConversation', () => {
   it('reconnects an existing session by its canonical agent and thread', () => {
     const { result } = renderHook(() => useKidItemConversation(bootstrap));
 
-    act(() => result.current.selectSession(existingSession.sessionId));
+    act(() => result.current.selectSession(existingSession.name));
 
     expect(result.current.session).toEqual(existingSession);
     expect(result.current.agentId).toBe('operator');

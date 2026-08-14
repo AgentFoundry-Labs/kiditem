@@ -22,6 +22,9 @@ import { useInteractionStore } from './interaction-store';
 import { useKidItemConversation } from './useKidItemConversation';
 import { InteractionRegistration } from './interaction-registration';
 import { findLatestEligibleSuggestion } from './suggestion-eligibility';
+import { OfficialInteractionInterrupts } from './OfficialInteractionRenderers';
+
+type InteractionSurface = 'global_panel' | 'agentos_workspace';
 
 const SubmissionContext = createContext<{
   markSubmitted: () => void;
@@ -62,7 +65,10 @@ const ManagedChatView = Object.assign(function ManagedChatView(props: CopilotCha
   WelcomeScreen: CopilotChat.View.WelcomeScreen,
 });
 
-export function AgentInteractionSurface(props: ComponentProps<'section'>) {
+export function AgentInteractionSurface({
+  surface = 'global_panel',
+  ...props
+}: ComponentProps<'section'> & { surface?: InteractionSurface }) {
   const bootstrapQuery = useInteractionBootstrap();
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -76,6 +82,7 @@ export function AgentInteractionSurface(props: ComponentProps<'section'>) {
   return (
     <ReadyInteractionSurface
       {...props}
+      surface={surface}
       bootstrap={bootstrapQuery.data}
       errorMessage={errorMessage}
       onError={setErrorMessage}
@@ -87,11 +94,13 @@ function ReadyInteractionSurface({
   bootstrap,
   errorMessage,
   onError,
+  surface,
   ...props
 }: Omit<ComponentProps<'section'>, 'onError'> & {
   bootstrap: NonNullable<ReturnType<typeof useInteractionBootstrap>['data']>;
   errorMessage: string | null;
   onError: (message: string) => void;
+  surface: InteractionSurface;
 }) {
   const conversation = useKidItemConversation(bootstrap);
   const sendSuggestedReplyRef = useRef<((content: string) => void) | null>(null);
@@ -132,12 +141,13 @@ function ReadyInteractionSurface({
   return (
     <section
       {...props}
+      data-interaction-surface={surface}
       data-thread-id={conversation.threadId}
-      data-session-id={conversation.session?.sessionId ?? ''}
+      data-session={conversation.session?.name ?? ''}
       className={`flex min-h-0 flex-1 flex-col ${props.className ?? ''}`}
     >
       <output aria-label="선택된 대화 식별자" className="sr-only">
-        {conversation.session ? `${conversation.session.sessionId}:${conversation.threadId}` : conversation.threadId}
+        {conversation.session ? `${conversation.session.name}:${conversation.threadId}` : conversation.threadId}
       </output>
       <InteractionHeader
         agents={bootstrap.agents}
@@ -156,6 +166,7 @@ function ReadyInteractionSurface({
         </p>
       ) : null}
       <SubmissionContext.Provider value={submissionContext}>
+        <OfficialInteractionInterrupts />
         <InteractionRegistration
           onSend={sendSuggestedReply}
           latestSuggestionMessageId={latestSuggestionMessageId}

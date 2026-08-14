@@ -116,6 +116,18 @@ describe('AgentSessionApprovalService', () => {
       executionId: EXECUTION_ID,
       eventType: 'state_snapshot',
     }));
+    expect(runtimeControl.persist).toHaveBeenCalledWith(expect.objectContaining({
+      eventType: 'hitl_request',
+      payload: expect.objectContaining({
+        requestId: APPROVAL_ID,
+        approval: expect.objectContaining({
+          approvalId: APPROVAL_ID,
+          session,
+          task,
+          execution,
+        }),
+      }),
+    }));
   });
 
   it('rejects a runtime approval request outside the immutable execution capability set', async () => {

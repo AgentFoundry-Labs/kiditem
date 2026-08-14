@@ -5,6 +5,7 @@ import type {
   AllowedAgent,
   AgentSessionSummary,
 } from '@kiditem/shared/agent-interaction';
+import { parseAgentSessionName } from '@kiditem/shared/identifiers';
 
 interface InteractionHeaderProps {
   agents: AllowedAgent[];
@@ -15,7 +16,7 @@ interface InteractionHeaderProps {
   connectionLabel: string;
   onAgentChange: (agentId: string) => void;
   onNewConversation: () => void;
-  onSessionSelect: (sessionId: string) => void;
+  onSessionSelect: (sessionName: string) => void;
 }
 
 export function InteractionHeader({
@@ -42,7 +43,7 @@ export function InteractionHeader({
             onChange={(event) => onAgentChange(event.target.value)}
           >
             {agents.map((agent) => (
-              <option key={`${agent.agentDefinitionKey}:${agent.agentVersionId}`} value={agent.agentDefinitionKey}>
+              <option key={`${agent.agentDefinitionKey}:${agent.agentVersion}`} value={agent.agentDefinitionKey}>
                 {agent.displayName}
               </option>
             ))}
@@ -65,16 +66,20 @@ export function InteractionHeader({
       <div aria-label="대화 기록" className="mt-2 flex gap-2 overflow-x-auto">
         {sessions.map((session) => (
           <button
-            key={session.sessionId}
+            key={session.name}
             type="button"
-            aria-label={`세션 ${session.sessionId} 열기`}
+            aria-label={`세션 ${sessionLabel(session)} 열기`}
             className="shrink-0 rounded-full bg-muted px-3 py-1 text-xs text-muted-foreground"
-            onClick={() => onSessionSelect(session.sessionId)}
+            onClick={() => onSessionSelect(session.name)}
           >
-            {session.sessionId}
+            {sessionLabel(session)}
           </button>
         ))}
       </div>
     </header>
   );
+}
+
+function sessionLabel(session: AgentSessionSummary): string {
+  return parseAgentSessionName(session.name).session;
 }

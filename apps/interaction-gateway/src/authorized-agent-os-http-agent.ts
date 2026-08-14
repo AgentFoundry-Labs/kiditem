@@ -3,8 +3,14 @@ import {
   DashboardContextSchema,
   type AguiRunAuthorization,
 } from '@kiditem/shared/agent-interaction';
-import { defer, switchMap, type Observable } from 'rxjs';
-import type { BaseEvent } from '@ag-ui/core';
+import {
+  AgentSessionNameSchema,
+  IdempotencyKeySchema,
+  RequestIdSchema,
+} from '@kiditem/shared/identifiers';
+import { EventType, type BaseEvent } from '@ag-ui/core';
+import { defer, of, switchMap, type Observable } from 'rxjs';
+import { z } from 'zod';
 
 import type {
   NestControlPort,
@@ -20,6 +26,16 @@ const EMPTY_DASHBOARD_CONTEXT = Object.freeze({
   locale: 'ko-KR',
   timezone: 'Asia/Seoul',
 });
+
+const ApprovalResumePayloadSchema = z
+  .object({
+    kind: z.literal('kiditem.agent_approval_decision.v1'),
+    approvalId: RequestIdSchema,
+    session: AgentSessionNameSchema,
+    decision: z.enum(['approved', 'rejected']),
+    idempotencyKey: IdempotencyKeySchema,
+  })
+  .strict();
 
 export interface AuthorizedAgentOptions {
   readonly request: Request;
@@ -47,6 +63,23 @@ export class AuthorizedAgentOsHttpAgent extends HttpAgent {
   }
 
   override run(input: RunAgentInput): ReturnType<HttpAgent['run']> {
+    const approvalResume = parseApprovalResume(input);
+    if (approvalResume) {
+      return defer(async () => {
+        await this.options.control.decideApproval(
+          this.options.request,
+          approvalResume,
+        );
+        return {
+          type: EventType.RUN_FINISHED,
+          threadId: input.threadId,
+          runId: input.runId,
+          outcome: { type: 'success' },
+        } satisfies BaseEvent;
+      }).pipe(
+        switchMap((event) => of(event)),
+      ) as unknown as ReturnType<HttpAgent['run']>;
+    }
     const dashboardContext = DashboardContextSchema.parse(
       readDashboardContext(input.state),
     );
@@ -92,6 +125,27 @@ export class AuthorizedAgentOsHttpAgent extends HttpAgent {
   override clone(): AuthorizedAgentOsHttpAgent {
     return new AuthorizedAgentOsHttpAgent(this.options);
   }
+}
+
+function parseApprovalResume(
+  input: RunAgentInput,
+): z.infer<typeof ApprovalResumePayloadSchema> | null {
+  if (!input.resume || input.resume.length === 0) return null;
+  if (input.resume.length !== 1) {
+    throw new Error('Exactly one durable approval decision is required.');
+  }
+  const entry = input.resume[0];
+  if (!entry) {
+    throw new Error('A durable approval decision entry is required.');
+  }
+  if (entry.status !== 'resolved') {
+    throw new Error('Durable approval decisions must be resolved explicitly.');
+  }
+  const payload = ApprovalResumePayloadSchema.parse(entry.payload);
+  if (payload.approvalId !== entry.interruptId) {
+    throw new Error('Durable approval interrupt identity does not match.');
+  }
+  return payload;
 }
 
 function serviceHeaders(secret: string): Record<string, string> {

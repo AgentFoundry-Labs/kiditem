@@ -529,17 +529,52 @@ function pushSchema(postgres: StartedPostgreSqlContainer) {
 }
 
 async function seedAgentVersion(prisma: PrismaClient) {
+  const capabilityKeys = [
+    'agent_os.platform_probe',
+    'analytics.readOverview',
+    'sourcing.retrieveWorkspaceEvidence',
+    'sourcing.inspectRecommendationRun',
+  ];
   await prisma.agentVersion.create({ data: {
     id: AGENT_VERSION_ID, agentDefinitionKey: 'operator', version: 1,
     displayName: 'Operator', description: 'Deterministic acceptance operator',
     runtimeType: 'copilotkit_agui', modelIdentity: 'fake-deterministic',
-    capabilityKeys: [
-      'agent_os.platform_probe',
-      'analytics.readOverview',
-      'sourcing.retrieveWorkspaceEvidence',
-      'sourcing.inspectRecommendationRun',
-    ],
-    policyDocument: { authorityClass: 'read_only' }, activatedAt: new Date(),
+    capabilityKeys,
+    policyDocument: { authorityClass: 'read_only' },
+    manifestHash: 'e'.repeat(64),
+    runtimeManifest: {
+      schemaVersion: 1,
+      agentDefinitionKey: 'operator',
+      runtimeKind: 'coordinator',
+      runtimeType: 'copilotkit_agui',
+      modelIdentity: 'fake-deterministic',
+      capabilityKeys,
+      policyDocument: { authorityClass: 'read_only' },
+      delegation: {
+        role: 'leaf',
+        allowedAgentDefinitionKeys: [],
+        maxDepth: 0,
+        maxChildrenPerTask: 0,
+      },
+      limits: {
+        maxTurns: 20,
+        maxContextTokens: 8_192,
+        summaryTargetTokens: 512,
+      },
+      assets: {
+        prompt: {
+          path: 'agent-config/prompts/agents/manager.md',
+          sha256: 'a'.repeat(64),
+        },
+        summaryPrompt: {
+          path: 'agent-config/prompts/system/session-summary.md',
+          sha256: 'b'.repeat(64),
+        },
+        skills: [],
+        outputSchema: null,
+      },
+    },
+    activatedAt: new Date(),
   } });
 }
 

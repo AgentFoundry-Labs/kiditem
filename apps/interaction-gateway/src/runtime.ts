@@ -14,6 +14,9 @@ import { BaseEventSchema, EventType, type BaseEvent } from '@ag-ui/core';
 import {
   AgentConversationConnectionAuthorizationSchema,
   AgentConversationEventEnvelopeSchema,
+  AgentArtifactCardSchema,
+  AgentDelegationEventSchema,
+  AgentProgressEventSchema,
   InteractionBootstrapSchema,
   type AgentConversationEventEnvelope,
   type AguiRunAuthorization,
@@ -208,7 +211,10 @@ export class KidItemAgentRunner extends AgentRunner {
         seenEventIds.add(event.name);
         previousSequence = sequence;
         replayEvents.push(...conversationEnvelopeToAgui(event, input.threadId));
-        terminalReplayed ||= event.eventType === 'run_terminal';
+        terminalReplayed ||=
+          event.eventType === 'run_terminal' ||
+          (event.eventType === 'hitl_request' &&
+            event.payload.approval !== undefined);
       }
 
       if (
@@ -404,7 +410,7 @@ function conversationEnvelopeToAgui(
         },
       ];
     }
-    case 'state_snapshot':
+    case 'state_snapshot': {
       if (
         event.payload.snapshotType === 'tool_result' &&
         'result' in event.payload.data
@@ -418,6 +424,9 @@ function conversationEnvelopeToAgui(
           rawEvent,
         }];
       }
+      const activity = durableActivitySnapshot(event, rawEvent);
+      if (activity) return [activity];
+      if (event.payload.snapshotType === 'agent_approval') return [];
       return [
         {
           type: EventType.STATE_SNAPSHOT,
@@ -429,6 +438,7 @@ function conversationEnvelopeToAgui(
           rawEvent,
         },
       ];
+    }
     case 'run_terminal':
       if (!event.aguiRunId) {
         throw new Error('Canonical terminal event has no AG-UI run correlation.');
@@ -466,9 +476,42 @@ function conversationEnvelopeToAgui(
           rawEvent,
         },
       ];
+    case 'hitl_request':
+      if (event.payload.approval) {
+        if (!event.aguiRunId) {
+          throw new Error('Canonical approval interrupt has no AG-UI run correlation.');
+        }
+        return [
+          {
+            type: EventType.RUN_FINISHED,
+            threadId,
+            runId: event.aguiRunId,
+            outcome: {
+              type: 'interrupt',
+              interrupts: [
+                {
+                  id: event.payload.requestId,
+                  reason: 'kiditem_agent_approval_required',
+                  message: event.payload.prompt,
+                  expiresAt: event.payload.approval.expiresAt,
+                  metadata: { approval: event.payload.approval },
+                },
+              ],
+            },
+            rawEvent,
+          } as BaseEvent,
+        ];
+      }
+      return [
+        {
+          type: EventType.CUSTOM,
+          name: 'kiditem.hitl_request',
+          value: event.payload,
+          rawEvent,
+        },
+      ];
     case 'system_notice':
     case 'tool_activity':
-    case 'hitl_request':
     case 'hitl_decision':
       return [
         {
@@ -478,5 +521,48 @@ function conversationEnvelopeToAgui(
           rawEvent,
         },
       ];
+  }
+}
+
+function durableActivitySnapshot(
+  event: Extract<AgentConversationEventEnvelope, { eventType: 'state_snapshot' }>,
+  rawEvent: Record<string, unknown>,
+): BaseEvent | null {
+  switch (event.payload.snapshotType) {
+    case 'agent_progress': {
+      const data = AgentProgressEventSchema.parse(event.payload.data);
+      return {
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: `kiditem:agent-progress:${event.execution ?? event.name}`,
+        activityType: data.name,
+        content: data,
+        replace: true,
+        rawEvent,
+      } as BaseEvent;
+    }
+    case 'agent_artifact': {
+      const data = AgentArtifactCardSchema.parse(event.payload.data);
+      return {
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: `kiditem:agent-artifact:${data.artifactId}`,
+        activityType: data.name,
+        content: data,
+        replace: true,
+        rawEvent,
+      } as BaseEvent;
+    }
+    case 'agent_delegation': {
+      const data = AgentDelegationEventSchema.parse(event.payload.data);
+      return {
+        type: EventType.ACTIVITY_SNAPSHOT,
+        messageId: `kiditem:agent-delegation:${data.childTask}`,
+        activityType: data.name,
+        content: data,
+        replace: true,
+        rawEvent,
+      } as BaseEvent;
+    }
+    default:
+      return null;
   }
 }

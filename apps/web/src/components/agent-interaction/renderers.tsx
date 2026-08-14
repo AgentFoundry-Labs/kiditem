@@ -54,25 +54,45 @@ export function SuggestedReplies({
   );
 }
 
-function NavigationRenderer({ result }: { result: Extract<InteractionUiResult, { kind: 'navigation' }> }) {
+export function AuthorizedInteractionNavigationButton({
+  actionId,
+  label,
+  disabledReason = null,
+  expiresAt = null,
+}: {
+  actionId: string;
+  label: string;
+  disabledReason?: string | null;
+  expiresAt?: string | null;
+}) {
   const router = useRouter();
-  const expired = new Date(result.expiresAt).getTime() <= Date.now();
+  const expired = expiresAt !== null && new Date(expiresAt).getTime() <= Date.now();
   const mutation = useMutation({
-    mutationFn: () => apiClient.post<{ href: string }>('/api/agent-os/interaction/actions/authorize', { actionId: result.actionId }),
+    mutationFn: () => apiClient.post<{ href: string }>('/api/agent-os/interaction/actions/authorize', { actionId }),
     onSuccess: ({ href }) => {
       if (ALLOWED_HREFS.has(href)) router.push(href);
     },
   });
-  const reason = result.disabledReason ?? (expired ? '이동 요청이 만료되었습니다.' : null);
+  const reason = disabledReason ?? (expired ? '이동 요청이 만료되었습니다.' : null);
   return (
     <div className="space-y-2">
       <button type="button" disabled={Boolean(reason) || mutation.isPending} onClick={() => mutation.mutate()} className="rounded-md border px-3 py-2 disabled:opacity-50">
-        {result.label}
+        {label}
       </button>
       {reason ? <p className="text-sm text-muted-foreground">{reason}</p> : null}
       {mutation.isError ? <p role="alert" className="text-sm text-destructive">이동 권한을 확인하지 못했습니다.</p> : null}
-      <p className="sr-only">{result.textFallback}</p>
     </div>
+  );
+}
+
+function NavigationRenderer({ result }: { result: Extract<InteractionUiResult, { kind: 'navigation' }> }) {
+  return (
+    <AuthorizedInteractionNavigationButton
+      actionId={result.actionId}
+      label={result.label}
+      disabledReason={result.disabledReason}
+      expiresAt={result.expiresAt}
+    />
   );
 }
 

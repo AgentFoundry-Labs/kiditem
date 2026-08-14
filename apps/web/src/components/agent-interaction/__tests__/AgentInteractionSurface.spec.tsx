@@ -4,6 +4,7 @@ import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { AgentOsInteractionWorkspace } from '@/app/agent-os/components/AgentOsInteractionWorkspace';
 import { AgentInteractionPanel } from '../AgentInteractionPanel';
 import { AgentInteractionProvider } from '../AgentInteractionProvider';
 import { resetInteractionStore } from '../interaction-store';
@@ -78,8 +79,12 @@ vi.mock('@copilotkit/react-core/v2', () => {
   Object.assign(Chat, { View });
 
   return {
-    UseAgentUpdate: { OnRunStatusChanged: 'OnRunStatusChanged' },
+    UseAgentUpdate: {
+      OnRunStatusChanged: 'OnRunStatusChanged',
+      OnMessagesChanged: 'OnMessagesChanged',
+    },
     useAgent: () => ({ agent: { isRunning: false }, isReady: true }),
+    useInterrupt: vi.fn(),
     useAgentContext: vi.fn(),
     useDefaultRenderTool: vi.fn(),
     CopilotKitProvider: ({ children, ...props }: { children: unknown }) => {
@@ -196,6 +201,23 @@ describe('AgentInteractionSurface', () => {
     renderPanel();
     await screen.findByRole('dialog', { name: 'AgentOS 대화' });
 
+    expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('uses the same read-only interaction surface in the AgentOS workspace', async () => {
+    render(
+      <QueryClientProvider client={makeQueryClient()}>
+        <AgentOsInteractionWorkspace open onClose={vi.fn()} />
+      </QueryClientProvider>,
+    );
+
+    const workspace = await screen.findByLabelText('AgentOS conversation workspace');
+    expect(workspace).toBeVisible();
+    const surface = await screen.findByLabelText('선택된 대화 식별자');
+    expect(surface.closest('[data-interaction-surface]')).toHaveAttribute(
+      'data-interaction-surface',
+      'agentos_workspace',
+    );
     expect(apiClient.post).not.toHaveBeenCalled();
   });
 

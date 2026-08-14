@@ -11,7 +11,7 @@ export function useKidItemConversation(bootstrap: InteractionBootstrap) {
   const selectedAgentDefinitionKey = useInteractionStore(
     (state) => state.selectedAgentDefinitionKey,
   );
-  const selectedSessionId = useInteractionStore((state) => state.selectedSessionId);
+  const selectedSessionName = useInteractionStore((state) => state.selectedSessionName);
   const selectedThreadId = useInteractionStore((state) => state.selectedThreadId);
   const selectAgentInStore = useInteractionStore((state) => state.selectAgent);
   const selectSessionInStore = useInteractionStore((state) => state.selectSession);
@@ -19,7 +19,7 @@ export function useKidItemConversation(bootstrap: InteractionBootstrap) {
   const [hasSubmitted, setHasSubmitted] = useState(false);
 
   const session = bootstrap.sessions.find(
-    (candidate) => candidate.sessionId === selectedSessionId,
+    (candidate) => candidate.name === selectedSessionName,
   ) ?? null;
   const defaultAgent = bootstrap.agents.find((candidate) => candidate.isDefault);
   const agentId = session?.primaryAgentDefinitionKey
@@ -37,13 +37,13 @@ export function useKidItemConversation(bootstrap: InteractionBootstrap) {
     selectAgentInStore(nextAgentId);
   }, [agentLocked, bootstrap.agents, selectAgentInStore]);
 
-  const selectSession = useCallback((sessionId: string) => {
+  const selectSession = useCallback((sessionName: string) => {
     const nextSession: AgentSessionSummary | undefined = bootstrap.sessions.find(
-      (candidate) => candidate.sessionId === sessionId,
+      (candidate) => candidate.name === sessionName,
     );
     if (!nextSession) return;
     selectAgentInStore(nextSession.primaryAgentDefinitionKey);
-    selectSessionInStore(nextSession.sessionId, nextSession.copilotThreadId);
+    selectSessionInStore(nextSession.name, nextSession.copilotThreadId);
     setHasSubmitted(false);
   }, [bootstrap.sessions, selectAgentInStore, selectSessionInStore]);
 

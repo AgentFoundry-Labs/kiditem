@@ -143,6 +143,7 @@ function controlHarness(): NestControlPort &
     authorizeConnection: vi.fn().mockResolvedValue(connectionAuthorization()),
     connectLive: vi.fn().mockReturnValue(of()),
     stopRun: vi.fn().mockResolvedValue(true),
+    decideApproval: vi.fn().mockResolvedValue({ state: 'approved' }),
     checkInteractionHealth: vi.fn().mockResolvedValue(undefined),
     checkPrivateAguiHealth: vi.fn().mockResolvedValue(undefined),
   };
@@ -234,6 +235,52 @@ describe('AuthorizedAgentOsHttpAgent', () => {
         },
       }),
     );
+  });
+
+  it('resolves a standard durable approval interrupt through the server control boundary', async () => {
+    const control = controlHarness() as ReturnType<typeof controlHarness> & {
+      decideApproval: ReturnType<typeof vi.fn>;
+    };
+    control.decideApproval = vi.fn().mockResolvedValue({ state: 'approved' });
+    const agent = new AuthorizedAgentOsHttpAgent({
+      request: request(),
+      control,
+      agentDefinitionKey: 'operator',
+      privateAguiUrl: 'http://api:4000/api/agent-os/ag-ui',
+      serviceSecret: 's'.repeat(32),
+    });
+    const approvalId = '11111111-1111-4111-8111-111111111111';
+
+    const event = await lastValueFrom(agent.run(runInput({
+      messages: [],
+      resume: [{
+        interruptId: approvalId,
+        status: 'resolved',
+        payload: {
+          kind: 'kiditem.agent_approval_decision.v1',
+          approvalId,
+          session: SESSION_NAME,
+          decision: 'approved',
+          idempotencyKey: '22222222-2222-4222-8222-222222222222',
+        },
+      }],
+    })) as unknown as BaseEvent);
+
+    expect(control.decideApproval).toHaveBeenCalledWith(
+      expect.any(Request),
+      expect.objectContaining({
+        session: SESSION_NAME,
+        approvalId,
+        decision: 'approved',
+      }),
+    );
+    expect(control.prepareRunIntent).not.toHaveBeenCalled();
+    expect(event).toMatchObject({
+      type: EventType.RUN_FINISHED,
+      threadId: THREAD_ID,
+      runId: RUN_ID,
+      outcome: { type: 'success' },
+    });
   });
 
   it.each(['intent', 'authorization'])(
@@ -539,6 +586,148 @@ describe('CopilotKit native runtime routes', () => {
     });
   });
 
+  it('projects durable progress into an official activity message instead of replacing client state', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'state_snapshot',
+        payload: {
+          snapshotType: 'agent_progress',
+          snapshotVersion: 1,
+          data: {
+            name: 'kiditem.ui.agent_progress.v1',
+            session: SESSION_NAME,
+            task: TASK_NAME,
+            execution: EXECUTION_NAME,
+            status: 'running',
+            progress: 0.4,
+            label: '상품 근거 확인 중',
+            updatedAt: '2026-08-14T00:00:00.000Z',
+          },
+        },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+    const activity = (await readSseEvents(response)).find(
+      ({ type }) => type === EventType.ACTIVITY_SNAPSHOT,
+    );
+
+    expect(activity).toMatchObject({
+      type: EventType.ACTIVITY_SNAPSHOT,
+      activityType: 'kiditem.ui.agent_progress.v1',
+      content: expect.objectContaining({ label: '상품 근거 확인 중' }),
+    });
+  });
+
+  it.each([
+    {
+      snapshotType: 'agent_artifact',
+      data: {
+        name: 'kiditem.ui.agent_artifact.v1',
+        artifactId: '11111111-1111-4111-8111-111111111111',
+        session: SESSION_NAME,
+        task: TASK_NAME,
+        execution: EXECUTION_NAME,
+        artifactType: 'listing_draft',
+        label: '상품 등록 초안',
+        sha256: 'a'.repeat(64),
+        navigationActionId: '22222222-2222-4222-8222-222222222222',
+        createdAt: '2026-08-14T00:00:00.000Z',
+      },
+    },
+    {
+      snapshotType: 'agent_delegation',
+      data: {
+        name: 'kiditem.ui.agent_delegation.v1',
+        session: SESSION_NAME,
+        parentTask: TASK_NAME,
+        childTask: `${SESSION_NAME}/tasks/task-2`,
+        fromAgentVersion: AGENT_VERSION_NAME,
+        toAgentVersion: 'agentDefinitions/analyst/versions/1',
+        status: 'running',
+        createdAt: '2026-08-14T00:00:00.000Z',
+      },
+    },
+  ] as const)(
+    'projects durable $snapshotType state into an activity message',
+    async ({ snapshotType, data }) => {
+      const control = controlHarness();
+      control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+        envelope(1, {
+          eventType: 'state_snapshot',
+          payload: { snapshotType, snapshotVersion: 1, data },
+        }),
+      ]));
+      const gateway = createInteractionGateway(dependencies(control));
+
+      const response = await gateway.handler(new Request(
+        'http://gateway.test/api/copilotkit/agent/operator/connect',
+        { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+      ));
+      const activity = (await readSseEvents(response)).find(
+        ({ type }) => type === EventType.ACTIVITY_SNAPSHOT,
+      );
+
+      expect(activity).toMatchObject({
+        type: EventType.ACTIVITY_SNAPSHOT,
+        activityType: data.name,
+        content: data,
+      });
+    },
+  );
+
+  it('replays a durable approval as the standard AG-UI interrupt outcome', async () => {
+    const control = controlHarness();
+    const approvalId = '11111111-1111-4111-8111-111111111111';
+    const approval = {
+      name: 'kiditem.ui.agent_approval.v1',
+      approvalId,
+      session: SESSION_NAME,
+      task: TASK_NAME,
+      execution: EXECUTION_NAME,
+      capabilityKey: 'inventory.adjust',
+      summary: '재고 수량을 조정합니다.',
+      resourceVersions: [],
+      expiresAt: '2026-08-14T01:00:00.000Z',
+    };
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'hitl_request',
+        payload: {
+          requestId: approvalId,
+          status: 'pending',
+          prompt: approval.summary,
+          approval,
+        },
+      }),
+    ]));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+
+    expect(await readSseEvents(response)).toContainEqual(expect.objectContaining({
+      type: EventType.RUN_FINISHED,
+      threadId: THREAD_ID,
+      runId: RUN_ID,
+      outcome: expect.objectContaining({
+        type: 'interrupt',
+        interrupts: [expect.objectContaining({
+          id: approvalId,
+          expiresAt: approval.expiresAt,
+          metadata: { approval },
+        })],
+      }),
+    }));
+  });
+
   it('reconnects an active canonical execution after gateway restart with an empty optimization map', async () => {
     const control = controlHarness();
     control.authorizeConnection.mockResolvedValue(
@@ -711,6 +900,7 @@ describe('NestControlClient header boundary', () => {
     const fetch = vi.fn().mockImplementation(async (url: string) => {
       if (url.endsWith('/runs/intent')) return Response.json(intent);
       if (url.endsWith('/runs/authorize')) return Response.json(authorization);
+      if (url.includes('/approvals/')) return Response.json({ state: 'approved' });
       return Response.json(connectionAuthorization());
     });
     const client = new NestControlClient({
@@ -752,6 +942,12 @@ describe('NestControlClient header boundary', () => {
       copilotThreadId: THREAD_ID,
       cursor: null,
     });
+    await client.decideApproval(attackerRequest, {
+      session: SESSION_NAME,
+      approvalId: '11111111-1111-4111-8111-111111111111',
+      decision: 'approved',
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
+    });
 
     expect(fetch.mock.calls[0][1].headers).toEqual({
       'content-type': 'application/json',
@@ -765,6 +961,17 @@ describe('NestControlClient header boundary', () => {
       'content-type': 'application/json',
       cookie: COOKIE,
       'x-kiditem-interaction-gateway': 's'.repeat(32),
+    });
+    expect(fetch.mock.calls[3][0]).toBe(
+      'http://api:4000/api/agent-os/sessions/session-1/approvals/11111111-1111-4111-8111-111111111111/decision',
+    );
+    expect(fetch.mock.calls[3][1].headers).toEqual({
+      'content-type': 'application/json',
+      cookie: COOKIE,
+    });
+    expect(JSON.parse(fetch.mock.calls[3][1].body)).toEqual({
+      decision: 'approved',
+      idempotencyKey: '22222222-2222-4222-8222-222222222222',
     });
   });
 

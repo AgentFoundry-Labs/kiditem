@@ -474,8 +474,18 @@ export const HitlRequestEventPayloadSchema = z
     requestId: RequestIdSchema,
     status: z.literal("pending"),
     prompt: z.string().min(1).max(20_000),
+    approval: AgentApprovalCardSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (value.approval && value.approval.approvalId !== value.requestId) {
+      addCanonicalNameIssue(
+        context,
+        ["approval", "approvalId"],
+        "approval card must belong to the interrupt request",
+      );
+    }
+  });
 
 export const HitlDecisionEventPayloadSchema = z
   .object({
@@ -623,6 +633,28 @@ export const AgentConversationEventEnvelopeSchema = z
         ["aguiRunId"],
         "terminal events require an execution and its AG-UI run correlation",
       );
+    }
+    if (
+      value.eventType === "hitl_request" &&
+      value.payload.approval !== undefined
+    ) {
+      if (value.payload.approval.session !== value.session) {
+        addCanonicalNameIssue(
+          context,
+          ["payload", "approval", "session"],
+          "approval card must belong to the event session",
+        );
+      }
+      if (
+        value.execution === null ||
+        value.payload.approval.execution !== value.execution
+      ) {
+        addCanonicalNameIssue(
+          context,
+          ["payload", "approval", "execution"],
+          "approval card must belong to the event execution",
+        );
+      }
     }
   });
 
