@@ -35,6 +35,7 @@ import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.ada
 import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
 import { AgentLocalCliRuntimeAdapter } from './adapter/out/runtime/agent-local-cli-runtime.adapter';
 import { AgentLocalProcessRegistry } from './adapter/out/runtime/agent-local-process-registry';
+import { HermesRuntimeStartupRegistrar } from './adapter/out/runtime/hermes-runtime-registrar';
 import { KidItemMcpSessionAdapter } from './adapter/out/runtime/kiditem-mcp-session.adapter';
 import { FilesystemAgentRuntimeManifestCatalog } from './adapter/out/runtime/filesystem-agent-runtime-manifest-catalog';
 import { FilesystemAgentDurableRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-durable-runtime-assets.adapter';
@@ -149,6 +150,14 @@ const agentInteractionProviders = [
     AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
+    {
+      provide: HermesRuntimeStartupRegistrar,
+      inject: [AgentRuntimeAdapterRegistry, AgentCapabilityRegistry],
+      useFactory: (
+        runtimes: AgentRuntimeAdapterRegistry,
+        capabilities: AgentCapabilityRegistry,
+      ) => new HermesRuntimeStartupRegistrar(runtimes, capabilities),
+    },
     AgentConversationModelViewService,
     AgentExecutionContextBuilder,
     AgentRuntimeAssetsStartupValidator,

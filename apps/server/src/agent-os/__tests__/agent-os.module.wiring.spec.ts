@@ -29,6 +29,7 @@ import { OperatorDecisionParser } from '../application/service/operator-decision
 import { AGENT_OS_LIVE_READINESS_PORT } from '../application/port/out/cross-domain/agent-os-live-readiness.port';
 import { AgentLocalCliRuntimeAdapter } from '../adapter/out/runtime/agent-local-cli-runtime.adapter';
 import { AgentLocalProcessRegistry } from '../adapter/out/runtime/agent-local-process-registry';
+import { HermesRuntimeStartupRegistrar } from '../adapter/out/runtime/hermes-runtime-registrar';
 import { KidItemMcpSessionAdapter } from '../adapter/out/runtime/kiditem-mcp-session.adapter';
 import { AgentInlineRunReconciler } from '../application/service/agent-inline-run-reconciler.service';
 import { AgentInteractionService } from '../application/service/agent-interaction.service';
@@ -55,6 +56,8 @@ import { AgentAguiRunService } from '../application/service/agent-agui-run.servi
 import { AgentAguiRuntimeRegistry } from '../application/service/agent-agui-runtime-registry.service';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
 import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
+import { AgentCapabilityRegistry } from '../application/service/agent-capability-registry.service';
+import { AgentRuntimeAdapterRegistry } from '../application/service/agent-runtime-adapter.registry';
 import { AgentVersionPublisher } from '../application/service/agent-version-publisher.service';
 import {
   INTERACTION_CLOCK,
@@ -163,6 +166,11 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(KidItemMcpToolRegistry);
     expect(providers).toContain(OperatorRuntimeHandler);
     expect(providers).toContain(AgentOsLiveReadinessAdapter);
+    expect(providers).toContainEqual({
+      provide: HermesRuntimeStartupRegistrar,
+      inject: [AgentRuntimeAdapterRegistry, AgentCapabilityRegistry],
+      useFactory: expect.any(Function),
+    });
     expect(providers).toContainEqual({
       provide: AGENT_OS_LIVE_READINESS_PORT,
       useExisting: AgentOsLiveReadinessAdapter,
