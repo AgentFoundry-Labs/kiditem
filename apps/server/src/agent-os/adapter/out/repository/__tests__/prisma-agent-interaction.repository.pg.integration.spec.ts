@@ -674,6 +674,19 @@ describe('PrismaAgentInteractionRepository canonical session persistence', () =>
       eventType: 'run_terminal',
       schemaVersion: 1,
       payload: { status: 'failed', errorCode: 'model_failed' },
+      terminal: {
+        ...terminal,
+        finishedAt: new Date('2026-08-13T03:00:05.000Z'),
+      },
+    })).resolves.toMatchObject({ id: event.id });
+    await expect(repository.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
+      executionId: first.execution.id,
+      externalEventId: 'terminal-event',
+      eventType: 'run_terminal',
+      schemaVersion: 1,
+      payload: { status: 'failed', errorCode: 'model_failed' },
     })).rejects.toMatchObject({
       code: 'INTERACTION_EXECUTION_TERMINAL_INVALID',
     });

@@ -31,9 +31,16 @@ export interface CancelOperationRunCommand {
   reason?: string | null;
 }
 
+export interface ResumeOperationRunCommand {
+  organizationId: string;
+  runId: string;
+  requestedByUserId: string | null;
+}
+
 export interface OperationRunnerPort {
   start(command: StartOperationCommand): Promise<OperationRun>;
   list(query: ListOperationRunsQuery): Promise<OperationRun[]>;
   get(organizationId: string, runId: string): Promise<OperationRun>;
+  resume(command: ResumeOperationRunCommand): Promise<OperationRun>;
   cancel(command: CancelOperationRunCommand): Promise<OperationRun>;
 }

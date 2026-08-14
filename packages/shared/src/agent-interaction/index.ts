@@ -28,6 +28,12 @@ import {
 } from "../identifiers";
 import { CanonicalResourceRefSchema } from "./resource-ref";
 import { InteractionUiResultSchema } from "./ui";
+import {
+  AgentApprovalCardSchema,
+  AgentArtifactCardSchema,
+  AgentDelegationEventSchema,
+  AgentProgressEventSchema,
+} from "./durable-runtime";
 
 export {
   AgentApprovalCardSchema,
@@ -399,10 +405,50 @@ const conversationSummaryStateSnapshotEventPayloadSchema = z
   })
   .strict();
 
+const agentProgressStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: z.literal("agent_progress"),
+    snapshotVersion: z.literal(1),
+    data: AgentProgressEventSchema,
+  })
+  .strict();
+
+const agentApprovalStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: z.literal("agent_approval"),
+    snapshotVersion: z.literal(1),
+    data: AgentApprovalCardSchema,
+  })
+  .strict();
+
+const agentArtifactStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: z.literal("agent_artifact"),
+    snapshotVersion: z.literal(1),
+    data: AgentArtifactCardSchema,
+  })
+  .strict();
+
+const agentDelegationStateSnapshotEventPayloadSchema = z
+  .object({
+    snapshotType: z.literal("agent_delegation"),
+    snapshotVersion: z.literal(1),
+    data: AgentDelegationEventSchema,
+  })
+  .strict();
+
 const genericStateSnapshotEventPayloadSchema = z
   .object({
     snapshotType: stableCodeSchema.refine(
-      (value) => value !== "tool_result" && value !== "conversation_summary",
+      (value) =>
+        ![
+          "tool_result",
+          "conversation_summary",
+          "agent_progress",
+          "agent_approval",
+          "agent_artifact",
+          "agent_delegation",
+        ].includes(value),
     ),
     snapshotVersion: z.number().int().positive(),
     data: z
@@ -416,6 +462,10 @@ const genericStateSnapshotEventPayloadSchema = z
 export const StateSnapshotEventPayloadSchema = z.union([
   toolResultStateSnapshotEventPayloadSchema,
   conversationSummaryStateSnapshotEventPayloadSchema,
+  agentProgressStateSnapshotEventPayloadSchema,
+  agentApprovalStateSnapshotEventPayloadSchema,
+  agentArtifactStateSnapshotEventPayloadSchema,
+  agentDelegationStateSnapshotEventPayloadSchema,
   genericStateSnapshotEventPayloadSchema,
 ]);
 

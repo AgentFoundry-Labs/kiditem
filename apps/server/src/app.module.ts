@@ -32,8 +32,6 @@ import { UploadsModule } from './uploads/uploads.module';
 import { ReadinessModule } from './readiness/readiness.module';
 import { RebuildReadinessGuard } from './readiness/rebuild-readiness.guard';
 import { AgentSessionTaskOperationHandler } from './agent-os/adapter/in/operation/agent-session-task.operation-handler';
-import { AgentSessionTaskDispatchService } from './agent-os/application/service/agent-session-task-dispatch.service';
-import { AgentSessionDelegationService } from './agent-os/application/service/agent-session-delegation.service';
 
 @Module({
   imports: [
@@ -74,8 +72,6 @@ import { AgentSessionDelegationService } from './agent-os/application/service/ag
   providers: [
     // API-root composition only. Operations retains the single worker/lease
     // lifecycle; AgentOS supplies task semantics and runtime recovery.
-    AgentSessionTaskDispatchService,
-    AgentSessionDelegationService,
     AgentSessionTaskOperationHandler,
     // 가드 실행 순서 (providers 선언 순서 = 평가 순서):
     // OrganizationScope → rebuild readiness → Roles → Throttler.

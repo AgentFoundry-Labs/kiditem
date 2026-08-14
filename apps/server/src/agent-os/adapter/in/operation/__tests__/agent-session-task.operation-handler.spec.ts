@@ -14,6 +14,8 @@ import { AgentSessionTaskOperationHandler } from '../agent-session-task.operatio
 const SESSION_ID = '00000000-0000-4000-8000-000000000001';
 const TASK_ID = '00000000-0000-4000-8000-000000000002';
 const EXECUTION_ID = '00000000-0000-4000-8000-000000000003';
+const ATTEMPT_ID = '00000000-0000-4000-8000-000000000004';
+const ARTIFACT_ID = '00000000-0000-4000-8000-000000000005';
 const ORGANIZATION_ID = 'org-1';
 const SESSION_NAME = formatAgentSessionName(
   OrganizationIdSchema.parse(ORGANIZATION_ID),
@@ -31,7 +33,7 @@ const EXECUTION_NAME = formatAgentExecutionName(
 );
 
 const handle = {
-  runtimeType: 'hermes_http', executionId: EXECUTION_ID, attemptId: 'attempt-1',
+  runtimeType: 'hermes_http', executionId: EXECUTION_ID, attemptId: ATTEMPT_ID,
   externalRunId: 'external-1', encryptedHandleRef: 'vault://handle-1', generation: 1,
 };
 const runtimeHandleCheckpoint = {
@@ -43,7 +45,7 @@ const runtimeHandleCheckpoint = {
   generation: handle.generation,
 };
 const executionContext = {
-  organizationId: ORGANIZATION_ID, sessionId: SESSION_ID, sessionTaskId: TASK_ID, executionId: EXECUTION_ID, attemptId: 'attempt-1',
+  organizationId: ORGANIZATION_ID, sessionId: SESSION_ID, sessionTaskId: TASK_ID, executionId: EXECUTION_ID, attemptId: ATTEMPT_ID,
   agentDefinitionKey: 'operator', agentVersionId: 'version-1', runtimeType: 'hermes_http', modelIdentity: 'gpt-test',
   capabilityKeys: [], policySnapshotId: 'policy-1', promptPackage: {}, conversationView: { throughSequence: '1', summary: null, turns: [] },
   currentInput: {}, currentResourceRefs: [],
@@ -54,7 +56,11 @@ const operation = {
   requestedByUserId: null, scheduleId: null, parentRunId: null, attemptToken: 'attempt-token-1',
 };
 
-function harness(options: { checkpoint?: Record<string, unknown>; inspection?: Record<string, unknown> } = {}) {
+function harness(options: {
+  checkpoint?: Record<string, unknown>;
+  inspection?: Record<string, unknown>;
+  events?: Array<Record<string, unknown>>;
+} = {}) {
   const order: string[] = [];
   const runtime = {
     runtimeType: 'hermes_http',
@@ -62,7 +68,9 @@ function harness(options: { checkpoint?: Record<string, unknown>; inspection?: R
     start: vi.fn(async () => { order.push('start'); return handle; }),
     connect: vi.fn(async function* () {
       order.push('connect');
-      yield { kind: 'terminal', status: 'completed', output: { ok: true } } as const;
+      for (const event of options.events ?? [
+        { kind: 'terminal', status: 'completed', output: { ok: true } },
+      ]) yield event as never;
     }),
     inspect: vi.fn().mockResolvedValue(options.inspection ?? { status: 'running' }),
     interrupt: vi.fn(), cancel: vi.fn(),
@@ -72,11 +80,27 @@ function harness(options: { checkpoint?: Record<string, unknown>; inspection?: R
     append: vi.fn(async (input) => { order.push(`checkpoint:${input.kind}`); return { ...input, id: 'checkpoint', sequence: 1n, createdAt: new Date() }; }),
   };
   const controls = {
-    startAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1', executionId: 'execution-1', attemptNumber: 1, runtimeType: 'hermes_http', state: 'running' }),
-    persistAttemptHandle: vi.fn(async () => { order.push('persist-handle'); return { id: 'attempt-1' }; }),
-    finishAttempt: vi.fn().mockResolvedValue({ id: 'attempt-1' }),
+    startAttempt: vi.fn().mockResolvedValue({ id: ATTEMPT_ID, executionId: EXECUTION_ID, attemptNumber: 1, runtimeType: 'hermes_http', state: 'running' }),
+    findAttemptForOperation: vi.fn().mockResolvedValue({
+      id: ATTEMPT_ID,
+      executionId: EXECUTION_ID,
+      attemptNumber: 1,
+      runtimeType: 'hermes_http',
+      externalRunId: null,
+      encryptedHandleRef: null,
+      runtimeGeneration: 0,
+      operationRunId: operation.runId,
+      state: 'running',
+    }),
+    persistAttemptHandle: vi.fn(async () => { order.push('persist-handle'); return { id: ATTEMPT_ID }; }),
+    finishAttempt: vi.fn(async () => { order.push('finish-attempt'); return { id: ATTEMPT_ID }; }),
     findTask: vi.fn().mockResolvedValue({ id: 'task-1', status: 'running' }),
     transitionTask: vi.fn().mockResolvedValue({ id: 'task-1', status: 'completed' }),
+    appendArtifact: vi.fn().mockResolvedValue({
+      id: ARTIFACT_ID,
+      sha256: 'a'.repeat(64),
+      lifecycle: 'active',
+    }),
   };
   const executions = {
     loadExecutionRuntimeContext: vi.fn().mockResolvedValue({
@@ -86,17 +110,30 @@ function harness(options: { checkpoint?: Record<string, unknown>; inspection?: R
     findCurrentExecution: vi.fn().mockResolvedValue({ status: 'running' }),
     markExecutionTerminal: vi.fn(),
   };
-  const operations = { heartbeatRun: vi.fn().mockResolvedValue(true) };
+  const runtimeControl = {
+    record: vi.fn(async () => {
+      order.push('runtime-event');
+      return { event: { id: 'event-1', sequence: 2n }, pointer: {} };
+    }),
+    publish: vi.fn(),
+  };
+  const approvals = { request: vi.fn() };
+  const operations = {
+    heartbeatRun: vi.fn().mockResolvedValue(true),
+    findRunById: vi.fn().mockResolvedValue({ input: operation.input }),
+  };
   const handler = new AgentSessionTaskOperationHandler(
     { register: vi.fn() } as never,
     { build: vi.fn().mockResolvedValue(executionContext) } as never,
     { requireCompatible: vi.fn().mockReturnValue(runtime) } as never,
     checkpoints as never,
     controls as never,
+    runtimeControl as never,
+    approvals as never,
     executions as never,
     operations as never,
   );
-  return { handler, runtime, checkpoints, controls, executions, order };
+  return { handler, runtime, checkpoints, controls, runtimeControl, approvals, executions, operations, order };
 }
 
 describe('AgentSessionTaskOperationHandler', () => {
@@ -184,5 +221,195 @@ describe('AgentSessionTaskOperationHandler', () => {
     expect(controls.startAttempt).not.toHaveBeenCalled();
     expect(runtime.start).not.toHaveBeenCalled();
     expect(runtime.inspect).not.toHaveBeenCalled();
+  });
+
+  it('persists canonical text, progress, and terminal events before terminal state reconciliation', async () => {
+    const { handler, runtimeControl, order } = harness({ events: [
+      { kind: 'text_delta', content: '근거를 ' },
+      { kind: 'progress', progress: 0.5, label: '검증 중' },
+      { kind: 'text_delta', content: '확인했습니다.' },
+      { kind: 'terminal', status: 'completed', output: { ok: true } },
+    ] });
+
+    await expect(handler.execute(operation)).resolves.toMatchObject({ kind: 'completed' });
+
+    expect(runtimeControl.record.mock.calls.map(([input]) => input.event.kind)).toEqual([
+      'text_start',
+      'text_delta',
+      'progress',
+      'text_delta',
+      'text_end',
+      'terminal',
+    ]);
+    expect(order.lastIndexOf('runtime-event')).toBeLessThan(order.indexOf('finish-attempt'));
+  });
+
+  it('preserves explicit runtime text boundaries without synthesizing a duplicate start', async () => {
+    const { handler, runtimeControl } = harness({ events: [
+      { kind: 'text_start' },
+      { kind: 'text_delta', content: '명시적 경계 ' },
+      { kind: 'text_end' },
+      { kind: 'terminal', status: 'completed', output: { ok: true } },
+    ] });
+
+    await expect(handler.execute(operation)).resolves.toMatchObject({ kind: 'completed' });
+
+    expect(runtimeControl.record.mock.calls.map(([input]) => input.event.kind)).toEqual([
+      'text_start',
+      'text_delta',
+      'text_end',
+      'terminal',
+    ]);
+  });
+
+  it('persists approval state and both conversation events before checkpointing and publishing the interrupt', async () => {
+    const { handler, approvals, runtimeControl, checkpoints, controls, order } = harness({ events: [{
+      kind: 'interrupt',
+      interruptId: 'interrupt-1',
+      payload: {
+        capabilityKey: 'supply.submitPurchaseOrder',
+        arguments: { purchaseOrderId: 'po-1' },
+        summary: '발주서를 제출합니다.',
+        resourceVersions: [],
+        expiresAt: '2030-01-01T00:00:00.000Z',
+      },
+    }] });
+    approvals.request.mockImplementation(async () => {
+      order.push('approval-persist');
+      return {
+        approvalId: '00000000-0000-4000-8000-000000000005',
+        persistedEvents: [
+          { pointer: { eventId: 'approval-card' } },
+          { pointer: { eventId: 'approval-interrupt' } },
+        ],
+      };
+    });
+    runtimeControl.publish.mockImplementation(async () => { order.push('approval-publish'); });
+
+    await expect(handler.execute(operation)).resolves.toEqual({
+      kind: 'attention_required',
+      reason: 'agent_session_approval_required',
+      result: { approvalId: '00000000-0000-4000-8000-000000000005' },
+    });
+
+    expect(approvals.request).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      session: SESSION_NAME,
+      task: TASK_NAME,
+      execution: EXECUTION_NAME,
+      attempt: expect.stringContaining(`/attempts/${ATTEMPT_ID}`),
+    }));
+    expect(controls.transitionTask).toHaveBeenCalledWith(expect.objectContaining({
+      expectedState: 'running', state: 'waiting_approval',
+    }));
+    expect(checkpoints.append).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'interrupt_boundary',
+    }));
+    expect(order.indexOf('approval-persist')).toBeLessThan(order.findIndex((entry) => entry === 'checkpoint:interrupt_boundary'));
+    expect(order.findIndex((entry) => entry === 'checkpoint:interrupt_boundary')).toBeLessThan(order.indexOf('approval-publish'));
+  });
+
+  it('persists an artifact before emitting its registered durable card', async () => {
+    const { handler, controls, runtimeControl } = harness({ events: [
+      {
+        kind: 'artifact',
+        artifactId: 'provider-artifact-1',
+        payload: {
+          artifactType: 'report',
+          label: '검증 보고서',
+          storageReference: 'artifact-store://reports/one',
+          sha256: 'a'.repeat(64),
+          navigationActionId: '00000000-0000-4000-8000-000000000006',
+          metadata: { source: 'runtime' },
+        },
+      },
+      { kind: 'terminal', status: 'completed', output: { ok: true } },
+    ] });
+
+    await expect(handler.execute(operation)).resolves.toMatchObject({ kind: 'completed' });
+
+    expect(controls.appendArtifact).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      sessionId: SESSION_ID,
+      taskId: TASK_ID,
+      executionId: EXECUTION_ID,
+      idempotencyKey: 'runtime-artifact:provider-artifact-1',
+    }));
+    expect(runtimeControl.record).toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({ kind: 'artifact', artifactId: ARTIFACT_ID }),
+    }));
+  });
+
+  it('cancels the exact checkpointed runtime and reconciles canonical terminal state', async () => {
+    const { handler, runtime, controls, executions, runtimeControl, checkpoints } = harness({ checkpoint: {
+      id: 'checkpoint-handle', organizationId: ORGANIZATION_ID, operationRunId: operation.runId,
+      sequence: 3n, kind: 'runtime_handle_persisted',
+      state: { runtimeHandle: runtimeHandleCheckpoint }, createdAt: new Date(),
+    } });
+
+    await handler.cancel({
+      runId: operation.runId,
+      organizationId: ORGANIZATION_ID,
+      operationKey: operation.operationKey,
+      requestedByUserId: 'user-1',
+      reason: 'operator_cancelled',
+    });
+
+    expect(runtime.cancel).toHaveBeenCalledWith(handle);
+    expect(runtimeControl.record).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      event: { kind: 'terminal', status: 'cancelled' },
+    }));
+    expect(controls.finishAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      state: 'cancelled',
+    }));
+    expect(executions.markExecutionTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      id: EXECUTION_ID,
+      status: 'cancelled',
+    }));
+    expect(controls.transitionTask).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: TASK_ID,
+      state: 'cancelled',
+    }));
+    expect(checkpoints.append).toHaveBeenCalledWith(expect.objectContaining({ kind: 'terminal' }));
+  });
+
+  it('cancels a queued reserved attempt without inventing a runtime handle', async () => {
+    const { handler, runtime, controls, runtimeControl, checkpoints } = harness();
+    controls.findAttemptForOperation.mockResolvedValue({
+      id: ATTEMPT_ID,
+      executionId: EXECUTION_ID,
+      attemptNumber: 1,
+      runtimeType: 'hermes_http',
+      externalRunId: null,
+      encryptedHandleRef: null,
+      runtimeGeneration: 0,
+      operationRunId: operation.runId,
+      state: 'queued',
+    });
+
+    await handler.cancel({
+      runId: operation.runId,
+      organizationId: ORGANIZATION_ID,
+      operationKey: operation.operationKey,
+      requestedByUserId: 'user-1',
+      reason: 'cancelled_before_claim',
+    });
+
+    expect(runtime.cancel).not.toHaveBeenCalled();
+    expect(controls.finishAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      expectedState: 'queued',
+      state: 'cancelled',
+    }));
+    expect(runtimeControl.record).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      event: { kind: 'terminal', status: 'cancelled' },
+    }));
+    expect(checkpoints.append).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'terminal',
+      state: expect.objectContaining({ runtimeHandle: null, status: 'cancelled' }),
+    }));
   });
 });

@@ -1100,8 +1100,7 @@ async function assertExistingAppendMatches(
   if (
     !execution ||
     execution.status !== input.terminal.status ||
-    execution.errorCode !== input.terminal.errorCode ||
-    execution.finishedAt?.getTime() !== input.terminal.finishedAt.getTime()
+    execution.errorCode !== input.terminal.errorCode
   ) {
     throw interactionEventConflict();
   }

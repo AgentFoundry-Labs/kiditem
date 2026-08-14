@@ -75,10 +75,13 @@ export interface RuntimeHandle {
 }
 
 export type NormalizedRuntimeEvent =
+  | { kind: 'text_start' }
   | { kind: 'text_delta'; content: string }
+  | { kind: 'text_end' }
   | { kind: 'progress'; progress: number; label: string }
   | { kind: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
   | { kind: 'artifact'; artifactId: string; payload: Record<string, unknown> }
+  | { kind: 'delegation'; payload: Record<string, unknown> }
   | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string };
 
 export type RuntimeInspection =

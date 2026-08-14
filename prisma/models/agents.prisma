@@ -348,6 +348,8 @@ model AgentExecutionAttempt {
   runtimeType        String    @map("runtime_type")
   externalRunId      String?   @map("external_run_id")
   encryptedHandleRef String?   @map("encrypted_handle_ref")
+  runtimeGeneration  Int       @default(0) @map("runtime_generation")
+  operationRunId     String?   @map("operation_run_id") @db.Uuid
   state              String
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz
@@ -355,11 +357,13 @@ model AgentExecutionAttempt {
   errorMessage       String?   @map("error_message") @db.Text
 
   execution AgentExecution         @relation("AgentExecutionAttempts", fields: [executionId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
+  operationRun OperationRun?       @relation("AgentExecutionAttemptOperationRun", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   approvals AgentSessionApproval[] @relation("AgentSessionApprovalAttempt")
 
   @@unique([executionId, attemptNumber], map: "agent_execution_attempts_execution_number_key")
   @@unique([executionId, idempotencyKey], map: "agent_execution_attempts_execution_idempotency_key")
   @@unique([id, executionId, sessionId, organizationId], map: "agent_execution_attempts_id_execution_session_org_key")
+  @@unique([operationRunId, organizationId], map: "agent_execution_attempts_operation_run_org_key")
   @@index([organizationId, state, startedAt])
   @@index([executionId, sessionId, organizationId])
   @@index([externalRunId])

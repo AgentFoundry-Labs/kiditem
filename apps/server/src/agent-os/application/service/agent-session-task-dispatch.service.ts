@@ -1,9 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  OPERATION_RUNNER_PORT,
-  type OperationRunnerPort,
-} from '../../../operations/application/port/in/operation-runner.port';
-import {
   AgentExecutionIdSchema,
   AgentSessionIdSchema,
   AgentSessionTaskIdSchema,
@@ -12,6 +8,14 @@ import {
   formatAgentSessionTaskName,
   OrganizationIdSchema,
 } from '@kiditem/shared/identifiers';
+import {
+  OPERATION_RUNNER_PORT,
+  type OperationRunnerPort,
+} from '../../../operations/application/port/in/operation-runner.port';
+import {
+  AGENT_SESSION_CONTROL_REPOSITORY,
+  type AgentSessionControlRepositoryPort,
+} from '../port/out/repository/agent-session-control.repository.port';
 import { AGENT_SESSION_TASK_OPERATION_KEY } from '../../domain/operation/agent-os.operations';
 
 @Injectable()
@@ -19,6 +23,8 @@ export class AgentSessionTaskDispatchService {
   constructor(
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
+    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
+    private readonly controls: AgentSessionControlRepositoryPort,
   ) {}
 
   async dispatch(input: {
@@ -49,6 +55,14 @@ export class AgentSessionTaskDispatchService {
       },
       requestedByUserId: input.requestedByUserId,
       idempotencyKey: `${AGENT_SESSION_TASK_OPERATION_KEY}:${input.taskId}:${input.executionId}`,
+    });
+    await this.controls.reserveAttemptForOperation({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+      executionId: input.executionId,
+      operationRunId: run.id,
+      idempotencyKey: `operation:${run.id}`,
     });
     return { operationsRunId: run.id };
   }

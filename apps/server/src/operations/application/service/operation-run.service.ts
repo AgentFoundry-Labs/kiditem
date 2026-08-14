@@ -1,22 +1,23 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
+import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
 import type { OperationRun, OperationStatus } from '@kiditem/shared/operations';
 import type {
   CancelOperationRunCommand,
   ListOperationRunsQuery,
   OperationRunnerPort,
+  ResumeOperationRunCommand,
   StartOperationCommand,
 } from '../port/in/operation-runner.port';
-import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
-import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import {
-  COMPOSITE_OPERATION_COORDINATOR_PORT,
-  type CompositeOperationCoordinatorPort,
-} from '../port/in/composite-operation-coordinator.port';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
@@ -86,6 +87,25 @@ export class OperationRunService implements OperationRunnerPort {
     const record = await this.repository.findRunById({ organizationId, runId });
     if (!record) throw new NotFoundException('operation_run_not_found');
     return this.toWire(record);
+  }
+
+  async resume(command: ResumeOperationRunCommand): Promise<OperationRun> {
+    const existing = await this.require(command.organizationId, command.runId);
+    if (existing.status !== 'attention_required') return this.toWire(existing);
+    const resumed = await this.repository.transition({
+      organizationId: command.organizationId,
+      runId: command.runId,
+      expectedStatuses: ['attention_required'],
+      status: 'queued',
+      errorCode: null,
+      errorMessage: null,
+      finishedAt: null,
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    });
+    return this.toWire(resumed ?? (await this.require(command.organizationId, command.runId)));
   }
 
   async cancel(command: CancelOperationRunCommand): Promise<OperationRun> {

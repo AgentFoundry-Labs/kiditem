@@ -234,6 +234,7 @@ erDiagram
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
+| OperationRun | operationRun | referenced by external | AgentOS | AgentExecutionAttempt |
 | OperationRun | organization | references external | Core | Organization |
 | OperationRun | requestedBy | references external | Core | User |
 | OperationRunCheckpoint | organization | references external | Core | Organization |

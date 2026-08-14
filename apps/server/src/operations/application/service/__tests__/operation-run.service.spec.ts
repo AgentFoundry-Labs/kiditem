@@ -127,4 +127,37 @@ describe('OperationRunService', () => {
       }),
     ).rejects.toThrow('trigger_not_allowed');
   });
+
+  it('requeues only an attention-required operation for an approved session interrupt', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(
+      makeRecord({ status: 'attention_required' }),
+    );
+    repository.transition = vi.fn().mockResolvedValue(
+      makeRecord({ status: 'queued', errorCode: null, errorMessage: null }),
+    );
+    const service = new OperationRunService(registry, repository, compositeCoordinator);
+
+    await expect(service.resume({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: USER_ID,
+    })).resolves.toMatchObject({ id: RUN_ID, status: 'queued' });
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedStatuses: ['attention_required'],
+      status: 'queued',
+    }));
+
+    repository.findRunById = vi.fn().mockResolvedValue(makeRecord({ status: 'running' }));
+    await expect(service.resume({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: USER_ID,
+    })).resolves.toMatchObject({ status: 'running' });
+    expect(repository.transition).toHaveBeenCalledTimes(1);
+  });
 });

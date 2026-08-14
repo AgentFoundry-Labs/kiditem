@@ -428,6 +428,8 @@ erDiagram
     String runtimeType
     String externalRunId
     String encryptedHandleRef
+    Int runtimeGeneration
+    String operationRunId FK
     String state
     DateTime startedAt
     DateTime finishedAt
@@ -3324,6 +3326,7 @@ erDiagram
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
+  OperationRun o|--o| AgentExecutionAttempt : "operationRun"
   OperationRun o|--o{ OperationRun : "parentRun"
   OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"

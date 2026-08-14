@@ -45,6 +45,7 @@ import { AgentInteractionBootstrapController } from '../adapter/in/http/agent-in
 import { AgentInteractionControlController } from '../adapter/in/http/agent-interaction-control.controller';
 import { AgentAguiController } from '../adapter/in/http/agent-agui.controller';
 import { AgentInteractionActionsController } from '../adapter/in/http/agent-interaction-actions.controller';
+import { AgentSessionController } from '../adapter/in/http/agent-session.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from '../adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { AnalyticsOverviewAgentCapabilityAdapter } from '../adapter/in/agent/analytics-overview-agent-capability.adapter';
 import { InteractionProductAnalyticsAdapter } from '../adapter/out/event/interaction-product-analytics.adapter';
@@ -55,6 +56,10 @@ import { AGENT_AGUI_RUNNER_PORT } from '../application/port/in/agent-agui-runner
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../application/port/in/agent-capability-invocation.port';
 import { AgentAguiRunService } from '../application/service/agent-agui-run.service';
 import { AgentSessionCapabilityInvocationService } from '../application/service/agent-session-capability-invocation.service';
+import { AgentSessionApprovalService } from '../application/service/agent-session-approval.service';
+import { AgentSessionCancellationService } from '../application/service/agent-session-cancellation.service';
+import { AgentSessionExecutionService } from '../application/service/agent-session-execution.service';
+import { AgentSessionRuntimeControlService } from '../application/service/agent-session-runtime-control.service';
 import { AgentAguiRuntimeRegistry } from '../application/service/agent-agui-runtime-registry.service';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction-gateway.guard';
 import { AgentInteractionIdentityService } from '../application/service/agent-interaction-identity.service';
@@ -73,6 +78,7 @@ const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
 const PROVIDERS_KEY = MODULE_METADATA.PROVIDERS;
 const EXPORTS_KEY = MODULE_METADATA.EXPORTS;
+const SELF_DECLARED_DEPS_KEY = 'self:paramtypes';
 
 describe('AgentOsModule wiring', () => {
   it('imports owner modules for automation and live-readiness ports', () => {
@@ -104,6 +110,7 @@ describe('AgentOsModule wiring', () => {
       AgentInteractionControlController,
       AgentAguiController,
       AgentInteractionActionsController,
+      AgentSessionController,
     ]);
   });
 
@@ -114,6 +121,10 @@ describe('AgentOsModule wiring', () => {
     expect(providers).toContain(AgentInteractionIdentityService);
     expect(providers).toContain(InteractionGatewayGuard);
     expect(providers).toContain(AgentAguiRunService);
+    expect(providers).toContain(AgentSessionRuntimeControlService);
+    expect(providers).toContain(AgentSessionApprovalService);
+    expect(providers).toContain(AgentSessionCancellationService);
+    expect(providers).toContain(AgentSessionExecutionService);
     expect(providers).toContain(AgentSessionCapabilityInvocationService);
     expect(providers).toContain(AgentAguiRuntimeRegistry);
     expect(providers).toContain(AgentOsPlatformProbeCapabilityAdapter);
@@ -152,6 +163,15 @@ describe('AgentOsModule wiring', () => {
           typeof provider === 'function' && provider.name === 'AgentThreadBindingService',
       ),
     ).toBe(false);
+  });
+
+  it('injects the explicit interaction clock into durable control services', () => {
+    expect(
+      Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, AgentSessionRuntimeControlService),
+    ).toContainEqual({ index: 2, param: INTERACTION_CLOCK });
+    expect(
+      Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, AgentSessionApprovalService),
+    ).toContainEqual({ index: 5, param: INTERACTION_CLOCK });
   });
 
   it('registers the operation-alert bridge in Agent OS, not automation', () => {

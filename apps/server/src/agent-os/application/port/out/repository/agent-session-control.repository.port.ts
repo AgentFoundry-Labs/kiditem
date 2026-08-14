@@ -44,6 +44,8 @@ export interface ExecutionAttemptRecord {
   runtimeType: string;
   externalRunId: string | null;
   encryptedHandleRef: string | null;
+  runtimeGeneration: number;
+  operationRunId: string | null;
   state: string;
 }
 
@@ -51,6 +53,40 @@ export interface SessionApprovalRecord {
   id: string;
   state: string;
   decisionIdempotencyKey: string | null;
+  changed: boolean;
+}
+
+export interface SessionApprovalDetailRecord {
+  id: string;
+  organizationId: string;
+  sessionId: string;
+  taskId: string;
+  executionId: string;
+  attemptId: string;
+  operationRunId: string | null;
+  capabilityKey: string;
+  argumentsHash: string;
+  resourceSnapshot: unknown[];
+  state: string;
+  decisionIdempotencyKey: string | null;
+  expiresAt: Date;
+  requestedByUserId: string;
+  runtimeType: string;
+  externalRunId: string | null;
+  encryptedHandleRef: string | null;
+  runtimeGeneration: number;
+}
+
+export interface SessionTaskExecutionRecord {
+  organizationId: string;
+  sessionId: string;
+  taskId: string;
+  taskStatus: string;
+  executionId: string;
+  executionStatus: string;
+  runtimeType: string;
+  requestedByUserId: string;
+  operationRunId: string | null;
 }
 
 export interface SessionArtifactRecord {
@@ -89,6 +125,18 @@ export interface AgentSessionControlRepositoryPort {
     maxDepth?: number;
     maxChildrenPerTask?: number;
   }): Promise<DelegatedTaskRecord>;
+  reserveAttemptForOperation(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    executionId: string;
+    operationRunId: string;
+    idempotencyKey: string;
+  }): Promise<ExecutionAttemptRecord>;
+  findAttemptForOperation(input: {
+    organizationId: string;
+    operationRunId: string;
+  }): Promise<ExecutionAttemptRecord | null>;
   startAttempt(input: {
     organizationId: string;
     sessionId: string;
@@ -96,6 +144,7 @@ export interface AgentSessionControlRepositoryPort {
     runtimeType: string;
     externalRunId?: string | null;
     encryptedHandleRef?: string | null;
+    operationRunId?: string | null;
     idempotencyKey: string;
   }): Promise<ExecutionAttemptRecord>;
   persistAttemptHandle(input: {
@@ -106,6 +155,7 @@ export interface AgentSessionControlRepositoryPort {
     runtimeType: string;
     externalRunId: string;
     encryptedHandleRef: string;
+    runtimeGeneration: number;
   }): Promise<ExecutionAttemptRecord>;
   finishAttempt(input: {
     organizationId: string;
@@ -138,6 +188,17 @@ export interface AgentSessionControlRepositoryPort {
     actorType: string;
     actorId: string;
     idempotencyKey: string;
+  }): Promise<SessionApprovalRecord>;
+  loadApproval(input: {
+    organizationId: string;
+    sessionId: string;
+    approvalId: string;
+  }): Promise<SessionApprovalDetailRecord | null>;
+  expireApproval(input: {
+    organizationId: string;
+    sessionId: string;
+    approvalId: string;
+    expectedState: 'pending';
   }): Promise<SessionApprovalRecord>;
   appendArtifact(input: {
     organizationId: string;
@@ -172,4 +233,25 @@ export interface AgentSessionControlRepositoryPort {
     organizationId: string;
     sessionId: string;
   }): Promise<{ id: string; lifecycle: string } | null>;
+  loadTaskExecution(input: {
+    organizationId: string;
+    actorId: string;
+    sessionId: string;
+    taskId: string;
+  }): Promise<SessionTaskExecutionRecord | null>;
+  loadCancelableTask(input: {
+    organizationId: string;
+    actorId: string;
+    sessionId: string;
+    taskId: string;
+    expectedStatus: 'queued' | 'running' | 'waiting_dependency' | 'waiting_approval' | 'paused';
+  }): Promise<Pick<SessionTaskExecutionRecord, 'organizationId' | 'sessionId' | 'taskId' | 'operationRunId'> | null>;
+  createRetryExecution(input: {
+    organizationId: string;
+    actorId: string;
+    sessionId: string;
+    taskId: string;
+    expectedStatus: 'failed' | 'paused' | 'waiting_dependency';
+    idempotencyKey: string;
+  }): Promise<SessionTaskExecutionRecord>;
 }

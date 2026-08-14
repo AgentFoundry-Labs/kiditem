@@ -21,6 +21,7 @@ import {
   ResumeAgentTaskSchema,
   RetryAgentTaskSchema,
 } from "./durable-runtime";
+import { AgentConversationEventContentSchema } from "./index";
 
 const organization = OrganizationIdSchema.parse("durable-organization-row");
 const session = formatAgentSessionName(
@@ -182,5 +183,50 @@ describe("durable AgentOS interaction contracts", () => {
         createdAt: NOW,
       }).toAgentVersion,
     ).toBe("agentDefinitions/sourcing/versions/2");
+  });
+
+  it("registers durable cards as bounded canonical state snapshots", () => {
+    expect(
+      AgentConversationEventContentSchema.parse({
+        eventType: "state_snapshot",
+        schemaVersion: 1,
+        payload: {
+          snapshotType: "agent_progress",
+          snapshotVersion: 1,
+          data: {
+            name: "kiditem.ui.agent_progress.v1",
+            ...correlation,
+            status: "running",
+            progress: 0.4,
+            label: "상품 근거 확인 중",
+            updatedAt: NOW,
+          },
+        },
+      }),
+    ).toMatchObject({
+      eventType: "state_snapshot",
+      payload: { snapshotType: "agent_progress" },
+    });
+
+    expect(() =>
+      AgentConversationEventContentSchema.parse({
+        eventType: "state_snapshot",
+        schemaVersion: 1,
+        payload: {
+          snapshotType: "agent_progress",
+          snapshotVersion: 1,
+          data: {
+            name: "kiditem.ui.agent_progress.v1",
+            session,
+            task: otherTask,
+            execution,
+            status: "running",
+            progress: 0.4,
+            label: "상품 근거 확인 중",
+            updatedAt: NOW,
+          },
+        },
+      }),
+    ).toThrow();
   });
 });

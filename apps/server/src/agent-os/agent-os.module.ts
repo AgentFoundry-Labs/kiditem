@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { AutomationModule } from '../automation/automation.module';
 import { ReadinessModule } from '../readiness/readiness.module';
+import { OperationsModule } from '../operations/operations.module';
 import { DashboardCapabilityModule } from '../analytics/dashboard/dashboard-capability.module';
 import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
 import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
@@ -14,6 +15,7 @@ import { AgentInteractionBootstrapController } from './adapter/in/http/agent-int
 import { AgentInteractionControlController } from './adapter/in/http/agent-interaction-control.controller';
 import { AgentAguiController } from './adapter/in/http/agent-agui.controller';
 import { AgentInteractionActionsController } from './adapter/in/http/agent-interaction-actions.controller';
+import { AgentSessionController } from './adapter/in/http/agent-session.controller';
 import { AgentOsPlatformProbeCapabilityAdapter } from './adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { AnalyticsOverviewAgentCapabilityAdapter } from './adapter/in/agent/analytics-overview-agent-capability.adapter';
 import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
@@ -54,6 +56,7 @@ import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
 import { AGENT_DURABLE_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-durable-runtime.port';
+import { AGENT_SESSION_RESOURCE_VERSION_VALIDATOR } from './application/port/out/resource/agent-session-resource-version-validator.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
 import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
@@ -98,6 +101,12 @@ import {
 import { AgentExecutionContextBuilder } from './application/service/agent-execution-context-builder.service';
 import { AgentSessionCapabilityInvocationService } from './application/service/agent-session-capability-invocation.service';
 import { AgentRuntimeAdapterRegistry } from './application/service/agent-runtime-adapter.registry';
+import { AgentSessionApprovalService } from './application/service/agent-session-approval.service';
+import { AgentSessionCancellationService } from './application/service/agent-session-cancellation.service';
+import { AgentSessionExecutionService } from './application/service/agent-session-execution.service';
+import { AgentSessionRuntimeControlService } from './application/service/agent-session-runtime-control.service';
+import { AgentSessionTaskDispatchService } from './application/service/agent-session-task-dispatch.service';
+import { AgentSessionDelegationService } from './application/service/agent-session-delegation.service';
 import { resolveAgentOsRepositoryRoot } from './seed-agent-os';
 
 const agentInteractionProviders = [
@@ -109,7 +118,7 @@ const agentInteractionProviders = [
 ];
 
 @Module({
-  imports: [AutomationModule, ReadinessModule, DashboardCapabilityModule],
+  imports: [AutomationModule, ReadinessModule, DashboardCapabilityModule, OperationsModule],
   controllers: [
     AgentCatalogController,
     AgentRunRequestsController,
@@ -122,12 +131,19 @@ const agentInteractionProviders = [
     AgentInteractionControlController,
     AgentAguiController,
     AgentInteractionActionsController,
+    AgentSessionController,
   ],
   providers: [
     ...agentInteractionProviders,
     ...interactionEnvironmentProviders,
     AgentInteractionIdentityService,
     AgentAguiRunService,
+    AgentSessionRuntimeControlService,
+    AgentSessionApprovalService,
+    AgentSessionCancellationService,
+    AgentSessionExecutionService,
+    AgentSessionTaskDispatchService,
+    AgentSessionDelegationService,
     AgentAguiProducerCoordinator,
     AgentAguiRuntimeRegistry,
     {
@@ -217,6 +233,16 @@ const agentInteractionProviders = [
       useClass: PrismaAgentSessionControlRepository,
     },
     {
+      // Until each owner domain supplies a version resolver, only an approval
+      // with no resource reference may be resumed. Unknown resources never
+      // become implicit approval authority.
+      provide: AGENT_SESSION_RESOURCE_VERSION_VALIDATOR,
+      useValue: {
+        areCurrent: async ({ resourceVersions }: { resourceVersions: readonly unknown[] }) =>
+          resourceVersions.length === 0,
+      },
+    },
+    {
       provide: AGENT_EXECUTION_CONTEXT_REPOSITORY,
       useClass: PrismaAgentExecutionContextRepository,
     },
@@ -290,6 +316,10 @@ const agentInteractionProviders = [
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+    AgentSessionRuntimeControlService,
+    AgentSessionApprovalService,
+    AgentSessionTaskDispatchService,
+    AgentSessionDelegationService,
     AGENT_INTERACTION_REPOSITORY,
     AGENT_SESSION_CONTROL_REPOSITORY,
     AgentTaskDelegationService,

@@ -1,6 +1,6 @@
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { createHash } from 'node:crypto';
 import {
   CanonicalResourceRefSchema,
   UserMessageEventPayloadSchema,
@@ -387,12 +387,20 @@ export class PrismaAgentSessionControlRepository
       if (existing) {
         if (
           existing.runtimeType !== input.runtimeType ||
+          (input.operationRunId !== undefined &&
+            existing.operationRunId !== input.operationRunId) ||
           (input.externalRunId !== undefined &&
             existing.externalRunId !== input.externalRunId) ||
           (input.encryptedHandleRef !== undefined &&
             existing.encryptedHandleRef !== input.encryptedHandleRef)
         ) {
           throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        }
+        if (existing.state === 'queued') {
+          return mapAttempt(await tx.agentExecutionAttempt.update({
+            where: { id: existing.id },
+            data: { state: 'running', startedAt: new Date() },
+          }));
         }
         return mapAttempt(existing);
       }
@@ -410,10 +418,89 @@ export class PrismaAgentSessionControlRepository
           runtimeType: input.runtimeType,
           externalRunId: input.externalRunId ?? null,
           encryptedHandleRef: input.encryptedHandleRef ?? null,
+          runtimeGeneration: 0,
+          operationRunId: input.operationRunId ?? null,
           state: 'running',
         },
       }));
     }).catch(rethrowStable);
+  }
+
+  async reserveAttemptForOperation(
+    input: Parameters<AgentSessionControlRepositoryPort['reserveAttemptForOperation']>[0],
+  ): Promise<ExecutionAttemptRecord> {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['attempt', input.executionId]);
+      await lock(tx, ['attempt-operation', input.organizationId, input.operationRunId]);
+      const execution = await tx.agentExecution.findFirst({
+        where: {
+          id: input.executionId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          sessionTaskId: input.taskId,
+          status: 'running',
+        },
+        select: { id: true, runtimeType: true },
+      });
+      if (!execution) throw scope();
+      const existing = await tx.agentExecutionAttempt.findFirst({
+        where: {
+          executionId: input.executionId,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+      if (existing) {
+        if (
+          existing.organizationId !== input.organizationId ||
+          existing.sessionId !== input.sessionId ||
+          existing.executionId !== input.executionId ||
+          existing.runtimeType !== execution.runtimeType ||
+          existing.operationRunId !== input.operationRunId
+        ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        return mapAttempt(existing);
+      }
+      const existingOperation = await tx.agentExecutionAttempt.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+        },
+      });
+      if (existingOperation) {
+        if (
+          existingOperation.executionId !== input.executionId ||
+          existingOperation.sessionId !== input.sessionId
+        ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        return mapAttempt(existingOperation);
+      }
+      const latest = await tx.agentExecutionAttempt.aggregate({
+        where: { executionId: input.executionId },
+        _max: { attemptNumber: true },
+      });
+      return mapAttempt(await tx.agentExecutionAttempt.create({
+        data: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          executionId: input.executionId,
+          attemptNumber: (latest._max.attemptNumber ?? 0) + 1,
+          idempotencyKey: input.idempotencyKey,
+          runtimeType: execution.runtimeType,
+          operationRunId: input.operationRunId,
+          state: 'queued',
+        },
+      }));
+    }).catch(rethrowStable);
+  }
+
+  async findAttemptForOperation(
+    input: Parameters<AgentSessionControlRepositoryPort['findAttemptForOperation']>[0],
+  ): Promise<ExecutionAttemptRecord | null> {
+    const attempt = await this.prisma.agentExecutionAttempt.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        operationRunId: input.operationRunId,
+      },
+    });
+    return attempt ? mapAttempt(attempt) : null;
   }
 
   async finishAttempt(
@@ -462,6 +549,7 @@ export class PrismaAgentSessionControlRepository
       if (
         attempt.externalRunId === input.externalRunId &&
         attempt.encryptedHandleRef === input.encryptedHandleRef &&
+        attempt.runtimeGeneration === input.runtimeGeneration &&
         attempt.runtimeType === input.runtimeType
       ) return mapAttempt(attempt);
       if (
@@ -475,6 +563,7 @@ export class PrismaAgentSessionControlRepository
         data: {
           externalRunId: input.externalRunId,
           encryptedHandleRef: input.encryptedHandleRef,
+          runtimeGeneration: input.runtimeGeneration,
         },
       }));
     }).catch(rethrowStable);
@@ -484,6 +573,7 @@ export class PrismaAgentSessionControlRepository
     input: Parameters<AgentSessionControlRepositoryPort['requestApproval']>[0],
   ): Promise<SessionApprovalRecord> {
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['approval-open', input.organizationId, input.executionId]);
       await lock(tx, ['approval', input.executionId, input.idempotencyKey]);
       const attempt = await tx.agentExecutionAttempt.findFirst({
         where: {
@@ -509,8 +599,18 @@ export class PrismaAgentSessionControlRepository
           !canonicalEqual(existing.resourceSnapshot, input.resourceSnapshot) ||
           existing.expiresAt.getTime() !== input.expiresAt.getTime()
         ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
-        return mapApproval(existing);
+        return mapApproval(existing, false);
       }
+      const pending = await tx.agentSessionApproval.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          executionId: input.executionId,
+          state: 'pending',
+        },
+        select: { id: true },
+      });
+      if (pending) throw state();
       if (attempt.state !== 'running') throw state();
       return mapApproval(await tx.agentSessionApproval.create({
         data: {
@@ -526,7 +626,7 @@ export class PrismaAgentSessionControlRepository
           expiresAt: input.expiresAt,
           idempotencyKey: input.idempotencyKey,
         },
-      }));
+      }), true);
     }).catch(rethrowStable);
   }
 
@@ -549,7 +649,7 @@ export class PrismaAgentSessionControlRepository
           idempotent.decidedByActorType !== input.actorType ||
           idempotent.decidedByActorId !== input.actorId
         ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
-        return mapApproval(idempotent);
+        return mapApproval(idempotent, false);
       }
       const approval = await tx.agentSessionApproval.findFirst({
         where: {
@@ -569,7 +669,95 @@ export class PrismaAgentSessionControlRepository
           decidedByActorId: input.actorId,
           decidedAt: new Date(),
         },
-      }));
+      }), true);
+    }).catch(rethrowStable);
+  }
+
+  async loadApproval(
+    input: Parameters<AgentSessionControlRepositoryPort['loadApproval']>[0],
+  ) {
+    const approval = await this.prisma.agentSessionApproval.findFirst({
+      where: {
+        id: input.approvalId,
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        taskId: true,
+        executionId: true,
+        attemptId: true,
+        capabilityKey: true,
+        argumentsHash: true,
+        resourceSnapshot: true,
+        state: true,
+        decisionIdempotencyKey: true,
+        expiresAt: true,
+        execution: {
+          select: {
+            session: { select: { createdByUserId: true } },
+          },
+        },
+        attempt: {
+          select: {
+            runtimeType: true,
+            externalRunId: true,
+            encryptedHandleRef: true,
+            runtimeGeneration: true,
+            operationRunId: true,
+          },
+        },
+      },
+    });
+    if (!approval) return null;
+    const resourceSnapshot = z.array(CanonicalResourceRefSchema).max(50).safeParse(
+      approval.resourceSnapshot,
+    );
+    if (!resourceSnapshot.success) throw state();
+    return {
+      id: approval.id,
+      organizationId: approval.organizationId,
+      sessionId: approval.sessionId,
+      taskId: approval.taskId,
+      executionId: approval.executionId,
+      attemptId: approval.attemptId,
+      operationRunId: approval.attempt.operationRunId,
+      capabilityKey: approval.capabilityKey,
+      argumentsHash: approval.argumentsHash,
+      resourceSnapshot: resourceSnapshot.data,
+      state: approval.state,
+      decisionIdempotencyKey: approval.decisionIdempotencyKey,
+      expiresAt: approval.expiresAt,
+      requestedByUserId: approval.execution.session.createdByUserId,
+      runtimeType: approval.attempt.runtimeType,
+      externalRunId: approval.attempt.externalRunId,
+      encryptedHandleRef: approval.attempt.encryptedHandleRef,
+      runtimeGeneration: approval.attempt.runtimeGeneration,
+    };
+  }
+
+  async expireApproval(
+    input: Parameters<AgentSessionControlRepositoryPort['expireApproval']>[0],
+  ): Promise<SessionApprovalRecord> {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['approval-expire', input.organizationId, input.approvalId]);
+      const approval = await tx.agentSessionApproval.findFirst({
+        where: {
+          id: input.approvalId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+        },
+      });
+      if (!approval) throw scope();
+      if (approval.state === 'expired') return mapApproval(approval, false);
+      if (approval.state !== input.expectedState) throw state();
+      const updated = await tx.agentSessionApproval.update({
+        where: { id: approval.id },
+        data: { state: 'expired', decidedAt: new Date() },
+      });
+      return mapApproval(updated, true);
     }).catch(rethrowStable);
   }
 
@@ -677,6 +865,202 @@ export class PrismaAgentSessionControlRepository
     });
   }
 
+  async loadCancelableTask(
+    input: Parameters<AgentSessionControlRepositoryPort['loadCancelableTask']>[0],
+  ) {
+    const task = await this.prisma.agentSessionTask.findFirst({
+      where: {
+        id: input.taskId,
+        sessionId: input.sessionId,
+        organizationId: input.organizationId,
+        status: input.expectedStatus,
+        session: { createdByUserId: input.actorId },
+      },
+      select: {
+        id: true,
+        sessionId: true,
+        organizationId: true,
+        status: true,
+        executions: {
+          where: { status: 'running' },
+          orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: {
+            id: true,
+            runtimeType: true,
+            attempts: {
+              where: { state: { in: ['queued', 'running'] }, operationRunId: { not: null } },
+              orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: { operationRunId: true },
+            },
+          },
+        },
+      },
+    });
+    const execution = task?.executions[0];
+    const operationRunId = execution?.attempts[0]?.operationRunId ?? null;
+    if (!task || !execution || !operationRunId) return null;
+    return {
+      organizationId: task.organizationId,
+      sessionId: task.sessionId,
+      taskId: task.id,
+      operationRunId,
+    };
+  }
+
+  async loadTaskExecution(
+    input: Parameters<AgentSessionControlRepositoryPort['loadTaskExecution']>[0],
+  ) {
+    const task = await this.prisma.agentSessionTask.findFirst({
+      where: {
+        id: input.taskId,
+        sessionId: input.sessionId,
+        organizationId: input.organizationId,
+        session: { createdByUserId: input.actorId },
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        status: true,
+        session: { select: { createdByUserId: true } },
+        executions: {
+          orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+          select: {
+            id: true,
+            status: true,
+            runtimeType: true,
+            attempts: {
+              orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+              take: 1,
+              select: { operationRunId: true },
+            },
+          },
+        },
+      },
+    });
+    const execution = task?.executions[0];
+    if (!task || !execution) return null;
+    return {
+      organizationId: task.organizationId,
+      sessionId: task.sessionId,
+      taskId: task.id,
+      taskStatus: task.status,
+      executionId: execution.id,
+      executionStatus: execution.status,
+      runtimeType: execution.runtimeType,
+      requestedByUserId: task.session.createdByUserId,
+      operationRunId: execution.attempts[0]?.operationRunId ?? null,
+    };
+  }
+
+  async createRetryExecution(
+    input: Parameters<AgentSessionControlRepositoryPort['createRetryExecution']>[0],
+  ) {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['retry-task', input.organizationId, input.sessionId, input.taskId]);
+      const task = await tx.agentSessionTask.findFirst({
+        where: {
+          id: input.taskId,
+          sessionId: input.sessionId,
+          organizationId: input.organizationId,
+          session: { createdByUserId: input.actorId, lifecycle: 'active' },
+        },
+        select: {
+          id: true,
+          organizationId: true,
+          sessionId: true,
+          status: true,
+          session: { select: { createdByUserId: true, copilotThreadId: true } },
+          executions: {
+            orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
+            take: 1,
+            select: {
+              id: true,
+              agentVersionId: true,
+              runtimeType: true,
+              modelIdentity: true,
+              policySnapshotId: true,
+              inputHash: true,
+              currentInput: true,
+              resourceRefs: true,
+              attempt: true,
+            },
+          },
+        },
+      });
+      if (!task) {
+        throw scope();
+      }
+      const aguiRunId = retryRunId(input.taskId, input.idempotencyKey);
+      const existing = await tx.agentExecution.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          copilotThreadId: task.session.copilotThreadId,
+          aguiRunId,
+        },
+        select: {
+          id: true,
+          status: true,
+          runtimeType: true,
+          attempts: { take: 1, select: { operationRunId: true } },
+        },
+      });
+      if (existing) {
+        return {
+          organizationId: task.organizationId,
+          sessionId: task.sessionId,
+          taskId: task.id,
+          taskStatus: task.status,
+          executionId: existing.id,
+          executionStatus: existing.status,
+          runtimeType: existing.runtimeType,
+          requestedByUserId: task.session.createdByUserId,
+          operationRunId: existing.attempts[0]?.operationRunId ?? null,
+        };
+      }
+      if (task.status !== input.expectedStatus) throw state();
+      const previous = task.executions[0];
+      if (!previous) throw state();
+      const execution = await tx.agentExecution.create({
+        data: {
+          organizationId: task.organizationId,
+          sessionId: task.sessionId,
+          sessionTaskId: task.id,
+          copilotThreadId: task.session.copilotThreadId,
+          aguiRunId,
+          agentVersionId: previous.agentVersionId,
+          runtimeType: previous.runtimeType,
+          modelIdentity: previous.modelIdentity,
+          policySnapshotId: previous.policySnapshotId,
+          inputHash: previous.inputHash,
+          currentInput: toInputJson(previous.currentInput),
+          resourceRefs: toInputJson(previous.resourceRefs),
+          attempt: previous.attempt + 1,
+          status: 'running',
+        },
+        select: { id: true, status: true, runtimeType: true },
+      });
+      await tx.agentSessionTask.update({
+        where: { id: task.id },
+        data: { status: 'queued', finishedAt: null },
+      });
+      return {
+        organizationId: task.organizationId,
+        sessionId: task.sessionId,
+        taskId: task.id,
+        taskStatus: 'queued',
+        executionId: execution.id,
+        executionStatus: execution.status,
+        runtimeType: execution.runtimeType,
+        requestedByUserId: task.session.createdByUserId,
+        operationRunId: null,
+      };
+    }).catch(rethrowStable);
+  }
+
   private async throwScopeOrStateForTask(input: {
     organizationId: string;
     sessionId: string;
@@ -715,7 +1099,7 @@ function mapDelegation(
     state: row.state,
   };
 }
-function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; externalRunId: string | null; encryptedHandleRef: string | null; state: string }): ExecutionAttemptRecord {
+function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; externalRunId: string | null; encryptedHandleRef: string | null; runtimeGeneration: number; operationRunId: string | null; state: string }): ExecutionAttemptRecord {
   return {
     id: row.id,
     executionId: row.executionId,
@@ -723,11 +1107,13 @@ function mapAttempt(row: { id: string; executionId: string; attemptNumber: numbe
     runtimeType: row.runtimeType,
     externalRunId: row.externalRunId,
     encryptedHandleRef: row.encryptedHandleRef,
+    runtimeGeneration: row.runtimeGeneration,
+    operationRunId: row.operationRunId,
     state: row.state,
   };
 }
-function mapApproval(row: { id: string; state: string; decisionIdempotencyKey: string | null }): SessionApprovalRecord {
-  return { id: row.id, state: row.state, decisionIdempotencyKey: row.decisionIdempotencyKey };
+function mapApproval(row: { id: string; state: string; decisionIdempotencyKey: string | null }, changed: boolean): SessionApprovalRecord {
+  return { id: row.id, state: row.state, decisionIdempotencyKey: row.decisionIdempotencyKey, changed };
 }
 function mapArtifact(row: { id: string; sha256: string; lifecycle: string }): SessionArtifactRecord {
   return { id: row.id, sha256: row.sha256, lifecycle: row.lifecycle };
@@ -753,6 +1139,14 @@ function canonicalJson(value: unknown): string {
       .join(',')}}`;
   }
   throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+}
+function retryRunId(taskId: string, idempotencyKey: string): string {
+  return `retry-${createHash('sha256')
+    .update(canonicalJson([taskId, idempotencyKey]))
+    .digest('hex')}`;
+}
+function toInputJson(value: Prisma.JsonValue): Prisma.InputJsonValue | Prisma.JsonNullValueInput {
+  return value === null ? Prisma.JsonNull : value as Prisma.InputJsonValue;
 }
 function stringArray(value: unknown): string[] {
   if (

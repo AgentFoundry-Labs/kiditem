@@ -237,6 +237,7 @@ model OperationRun {
   childRuns    OperationRun[]           @relation("OperationRunHierarchy")
   schedule     OperationSchedule?       @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   checkpoints  OperationRunCheckpoint[] @relation("OperationRunCheckpoints")
+  agentExecutionAttempt AgentExecutionAttempt? @relation("AgentExecutionAttemptOperationRun")
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))

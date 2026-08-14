@@ -206,6 +206,8 @@ erDiagram
     String runtimeType
     String externalRunId
     String encryptedHandleRef
+    Int runtimeGeneration
+    String operationRunId FK
     String state
     DateTime startedAt
     DateTime finishedAt
@@ -665,6 +667,7 @@ erDiagram
 | AgentConversation | organization | references external | Core | Organization |
 | AgentCostEvent | organization | references external | Core | Organization |
 | AgentExecution | organization | references external | Core | Organization |
+| AgentExecutionAttempt | operationRun | references external | System | OperationRun |
 | AgentExecutionUsage | organization | references external | Core | Organization |
 | AgentInstance | agentInstance | referenced by external | Core | User |
 | AgentInstance | organization | references external | Core | Organization |
