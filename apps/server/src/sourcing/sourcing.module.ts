@@ -13,6 +13,7 @@ import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688ImageSearchController } from "./adapter/in/http/sourcing-1688-image-search.controller";
 import { Sourcing1688KeywordSearchController } from "./adapter/in/http/sourcing-1688-keyword-search.controller";
+import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
 import { Sourcing1688TrendExtensionController } from "./adapter/in/http/sourcing-1688-trend-extension.controller";
@@ -28,10 +29,12 @@ import { SourcingReviewController } from "./adapter/in/http/sourcing-review.cont
 import { TrendCollectionController } from "./adapter/in/http/trend-collection.controller";
 import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-trend.operation-handler";
 import { SourcingBrowserOperationHandler } from "./adapter/in/operation/sourcing-browser.operation-handler";
+import { Sourcing1688OperationHandler } from "./adapter/in/operation/sourcing-1688.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "./application/service/sourcing-1688-keyword-search.service";
+import { Sourcing1688SearchResultService } from "./application/service/sourcing-1688-search-result.service";
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
@@ -67,6 +70,7 @@ import { SourcingEvidenceLedgerRepositoryAdapter } from "./adapter/out/repositor
 import { SourcingLaunchCandidateRepositoryAdapter } from "./adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "./adapter/out/repository/sourcing-decision-batch.repository.adapter";
 import { SourcingCollectionRepositoryAdapter } from "./adapter/out/repository/sourcing-collection.repository.adapter";
+import { Sourcing1688SearchResultRepositoryAdapter } from "./adapter/out/repository/sourcing-1688-search-result.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "./adapter/out/repository/live-commerce.repository.adapter";
 import { ProductPreparationRepositoryAdapter } from "./adapter/out/repository/product-preparation.repository.adapter";
 import { ChannelProductRegistrationAdapter } from "./adapter/out/channels/channel-product-registration.adapter";
@@ -102,6 +106,7 @@ import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "./application/port/out
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-decision-batch.repository.port";
 import { SOURCING_COLLECTION_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-collection.repository.port";
+import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { CHANNEL_PRODUCT_REGISTRATION_PORT } from "./application/port/out/cross-domain/channel-product-registration.port";
 import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupang-momentum.port";
 import { REGISTRATION_CONTENT_WORKSPACE_PORT } from "./application/port/out/cross-domain/registration-content-workspace.port";
@@ -149,6 +154,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingKeywordResearchController,
     Sourcing1688ImageSearchController,
     Sourcing1688KeywordSearchController,
+    Sourcing1688SearchResultController,
     SourcingAgentRagController,
     SourcingRisingProductController,
     SourcingIntelligenceController,
@@ -166,6 +172,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
     Sourcing1688KeywordSearchService,
+    Sourcing1688SearchResultService,
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
     SourcingEntryRecommendationService,
@@ -186,6 +193,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     TrendCollectService,
     SourcingTrendOperationHandler,
     SourcingBrowserOperationHandler,
+    Sourcing1688OperationHandler,
     TrendQueryService,
     LiveCommerceService,
     ProductRegistrationService,
@@ -202,6 +210,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingLaunchCandidateRepositoryAdapter,
     SourcingDecisionBatchRepositoryAdapter,
     SourcingCollectionRepositoryAdapter,
+    Sourcing1688SearchResultRepositoryAdapter,
     LiveCommerceRepositoryAdapter,
     ProductPreparationRepositoryAdapter,
     ChannelProductRegistrationAdapter,
@@ -281,6 +290,10 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     {
       provide: SOURCING_COLLECTION_REPOSITORY_PORT,
       useExisting: SourcingCollectionRepositoryAdapter,
+    },
+    {
+      provide: SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+      useExisting: Sourcing1688SearchResultRepositoryAdapter,
     },
     {
       provide: SOURCING_SUPPLY_INTELLIGENCE_PORT,

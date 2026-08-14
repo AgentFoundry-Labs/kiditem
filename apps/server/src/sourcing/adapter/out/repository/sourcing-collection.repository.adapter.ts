@@ -610,6 +610,7 @@ async function persistTypedRecord(
           supplierName: row.supplierName,
           imageUrl: row.imageUrl,
           sourceUrl: row.sourceUrl,
+          ...(row.searchMetadata ? row.searchMetadata : {}),
         } as Prisma.InputJsonValue,
         capturedAt: row.capturedAt,
       },

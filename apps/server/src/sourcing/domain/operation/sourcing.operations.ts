@@ -1,6 +1,8 @@
 import type { OperationDefinition } from '../../../common/operation-definition';
 import { z } from 'zod';
 import {
+  Sourcing1688ImageMatchInputSchema,
+  Sourcing1688KeywordBatchInputSchema,
   SourcingKeywordSuggestionInputSchema,
   SourcingWingCatalogBatchInputSchema,
 } from '@kiditem/shared/sourcing';
@@ -39,6 +41,34 @@ export const SOURCING_KEYWORD_SUGGESTION_OPERATION = {
   inputSchema: SourcingKeywordSuggestionInputSchema,
 } as const satisfies OperationDefinition;
 
+export const SOURCING_1688_KEYWORD_BATCH_OPERATION = {
+  key: 'sourcing.search_1688_keyword_batch',
+  version: 1,
+  title: '1688 키워드 배치 검색',
+  ownerDomain: 'sourcing',
+  engineType: 'domain',
+  allowedTriggers: ['dashboard', 'domain_screen'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'playwright_1688',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: Sourcing1688KeywordBatchInputSchema,
+} as const satisfies OperationDefinition;
+
+export const SOURCING_1688_IMAGE_MATCH_OPERATION = {
+  key: 'sourcing.match_wholesale_images',
+  version: 1,
+  title: '1688 이미지 매칭',
+  ownerDomain: 'sourcing',
+  engineType: 'domain',
+  allowedTriggers: ['dashboard', 'domain_screen'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'playwright_1688',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: Sourcing1688ImageMatchInputSchema,
+} as const satisfies OperationDefinition;
+
 export const SOURCING_OPERATIONS = [
   {
     key: 'sourcing.collect_daily_trends',
@@ -55,4 +85,6 @@ export const SOURCING_OPERATIONS = [
   },
   SOURCING_WING_CATALOG_OPERATION,
   SOURCING_KEYWORD_SUGGESTION_OPERATION,
+  SOURCING_1688_KEYWORD_BATCH_OPERATION,
+  SOURCING_1688_IMAGE_MATCH_OPERATION,
 ] as const satisfies readonly OperationDefinition[];

@@ -70,6 +70,7 @@ function to1688Observation(
     supplierName: row.supplierName,
     imageUrl: row.imageUrl,
     sourceUrl: row.sourceUrl,
+    ...(row.searchMetadata ? row.searchMetadata : {}),
   };
   return {
     organizationId: permit.organizationId,

@@ -16,7 +16,7 @@ describe('Sourcing1688ImageSearchService', () => {
       }),
     } as unknown as SourcingCollectionCoordinator;
     const recommendations = { refresh: vi.fn(async () => undefined) } as unknown as SourcingRecommendationService;
-    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations);
+    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations, {} as never);
 
     await expect(
       service.searchByImage('00000000-0000-4000-8000-000000000001', {
@@ -79,7 +79,7 @@ describe('Sourcing1688ImageSearchService', () => {
       }),
     } as unknown as SourcingCollectionCoordinator;
     const recommendations = { refresh: vi.fn(async () => undefined) } as unknown as SourcingRecommendationService;
-    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations);
+    const service = new Sourcing1688ImageSearchService(provider, collection, recommendations, {} as never);
 
     await service.searchByImage(
       '00000000-0000-4000-8000-000000000001',
@@ -110,5 +110,153 @@ describe('Sourcing1688ImageSearchService', () => {
       organizationId: '00000000-0000-4000-8000-000000000001',
       limit: 50,
     });
+  });
+
+  it('resolves owner targets and passes the operation signal through an atomic image observation', async () => {
+    const controller = new AbortController();
+    const provider: Sourcing1688ImageSearchPort = {
+      getStatus: vi.fn(),
+      searchByImage: vi.fn(async (input) => {
+        expect(input.signal).toBe(controller.signal);
+        return {
+          imageUrl: input.imageUrl,
+          convertedImageUrl: null,
+          items: [{
+            title: '필통',
+            priceCny: 3,
+            sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
+            imageUrl: null,
+            score: 91,
+            supplierTags: ['源头工厂'],
+          }],
+        };
+      }),
+    };
+    let output: any;
+    const collection = {
+      execute: vi.fn(async (input, collector) => {
+        output = await collector({
+          permit: {
+            runId: 'collection-run',
+            organizationId: input.organizationId,
+            sourceKey: input.sourceKey,
+            scopeKey: input.scopeKey,
+            targetKey: input.targetKey,
+            leaseToken: 'lease-token',
+            generation: 1,
+            leaseExpiresAt: new Date('2026-08-14T00:15:00.000Z'),
+          },
+          checkpoint: vi.fn(),
+        });
+        return {
+          kind: 'committed', runId: 'collection-run', acceptedCount: 1,
+          duplicateCount: 0, staleDiscardedCount: 0,
+        };
+      }),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      resolveImageTargets: vi.fn(async () => ({
+        targets: [{
+          targetId: 'product-1::',
+          imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+          searchQuery: '儿童笔袋文具盒',
+        }],
+        missingTargetIds: [],
+      })),
+      findLatest: vi.fn(),
+    };
+    const service = new Sourcing1688ImageSearchService(
+      provider,
+      collection,
+      { refresh: vi.fn() } as never,
+      searchResults as never,
+    );
+
+    await expect(service.resolveTargets({
+      organizationId: 'org-1',
+      targetIds: ['product-1::'],
+    })).resolves.toMatchObject({ targets: [{ searchQuery: '儿童笔袋文具盒' }] });
+    await expect(service.searchForOperation({
+      organizationId: 'org-1',
+      operationRunId: 'operation-run',
+      actorUserId: 'user-1',
+      targetId: 'product-1::',
+      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+      keyword: '儿童笔袋文具盒',
+      signal: controller.signal,
+      checkpoint: vi.fn(),
+    })).resolves.toMatchObject({
+      keyword: '儿童笔袋文具盒',
+      targetId: 'product-1::',
+      outcome: 'complete',
+      accepted: 1,
+    });
+    expect(output).toMatchObject({
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+      },
+      typedRecords: [{ row: { searchMetadata: { score: 91, supplierTags: ['源头工厂'] } } }],
+    });
+  });
+
+  it('reports a provider batch with only disallowed supplier rows as failed', async () => {
+    const provider: Sourcing1688ImageSearchPort = {
+      getStatus: vi.fn(),
+      searchByImage: vi.fn(async (input) => ({
+        imageUrl: input.imageUrl,
+        convertedImageUrl: null,
+        items: [{
+          title: 'untrusted offer',
+          priceCny: 1,
+          sourceUrl: 'http://localhost:3000/offer/1',
+          imageUrl: null,
+          score: 1,
+        }],
+      })),
+    };
+    const collection = {
+      execute: vi.fn(async (input, collector) => {
+        const output = await collector({
+          permit: {
+            runId: 'collection-run',
+            organizationId: input.organizationId,
+            sourceKey: input.sourceKey,
+            scopeKey: input.scopeKey,
+            targetKey: input.targetKey,
+            leaseToken: 'lease-token',
+            generation: 1,
+            leaseExpiresAt: new Date('2026-08-14T00:15:00.000Z'),
+          },
+          checkpoint: vi.fn(),
+        });
+        expect(output).toMatchObject({ discoveredCount: 0, rejectedCount: 1 });
+        return {
+          kind: 'committed',
+          runId: 'collection-run',
+          acceptedCount: 0,
+          duplicateCount: 0,
+          staleDiscardedCount: 0,
+        };
+      }),
+    } as unknown as SourcingCollectionCoordinator;
+    const service = new Sourcing1688ImageSearchService(
+      provider,
+      collection,
+      { refresh: vi.fn() } as never,
+      { findLatest: vi.fn() } as never,
+    );
+
+    await expect(service.searchForOperation({
+      organizationId: 'org-1',
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      targetId: 'product-1::',
+      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+      keyword: '儿童笔袋文具盒',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(),
+    })).resolves.toMatchObject({ outcome: 'failed', discovered: 1, failed: 1 });
   });
 });

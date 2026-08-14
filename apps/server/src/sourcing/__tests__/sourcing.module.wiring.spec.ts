@@ -5,6 +5,7 @@ import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
+import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
 import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
 import { TrendCollectService } from "../application/service/trend-collect.service";
@@ -39,6 +40,7 @@ import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sour
 import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
 import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
 import { SourcingInterestTargetController } from "../adapter/in/http/sourcing-interest-target.controller";
+import { Sourcing1688SearchResultController } from "../adapter/in/http/sourcing-1688-search-result.controller";
 import { SourcingWorkspaceController } from "../adapter/in/http/sourcing-workspace.controller";
 import { SourcingReviewController } from "../adapter/in/http/sourcing-review.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
@@ -60,6 +62,8 @@ import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/reposito
 import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repository/sourcing-decision-batch.repository.adapter";
 import { SourcingCollectionRepositoryAdapter } from "../adapter/out/repository/sourcing-collection.repository.adapter";
+import { Sourcing1688SearchResultRepositoryAdapter } from "../adapter/out/repository/sourcing-1688-search-result.repository.adapter";
+import { Sourcing1688OperationHandler } from "../adapter/in/operation/sourcing-1688.operation-handler";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingCollectionOperationAdapter } from "../adapter/out/operations/sourcing-collection-operation.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
@@ -106,6 +110,7 @@ import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/ou
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-decision-batch.repository.port";
 import { SOURCING_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection.repository.port";
+import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "../application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
@@ -159,6 +164,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "SourcingKeywordResearchController",
       "Sourcing1688ImageSearchController",
       "Sourcing1688KeywordSearchController",
+      "Sourcing1688SearchResultController",
       "SourcingAgentRagController",
       "SourcingRisingProductController",
       "SourcingIntelligenceController",
@@ -185,6 +191,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(NaverKeywordResearchService);
     expect(providers).toContain(Sourcing1688ImageSearchService);
     expect(providers).toContain(Sourcing1688KeywordSearchService);
+    expect(providers).toContain(Sourcing1688SearchResultService);
+    expect(providers).toContain(Sourcing1688OperationHandler);
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
@@ -247,6 +255,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingDecisionBatchRepositoryAdapter);
     expect(providers).toContain(SourcingCollectionRepositoryAdapter);
+    expect(providers).toContain(Sourcing1688SearchResultRepositoryAdapter);
     expect(providers).toContain(SourcingSupplyIntelligenceAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
@@ -414,6 +423,11 @@ describe("SourcingModule canonical owner wiring", () => {
       providers,
       SOURCING_COLLECTION_REPOSITORY_PORT,
       SourcingCollectionRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
+      SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+      Sourcing1688SearchResultRepositoryAdapter,
     );
     expectBinding(
       providers,
@@ -623,6 +637,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing/keyword-research/naver",
       "sourcing/1688/image-search",
       "sourcing/1688/keyword-search",
+      "sourcing/wholesale/1688-results",
       "sourcing/agent-rag",
       "sourcing/rising-products",
       "sourcing/intelligence",

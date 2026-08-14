@@ -212,6 +212,76 @@ describe('Direct1688ImageSearchAdapter', () => {
     expect(result.items[0]?.sourceUrl).toBe('https://detail.1688.com/offer/773667152445.html');
   });
 
+  it('passes the operation signal through image download, upload, search, and keyword fallback', async () => {
+    const keywordSearch = keywordAdapterStub();
+    const adapter = new Direct1688ImageSearchAdapter(keywordSearch);
+    const controller = new AbortController();
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(Buffer.from('image-bytes'), {
+        status: 200,
+        headers: { 'content-type': 'image/jpeg' },
+      }))
+      .mockResolvedValueOnce(new Response('upload unavailable', { status: 502 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await adapter.searchByImage({
+      imageUrl: 'https://img.coupangcdn.com/example.jpg',
+      keyword: '말랑이',
+      maxResults: 8,
+      signal: controller.signal,
+    });
+
+    for (const call of fetchMock.mock.calls) {
+      const signal = call[1]?.signal as AbortSignal | undefined;
+      expect(signal).toBeDefined();
+      expect(signal?.aborted).toBe(false);
+    }
+    expect(keywordSearch.searchByKeyword).toHaveBeenCalledWith({
+      keyword: '말랑이',
+      page: 1,
+      maxResults: 8,
+      signal: controller.signal,
+    });
+  });
+
+  it('preserves the abort reason during a blocked source-image fetch and starts no next request', async () => {
+    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const blockedFetch = deferred<Response>();
+    const fetchMock = vi.fn().mockReturnValueOnce(blockedFetch.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const reason = new Error('operation_attempt_fence_lost');
+
+    const outcome = adapter.searchByImage({
+      imageUrl: 'https://img.coupangcdn.com/example.jpg',
+      keyword: '말랑이',
+      signal: controller.signal,
+    }).catch((error: unknown) => error);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    controller.abort(reason);
+
+    expect(await outcome).toBe(reason);
+    expect(fetchMock).toHaveBeenCalledOnce();
+    blockedFetch.resolve(new Response(Buffer.from('late-image')));
+  });
+
+  it('rejects an already-aborted operation before DNS or provider IO', async () => {
+    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    const controller = new AbortController();
+    const reason = new Error('operation_deadline_exceeded');
+    controller.abort(reason);
+
+    await expect(adapter.searchByImage({
+      imageUrl: 'https://img.coupangcdn.com/example.jpg',
+      keyword: '말랑이',
+      signal: controller.signal,
+    })).rejects.toBe(reason);
+    expect(lookupMock).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('rejects source image hosts that resolve to private addresses before fetch', async () => {
     const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
     lookupMock.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
@@ -259,4 +329,14 @@ function jsonResponse(body: unknown): Response {
       'content-type': 'application/json',
     },
   });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
 }

@@ -312,6 +312,15 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'keyword-suggestions', keyword.trim()] as const,
     naverRelatedKeywords: (keyword: string) =>
       [...queryKeys.sourcing.all, 'naver-related-keywords', keyword.trim()] as const,
+    wholesale1688Results: (
+      keywords: readonly string[],
+      targetIds: readonly string[],
+    ) => [
+      ...queryKeys.sourcing.all,
+      'wholesale-1688-results',
+      keywords,
+      targetIds,
+    ] as const,
     competitorCollectionStatus: (runId: string | null) =>
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },

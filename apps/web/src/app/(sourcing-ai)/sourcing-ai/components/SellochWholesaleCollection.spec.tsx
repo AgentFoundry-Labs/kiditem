@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SellochWholesaleCoupangMatches } from './SellochWholesaleCoupangMatches';
 import { SellochWholesaleKeywordSearch } from './SellochWholesaleKeywordSearch';
 
@@ -8,16 +8,22 @@ const mocks = vi.hoisted(() => ({
   imageSearch: vi.fn(),
   keywordStatus: vi.fn(),
   keywordSearch: vi.fn(),
+  operationStart: vi.fn(),
+  operationCancel: vi.fn(),
+  operationRetry: vi.fn(),
+  useOperation: vi.fn(),
+  useResults: vi.fn(),
+  run: null as null | { id: string; status: string },
 }));
 
-const keywordTargets = Array.from({ length: 6 }, (_, index) => ({
+const keywordTargets = Array.from({ length: 12 }, (_, index) => ({
   id: `target-${index}`,
   targetType: 'keyword',
   keyword: `중국어 키워드 ${index + 1}`,
 }));
 
 const imageMatches = Array.from({ length: 24 }, (_, index) => ({
-  id: `match-${index}`,
+  id: `product-${index}::`,
   searchQuery: `검색어 ${index + 1}`,
   searchUrl: `https://s.1688.com/selloffer/offer_search.htm?keywords=${index + 1}`,
   targetSalePriceKrw: 15_900,
@@ -33,6 +39,24 @@ const imageMatches = Array.from({ length: 24 }, (_, index) => ({
   },
 }));
 
+const persistedSnapshot = {
+  generatedAt: '2026-08-14T00:00:00.000Z',
+  observations: [
+    {
+      keyword: '중국어 키워드 1',
+      targetId: null,
+      capturedAt: '2026-08-14T00:00:00.000Z',
+      items: [persistedItem('persisted keyword offer')],
+    },
+    {
+      keyword: '검색어 1',
+      targetId: 'product-0::',
+      capturedAt: '2026-08-14T00:00:00.000Z',
+      items: [persistedItem('persisted image offer')],
+    },
+  ],
+};
+
 vi.mock('../hooks/use-sourcing-workspace', () => ({
   useSourcingRecommendations: () => ({ data: undefined }),
   useSourcingInterestTargets: () => ({
@@ -45,6 +69,20 @@ vi.mock('../hooks/use-sourcing-workspace', () => ({
   useRemoveSourcingInterestTarget: () => ({ isPending: false, mutateAsync: vi.fn() }),
 }));
 
+vi.mock('../hooks/use-wholesale-1688-results', () => ({
+  useWholesale1688Results: mocks.useResults,
+}));
+
+vi.mock('../hooks/use-sourcing-operation-action', () => ({
+  useSourcingOperationAction: mocks.useOperation,
+}));
+
+vi.mock('./SourcingOperationRunPanel', () => ({
+  SourcingOperationRunPanel: ({ run }: { run: { status?: string } | null }) => (
+    <div>operation panel {run?.status ?? 'idle'}</div>
+  ),
+}));
+
 vi.mock('../lib/sourcing-recommendation-presenter', () => ({
   toTodayRecommendationRows: () => [],
 }));
@@ -52,9 +90,16 @@ vi.mock('../lib/sourcing-recommendation-presenter', () => ({
 vi.mock('../lib/coupang-1688-matching', () => ({
   build1688SearchUrl: (keyword: string) => `https://s.1688.com/${keyword}`,
   buildCoupangImageSearchRows: () => imageMatches,
-  buildImageSearchOffer: vi.fn(),
-  scoreImageSearchOffer: () => null,
-  selectBestImageSearchOffer: () => null,
+  buildImageSearchOffer: (item: { title: string; sourceUrl: string }) => ({
+    ...item,
+    id: item.sourceUrl,
+    matchScore: 80,
+    landedCostKrw: null,
+    estimatedProfitKrw: null,
+    estimatedMarginRate: null,
+  }),
+  scoreImageSearchOffer: () => 80,
+  selectBestImageSearchOffer: (offers: unknown[]) => offers[0] ?? null,
 }));
 
 vi.mock('../lib/1688-image-search-api', () => ({
@@ -77,67 +122,101 @@ vi.mock('../keywords/components/InterestKeywordManager', () => ({
 }));
 
 vi.mock('./SellochWholesaleOfferGrid', () => ({
-  SellochWholesaleOfferGrid: () => <div>offer grid</div>,
+  SellochWholesaleOfferGrid: ({ offers }: { offers: Array<{ title: string }> }) => (
+    <div>{offers.map((offer) => offer.title).join(', ')}</div>
+  ),
 }));
 
-describe('wholesale route-entry collection boundaries', () => {
+describe('wholesale route-entry Operation boundaries', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.imageStatus.mockResolvedValue({ configured: true });
-    mocks.imageSearch.mockResolvedValue({ items: [] });
-    mocks.keywordStatus.mockResolvedValue({ configured: true });
-    mocks.keywordSearch.mockResolvedValue({ items: [] });
+    mocks.run = null;
+    mocks.useResults.mockReturnValue({
+      data: persistedSnapshot,
+      isLoading: false,
+      isFetching: false,
+    });
+    mocks.useOperation.mockImplementation(() => ({
+      run: mocks.run,
+      start: mocks.operationStart,
+      cancel: mocks.operationCancel,
+      retryAttention: mocks.operationRetry,
+      isStarting: false,
+      isCancelling: false,
+      isRetrying: false,
+    }));
   });
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it('keeps keyword capability checks read-only until 상위 6개 검색 is clicked', async () => {
+  it('starts one bounded keyword batch only from the explicit top-six CTA', () => {
     render(<SellochWholesaleKeywordSearch />);
 
-    const button = await screen.findByRole('button', { name: '상위 6개 검색' });
-    expect(mocks.keywordStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.operationStart).not.toHaveBeenCalled();
+    expect(mocks.keywordStatus).not.toHaveBeenCalled();
     expect(mocks.keywordSearch).not.toHaveBeenCalled();
+    expect(mocks.useOperation).toHaveBeenLastCalledWith(expect.objectContaining({
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: {
+        keywords: keywordTargets.slice(0, 6).map((target) => target.keyword),
+      },
+    }));
 
-    fireEvent.click(button);
-    await waitFor(() => expect(mocks.keywordSearch).toHaveBeenCalledTimes(6));
+    fireEvent.click(screen.getByRole('button', { name: '상위 6개 검색' }));
+
+    expect(mocks.operationStart).toHaveBeenCalledTimes(1);
+    expect(mocks.keywordSearch).not.toHaveBeenCalled();
   });
 
-  it('keeps image capability checks read-only until 전체 수집 is clicked', async () => {
-    vi.useFakeTimers();
+  it('starts one bounded image batch only from the explicit whole-collection CTA', () => {
     render(<SellochWholesaleCoupangMatches />);
 
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    await act(async () => {
-      await vi.runAllTimersAsync();
-    });
-
-    expect(mocks.imageStatus).toHaveBeenCalledTimes(1);
+    expect(mocks.operationStart).not.toHaveBeenCalled();
+    expect(mocks.imageStatus).not.toHaveBeenCalled();
     expect(mocks.imageSearch).not.toHaveBeenCalled();
-    expect(screen.getByRole('button', { name: '전체 수집' })).toBeEnabled();
+    expect(mocks.useOperation).toHaveBeenLastCalledWith(expect.objectContaining({
+      operationKey: 'sourcing.match_wholesale_images',
+      input: { targetIds: imageMatches.map((match) => match.id) },
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: '전체 수집' }));
+
+    expect(mocks.operationStart).toHaveBeenCalledTimes(1);
+    expect(mocks.imageSearch).not.toHaveBeenCalled();
   });
 
-  it('reports 24/24 image failures as failure instead of 수집 완료 24개', async () => {
-    vi.useFakeTimers();
-    mocks.imageSearch.mockRejectedValue(new Error('provider unavailable'));
+  it('keeps persisted keyword and image observations visible beside an active run', () => {
+    mocks.run = { id: 'run-active', status: 'running' };
+    const keywordView = render(<SellochWholesaleKeywordSearch />);
+
+    expect(screen.getByText('persisted keyword offer')).toBeInTheDocument();
+    expect(screen.getByText('operation panel running')).toBeInTheDocument();
+    keywordView.unmount();
+
     render(<SellochWholesaleCoupangMatches />);
-
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-    fireEvent.click(screen.getByRole('button', { name: '전체 수집' }));
-    await act(async () => {
-      await vi.runAllTimersAsync();
-      await Promise.resolve();
-    });
-
-    expect(mocks.imageSearch).toHaveBeenCalledTimes(24);
-    expect(screen.getByText('수집 실패 · 성공 0개 · 실패 24개')).toBeInTheDocument();
-    expect(screen.queryByText('수집 완료 24개')).not.toBeInTheDocument();
+    expect(screen.getAllByText('persisted image offer')).not.toHaveLength(0);
+    expect(screen.getByText('operation panel running')).toBeInTheDocument();
   });
 });
+
+function persistedItem(title: string) {
+  return {
+    offerId: null,
+    title,
+    priceCny: null,
+    sourceUrl: `https://detail.1688.com/${encodeURIComponent(title)}`,
+    imageUrl: null,
+    score: 80,
+    monthlySales: null,
+    tradeScore: null,
+    repurchaseRate: null,
+    supplierName: null,
+    salesText: null,
+    supplierFactoryUrl: null,
+    supplierTags: [],
+    purchaseTags: [],
+    minOrderQuantity: null,
+    shippingFulfillmentRate: null,
+    shippingPickupRate: null,
+    shipFrom: null,
+    serviceScore: null,
+  };
+}

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OperationRun } from '@kiditem/shared/operations';
 import {
+  Sourcing1688BatchResultSchema,
   SourcingOperationResultSchema,
   type SourcingOperationResult,
 } from '@kiditem/shared/sourcing';
@@ -34,6 +35,10 @@ const STAGE_LABELS: Readonly<Record<string, string>> = {
   collecting_keyword: '키워드 상품 수집 중',
   persisting: '수집 결과 저장 중',
   building_snapshot: '스냅샷 생성 중',
+  searching_1688_keywords: '1688 키워드 검색 중',
+  persisting_1688_keyword: '1688 키워드 결과 저장 중',
+  matching_1688_images: '1688 이미지 매칭 중',
+  persisting_1688_image_match: '1688 이미지 매칭 결과 저장 중',
   finalizing: '결과 마무리 중',
   completed: '작업 완료',
 };
@@ -94,6 +99,8 @@ export function SourcingOperationRunPanel({
   const isActive = run !== null && ACTIVE_STATUSES.has(run.status);
   const parsedResult = useMemo(() => {
     if (run?.status !== 'succeeded') return null;
+    const batchResult = Sourcing1688BatchResultSchema.safeParse(run.result);
+    if (batchResult.success) return batchResult;
     return SourcingOperationResultSchema.safeParse(run.result);
   }, [run?.result, run?.status]);
 

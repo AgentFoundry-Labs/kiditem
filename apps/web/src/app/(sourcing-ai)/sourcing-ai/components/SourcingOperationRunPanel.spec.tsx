@@ -108,6 +108,38 @@ describe('SourcingOperationRunPanel', () => {
     expect(screen.getByText(message)).toBeInTheDocument();
   });
 
+  it('renders a row-free 1688 batch result without treating typed units as raw JSON', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <SourcingOperationRunPanel
+        run={run({
+          status: 'succeeded',
+          progress: 1,
+          stage: 'completed',
+          result: {
+            ...safeResult('partial'),
+            units: [{
+              keyword: '儿童雨伞',
+              targetId: null,
+              outcome: 'failed',
+              discovered: 0,
+              accepted: 0,
+              duplicate: 0,
+              failed: 1,
+              errorCode: 'provider_failed',
+            }],
+          },
+          finishedAt: '2026-08-14T00:01:05.000Z',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('일부 수집 완료 · 반영 5개 · 실패 2개'))
+      .toBeInTheDocument();
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it('logs only bounded schema diagnostics for malformed results and never renders arbitrary JSON', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(
