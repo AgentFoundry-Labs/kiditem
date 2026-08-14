@@ -2,6 +2,10 @@
 
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import {
+  SourcingOperationResultSchema,
+  type SourcingOperationResult,
+} from '@kiditem/shared/sourcing';
 import { CheckCircle2, Loader2, RefreshCw, XCircle } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
@@ -11,8 +15,6 @@ import {
   TREND_SOURCE_META,
   TREND_SOURCE_ORDER,
   fetchTrendSeeds,
-  type TrendCollectResult,
-  type TrendSourceCollectResult,
   type TrendSource,
 } from '../lib/trend-collection-api';
 import { TrendSeedManager } from './TrendSeedManager';
@@ -30,6 +32,11 @@ const ACTIVE_OPERATION_STATUSES = new Set([
   'running',
   'attention_required',
 ]);
+const TREND_SOURCE_SET: ReadonlySet<string> = new Set(TREND_SOURCE_ORDER);
+
+type TrendOperationSourceResult = SourcingOperationResult['sources'][number] & {
+  source: TrendSource;
+};
 
 /** 기존 수집 화면의 버튼으로 공통 실행 경로를 요청한다. */
 export function TrendCollectionSection() {
@@ -49,9 +56,11 @@ export function TrendCollectionSection() {
     staleTime: 60 * 1000,
   });
   const enabledSeedCount = (seedsQuery.data ?? []).filter((seed) => seed.enabled).length;
-  const lastResult = trendOperation.run?.status === 'succeeded'
-    ? toTrendCollectResult(trendOperation.run.result)
+  const parsedResult = trendOperation.run?.status === 'succeeded'
+    ? SourcingOperationResultSchema.safeParse(trendOperation.run.result)
     : null;
+  const lastResult = parsedResult?.success ? parsedResult.data : null;
+  const lastSourceResults = lastResult?.sources.filter(isTrendSourceResult) ?? [];
 
   const toggleCollectSource = (source: TrendSource) => {
     setCollectSources((previous) => {
@@ -138,21 +147,21 @@ export function TrendCollectionSection() {
           </div>
         )}
 
-        {lastResult && (
+        {lastResult && lastSourceResults.length > 0 ? (
           <div className="mt-4 border-t border-[var(--border-subtle)] pt-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-semibold text-[var(--text-secondary)]">최근 수집 결과</p>
               <span className="text-[11px] font-semibold tabular-nums text-[var(--text-tertiary)]">
-                {lastResult.businessDate}
+                반영 {formatNumber(lastResult.summary.accepted)}건
               </span>
             </div>
             <div className="mt-2 grid gap-2 sm:grid-cols-3">
-              {lastResult.results.map((result) => (
+              {lastSourceResults.map((result) => (
                 <CollectResultCard key={result.source} result={result} />
               ))}
             </div>
           </div>
-        )}
+        ) : null}
       </section>
 
       <TrendSeedManager seeds={seedsQuery.data ?? []} isLoading={seedsQuery.isLoading} />
@@ -161,47 +170,38 @@ export function TrendCollectionSection() {
   );
 }
 
-function toTrendCollectResult(value: unknown): TrendCollectResult | null {
-  if (!value || typeof value !== 'object') return null;
-  const candidate = value as { businessDate?: unknown; results?: unknown };
-  if (typeof candidate.businessDate !== 'string' || !Array.isArray(candidate.results)) return null;
-  const results: TrendSourceCollectResult[] = [];
-  for (const item of candidate.results) {
-    if (!item || typeof item !== 'object') return null;
-    const result = item as Record<string, unknown>;
-    if (
-      (result.source !== 'naver' && result.source !== '1688' && result.source !== 'shorts')
-      || typeof result.ok !== 'boolean'
-      || typeof result.collected !== 'number'
-      || (result.error !== undefined && typeof result.error !== 'string')
-    ) return null;
-    results.push({
-      source: result.source,
-      ok: result.ok,
-      collected: result.collected,
-      ...(typeof result.error === 'string' ? { error: result.error } : {}),
-    });
-  }
-  return { businessDate: candidate.businessDate, results };
+function isTrendSourceResult(
+  result: SourcingOperationResult['sources'][number],
+): result is TrendOperationSourceResult {
+  return TREND_SOURCE_SET.has(result.source);
 }
 
-function CollectResultCard({ result }: { result: TrendSourceCollectResult }) {
+function CollectResultCard({ result }: { result: TrendOperationSourceResult }) {
   const meta = TREND_SOURCE_META[result.source];
+  const successful = result.outcome === 'complete' || result.outcome === 'no_change';
   return (
     <article
       className={cn(
         'rounded-lg border px-3 py-2.5',
-        result.ok ? 'border-[var(--border)] bg-[var(--surface-sunken)]' : 'border-rose-200 bg-rose-50',
+        successful
+          ? 'border-[var(--border)] bg-[var(--surface-sunken)]'
+          : 'border-rose-200 bg-rose-50',
       )}
     >
       <div className="flex items-center justify-between gap-2">
         <span className="text-xs font-bold text-[var(--text-primary)]">{meta.label}</span>
-        {result.ok ? <CheckCircle2 size={15} className="text-emerald-600" /> : <XCircle size={15} className="text-rose-600" />}
+        {successful
+          ? <CheckCircle2 size={15} className="text-emerald-600" />
+          : <XCircle size={15} className="text-rose-600" />}
       </div>
       <p className="mt-1 text-lg font-bold tabular-nums text-[var(--text-primary)]">
-        {formatNumber(result.collected)}<span className="ml-1 text-xs font-medium text-[var(--text-tertiary)]">건</span>
+        {formatNumber(result.accepted)}건
       </p>
-      {result.error ? <p className="mt-0.5 line-clamp-2 text-[11px] leading-4 text-rose-700" title={result.error}>{result.error}</p> : null}
+      {result.failed > 0 ? (
+        <p className="mt-0.5 text-[11px] leading-4 text-rose-700">
+          일부 항목 수집에 실패했습니다.
+        </p>
+      ) : null}
     </article>
   );
 }

@@ -1,5 +1,10 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  SourcingOperationResultSchema,
+  type SourcingOperationOutcome,
+  type SourcingOperationResult,
+} from '@kiditem/shared/sourcing';
+import {
   COMPOSITE_OPERATION_COORDINATOR_PORT,
   type CompositeOperationCoordinatorPort,
 } from '../../../../operations/application/port/in/composite-operation-coordinator.port';
@@ -34,11 +39,10 @@ const SOURCE_BY_OPERATION_KEY = new Map<string, TrendCollectSource>(
 );
 
 interface TrendSourceSummary {
-  source: TrendCollectSource;
-  businessDate: string | null;
-  ok: boolean;
-  collected: number;
-  error?: string;
+  summary: SourcingOperationResult['summary'];
+  sourceResult: SourcingOperationResult['sources'][number] & {
+    source: TrendCollectSource;
+  };
 }
 
 @Injectable()
@@ -101,22 +105,9 @@ export class SourcingTrendOperationHandler
         message: 'All trend source operations failed',
       };
     }
-
-    const businessDate = summaries.find((summary) => summary.businessDate)?.businessDate;
-    if (!businessDate) throw new Error('trend_child_result_invalid');
     return {
       kind: 'completed',
-      result: {
-        businessDate,
-        collected: summaries.reduce((total, summary) => total + summary.collected, 0),
-        warningCount: summaries.filter((summary) => !summary.ok).length,
-        results: summaries.map((summary) => ({
-          source: summary.source,
-          ok: summary.ok,
-          collected: summary.collected,
-          ...(summary.error ? { error: summary.error } : {}),
-        })),
-      },
+      result: aggregateSourceResults(summaries),
     };
   }
 
@@ -147,15 +138,19 @@ export class SourcingTrendOperationHandler
       }
       throw new Error(`trend_source_collection_failed:${source}`);
     }
+    const outcome: SourcingOperationOutcome = collected.ok
+      ? collected.collected === 0 ? 'no_change' : 'complete'
+      : 'partial';
+    const failed = collected.ok ? 0 : 1;
     return {
       kind: 'completed',
-      result: {
-        businessDate: collected.businessDate,
+      result: sourceOperationResult({
         source,
-        ok: collected.ok,
-        collected: collected.collected,
-        ...(safeError ? { error: safeError } : {}),
-      },
+        outcome,
+        accepted: collected.collected,
+        failed,
+        ...(failed > 0 ? { errorCode: 'trend_source_partial' } : {}),
+      }),
     };
   }
 }
@@ -195,35 +190,108 @@ function summarizeChild(
 ): TrendSourceSummary {
   if (child.status !== 'succeeded') {
     return {
-      source,
-      businessDate: null,
-      ok: false,
-      collected: 0,
-      error: (child.errorMessage ?? `Child operation ${child.status}`).slice(0, 2_000),
+      summary: {
+        discovered: 0,
+        accepted: 0,
+        duplicate: 0,
+        unchanged: 0,
+        failed: 1,
+      },
+      sourceResult: {
+        source,
+        outcome: child.status === 'skipped' ? 'skipped' : 'failed',
+        accepted: 0,
+        failed: 1,
+        errorCode: childErrorCode(child),
+      },
     };
   }
-  const result = child.result;
+  const parsed = SourcingOperationResultSchema.safeParse(child.result);
+  const result = parsed.success ? parsed.data : null;
+  const sourceResult = result?.sources[0];
   if (
     !result
-    || result.source !== source
-    || typeof result.businessDate !== 'string'
-    || typeof result.ok !== 'boolean'
-    || typeof result.collected !== 'number'
-    || !Number.isSafeInteger(result.collected)
-    || result.collected < 0
+    || result.sources.length !== 1
+    || !sourceResult
+    || sourceResult.source !== source
+    || sourceResult.outcome !== result.outcome
+    || sourceResult.accepted !== result.summary.accepted
+    || sourceResult.failed !== result.summary.failed
+    || (sourceResult.outcome !== 'complete'
+      && sourceResult.outcome !== 'partial'
+      && sourceResult.outcome !== 'no_change')
   ) {
     throw new Error('trend_child_result_invalid');
   }
-  const error = typeof result.error === 'string' && result.error.trim()
-    ? result.error.slice(0, 2_000)
-    : undefined;
   return {
-    source,
-    businessDate: result.businessDate,
-    ok: result.ok,
-    collected: result.collected,
-    ...(error ? { error } : {}),
+    summary: result.summary,
+    sourceResult: { ...sourceResult, source },
   };
+}
+
+function sourceOperationResult(input: {
+  source: TrendCollectSource;
+  outcome: SourcingOperationOutcome;
+  accepted: number;
+  failed: number;
+  errorCode?: string;
+}): SourcingOperationResult {
+  return SourcingOperationResultSchema.parse({
+    outcome: input.outcome,
+    summary: {
+      discovered: input.accepted,
+      accepted: input.accepted,
+      duplicate: 0,
+      unchanged: 0,
+      failed: input.failed,
+    },
+    sources: [{
+      source: input.source,
+      outcome: input.outcome,
+      accepted: input.accepted,
+      failed: input.failed,
+      ...(input.errorCode ? { errorCode: input.errorCode } : {}),
+    }],
+  });
+}
+
+function aggregateSourceResults(
+  sources: TrendSourceSummary[],
+): SourcingOperationResult {
+  const summary = sources.reduce<SourcingOperationResult['summary']>(
+    (total, source) => ({
+      discovered: total.discovered + source.summary.discovered,
+      accepted: total.accepted + source.summary.accepted,
+      duplicate: total.duplicate + source.summary.duplicate,
+      unchanged: total.unchanged + source.summary.unchanged,
+      failed: total.failed + source.summary.failed,
+    }),
+    { discovered: 0, accepted: 0, duplicate: 0, unchanged: 0, failed: 0 },
+  );
+  const sourceResults = sources.map((source) => source.sourceResult);
+  const hasIncompleteSource = sourceResults.some((source) =>
+    source.outcome === 'partial'
+    || source.outcome === 'failed'
+    || source.outcome === 'skipped');
+  const outcome: SourcingOperationOutcome = hasIncompleteSource
+    ? 'partial'
+    : summary.accepted === 0
+      ? 'no_change'
+      : 'complete';
+  return SourcingOperationResultSchema.parse({
+    outcome,
+    summary,
+    sources: sourceResults,
+  });
+}
+
+function childErrorCode(child: OperationRunRecord): string {
+  const candidate = child.errorCode?.trim();
+  return candidate
+    && candidate.length <= 120
+    && /^[a-z0-9_.:-]+$/i.test(candidate)
+    ? candidate
+    : `trend_child_${child.status}`;
 }
 
 function isAttentionError(message: string): boolean {

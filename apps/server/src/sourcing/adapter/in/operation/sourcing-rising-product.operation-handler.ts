@@ -1,5 +1,9 @@
 import { Inject, Injectable, type OnModuleInit } from '@nestjs/common';
 import {
+  SourcingOperationResultSchema,
+  type SourcingOperationOutcome,
+} from '@kiditem/shared/sourcing';
+import {
   OPERATION_HANDLER_REGISTRY_PORT,
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
@@ -38,14 +42,33 @@ export class SourcingRisingProductOperationHandler
       { signal: context.signal, checkpoint: context.checkpoint },
     );
     context.signal.throwIfAborted();
+    const candidateCount = result.model.stats.candidateCount;
+    const failed = result.dataGaps.length;
+    const outcome: SourcingOperationOutcome = failed > 0
+      ? 'partial'
+      : candidateCount === 0
+        ? 'no_change'
+        : 'complete';
     return {
       kind: 'completed',
-      result: {
-        businessDate: result.businessDate,
-        windowDays: result.windowDays,
-        candidateCount: result.model.stats.candidateCount,
-        confidence: result.confidence,
-      },
+      result: SourcingOperationResultSchema.parse({
+        outcome,
+        summary: {
+          discovered: candidateCount,
+          accepted: candidateCount,
+          duplicate: 0,
+          unchanged: 0,
+          failed,
+        },
+        sources: [{
+          source: 'rising_products',
+          outcome,
+          accepted: candidateCount,
+          failed,
+          ...(failed > 0 ? { errorCode: 'rising_data_gaps' } : {}),
+        }],
+        snapshotGeneratedAt: result.generatedAt,
+      }),
     };
   }
 }

@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { SourcingOperationResultSchema } from '@kiditem/shared/sourcing';
 import { OperationHandlerRegistryService } from '../../../../../operations/application/service/operation-handler-registry.service';
 import { SOURCING_OPERATIONS } from '../../../../domain/operation/sourcing.operations';
 import { SourcingTrendOperationHandler } from '../sourcing-trend.operation-handler';
@@ -80,6 +81,32 @@ function childRun(
     updatedAt: now,
     requestedBy: null,
     ...overrides,
+  };
+}
+
+function canonicalSourceResult(
+  source: 'naver' | '1688' | 'shorts',
+  outcome: 'complete' | 'partial' | 'no_change',
+  accepted: number,
+  failed = 0,
+  errorCode?: string,
+) {
+  return {
+    outcome,
+    summary: {
+      discovered: accepted,
+      accepted,
+      duplicate: 0,
+      unchanged: 0,
+      failed,
+    },
+    sources: [{
+      source,
+      outcome,
+      accepted,
+      failed,
+      ...(errorCode ? { errorCode } : {}),
+    }],
   };
 }
 
@@ -184,12 +211,7 @@ describe('SourcingTrendOperationHandler', () => {
 
     await expect(handler.execute(context)).resolves.toEqual({
       kind: 'completed',
-      result: {
-        businessDate: '2026-08-01',
-        source: 'naver',
-        ok: true,
-        collected: 12,
-      },
+      result: canonicalSourceResult('naver', 'complete', 12),
     });
     expect(collector.collectSource).toHaveBeenCalledWith(
       ORGANIZATION_ID,
@@ -198,6 +220,62 @@ describe('SourcingTrendOperationHandler', () => {
       RUN_ID,
       { signal: context.signal, checkpoint: context.checkpoint },
     );
+  });
+
+  it('returns a canonical partial child result with a bounded error code and no raw provider error', async () => {
+    const { handler } = setup({
+      sourceResult: {
+        businessDate: '2026-08-01',
+        source: '1688',
+        ok: false,
+        collected: 4,
+        error: 'raw provider detail must not enter the operation result',
+      },
+    });
+
+    const execution = await handler.execute(operationContext({
+      operationKey: 'sourcing.collect_1688_trends',
+      input: {},
+      parentRunId: RUN_ID,
+    }));
+
+    expect(execution).toEqual({
+      kind: 'completed',
+      result: canonicalSourceResult(
+        '1688',
+        'partial',
+        4,
+        1,
+        'trend_source_partial',
+      ),
+    });
+    if (execution.kind !== 'completed') throw new Error('expected completed result');
+    expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
+    expect(JSON.stringify(execution.result)).not.toContain('raw provider detail');
+  });
+
+  it('returns no_change when a source completes without persisted observations', async () => {
+    const { handler } = setup({
+      sourceResult: {
+        businessDate: '2026-08-01',
+        source: 'shorts',
+        ok: true,
+        collected: 0,
+      },
+    });
+
+    const execution = await handler.execute(operationContext({
+      operationKey: 'sourcing.collect_shorts_trends',
+      input: {},
+      parentRunId: RUN_ID,
+    }));
+
+    expect(execution).toEqual({
+      kind: 'completed',
+      result: canonicalSourceResult('shorts', 'no_change', 0),
+    });
+    if (execution.kind !== 'completed') throw new Error('expected completed result');
+    expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
   });
 
   it('returns attention for a blocked 1688 child without exposing rows', async () => {
@@ -235,38 +313,93 @@ describe('SourcingTrendOperationHandler', () => {
         errorMessage: 'Operation execution failed',
       }),
       childRun('sourcing.collect_1688_trends', {
-        result: {
-          businessDate: '2026-08-01',
-          source: '1688',
-          ok: false,
-          collected: 4,
-          error: 'one seed failed',
-        },
+        result: canonicalSourceResult(
+          '1688',
+          'partial',
+          4,
+          1,
+          'trend_source_partial',
+        ),
       }),
       childRun('sourcing.collect_naver_trends', {
-        result: {
-          businessDate: '2026-08-01',
-          source: 'naver',
-          ok: true,
-          collected: 12,
-        },
+        result: canonicalSourceResult('naver', 'complete', 12),
       }),
     ];
     const { handler } = setup({ children });
 
-    await expect(handler.execute(operationContext())).resolves.toEqual({
+    const execution = await handler.execute(operationContext());
+
+    expect(execution).toEqual({
       kind: 'completed',
       result: {
-        businessDate: '2026-08-01',
-        collected: 16,
-        warningCount: 2,
-        results: [
-          { source: 'naver', ok: true, collected: 12 },
-          { source: '1688', ok: false, collected: 4, error: 'one seed failed' },
-          { source: 'shorts', ok: false, collected: 0, error: 'Operation execution failed' },
+        outcome: 'partial',
+        summary: {
+          discovered: 16,
+          accepted: 16,
+          duplicate: 0,
+          unchanged: 0,
+          failed: 2,
+        },
+        sources: [
+          { source: 'naver', outcome: 'complete', accepted: 12, failed: 0 },
+          {
+            source: '1688',
+            outcome: 'partial',
+            accepted: 4,
+            failed: 1,
+            errorCode: 'trend_source_partial',
+          },
+          {
+            source: 'shorts',
+            outcome: 'failed',
+            accepted: 0,
+            failed: 1,
+            errorCode: 'operation_execution_failed',
+          },
         ],
       },
     });
+    if (execution.kind !== 'completed') throw new Error('expected completed result');
+    expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
+    expect(JSON.stringify(execution.result)).not.toContain('Operation execution failed');
+  });
+
+  it('returns a canonical no_change parent result when every selected lane persists zero observations', async () => {
+    const children = [
+      childRun('sourcing.collect_naver_trends', {
+        result: canonicalSourceResult('naver', 'no_change', 0),
+      }),
+      childRun('sourcing.collect_1688_trends', {
+        result: canonicalSourceResult('1688', 'no_change', 0),
+      }),
+      childRun('sourcing.collect_shorts_trends', {
+        result: canonicalSourceResult('shorts', 'no_change', 0),
+      }),
+    ];
+    const { handler } = setup({ children });
+
+    const execution = await handler.execute(operationContext());
+
+    expect(execution).toEqual({
+      kind: 'completed',
+      result: {
+        outcome: 'no_change',
+        summary: {
+          discovered: 0,
+          accepted: 0,
+          duplicate: 0,
+          unchanged: 0,
+          failed: 0,
+        },
+        sources: [
+          { source: 'naver', outcome: 'no_change', accepted: 0, failed: 0 },
+          { source: '1688', outcome: 'no_change', accepted: 0, failed: 0 },
+          { source: 'shorts', outcome: 'no_change', accepted: 0, failed: 0 },
+        ],
+      },
+    });
+    if (execution.kind !== 'completed') throw new Error('expected completed result');
+    expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
   });
 
   it('fails safely when the resumed child set does not exactly match the request', async () => {

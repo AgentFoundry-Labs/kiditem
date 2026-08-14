@@ -123,4 +123,47 @@ describe('TrendCollectionSection operation migration', () => {
       expect(mocks.retryAttention).toHaveBeenCalledOnce();
     });
   });
+
+  it('presents only canonical bounded source summaries for a partial trend run', () => {
+    mocks.useAction.mockReturnValue({
+      run: {
+        status: 'succeeded',
+        result: {
+          outcome: 'partial',
+          summary: {
+            discovered: 16,
+            accepted: 16,
+            duplicate: 0,
+            unchanged: 0,
+            failed: 1,
+          },
+          sources: [
+            { source: 'naver', outcome: 'complete', accepted: 12, failed: 0 },
+            {
+              source: '1688',
+              outcome: 'partial',
+              accepted: 4,
+              failed: 1,
+              errorCode: 'trend_source_partial',
+            },
+          ],
+        },
+      },
+      start: mocks.start,
+      cancel: mocks.cancel,
+      retryAttention: mocks.retryAttention,
+      isStarting: false,
+      isCancelling: false,
+      isRetrying: false,
+    });
+
+    renderSection();
+
+    expect(screen.getByText('최근 수집 결과')).toBeInTheDocument();
+    expect(screen.getByText('12건')).toBeInTheDocument();
+    expect(screen.getByText('4건')).toBeInTheDocument();
+    expect(screen.getByText('일부 항목 수집에 실패했습니다.'))
+      .toBeInTheDocument();
+    expect(screen.queryByText(/raw provider/i)).not.toBeInTheDocument();
+  });
 });

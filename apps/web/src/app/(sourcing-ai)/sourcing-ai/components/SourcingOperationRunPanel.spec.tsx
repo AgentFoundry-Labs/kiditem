@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
-import type { OperationRun } from '@kiditem/shared/operations';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import type { OperationRun } from '@kiditem/shared/operations';
 
 function run(overrides: Partial<OperationRun> = {}): OperationRun {
   return {
@@ -107,6 +107,39 @@ describe('SourcingOperationRunPanel', () => {
 
     expect(screen.getByText(message)).toBeInTheDocument();
   });
+
+  it.each([
+    [
+      'sourcing.collect_daily_trends',
+      safeResult('partial'),
+      '일부 수집 완료 · 반영 5개 · 실패 2개',
+    ],
+    [
+      'sourcing.detect_rising_products',
+      safeResult('no_change'),
+      '변경 없음 · 새로 반영된 항목이 없습니다.',
+    ],
+  ] as const)(
+    'consumes the canonical result for %s without the generic completed fallback',
+    (operationKey, result, message) => {
+      render(
+        <SourcingOperationRunPanel
+          run={run({
+            operationKey,
+            status: 'succeeded',
+            progress: 1,
+            stage: 'completed',
+            result,
+            finishedAt: '2026-08-14T00:01:05.000Z',
+          })}
+        />,
+      );
+
+      expect(screen.getByText(message)).toBeInTheDocument();
+      expect(screen.queryByText('작업이 완료되었습니다. 최신 스냅샷을 확인해주세요.'))
+        .not.toBeInTheDocument();
+    },
+  );
 
   it('renders a row-free 1688 batch result without treating typed units as raw JSON', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
