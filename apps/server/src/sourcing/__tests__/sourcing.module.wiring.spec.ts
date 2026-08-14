@@ -40,6 +40,7 @@ import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing
 import { SourcingWorkspaceCapabilityAdapter } from "../adapter/in/agent/sourcing-workspace-capability.adapter";
 import { SourcingBrowserTrendOperationController } from "../adapter/in/http/sourcing-browser-trend-operation.controller";
 import { SourcingBrowserLiveCommerceOperationController } from "../adapter/in/http/sourcing-browser-live-commerce-operation.controller";
+import { SourcingKeywordAnalysisController } from "../adapter/in/http/sourcing-keyword-analysis.controller";
 import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
 import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
 import { SourcingInterestTargetController } from "../adapter/in/http/sourcing-interest-target.controller";
@@ -69,6 +70,7 @@ import { Sourcing1688SearchResultRepositoryAdapter } from "../adapter/out/reposi
 import { Sourcing1688OperationHandler } from "../adapter/in/operation/sourcing-1688.operation-handler";
 import { SourcingTrendOperationHandler } from "../adapter/in/operation/sourcing-trend.operation-handler";
 import { SourcingLiveCommerceOperationHandler } from "../adapter/in/operation/sourcing-live-commerce.operation-handler";
+import { SourcingKeywordAnalysisOperationHandler } from "../adapter/in/operation/sourcing-keyword-analysis.operation-handler";
 import { SourcingRisingProductOperationHandler } from "../adapter/in/operation/sourcing-rising-product.operation-handler";
 import { SourcingShadowSignalOperationHandler } from "../adapter/in/operation/sourcing-shadow-signal.operation-handler";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
@@ -170,7 +172,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "SourcingExtensionIngestController",
       "SourcingBrowserTrendOperationController",
       "SourcingBrowserLiveCommerceOperationController",
-      "SourcingKeywordResearchController",
+      "SourcingKeywordAnalysisController",
       "Sourcing1688SearchResultController",
       "SourcingAgentRagController",
       "SourcingRisingProductController",
@@ -186,6 +188,7 @@ describe("SourcingModule canonical owner wiring", () => {
     ]);
     expect(controllers).toContain(SourcingBrowserTrendOperationController);
     expect(controllers).toContain(SourcingBrowserLiveCommerceOperationController);
+    expect(controllers).toContain(SourcingKeywordAnalysisController);
     expect(controllers.map((controller) => (controller as { name: string }).name)).not.toEqual(
       expect.arrayContaining([
         "Sourcing1688TrendExtensionController",
@@ -209,6 +212,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(Sourcing1688OperationHandler);
     expect(providers).toContain(SourcingTrendOperationHandler);
     expect(providers).toContain(SourcingLiveCommerceOperationHandler);
+    expect(providers).toContain(SourcingKeywordAnalysisOperationHandler);
     expect(providers).toContain(SourcingRisingProductOperationHandler);
     expect(providers).toContain(SourcingShadowSignalOperationHandler);
     expect(providers).toContain(SourcingAgentRagService);
@@ -662,7 +666,7 @@ describe("SourcingModule canonical owner wiring", () => {
       "sourcing",
       "sourcing/operations",
       "sourcing/operations",
-      "sourcing/keyword-research/naver",
+      "sourcing/keyword-analysis",
       "sourcing/wholesale/1688-results",
       "sourcing/agent-rag",
       "sourcing/rising-products",

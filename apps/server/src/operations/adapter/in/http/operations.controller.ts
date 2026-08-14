@@ -84,9 +84,11 @@ export class OperationsController {
     @Param('operationKey') operationKey: string,
     @Query('input') rawInput: string | undefined,
     @CurrentOrganization() organizationId: string,
+    @CurrentUser() user: AuthUser,
   ) {
     return this.runner.findReconnectable({
       organizationId,
+      requestedByUserId: user.id,
       operationKey,
       input: parseReconnectInput(rawInput),
     }).then((run) => ({ run }));
@@ -114,7 +116,8 @@ export class OperationsController {
   }
 }
 
-function parseReconnectInput(rawInput: string | undefined): Record<string, unknown> {
+function parseReconnectInput(rawInput: string | undefined): Record<string, unknown> | undefined {
+  if (rawInput === undefined) return undefined;
   if (!rawInput || rawInput.length > 8_192) {
     throw new BadRequestException('invalid_operation_reconnect_input');
   }

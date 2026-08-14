@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   NaverDatalabPopularKeywordBoard,
   NaverDatalabPopularKeywordRank,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
 import { normalizeExcludeKeyword, projectVisibleBoard } from './keyword-analysis-helpers';
 
 function board(keywords: string[], overrides: Partial<NaverDatalabPopularKeywordBoard> = {}): NaverDatalabPopularKeywordBoard {

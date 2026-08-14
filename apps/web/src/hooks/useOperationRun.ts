@@ -50,7 +50,7 @@ export function useOperationRun(runId: string | null) {
 
 export function useReconnectableOperationRun(
   operationKey: string,
-  input: Record<string, unknown>,
+  input: Record<string, unknown> | undefined,
   enabled: boolean,
 ) {
   return useQuery({

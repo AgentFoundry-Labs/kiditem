@@ -1,8 +1,11 @@
+import type { ActiveOperationAttemptTransaction } from '../../../../../operations/application/port/active-browser-attempt-transaction';
+
 export const SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT = Symbol('SourcingWorkspaceSnapshotRepositoryPort');
 
 export const SOURCING_WORKSPACE_SNAPSHOT_SCOPES = [
   'sourcing_agent_rag',
   'coupang_rising_products',
+  'keyword_analysis',
 ] as const;
 
 export type SourcingWorkspaceSnapshotScope = (typeof SOURCING_WORKSPACE_SNAPSHOT_SCOPES)[number];
@@ -48,5 +51,18 @@ export interface SourcingWorkspaceSnapshotRepositoryPort {
     payload: Record<string, unknown>;
     expiresAt?: Date | null;
   }): Promise<SourcingWorkspaceSnapshotRow>;
+
+  upsertInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: {
+      organizationId: string;
+      scope: SourcingWorkspaceSnapshotScope;
+      businessDate: Date;
+      projectionVersion?: string;
+      inputHash?: string;
+      payload: Record<string, unknown>;
+      expiresAt?: Date | null;
+    },
+  ): Promise<SourcingWorkspaceSnapshotRow>;
 
 }

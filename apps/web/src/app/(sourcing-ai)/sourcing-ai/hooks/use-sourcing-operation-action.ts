@@ -22,6 +22,8 @@ export interface UseSourcingOperationActionOptions<
   snapshotQueryKeys?: readonly QueryKey[];
   idempotencyKey?: string;
   initialRunId?: string | null;
+  /** Optional static identity; dynamic forms reconnect only an unambiguous owned run. */
+  reconnectInput?: TInput;
   wakeBrowserRuntime?: boolean;
 }
 
@@ -53,7 +55,7 @@ export function useSourcingOperationAction<
   const runQuery = useOperationRun(latestRunId);
   const reconnectQuery = useReconnectableOperationRun(
     options.operationKey,
-    options.input,
+    options.reconnectInput,
     explicitInitialRunIdRef.current === null && latestRunId === null,
   );
 

@@ -14,7 +14,7 @@ import type {
   NaverDatalabDevice,
   NaverDatalabGender,
   NaverDatalabTimeUnit,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
 import {
   ageOptions,
   boardFilterOptions,

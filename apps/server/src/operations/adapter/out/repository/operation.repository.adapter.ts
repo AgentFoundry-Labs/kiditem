@@ -574,6 +574,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
 
   async listReconnectableRuns(input: {
     organizationId: string;
+    requestedByUserId: string;
     operationKey: string;
     now: Date;
     limit: number;
@@ -581,6 +582,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     const rows = await this.prisma.operationRun.findMany({
       where: {
         organizationId: input.organizationId,
+        requestedByUserId: input.requestedByUserId,
         operationKey: input.operationKey,
         status: {
           in: [

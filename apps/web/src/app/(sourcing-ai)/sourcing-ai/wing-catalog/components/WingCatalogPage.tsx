@@ -47,9 +47,11 @@ import {
 import { buildCoupangProductUrl } from '../lib/wing-catalog-delivery';
 import { WingReviewAnalysisModal } from './WingReviewAnalysisModal';
 import {
-  searchNaverRelatedKeywords,
+  fetchKeywordAnalysisSnapshot,
+  keywordAnalysisInput,
+  keywordAnalysisSnapshotQueryKey,
   type NaverRelatedKeyword,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 
@@ -115,13 +117,25 @@ export function WingCatalogPage() {
   }, [snapshotQuery.data]);
   const analyzedKeyword = result?.keyword ?? keyword;
   const relatedKeywordSeed = result?.keyword?.trim() ?? '';
-  const relatedKeywordQuery = useQuery({
-    queryKey: queryKeys.sourcing.naverRelatedKeywords(relatedKeywordSeed),
-    queryFn: () => searchNaverRelatedKeywords({
-      seedKeywords: [relatedKeywordSeed],
-      maxResults: 30,
-    }),
-    enabled: false,
+  const relatedKeywordInput = useMemo(
+    () => keywordAnalysisInput('related', { keyword: relatedKeywordSeed || '상품' }),
+    [relatedKeywordSeed],
+  );
+  const relatedKeywordSnapshotKey = useMemo(
+    () => keywordAnalysisSnapshotQueryKey(relatedKeywordInput),
+    [relatedKeywordInput],
+  );
+  const relatedKeywordOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_keyword_analysis',
+    input: relatedKeywordInput,
+    snapshotQueryKey: relatedKeywordSnapshotKey,
+    reconnectInput: relatedKeywordInput,
+  });
+  const relatedKeywordSnapshotQuery = useQuery({
+    queryKey: relatedKeywordSnapshotKey,
+    queryFn: () => fetchKeywordAnalysisSnapshot(relatedKeywordInput),
+    enabled: relatedKeywordSeed.length > 0,
+    placeholderData: (previous) => previous,
   });
   const trackedProductsQuery = useQuery({
     queryKey: queryKeys.sourcing.wingTrackedProducts(),
@@ -135,17 +149,17 @@ export function WingCatalogPage() {
     return ids;
   }, [trackedProductOverrides, trackedProductsQuery.data]);
   const naverRelatedKeywords =
-    relatedKeywordQuery.data?.items ?? EMPTY_NAVER_RELATED_KEYWORDS;
+    relatedKeywordSnapshotQuery.data?.result.related?.items ?? EMPTY_NAVER_RELATED_KEYWORDS;
   const relatedKeywordNotice = !relatedKeywordSeed
     ? null
-    : relatedKeywordQuery.error
-      ? relatedKeywordQuery.error instanceof Error
-        ? relatedKeywordQuery.error.message
-        : String(relatedKeywordQuery.error)
-      : relatedKeywordQuery.data && naverRelatedKeywords.length === 0
+    : relatedKeywordSnapshotQuery.error
+      ? relatedKeywordSnapshotQuery.error instanceof Error
+        ? relatedKeywordSnapshotQuery.error.message
+        : String(relatedKeywordSnapshotQuery.error)
+      : relatedKeywordSnapshotQuery.data && naverRelatedKeywords.length === 0
         ? '네이버 연관 키워드가 비어 있어 상품명 기반 후보를 보여줍니다.'
         : null;
-  const loadingRelatedKeywords = relatedKeywordQuery.isFetching;
+  const loadingRelatedKeywords = relatedKeywordSnapshotQuery.isFetching;
 
   const rows = useMemo(() => sortWingCatalogRows(result?.rows ?? [], sortKey), [result?.rows, sortKey]);
   const summary = useMemo(() => buildWingCatalogSummary(result?.rows ?? []), [result?.rows]);
@@ -254,7 +268,7 @@ export function WingCatalogPage() {
 
   const handleLoadRelatedKeywords = async () => {
     if (!relatedKeywordSeed) return;
-    await relatedKeywordQuery.refetch();
+    await relatedKeywordOperation.start();
   };
 
   const handleDownload = () => {
@@ -366,6 +380,13 @@ export function WingCatalogPage() {
           onRetryAttention={handleRetryAttention}
           isCancelling={operation.isCancelling}
           isRetrying={operation.isRetrying}
+        />
+        <SourcingOperationRunPanel
+          run={relatedKeywordOperation.run}
+          onCancel={() => void relatedKeywordOperation.cancel()}
+          onRetryAttention={() => void relatedKeywordOperation.retryAttention()}
+          isCancelling={relatedKeywordOperation.isCancelling}
+          isRetrying={relatedKeywordOperation.isRetrying}
         />
 
         <section className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px] 2xl:grid-cols-[minmax(0,1fr)_340px]">

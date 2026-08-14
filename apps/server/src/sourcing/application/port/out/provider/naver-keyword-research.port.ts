@@ -170,6 +170,7 @@ export interface NaverDatalabPopularKeywordPort {
 export interface SearchNaverAutocompleteKeywordsInput {
   keyword: string;
   maxResults?: number;
+  signal?: AbortSignal;
 }
 
 export interface NaverAutocompleteKeyword {

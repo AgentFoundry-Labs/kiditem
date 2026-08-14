@@ -306,6 +306,21 @@ test('rejects a market Naver provider facade even when its query lives in anothe
   );
 });
 
+test('rejects an indirect keywords-to-recommendations Naver provider helper bridge', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/sourcing-ai/keywords/lib/legacy-helper.tsx',
+      source: fixture('indirect-keywords-recommendations-provider-bridge.tsx'),
+    }],
+    sourcingServerSources: [],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['indirect_keyword_provider_bridge'],
+  );
+});
+
 test('rejects the direct recommendation refresh HTTP facade', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [],

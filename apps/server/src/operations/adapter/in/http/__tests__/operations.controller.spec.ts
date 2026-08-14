@@ -105,12 +105,34 @@ describe('OperationsController', () => {
       'sourcing.collect_daily_trends',
       JSON.stringify({}),
       ORG_ID,
+      USER,
     )).resolves.toEqual({ run: null });
 
     expect(runner.findReconnectable).toHaveBeenCalledWith({
       organizationId: ORG_ID,
+      requestedByUserId: USER.id,
       operationKey: 'sourcing.collect_daily_trends',
       input: {},
+    });
+  });
+
+  it('uses the authenticated requester for a unique dynamic reconnect without accepting a client-owned actor', async () => {
+    const runner = makeRunner();
+    runner.findReconnectable = vi.fn().mockResolvedValue(null);
+    const controller = new OperationsController(registry, runner);
+
+    await expect(controller.findReconnectable(
+      'sourcing.collect_daily_trends',
+      undefined,
+      ORG_ID,
+      USER,
+    )).resolves.toEqual({ run: null });
+
+    expect(runner.findReconnectable).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      requestedByUserId: USER.id,
+      operationKey: 'sourcing.collect_daily_trends',
+      input: undefined,
     });
   });
 
@@ -122,6 +144,7 @@ describe('OperationsController', () => {
       'sourcing.collect_daily_trends',
       '{bad',
       ORG_ID,
+      USER,
     )).toThrow(BadRequestException);
     expect(runner.findReconnectable).not.toHaveBeenCalled();
   });

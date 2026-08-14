@@ -11,6 +11,8 @@ const mocks = vi.hoisted(() => ({
   retry: vi.fn(),
   run: undefined as unknown,
   reconnect: undefined as unknown,
+  reconnectInput: undefined as Record<string, unknown> | undefined,
+  requireInputlessReconnect: false,
   observedRunId: null as string | null,
   wake: vi.fn(),
 }));
@@ -27,20 +29,32 @@ vi.mock('@/hooks/useOperationRun', () => ({
     mocks.observedRunId = runId;
     return { data: mocks.run, isLoading: false, isError: false };
   },
-  useReconnectableOperationRun: () => ({
-    data: mocks.reconnect,
-    isLoading: false,
-    isError: false,
-  }),
+  useReconnectableOperationRun: (
+    _operationKey: string,
+    input: Record<string, unknown> | undefined,
+  ) => {
+    mocks.reconnectInput = input;
+    return {
+      data: !mocks.requireInputlessReconnect || input === undefined
+        ? mocks.reconnect
+        : undefined,
+      isLoading: false,
+      isError: false,
+    };
+  },
 }));
 
 const RUN_A = '11111111-1111-4111-8111-111111111111';
 const RUN_B = '22222222-2222-4222-8222-222222222222';
 
-function operationRun(id: string, status: OperationRun['status']): OperationRun {
+function operationRun(
+  id: string,
+  status: OperationRun['status'],
+  operationKey = 'sourcing.collect_wing_catalog_batch',
+): OperationRun {
   return {
     id,
-    operationKey: 'sourcing.collect_wing_catalog_batch',
+    operationKey,
     definitionVersion: 1,
     title: 'Wing 카탈로그 수집',
     ownerDomain: 'sourcing',
@@ -103,6 +117,8 @@ describe('useSourcingOperationAction', () => {
     vi.clearAllMocks();
     mocks.run = undefined;
     mocks.reconnect = undefined;
+    mocks.reconnectInput = undefined;
+    mocks.requireInputlessReconnect = false;
     mocks.observedRunId = null;
     mocks.wake.mockResolvedValue(true);
   });
@@ -149,6 +165,43 @@ describe('useSourcingOperationAction', () => {
     expect(mocks.cancel).toHaveBeenCalledWith(RUN_A);
     expect(mocks.retry).toHaveBeenCalledWith(RUN_A);
     expect(result.current.runId).toBe(RUN_B);
+  });
+
+  it.each([
+    {
+      name: 'a live-commerce URL',
+      operationKey: 'sourcing.collect_live_commerce_url',
+      input: { url: '' },
+      run: operationRun(RUN_A, 'waiting_runtime', 'sourcing.collect_live_commerce_url'),
+    },
+    {
+      name: 'a trend source subset',
+      operationKey: 'sourcing.collect_daily_trends',
+      input: { sources: ['naver', 'shorts'] },
+      run: operationRun(RUN_A, 'running', 'sourcing.collect_daily_trends'),
+    },
+    {
+      name: 'a single wholesale keyword',
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keywords: [] },
+      run: operationRun(RUN_A, 'waiting_runtime', 'sourcing.search_1688_keyword_batch'),
+    },
+  ])('reconnects the unique server-owned dynamic run for $name without a stale form input', async ({ operationKey, input, run }) => {
+    mocks.requireInputlessReconnect = true;
+    mocks.reconnect = run;
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction({
+      ...options,
+      operationKey,
+      input,
+    }), {
+      wrapper: wrapper(client),
+    });
+
+    await waitFor(() => expect(result.current.runId).toBe(run.id));
+    expect(mocks.reconnectInput).toBeUndefined();
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.wake).not.toHaveBeenCalled();
   });
 
   it('keeps an explicit URL run ID over a reconnect candidate', async () => {

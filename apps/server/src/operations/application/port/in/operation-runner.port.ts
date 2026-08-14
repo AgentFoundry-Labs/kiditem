@@ -36,8 +36,10 @@ export interface OperationRunnerPort {
   list(query: ListOperationRunsQuery): Promise<OperationRun[]>;
   findReconnectable(input: {
     organizationId: string;
+    requestedByUserId: string;
     operationKey: string;
-    input: Record<string, unknown>;
+    /** Exact static input may disambiguate; omitted dynamic forms require one candidate. */
+    input?: Record<string, unknown>;
   }): Promise<OperationRun | null>;
   get(organizationId: string, runId: string): Promise<OperationRun>;
   cancel(command: CancelOperationRunCommand): Promise<OperationRun>;

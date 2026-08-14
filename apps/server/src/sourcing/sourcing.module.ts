@@ -17,7 +17,7 @@ import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
 import { SourcingBrowserTrendOperationController } from "./adapter/in/http/sourcing-browser-trend-operation.controller";
 import { SourcingBrowserLiveCommerceOperationController } from "./adapter/in/http/sourcing-browser-live-commerce-operation.controller";
-import { SourcingKeywordResearchController } from "./adapter/in/http/sourcing-keyword-research.controller";
+import { SourcingKeywordAnalysisController } from "./adapter/in/http/sourcing-keyword-analysis.controller";
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
 import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intelligence.controller";
 import { SourcingEntryRecommendationController } from "./adapter/in/http/sourcing-entry-recommendation.controller";
@@ -30,6 +30,7 @@ import { SourcingBrowserOperationHandler } from "./adapter/in/operation/sourcing
 import { Sourcing1688OperationHandler } from "./adapter/in/operation/sourcing-1688.operation-handler";
 import { SourcingRisingProductOperationHandler } from "./adapter/in/operation/sourcing-rising-product.operation-handler";
 import { SourcingLiveCommerceOperationHandler } from "./adapter/in/operation/sourcing-live-commerce.operation-handler";
+import { SourcingKeywordAnalysisOperationHandler } from "./adapter/in/operation/sourcing-keyword-analysis.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
@@ -153,7 +154,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingExtensionIngestController,
     SourcingBrowserTrendOperationController,
     SourcingBrowserLiveCommerceOperationController,
-    SourcingKeywordResearchController,
+    SourcingKeywordAnalysisController,
     Sourcing1688SearchResultController,
     SourcingAgentRagController,
     SourcingRisingProductController,
@@ -196,6 +197,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingTrendOperationHandler,
     SourcingBrowserOperationHandler,
     SourcingLiveCommerceOperationHandler,
+    SourcingKeywordAnalysisOperationHandler,
     Sourcing1688OperationHandler,
     SourcingRisingProductOperationHandler,
     TrendQueryService,

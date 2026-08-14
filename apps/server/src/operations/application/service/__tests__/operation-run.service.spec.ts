@@ -147,6 +147,7 @@ describe('OperationRunService', () => {
     const reconnect = service as unknown as {
       findReconnectable(input: {
         organizationId: string;
+        requestedByUserId: string;
         operationKey: string;
         input: Record<string, unknown>;
       }): Promise<unknown>;
@@ -154,6 +155,7 @@ describe('OperationRunService', () => {
 
     await expect(reconnect.findReconnectable({
       organizationId: ORG_ID,
+      requestedByUserId: USER_ID,
       operationKey: definition.key,
       input: { source: 'naver' },
     })).resolves.toMatchObject({ id: matching.id, status: 'attention_required' });
@@ -161,6 +163,7 @@ describe('OperationRunService', () => {
     expect((repository as unknown as { listReconnectableRuns: ReturnType<typeof vi.fn> })
       .listReconnectableRuns).toHaveBeenCalledWith({
         organizationId: ORG_ID,
+        requestedByUserId: USER_ID,
         operationKey: definition.key,
         now: new Date('2026-08-01T00:30:00Z'),
         limit: 50,
@@ -191,8 +194,63 @@ describe('OperationRunService', () => {
 
     await expect(service.findReconnectable({
       organizationId: ORG_ID,
+      requestedByUserId: USER_ID,
       operationKey: definition.key,
       input: { source: 'naver' },
+    })).resolves.toBeNull();
+  });
+
+  it('reconnects only one active run owned by the authenticated requester when dynamic input is no longer in the form', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    const owned = makeRecord({
+      id: '75555555-5555-4555-8555-555555555555',
+      status: 'waiting_runtime',
+      input: { source: 'shorts' },
+    });
+    const foreign = makeRecord({
+      id: '76666666-6666-4666-8666-666666666666',
+      requestedByUserId: 'd323839e-0958-44e4-8238-fc4f5b7254ae',
+      status: 'running',
+      input: { source: 'naver' },
+    });
+    Object.assign(repository, {
+      listReconnectableRuns: vi.fn().mockResolvedValue([foreign, owned]),
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.findReconnectable({
+      organizationId: ORG_ID,
+      requestedByUserId: USER_ID,
+      operationKey: definition.key,
+    })).resolves.toMatchObject({ id: owned.id, status: 'waiting_runtime' });
+
+    expect((repository as unknown as { listReconnectableRuns: ReturnType<typeof vi.fn> })
+      .listReconnectableRuns).toHaveBeenCalledWith({
+        organizationId: ORG_ID,
+        requestedByUserId: USER_ID,
+        operationKey: definition.key,
+        now: new Date('2026-08-01T00:30:00Z'),
+        limit: 50,
+      });
+
+    const anotherOwned = makeRecord({
+      id: '77777777-7777-4777-8777-777777777777',
+      status: 'running',
+      input: { source: 'naver' },
+    });
+    repository.listReconnectableRuns = vi.fn().mockResolvedValue([owned, anotherOwned]);
+
+    await expect(service.findReconnectable({
+      organizationId: ORG_ID,
+      requestedByUserId: USER_ID,
+      operationKey: definition.key,
     })).resolves.toBeNull();
   });
 

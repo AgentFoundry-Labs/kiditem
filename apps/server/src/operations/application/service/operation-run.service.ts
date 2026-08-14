@@ -96,26 +96,28 @@ export class OperationRunService implements OperationRunnerPort {
 
   async findReconnectable(input: {
     organizationId: string;
+    requestedByUserId: string;
     operationKey: string;
-    input: Record<string, unknown>;
+    input?: Record<string, unknown>;
   }): Promise<OperationRun | null> {
-    const normalizedInput = this.registry.parseInput(
-      input.operationKey,
-      input.input,
-    );
+    const normalizedInput = input.input === undefined
+      ? undefined
+      : this.registry.parseInput(input.operationKey, input.input);
     const now = await this.repository.readLifecycleDatabaseTime();
     const records = await this.repository.listReconnectableRuns({
       organizationId: input.organizationId,
+      requestedByUserId: input.requestedByUserId,
       operationKey: input.operationKey,
       now,
       limit: 50,
     });
-    const matching = records.find((record) =>
-      RECONNECTABLE_OPERATION_STATUSES.has(record.status)
+    const matching = records.filter((record) =>
+      record.requestedByUserId === input.requestedByUserId
+      && RECONNECTABLE_OPERATION_STATUSES.has(record.status)
       && (record.deadlineAt === null || record.deadlineAt.getTime() > now.getTime())
-      && sameOperationInput(record.input, normalizedInput),
+      && (normalizedInput === undefined || sameOperationInput(record.input, normalizedInput)),
     );
-    return matching ? this.toWire(matching) : null;
+    return matching.length === 1 ? this.toWire(matching[0]) : null;
   }
 
   async get(organizationId: string, runId: string): Promise<OperationRun> {

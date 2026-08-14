@@ -300,6 +300,11 @@ function hasMountedNaverProviderCollection(file) {
     && /\bapiClient\.post\s*(?:<[^>]*>)?\s*\(\s*['"]\/api\/sourcing\/keyword-research\/naver\/(?:related-keywords|datalab\/search-trends)['"]/.test(file.source);
 }
 
+function hasIndirectKeywordProviderBridge(file) {
+  return file.path.includes('/keywords/')
+    && /\bfrom\s*['"][^'"]*recommendations\/lib\/naver-keyword-api['"]/.test(file.source);
+}
+
 function hasDirectRecommendationRefresh(source) {
   return /@Post\s*\(\s*['"]recommendations\/refresh['"]\s*\)/.test(source)
     && /\bthis\.[A-Za-z_$][\w$]*\.refresh\s*\(/.test(source);
@@ -372,6 +377,14 @@ export function analyzeSourcingLongRunningActions({
         'mounted_naver_provider_collection',
         file.path,
         'Naver provider collection must start from an explicit OperationRun CTA; mounted views read persisted snapshots only.',
+      ));
+    }
+
+    if (hasIndirectKeywordProviderBridge(file)) {
+      findings.push(finding(
+        'indirect_keyword_provider_bridge',
+        file.path,
+        'Keyword workflows may not reach a Naver provider facade through the recommendations helper; use the exact OperationRun-backed owner snapshot instead.',
       ));
     }
 

@@ -1,14 +1,14 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp, Filter, Loader2, Plus, RefreshCw, Search, TrendingUp, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
 import {
-  compareNaverDatalabSearchTrends,
-  searchNaverAutocompleteKeywords,
-  searchNaverRelatedKeywords,
-  searchNaverDatalabPopularKeywords,
+  fetchKeywordAnalysisSnapshot,
+  keywordAnalysisInput,
+  keywordAnalysisSnapshotQueryKey,
+  type KeywordAnalysisInput,
   type NaverAutocompleteKeyword,
   type NaverDatalabDevice,
   type NaverDatalabGender,
@@ -16,7 +16,7 @@ import {
   type NaverDatalabPopularKeywordBoard,
   type NaverDatalabTimeUnit,
   type NaverRelatedKeyword,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
 import {
   type SourcingInterestSource,
   type SourcingKeywordSuggestionItem,
@@ -28,20 +28,15 @@ import { TrendComparePanel } from './KeywordAnalysisTrendPanel';
 import { TrendKeywordAgentPanel } from './TrendKeywordAgentPanel';
 import { InterestKeywordManager } from './InterestKeywordManager';
 import {
-  boardKeys,
   filterLabel,
   matchesFocusMode,
   projectVisibleBoard,
   timeUnitLabel,
-  toSearchTrendAges,
   type BoardFilterKey,
   type FocusMode,
   type VisibleBoard,
 } from './keyword-analysis-helpers';
-import {
-  runTrendKeywordAgent,
-  type TrendKeywordAgentResult,
-} from '../lib/trend-keyword-agent';
+import { deriveTrendKeywordAgent, type TrendKeywordAgentResult } from '../lib/trend-keyword-agent';
 import { createKeywordInterestTarget } from '../../lib/sourcing-interest-target';
 import {
   useRemoveSourcingInterestTarget,
@@ -93,28 +88,28 @@ export function KeywordAnalysisPage() {
   const [searchAdNotice, setSearchAdNotice] = useState<string | null>(null);
   const [relatedSearchNotice, setRelatedSearchNotice] = useState<string | null>(null);
   const [autocompleteNotice, setAutocompleteNotice] = useState<string | null>(null);
-  const [coupangOperationNotice, setCoupangOperationNotice] = useState<string | null>(null);
   const [trendAgentResult, setTrendAgentResult] = useState<TrendKeywordAgentResult | null>(null);
   const [trendAgentNotice, setTrendAgentNotice] = useState<string | null>(null);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
   const [loadingTrendAgent, setLoadingTrendAgent] = useState(false);
   const [showRecentKeywords, setShowRecentKeywords] = useState(true);
-  const popularRequestIdRef = useRef(0);
-  const relatedRequestIdRef = useRef(0);
-  const operationKeyword = keywordQuery.trim() || snapshotKeyword;
-  const operationSnapshotQueryKey = useMemo(
-    () => keywordSuggestionSnapshotQueryKey(operationKeyword),
-    [operationKeyword],
+  const [analysisInput, setAnalysisInput] = useState<KeywordAnalysisInput>(() =>
+    keywordAnalysisInput('trend_agent'),
   );
-  const operationInput = useMemo(
-    () => ({ keyword: operationKeyword, maxResults: 30 }),
-    [operationKeyword],
+  const analysisSnapshotKey = useMemo(
+    () => keywordAnalysisSnapshotQueryKey(analysisInput),
+    [analysisInput],
   );
-  const operation = useSourcingOperationAction({
-    operationKey: 'sourcing.collect_keyword_suggestions',
-    input: operationInput,
-    snapshotQueryKey: operationSnapshotQueryKey,
+  const analysisOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_keyword_analysis',
+    input: analysisInput,
+    snapshotQueryKey: analysisSnapshotKey,
     initialRunId: initialRouteState.operationRunId,
+  });
+  const analysisSnapshotQuery = useQuery({
+    queryKey: analysisSnapshotKey,
+    queryFn: () => fetchKeywordAnalysisSnapshot(analysisInput),
+    placeholderData: (previous) => previous,
   });
   const keywordSnapshotQuery = useQuery({
     queryKey: keywordSuggestionSnapshotQueryKey(snapshotKeyword),
@@ -131,14 +126,13 @@ export function KeywordAnalysisPage() {
   const coupangProductNameTokens = keywordSnapshotQuery.data?.productNameTokens ?? [];
   const loadingCoupangKeywords =
     keywordSnapshotQuery.isFetching && keywordSnapshotQuery.data === undefined;
-  const coupangKeywordNotice = coupangOperationNotice
-    ?? (keywordSnapshotQuery.error instanceof Error
-      ? keywordSnapshotQuery.error.message
-      : keywordSnapshotQuery.data
-        ? keywordSnapshotQuery.data.items.length > 0
-          ? `저장된 쿠팡 키워드 ${formatNumber(keywordSnapshotQuery.data.items.length)}개를 표시합니다.`
-          : '저장된 쿠팡 키워드 스냅샷이 비어 있습니다.'
-        : null);
+  const coupangKeywordNotice = keywordSnapshotQuery.error instanceof Error
+    ? keywordSnapshotQuery.error.message
+    : keywordSnapshotQuery.data
+      ? keywordSnapshotQuery.data.items.length > 0
+        ? `저장된 쿠팡 키워드 ${formatNumber(keywordSnapshotQuery.data.items.length)}개를 표시합니다.`
+        : '저장된 쿠팡 키워드 스냅샷이 비어 있습니다.'
+      : null;
   const keywordPreferencesQuery = useSourcingKeywordPreferences();
   const saveKeywordPreference = useSaveSourcingKeywordPreference();
   const interestTargetsQuery = useSourcingInterestTargets();
@@ -203,10 +197,6 @@ export function KeywordAnalysisPage() {
         command: { excluded: true, expectedVersion: existing?.version ?? 0 },
       },
       {
-        onSuccess: () => {
-          // 제외 자리를 다음 순위로 다시 채우려면 여유분을 더 받아온다.
-          if (boards.length > 0) void loadPopularKeywords({ excludeCount: excludedKeywords.length + 1 });
-        },
         onError: () => setNotice('제외 키워드 저장에 실패했습니다. 최신 목록을 다시 확인해주세요.'),
       },
     );
@@ -220,88 +210,100 @@ export function KeywordAnalysisPage() {
         command: { excluded: false, expectedVersion: existing.version },
       },
       {
-        onSuccess: () => {
-          if (boards.length > 0) void loadPopularKeywords({ excludeCount: Math.max(0, excludedKeywords.length - 1) });
-        },
         onError: () => setNotice('제외 키워드 저장에 실패했습니다. 최신 목록을 다시 확인해주세요.'),
       },
     );
   };
 
-  const loadPopularKeywords = async (overrides: Partial<{
-    timeUnit: NaverDatalabTimeUnit;
-    gender: 'all' | NaverDatalabGender;
-    age: string;
-    device: 'all' | NaverDatalabDevice;
-    rankLimit: string;
-    excludeCount: number;
-  }> = {}) => {
-    const requestId = popularRequestIdRef.current + 1;
-    popularRequestIdRef.current = requestId;
-    const nextTimeUnit = overrides.timeUnit ?? timeUnit;
-    const nextGender = overrides.gender ?? gender;
-    const nextAge = overrides.age ?? age;
-    const nextDevice = overrides.device ?? device;
-    const nextRankLimit = overrides.rankLimit ?? rankLimit;
-    // 제외 키워드가 상위권에서 빠지면 그 자리를 다음 순위로 채워야 하므로, 표시 개수에
-    // 제외 개수만큼 여유분을 더 받아온다. (setState 는 비동기라 호출 측이 새 개수를 넘긴다.)
-    const nextExcludeCount = overrides.excludeCount ?? excludeSet.size;
+  const buildAnalysisInput = (
+    action: KeywordAnalysisInput['action'],
+    overrides: Partial<KeywordAnalysisInput> = {},
+  ) => keywordAnalysisInput(action, {
+    timeUnit,
+    gender,
+    age,
+    device,
+    selectedBoardKey,
+    rankLimit: Number(rankLimit),
+    focusMode,
+    finalLimit: 30,
+    ...overrides,
+  });
 
+  const startAnalysis = async (input: KeywordAnalysisInput) => {
+    setAnalysisInput(input);
+    const run = await analysisOperation.start(input, [keywordAnalysisSnapshotQueryKey(input)]);
+    const params = new URLSearchParams(window.location.search);
+    params.set('operationRun', run.id);
+    if (input.keyword) params.set('keyword', input.keyword);
+    window.history.replaceState({}, '', `${window.location.pathname}?${params.toString()}`);
+    return run;
+  };
+
+  useEffect(() => {
+    const snapshot = analysisSnapshotQuery.data;
+    if (!snapshot) return;
+    const { input, result } = snapshot;
+    if (input.action === 'popular') {
+      const nextBoards = result.popular?.boards ?? [];
+      setBoards(nextBoards);
+      const keywordCount = nextBoards.reduce((sum, board) => sum + board.ranks.length, 0);
+      setNotice(`저장된 인기 키워드 ${formatNumber(keywordCount)}개를 표시합니다.`);
+      setLoadingPopular(false);
+      return;
+    }
+    if (input.action === 'compare') {
+      const items = result.trends?.items ?? [];
+      setTrendItems(items);
+      setTrendNotice(`저장된 키워드 ${formatNumber(items.length)}개 트렌드를 표시합니다.`);
+      setLoadingTrends(false);
+      return;
+    }
+    if (input.action === 'related') {
+      const related = (result.related?.items ?? [])
+        .filter((item) => item.keyword.trim().length > 0)
+        .toSorted(compareSearchAdRelatedKeywords);
+      const autocomplete = result.autocomplete.flatMap((response) => response.items)
+        .filter((item) => item.keyword.trim().length > 0);
+      const trends = (result.trends?.items ?? []).toSorted(compareDatalabRelatedKeywords);
+      setRelatedSearchSeed(input.keyword ?? null);
+      setSearchAdRelatedItems(related);
+      setAutocompleteItems(autocomplete);
+      setRelatedSearchItems(trends);
+      setSearchAdNotice(related.length > 0 ? `저장된 SearchAd 연관 키워드 ${formatNumber(related.length)}개` : '저장된 SearchAd 연관 키워드가 비어 있습니다.');
+      setAutocompleteNotice(autocomplete.length > 0 ? `저장된 네이버 자동완성 ${formatNumber(autocomplete.length)}개` : '저장된 네이버 자동완성이 비어 있습니다.');
+      setRelatedSearchNotice(trends.length > 0 ? `저장된 DataLab 검증 ${formatNumber(trends.length)}개` : '저장된 DataLab 검증 결과가 비어 있습니다.');
+      setLoadingSearchAdRelated(false);
+      setLoadingAutocomplete(false);
+      setLoadingRelatedSearch(false);
+      return;
+    }
+    const agentResult = deriveTrendKeywordAgent(snapshot);
+    setTrendAgentResult(agentResult);
+    setTrendAgentNotice(
+      agentResult.candidates.length > 0
+        ? `저장된 트렌드 후보 ${formatNumber(agentResult.candidates.length)}개를 표시합니다.`
+        : '조건에 맞는 저장된 트렌드 후보가 아직 없습니다.',
+    );
+    setLoadingTrendAgent(false);
+  }, [analysisSnapshotQuery.data]);
+
+  const loadPopularKeywords = async () => {
     setLoadingPopular(true);
     setNotice(null);
     try {
-      const response = await searchNaverDatalabPopularKeywords({
-        boardKeys,
-        timeUnit: nextTimeUnit,
-        gender: nextGender === 'all' ? undefined : nextGender,
-        device: nextDevice === 'all' ? undefined : nextDevice,
-        ages: nextAge === 'all' ? undefined : [nextAge],
-        limit: Number(nextRankLimit) + nextExcludeCount,
-      });
-      if (popularRequestIdRef.current !== requestId) return;
-      setBoards(response.boards);
-      const keywordCount = response.boards.reduce((sum, board) => sum + board.ranks.length, 0);
-      const failedCount = response.boards.filter((board) => board.error).length;
-      setNotice(
-        failedCount > 0
-          ? `인기 키워드 ${formatNumber(keywordCount)}개 갱신, ${formatNumber(failedCount)}개 보드는 호출 제한`
-          : `인기 키워드 ${formatNumber(keywordCount)}개 갱신 완료`,
-      );
+      await startAnalysis(buildAnalysisInput('popular'));
     } catch (error) {
-      if (popularRequestIdRef.current !== requestId) return;
+      setLoadingPopular(false);
       setNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (popularRequestIdRef.current === requestId) {
-        setLoadingPopular(false);
-      }
     }
   };
 
-  const changeTimeUnit = (value: NaverDatalabTimeUnit) => {
-    setTimeUnit(value);
-    void loadPopularKeywords({ timeUnit: value });
-  };
-
-  const changeRankLimit = (value: string) => {
-    setRankLimit(value);
-    // 표시 개수를 늘리면 네이버에서 그만큼(페이지네이션) 더 받아와야 하므로 재조회.
-    void loadPopularKeywords({ rankLimit: value });
-  };
-
-  const changeGender = (value: 'all' | NaverDatalabGender) => {
-    setGender(value);
-    void loadPopularKeywords({ gender: value });
-  };
-
-  const changeAge = (value: string) => {
-    setAge(value);
-    void loadPopularKeywords({ age: value });
-  };
-
-  const changeDevice = (value: 'all' | NaverDatalabDevice) => {
-    setDevice(value);
-    void loadPopularKeywords({ device: value });
-  };
+  const changeTimeUnit = (value: NaverDatalabTimeUnit) => setTimeUnit(value);
+  const changeRankLimit = (value: string) => setRankLimit(value);
+  const changeGender = (value: 'all' | NaverDatalabGender) => setGender(value);
+  const changeAge = (value: string) => setAge(value);
+  const changeDevice = (value: 'all' | NaverDatalabDevice) => setDevice(value);
 
   const compareTrends = async () => {
     const keywords = Array.from(new Set(trendText.split(/\n|,/).map((keyword) => keyword.trim()).filter(Boolean))).slice(0, 5);
@@ -309,23 +311,13 @@ export function KeywordAnalysisPage() {
       setTrendNotice('비교할 키워드를 1개 이상 입력하세요.');
       return;
     }
-
     setLoadingTrends(true);
     setTrendNotice(null);
     try {
-      const response = await compareNaverDatalabSearchTrends({
-        keywords,
-        timeUnit,
-        gender: gender === 'all' ? undefined : gender,
-        device: device === 'all' ? undefined : device,
-        ages: toSearchTrendAges(age),
-      });
-      setTrendItems(response.items);
-      setTrendNotice(`키워드 ${formatNumber(response.items.length)}개 트렌드 비교 완료`);
+      await startAnalysis(buildAnalysisInput('compare', { keywords }));
     } catch (error) {
-      setTrendNotice(error instanceof Error ? error.message : String(error));
-    } finally {
       setLoadingTrends(false);
+      setTrendNotice(error instanceof Error ? error.message : String(error));
     }
   };
 
@@ -339,10 +331,6 @@ export function KeywordAnalysisPage() {
   const loadRelatedKeywordData = async (keyword: string) => {
     const normalizedKeyword = keyword.trim();
     if (!normalizedKeyword) return;
-    const requestId = relatedRequestIdRef.current + 1;
-    relatedRequestIdRef.current = requestId;
-    const isCurrentRequest = () => relatedRequestIdRef.current === requestId;
-
     setRelatedSearchSeed(normalizedKeyword);
     setSearchAdRelatedItems([]);
     setRelatedSearchItems([]);
@@ -353,95 +341,13 @@ export function KeywordAnalysisPage() {
     setLoadingSearchAdRelated(true);
     setLoadingRelatedSearch(false);
     setLoadingAutocomplete(true);
-
-    setCoupangOperationNotice(null);
     setSnapshotKeyword(normalizedKeyword);
-    void operation.start(
-      { keyword: normalizedKeyword, maxResults: 30 },
-      [keywordSuggestionSnapshotQueryKey(normalizedKeyword)],
-    ).then((run) => {
-      const params = new URLSearchParams(window.location.search);
-      params.set('keyword', normalizedKeyword);
-      params.set('operationRun', run.id);
-      window.history.replaceState(
-        {},
-        '',
-        `${window.location.pathname}?${params.toString()}`,
-      );
-    }).catch((error: unknown) => {
-      if (!isCurrentRequest()) return;
-      setCoupangOperationNotice(error instanceof Error ? error.message : String(error));
-    });
-
-    void searchNaverAutocompleteKeywords({
-      keyword: normalizedKeyword,
-      maxResults: 30,
-    })
-      .then((response) => {
-        if (!isCurrentRequest()) return;
-        const items = response.items.filter((item) => item.keyword.trim().length > 0);
-        setAutocompleteItems(items);
-        setAutocompleteNotice(
-          items.length > 0
-            ? `네이버 자동완성 키워드 ${formatNumber(items.length)}개를 가져왔습니다.`
-            : '네이버 자동완성 키워드가 비어 있습니다.',
-        );
-      })
-      .catch((error: unknown) => {
-        if (!isCurrentRequest()) return;
-        setAutocompleteItems([]);
-        setAutocompleteNotice(error instanceof Error ? error.message : String(error));
-      })
-      .finally(() => {
-        if (isCurrentRequest()) setLoadingAutocomplete(false);
-      });
-
-    let relatedItems: NaverRelatedKeyword[] = [];
     try {
-      const relatedResponse = await searchNaverRelatedKeywords({
-        seedKeywords: [normalizedKeyword],
-        maxResults: 30,
-      });
-      relatedItems = relatedResponse.items
-        .filter((item) => item.keyword.trim().length > 0)
-        .toSorted(compareSearchAdRelatedKeywords);
-      if (!isCurrentRequest()) return;
-
-      setSearchAdRelatedItems(relatedItems);
-      setSearchAdNotice(
-        relatedItems.length > 0
-          ? `SearchAd에서 연관 키워드 ${formatNumber(relatedItems.length)}개를 가져왔습니다.`
-          : 'SearchAd 연관 키워드가 비어 있습니다.',
-      );
+      await startAnalysis(buildAnalysisInput('related', { keyword: normalizedKeyword }));
     } catch (error) {
-      if (!isCurrentRequest()) return;
       setSearchAdNotice(error instanceof Error ? error.message : String(error));
-      return;
-    } finally {
-      if (isCurrentRequest()) setLoadingSearchAdRelated(false);
-    }
-
-    if (relatedItems.length === 0) return;
-
-    setLoadingRelatedSearch(true);
-    try {
-      const response = await compareNaverDatalabSearchTrends({
-        keywords: relatedItems.map((item) => item.keyword),
-        timeUnit,
-        gender: gender === 'all' ? undefined : gender,
-        device: device === 'all' ? undefined : device,
-        ages: toSearchTrendAges(age),
-      });
-      const items = response.items.toSorted(compareDatalabRelatedKeywords);
-      if (!isCurrentRequest()) return;
-      setRelatedSearchItems(items);
-      setRelatedSearchNotice(`SearchAd 키워드 ${formatNumber(items.length)}개를 DataLab 지수로 검증했습니다.`);
-    } catch (error) {
-      if (!isCurrentRequest()) return;
-      setRelatedSearchItems([]);
-      setRelatedSearchNotice(error instanceof Error ? error.message : String(error));
-    } finally {
-      if (isCurrentRequest()) setLoadingRelatedSearch(false);
+      setLoadingSearchAdRelated(false);
+      setLoadingAutocomplete(false);
     }
   };
 
@@ -501,32 +407,10 @@ export function KeywordAnalysisPage() {
     setLoadingTrendAgent(true);
     setTrendAgentNotice(null);
     try {
-      const result = await runTrendKeywordAgent({
-        timeUnit,
-        gender,
-        age,
-        device,
-        selectedBoardKey,
-        rankLimit,
-        focusMode,
-        cachedBoards: boards,
-        finalLimit: 30,
-      });
-      setTrendAgentResult(result);
-      const topKeywords = result.candidates.slice(0, 5).map((candidate) => candidate.keyword);
-      if (topKeywords.length > 0) {
-        setTrendText(topKeywords.join('\n'));
-        setKeywordQuery(topKeywords[0] ?? '');
-      }
-      setTrendAgentNotice(
-        result.candidates.length > 0
-          ? `트렌드 후보 ${formatNumber(result.candidates.length)}개를 골랐습니다. TOP 키워드는 ${result.candidates[0]?.keyword ?? '-'}입니다.`
-          : '조건에 맞는 트렌드 후보가 아직 없습니다.',
-      );
+      await startAnalysis(buildAnalysisInput('trend_agent'));
     } catch (error) {
       setTrendAgentResult(null);
       setTrendAgentNotice(error instanceof Error ? error.message : String(error));
-    } finally {
       setLoadingTrendAgent(false);
     }
   };
@@ -616,11 +500,11 @@ export function KeywordAnalysisPage() {
 
           <SourcingOperationRunPanel
             className="mx-auto mt-4 max-w-[1600px]"
-            run={operation.run}
-            onCancel={() => void operation.cancel()}
-            onRetryAttention={() => void operation.retryAttention()}
-            isCancelling={operation.isCancelling}
-            isRetrying={operation.isRetrying}
+            run={analysisOperation.run}
+            onCancel={() => void analysisOperation.cancel()}
+            onRetryAttention={() => void analysisOperation.retryAttention()}
+            isCancelling={analysisOperation.isCancelling}
+            isRetrying={analysisOperation.isRetrying}
           />
 
           <InterestKeywordManager

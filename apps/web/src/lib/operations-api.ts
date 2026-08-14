@@ -27,10 +27,13 @@ export const operationsApi = {
 
   async findReconnectable(
     operationKey: string,
-    input: Record<string, unknown>,
+    input?: Record<string, unknown>,
   ): Promise<OperationRun | null> {
+    const suffix = input === undefined
+      ? ''
+      : `?input=${encodeURIComponent(JSON.stringify(input))}`;
     const response = await apiClient.getParsed(
-      `/api/operations/${encodeURIComponent(operationKey)}/runs/reconnect?input=${encodeURIComponent(JSON.stringify(input))}`,
+      `/api/operations/${encodeURIComponent(operationKey)}/runs/reconnect${suffix}`,
       OperationRunReconnectResponseSchema,
     );
     return response.run;

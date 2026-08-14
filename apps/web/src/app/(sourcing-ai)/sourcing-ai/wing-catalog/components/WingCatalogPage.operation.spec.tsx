@@ -4,12 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { WingCatalogPage } from './WingCatalogPage';
 import { fetchWingCatalogSnapshot } from '../lib/wing-catalog-api';
 import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
-import { searchNaverRelatedKeywords } from '../../recommendations/lib/naver-keyword-api';
+import {
+  fetchKeywordAnalysisSnapshot,
+  keywordAnalysisInput,
+} from '../../lib/keyword-analysis-snapshot-api';
 
-const start = vi.fn(async () => ({
+const catalogStart = vi.fn(async () => ({
   id: '10000000-0000-4000-8000-000000000001',
 }));
-let capturedOptions: Record<string, unknown> | null = null;
+const naverStart = vi.fn(async () => ({
+  id: '10000000-0000-4000-8000-000000000002',
+}));
+let capturedOptions = new Map<string, Record<string, unknown>>();
 
 vi.mock('../lib/wing-catalog-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/wing-catalog-api')>();
@@ -24,9 +30,20 @@ vi.mock('../lib/wing-catalog-api', async (importOriginal) => {
   };
 });
 
+vi.mock('../../lib/keyword-analysis-snapshot-api', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../lib/keyword-analysis-snapshot-api')>();
+  return {
+    ...actual,
+    fetchKeywordAnalysisSnapshot: vi.fn(async () => null),
+  };
+});
+
 vi.mock('../../hooks/use-sourcing-operation-action', () => ({
   useSourcingOperationAction: vi.fn((options: Record<string, unknown>) => {
-    capturedOptions = options;
+    capturedOptions.set(options.operationKey as string, options);
+    const start = options.operationKey === 'sourcing.collect_keyword_analysis'
+      ? naverStart
+      : catalogStart;
     return {
       runId: null,
       run: null,
@@ -44,10 +61,6 @@ vi.mock('../../hooks/use-sourcing-operation-action', () => ({
 vi.mock('../../lib/wing-tracking-api', () => ({
   listWingTrackedProducts: vi.fn(async () => []),
   addWingTrackedProduct: vi.fn(),
-}));
-
-vi.mock('../../recommendations/lib/naver-keyword-api', () => ({
-  searchNaverRelatedKeywords: vi.fn(async () => ({ items: [] })),
 }));
 
 vi.mock('@/lib/extension-bridge', async (importOriginal) => {
@@ -69,31 +82,34 @@ function renderPage() {
 describe('WingCatalogPage browser operation', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    capturedOptions = null;
+    capturedOptions = new Map();
     window.history.replaceState({}, '', '/sourcing-ai/wing-catalog');
   });
 
-  it('reads the persisted snapshot on mount without starting browser work', async () => {
+  it('reads persisted snapshots on mount without starting browser or Naver provider work', async () => {
     renderPage();
 
     await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('슬라임'));
+    await waitFor(() => expect(fetchKeywordAnalysisSnapshot).toHaveBeenCalledWith(
+      keywordAnalysisInput('related', { keyword: '슬라임' }),
+    ));
     await screen.findByText(/0개 상품 · persisted_snapshot/);
-    expect(start).not.toHaveBeenCalled();
-    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
-    expect(capturedOptions).toMatchObject({
-      operationKey: 'sourcing.collect_wing_catalog_batch',
+    expect(catalogStart).not.toHaveBeenCalled();
+    expect(naverStart).not.toHaveBeenCalled();
+    expect(capturedOptions.get('sourcing.collect_wing_catalog_batch')).toMatchObject({
       input: { keywords: ['슬라임'], maxPages: 2, purpose: 'catalog_search' },
-      snapshotQueryKey: ['sourcing', 'wing-catalog', '슬라임'],
+    });
+    expect(capturedOptions.get('sourcing.collect_keyword_analysis')).toMatchObject({
+      input: keywordAnalysisInput('related', { keyword: '슬라임' }),
     });
   });
 
-  it('does not contact providers or start work while resolving, reconnecting, or reloading the route', async () => {
+  it('does not start work while resolving, reconnecting, or reloading the route', async () => {
     const initial = renderPage();
 
     await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('슬라임'));
-    await screen.findByText(/0개 상품 · persisted_snapshot/);
-    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
-    expect(start).not.toHaveBeenCalled();
+    expect(catalogStart).not.toHaveBeenCalled();
+    expect(naverStart).not.toHaveBeenCalled();
 
     initial.unmount();
     window.history.replaceState(
@@ -104,48 +120,33 @@ describe('WingCatalogPage browser operation', () => {
     renderPage();
 
     await waitFor(() => expect(fetchWingCatalogSnapshot).toHaveBeenCalledWith('클레이'));
-    await screen.findByText(/0개 상품 · persisted_snapshot/);
-    expect(searchNaverRelatedKeywords).not.toHaveBeenCalled();
-    expect(start).not.toHaveBeenCalled();
-    expect(useSourcingOperationAction).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        initialRunId: '10000000-0000-4000-8000-000000000002',
-      }),
-    );
+    expect(catalogStart).not.toHaveBeenCalled();
+    expect(naverStart).not.toHaveBeenCalled();
   });
 
-  it('starts one durable operation from the explicit CTA', async () => {
+  it('starts one durable catalog operation from the explicit CTA', async () => {
     renderPage();
     fireEvent.change(screen.getByPlaceholderText('키워드 입력'), {
       target: { value: '클레이' },
     });
     fireEvent.click(screen.getByRole('button', { name: '분석' }));
 
-    await waitFor(() => expect(start).toHaveBeenCalledTimes(1));
-    expect(useSourcingOperationAction).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        operationKey: 'sourcing.collect_wing_catalog_batch',
-        input: { keywords: ['클레이'], maxPages: 2, purpose: 'catalog_search' },
-      }),
-    );
-    expect(window.location.search).toContain(
-      'operationRun=10000000-0000-4000-8000-000000000001',
-    );
-    expect(window.location.search).toContain('keyword=%ED%81%B4%EB%A0%88%EC%9D%B4');
+    await waitFor(() => expect(catalogStart).toHaveBeenCalledTimes(1));
+    expect(capturedOptions.get('sourcing.collect_wing_catalog_batch')).toMatchObject({
+      input: { keywords: ['클레이'], maxPages: 2, purpose: 'catalog_search' },
+    });
   });
 
-  it('contacts the related-keyword provider only from its explicit operator action', async () => {
+  it('starts one exact Naver operation only from its explicit operator action', async () => {
     renderPage();
     await screen.findByText(/0개 상품 · persisted_snapshot/);
+    await waitFor(() => expect(fetchKeywordAnalysisSnapshot).toHaveBeenCalledWith(
+      keywordAnalysisInput('related', { keyword: '슬라임' }),
+    ));
 
     fireEvent.click(screen.getByRole('button', { name: '네이버 연관 키워드 조회' }));
 
-    await waitFor(() => {
-      expect(searchNaverRelatedKeywords).toHaveBeenCalledWith({
-        seedKeywords: ['슬라임'],
-        maxResults: 30,
-      });
-    });
-    expect(start).not.toHaveBeenCalled();
+    await waitFor(() => expect(naverStart).toHaveBeenCalledTimes(1));
+    expect(catalogStart).not.toHaveBeenCalled();
   });
 });
