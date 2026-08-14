@@ -23,9 +23,15 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `http://localhost:3000`, `http://localhost:4000`,
   and `http://kiditem-office`.
 - Product data sync posts to `/product-data`.
-- Live-commerce snapshots post to `/trend/live-commerce-results`.
-- TikTok Creative Center reads targets from `/trend/tiktok-cc-targets` and posts
-  snapshots to `/trend/tiktok-cc-results`.
+- Browser Operation owner-result routes are API-root paths: 1688 trends post to
+  `/sourcing/operations/1688-trends/:runId/results`, live-commerce snapshots to
+  `/sourcing/operations/live-commerce/:runId/results`, and TikTok Creative
+  Center snapshots to `/sourcing/operations/tiktok-cc-trends/:runId/results`.
+  TikTok targets remain a read from `/sourcing/trend/tiktok-cc-targets`.
+- Every browser result requires the exact claimed `OperationRun` id in `:runId`
+  and its current `x-operation-attempt-token`; the owner fences organization,
+  run, operation key, and token. Do not restore `/sourcing/extension/trend/*`
+  endpoints or a generic action/session bridge.
 - Authorization uses the current KidItem opaque session token delivered by the
   logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
   `chrome.storage.local` for extension API calls. Do not reintroduce a separate
