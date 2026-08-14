@@ -39,6 +39,7 @@ export default defineConfig({
     'src/rocket-purchase-preview.ts',
     'src/coupang-catalog-snapshot.ts',
     'src/agent-os.ts',
+    'src/identifiers/index.ts',
     'src/agent-interaction/index.ts',
     'src/workflow.ts',
     'src/common.ts',

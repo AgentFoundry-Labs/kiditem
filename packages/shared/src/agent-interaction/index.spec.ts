@@ -1,612 +1,619 @@
-import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
-import * as AgentInteraction from './index';
+import { readFileSync } from "node:fs";
+import { describe, expect, it } from "vitest";
+import {
+  AgentDefinitionKeySchema,
+  AgentExecutionAttemptIdSchema,
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  AgentVersionKeySchema,
+  formatAgentConversationEventName,
+  formatAgentExecutionAttemptName,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  formatAgentVersionName,
+  formatOperationRunName,
+  formatOrganizationName,
+  OperationRunIdSchema,
+  OrganizationIdSchema,
+  PositiveDecimalSequenceSchema,
+} from "../identifiers";
+import * as AgentInteraction from "./index";
 
-type ParseSchema = {
-  parse(input: unknown): unknown;
-};
+const organization = OrganizationIdSchema.parse("legacy-organization-row");
+const agentDefinitionKey = AgentDefinitionKeySchema.parse("operator");
+const agentVersion = AgentVersionKeySchema.parse("2026.08.13");
+const sessionId = AgentSessionIdSchema.parse("legacy-session-row");
+const otherSessionId = AgentSessionIdSchema.parse("legacy-other-session-row");
+const taskId = AgentSessionTaskIdSchema.parse("legacy-task-row");
+const executionId = AgentExecutionIdSchema.parse("legacy-execution-row");
+const otherExecutionId = AgentExecutionIdSchema.parse(
+  "legacy-other-execution-row",
+);
+const attemptId = AgentExecutionAttemptIdSchema.parse("legacy-attempt-row");
+const operationId = OperationRunIdSchema.parse("legacy-operation-row");
+const sequence = (value: string) => PositiveDecimalSequenceSchema.parse(value);
 
-const exportedSchema = (name: string): ParseSchema => {
-  const value = (AgentInteraction as unknown as Record<string, unknown>)[name];
-
-  expect(value, `${name} should be exported`).toMatchObject({
-    parse: expect.any(Function),
-  });
-
-  return value as ParseSchema;
-};
+const agentVersionName = formatAgentVersionName(
+  agentDefinitionKey,
+  agentVersion,
+);
+const sessionName = formatAgentSessionName(organization, sessionId);
+const otherSessionName = formatAgentSessionName(organization, otherSessionId);
+const taskName = formatAgentSessionTaskName(organization, sessionId, taskId);
+const executionName = formatAgentExecutionName(
+  organization,
+  sessionId,
+  executionId,
+);
+const otherExecutionName = formatAgentExecutionName(
+  organization,
+  otherSessionId,
+  otherExecutionId,
+);
+const attemptName = formatAgentExecutionAttemptName(
+  organization,
+  sessionId,
+  executionId,
+  attemptId,
+);
+const operationName = formatOperationRunName(organization, operationId);
 
 const agent = {
-  agentDefinitionKey: 'operator',
-  agentVersionId: 'version-1',
-  displayName: 'KidItem Operator',
-  description: 'KidItem operations agent',
+  agentDefinitionKey,
+  agentVersion: agentVersionName,
+  displayName: "KidItem Operator",
+  description: "KidItem operations agent",
   isDefault: true,
 } as const;
 
 const session = {
-  sessionId: 'session-1',
-  copilotThreadId: 'thread-1',
-  primaryAgentDefinitionKey: 'operator',
-  primaryAgentVersionId: 'version-1',
-  lifecycle: 'active',
-  updatedAt: '2026-08-13T00:00:00.000Z',
+  name: sessionName,
+  copilotThreadId: "copilot-thread-1",
+  primaryAgentDefinitionKey: agentDefinitionKey,
+  primaryAgentVersion: agentVersionName,
+  lifecycle: "active",
+  updatedAt: "2026-08-13T00:00:00.000Z",
 } as const;
 
 const dashboardContext = {
-  routeKey: 'analytics.dashboard',
-  resourceRefs: [{ kind: 'product', id: 'product-1', version: '7' }],
-  filters: { status: ['ready'], page: 2, active: true },
-  visibleRowIds: ['product-1'],
+  routeKey: "analytics.dashboard",
+  resourceRefs: [{ kind: "product", id: "product-1", version: "7" }],
+  filters: { status: ["ready"], page: 2, active: true },
+  visibleRowIds: ["product-1"],
   aggregateSummary: { total: 1, sampled: true, note: null },
-  locale: 'ko-KR',
-  timezone: 'Asia/Seoul',
+  locale: "ko-KR",
+  timezone: "Asia/Seoul",
 } as const;
 
 const runAuthorization = {
-  session,
-  sessionTaskId: 'task-1',
-  executionId: 'execution-1',
-  modelIdentity: 'gpt-5',
-  runtimeType: 'ag_ui',
-  policySnapshotId: 'policy-1',
+  session: sessionName,
+  task: taskName,
+  execution: executionName,
+  modelIdentity: "gpt-5",
+  runtimeType: "ag_ui",
+  policySnapshotId: "policy-snapshot-1",
   contextEpoch: 1,
   dashboardContext,
 } as const;
 
-const userMessageEvent = {
-  eventId: 'event-1',
-  sessionId: 'session-1',
-  executionId: 'execution-1',
-  aguiRunId: 'run-1',
-  sequence: '1',
-  eventType: 'user_message',
-  schemaVersion: 1,
-  payload: { messageId: 'message-1', content: '재고 현황 알려줘' },
-  createdAt: '2026-08-13T00:00:00.000Z',
-} as const;
+const event = <T extends Record<string, unknown>>(
+  sequenceValue: string,
+  overrides: T,
+) => {
+  const canonicalSequence = sequence(sequenceValue);
+  return {
+    name: formatAgentConversationEventName(
+      organization,
+      sessionId,
+      canonicalSequence,
+    ),
+    session: sessionName,
+    execution: executionName,
+    sequence: canonicalSequence,
+    createdAt: "2026-08-13T00:00:00.000Z",
+    ...overrides,
+  };
+};
+
+const userMessageEvent = event("1", {
+  eventType: "user_message" as const,
+  schemaVersion: 1 as const,
+  payload: {
+    phase: "complete" as const,
+    messageId: "message-1",
+    content: "재고 현황 알려줘",
+  },
+});
 
 const replay = {
-  sessionId: 'session-1',
+  session: sessionName,
   events: [userMessageEvent],
-  nextCursor: 'opaque-replay-cursor',
-  lastSequence: '1',
+  nextCursor: "opaque-replay-cursor",
+  lastSequence: sequence("1"),
 } as const;
 
 const connectionAuthorization = {
-  session,
+  session: sessionName,
   contextEpoch: 1,
-  replay: { ...replay, nextCursor: null },
-  liveJoinToken: 'live-join-token-that-is-at-least-32-bytes',
-  liveJoinExpiresAt: '2026-08-13T00:00:15.000Z',
-  currentExecution: null,
+  replay: {
+    nextCursor: null,
+    lastSequence: sequence("1"),
+  },
 } as const;
 
-describe('agent interaction contracts', () => {
-  it('strips untrusted browser authority while accepting canonical dashboard context', () => {
+describe("agent interaction contracts", () => {
+  it("keeps dashboard context useful while stripping untrusted external authority", () => {
     const context = AgentInteraction.DashboardContextSchema.parse({
       ...dashboardContext,
-      organizationId: 'attacker-org',
-      permissions: ['admin'],
+      organizationId: "attacker-org",
+      permissions: ["admin"],
     });
 
     expect(context).toEqual(dashboardContext);
-    expect(context).not.toHaveProperty('organizationId');
-    expect(context).not.toHaveProperty('permissions');
+    expect(context).not.toHaveProperty("organizationId");
+    expect(context).not.toHaveProperty("permissions");
   });
 
-  it('requires every server-derived principal field and rejects added authority', () => {
-    expect(
-      AgentInteraction.InteractionPrincipalSchema.parse({
-        principalKey: 'principal-1',
-        userId: 'user-1',
-        organizationId: 'org-1',
-      }),
-    ).toEqual({
-      principalKey: 'principal-1',
-      userId: 'user-1',
-      organizationId: 'org-1',
-    });
+  it("uses canonical agent and session resource names", () => {
+    expect(AgentInteraction.AllowedAgentSchema.parse(agent)).toEqual(agent);
+    expect(AgentInteraction.AgentSessionSummarySchema.parse(session)).toEqual(
+      session,
+    );
 
-    for (const invalidPrincipal of [
-      { userId: 'user-1', organizationId: 'org-1' },
-      { principalKey: 'principal-1', organizationId: 'org-1' },
-      { principalKey: 'principal-1', userId: 'user-1' },
-      {
-        principalKey: 'principal-1',
-        userId: 'user-1',
-        organizationId: 'org-1',
-        permissions: ['admin'],
-      },
+    for (const invalidAgent of [
+      { ...agent, agentVersion: "version-1" },
+      { ...agent, agentVersionId: "legacy-version-row" },
+      { ...agent, supportsQuickAsk: true },
     ]) {
       expect(() =>
-        AgentInteraction.InteractionPrincipalSchema.parse(invalidPrincipal),
+        AgentInteraction.AllowedAgentSchema.parse(invalidAgent),
+      ).toThrow();
+    }
+
+    for (const invalidSession of [
+      { ...session, name: formatOrganizationName(organization) },
+      { ...session, primaryAgentVersion: "version-1" },
+      { ...session, lifecycle: "deleted" },
+      { ...session, updatedAt: "tomorrow" },
+      { ...session, sessionId: "legacy-session-row" },
+      { ...session, organizationId: "attacker-org" },
+    ]) {
+      expect(() =>
+        AgentInteraction.AgentSessionSummarySchema.parse(invalidSession),
       ).toThrow();
     }
   });
 
-  it('bootstraps allowed agents and existing sessions without thread targets', () => {
-    const schema = AgentInteraction.InteractionBootstrapSchema;
-
-    expect(
-      schema.parse({
-        defaultAgentDefinitionKey: 'operator',
-        agents: [agent],
-        sessions: [session],
-      }),
-    ).toEqual(expect.objectContaining({ sessions: [session] }));
-
-    expect(() =>
-      schema.parse({
-        defaultAgentDefinitionKey: 'operator',
-        agents: [agent],
-        sessions: [],
-        threadTargets: [],
-      }),
-    ).toThrow();
-  });
-
-  it('requires exactly one matching default agent', () => {
+  it("requires one matching default and unique canonical agent versions in bootstrap", () => {
     const schema = AgentInteraction.InteractionBootstrapSchema;
     const bootstrap = {
-      defaultAgentDefinitionKey: 'operator',
+      defaultAgentDefinitionKey: agentDefinitionKey,
       agents: [agent],
       sessions: [session],
     };
 
+    expect(schema.parse(bootstrap)).toEqual(bootstrap);
+
     for (const invalidBootstrap of [
+      { ...bootstrap, agents: [{ ...agent, isDefault: false }] },
       {
         ...bootstrap,
-        agents: [{ ...agent, isDefault: false }],
-      },
-      {
-        ...bootstrap,
-        agents: [agent, { ...agent, agentVersionId: 'version-2' }],
-      },
-      { ...bootstrap, defaultAgentDefinitionKey: 'analyst' },
-    ]) {
-      expect(() => schema.parse(invalidBootstrap)).toThrow(
-        'bootstrap requires exactly one matching default agent',
-      );
-    }
-  });
-
-  it('preserves unique composite allowed-agent identities', () => {
-    expect(() =>
-      AgentInteraction.InteractionBootstrapSchema.parse({
-        defaultAgentDefinitionKey: 'operator',
         agents: [agent, { ...agent, isDefault: false }],
-        sessions: [],
-      }),
-    ).toThrow('bootstrap requires unique allowed-agent identities');
-
-    expect(
-      AgentInteraction.InteractionBootstrapSchema.parse({
-        defaultAgentDefinitionKey: 'operator',
-        agents: [
-          agent,
-          { ...agent, agentVersionId: 'version-2', isDefault: false },
-        ],
-        sessions: [],
-      }),
-    ).toBeTruthy();
-  });
-
-  it('rejects retired allowed-agent fields and invalid session summaries', () => {
-    expect(() =>
-      AgentInteraction.AllowedAgentSchema.parse({
-        ...agent,
-        supportsQuickAsk: true,
-      }),
-    ).toThrow();
-
-    const schema = exportedSchema('AgentSessionSummarySchema');
-    expect(schema.parse(session)).toEqual(session);
-
-    for (const invalidSession of [
-      { ...session, sessionId: '' },
-      { ...session, lifecycle: 'deleted' },
-      { ...session, updatedAt: 'tomorrow' },
-      { ...session, organizationId: 'attacker-org' },
+      },
+      { ...bootstrap, defaultAgentDefinitionKey: "analyst" },
+      { ...bootstrap, threadTargets: [] },
+      {
+        ...bootstrap,
+        agents: [{ ...agent, agentVersionId: "legacy-version-row" }],
+      },
     ]) {
-      expect(() => schema.parse(invalidSession)).toThrow();
+      expect(() => schema.parse(invalidBootstrap)).toThrow();
     }
   });
 
-  it('accepts only the strict opaque run-intent contract', () => {
-    const schema = exportedSchema('AguiRunIntentSchema');
+  it("accepts only the strict opaque run-intent contract", () => {
     const intent = {
-      runIntent: 'run-intent-token-that-is-at-least-32-bytes',
-      expiresAt: '2026-08-13T00:00:30.000Z',
-      copilotThreadId: 'thread-1',
-      aguiRunId: 'run-1',
-    };
+      runIntent: "run-intent-token-that-is-at-least-thirty-two-bytes",
+      expiresAt: "2026-08-13T00:00:30.000Z",
+      copilotThreadId: "copilot-thread-1",
+      aguiRunId: "agui-run-1",
+    } as const;
 
-    expect(schema.parse(intent)).toEqual(intent);
-    expect(() => schema.parse({ ...intent, runIntent: 'too-short' })).toThrow();
-    expect(() => schema.parse({ ...intent, expiresAt: 'tomorrow' })).toThrow();
-    expect(() => schema.parse({ ...intent, copilotThreadId: '' })).toThrow();
-    expect(() => schema.parse({ ...intent, archive: null })).toThrow();
-    expect(() =>
-      schema.parse({ ...intent, preparationToken: intent.runIntent }),
-    ).toThrow();
+    expect(AgentInteraction.AguiRunIntentSchema.parse(intent)).toEqual(intent);
+
+    for (const invalidIntent of [
+      { ...intent, runIntent: "too-short" },
+      { ...intent, expiresAt: "tomorrow" },
+      { ...intent, copilotThreadId: "" },
+      { ...intent, archive: null },
+      { ...intent, preparationToken: intent.runIntent },
+    ]) {
+      expect(() =>
+        AgentInteraction.AguiRunIntentSchema.parse(invalidIntent),
+      ).toThrow();
+    }
   });
 
-  it('requires a non-null session and root task for run authorization', () => {
+  it("authorizes a non-null canonical session task and execution only", () => {
     const schema = AgentInteraction.AguiRunAuthorizationSchema;
 
     expect(schema.parse(runAuthorization)).toEqual(runAuthorization);
-    expect(() =>
-      schema.parse({ ...runAuthorization, sessionTaskId: null }),
-    ).toThrow();
-    expect(() => schema.parse({ ...runAuthorization, session: null })).toThrow();
-    expect(() => schema.parse({ ...runAuthorization, contextEpoch: 0 })).toThrow();
-  });
-
-  it('requires explicit model/runtime/policy identity and rejects added run authority', () => {
-    const schema = AgentInteraction.AguiRunAuthorizationSchema;
-
-    for (const key of ['modelIdentity', 'runtimeType', 'policySnapshotId'] as const) {
-      expect(() => schema.parse({ ...runAuthorization, [key]: '' })).toThrow();
-    }
-
-    for (const extraAuthority of [
-      { organizationId: 'attacker-org' },
-      { permissions: ['admin'] },
-      { interactionClass: 'official_task' },
-      { binding: { id: 'binding-1' } },
-    ]) {
-      expect(() =>
-        schema.parse({ ...runAuthorization, ...extraAuthority }),
-      ).toThrow();
-    }
-  });
-
-  it('requires complete correlation and defaults a missing attempt id to null', () => {
-    const schema = AgentInteraction.AgentCorrelationSchema;
-    const correlation = {
-      copilotThreadId: 'thread-1',
-      aguiRunId: 'run-1',
-      executionId: 'execution-1',
-      sessionId: 'session-1',
-      sessionTaskId: 'task-1',
-      operationsRunId: null,
-    };
-
-    expect(schema.parse(correlation)).toEqual({ ...correlation, attemptId: null });
-    expect(() => schema.parse({ ...correlation, sessionId: null })).toThrow();
-    expect(() => schema.parse({ ...correlation, sessionTaskId: null })).toThrow();
-    expect(() => schema.parse({ ...correlation, attemptId: '' })).toThrow();
-    expect(() => schema.parse({ ...correlation, attemptId: 1 })).toThrow();
-    expect(() =>
-      schema.parse({ ...correlation, taskId: 'legacy-task-1' }),
-    ).toThrow();
-  });
-
-  it('validates all version-1 event discriminants against bounded payloads', () => {
-    const schema = exportedSchema('AgentConversationEventEnvelopeSchema');
-    const eventVariants = [
-      userMessageEvent,
-      {
-        ...userMessageEvent,
-        eventId: 'event-2',
-        sequence: '2',
-        eventType: 'assistant_message',
-        payload: { messageId: 'message-2', content: '재고는 10개입니다.' },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-3',
-        executionId: null,
-        sequence: '3',
-        eventType: 'system_notice',
-        payload: { code: 'session_resumed', content: '세션이 재개되었습니다.' },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-4',
-        sequence: '4',
-        eventType: 'tool_activity',
-        payload: {
-          toolCallId: 'tool-call-1',
-          toolName: 'inventory.lookup',
-          status: 'started',
-        },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-5',
-        sequence: '5',
-        eventType: 'state_snapshot',
-        payload: {
-          snapshotType: 'conversation_summary',
-          snapshotVersion: 1,
-          data: { content: '요약된 대화 상태' },
-        },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-6',
-        sequence: '6',
-        eventType: 'hitl_request',
-        payload: {
-          requestId: 'request-1',
-          status: 'pending',
-          prompt: '변경을 승인할까요?',
-        },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-7',
-        sequence: '7',
-        eventType: 'hitl_decision',
-        payload: { requestId: 'request-1', decision: 'approved' },
-      },
-      {
-        ...userMessageEvent,
-        eventId: 'event-8',
-        sequence: '8',
-        eventType: 'run_terminal',
-        payload: { status: 'completed', errorCode: null },
-      },
-    ];
-
-    for (const event of eventVariants) {
-      expect(schema.parse(event)).toEqual(event);
-    }
-  });
-
-  it('requires the canonical AG-UI run identity on terminal events', () => {
-    const schema = exportedSchema('AgentConversationEventEnvelopeSchema');
-
-    expect(() =>
-      schema.parse({
-        ...userMessageEvent,
-        aguiRunId: undefined,
-        eventType: 'run_terminal',
-        payload: { status: 'completed', errorCode: null },
-      }),
-    ).toThrow();
-
-    expect(
-      schema.parse({ ...userMessageEvent, aguiRunId: null }),
-    ).toEqual({ ...userMessageEvent, aguiRunId: null });
-  });
-
-  it('accepts only canonical positive decimal event sequences', () => {
-    const schema = exportedSchema('AgentConversationEventEnvelopeSchema');
-
-    for (const sequence of [1, 0, '0', '-1', '01', '+1', '1.0']) {
-      expect(() => schema.parse({ ...userMessageEvent, sequence })).toThrow();
-    }
-  });
-
-  it('rejects unknown event types, versions, mismatched payloads, and timestamps', () => {
-    const schema = exportedSchema('AgentConversationEventEnvelopeSchema');
-
-    expect(() =>
-      schema.parse({ ...userMessageEvent, eventType: 'unknown_event' }),
-    ).toThrow();
-    expect(() => schema.parse({ ...userMessageEvent, schemaVersion: 2 })).toThrow();
-    expect(() =>
-      schema.parse({
-        ...userMessageEvent,
-        payload: { code: 'wrong_payload', content: 'not a message' },
-      }),
-    ).toThrow();
-    expect(() =>
-      schema.parse({ ...userMessageEvent, createdAt: 'yesterday' }),
-    ).toThrow();
-    expect(() =>
-      schema.parse({ ...userMessageEvent, organizationId: 'attacker-org' }),
-    ).toThrow();
-  });
-
-  it('validates versioned event content independently before persistence assigns envelope fields', () => {
-    const schema = exportedSchema('AgentConversationEventContentSchema');
-
-    expect(
-      schema.parse({
-        eventType: 'assistant_message',
-        schemaVersion: 1,
-        payload: { messageId: 'message-2', content: '재고는 10개입니다.' },
-      }),
-    ).toEqual({
-      eventType: 'assistant_message',
-      schemaVersion: 1,
-      payload: { messageId: 'message-2', content: '재고는 10개입니다.' },
-    });
-    expect(() =>
-      schema.parse({
-        eventType: 'assistant_message',
-        schemaVersion: 1,
-        payload: { code: 'wrong_payload', content: 'not a message' },
-      }),
-    ).toThrow();
-    expect(() =>
-      schema.parse({
-        eventType: 'assistant_message',
-        schemaVersion: 2,
-        payload: { messageId: 'message-2', content: 'unsupported' },
-      }),
-    ).toThrow();
-  });
-
-  it('requires durable message and tool-call correlation for tool results', () => {
-    const schema = exportedSchema('AgentConversationEventContentSchema');
-    expect(schema.parse({
-      eventType: 'state_snapshot',
-      schemaVersion: 1,
-      payload: {
-        snapshotType: 'tool_result',
-        snapshotVersion: 1,
-          data: {
-            messageId: 'tool-message-1',
-            toolCallId: 'tool-call-1',
-            result: {
-              kind: 'notice',
-              title: '완료',
-              body: '도구 실행이 완료되었습니다.',
-              tone: 'info',
-              textFallback: '도구 실행이 완료되었습니다.',
-            },
-        },
-      },
-    }).payload.data).toMatchObject({
-      messageId: 'tool-message-1',
-      toolCallId: 'tool-call-1',
-    });
-    expect(() => schema.parse({
-      eventType: 'state_snapshot',
-      schemaVersion: 1,
-      payload: {
-        snapshotType: 'tool_result',
-        snapshotVersion: 1,
-        data: {
-          result: {
-            kind: 'notice',
-            title: '완료',
-            body: '도구 실행이 완료되었습니다.',
-            tone: 'info',
-            textFallback: '도구 실행이 완료되었습니다.',
-          },
-        },
-      },
-    })).toThrow();
-  });
-
-  it('models assistant message streams as one start, ordered deltas, and one end', () => {
-    const schema = exportedSchema('AgentConversationEventContentSchema');
-    for (const payload of [
-      { phase: 'start', messageId: 'assistant-1' },
-      { phase: 'delta', messageId: 'assistant-1', content: '첫 ' },
-      { phase: 'delta', messageId: 'assistant-1', content: '응답' },
-      { phase: 'end', messageId: 'assistant-1' },
-    ]) {
-      expect(schema.parse({
-        eventType: 'assistant_message', schemaVersion: 1, payload,
-      }).payload).toEqual(payload);
-    }
-    expect(() => schema.parse({
-      eventType: 'assistant_message', schemaVersion: 1,
-      payload: { phase: 'end', messageId: 'assistant-1', content: 'forged' },
-    })).toThrow();
-    expect(() => schema.parse({
-      eventType: 'assistant_message', schemaVersion: 1,
-      payload: { phase: 'delta', messageId: 'assistant-1' },
-    })).toThrow();
-  });
-
-  it('returns bounded replay with opaque cursors and lossless decimal sequences', () => {
-    const schema = exportedSchema('AgentConversationReplaySchema');
-
-    expect(schema.parse(replay)).toEqual(replay);
-    expect(
-      schema.parse({
-        sessionId: 'session-1',
-        events: [],
-        nextCursor: null,
-        lastSequence: '0',
-      }),
-    ).toBeTruthy();
-
-    for (const lastSequence of [-1, '-1', '01', 1]) {
-      expect(() => schema.parse({ ...replay, lastSequence })).toThrow();
-    }
-    expect(() => schema.parse({ ...replay, nextCursor: 'short' })).toThrow();
-  });
-
-  it('accepts only an opaque browser replay cursor and no decoded authority', () => {
-    const schema = exportedSchema('AgentConversationReplayRequestSchema');
-
-    expect(
-      schema.parse({
-        copilotThreadId: 'thread-1',
-        cursor: 'opaque-replay-cursor',
-      }),
-    ).toEqual({
-      copilotThreadId: 'thread-1',
-      cursor: 'opaque-replay-cursor',
-    });
-    expect(
-      schema.parse({ copilotThreadId: 'thread-1', cursor: null }),
-    ).toBeTruthy();
-
-    for (const decodedAuthority of [
-      { afterSequence: '1' },
-      { sequence: '1' },
-      { organizationId: 'attacker-org' },
-      { userId: 'attacker-user' },
-      { sessionId: 'claimed-session' },
-    ]) {
-      expect(() =>
-        schema.parse({
-          copilotThreadId: 'thread-1',
-          cursor: 'opaque-replay-cursor',
-          ...decodedAuthority,
-        }),
-      ).toThrow();
-    }
-  });
-
-  it('keeps connection authorization read-only and session-scoped', () => {
-    const schema = AgentInteraction.AguiConnectionAuthorizationSchema;
-
-    expect(schema.parse(connectionAuthorization)).toEqual(connectionAuthorization);
-    expect(
-      schema.parse({
-        ...connectionAuthorization,
-        replay: { ...replay, nextCursor: 'opaque-replay-cursor' },
-        liveJoinToken: null,
-        liveJoinExpiresAt: null,
-      }),
-    ).toBeTruthy();
 
     for (const invalidAuthorization of [
-      { ...connectionAuthorization, contextEpoch: 0 },
-      { ...connectionAuthorization, liveJoinToken: 'short' },
-      { ...connectionAuthorization, liveJoinExpiresAt: 'later' },
-      { ...connectionAuthorization, executionId: 'execution-1' },
-      { ...connectionAuthorization, sessionTaskId: 'task-1' },
-      { ...connectionAuthorization, modelIdentity: 'gpt-5' },
-      { ...connectionAuthorization, policySnapshotId: 'policy-1' },
-      { ...connectionAuthorization, capabilityIds: ['inventory.read'] },
-      { ...connectionAuthorization, interactionClass: 'official_task' },
+      { ...runAuthorization, session: null },
+      { ...runAuthorization, task: null },
+      { ...runAuthorization, execution: null },
+      {
+        ...runAuthorization,
+        task: formatAgentSessionTaskName(organization, otherSessionId, taskId),
+      },
+      { ...runAuthorization, execution: otherExecutionName },
+      { ...runAuthorization, modelIdentity: "" },
+      { ...runAuthorization, runtimeType: "" },
+      { ...runAuthorization, policySnapshotId: "" },
+      { ...runAuthorization, contextEpoch: 0 },
+      { ...runAuthorization, sessionTaskId: "legacy-task-row" },
+      { ...runAuthorization, executionId: "legacy-execution-row" },
+      { ...runAuthorization, organizationId: "attacker-org" },
     ]) {
       expect(() => schema.parse(invalidAuthorization)).toThrow();
     }
   });
 
-  it('carries only the canonical current execution grant needed after a gateway restart', () => {
-    const parsed = AgentInteraction.AguiConnectionAuthorizationSchema.parse({
-      ...connectionAuthorization,
-      currentExecution: {
-        agentDefinitionKey: 'operator',
-        sessionId: 'session-1',
-        executionId: '11111111-1111-4111-8111-111111111111',
-        copilotThreadId: 'thread-1',
-        aguiRunId: 'run-1',
-        status: 'running',
-        attempt: 1,
+  it("correlates external runs with canonical resource names only", () => {
+    const correlation = {
+      copilotThreadId: "copilot-thread-1",
+      aguiRunId: "agui-run-1",
+      session: sessionName,
+      task: taskName,
+      execution: executionName,
+      attempt: attemptName,
+      operation: operationName,
+    } as const;
+
+    expect(AgentInteraction.AgentCorrelationSchema.parse(correlation)).toEqual(
+      correlation,
+    );
+    expect(
+      AgentInteraction.AgentCorrelationSchema.parse({
+        ...correlation,
+        attempt: null,
+        operation: null,
+      }),
+    ).toEqual({ ...correlation, attempt: null, operation: null });
+
+    for (const invalidCorrelation of [
+      {
+        ...correlation,
+        task: formatAgentSessionTaskName(organization, otherSessionId, taskId),
+      },
+      { ...correlation, execution: otherExecutionName },
+      {
+        ...correlation,
+        attempt: formatAgentExecutionAttemptName(
+          organization,
+          otherSessionId,
+          otherExecutionId,
+          attemptId,
+        ),
+      },
+      {
+        ...correlation,
+        operation: formatOperationRunName(
+          OrganizationIdSchema.parse("other-organization-row"),
+          operationId,
+        ),
+      },
+      { ...correlation, sessionId: "legacy-session-row" },
+      { ...correlation, executionId: "legacy-execution-row" },
+      { ...correlation, attemptId: "legacy-attempt-row" },
+      { ...correlation, operationsRunId: "legacy-operation-row" },
+    ]) {
+      expect(() =>
+        AgentInteraction.AgentCorrelationSchema.parse(invalidCorrelation),
+      ).toThrow();
+    }
+  });
+
+  it("validates every version-1 event discriminant with canonical envelope names", () => {
+    const summaryHash = "a".repeat(64);
+    const eventVariants = [
+      userMessageEvent,
+      event("2", {
+        eventType: "assistant_message" as const,
+        schemaVersion: 1 as const,
+        payload: {
+          phase: "complete" as const,
+          messageId: "message-2",
+          content: "재고는 10개입니다.",
+        },
+      }),
+      event("3", {
+        execution: null,
+        eventType: "system_notice" as const,
+        schemaVersion: 1 as const,
+        payload: { code: "session_resumed", content: "세션이 재개되었습니다." },
+      }),
+      event("4", {
+        eventType: "tool_activity" as const,
+        schemaVersion: 1 as const,
+        payload: {
+          toolCallId: "tool-call-1",
+          toolName: "inventory.lookup",
+          status: "started" as const,
+        },
+      }),
+      event("5", {
+        eventType: "state_snapshot" as const,
+        schemaVersion: 1 as const,
+        payload: {
+          snapshotType: "conversation_summary" as const,
+          snapshotVersion: 1,
+          data: {
+            content: "요약된 대화 상태",
+            sourceFromSequence: sequence("1"),
+            sourceThroughSequence: sequence("4"),
+            sourceHash: summaryHash,
+            summarizerModelIdentity: "gpt-5",
+            summaryPromptHash: summaryHash,
+          },
+        },
+      }),
+      event("6", {
+        eventType: "hitl_request" as const,
+        schemaVersion: 1 as const,
+        payload: {
+          requestId: "11111111-1111-4111-8111-111111111111",
+          status: "pending" as const,
+          prompt: "변경을 승인할까요?",
+        },
+      }),
+      event("7", {
+        eventType: "hitl_decision" as const,
+        schemaVersion: 1 as const,
+        payload: {
+          requestId: "11111111-1111-4111-8111-111111111111",
+          decision: "approved" as const,
+        },
+      }),
+      event("8", {
+        eventType: "run_terminal" as const,
+        schemaVersion: 1 as const,
+        payload: { status: "completed" as const, errorCode: null },
+      }),
+    ];
+
+    for (const variant of eventVariants) {
+      expect(
+        AgentInteraction.AgentConversationEventEnvelopeSchema.parse(variant),
+      ).toEqual(variant);
+    }
+  });
+
+  it("rejects event resource/parent mismatches, invalid schema versions, and raw event fields", () => {
+    const schema = AgentInteraction.AgentConversationEventEnvelopeSchema;
+
+    for (const invalidEvent of [
+      {
+        ...userMessageEvent,
+        name: formatAgentConversationEventName(
+          organization,
+          sessionId,
+          sequence("2"),
+        ),
+      },
+      { ...userMessageEvent, session: otherSessionName },
+      { ...userMessageEvent, execution: otherExecutionName },
+      { ...userMessageEvent, sequence: "0" },
+      { ...userMessageEvent, eventType: "unknown_event" },
+      { ...userMessageEvent, schemaVersion: 2 },
+      {
+        ...userMessageEvent,
+        payload: { code: "wrong_payload", content: "not a message" },
+      },
+      { ...userMessageEvent, createdAt: "yesterday" },
+      { ...userMessageEvent, aguiRunId: "agui-run-1" },
+      { ...userMessageEvent, eventId: "legacy-event-row" },
+      { ...userMessageEvent, sessionId: "legacy-session-row" },
+      { ...userMessageEvent, executionId: "legacy-execution-row" },
+    ]) {
+      expect(() => schema.parse(invalidEvent)).toThrow();
+    }
+  });
+
+  it("validates bounded versioned event content before envelope assignment", () => {
+    const schema = AgentInteraction.AgentConversationEventContentSchema;
+    const content = {
+      eventType: "assistant_message" as const,
+      schemaVersion: 1 as const,
+      payload: {
+        phase: "delta" as const,
+        messageId: "message-2",
+        content: "재고는 ",
+      },
+    };
+
+    expect(schema.parse(content)).toEqual(content);
+    expect(() =>
+      schema.parse({
+        ...content,
+        payload: { phase: "delta", messageId: "message-2" },
+      }),
+    ).toThrow();
+    expect(() => schema.parse({ ...content, schemaVersion: 2 })).toThrow();
+    expect(() =>
+      schema.parse({
+        ...content,
+        payload: { code: "wrong_payload", content: "not a message" },
+      }),
+    ).toThrow();
+  });
+
+  it("keeps explicit message phases and durable tool-result correlation", () => {
+    const contentSchema = AgentInteraction.AgentConversationEventContentSchema;
+
+    for (const payload of [
+      { phase: "start", messageId: "assistant-1" },
+      { phase: "delta", messageId: "assistant-1", content: "첫 " },
+      { phase: "end", messageId: "assistant-1" },
+    ]) {
+      expect(
+        contentSchema.parse({
+          eventType: "assistant_message",
+          schemaVersion: 1,
+          payload,
+        }).payload,
+      ).toEqual(payload);
+    }
+
+    const toolResult = contentSchema.parse({
+      eventType: "state_snapshot",
+      schemaVersion: 1,
+      payload: {
+        snapshotType: "tool_result",
+        snapshotVersion: 1,
+        data: {
+          messageId: "tool-message-1",
+          toolCallId: "tool-call-1",
+          result: {
+            kind: "notice",
+            title: "완료",
+            body: "도구 실행이 완료되었습니다.",
+            tone: "info",
+            textFallback: "도구 실행이 완료되었습니다.",
+          },
+        },
       },
     });
 
-    expect(parsed.currentExecution).toEqual(expect.objectContaining({
-      executionId: '11111111-1111-4111-8111-111111111111',
-      status: 'running',
-      attempt: 1,
-    }));
-    expect(() => AgentInteraction.AguiConnectionAuthorizationSchema.parse({
-      ...connectionAuthorization,
-      currentExecution: {
-        ...parsed.currentExecution,
-        runtimeType: 'private-runtime',
+    expect(toolResult).toMatchObject({
+      eventType: "state_snapshot",
+      payload: {
+        snapshotType: "tool_result",
+        data: {
+          messageId: "tool-message-1",
+          toolCallId: "tool-call-1",
+        },
       },
-    })).toThrow();
+    });
+    expect(() =>
+      contentSchema.parse({
+        eventType: "state_snapshot",
+        schemaVersion: 1,
+        payload: {
+          snapshotType: "tool_result",
+          snapshotVersion: 1,
+          data: {
+            result: {
+              kind: "notice",
+              title: "완료",
+              body: "도구 실행이 완료되었습니다.",
+              tone: "info",
+              textFallback: "도구 실행이 완료되었습니다.",
+            },
+          },
+        },
+      }),
+    ).toThrow();
   });
 
-  it('removes all retired dual-lifecycle production identifiers', () => {
-    const productionSource = readFileSync(new URL('./index.ts', import.meta.url), 'utf8');
+  it("returns replay by canonical session with opaque cursors and decimal sequences", () => {
+    const schema = AgentInteraction.AgentConversationReplaySchema;
+
+    expect(schema.parse(replay)).toEqual(replay);
+    expect(
+      schema.parse({
+        session: sessionName,
+        events: [],
+        nextCursor: null,
+        lastSequence: "0",
+      }),
+    ).toEqual({
+      session: sessionName,
+      events: [],
+      nextCursor: null,
+      lastSequence: "0",
+    });
+
+    for (const invalidReplay of [
+      { ...replay, session: formatOrganizationName(organization) },
+      { ...replay, nextCursor: "short" },
+      { ...replay, lastSequence: "01" },
+      { ...replay, lastSequence: -1 },
+      { ...replay, sessionId: "legacy-session-row" },
+    ]) {
+      expect(() => schema.parse(invalidReplay)).toThrow();
+    }
+  });
+
+  it("accepts only an opaque replay cursor and rejects decoded sequence input", () => {
+    const schema = AgentInteraction.AgentConversationReplayRequestSchema;
+    const request = { session: sessionName, cursor: "opaque-replay-cursor" };
+
+    expect(schema.parse(request)).toEqual(request);
+    expect(schema.parse({ session: sessionName, cursor: null })).toEqual({
+      session: sessionName,
+      cursor: null,
+    });
+
+    for (const decodedAuthority of [
+      { afterSequence: "1" },
+      { sequence: "1" },
+      { organizationId: "attacker-org" },
+      { userId: "attacker-user" },
+      { sessionId: "legacy-session-row" },
+      { copilotThreadId: "copilot-thread-1" },
+    ]) {
+      expect(() => schema.parse({ ...request, ...decodedAuthority })).toThrow();
+    }
+  });
+
+  it("keeps connection authorization read-only and limited to session replay metadata", () => {
+    const schema = AgentInteraction.AguiConnectionAuthorizationSchema;
+
+    expect(schema.parse(connectionAuthorization)).toEqual(
+      connectionAuthorization,
+    );
+    expect(
+      schema.parse({
+        ...connectionAuthorization,
+        replay: { nextCursor: "opaque-replay-cursor", lastSequence: "3" },
+      }),
+    ).toEqual({
+      ...connectionAuthorization,
+      replay: { nextCursor: "opaque-replay-cursor", lastSequence: "3" },
+    });
+
+    for (const invalidAuthorization of [
+      { ...connectionAuthorization, contextEpoch: 0 },
+      { ...connectionAuthorization, execution: executionName },
+      { ...connectionAuthorization, executionId: "legacy-execution-row" },
+      { ...connectionAuthorization, currentExecution: { status: "running" } },
+      { ...connectionAuthorization, modelIdentity: "gpt-5" },
+      { ...connectionAuthorization, policySnapshotId: "policy-snapshot-1" },
+      {
+        ...connectionAuthorization,
+        replay: { ...connectionAuthorization.replay, afterSequence: "1" },
+      },
+      {
+        ...connectionAuthorization,
+        replay: {
+          ...connectionAuthorization.replay,
+          events: [userMessageEvent],
+        },
+      },
+    ]) {
+      expect(() => schema.parse(invalidAuthorization)).toThrow();
+    }
+  });
+
+  it("deletes retired dual-lifecycle exports and raw public fields from production source", () => {
+    const productionSource = readFileSync(
+      new URL("./index.ts", import.meta.url),
+      "utf8",
+    );
     const retiredIdentifiers = [
       /\bInteractionClass(?:Schema)?\b/,
       /\bInteractionThreadTarget(?:Schema)?\b/,
@@ -618,10 +625,26 @@ describe('agent interaction contracts', () => {
       /\bpreparationToken\b/,
       /\bsupportsQuickAsk\b/,
       /\bthreadTargets\b/,
+      /\bagentVersionId\b/,
+      /\bsessionId\b/,
+      /\bsessionTaskId\b/,
+      /\bexecutionId\b/,
+      /\battemptId\b/,
+      /\boperationsRunId\b/,
+      /\beventId\b/,
     ];
 
     for (const retiredIdentifier of retiredIdentifiers) {
       expect(productionSource).not.toMatch(retiredIdentifier);
+    }
+
+    for (const retiredExport of [
+      "InteractionClassSchema",
+      "InteractionThreadTargetSchema",
+      "ThreadBindingSchema",
+      "AguiThreadArchiveCommandSchema",
+    ]) {
+      expect(AgentInteraction).not.toHaveProperty(retiredExport);
     }
   });
 });

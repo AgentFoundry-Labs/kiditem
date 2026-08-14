@@ -1,6 +1,33 @@
-import { z } from 'zod';
-import { CanonicalResourceRefSchema } from './resource-ref';
-import { InteractionUiResultSchema } from './ui';
+import { z } from "zod";
+import {
+  AgentConversationEventNameSchema,
+  AgentDefinitionKeySchema,
+  AgentExecutionAttemptNameSchema,
+  AgentExecutionNameSchema,
+  AgentSessionNameSchema,
+  AgentSessionTaskNameSchema,
+  AgentVersionNameSchema,
+  AguiRunIdSchema,
+  CopilotThreadIdSchema,
+  formatOrganizationName,
+  NonNegativeDecimalSequenceSchema,
+  OpaqueReplayCursorSchema,
+  OpaqueShortLivedTokenSchema,
+  OperationRunNameSchema,
+  parseAgentConversationEventName,
+  parseAgentExecutionAttemptName,
+  parseAgentExecutionName,
+  parseAgentSessionName,
+  parseAgentSessionTaskName,
+  parseAgentVersionName,
+  parseOperationRunName,
+  PositiveDecimalSequenceSchema,
+  RequestIdSchema,
+  Sha256DigestSchema,
+  ToolCallIdSchema,
+} from "../identifiers";
+import { CanonicalResourceRefSchema } from "./resource-ref";
+import { InteractionUiResultSchema } from "./ui";
 
 export {
   AgentApprovalCardSchema,
@@ -12,7 +39,7 @@ export {
   CancelAgentTaskSchema,
   ResumeAgentTaskSchema,
   RetryAgentTaskSchema,
-} from './durable-runtime';
+} from "./durable-runtime";
 export type {
   AgentApprovalCard,
   AgentApprovalDecision,
@@ -23,52 +50,96 @@ export type {
   CancelAgentTask,
   ResumeAgentTask,
   RetryAgentTask,
-} from './durable-runtime';
+} from "./durable-runtime";
 
-export { CanonicalResourceRefSchema } from './resource-ref';
-export type { CanonicalResourceRef } from './resource-ref';
+export { CanonicalResourceRefSchema } from "./resource-ref";
+export type { CanonicalResourceRef } from "./resource-ref";
 
-const positiveDecimalStringSchema = z.string().regex(/^[1-9][0-9]*$/);
-const nonNegativeDecimalStringSchema = z.string().regex(/^(?:0|[1-9][0-9]*)$/);
-const opaqueCursorSchema = z.string().min(16).max(4096);
 const boundedIdentifierSchema = z.string().min(1).max(128);
 const stableCodeSchema = boundedIdentifierSchema.regex(
   /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/,
 );
 const boundedContentSchema = z.string().min(1).max(100_000);
 
-export const InteractionPrincipalSchema = z
-  .object({
-    principalKey: z.string().min(8),
-    userId: z.string().min(1),
-    organizationId: z.string().min(1),
-  })
-  .strict();
+const addCanonicalNameIssue = (
+  context: z.RefinementCtx,
+  path: string[],
+  message: string,
+) => {
+  context.addIssue({
+    code: z.ZodIssueCode.custom,
+    message,
+    path,
+  });
+};
+
+const hasMatchingNameParent = (parse: () => unknown) => {
+  try {
+    parse();
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 export const AllowedAgentSchema = z
   .object({
-    agentDefinitionKey: z.string().min(1),
-    agentVersionId: z.string().min(1),
+    agentDefinitionKey: AgentDefinitionKeySchema,
+    agentVersion: AgentVersionNameSchema,
     displayName: z.string().min(1),
     description: z.string().min(1),
     isDefault: z.boolean(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !hasMatchingNameParent(() => {
+        const version = parseAgentVersionName(value.agentVersion);
+        if (version.agentDefinitionKey !== value.agentDefinitionKey) {
+          throw new Error("Agent version does not match agent definition");
+        }
+      })
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["agentVersion"],
+        "agent version must belong to the allowed agent definition",
+      );
+    }
+  });
 
 export const AgentSessionSummarySchema = z
   .object({
-    sessionId: z.string().min(1),
-    copilotThreadId: z.string().min(1),
-    primaryAgentDefinitionKey: z.string().min(1),
-    primaryAgentVersionId: z.string().min(1),
-    lifecycle: z.enum(['active', 'completed', 'cancelled', 'archived']),
+    name: AgentSessionNameSchema,
+    copilotThreadId: CopilotThreadIdSchema,
+    primaryAgentDefinitionKey: AgentDefinitionKeySchema,
+    primaryAgentVersion: AgentVersionNameSchema,
+    lifecycle: z.enum(["active", "completed", "cancelled", "archived"]),
     updatedAt: z.string().datetime(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !hasMatchingNameParent(() => {
+        const version = parseAgentVersionName(value.primaryAgentVersion);
+        if (version.agentDefinitionKey !== value.primaryAgentDefinitionKey) {
+          throw new Error(
+            "Primary agent version does not match agent definition",
+          );
+        }
+      })
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["primaryAgentVersion"],
+        "primary agent version must belong to the primary agent definition",
+      );
+    }
+  });
 
 const requireOneMatchingDefault = (
   value: {
-    defaultAgentDefinitionKey: string;
+    defaultAgentDefinitionKey: z.infer<typeof AgentDefinitionKeySchema>;
     agents: Array<z.infer<typeof AllowedAgentSchema>>;
   },
   context: z.RefinementCtx,
@@ -79,30 +150,27 @@ const requireOneMatchingDefault = (
     defaults[0].agentDefinitionKey !== value.defaultAgentDefinitionKey
   ) {
     context.addIssue({
-      code: 'custom',
-      message: 'bootstrap requires exactly one matching default agent',
-      path: ['agents'],
+      code: z.ZodIssueCode.custom,
+      message: "bootstrap requires exactly one matching default agent",
+      path: ["agents"],
     });
   }
 
   const identities = value.agents.map((candidate) =>
-    JSON.stringify([
-      candidate.agentDefinitionKey,
-      candidate.agentVersionId,
-    ]),
+    JSON.stringify([candidate.agentDefinitionKey, candidate.agentVersion]),
   );
   if (new Set(identities).size !== identities.length) {
     context.addIssue({
-      code: 'custom',
-      message: 'bootstrap requires unique allowed-agent identities',
-      path: ['agents'],
+      code: z.ZodIssueCode.custom,
+      message: "bootstrap requires unique allowed-agent identities",
+      path: ["agents"],
     });
   }
 };
 
 export const InteractionBootstrapSchema = z
   .object({
-    defaultAgentDefinitionKey: z.string().min(1),
+    defaultAgentDefinitionKey: AgentDefinitionKeySchema,
     agents: z.array(AllowedAgentSchema).min(1),
     sessions: z.array(AgentSessionSummarySchema),
   })
@@ -131,84 +199,159 @@ export const DashboardContextSchema = z.object({
 
 export const AguiRunIntentSchema = z
   .object({
-    runIntent: z.string().min(32),
+    runIntent: OpaqueShortLivedTokenSchema,
     expiresAt: z.string().datetime(),
-    copilotThreadId: z.string().min(1),
-    aguiRunId: z.string().min(1),
+    copilotThreadId: CopilotThreadIdSchema,
+    aguiRunId: AguiRunIdSchema,
   })
   .strict();
 
 export const AguiRunAuthorizationSchema = z
   .object({
-    session: AgentSessionSummarySchema,
-    sessionTaskId: z.string().min(1),
-    executionId: z.string().min(1),
+    session: AgentSessionNameSchema,
+    task: AgentSessionTaskNameSchema,
+    execution: AgentExecutionNameSchema,
     modelIdentity: z.string().min(1),
     runtimeType: z.string().min(1),
     policySnapshotId: z.string().min(1),
     contextEpoch: z.number().int().positive(),
     dashboardContext: DashboardContextSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !hasMatchingNameParent(() =>
+        parseAgentSessionTaskName(value.task, value.session),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["task"],
+        "task must belong to the authorized session",
+      );
+    }
+    if (
+      !hasMatchingNameParent(() =>
+        parseAgentExecutionName(value.execution, value.session),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["execution"],
+        "execution must belong to the authorized session",
+      );
+    }
+  });
 
 export const AgentCorrelationSchema = z
   .object({
-    copilotThreadId: z.string().min(1),
-    aguiRunId: z.string().min(1),
-    executionId: z.string().min(1),
-    sessionId: z.string().min(1),
-    sessionTaskId: z.string().min(1),
-    attemptId: z.string().min(1).nullable().default(null),
-    operationsRunId: z.string().min(1).nullable(),
+    copilotThreadId: CopilotThreadIdSchema,
+    aguiRunId: AguiRunIdSchema,
+    session: AgentSessionNameSchema,
+    task: AgentSessionTaskNameSchema,
+    execution: AgentExecutionNameSchema,
+    attempt: AgentExecutionAttemptNameSchema.nullable(),
+    operation: OperationRunNameSchema.nullable(),
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    if (
+      !hasMatchingNameParent(() =>
+        parseAgentSessionTaskName(value.task, value.session),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["task"],
+        "task must belong to the session",
+      );
+    }
+    if (
+      !hasMatchingNameParent(() =>
+        parseAgentExecutionName(value.execution, value.session),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["execution"],
+        "execution must belong to the session",
+      );
+    }
+    if (
+      value.attempt !== null &&
+      !hasMatchingNameParent(() =>
+        parseAgentExecutionAttemptName(value.attempt, value.execution),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["attempt"],
+        "attempt must belong to the execution",
+      );
+    }
+    if (
+      value.operation !== null &&
+      !hasMatchingNameParent(() => {
+        const session = parseAgentSessionName(value.session);
+        parseOperationRunName(
+          value.operation,
+          formatOrganizationName(session.organization),
+        );
+      })
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["operation"],
+        "operation must belong to the session organization",
+      );
+    }
+  });
 
 export const AgentConversationEventTypeSchema = z.enum([
-  'user_message',
-  'assistant_message',
-  'system_notice',
-  'tool_activity',
-  'state_snapshot',
-  'hitl_request',
-  'hitl_decision',
-  'run_terminal',
+  "user_message",
+  "assistant_message",
+  "system_notice",
+  "tool_activity",
+  "state_snapshot",
+  "hitl_request",
+  "hitl_decision",
+  "run_terminal",
 ]);
 
-const completeMessageEventPayloadSchema = z.object({
-  phase: z.literal('complete'),
-  messageId: boundedIdentifierSchema,
-  content: boundedContentSchema,
-}).strict();
-const startMessageEventPayloadSchema = z.object({
-  phase: z.literal('start'),
-  messageId: boundedIdentifierSchema,
-}).strict();
-const deltaMessageEventPayloadSchema = z.object({
-  phase: z.literal('delta'),
-  messageId: boundedIdentifierSchema,
-  content: boundedContentSchema,
-}).strict();
-const endMessageEventPayloadSchema = z.object({
-  phase: z.literal('end'),
-  messageId: boundedIdentifierSchema,
-}).strict();
-const legacyCompleteMessageEventPayloadSchema = z.object({
-  messageId: boundedIdentifierSchema,
-  content: boundedContentSchema,
-}).strict();
+const completeMessageEventPayloadSchema = z
+  .object({
+    phase: z.literal("complete"),
+    messageId: boundedIdentifierSchema,
+    content: boundedContentSchema,
+  })
+  .strict();
+const startMessageEventPayloadSchema = z
+  .object({
+    phase: z.literal("start"),
+    messageId: boundedIdentifierSchema,
+  })
+  .strict();
+const deltaMessageEventPayloadSchema = z
+  .object({
+    phase: z.literal("delta"),
+    messageId: boundedIdentifierSchema,
+    content: boundedContentSchema,
+  })
+  .strict();
+const endMessageEventPayloadSchema = z
+  .object({
+    phase: z.literal("end"),
+    messageId: boundedIdentifierSchema,
+  })
+  .strict();
 
 export const MessageEventPayloadSchema = z.union([
   completeMessageEventPayloadSchema,
   startMessageEventPayloadSchema,
   deltaMessageEventPayloadSchema,
   endMessageEventPayloadSchema,
-  // Existing durable rows predate explicit phases and represent a complete message.
-  legacyCompleteMessageEventPayloadSchema,
 ]);
-export const UserMessageEventPayloadSchema = z.union([
-  completeMessageEventPayloadSchema,
-  legacyCompleteMessageEventPayloadSchema,
-]);
+export const UserMessageEventPayloadSchema = completeMessageEventPayloadSchema;
 
 export const SystemNoticeEventPayloadSchema = z
   .object({
@@ -219,22 +362,20 @@ export const SystemNoticeEventPayloadSchema = z
 
 export const ToolActivityEventPayloadSchema = z
   .object({
-    toolCallId: boundedIdentifierSchema,
-    toolName: boundedIdentifierSchema.regex(
-      /^[A-Za-z0-9][A-Za-z0-9._:-]*$/,
-    ),
-    status: z.enum(['started', 'completed', 'failed', 'cancelled']),
+    toolCallId: ToolCallIdSchema,
+    toolName: boundedIdentifierSchema.regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/),
+    status: z.enum(["started", "completed", "failed", "cancelled"]),
   })
   .strict();
 
 const toolResultStateSnapshotEventPayloadSchema = z
   .object({
-    snapshotType: z.literal('tool_result'),
+    snapshotType: z.literal("tool_result"),
     snapshotVersion: z.literal(1),
     data: z
       .object({
         messageId: boundedIdentifierSchema,
-        toolCallId: boundedIdentifierSchema,
+        toolCallId: ToolCallIdSchema,
         result: InteractionUiResultSchema,
       })
       .strict(),
@@ -243,16 +384,16 @@ const toolResultStateSnapshotEventPayloadSchema = z
 
 const conversationSummaryStateSnapshotEventPayloadSchema = z
   .object({
-    snapshotType: z.literal('conversation_summary'),
+    snapshotType: z.literal("conversation_summary"),
     snapshotVersion: z.number().int().positive(),
     data: z
       .object({
         content: boundedContentSchema,
-        sourceFromSequence: positiveDecimalStringSchema,
-        sourceThroughSequence: positiveDecimalStringSchema,
-        sourceHash: z.string().regex(/^[a-f0-9]{64}$/),
+        sourceFromSequence: PositiveDecimalSequenceSchema,
+        sourceThroughSequence: PositiveDecimalSequenceSchema,
+        sourceHash: Sha256DigestSchema,
         summarizerModelIdentity: z.string().min(1).max(256),
-        summaryPromptHash: z.string().regex(/^[a-f0-9]{64}$/),
+        summaryPromptHash: Sha256DigestSchema,
       })
       .strict(),
   })
@@ -261,7 +402,7 @@ const conversationSummaryStateSnapshotEventPayloadSchema = z
 const genericStateSnapshotEventPayloadSchema = z
   .object({
     snapshotType: stableCodeSchema.refine(
-      (value) => value !== 'tool_result' && value !== 'conversation_summary',
+      (value) => value !== "tool_result" && value !== "conversation_summary",
     ),
     snapshotVersion: z.number().int().positive(),
     data: z
@@ -280,44 +421,33 @@ export const StateSnapshotEventPayloadSchema = z.union([
 
 export const HitlRequestEventPayloadSchema = z
   .object({
-    requestId: boundedIdentifierSchema,
-    status: z.literal('pending'),
+    requestId: RequestIdSchema,
+    status: z.literal("pending"),
     prompt: z.string().min(1).max(20_000),
   })
   .strict();
 
 export const HitlDecisionEventPayloadSchema = z
   .object({
-    requestId: boundedIdentifierSchema,
-    decision: z.enum(['approved', 'rejected', 'cancelled']),
+    requestId: RequestIdSchema,
+    decision: z.enum(["approved", "rejected", "cancelled"]),
   })
   .strict();
 
 export const RunTerminalEventPayloadSchema = z
   .object({
-    status: z.enum(['completed', 'failed', 'cancelled']),
+    status: z.enum(["completed", "failed", "cancelled"]),
     errorCode: stableCodeSchema.nullable(),
   })
   .strict();
 
-const conversationEventEnvelopeShape = {
-  eventId: z.string().min(1),
-  sessionId: z.string().min(1),
-  executionId: z.string().min(1).nullable(),
-  aguiRunId: z.string().min(1).max(256).nullable(),
-  sequence: positiveDecimalStringSchema,
-  createdAt: z.string().datetime(),
-};
-
-const terminalConversationEventEnvelopeShape = {
-  ...conversationEventEnvelopeShape,
-  aguiRunId: z.string().min(1).max(256),
-};
-
 const eventContentSchema = <
   const EventType extends z.infer<typeof AgentConversationEventTypeSchema>,
   Payload extends z.ZodTypeAny,
->(eventType: EventType, payload: Payload) =>
+>(
+  eventType: EventType,
+  payload: Payload,
+) =>
   z
     .object({
       eventType: z.literal(eventType),
@@ -327,40 +457,40 @@ const eventContentSchema = <
     .strict();
 
 const userMessageEventContentSchema = eventContentSchema(
-  'user_message',
+  "user_message",
   UserMessageEventPayloadSchema,
 );
 const assistantMessageEventContentSchema = eventContentSchema(
-  'assistant_message',
+  "assistant_message",
   MessageEventPayloadSchema,
 );
 const systemNoticeEventContentSchema = eventContentSchema(
-  'system_notice',
+  "system_notice",
   SystemNoticeEventPayloadSchema,
 );
 const toolActivityEventContentSchema = eventContentSchema(
-  'tool_activity',
+  "tool_activity",
   ToolActivityEventPayloadSchema,
 );
 const stateSnapshotEventContentSchema = eventContentSchema(
-  'state_snapshot',
+  "state_snapshot",
   StateSnapshotEventPayloadSchema,
 );
 const hitlRequestEventContentSchema = eventContentSchema(
-  'hitl_request',
+  "hitl_request",
   HitlRequestEventPayloadSchema,
 );
 const hitlDecisionEventContentSchema = eventContentSchema(
-  'hitl_decision',
+  "hitl_decision",
   HitlDecisionEventPayloadSchema,
 );
 const runTerminalEventContentSchema = eventContentSchema(
-  'run_terminal',
+  "run_terminal",
   RunTerminalEventPayloadSchema,
 );
 
 export const AgentConversationEventContentSchema = z.discriminatedUnion(
-  'eventType',
+  "eventType",
   [
     userMessageEventContentSchema,
     assistantMessageEventContentSchema,
@@ -373,9 +503,16 @@ export const AgentConversationEventContentSchema = z.discriminatedUnion(
   ],
 );
 
-export const AgentConversationEventEnvelopeSchema = z.discriminatedUnion(
-  'eventType',
-  [
+const conversationEventEnvelopeShape = {
+  name: AgentConversationEventNameSchema,
+  session: AgentSessionNameSchema,
+  execution: AgentExecutionNameSchema.nullable(),
+  sequence: PositiveDecimalSequenceSchema,
+  createdAt: z.string().datetime(),
+};
+
+export const AgentConversationEventEnvelopeSchema = z
+  .discriminatedUnion("eventType", [
     userMessageEventContentSchema.extend(conversationEventEnvelopeShape),
     assistantMessageEventContentSchema.extend(conversationEventEnvelopeShape),
     systemNoticeEventContentSchema.extend(conversationEventEnvelopeShape),
@@ -383,25 +520,66 @@ export const AgentConversationEventEnvelopeSchema = z.discriminatedUnion(
     stateSnapshotEventContentSchema.extend(conversationEventEnvelopeShape),
     hitlRequestEventContentSchema.extend(conversationEventEnvelopeShape),
     hitlDecisionEventContentSchema.extend(conversationEventEnvelopeShape),
-    runTerminalEventContentSchema.extend(
-      terminalConversationEventEnvelopeShape,
-    ),
-  ],
-);
+    runTerminalEventContentSchema.extend(conversationEventEnvelopeShape),
+  ])
+  .superRefine((value, context) => {
+    if (
+      !hasMatchingNameParent(() => {
+        const event = parseAgentConversationEventName(
+          value.name,
+          value.session,
+        );
+        if (event.sequence !== value.sequence) {
+          throw new Error(
+            "Event name sequence does not match envelope sequence",
+          );
+        }
+      })
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["name"],
+        "event name must belong to the session and match the envelope sequence",
+      );
+    }
+    if (
+      value.execution !== null &&
+      !hasMatchingNameParent(() =>
+        parseAgentExecutionName(value.execution, value.session),
+      )
+    ) {
+      addCanonicalNameIssue(
+        context,
+        ["execution"],
+        "execution must belong to the event session",
+      );
+    }
+  });
 
 export const AgentConversationReplaySchema = z
   .object({
-    sessionId: z.string().min(1),
+    session: AgentSessionNameSchema,
     events: z.array(AgentConversationEventEnvelopeSchema).max(500),
-    nextCursor: opaqueCursorSchema.nullable(),
-    lastSequence: nonNegativeDecimalStringSchema,
+    nextCursor: OpaqueReplayCursorSchema.nullable(),
+    lastSequence: NonNegativeDecimalSequenceSchema,
   })
-  .strict();
+  .strict()
+  .superRefine((value, context) => {
+    value.events.forEach((event, index) => {
+      if (event.session !== value.session) {
+        addCanonicalNameIssue(
+          context,
+          ["events", String(index), "session"],
+          "replay event must belong to the replay session",
+        );
+      }
+    });
+  });
 
 export const AgentConversationReplayRequestSchema = z
   .object({
-    copilotThreadId: z.string().min(1),
-    cursor: opaqueCursorSchema.nullable().optional(),
+    session: AgentSessionNameSchema,
+    cursor: OpaqueReplayCursorSchema.nullable().optional(),
   })
   .strict();
 
@@ -414,7 +592,7 @@ export {
   NoticeResultSchema,
   ResourceListResultSchema,
   SuggestedRepliesResultSchema,
-} from './ui';
+} from "./ui";
 export type {
   ComparisonResult,
   InteractionRouteKey,
@@ -424,54 +602,23 @@ export type {
   NoticeResult,
   ResourceListResult,
   SuggestedRepliesResult,
-} from './ui';
+} from "./ui";
+
+const replayMetadataSchema = z
+  .object({
+    nextCursor: OpaqueReplayCursorSchema.nullable(),
+    lastSequence: NonNegativeDecimalSequenceSchema,
+  })
+  .strict();
 
 export const AguiConnectionAuthorizationSchema = z
   .object({
-    session: AgentSessionSummarySchema,
+    session: AgentSessionNameSchema,
     contextEpoch: z.number().int().positive(),
-    replay: AgentConversationReplaySchema,
-    liveJoinToken: z.string().min(32).max(4096).nullable(),
-    liveJoinExpiresAt: z.string().datetime().nullable(),
-    currentExecution: z
-      .object({
-        agentDefinitionKey: z.string().min(1).max(128),
-        sessionId: z.string().min(1).max(128),
-        executionId: z.string().min(1).max(128),
-        copilotThreadId: z.string().min(1).max(256),
-        aguiRunId: z.string().min(1).max(256),
-        status: z.literal('running'),
-        attempt: z.number().int().positive(),
-      })
-      .strict()
-      .nullable(),
+    replay: replayMetadataSchema,
   })
-  .strict()
-  .superRefine((value, context) => {
-    const historyComplete = value.replay.nextCursor === null;
-    const hasLiveJoin =
-      value.liveJoinToken !== null && value.liveJoinExpiresAt !== null;
-    if (historyComplete !== hasLiveJoin) {
-      context.addIssue({
-        code: 'custom',
-        message: 'live join is available only after replay history is complete',
-        path: ['liveJoinToken'],
-      });
-    }
-    if (value.currentExecution && (
-      value.currentExecution.sessionId !== value.session.sessionId ||
-      value.currentExecution.copilotThreadId !== value.session.copilotThreadId ||
-      value.currentExecution.agentDefinitionKey !== value.session.primaryAgentDefinitionKey
-    )) {
-      context.addIssue({
-        code: 'custom',
-        message: 'current execution must match the authorized session',
-        path: ['currentExecution'],
-      });
-    }
-  });
+  .strict();
 
-export type InteractionPrincipal = z.infer<typeof InteractionPrincipalSchema>;
 export type AllowedAgent = z.infer<typeof AllowedAgentSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type InteractionBootstrap = z.infer<typeof InteractionBootstrapSchema>;
