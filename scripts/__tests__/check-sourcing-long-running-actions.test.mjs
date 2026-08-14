@@ -259,3 +259,64 @@ test('rejects an approved-origin Coupang external source-collection bridge', () 
     ['retired_external_source_collection_bridge'],
   );
 });
+
+test('rejects the retired approved-origin Coupang competitor catalog action while retaining exact handlers', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [],
+    sourcingServerSources: [],
+    extensionSources: [{
+      path: 'extensions/kiditem-os/background/coupang/worker.js',
+      source: fixture('retired-coupang-competitor-external-bridge.js'),
+    }],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['retired_external_source_collection_bridge'],
+  );
+});
+
+test('rejects a mounted Naver provider POST instead of a persisted snapshot read', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/market/components/NaverPanel.tsx',
+      source: fixture('mounted-naver-provider-query.tsx'),
+    }],
+    sourcingServerSources: [],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['mounted_naver_provider_collection'],
+  );
+});
+
+test('rejects a market Naver provider facade even when its query lives in another module', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [{
+      path: 'apps/web/src/app/(sourcing-ai)/sourcing-ai/market/lib/live-naver-market.ts',
+      source: fixture('direct-naver-provider-market-lib.ts'),
+    }],
+    sourcingServerSources: [],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['mounted_naver_provider_collection'],
+  );
+});
+
+test('rejects the direct recommendation refresh HTTP facade', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [],
+    sourcingServerSources: [{
+      path: 'apps/server/src/sourcing/adapter/in/http/sourcing-workspace.controller.ts',
+      source: fixture('direct-recommendation-refresh.controller.ts'),
+    }],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['direct_recommendation_refresh_from_http_controller'],
+  );
+});

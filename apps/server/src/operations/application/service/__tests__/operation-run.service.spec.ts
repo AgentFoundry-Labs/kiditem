@@ -94,6 +94,9 @@ function makeRepository(): OperationRunRepositoryPort {
     findByIdempotencyKey: vi.fn().mockResolvedValue(null),
     createRun: vi.fn().mockResolvedValue(makeRecord()),
     listRuns: vi.fn().mockResolvedValue([]),
+    readLifecycleDatabaseTime: vi.fn().mockResolvedValue(
+      new Date('2026-08-01T00:30:00Z'),
+    ),
     transition: vi.fn(),
   };
 }
@@ -112,6 +115,87 @@ function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
 }
 
 describe('OperationRunService', () => {
+  it('reconnects only the newest non-terminal run with the exact normalized operation input', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    const matching = makeRecord({
+      id: '71111111-1111-4111-8111-111111111111',
+      status: 'attention_required',
+      input: { source: 'naver' },
+    });
+    const otherInput = makeRecord({
+      id: '72222222-2222-4222-8222-222222222222',
+      status: 'running',
+      input: { source: 'shorts' },
+    });
+    const terminal = makeRecord({
+      id: '73333333-3333-4333-8333-333333333333',
+      status: 'succeeded',
+      input: { source: 'naver' },
+    });
+    Object.assign(repository, {
+      listReconnectableRuns: vi.fn().mockResolvedValue([otherInput, terminal, matching]),
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    const reconnect = service as unknown as {
+      findReconnectable(input: {
+        organizationId: string;
+        operationKey: string;
+        input: Record<string, unknown>;
+      }): Promise<unknown>;
+    };
+
+    await expect(reconnect.findReconnectable({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      input: { source: 'naver' },
+    })).resolves.toMatchObject({ id: matching.id, status: 'attention_required' });
+
+    expect((repository as unknown as { listReconnectableRuns: ReturnType<typeof vi.fn> })
+      .listReconnectableRuns).toHaveBeenCalledWith({
+        organizationId: ORG_ID,
+        operationKey: definition.key,
+        now: new Date('2026-08-01T00:30:00Z'),
+        limit: 50,
+      });
+  });
+
+  it('does not reconnect a run whose operation deadline has already elapsed', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    const now = new Date('2026-08-01T00:30:00Z');
+    const expired = makeRecord({
+      id: '74444444-4444-4444-8444-444444444444',
+      status: 'running',
+      input: { source: 'naver' },
+      deadlineAt: new Date('2026-08-01T00:29:59Z'),
+    });
+    Object.assign(repository, {
+      readLifecycleDatabaseTime: vi.fn().mockResolvedValue(now),
+      listReconnectableRuns: vi.fn().mockResolvedValue([expired]),
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.findReconnectable({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      input: { source: 'naver' },
+    })).resolves.toBeNull();
+  });
+
   it('uses the atomic composite cancellation result without a separate parent transition', async () => {
     const cancel = vi.fn().mockResolvedValue(undefined);
     const registry = new OperationHandlerRegistryService();

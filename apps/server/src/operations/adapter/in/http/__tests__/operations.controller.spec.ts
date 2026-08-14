@@ -20,6 +20,7 @@ function makeRunner(): OperationRunnerPort {
   return {
     start: vi.fn(),
     list: vi.fn(),
+    findReconnectable: vi.fn(),
     get: vi.fn(),
     cancel: vi.fn(),
   };
@@ -93,5 +94,35 @@ describe('OperationsController', () => {
       requestedByUserId: USER.id,
       idempotencyKey: 'dashboard:trend:2026-08-01',
     });
+  });
+
+  it('reads a reconnectable run only for the authenticated organization and exact input', async () => {
+    const runner = makeRunner();
+    runner.findReconnectable = vi.fn().mockResolvedValue(null);
+    const controller = new OperationsController(registry, runner);
+
+    await expect(controller.findReconnectable(
+      'sourcing.collect_daily_trends',
+      JSON.stringify({}),
+      ORG_ID,
+    )).resolves.toEqual({ run: null });
+
+    expect(runner.findReconnectable).toHaveBeenCalledWith({
+      organizationId: ORG_ID,
+      operationKey: 'sourcing.collect_daily_trends',
+      input: {},
+    });
+  });
+
+  it('rejects an invalid reconnect input before it reaches the runner', () => {
+    const runner = makeRunner();
+    const controller = new OperationsController(registry, runner);
+
+    expect(() => controller.findReconnectable(
+      'sourcing.collect_daily_trends',
+      '{bad',
+      ORG_ID,
+    )).toThrow(BadRequestException);
+    expect(runner.findReconnectable).not.toHaveBeenCalled();
   });
 });

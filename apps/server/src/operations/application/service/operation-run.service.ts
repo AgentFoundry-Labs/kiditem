@@ -26,6 +26,9 @@ const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'running',
   'attention_required',
 ];
+const RECONNECTABLE_OPERATION_STATUSES = new Set<OperationStatus>(
+  CANCELLABLE_OPERATION_STATUSES,
+);
 
 @Injectable()
 export class OperationRunService implements OperationRunnerPort {
@@ -89,6 +92,30 @@ export class OperationRunService implements OperationRunnerPort {
       limit: Math.min(Math.max(query.limit ?? 50, 1), 100),
     });
     return records.map((record) => this.toWire(record));
+  }
+
+  async findReconnectable(input: {
+    organizationId: string;
+    operationKey: string;
+    input: Record<string, unknown>;
+  }): Promise<OperationRun | null> {
+    const normalizedInput = this.registry.parseInput(
+      input.operationKey,
+      input.input,
+    );
+    const now = await this.repository.readLifecycleDatabaseTime();
+    const records = await this.repository.listReconnectableRuns({
+      organizationId: input.organizationId,
+      operationKey: input.operationKey,
+      now,
+      limit: 50,
+    });
+    const matching = records.find((record) =>
+      RECONNECTABLE_OPERATION_STATUSES.has(record.status)
+      && (record.deadlineAt === null || record.deadlineAt.getTime() > now.getTime())
+      && sameOperationInput(record.input, normalizedInput),
+    );
+    return matching ? this.toWire(matching) : null;
   }
 
   async get(organizationId: string, runId: string): Promise<OperationRun> {
@@ -170,4 +197,22 @@ export class OperationRunService implements OperationRunnerPort {
       updatedAt: record.updatedAt,
     } satisfies OperationRun;
   }
+}
+
+function sameOperationInput(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return JSON.stringify(canonicalizeOperationInput(left))
+    === JSON.stringify(canonicalizeOperationInput(right));
+}
+
+function canonicalizeOperationInput(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeOperationInput);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, canonicalizeOperationInput(nested)]),
+  );
 }

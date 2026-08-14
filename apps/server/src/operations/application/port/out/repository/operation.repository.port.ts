@@ -246,6 +246,12 @@ export interface OperationRunRepositoryPort {
     status?: OperationStatus;
     limit: number;
   }): Promise<OperationRunRecord[]>;
+  listReconnectableRuns(input: {
+    organizationId: string;
+    operationKey: string;
+    now: Date;
+    limit: number;
+  }): Promise<OperationRunRecord[]>;
   listChildRuns(input: {
     organizationId: string;
     parentRunId: string;

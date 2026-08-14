@@ -48,6 +48,7 @@ function browserRun() {
 describe('operationsApi', () => {
   beforeEach(() => {
     vi.mocked(apiClient.post).mockReset();
+    vi.mocked(apiClient.getParsed).mockReset();
   });
 
   it('starts an operation through the common endpoint with an idempotency header', async () => {
@@ -114,5 +115,23 @@ describe('operationsApi', () => {
 
     await expect(operationsApi.retryBrowserRun('11111111-1111-1111-1111-111111111111'))
       .rejects.toThrow();
+  });
+
+  it('reads only a matching reconnectable run and never starts work during reload', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ run: browserRun() });
+
+    const reconnect = operationsApi as unknown as {
+      findReconnectable(operationKey: string, input: Record<string, unknown>): Promise<unknown>;
+    };
+    await expect(reconnect.findReconnectable(
+      'sourcing.collect_wing_catalog_batch',
+      { keywords: ['스티커'], maxPages: 1, purpose: 'catalog_search' },
+    )).resolves.toEqual(browserRun());
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(
+      '/api/operations/sourcing.collect_wing_catalog_batch/runs/reconnect?input=%7B%22keywords%22%3A%5B%22%EC%8A%A4%ED%8B%B0%EC%BB%A4%22%5D%2C%22maxPages%22%3A1%2C%22purpose%22%3A%22catalog_search%22%7D',
+      expect.anything(),
+    );
+    expect(apiClient.post).not.toHaveBeenCalled();
   });
 });

@@ -1,8 +1,10 @@
-import { apiClient } from '@/lib/api-client';
 import { isStationeryToyKeyword } from './stationery-toy-keyword';
 import type { TrendOpportunity } from './market-intelligence';
+import {
+  fetchNaverKeywordTrends,
+  type NaverKeywordTrendView,
+} from './trend-collection-api';
 
-const DISCOVERY_SEEDS = ['완구', '장난감', '문구', '키링', '만들기'];
 const MAX_TREND_CANDIDATES = 50;
 
 interface SearchTrendItem {
@@ -33,43 +35,91 @@ interface RelatedKeywordResponse {
 }
 
 export interface LiveNaverMarketResult {
-  source: 'naver-live';
+  source: 'naver-persisted-snapshot' | 'naver-live';
   generatedAt: string;
   opportunities: TrendOpportunity[];
   warnings: string[];
 }
 
 /**
- * 네이버 검색광고 키워드도구에서 문구·완구 관련어와 월간 검색량을 직접
- * 가져오고, 상위 후보를 공식 DataLab 검색 추이로 재정렬한다. 특정 시드
- * 범위의 급상승 후보이며 네이버 전체 검색어의 절대 순위는 아니다.
+ * 화면은 이미 OperationRun 소유자가 저장한 네이버 일별 스냅샷만 읽는다.
+ * 원천 수집은 명시적 `sourcing.collect_daily_trends` CTA 에서만 시작한다.
  */
-export async function fetchLiveNaverMarket(): Promise<LiveNaverMarketResult> {
-  const related = await apiClient.post<RelatedKeywordResponse>(
-    '/api/sourcing/keyword-research/naver/related-keywords',
-    { seedKeywords: DISCOVERY_SEEDS, maxResults: 100 },
+export async function fetchPersistedNaverMarket(): Promise<LiveNaverMarketResult> {
+  const snapshot = await fetchNaverKeywordTrends(30);
+  return buildPersistedNaverMarketResult(snapshot.keywords);
+}
+
+export function buildPersistedNaverMarketResult(
+  keywords: NaverKeywordTrendView[],
+): LiveNaverMarketResult {
+  const candidates = keywords
+    .filter((item) => isStationeryToyKeyword(item.keyword))
+    .slice(0, MAX_TREND_CANDIDATES);
+  const maxVolume = Math.max(
+    ...candidates.map((item) => item.latest.monthlyTotalSearchCount ?? 0),
+    1,
   );
-  const candidates = normalizeRelatedCandidates(related.items).slice(0, MAX_TREND_CANDIDATES);
-  if (candidates.length === 0) {
-    throw new Error('네이버 검색광고 키워드도구가 문구·완구 관련어를 반환하지 않았습니다.');
-  }
+  const opportunities = candidates
+    .map((candidate) => {
+      const monthlySearches = candidate.latest.monthlyTotalSearchCount;
+      const momentum = round(clamp(candidate.latest.trendDelta ?? 0, -99.9, 999.9), 1);
+      const volumeScore = Math.round(
+        (Math.log1p(monthlySearches ?? 0) / Math.log1p(maxVolume)) * 100,
+      );
+      const trendScore = clamp(candidate.latest.trendRatio ?? 25, 0, 100);
+      const score = Math.round(volumeScore * 0.4 + trendScore * 0.6);
+      const competition = normalizeCompetition(candidate.latest.competitionIndex);
+      const rightsCheckRequired = looksLikeLicensedKeyword(candidate.keyword);
+      return {
+        id: `naver-snapshot-${compactKeyword(candidate.keyword)}`,
+        keyword: candidate.keyword,
+        category: classifyCategory(candidate.keyword),
+        trendRank: 0,
+        previousTrendRank: null,
+        score,
+        decision: rightsCheckRequired
+          ? 'licensed' as const
+          : score >= 72 && competition !== '높음' ? 'focus' as const : 'test' as const,
+        monthlySearches,
+        shoppingRank: null,
+        momentum,
+        competition,
+        sources: ['NAVER' as const],
+        evidence: `저장된 네이버 검색량 ${monthlySearches?.toLocaleString('ko-KR') ?? '집계 중'} · 검색지수 ${candidate.latest.trendRatio ?? '집계 중'} · 경쟁 ${competition}`,
+        nextAction: rightsCheckRequired
+          ? '상표·캐릭터 정식 유통 증빙이 확인되는 상품만 검토하고 무단 IP 상품은 제외하세요.'
+          : competition === '높음'
+            ? '경쟁 상품의 가격·리뷰 장벽을 먼저 확인하고 구매 의도가 더 구체적인 하위 키워드로 좁히세요.'
+            : '쿠팡 검색결과와 1688 공급가를 이어서 확인한 뒤 30~100개 단위로 검증하세요.',
+        points: candidate.sparkline.slice(-7).map((point) => ({
+          date: point.businessDate.slice(5),
+          search: point.trendRatio ?? 0,
+          commerce: volumeScore,
+          social: 0,
+        })),
+      } satisfies TrendOpportunity;
+    })
+    .sort((left, right) => right.score - left.score || right.momentum - left.momentum)
+    .slice(0, 20)
+    .map((opportunity, index) => ({
+      ...opportunity,
+      trendRank: index + 1,
+      points: opportunity.points.length > 0
+        ? opportunity.points
+        : [{ date: '저장 없음', search: 0, commerce: 0, social: 0 }],
+    }));
+  const latestBusinessDate = candidates
+    .map((item) => item.latest.businessDate)
+    .sort()
+    .at(-1);
 
-  const warnings: string[] = [];
-  let trends: SearchTrendResponse | null = null;
-  try {
-    trends = await apiClient.post<SearchTrendResponse>(
-      '/api/sourcing/keyword-research/naver/datalab/search-trends',
-      { keywords: candidates.map((item) => item.keyword), timeUnit: 'date' },
-    );
-  } catch (error) {
-    warnings.push(`검색 추이 수집 실패: ${errorMessage(error)}`);
-  }
-
-  return buildLiveNaverMarketResult({
-    related,
-    trends,
-    warnings,
-  });
+  return {
+    source: 'naver-persisted-snapshot',
+    generatedAt: latestBusinessDate ? `${latestBusinessDate}T00:00:00.000Z` : '',
+    opportunities,
+    warnings: [],
+  };
 }
 
 export function buildLiveNaverMarketResult(input: {
@@ -199,8 +249,4 @@ function round(value: number, digits: number): number {
 
 function formatRatio(value: number): string {
   return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : '알 수 없는 오류';
 }

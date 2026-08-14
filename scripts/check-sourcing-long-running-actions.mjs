@@ -42,6 +42,10 @@ const RETIRED_DIRECT_EXTENSION_ACTIONS = [
 const RETIRED_EXTERNAL_SOURCE_BRIDGES = [
   ['searchWingCatalogProducts', 'searchWingCatalogProducts'],
   ['searchCoupangKeywordSuggestions', 'searchCoupangKeywordSuggestions'],
+  [
+    'runCoupangCompetitorSellerCatalog',
+    'startCoupangCompetitorSellerCatalogCollection',
+  ],
 ];
 
 function repoRoot() {
@@ -291,6 +295,16 @@ function hasDirectShadowSignalCollection(source) {
     && /\bthis\.[A-Za-z_$][\w$]*\.collect\s*\(/.test(source);
 }
 
+function hasMountedNaverProviderCollection(file) {
+  return file.path.includes('/market/')
+    && /\bapiClient\.post\s*(?:<[^>]*>)?\s*\(\s*['"]\/api\/sourcing\/keyword-research\/naver\/(?:related-keywords|datalab\/search-trends)['"]/.test(file.source);
+}
+
+function hasDirectRecommendationRefresh(source) {
+  return /@Post\s*\(\s*['"]recommendations\/refresh['"]\s*\)/.test(source)
+    && /\bthis\.[A-Za-z_$][\w$]*\.refresh\s*\(/.test(source);
+}
+
 function externalMessageListenerBodies(source) {
   const bodies = [];
   const pattern = /\bchrome\.runtime\.onMessageExternal\.addListener\s*\(/g;
@@ -353,6 +367,14 @@ export function analyzeSourcingLongRunningActions({
       ));
     }
 
+    if (hasMountedNaverProviderCollection(file)) {
+      findings.push(finding(
+        'mounted_naver_provider_collection',
+        file.path,
+        'Naver provider collection must start from an explicit OperationRun CTA; mounted views read persisted snapshots only.',
+      ));
+    }
+
     const operationBindings = collectionOperationBindings(file.source);
     for (const effectBody of findEffectBodies(file.source)) {
       const startsOperation = operationBindings.objectBindings.some((binding) =>
@@ -396,6 +418,13 @@ export function analyzeSourcingLongRunningActions({
         'direct_shadow_signal_collection_from_entrypoint',
         file.path,
         'Shadow provider collection and canonical snapshot writes belong only to the exact Operation handler.',
+      ));
+    }
+    if (file.path.includes('/adapter/in/http/') && hasDirectRecommendationRefresh(file.source)) {
+      findings.push(finding(
+        'direct_recommendation_refresh_from_http_controller',
+        file.path,
+        'Recommendation publication belongs to the owning fenced Operation handler, not a direct HTTP refresh facade.',
       ));
     }
     if (/\blatestOrDetect\b/.test(file.source)) {

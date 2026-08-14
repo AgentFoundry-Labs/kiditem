@@ -31,18 +31,6 @@ export function useSourcingRecommendations(
   });
 }
 
-export function useRefreshSourcingRecommendations() {
-  const organizationId = useSourcingWorkspaceOrganizationId();
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: sourcingWorkspaceApi.refreshRecommendations,
-    onSuccess: () =>
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-      }),
-  });
-}
-
 export function useIngestSourcingCoupangObservations() {
   const organizationId = useSourcingWorkspaceOrganizationId();
   const queryClient = useQueryClient();

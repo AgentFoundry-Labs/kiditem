@@ -13,6 +13,10 @@ import {
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
 import {
+  OPERATION_ATTEMPT_VERIFIER_PORT,
+  type OperationAttemptVerifierPort,
+} from '../../../../operations/application/port/in/operation-attempt-verifier.port';
+import {
   TREND_COLLECTION_PORT,
   type TrendCollectionPort,
 } from '../../../application/port/in/trend-collection.port';
@@ -21,6 +25,11 @@ import {
   Sourcing1688TrendInputSchema,
 } from '../../../domain/operation/sourcing.operations';
 import type { TrendCollectSource } from '../../../application/service/trend-collect.service';
+import { SourcingRecommendationService } from '../../../application/service/sourcing-recommendation.service';
+import {
+  SOURCING_RECOMMENDATION_REPOSITORY_PORT,
+  type SourcingRecommendationRepositoryPort,
+} from '../../../application/port/out/repository/sourcing-recommendation.repository.port';
 import type { OperationRunRecord } from '../../../../operations/application/port/out/repository/operation.repository.port';
 import type {
   OperationHandler,
@@ -58,6 +67,11 @@ export class SourcingTrendOperationHandler
     private readonly trendCollection: TrendCollectionPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    private readonly recommendations: SourcingRecommendationService,
+    @Inject(OPERATION_ATTEMPT_VERIFIER_PORT)
+    private readonly attemptVerifier: OperationAttemptVerifierPort,
+    @Inject(SOURCING_RECOMMENDATION_REPOSITORY_PORT)
+    private readonly recommendationRuns: SourcingRecommendationRepositoryPort,
   ) {}
 
   onModuleInit(): void {
@@ -160,6 +174,9 @@ export class SourcingTrendOperationHandler
       ? collected.collected === 0 ? 'no_change' : 'complete'
       : 'partial';
     const failed = collected.ok ? 0 : 1;
+    if (source === 'naver') {
+      await this.publishNaverRecommendations(context);
+    }
     return {
       kind: 'completed',
       result: sourceOperationResult({
@@ -170,6 +187,42 @@ export class SourcingTrendOperationHandler
         ...(failed > 0 ? { errorCode: 'trend_source_partial' } : {}),
       }),
     };
+  }
+
+  private async publishNaverRecommendations(
+    context: OperationHandlerContext,
+  ): Promise<void> {
+    context.signal.throwIfAborted();
+    await context.checkpoint();
+    const staged = await this.recommendations.refresh({
+      organizationId: context.organizationId,
+      limit: 50,
+      idempotencyKey: `trend-naver:${context.runId}:recommendation-refresh`,
+      deferPublication: true,
+    });
+    const recommendationRunId = staged.data?.runId;
+    if (!recommendationRunId) {
+      throw new Error('trend_naver_recommendation_stage_missing');
+    }
+    context.signal.throwIfAborted();
+    await context.checkpoint();
+    await this.attemptVerifier.withActiveDomainAttemptFence(
+      {
+        organizationId: context.organizationId,
+        runId: context.runId,
+        expectedOperationKey: OPERATION_KEY_BY_SOURCE.naver,
+        attemptToken: context.attemptToken,
+      },
+      async (_attempt, transaction) => {
+        const published = await this.recommendationRuns.publishStagedRunInAttempt(
+          transaction,
+          { organizationId: context.organizationId, runId: recommendationRunId },
+        );
+        if (published === 'missing') {
+          throw new Error('trend_naver_recommendation_stage_missing');
+        }
+      },
+    );
   }
 }
 

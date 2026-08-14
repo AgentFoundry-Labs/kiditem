@@ -53,11 +53,6 @@ export class SourcingWorkspaceController {
     });
   }
 
-  @Post('recommendations/refresh')
-  refreshRecommendations(@CurrentOrganization() organizationId: string) {
-    return this.recommendations.refresh({ organizationId, limit: 50 });
-  }
-
   @Post('coupang-observations')
   ingestCoupangObservations(
     @Body() body: SourcingCoupangObservationDto,

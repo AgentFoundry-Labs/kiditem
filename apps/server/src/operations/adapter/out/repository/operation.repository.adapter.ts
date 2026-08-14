@@ -572,6 +572,37 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     return rows.map(mapOperationRunRow);
   }
 
+  async listReconnectableRuns(input: {
+    organizationId: string;
+    operationKey: string;
+    now: Date;
+    limit: number;
+  }): Promise<OperationRunRecord[]> {
+    const rows = await this.prisma.operationRun.findMany({
+      where: {
+        organizationId: input.organizationId,
+        operationKey: input.operationKey,
+        status: {
+          in: [
+            'queued',
+            'waiting_runtime',
+            'waiting_dependency',
+            'running',
+            'attention_required',
+          ],
+        },
+        OR: [
+          { deadlineAt: null },
+          { deadlineAt: { gt: input.now } },
+        ],
+      },
+      include: runInclude,
+      orderBy: { createdAt: 'desc' },
+      take: input.limit,
+    });
+    return rows.map(mapOperationRunRow);
+  }
+
   async listChildRuns(input: {
     organizationId: string;
     parentRunId: string;

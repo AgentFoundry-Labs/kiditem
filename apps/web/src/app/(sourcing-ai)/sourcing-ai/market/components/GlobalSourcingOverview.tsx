@@ -13,12 +13,16 @@ import {
   Globe2,
   Loader2,
   PlaySquare,
+  RefreshCw,
   Search,
   ShoppingBag,
 } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import { fetchLiveNaverMarket } from '../lib/live-naver-market';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import {
   buildCrossMarketTopics,
   type CrossMarketTopicOpportunity,
@@ -37,14 +41,19 @@ import {
 } from '../lib/trend-collection-api';
 
 const SNAPSHOT_DAYS = 7;
+const NAVER_SNAPSHOT_DAYS = 30;
 
 export function GlobalSourcingOverview() {
   const naverQuery = useQuery({
-    queryKey: queryKeys.sourcing.liveNaverMarket(),
-    queryFn: fetchLiveNaverMarket,
+    queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
+    queryFn: fetchPersistedNaverMarket,
     staleTime: 10 * 60 * 1000,
-    refetchInterval: 10 * 60 * 1000,
-    refetchIntervalInBackground: false,
+  });
+  const naverOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: { sources: ['naver'] },
+    snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
+    wakeBrowserRuntime: false,
   });
   const chinaQuery = useQuery({
     queryKey: queryKeys.sourcing.trend1688Hot(SNAPSHOT_DAYS),
@@ -102,12 +111,25 @@ export function GlobalSourcingOverview() {
         <GlobalSignals items={globalVideos} capturedAt={globalQuery.data?.capturedAt ?? null} />
         <KoreaSignals
           items={koreaKeywords}
-          generatedAt={naverQuery.data?.generatedAt ?? null}
+          generatedAt={naverQuery.data?.generatedAt || null}
           loading={naverQuery.isLoading}
           error={naverQuery.isError}
           warnings={naverQuery.data?.warnings ?? []}
+          isCollecting={naverOperation.isStarting || (
+            naverOperation.run !== null
+            && !isTerminalOperationStatus(naverOperation.run.status)
+          )}
+          onCollect={() => void naverOperation.start({ sources: ['naver'] })}
         />
       </div>
+
+      <SourcingOperationRunPanel
+        run={naverOperation.run}
+        onCancel={() => { void naverOperation.cancel(); }}
+        onRetryAttention={() => { void naverOperation.retryAttention(); }}
+        isCancelling={naverOperation.isCancelling}
+        isRetrying={naverOperation.isRetrying}
+      />
 
       <SourceCoverage context={sourceContext} />
       <NextConnectorQueue />
@@ -245,9 +267,25 @@ function GlobalSignals({ items, capturedAt }: { items: ShortsTrendView[]; captur
   );
 }
 
-function KoreaSignals({ items, generatedAt, loading, error, warnings }: { items: Awaited<ReturnType<typeof fetchLiveNaverMarket>>['opportunities']; generatedAt: string | null; loading: boolean; error: boolean; warnings: string[] }) {
+function KoreaSignals({
+  items,
+  generatedAt,
+  loading,
+  error,
+  warnings,
+  isCollecting,
+  onCollect,
+}: {
+  items: Awaited<ReturnType<typeof fetchPersistedNaverMarket>>['opportunities'];
+  generatedAt: string | null;
+  loading: boolean;
+  error: boolean;
+  warnings: string[];
+  isCollecting: boolean;
+  onCollect: () => void;
+}) {
   return (
-    <SignalCard icon={ShoppingBag} title="한국 수요" subtitle={warnings.length > 0 ? '검색광고 직접 조회 · DataLab 일부 실패' : '네이버 검색광고·DataLab 직접 조회'} badge={generatedAt ? `조회 ${formatDateTime(generatedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '10분 갱신'}>
+    <SignalCard icon={ShoppingBag} title="한국 수요" subtitle={warnings.length > 0 ? '저장된 네이버 스냅샷 일부 경고' : '저장된 네이버 검색 수요 스냅샷'} badge={generatedAt ? `저장 ${formatDateTime(generatedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}` : '수집 대기'}>
       {loading ? <CompactEmpty text="네이버 데이터를 불러오는 중입니다." loading /> : error ? <CompactEmpty text="네이버 연동을 확인해 주세요." error /> : (
         <>
           <ol className="divide-y divide-[var(--border-subtle)]">
@@ -270,6 +308,17 @@ function KoreaSignals({ items, generatedAt, loading, error, warnings }: { items:
           )}
         </>
       )}
+      <div className="border-t border-[var(--border-subtle)] px-4 py-3">
+        <button
+          type="button"
+          onClick={onCollect}
+          disabled={isCollecting}
+          className="inline-flex items-center gap-1.5 rounded-md bg-purple-600 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-60"
+        >
+          {isCollecting ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+          {isCollecting ? '네이버 수집 중…' : '네이버 스냅샷 수집'}
+        </button>
+      </div>
     </SignalCard>
   );
 }

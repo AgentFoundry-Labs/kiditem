@@ -48,6 +48,19 @@ export function useOperationRun(runId: string | null) {
   });
 }
 
+export function useReconnectableOperationRun(
+  operationKey: string,
+  input: Record<string, unknown>,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.operations.reconnect(operationKey, input),
+    queryFn: () => operationsApi.findReconnectable(operationKey, input),
+    enabled,
+    staleTime: 15_000,
+  });
+}
+
 export function useOperationSchedules() {
   return useQuery({
     queryKey: queryKeys.operations.schedules(),

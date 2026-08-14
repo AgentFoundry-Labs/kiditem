@@ -3,9 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { useAuth } from '@/hooks/useAuth';
-import { useOperationRun } from '@/hooks/useOperationRun';
 import {
-  useRefreshSourcingRecommendations,
   useSaveSourcingReviewSelection,
   useSourcingInterestTargets,
   useSourcingRecommendations,
@@ -25,8 +23,6 @@ const operationMocks = vi.hoisted(() => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
-vi.mock('@/hooks/useOperationRun', () => ({ useOperationRun: vi.fn() }));
-vi.mock('@/lib/manual-operation-actions', () => ({ startTrendCollectionAction: vi.fn() }));
 vi.mock('../../hooks/use-sourcing-operation-action', () => ({
   useSourcingOperationAction: operationMocks.useAction,
 }));
@@ -49,7 +45,6 @@ vi.mock('../lib/entry-recommendation-api', async (importOriginal) => {
   return { ...actual, askSourcingAssistant: vi.fn() };
 });
 vi.mock('../../hooks/use-sourcing-workspace', () => ({
-  useRefreshSourcingRecommendations: vi.fn(),
   useSaveSourcingReviewSelection: vi.fn(),
   useSourcingInterestTargets: vi.fn(),
   useSourcingRecommendations: vi.fn(),
@@ -82,7 +77,6 @@ describe('EntryRecommendationBoard review state', () => {
     vi.mocked(useAuth).mockReturnValue({
       user: { organizationId: 'org-a' },
     } as ReturnType<typeof useAuth>);
-    vi.mocked(useOperationRun).mockReturnValue({ data: undefined, isError: false } as never);
     vi.mocked(useSourcingInterestTargets).mockReturnValue({ data: [] } as never);
     vi.mocked(useSourcingRecommendations).mockReturnValue({
       data: {
@@ -110,7 +104,6 @@ describe('EntryRecommendationBoard review state', () => {
         selection(ITEM_B_KEY, 'removed'),
       ],
     } as never);
-    vi.mocked(useRefreshSourcingRecommendations).mockReturnValue({ mutateAsync: vi.fn() } as never);
     vi.mocked(useSaveSourcingReviewSelection).mockReturnValue({
       mutateAsync: vi.fn(),
       isPending: false,
@@ -184,8 +177,8 @@ describe('EntryRecommendationBoard review state', () => {
     }));
     expect(screen.getByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
 
-    await user.click(screen.getByRole('button', { name: 'interest-operation-cancel' }));
-    await user.click(screen.getByRole('button', { name: 'interest-operation-retry' }));
+    await user.click(screen.getAllByRole('button', { name: 'interest-operation-cancel' })[1]);
+    await user.click(screen.getAllByRole('button', { name: 'interest-operation-retry' })[1]);
     expect(operationMocks.cancel).toHaveBeenCalledTimes(1);
     expect(operationMocks.retryAttention).toHaveBeenCalledTimes(1);
 
@@ -227,6 +220,22 @@ describe('EntryRecommendationBoard review state', () => {
     await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({
       keywords: ['A Pencil', ...uniqueKeywords.slice(0, 19)],
     }));
+  });
+
+  it('starts the daily collection exactly once from the toolbar, without a direct recommendation refresh', async () => {
+    const user = userEvent.setup();
+    renderBoard();
+
+    expect(operationMocks.start).not.toHaveBeenCalled();
+    expect(operationMocks.useAction).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: 'sourcing.collect_daily_trends',
+      input: {},
+      snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
+      wakeBrowserRuntime: false,
+    }));
+
+    await user.click(screen.getByRole('button', { name: '지금 수집' }));
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({}));
   });
 });
 

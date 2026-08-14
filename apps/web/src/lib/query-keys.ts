@@ -24,6 +24,8 @@ export const queryKeys = {
     catalog: () => [...queryKeys.operations.all, 'catalog'] as const,
     runs: () => [...queryKeys.operations.all, 'runs'] as const,
     run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
+    reconnect: (operationKey: string, input: Record<string, unknown>) =>
+      [...queryKeys.operations.all, 'reconnect', operationKey, input] as const,
     schedules: () => [...queryKeys.operations.all, 'schedules'] as const,
   },
   marketplace: {

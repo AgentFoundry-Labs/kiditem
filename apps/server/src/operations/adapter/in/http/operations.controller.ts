@@ -1,5 +1,6 @@
 import {
   Body,
+  BadRequestException,
   Controller,
   Get,
   Headers,
@@ -9,6 +10,7 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
 } from '@nestjs/common';
 import type { OperationCatalogResponse } from '@kiditem/shared/operations';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -77,6 +79,19 @@ export class OperationsController {
     return { items: await this.runner.list({ organizationId }) };
   }
 
+  @Get(':operationKey/runs/reconnect')
+  findReconnectable(
+    @Param('operationKey') operationKey: string,
+    @Query('input') rawInput: string | undefined,
+    @CurrentOrganization() organizationId: string,
+  ) {
+    return this.runner.findReconnectable({
+      organizationId,
+      operationKey,
+      input: parseReconnectInput(rawInput),
+    }).then((run) => ({ run }));
+  }
+
   @Get('runs/:runId')
   getRun(
     @Param('runId', new ParseUUIDPipe()) runId: string,
@@ -96,5 +111,20 @@ export class OperationsController {
       runId,
       requestedByUserId: user.id,
     });
+  }
+}
+
+function parseReconnectInput(rawInput: string | undefined): Record<string, unknown> {
+  if (!rawInput || rawInput.length > 8_192) {
+    throw new BadRequestException('invalid_operation_reconnect_input');
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawInput);
+    if (parsed === null || Array.isArray(parsed) || typeof parsed !== 'object') {
+      throw new BadRequestException('invalid_operation_reconnect_input');
+    }
+    return parsed as Record<string, unknown>;
+  } catch {
+    throw new BadRequestException('invalid_operation_reconnect_input');
   }
 }

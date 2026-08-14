@@ -136,13 +136,33 @@ function setup(input?: {
   const coordinator = {
     listChildren: vi.fn().mockResolvedValue(input?.children ?? []),
   };
-  const handler = new SourcingTrendOperationHandler(
+  const recommendations = {
+    refresh: vi.fn().mockResolvedValue({ data: { runId: '80000000-0000-4000-8000-000000000001' } }),
+  };
+  const attemptVerifier = {
+    withActiveDomainAttemptFence: vi.fn(async (_input, callback) => callback({}, {})),
+  };
+  const recommendationRuns = {
+    publishStagedRunInAttempt: vi.fn().mockResolvedValue('published'),
+  };
+  const handler = Reflect.construct(SourcingTrendOperationHandler, [
     registry,
-    collector as never,
-    coordinator as never,
-  );
+    collector,
+    coordinator,
+    recommendations,
+    attemptVerifier,
+    recommendationRuns,
+  ]) as SourcingTrendOperationHandler;
   handler.onModuleInit();
-  return { registry, collector, coordinator, handler };
+  return {
+    registry,
+    collector,
+    coordinator,
+    recommendations,
+    attemptVerifier,
+    recommendationRuns,
+    handler,
+  };
 }
 
 describe('SourcingTrendOperationHandler', () => {
@@ -229,7 +249,7 @@ describe('SourcingTrendOperationHandler', () => {
   });
 
   it('runs one source child through owner-local collectSource with signal and checkpoints', async () => {
-    const { handler, collector } = setup();
+    const { handler, collector, recommendations, attemptVerifier, recommendationRuns } = setup();
     const context = operationContext({
       operationKey: 'sourcing.collect_naver_trends',
       input: {},
@@ -247,6 +267,40 @@ describe('SourcingTrendOperationHandler', () => {
       RUN_ID,
       { signal: context.signal, checkpoint: context.checkpoint },
     );
+    expect(recommendations.refresh).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: `trend-naver:${RUN_ID}:recommendation-refresh`,
+      deferPublication: true,
+    });
+    expect(attemptVerifier.withActiveDomainAttemptFence).toHaveBeenCalledWith(
+      {
+        organizationId: ORGANIZATION_ID,
+        runId: RUN_ID,
+        expectedOperationKey: 'sourcing.collect_naver_trends',
+        attemptToken: ATTEMPT_TOKEN,
+      },
+      expect.any(Function),
+    );
+    expect(recommendationRuns.publishStagedRunInAttempt).toHaveBeenCalledWith(
+      {},
+      { organizationId: ORGANIZATION_ID, runId: '80000000-0000-4000-8000-000000000001' },
+    );
+  });
+
+  it('does not publish a staged recommendation when the owning Naver attempt loses its final fence', async () => {
+    const { handler, attemptVerifier, recommendationRuns } = setup();
+    attemptVerifier.withActiveDomainAttemptFence.mockRejectedValueOnce(
+      new Error('operation_attempt_fence_lost'),
+    );
+
+    await expect(handler.execute(operationContext({
+      operationKey: 'sourcing.collect_naver_trends',
+      input: {},
+      parentRunId: RUN_ID,
+    }))).rejects.toThrow('operation_attempt_fence_lost');
+
+    expect(recommendationRuns.publishStagedRunInAttempt).not.toHaveBeenCalled();
   });
 
   it('never falls back to server 1688 collection after the daily child becomes browser-owned', async () => {

@@ -5,10 +5,12 @@ import { useQueryClient, type QueryKey } from '@tanstack/react-query';
 import {
   useCancelOperationRun,
   useOperationRun,
+  useReconnectableOperationRun,
   useRetryBrowserOperationRun,
   useStartOperation,
 } from '@/hooks/useOperationRun';
 import { wakeBrowserOperationRuntime } from '@/lib/extension-bridge';
+import { queryKeys } from '@/lib/query-keys';
 import type { OperationRun } from '@kiditem/shared/operations';
 
 export interface UseSourcingOperationActionOptions<
@@ -34,6 +36,7 @@ export function useSourcingOperationAction<
     () => options.initialRunId ?? null,
   );
   const latestRunIdRef = useRef<string | null>(options.initialRunId ?? null);
+  const explicitInitialRunIdRef = useRef<string | null>(options.initialRunId ?? null);
   const latestStartRequestRef = useRef(0);
   const latestRetryRequestRef = useRef(0);
   const invalidatedRunIdsRef = useRef(new Set<string>());
@@ -48,6 +51,36 @@ export function useSourcingOperationAction<
     ),
   );
   const runQuery = useOperationRun(latestRunId);
+  const reconnectQuery = useReconnectableOperationRun(
+    options.operationKey,
+    options.input,
+    explicitInitialRunIdRef.current === null && latestRunId === null,
+  );
+
+  useEffect(() => {
+    const run = reconnectQuery.data;
+    if (
+      run === null
+      || run === undefined
+      || explicitInitialRunIdRef.current !== null
+      || latestRunIdRef.current !== null
+      || ['succeeded', 'failed', 'cancelled', 'skipped'].includes(run.status)
+    ) {
+      return;
+    }
+    latestRunIdRef.current = run.id;
+    snapshotQueryKeysByRunIdRef.current.set(
+      run.id,
+      options.snapshotQueryKeys ?? [options.snapshotQueryKey],
+    );
+    queryClient.setQueryData(queryKeys.operations.run(run.id), run);
+    setLatestRunId(run.id);
+  }, [
+    options.snapshotQueryKey,
+    options.snapshotQueryKeys,
+    queryClient,
+    reconnectQuery.data,
+  ]);
 
   const start = useCallback(async (
     input: Readonly<Record<string, unknown>> = options.input,

@@ -42,11 +42,6 @@ export const sourcingWorkspaceApi = {
     );
   },
 
-  async refreshRecommendations(): Promise<SourcingRecommendationEnvelope> {
-    const raw = await apiClient.post<unknown>('/api/sourcing/workspace/recommendations/refresh');
-    return SourcingRecommendationEnvelopeSchema.parse(raw);
-  },
-
   async ingestCoupangObservations(input: SourcingCoupangObservationCommand): Promise<void> {
     await apiClient.post<unknown>('/api/sourcing/workspace/coupang-observations', input);
   },

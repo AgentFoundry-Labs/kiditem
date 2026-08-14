@@ -1,15 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
-import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
 import {
   askSourcingAssistant,
@@ -23,7 +22,6 @@ import {
   toEntrySourceStatuses,
 } from '../../lib/sourcing-recommendation-presenter';
 import {
-  useRefreshSourcingRecommendations,
   useSaveSourcingReviewSelection,
   useSourcingInterestTargets,
   useSourcingRecommendations,
@@ -55,68 +53,26 @@ type InterestFilter = 'all' | 'interest' | 'other';
 export function EntryRecommendationBoard() {
   const { user } = useAuth();
   const organizationId = user?.organizationId ?? null;
-  const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const assistantConversationIdRef = useRef<string | null>(null);
-  const [operationRunId, setOperationRunId] = useState<string | null>(null);
-  const handledRunRef = useRef<string | null>(null);
-  const refreshRecommendations = useRefreshSourcingRecommendations();
   const saveSelection = useSaveSourcingReviewSelection();
-
-  const { data: run, isError: runQueryFailed } = useOperationRun(operationRunId);
-  // run 조회가 실패하면 `run` 이 계속 undefined 라 "수집 중"으로 굳어 버튼이 영구히
-  // 잠긴다. 조회 실패는 수집 중이 아니라 상태를 모르는 것이므로 잠금을 푼다.
-  const isCollecting =
-    operationRunId !== null &&
-    !runQueryFailed &&
-    (!run || !isTerminalOperationStatus(run.status));
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
   const recommendationRunId = recommendationsQuery.data?.data?.runId ?? null;
   const selectionsQuery = useSourcingReviewSelections('entry', recommendationRunId);
   const interestTargetsQuery = useSourcingInterestTargets();
-
-  const collectMutation = useMutation({
-    mutationFn: () => startTrendCollectionAction({ sourceSurface: 'domain_screen' }),
-    onSuccess: (operationRun) => {
-      setOperationRunId(operationRun.id);
-      toast.info('트렌드 수집을 시작했습니다.');
-    },
-    onError: (error: unknown) => {
-      toast.error(isApiError(error) ? error.message : '수집을 시작하지 못했습니다.');
-    },
+  const dailyTrendOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: {},
+    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+    wakeBrowserRuntime: false,
   });
-
-  // 수집이 끝나면 한 번만 반응한다. 폴링이 같은 terminal 상태를 반복해서 주기 때문이다.
-  useEffect(() => {
-    if (!run || !isTerminalOperationStatus(run.status)) return;
-    if (handledRunRef.current === run.id) return;
-    handledRunRef.current = run.id;
-    setOperationRunId(null);
-
-    if (run.status === 'succeeded') {
-      toast.success('수집이 끝났습니다. 추천을 갱신합니다.');
-    } else {
-      // 상태 문자열만 보여주면 왜 실패했는지 알 수 없다. run 이 실은 사유를 같이 낸다.
-      const detail = run.error?.message?.trim();
-      toast.error(
-        detail
-          ? `수집이 ${run.status} 상태로 끝났습니다 — ${detail}`
-          : `수집이 ${run.status} 상태로 끝났습니다.`,
-      );
-    }
-
-    if (run.status === 'succeeded') {
-      void refreshRecommendations.mutateAsync().catch(() => {
-        toast.error('수집은 완료됐지만 추천 결과를 갱신하지 못했습니다. 새로고침으로 다시 시도해주세요.');
-      });
-    }
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-    });
-  }, [organizationId, queryClient, refreshRecommendations, run]);
+  const isCollecting = dailyTrendOperation.isStarting || (
+    dailyTrendOperation.run !== null
+    && !isTerminalOperationStatus(dailyTrendOperation.run.status)
+  );
 
   const assistantMutation = useMutation({
     mutationFn: (question: string) =>
@@ -273,10 +229,18 @@ export function EntryRecommendationBoard() {
         <Toolbar
           selectedCount={selectedIds.size}
           totalCount={items.length}
-          isCollecting={isCollecting || collectMutation.isPending}
+          isCollecting={isCollecting}
           isRefreshing={recommendationsQuery.isFetching}
-          onCollect={() => collectMutation.mutate()}
+          onCollect={() => void dailyTrendOperation.start({})}
           onRefresh={() => void recommendationsQuery.refetch()}
+        />
+
+        <SourcingOperationRunPanel
+          run={dailyTrendOperation.run}
+          onCancel={() => { void dailyTrendOperation.cancel(); }}
+          onRetryAttention={() => { void dailyTrendOperation.retryAttention(); }}
+          isCancelling={dailyTrendOperation.isCancelling}
+          isRetrying={dailyTrendOperation.isRetrying}
         />
 
         <SourceStrip sources={sources} dataGaps={dataGaps} />

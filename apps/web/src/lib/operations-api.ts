@@ -1,6 +1,7 @@
 import {
   OperationCatalogResponseSchema,
   OperationRunListResponseSchema,
+  OperationRunReconnectResponseSchema,
   OperationRunSchema,
   OperationScheduleListResponseSchema,
   OperationScheduleSchema,
@@ -23,6 +24,17 @@ export const operationsApi = {
 
   getRun: (runId: string) =>
     apiClient.getParsed(`/api/operations/runs/${runId}`, OperationRunSchema),
+
+  async findReconnectable(
+    operationKey: string,
+    input: Record<string, unknown>,
+  ): Promise<OperationRun | null> {
+    const response = await apiClient.getParsed(
+      `/api/operations/${encodeURIComponent(operationKey)}/runs/reconnect?input=${encodeURIComponent(JSON.stringify(input))}`,
+      OperationRunReconnectResponseSchema,
+    );
+    return response.run;
+  },
 
   async start(operationKey: string, input: StartOperationInput): Promise<OperationRun> {
     const raw = await apiClient.post<unknown>(

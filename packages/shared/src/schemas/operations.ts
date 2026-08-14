@@ -258,6 +258,9 @@ export const OperationCatalogResponseSchema = z
 export const OperationRunListResponseSchema = z
   .object({ items: z.array(OperationRunSchema) })
   .strict();
+export const OperationRunReconnectResponseSchema = z
+  .object({ run: OperationRunSchema.nullable() })
+  .strict();
 export const OperationScheduleListResponseSchema = z
   .object({ items: z.array(OperationScheduleSchema) })
   .strict();
@@ -356,6 +359,9 @@ export type OperationCatalogResponse = z.infer<
 >;
 export type OperationRunListResponse = z.infer<
   typeof OperationRunListResponseSchema
+>;
+export type OperationRunReconnectResponse = z.infer<
+  typeof OperationRunReconnectResponseSchema
 >;
 export type OperationScheduleListResponse = z.infer<
   typeof OperationScheduleListResponseSchema

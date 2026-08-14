@@ -10,6 +10,7 @@ const mocks = vi.hoisted(() => ({
   cancel: vi.fn(),
   retry: vi.fn(),
   run: undefined as unknown,
+  reconnect: undefined as unknown,
   observedRunId: null as string | null,
   wake: vi.fn(),
 }));
@@ -26,6 +27,11 @@ vi.mock('@/hooks/useOperationRun', () => ({
     mocks.observedRunId = runId;
     return { data: mocks.run, isLoading: false, isError: false };
   },
+  useReconnectableOperationRun: () => ({
+    data: mocks.reconnect,
+    isLoading: false,
+    isError: false,
+  }),
 }));
 
 const RUN_A = '11111111-1111-4111-8111-111111111111';
@@ -96,6 +102,7 @@ describe('useSourcingOperationAction', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.run = undefined;
+    mocks.reconnect = undefined;
     mocks.observedRunId = null;
     mocks.wake.mockResolvedValue(true);
   });
@@ -121,6 +128,43 @@ describe('useSourcingOperationAction', () => {
     });
     expect(result.current.runId).toBe(RUN_A);
     expect(mocks.wake).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconnects a matching active server run on remount without starting or waking a provider', async () => {
+    mocks.reconnect = operationRun(RUN_A, 'attention_required');
+    mocks.retry.mockResolvedValueOnce(operationRun(RUN_B, 'queued'));
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction(options), {
+      wrapper: wrapper(client),
+    });
+
+    await waitFor(() => expect(result.current.runId).toBe(RUN_A));
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.wake).not.toHaveBeenCalled();
+
+    await act(async () => {
+      await result.current.cancel();
+      await result.current.retryAttention();
+    });
+    expect(mocks.cancel).toHaveBeenCalledWith(RUN_A);
+    expect(mocks.retry).toHaveBeenCalledWith(RUN_A);
+    expect(result.current.runId).toBe(RUN_B);
+  });
+
+  it('keeps an explicit URL run ID over a reconnect candidate', async () => {
+    mocks.reconnect = operationRun(RUN_B, 'attention_required');
+    const client = makeClient();
+    const { result } = renderHook(() => useSourcingOperationAction({
+      ...options,
+      initialRunId: RUN_A,
+    }), {
+      wrapper: wrapper(client),
+    });
+
+    expect(result.current.runId).toBe(RUN_A);
+    expect(mocks.observedRunId).toBe(RUN_A);
+    expect(mocks.start).not.toHaveBeenCalled();
+    expect(mocks.wake).not.toHaveBeenCalled();
   });
 
   it('keeps the durable server run successful when the extension nudge fails', async () => {
