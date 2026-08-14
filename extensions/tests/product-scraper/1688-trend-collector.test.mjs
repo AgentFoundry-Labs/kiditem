@@ -9,6 +9,8 @@ const collectorPath = path.resolve('extensions/kiditem-os/background/sourcing/16
 const collectorSource = fs.readFileSync(collectorPath, 'utf8');
 const sessionPath = path.resolve('extensions/kiditem-os/background/collection-session.js');
 const sessionSource = fs.readFileSync(sessionPath, 'utf8');
+const OPERATION_RUN_ID = '00000000-0000-4000-8000-000000001688';
+const OPERATION_ATTEMPT_TOKEN = 'operation-attempt-1688';
 
 function createFakeChrome(sendMessageImpl) {
   const values = {};
@@ -152,7 +154,7 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
     fakeChrome: fake.chrome,
     backendConfig: {
       ok: true,
-      base: 'http://localhost:4000/api/sourcing/extension',
+      apiBase: 'http://localhost:4000/api',
       headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
       request: async (url, init) => {
         requestCalls.push({ url, init });
@@ -167,7 +169,13 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
     },
   });
 
-  const started = await collector.start(['文具', '玩具'], 2, 'local');
+  const started = await collector.start(
+    ['文具', '玩具'],
+    2,
+    'local',
+    OPERATION_RUN_ID,
+    { attemptToken: OPERATION_ATTEMPT_TOKEN },
+  );
   assert.equal(started.success, true);
   assert.equal(started.status, 'running');
 
@@ -181,9 +189,15 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
   assert.match(fake.calls.update[0].url, /keywords=%E6%96%87%E5%85%B7&charset=utf8$/);
   assert.match(fake.calls.update[1].url, /keywords=%E7%8E%A9%E5%85%B7&charset=utf8$/);
 
-  assert.equal(requestCalls[0].url, 'http://localhost:4000/api/sourcing/extension/trend/1688-results');
+  assert.equal(
+    requestCalls[0].url,
+    `http://localhost:4000/api/sourcing/operations/1688-trends/${OPERATION_RUN_ID}/results`,
+  );
+  assert.equal(
+    requestCalls[0].init.headers['x-operation-attempt-token'],
+    OPERATION_ATTEMPT_TOKEN,
+  );
   const payload = JSON.parse(requestCalls[0].init.body);
-  assert.equal(payload.runId, started.runId);
   assert.deepEqual(payload.keywords.map((entry) => entry.keyword), ['文具', '玩具']);
   assert.deepEqual(payload.keywords.map((entry) => entry.items.length), [2, 1]);
 
@@ -197,7 +211,7 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
   );
 });
 
-test('keeps CAPTCHA attention inactive until the generic open command and restarts from keyword zero', async () => {
+test('keeps CAPTCHA attention inactive until the generic open command without exposing a collector restart bridge', async () => {
   let verificationRequired = true;
   const fake = createFakeChrome(({ cb, tabs, tabId }) => {
     const tab = tabs.get(tabId);
@@ -221,7 +235,13 @@ test('keeps CAPTCHA attention inactive until the generic open command and restar
     }),
   });
 
-  const first = await collector.start(['文具', '玩具'], 20, 'local');
+  const first = await collector.start(
+    ['文具', '玩具'],
+    20,
+    'local',
+    OPERATION_RUN_ID,
+    { attemptToken: OPERATION_ATTEMPT_TOKEN },
+  );
   const blocked = await waitForStatus(collector, first.runId, 'attention_required');
   assert.match(blocked.verificationUrl, /action=captcha/);
   assert.equal(fake.calls.create.length, 1);
@@ -239,20 +259,7 @@ test('keeps CAPTCHA attention inactive until the generic open command and restar
   assert.equal(fake.calls.update.at(-1).active, true);
   assert.deepEqual(fake.calls.focus, [{ windowId: 7, focused: true }]);
 
-  verificationRequired = false;
-  const resumed = await collector.restart(first.runId);
-  assert.equal(resumed.runId, first.runId);
-  const completed = await waitForStatus(collector, first.runId, 'completed');
-  assert.equal(completed.collected, 2);
-  assert.equal(fake.calls.create.length, 1);
-  assert.equal(fake.calls.remove.length, 1);
-  const firstKeywordNavigations = fake.calls.update.filter((call) =>
-    /keywords=%E6%96%87%E5%85%B7/.test(call.url || ''),
-  );
-  assert.equal(firstKeywordNavigations.length, 2);
-  const restartedSession = await sessions.get(first.runId);
-  assert.equal(restartedSession.attempt, 2);
-  assert.equal(restartedSession.status, 'succeeded');
+  assert.equal(typeof collector.restart, 'undefined');
 });
 
 test('fails before opening 1688 when the common KidItem session token is unavailable', async () => {
@@ -263,7 +270,13 @@ test('fails before opening 1688 when the common KidItem session token is unavail
     fetchImpl: async () => assert.fail('fetch must not run'),
   });
 
-  const started = await collector.start(['文具'], 20, 'local');
+  const started = await collector.start(
+    ['文具'],
+    20,
+    'local',
+    OPERATION_RUN_ID,
+    { attemptToken: OPERATION_ATTEMPT_TOKEN },
+  );
 
   assert.equal(started.success, false);
   assert.match(started.error, /로그인/);
@@ -280,7 +293,13 @@ test('cancels an active run and exposes the cancelled status', async () => {
     fetchImpl: async () => assert.fail('cancelled run must not post'),
   });
 
-  const started = await collector.start(['文具'], 20, 'local');
+  const started = await collector.start(
+    ['文具'],
+    20,
+    'local',
+    OPERATION_RUN_ID,
+    { attemptToken: OPERATION_ATTEMPT_TOKEN },
+  );
   while (fake.calls.messages.length === 0) {
     await new Promise((resolve) => setTimeout(resolve, 5));
   }
@@ -290,4 +309,25 @@ test('cancels an active run and exposes the cancelled status', async () => {
   assert.equal(cancelled.status, 'cancelled');
   assert.equal(status.status, 'cancelled');
   assert.equal((await sessions.get(started.runId)).status, 'cancelled');
+});
+
+test('rejects a collector start without the exact operation run id', async () => {
+  const fake = createFakeChrome(({ cb }) => cb({ ok: true, items: [] }));
+  const { collector } = loadCollector({
+    fakeChrome: fake.chrome,
+    backendConfig: { ok: true, apiBase: 'http://localhost:4000/api', headers: {} },
+    fetchImpl: async () => assert.fail('an unfenced collection must not reach fetch'),
+  });
+
+  const started = await collector.start(
+    ['文具'],
+    20,
+    'local',
+    undefined,
+    { attemptToken: OPERATION_ATTEMPT_TOKEN },
+  );
+
+  assert.equal(started.success, false);
+  assert.equal(started.error, 'operation_run_id_required');
+  assert.equal(fake.calls.create.length, 0);
 });

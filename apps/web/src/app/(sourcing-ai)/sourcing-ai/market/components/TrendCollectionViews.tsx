@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useState, type ReactNode } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
   ArrowUpRight,
@@ -15,14 +15,11 @@ import {
   Sparkles,
   TrendingUp,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
-import { TrendExtensionError } from '../lib/1688-trend-extension';
-import { collectTiktokCcFromChrome } from '../lib/tiktok-cc-trend-extension';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import {
   fetch1688HotProducts,
   fetchNaverKeywordTrends,
@@ -145,66 +142,31 @@ function LiveKeywordCard({ keyword }: { keyword: LiveTrendKeywordView }) {
 
 /** 틱톡 크리에이티브 센터 인기 해시태그·키워드·상품 (확장 수집 + 트리거). */
 function TiktokCcTrendView() {
-  const queryClient = useQueryClient();
-  const [runId, setRunId] = useState<string | null>(null);
-  const abortRef = useRef<AbortController | null>(null);
+  const snapshotQueryKey = queryKeys.sourcing.trendTiktokCc(TIKTOK_CC_DAYS);
 
   const query = useQuery({
-    queryKey: queryKeys.sourcing.trendTiktokCc(TIKTOK_CC_DAYS),
+    queryKey: snapshotQueryKey,
     queryFn: () => fetchTiktokCcTrends(TIKTOK_CC_DAYS),
     staleTime: 5 * 60 * 1000,
   });
-
-  const collectMutation = useMutation({
-    mutationFn: async () => {
-      const controller = new AbortController();
-      abortRef.current = controller;
-      try {
-        return await collectTiktokCcFromChrome(setRunId, controller.signal);
-      } finally {
-        if (abortRef.current === controller) abortRef.current = null;
-      }
-    },
-    onSuccess: (result) => {
-      const failed = result.errors.length;
-      const regionSuffix = result.region ? ` (${result.region})` : '';
-      if (failed === 0) {
-        toast.success(`틱톡 수집 완료 · ${formatNumber(result.collected)}건 저장${regionSuffix}`);
-      } else {
-        toast.warning(`틱톡 수집 완료 · ${formatNumber(result.collected)}건 저장 · ${failed}개 타깃 실패`);
-      }
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trendTiktokCc(TIKTOK_CC_DAYS) });
-    },
-    onError: async (error) => {
-      if (error instanceof TrendExtensionError && error.code === 'collection_aborted') return;
-      if (error instanceof TrendExtensionError && error.runId) setRunId(error.runId);
-      if (error instanceof TrendExtensionError && error.code === 'extension_missing') {
-        const missing = await recordMissingBrowserCollection('sourcing.tiktok_cc_trend', {});
-        setRunId(missing.runId);
-      }
-      toast.error(error instanceof Error ? error.message : '틱톡 수집 실패');
-    },
+  const collectionOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_tiktok_cc_trends',
+    input: {},
+    snapshotQueryKey,
   });
-
-  const session = useBrowserCollectionSession(runId, { enabled: !collectMutation.isPending });
-
-  useEffect(() => () => {
-    // 페이지가 사라져도 확장 run 은 계속한다. 웹 관찰만 정리한다.
-    abortRef.current?.abort();
-  }, []);
-
-  const running = collectMutation.isPending;
+  const running = collectionOperation.isStarting
+    || (collectionOperation.run !== null
+      && !isTerminalOperationStatus(collectionOperation.run.status));
 
   return (
     <div className="space-y-3">
-      {session.data && (
-        <BrowserCollectionRunControls
-          session={session.data}
-          onWebRestart={async () => {
-            await collectMutation.mutateAsync();
-          }}
-        />
-      )}
+      <SourcingOperationRunPanel
+        run={collectionOperation.run}
+        onCancel={() => { void collectionOperation.cancel(); }}
+        onRetryAttention={() => { void collectionOperation.retryAttention(); }}
+        isCancelling={collectionOperation.isCancelling}
+        isRetrying={collectionOperation.isRetrying}
+      />
       <ViewCard
         icon={Hash}
         title="틱톡 크리에이티브 센터 트렌드"
@@ -218,7 +180,7 @@ function TiktokCcTrendView() {
         action={
           <button
             type="button"
-            onClick={() => collectMutation.mutate()}
+            onClick={() => { void collectionOperation.start({}); }}
             disabled={running}
             className={cn(
               'inline-flex h-8 items-center justify-center gap-1.5 rounded-lg bg-slate-900 px-3 text-xs font-semibold text-white hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-slate-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQuery } from '@tanstack/react-query';
 import {
   ArrowUpRight,
   CheckCircle2,
@@ -11,25 +11,17 @@ import {
   PackageSearch,
   Radio,
 } from 'lucide-react';
-import { toast } from 'sonner';
-import { BrowserCollectionRunControls } from '@/components/browser-collection/BrowserCollectionRunControls';
-import { useBrowserCollectionSession } from '@/hooks/useBrowserCollectionSession';
-import { recordMissingBrowserCollection } from '@/lib/browser-collection-session';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import {
-  collectTaobaoLive,
   fetchLiveCommerceSnapshots,
   fetchLiveCommerceStatus,
   type LiveCommerceSource,
   type LiveCommerceSourceStatus,
 } from '../lib/live-commerce-api';
-import {
-  collectLiveCommerceFromChrome,
-  fetchLiveCommerceExtensionReadiness,
-  LiveCommerceExtensionError,
-  type LiveCommerceExtensionReadiness,
-} from '../lib/live-commerce-extension';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 
 const HISTORY_DAYS = 7;
 
@@ -40,84 +32,50 @@ const SOURCE_META: Record<LiveCommerceSource, { label: string; className: string
 };
 
 export function LiveCommerceSection() {
-  const queryClient = useQueryClient();
   const [taobaoLiveIds, setTaobaoLiveIds] = useState('');
   const [browserUrl, setBrowserUrl] = useState('');
-  const [collectionRunId, setCollectionRunId] = useState<string | null>(null);
-  const collectionSession = useBrowserCollectionSession(collectionRunId);
+  const statusQueryKey = queryKeys.sourcing.liveCommerceStatus();
+  const snapshotsQueryKey = queryKeys.sourcing.liveCommerceSnapshots(HISTORY_DAYS);
+  const snapshotQueryKeys = [statusQueryKey, snapshotsQueryKey] as const;
 
   const statusQuery = useQuery({
-    queryKey: queryKeys.sourcing.liveCommerceStatus(),
+    queryKey: statusQueryKey,
     queryFn: fetchLiveCommerceStatus,
     staleTime: 60 * 1000,
   });
   const snapshotsQuery = useQuery({
-    queryKey: queryKeys.sourcing.liveCommerceSnapshots(HISTORY_DAYS),
+    queryKey: snapshotsQueryKey,
     queryFn: () => fetchLiveCommerceSnapshots(HISTORY_DAYS),
     staleTime: 60 * 1000,
   });
-  const extensionStatusQuery = useQuery({
-    queryKey: queryKeys.sourcing.liveCommerceExtensionStatus(),
-    queryFn: fetchLiveCommerceExtensionReadiness,
-    staleTime: 30 * 1000,
-  });
   const taobaoStatus = statusQuery.data?.sources.find((item) => item.source === 'taobao');
-
-  const refresh = () => {
-    queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.liveCommerceStatus() });
-    queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.liveCommerceExtensionStatus() });
-    queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.liveCommerceSnapshots(HISTORY_DAYS) });
-  };
-
-  const taobaoMutation = useMutation({
-    mutationFn: () => collectTaobaoLive({ liveIds: splitLiveIds(taobaoLiveIds) }),
-    onSuccess: (result) => {
-      refresh();
-      const total = result.broadcastCount + result.productCount;
-      if (result.warnings.length > 0) {
-        toast.warning(`타오바오 ${formatNumber(total)}건 저장 · 일부 API 경고 확인`);
-      } else {
-        toast.success(`타오바오 방송·상품 ${formatNumber(total)}건 저장`);
-      }
-    },
-    onError: (error) => toast.error(errorMessage(error)),
+  const taobaoOperationInput = useMemo(
+    () => ({ liveIds: splitLiveIds(taobaoLiveIds) }),
+    [taobaoLiveIds],
+  );
+  const browserOperationInput = useMemo(
+    () => ({ url: browserUrl.trim() }),
+    [browserUrl],
+  );
+  const taobaoOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_taobao_live',
+    input: taobaoOperationInput,
+    snapshotQueryKey: snapshotsQueryKey,
+    snapshotQueryKeys,
+    wakeBrowserRuntime: false,
   });
-
-  const browserMutation = useMutation({
-    mutationFn: async ({ url, runId }: { url: string; runId?: string }) => {
-      try {
-        return await collectLiveCommerceFromChrome(url, runId);
-      } catch (error) {
-        if (error instanceof LiveCommerceExtensionError && error.runId) {
-          setCollectionRunId(error.runId);
-        }
-        if (
-          error instanceof LiveCommerceExtensionError &&
-          error.code === 'extension_missing'
-        ) {
-          const missing = await recordMissingBrowserCollection('sourcing.live_commerce',
-            liveCommerceInputIdentity(url),
-          );
-          setCollectionRunId(missing.runId);
-        }
-        throw error;
-      }
-    },
-    onSuccess: (result) => {
-      setCollectionRunId(result.runId);
-      refresh();
-      toast.success(`${SOURCE_META[result.source].label} 방송 1개 · 상품 ${formatNumber(result.productCount)}개 저장`);
-    },
-    onError: (error) => {
-      if (
-        error instanceof LiveCommerceExtensionError &&
-        error.code === 'collection_cancelled'
-      ) {
-        return;
-      }
-      toast.error(errorMessage(error));
-    },
+  const browserOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_live_commerce_url',
+    input: browserOperationInput,
+    snapshotQueryKey: snapshotsQueryKey,
+    snapshotQueryKeys,
   });
+  const taobaoRunning = taobaoOperation.isStarting
+    || (taobaoOperation.run !== null
+      && !isTerminalOperationStatus(taobaoOperation.run.status));
+  const browserRunning = browserOperation.isStarting
+    || (browserOperation.run !== null
+      && !isTerminalOperationStatus(browserOperation.run.status));
 
   const productCountByBroadcast = useMemo(() => {
     const counts = new Map<string, number>();
@@ -148,9 +106,6 @@ export function LiveCommerceSection() {
             <SourceStatusCard
               key={status.source}
               status={status}
-              extensionReadiness={status.connection === 'chrome-extension'
-                ? extensionStatusQuery.data ?? { configured: false, message: '확장프로그램 확인 중' }
-                : undefined}
             />
           ))}
           {statusQuery.isLoading && [0, 1, 2].map((item) => (
@@ -177,12 +132,14 @@ export function LiveCommerceSection() {
             />
             <button
               type="button"
-              disabled={!taobaoStatus?.configured || taobaoMutation.isPending}
-              onClick={() => taobaoMutation.mutate()}
+              disabled={!taobaoStatus?.configured || taobaoRunning}
+              onClick={() => {
+                void taobaoOperation.start({ liveIds: splitLiveIds(taobaoLiveIds) });
+              }}
               className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-orange-600 px-3 text-xs font-bold text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {taobaoMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}
-              공식 수집
+              {taobaoRunning ? <Loader2 size={14} className="animate-spin" /> : <Radio size={14} />}
+              {taobaoRunning ? '수집 중…' : '공식 수집'}
             </button>
           </div>
           {taobaoStatus && !taobaoStatus.configured && (
@@ -190,6 +147,14 @@ export function LiveCommerceSection() {
               서버 설정 필요 · {taobaoStatus.missing.join(' · ')}
             </p>
           )}
+          <SourcingOperationRunPanel
+            className="mt-3"
+            run={taobaoOperation.run}
+            onCancel={() => { void taobaoOperation.cancel(); }}
+            onRetryAttention={() => { void taobaoOperation.retryAttention(); }}
+            isCancelling={taobaoOperation.isCancelling}
+            isRetrying={taobaoOperation.isRetrying}
+          />
         </div>
 
         <div className="border-t border-[var(--border)] px-5 py-4 lg:border-t-0">
@@ -209,26 +174,24 @@ export function LiveCommerceSection() {
             />
             <button
               type="button"
-              disabled={!browserUrl.trim() || browserMutation.isPending}
-              onClick={() => browserMutation.mutate({ url: browserUrl })}
+              disabled={!browserUrl.trim() || browserRunning}
+              onClick={() => {
+                void browserOperation.start({ url: browserUrl.trim() });
+              }}
               className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-bold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
-              {browserMutation.isPending ? <Loader2 size={14} className="animate-spin" /> : <PackageSearch size={14} />}
-              방송 수집
+              {browserRunning ? <Loader2 size={14} className="animate-spin" /> : <PackageSearch size={14} />}
+              {browserRunning ? '수집 중…' : '방송 수집'}
             </button>
           </div>
-          {collectionSession.data && (
-            <BrowserCollectionRunControls
-              className="mt-3"
-              session={collectionSession.data}
-              onWebRestart={async (session) => {
-                await browserMutation.mutateAsync({
-                  url: browserUrl,
-                  runId: session.runId,
-                });
-              }}
-            />
-          )}
+          <SourcingOperationRunPanel
+            className="mt-3"
+            run={browserOperation.run}
+            onCancel={() => { void browserOperation.cancel(); }}
+            onRetryAttention={() => { void browserOperation.retryAttention(); }}
+            isCancelling={browserOperation.isCancelling}
+            isRetrying={browserOperation.isRetrying}
+          />
         </div>
       </div>
 
@@ -330,13 +293,11 @@ export function LiveCommerceSection() {
 
 function SourceStatusCard({
   status,
-  extensionReadiness,
 }: {
   status: LiveCommerceSourceStatus;
-  extensionReadiness?: LiveCommerceExtensionReadiness;
 }) {
   const meta = SOURCE_META[status.source];
-  const configured = extensionReadiness?.configured ?? status.configured;
+  const configured = status.configured;
   return (
     <article className="rounded-lg border border-[var(--border)] bg-[var(--surface-sunken)] px-3 py-2.5">
       <div className="flex items-center justify-between gap-2">
@@ -352,7 +313,7 @@ function SourceStatusCard({
       <p className="mt-1 truncate text-[10px] text-[var(--text-tertiary)]">
         {status.latestCapturedAt
           ? `최근 ${formatDateTime(status.latestCapturedAt, { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })}`
-          : extensionReadiness?.message ?? (status.requiresLogin ? '로그인된 방송 URL 필요' : status.missing.join(' · '))}
+          : status.requiresLogin ? '로그인된 방송 URL 필요' : status.missing.join(' · ')}
       </p>
     </article>
   );
@@ -365,25 +326,6 @@ function SourceBadge({ source }: { source: LiveCommerceSource }) {
 
 function splitLiveIds(value: string): string[] {
   return Array.from(new Set(value.split(/[\s,]+/).map((item) => item.trim()).filter(Boolean))).slice(0, 30);
-}
-
-function liveCommerceInputIdentity(urlValue: string): {
-  source: '1688' | 'douyin';
-  pageUrl: string;
-} {
-  const pageUrl = urlValue.trim();
-  let source: '1688' | 'douyin' = 'douyin';
-  try {
-    const url = new URL(pageUrl);
-    const host = url.hostname.toLowerCase();
-    if (host === '1688.com' || host.endsWith('.1688.com')) source = '1688';
-    url.search = '';
-    url.hash = '';
-    return { source, pageUrl: url.toString().slice(0, 500) };
-  } catch {
-    // The extension helper reports the invalid URL; the alert keeps only safe identity.
-  }
-  return { source, pageUrl: pageUrl.slice(0, 500) };
 }
 
 function errorMessage(error: unknown): string {

@@ -14,9 +14,8 @@ import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-si
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
-import { Sourcing1688TrendExtensionController } from "./adapter/in/http/sourcing-1688-trend-extension.controller";
-import { SourcingTiktokCcTrendExtensionController } from "./adapter/in/http/sourcing-tiktok-cc-trend-extension.controller";
-import { SourcingLiveCommerceExtensionController } from "./adapter/in/http/sourcing-live-commerce-extension.controller";
+import { SourcingBrowserTrendOperationController } from "./adapter/in/http/sourcing-browser-trend-operation.controller";
+import { SourcingBrowserLiveCommerceOperationController } from "./adapter/in/http/sourcing-browser-live-commerce-operation.controller";
 import { SourcingKeywordResearchController } from "./adapter/in/http/sourcing-keyword-research.controller";
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
 import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intelligence.controller";
@@ -29,6 +28,7 @@ import { SourcingTrendOperationHandler } from "./adapter/in/operation/sourcing-t
 import { SourcingBrowserOperationHandler } from "./adapter/in/operation/sourcing-browser.operation-handler";
 import { Sourcing1688OperationHandler } from "./adapter/in/operation/sourcing-1688.operation-handler";
 import { SourcingRisingProductOperationHandler } from "./adapter/in/operation/sourcing-rising-product.operation-handler";
+import { SourcingLiveCommerceOperationHandler } from "./adapter/in/operation/sourcing-live-commerce.operation-handler";
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
@@ -56,6 +56,8 @@ import { SourcingCollectionCoordinator } from "./application/service/sourcing-co
 import { TrendCollectService } from "./application/service/trend-collect.service";
 import { TrendQueryService } from "./application/service/trend-query.service";
 import { LiveCommerceService } from "./application/service/live-commerce.service";
+import { SourcingBrowserTrendOperationService } from "./application/service/sourcing-browser-trend-operation.service";
+import { SourcingBrowserLiveCommerceOperationService } from "./application/service/sourcing-browser-live-commerce-operation.service";
 import { NaverDatalabPopularKeywordAdapter } from "./adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "./adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "./adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -147,9 +149,8 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   ],
   controllers: [
     SourcingExtensionIngestController,
-    Sourcing1688TrendExtensionController,
-    SourcingTiktokCcTrendExtensionController,
-    SourcingLiveCommerceExtensionController,
+    SourcingBrowserTrendOperationController,
+    SourcingBrowserLiveCommerceOperationController,
     SourcingKeywordResearchController,
     Sourcing1688SearchResultController,
     SourcingAgentRagController,
@@ -188,8 +189,11 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingDecisionBatchService,
     SourcingCollectionCoordinator,
     TrendCollectService,
+    SourcingBrowserTrendOperationService,
+    SourcingBrowserLiveCommerceOperationService,
     SourcingTrendOperationHandler,
     SourcingBrowserOperationHandler,
+    SourcingLiveCommerceOperationHandler,
     Sourcing1688OperationHandler,
     SourcingRisingProductOperationHandler,
     TrendQueryService,

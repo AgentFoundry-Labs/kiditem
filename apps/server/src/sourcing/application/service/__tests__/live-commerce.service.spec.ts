@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { LiveCommerceService } from '../live-commerce.service';
 import type { TaobaoLivePort } from '../../port/out/provider/taobao-live.port';
@@ -69,61 +68,6 @@ describe('LiveCommerceService', () => {
 
   beforeEach(() => {
     ports = buildService();
-  });
-
-  it('persists a validated Douyin room and deduplicated exposed products', async () => {
-    const result = await ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: 'douyin',
-      pageUrl: 'https://live.douyin.com/123456789',
-      broadcast: {
-        broadcastId: '123456789',
-        title: '문구 라이브',
-        broadcasterName: '문구상점',
-        viewerCount: 1234,
-      },
-      products: [
-        {
-          productId: 'item-1',
-          title: '스티커',
-          priceCny: 2.5,
-          sourceUrl: 'https://haohuo.jinritemai.com/views/product/item?id=item-1',
-        },
-        { productId: 'item-1', title: '중복' },
-      ],
-    });
-
-    expect(result).toEqual(expect.objectContaining({ source: 'douyin', broadcastCount: 1, productCount: 1 }));
-    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([
-      expect.objectContaining({
-        organizationId: ORGANIZATION_ID,
-        source: 'douyin',
-        broadcastId: '123456789',
-        broadcasterName: '문구상점',
-      }),
-    ]);
-    expect(typedRows(ports, 'live_commerce_product')).toEqual([
-      expect.objectContaining({ source: 'douyin', productId: 'item-1', rank: 1 }),
-    ]);
-  });
-
-  it('rejects a source label that does not match the collected page host', async () => {
-    await expect(ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: 'douyin',
-      pageUrl: 'https://zb.1688.com/live/123',
-      broadcast: { broadcastId: '123' },
-      products: [],
-    })).rejects.toBeInstanceOf(BadRequestException);
-    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
-  });
-
-  it('rejects an insecure live page URL before persistence', async () => {
-    await expect(ports.service.ingestExtension(ORGANIZATION_ID, {
-      source: '1688',
-      pageUrl: 'http://zb.1688.com/live/123',
-      broadcast: { broadcastId: '123' },
-      products: [],
-    })).rejects.toBeInstanceOf(BadRequestException);
-    expect(typedRows(ports, 'live_commerce_broadcast')).toEqual([]);
   });
 
   it('persists official Taobao rooms and products under the organization scope', async () => {

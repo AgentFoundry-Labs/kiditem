@@ -9,7 +9,10 @@ import {
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
 import {
+  SOURCING_1688_TREND_OPERATION,
   SOURCING_KEYWORD_SUGGESTION_OPERATION,
+  SOURCING_LIVE_COMMERCE_URL_OPERATION,
+  SOURCING_TIKTOK_CC_TREND_OPERATION,
   SOURCING_WING_CATALOG_OPERATION,
 } from '../../../domain/operation/sourcing.operations';
 
@@ -25,6 +28,9 @@ export class SourcingBrowserOperationHandler
   onModuleInit(): void {
     this.registry.register(SOURCING_WING_CATALOG_OPERATION, this);
     this.registry.register(SOURCING_KEYWORD_SUGGESTION_OPERATION, this);
+    this.registry.register(SOURCING_1688_TREND_OPERATION, this);
+    this.registry.register(SOURCING_TIKTOK_CC_TREND_OPERATION, this);
+    this.registry.register(SOURCING_LIVE_COMMERCE_URL_OPERATION, this);
   }
 
   async execute(

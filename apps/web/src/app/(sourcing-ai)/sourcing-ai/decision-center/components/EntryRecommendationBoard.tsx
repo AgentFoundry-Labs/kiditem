@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
@@ -16,7 +17,6 @@ import {
   type EntryRecommendation,
   type EntrySourceStatus,
 } from '../lib/entry-recommendation-api';
-import { collectInterestKeywordsFrom1688 } from '../lib/collect-interest-1688';
 import {
   toEntryInterestKeywordStatuses,
   toEntryRecommendations,
@@ -30,7 +30,10 @@ import {
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 import { SourcingReadState } from '../../components/SourcingReadState';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
 import { SourcingAssistantPanel, type AssistantTurn } from './SourcingAssistantPanel';
@@ -115,39 +118,6 @@ export function EntryRecommendationBoard() {
     });
   }, [organizationId, queryClient, refreshRecommendations, run]);
 
-  /**
-   * 관심 키워드로 1688 공급 후보를 확장 프로그램으로 수집한다.
-   *
-   * 서버가 아니라 확장이 도는 이유는 `collect-interest-1688.ts` 주석 참고.
-   * 슬라이더 검증이 뜨면 확장이 탭을 열어 두고 운영자에게 넘기므로, 그 사유를
-   * 삼키지 않고 토스트로 그대로 전달한다.
-   */
-  const collectInterestMutation = useMutation({
-    mutationFn: () =>
-      collectInterestKeywordsFrom1688(
-        interestKeywords
-          .filter((entry) => entry.state !== 'candidates')
-          .map((entry) => entry.keyword),
-      ),
-    onSuccess: (result) => {
-      if (result.merged > 0) {
-        // "추가"가 아니라 "반영" — 병합 후 중복이 제거되므로 순증가분과 다를 수 있다.
-        toast.success(`관심 키워드 수집 완료 — 후보 ${result.merged}건을 표에 반영했습니다.`);
-      } else {
-        toast.warning('수집은 끝났지만 표에 반영할 후보가 없었습니다.');
-      }
-      for (const error of result.errors.slice(0, 3)) {
-        toast.error(`${error.keyword}: ${error.message}`);
-      }
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-      });
-    },
-    onError: (error: unknown) => {
-      toast.error(error instanceof Error ? error.message : '관심 키워드 수집에 실패했습니다.');
-    },
-  });
-
   const assistantMutation = useMutation({
     mutationFn: (question: string) =>
       askSourcingAssistant({
@@ -208,6 +178,40 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
+  const missingInterestKeywordIdentities = useMemo(
+    () => new Set(
+      interestKeywords
+        .filter((entry) => entry.state !== 'candidates')
+        .map((entry) => sourcingWingCatalogKeywordIdentity(entry.keyword)),
+    ),
+    [interestKeywords],
+  );
+  const interestOperationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      [
+        ...interestTargets.map((target) => target.keyword ?? target.label),
+        ...interestKeywords.map((entry) => entry.keyword),
+      ].filter((keyword) =>
+        missingInterestKeywordIdentities.has(sourcingWingCatalogKeywordIdentity(keyword))),
+      20,
+    ),
+    [interestKeywords, interestTargets, missingInterestKeywordIdentities],
+  );
+  const interestOperationInput = useMemo(
+    () => interestOperationKeywords.length > 0
+      ? { keywords: interestOperationKeywords }
+      : {},
+    [interestOperationKeywords],
+  );
+  const interestCollectionOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_1688_trends',
+    input: interestOperationInput,
+    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+  });
+  const interestCollectionActive =
+    interestCollectionOperation.isStarting
+    || (interestCollectionOperation.run !== null
+      && !isTerminalOperationStatus(interestCollectionOperation.run.status));
   const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
   const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
@@ -284,9 +288,20 @@ export function EntryRecommendationBoard() {
           filter={interestFilter}
           interestCount={interestCount}
           totalCount={visibleItems.length}
-          isCollecting={collectInterestMutation.isPending}
-          onCollect={() => collectInterestMutation.mutate()}
+          isCollecting={interestCollectionActive}
+          onCollect={() => {
+            if (interestOperationKeywords.length === 0) return;
+            void interestCollectionOperation.start({ keywords: interestOperationKeywords });
+          }}
           onFilterChange={setInterestFilter}
+        />
+
+        <SourcingOperationRunPanel
+          run={interestCollectionOperation.run}
+          onCancel={() => { void interestCollectionOperation.cancel(); }}
+          onRetryAttention={() => { void interestCollectionOperation.retryAttention(); }}
+          isCancelling={interestCollectionOperation.isCancelling}
+          isRetrying={interestCollectionOperation.isRetrying}
         />
 
         {activeItem && (

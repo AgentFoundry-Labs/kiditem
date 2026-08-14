@@ -321,27 +321,37 @@ test('수집 세션 공통 액션에 도메인 워커가 경쟁 응답하지 않
   }
 });
 
-test('도메인 고유 액션은 그 도메인 워커만 받는다', () => {
-  const { fake } = bootServiceWorker();
+test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge는 받지 않는다', () => {
+  const { fake, context } = bootServiceWorker();
 
-  // 각 도메인에서 하나씩. 소유 워커만 채널을 연다.
-  for (const message of [
-    { action: 'collectKakaoOrders', date: '2026-07-15' },
-    {
-      action: 'start1688TrendCollection',
-      runId: '11111111-1111-4111-8111-111111111111',
-      keywords: ['테스트'],
-    },
-  ]) {
-    let keptAlive = 0;
-    for (const listener of fake.externalMessageListeners) {
-      const result = listener(
-        message,
-        { url: 'http://localhost:3000/order-collection' },
-        () => {},
-      );
-      if (result === true) keptAlive += 1;
-    }
-    assert.equal(keptAlive, 1, `${message.action}: 소유 워커 하나만 처리해야 한다`);
+  let orderKeptAlive = 0;
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      { action: 'collectKakaoOrders', date: '2026-07-15' },
+      { url: 'http://localhost:3000/order-collection' },
+      () => {},
+    );
+    if (result === true) orderKeptAlive += 1;
   }
+  assert.equal(orderKeptAlive, 1, 'collectKakaoOrders: 소유 워커 하나만 처리해야 한다');
+
+  let sourcingBridgeKeptAlive = 0;
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      {
+        action: 'start1688TrendCollection',
+        runId: '11111111-1111-4111-8111-111111111111',
+        keywords: ['테스트'],
+      },
+      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
+      () => {},
+    );
+    if (result === true) sourcingBridgeKeptAlive += 1;
+  }
+  assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_1688_trends'),
+    'function',
+    '소싱은 exact browser Operation handler로만 등록한다',
+  );
 });

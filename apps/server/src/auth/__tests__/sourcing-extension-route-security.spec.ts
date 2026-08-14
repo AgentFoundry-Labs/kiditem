@@ -4,8 +4,8 @@ import { resolve } from 'node:path';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiApplicationModule } from '../../api-application.module';
-import { Sourcing1688TrendExtensionController } from '../../sourcing/adapter/in/http/sourcing-1688-trend-extension.controller';
-import { SourcingLiveCommerceExtensionController } from '../../sourcing/adapter/in/http/sourcing-live-commerce-extension.controller';
+import { SourcingBrowserTrendOperationController } from '../../sourcing/adapter/in/http/sourcing-browser-trend-operation.controller';
+import { SourcingBrowserLiveCommerceOperationController } from '../../sourcing/adapter/in/http/sourcing-browser-live-commerce-operation.controller';
 import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
 
 describe('sourcing extension route security wiring', () => {
@@ -33,13 +33,14 @@ describe('sourcing extension route security wiring', () => {
   });
 
   it.each([
-    [Sourcing1688TrendExtensionController, 'ingest1688Results', '1688-results'],
-    [SourcingLiveCommerceExtensionController, 'ingest', 'live-commerce-results'],
+    [SourcingBrowserTrendOperationController, 'ingest1688Results', '1688-trends/:runId/results'],
+    [SourcingBrowserTrendOperationController, 'ingestTiktokCcResults', 'tiktok-cc-trends/:runId/results'],
+    [SourcingBrowserLiveCommerceOperationController, 'ingestResults', 'live-commerce/:runId/results'],
   ])(
-    'keeps %s.%s on the globally authenticated sourcing trend route',
+    'keeps %s.%s on the globally authenticated sourcing operation route',
     (controller, handlerName, handlerPath) => {
       expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(
-        'sourcing/extension/trend',
+        'sourcing/operations',
       );
       expect(
         Reflect.getMetadata(

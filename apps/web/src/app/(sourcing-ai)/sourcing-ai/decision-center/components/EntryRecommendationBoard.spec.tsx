@@ -17,10 +17,33 @@ import { EntryRecommendationBoard } from './EntryRecommendationBoard';
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
 const ITEM_A_KEY = 'a'.repeat(64);
 const ITEM_B_KEY = 'b'.repeat(64);
+const operationMocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  cancel: vi.fn(),
+  retryAttention: vi.fn(),
+  useAction: vi.fn(),
+}));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
 vi.mock('@/hooks/useOperationRun', () => ({ useOperationRun: vi.fn() }));
 vi.mock('@/lib/manual-operation-actions', () => ({ startTrendCollectionAction: vi.fn() }));
+vi.mock('../../hooks/use-sourcing-operation-action', () => ({
+  useSourcingOperationAction: operationMocks.useAction,
+}));
+vi.mock('../../components/SourcingOperationRunPanel', () => ({
+  SourcingOperationRunPanel: ({
+    onCancel,
+    onRetryAttention,
+  }: {
+    onCancel?: () => void;
+    onRetryAttention?: () => void;
+  }) => (
+    <div>
+      <button type="button" onClick={onCancel}>interest-operation-cancel</button>
+      <button type="button" onClick={onRetryAttention}>interest-operation-retry</button>
+    </div>
+  ),
+}));
 vi.mock('../lib/entry-recommendation-api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/entry-recommendation-api')>();
   return { ...actual, askSourcingAssistant: vi.fn() };
@@ -44,6 +67,17 @@ function renderBoard() {
 
 describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
+    operationMocks.start.mockResolvedValue({ id: 'operation-1688' });
+    operationMocks.useAction.mockReturnValue({
+      run: null,
+      start: operationMocks.start,
+      cancel: operationMocks.cancel,
+      retryAttention: operationMocks.retryAttention,
+      isStarting: false,
+      isCancelling: false,
+      isRetrying: false,
+    });
     vi.mocked(askSourcingAssistant).mockReset();
     vi.mocked(useAuth).mockReturnValue({
       user: { organizationId: 'org-a' },
@@ -119,6 +153,78 @@ describe('EntryRecommendationBoard review state', () => {
     expect(askSourcingAssistant).toHaveBeenNthCalledWith(2, expect.objectContaining({
       question: '두 번째 질문',
       conversationId: 'conversation-1',
+    }));
+  });
+
+  it('reads the persisted entry snapshot on mount and starts the exact 1688 operation only from the missing-supply CTA', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [{
+        targetType: 'keyword',
+        sourceKeys: ['manual'],
+        label: '미수집 키워드',
+        keyword: '미수집 키워드',
+      }],
+    } as never);
+
+    const view = renderBoard();
+
+    expect(operationMocks.start).not.toHaveBeenCalled();
+    expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
+    expect(operationMocks.useAction).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: 'sourcing.collect_1688_trends',
+      snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
+    }));
+
+    await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
+
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({
+      keywords: ['미수집 키워드'],
+    }));
+    expect(screen.getByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
+
+    await user.click(screen.getByRole('button', { name: 'interest-operation-cancel' }));
+    await user.click(screen.getByRole('button', { name: 'interest-operation-retry' }));
+    expect(operationMocks.cancel).toHaveBeenCalledTimes(1);
+    expect(operationMocks.retryAttention).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    renderBoard();
+    expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
+    expect(operationMocks.start).toHaveBeenCalledTimes(1);
+  });
+
+  it('bounds the explicit 1688 CTA to twenty normalized unique interest keywords', async () => {
+    const user = userEvent.setup();
+    const uniqueKeywords = Array.from({ length: 21 }, (_, index) => `키워드 ${index + 1}`);
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [
+        {
+          targetType: 'keyword',
+          sourceKeys: ['manual'],
+          label: '  Ａ   Pencil ',
+          keyword: '  Ａ   Pencil ',
+        },
+        {
+          targetType: 'keyword',
+          sourceKeys: ['manual'],
+          label: 'a pencil',
+          keyword: 'a pencil',
+        },
+        ...uniqueKeywords.map((keyword) => ({
+          targetType: 'keyword' as const,
+          sourceKeys: ['manual'],
+          label: keyword,
+          keyword,
+        })),
+      ],
+    } as never);
+
+    renderBoard();
+    await user.click(await screen.findByRole('button', { name: /1688 공급 찾기/ }));
+
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith({
+      keywords: ['A Pencil', ...uniqueKeywords.slice(0, 19)],
     }));
   });
 });

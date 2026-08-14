@@ -15,6 +15,43 @@ export const SourcingDailyTrendInputSchema = z
 
 const SourcingTrendSourceInputSchema = z.object({}).strict();
 
+export const Sourcing1688TrendInputSchema = z
+  .object({
+    keywords: z.array(z.string().trim().min(1).max(120)).min(1).max(20).optional(),
+  })
+  .strict();
+
+export const SourcingTiktokCcTrendInputSchema = z
+  .object({
+    maxItems: z.number().int().min(1).max(100).optional(),
+    region: z.string().trim().min(2).max(12).optional(),
+  })
+  .strict();
+
+export const SourcingLiveCommerceUrlInputSchema = z
+  .object({
+    url: z.string().url().refine(
+      (value) => {
+        const parsed = new URL(value);
+        if (parsed.protocol !== 'https:') return false;
+        const hostname = parsed.hostname.toLowerCase();
+        return hostname === 'live.douyin.com'
+          || hostname.endsWith('.live.douyin.com')
+          || hostname === 'zb.1688.com'
+          || hostname.endsWith('.zb.1688.com');
+      },
+      { message: 'live_commerce_url_host_invalid' },
+    ),
+  })
+  .strict();
+
+export const SourcingTaobaoLiveInputSchema = z
+  .object({
+    liveIds: z.array(z.string().trim().min(1).max(120)).max(50).optional(),
+    queryDate: z.string().trim().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  })
+  .strict();
+
 export const SourcingRisingProductInputSchema = z
   .object({
     windowDays: z.number().int().min(2).max(60).optional(),
@@ -55,13 +92,13 @@ export const SOURCING_1688_TREND_OPERATION = {
   version: 1,
   title: '1688 트렌드 수집',
   ownerDomain: 'sourcing',
-  engineType: 'domain',
+  engineType: 'browser',
   allowedTriggers: ['dashboard', 'domain_screen', 'agent', 'schedule'],
   scheduleSupported: false,
   maxAttempts: 3,
   resourceClass: 'playwright_1688',
   executionTimeoutMs: 15 * 60_000,
-  inputSchema: SourcingTrendSourceInputSchema,
+  inputSchema: Sourcing1688TrendInputSchema,
 } as const satisfies OperationDefinition;
 
 export const SOURCING_SHORTS_TREND_OPERATION = {
@@ -76,6 +113,48 @@ export const SOURCING_SHORTS_TREND_OPERATION = {
   resourceClass: 'default',
   executionTimeoutMs: 15 * 60_000,
   inputSchema: SourcingTrendSourceInputSchema,
+} as const satisfies OperationDefinition;
+
+export const SOURCING_TIKTOK_CC_TREND_OPERATION = {
+  key: 'sourcing.collect_tiktok_cc_trends',
+  version: 1,
+  title: '틱톡 크리에이티브 센터 트렌드 수집',
+  ownerDomain: 'sourcing',
+  engineType: 'browser',
+  allowedTriggers: ['dashboard', 'domain_screen'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: SourcingTiktokCcTrendInputSchema,
+} as const satisfies OperationDefinition;
+
+export const SOURCING_LIVE_COMMERCE_URL_OPERATION = {
+  key: 'sourcing.collect_live_commerce_url',
+  version: 1,
+  title: '중국 라이브 방송 수집',
+  ownerDomain: 'sourcing',
+  engineType: 'browser',
+  allowedTriggers: ['dashboard', 'domain_screen'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: SourcingLiveCommerceUrlInputSchema,
+} as const satisfies OperationDefinition;
+
+export const SOURCING_TAOBAO_LIVE_OPERATION = {
+  key: 'sourcing.collect_taobao_live',
+  version: 1,
+  title: '타오바오 라이브 수집',
+  ownerDomain: 'sourcing',
+  engineType: 'domain',
+  allowedTriggers: ['dashboard', 'domain_screen'],
+  scheduleSupported: false,
+  maxAttempts: 3,
+  resourceClass: 'default',
+  executionTimeoutMs: 15 * 60_000,
+  inputSchema: SourcingTaobaoLiveInputSchema,
 } as const satisfies OperationDefinition;
 
 export const SOURCING_RISING_PRODUCT_OPERATION = {
@@ -96,6 +175,12 @@ export const SOURCING_TREND_OPERATIONS = [
   SOURCING_DAILY_TREND_OPERATION,
   SOURCING_NAVER_TREND_OPERATION,
   SOURCING_1688_TREND_OPERATION,
+  SOURCING_SHORTS_TREND_OPERATION,
+] as const satisfies readonly OperationDefinition[];
+
+export const SOURCING_SERVER_TREND_OPERATIONS = [
+  SOURCING_DAILY_TREND_OPERATION,
+  SOURCING_NAVER_TREND_OPERATION,
   SOURCING_SHORTS_TREND_OPERATION,
 ] as const satisfies readonly OperationDefinition[];
 
@@ -157,6 +242,9 @@ export const SOURCING_1688_IMAGE_MATCH_OPERATION = {
 
 export const SOURCING_OPERATIONS = [
   ...SOURCING_TREND_OPERATIONS,
+  SOURCING_TIKTOK_CC_TREND_OPERATION,
+  SOURCING_LIVE_COMMERCE_URL_OPERATION,
+  SOURCING_TAOBAO_LIVE_OPERATION,
   SOURCING_RISING_PRODUCT_OPERATION,
   SOURCING_WING_CATALOG_OPERATION,
   SOURCING_KEYWORD_SUGGESTION_OPERATION,

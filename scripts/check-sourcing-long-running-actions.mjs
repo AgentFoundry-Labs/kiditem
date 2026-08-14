@@ -10,11 +10,29 @@ const RETIRED_DIRECT_EXTENSION_HELPERS = [
   'runCompetitorSellerCollection',
   'search1688ByKeyword',
   'search1688ByImage',
+  'collectInterestKeywordsFrom1688',
+  'collect1688TrendsFromChrome',
+  'collectTiktokCcFromChrome',
+  'collectLiveCommerceFromChrome',
+  'collectTaobaoLive',
 ];
 
 const RETIRED_DIRECT_EXTENSION_MODULES = [
   'wing-catalog-extension',
   'coupang-keyword-extension',
+  'collect-interest-1688',
+  '1688-trend-extension',
+  'tiktok-cc-trend-extension',
+];
+
+const RETIRED_DIRECT_EXTENSION_ACTIONS = [
+  'start1688TrendCollection',
+  'get1688TrendCollectionStatus',
+  'cancel1688TrendCollection',
+  'startTiktokCcCollection',
+  'getTiktokCcCollectionStatus',
+  'cancelTiktokCcCollection',
+  'collectLiveCommerceUrl',
 ];
 
 function repoRoot() {
@@ -100,6 +118,58 @@ function findMatchingDelimiter(source, start, open, close) {
   return -1;
 }
 
+function findTopLevelComma(source) {
+  const expectedClosers = [];
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+
+  for (let index = 0; index < source.length; index += 1) {
+    const current = source[index];
+    const next = source[index + 1];
+
+    if (lineComment) {
+      if (current === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (current === '*' && next === '/') {
+        blockComment = false;
+        index += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (current === '\\') {
+        index += 1;
+      } else if (current === quote) {
+        quote = null;
+      }
+      continue;
+    }
+    if (current === '/' && next === '/') {
+      lineComment = true;
+      index += 1;
+      continue;
+    }
+    if (current === '/' && next === '*') {
+      blockComment = true;
+      index += 1;
+      continue;
+    }
+    if (current === '\'' || current === '"' || current === '`') {
+      quote = current;
+      continue;
+    }
+    if (current === '(') expectedClosers.push(')');
+    else if (current === '[') expectedClosers.push(']');
+    else if (current === '{') expectedClosers.push('}');
+    else if (current === expectedClosers.at(-1)) expectedClosers.pop();
+    else if (current === ',' && expectedClosers.length === 0) return index;
+  }
+  return -1;
+}
+
 function findEffectBodies(source) {
   const bodies = [];
   const effectPattern = /\buseEffect\s*\(/g;
@@ -113,10 +183,15 @@ function findEffectBodies(source) {
     const arrow = callback.indexOf('=>');
     if (arrow === -1) continue;
     const afterArrow = callback.slice(arrow + 2).trimStart();
-    if (!afterArrow.startsWith('{')) continue;
-    const bodyEnd = findMatchingDelimiter(afterArrow, 0, '{', '}');
-    if (bodyEnd === -1) continue;
-    bodies.push(afterArrow.slice(1, bodyEnd));
+    if (afterArrow.startsWith('{')) {
+      const bodyEnd = findMatchingDelimiter(afterArrow, 0, '{', '}');
+      if (bodyEnd === -1) continue;
+      bodies.push(afterArrow.slice(1, bodyEnd));
+      continue;
+    }
+    const comma = findTopLevelComma(afterArrow);
+    const expression = afterArrow.slice(0, comma === -1 ? undefined : comma).trim();
+    if (expression) bodies.push(expression);
   }
   return bodies;
 }
@@ -140,12 +215,32 @@ function hasCall(source, name) {
 function isRetiredExtensionImport(source) {
   return RETIRED_DIRECT_EXTENSION_MODULES.some((moduleName) =>
     new RegExp(`\\bfrom\\s*['\"][^'\"]*${moduleName}['\"]`).test(source),
+  ) || RETIRED_DIRECT_EXTENSION_HELPERS.some((helper) =>
+    new RegExp(`\\bimport\\s*\\{[^}]*\\b${helper}\\b[^}]*\\}`).test(source),
+  );
+}
+
+function hasRetiredExtensionAction(source) {
+  return RETIRED_DIRECT_EXTENSION_ACTIONS.some((action) =>
+    new RegExp(`\\baction\\s*:\\s*['\"]${action}['\"]`).test(source),
   );
 }
 
 function hasDirect1688Execution(source) {
   if (!/Sourcing1688(?:Keyword|Image)SearchService/.test(source)) return false;
   return /\bthis\.[A-Za-z_$][\w$]*\.(?:searchForOperation|searchByKeyword|searchByImage|resolveTargets|detect)\s*\(/.test(source);
+}
+
+function hasLegacyDirectCollectionPost(source) {
+  return [
+    ['taobao/collect', 'collectTaobao'],
+    ['1688-results', 'ingest1688ExtensionResults'],
+    ['tiktok-cc-results', 'ingestTiktokCcResults'],
+    ['live-commerce-results', 'ingestExtension'],
+  ].some(([route, method]) =>
+    new RegExp(`@Post\\s*\\(\\s*['\"]${route}['\"]\\s*\\)`).test(source)
+      && new RegExp(`\\bthis\\.[A-Za-z_$][\\w$]*\\.${method}\\s*\\(`).test(source),
+  );
 }
 
 export function analyzeSourcingLongRunningActions({
@@ -163,14 +258,17 @@ export function analyzeSourcingLongRunningActions({
       ));
     }
 
-    for (const helper of RETIRED_DIRECT_EXTENSION_HELPERS) {
-      if (hasCall(file.source, helper)) {
-        findings.push(finding(
-          'retired_direct_extension_call',
-          file.path,
-          `Retired direct collection helper ${helper} may not be called.`,
-        ));
-      }
+    const helper = RETIRED_DIRECT_EXTENSION_HELPERS.find((candidate) =>
+      hasCall(file.source, candidate),
+    );
+    if (helper || hasRetiredExtensionAction(file.source)) {
+      findings.push(finding(
+        'retired_direct_extension_call',
+        file.path,
+        helper
+          ? `Retired direct collection helper ${helper} may not be called.`
+          : 'Retired direct collection extension actions may not be dispatched.',
+      ));
     }
 
     if (
@@ -208,6 +306,13 @@ export function analyzeSourcingLongRunningActions({
         'direct_1688_service_execution_from_http_controller',
         file.path,
         '1688 provider execution belongs to its owner operation handler, not an HTTP controller.',
+      ));
+    }
+    if (file.path.includes('/adapter/in/http/') && hasLegacyDirectCollectionPost(file.source)) {
+      findings.push(finding(
+        'legacy_direct_collection_post',
+        file.path,
+        'Collection starts and owner ingest must use fixed Operations routes, not legacy direct POST endpoints.',
       ));
     }
     if (/\blatestOrDetect\b/.test(file.source)) {

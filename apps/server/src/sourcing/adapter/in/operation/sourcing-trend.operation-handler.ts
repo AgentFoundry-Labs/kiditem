@@ -17,7 +17,7 @@ import {
   type TrendCollectionPort,
 } from '../../../application/port/in/trend-collection.port';
 import {
-  SOURCING_TREND_OPERATIONS,
+  SOURCING_SERVER_TREND_OPERATIONS,
 } from '../../../domain/operation/sourcing.operations';
 import type { TrendCollectSource } from '../../../application/service/trend-collect.service';
 import type { OperationRunRecord } from '../../../../operations/application/port/out/repository/operation.repository.port';
@@ -29,13 +29,14 @@ import type {
 } from '../../../../common/operation-definition';
 
 const SOURCE_ORDER = ['naver', '1688', 'shorts'] as const;
+const SERVER_SOURCE_ORDER = ['naver', 'shorts'] as const;
 const OPERATION_KEY_BY_SOURCE = {
   naver: 'sourcing.collect_naver_trends',
   '1688': 'sourcing.collect_1688_trends',
   shorts: 'sourcing.collect_shorts_trends',
 } as const satisfies Record<TrendCollectSource, string>;
 const SOURCE_BY_OPERATION_KEY = new Map<string, TrendCollectSource>(
-  SOURCE_ORDER.map((source) => [OPERATION_KEY_BY_SOURCE[source], source]),
+  SERVER_SOURCE_ORDER.map((source) => [OPERATION_KEY_BY_SOURCE[source], source]),
 );
 
 interface TrendSourceSummary {
@@ -59,7 +60,7 @@ export class SourcingTrendOperationHandler
   ) {}
 
   onModuleInit(): void {
-    for (const definition of SOURCING_TREND_OPERATIONS) {
+    for (const definition of SOURCING_SERVER_TREND_OPERATIONS) {
       this.registry.register(definition, this);
     }
   }

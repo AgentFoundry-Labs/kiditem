@@ -4,7 +4,7 @@ import { SOURCING_OPERATIONS } from '../../../../domain/operation/sourcing.opera
 import { SourcingBrowserOperationHandler } from '../sourcing-browser.operation-handler';
 
 describe('SourcingBrowserOperationHandler', () => {
-  it('registers the exact Wing and keyword browser operations and waits for the runtime', async () => {
+  it('registers exact sourcing browser operations and waits for the runtime', async () => {
     const registry = new OperationHandlerRegistryService();
     const handler = new SourcingBrowserOperationHandler(registry);
     handler.onModuleInit();
@@ -25,6 +25,11 @@ describe('SourcingBrowserOperationHandler', () => {
     expect(registry.listDefinitions().map((item) => item.key)).toContain(
       'sourcing.collect_keyword_suggestions',
     );
+    expect(registry.listDefinitions().map((item) => item.key)).toEqual(expect.arrayContaining([
+      'sourcing.collect_1688_trends',
+      'sourcing.collect_tiktok_cc_trends',
+      'sourcing.collect_live_commerce_url',
+    ]));
     await expect(handler.execute({} as never)).resolves.toEqual({
       kind: 'waiting_runtime',
     });

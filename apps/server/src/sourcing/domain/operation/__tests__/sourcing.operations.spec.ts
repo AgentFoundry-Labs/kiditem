@@ -27,7 +27,7 @@ describe('Sourcing Operations', () => {
       }),
       expect.objectContaining({
         key: 'sourcing.collect_1688_trends',
-        engineType: 'domain',
+        engineType: 'browser',
         resourceClass: 'playwright_1688',
         executionTimeoutMs: 15 * 60_000,
       }),
@@ -37,7 +37,51 @@ describe('Sourcing Operations', () => {
         resourceClass: 'default',
         executionTimeoutMs: 15 * 60_000,
       }),
+      expect.objectContaining({
+        key: 'sourcing.collect_tiktok_cc_trends',
+        engineType: 'browser',
+        resourceClass: 'default',
+        executionTimeoutMs: 15 * 60_000,
+      }),
     ]);
+  });
+
+  it('registers exact browser and domain live-source collection operations', () => {
+    const tiktok = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_tiktok_cc_trends',
+    );
+    const browserLive = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_live_commerce_url',
+    );
+    const taobao = SOURCING_OPERATIONS.find(
+      (operation) => operation.key === 'sourcing.collect_taobao_live',
+    );
+
+    expect(tiktok).toMatchObject({
+      engineType: 'browser',
+      ownerDomain: 'sourcing',
+      scheduleSupported: false,
+    });
+    expect(browserLive).toMatchObject({
+      engineType: 'browser',
+      ownerDomain: 'sourcing',
+      scheduleSupported: false,
+    });
+    expect(taobao).toMatchObject({
+      engineType: 'domain',
+      ownerDomain: 'sourcing',
+      scheduleSupported: false,
+    });
+    expect(tiktok?.inputSchema.parse({ maxItems: 100, region: 'KR' }))
+      .toEqual({ maxItems: 100, region: 'KR' });
+    expect(browserLive?.inputSchema.safeParse({ url: 'https://live.douyin.com/123' }).success)
+      .toBe(true);
+    expect(browserLive?.inputSchema.safeParse({ url: 'http://live.douyin.com/123' }).success)
+      .toBe(false);
+    expect(browserLive?.inputSchema.safeParse({ url: 'https://example.com/123' }).success)
+      .toBe(false);
+    expect(taobao?.inputSchema.parse({ liveIds: ['123', '456'] }))
+      .toEqual({ liveIds: ['123', '456'] });
   });
 
   it('registers the exact keyword suggestion browser operation', () => {

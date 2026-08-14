@@ -143,18 +143,16 @@ function setup(input?: {
 }
 
 describe('SourcingTrendOperationHandler', () => {
-  it('registers the composite parent and all exact source child definitions', () => {
+  it('registers the composite parent and server-owned source child definitions', () => {
     const { registry } = setup();
 
     expect([
       'sourcing.collect_daily_trends',
       'sourcing.collect_naver_trends',
-      'sourcing.collect_1688_trends',
       'sourcing.collect_shorts_trends',
     ].map((key) => registry.getDefinition(key).resourceClass)).toEqual([
       'default',
       'naver_api',
-      'playwright_1688',
       'default',
     ]);
   });
@@ -222,36 +220,16 @@ describe('SourcingTrendOperationHandler', () => {
     );
   });
 
-  it('returns a canonical partial child result with a bounded error code and no raw provider error', async () => {
-    const { handler } = setup({
-      sourceResult: {
-        businessDate: '2026-08-01',
-        source: '1688',
-        ok: false,
-        collected: 4,
-        error: 'raw provider detail must not enter the operation result',
-      },
-    });
+  it('never falls back to server 1688 collection after the daily child becomes browser-owned', async () => {
+    const { handler, collector } = setup();
 
-    const execution = await handler.execute(operationContext({
+    await expect(handler.execute(operationContext({
       operationKey: 'sourcing.collect_1688_trends',
       input: {},
       parentRunId: RUN_ID,
-    }));
+    }))).rejects.toThrow('trend_operation_key_invalid');
 
-    expect(execution).toEqual({
-      kind: 'completed',
-      result: canonicalSourceResult(
-        '1688',
-        'partial',
-        4,
-        1,
-        'trend_source_partial',
-      ),
-    });
-    if (execution.kind !== 'completed') throw new Error('expected completed result');
-    expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
-    expect(JSON.stringify(execution.result)).not.toContain('raw provider detail');
+    expect(collector.collectSource).not.toHaveBeenCalled();
   });
 
   it('returns no_change when a source completes without persisted observations', async () => {
@@ -276,33 +254,6 @@ describe('SourcingTrendOperationHandler', () => {
     });
     if (execution.kind !== 'completed') throw new Error('expected completed result');
     expect(SourcingOperationResultSchema.parse(execution.result)).toEqual(execution.result);
-  });
-
-  it('returns attention for a blocked 1688 child without exposing rows', async () => {
-    const { handler } = setup({
-      sourceResult: {
-        businessDate: '2026-08-01',
-        source: '1688',
-        ok: false,
-        collected: 0,
-        error: '1688 로그인/슬라이더 검증이 필요합니다.',
-      },
-    });
-
-    await expect(handler.execute(operationContext({
-      operationKey: 'sourcing.collect_1688_trends',
-      input: {},
-      parentRunId: RUN_ID,
-    }))).resolves.toEqual({
-      kind: 'attention_required',
-      reason: '1688 로그인/슬라이더 검증이 필요합니다.',
-      result: {
-        businessDate: '2026-08-01',
-        source: '1688',
-        ok: false,
-        collected: 0,
-      },
-    });
   });
 
   it('aggregates the exact all-settled child set in fixed source order', async () => {
