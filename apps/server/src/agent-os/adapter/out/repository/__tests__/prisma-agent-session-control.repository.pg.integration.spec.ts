@@ -149,6 +149,32 @@ describe('PrismaAgentSessionControlRepository', () => {
     })).resolves.toBe(false);
   });
 
+  it('allows an active official execution to invoke a declared read capability while its root task is interpreting', async () => {
+    const fixture = await createRootGraph();
+    await prisma!.$transaction([
+      prisma!.agentSessionTask.update({
+        where: { id: fixture.taskId },
+        data: { status: 'interpreting', assignedAgentVersionId: VERSION_TO },
+      }),
+      prisma!.agentPolicySnapshot.update({
+        where: { id: fixture.policyId },
+        data: { agentVersionId: VERSION_TO },
+      }),
+      prisma!.agentExecution.update({
+        where: { id: fixture.executionId },
+        data: { agentVersionId: VERSION_TO },
+      }),
+    ]);
+
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: fixture.taskId,
+      executionId: fixture.executionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(true);
+  });
+
   it('rejects an idempotency key reused with different delegated input', async () => {
     const fixture = await createRootGraph();
     const input = {
@@ -647,6 +673,7 @@ async function seedControlFixture(client: PrismaClient): Promise<void> {
 async function createRootGraph(): Promise<{
   sessionId: string;
   taskId: string;
+  policyId: string;
   executionId: string;
 }> {
   if (!prisma) throw new Error('Prisma test client was not initialized');
@@ -725,7 +752,7 @@ async function createRootGraph(): Promise<{
     where: { id: session.id },
     data: { lastEventSequence: 1n },
   });
-  return { sessionId: session.id, taskId: task.id, executionId: execution.id };
+  return { sessionId: session.id, taskId: task.id, policyId: policy.id, executionId: execution.id };
 }
 
 function canonicalJson(value: unknown): string {

@@ -1057,7 +1057,7 @@ npm run test:integration --workspace=apps/server -- \
   src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts
 npx playwright test apps/web/e2e/interaction-os/durable-session.spec.ts
 node deploy/interaction-gateway/smoke-official-recovery.mjs
-npm run check:conversation-boundary
+npm run check:agent-interaction-lifecycle
 npm run check:copilotkit-train
 npm run check:idor
 npm run check:tenant-scope

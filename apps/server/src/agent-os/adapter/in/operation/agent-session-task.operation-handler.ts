@@ -263,6 +263,7 @@ export class AgentSessionTaskOperationHandler
       organizationId: context.organizationId,
       operationRunId: context.runId,
     });
+    if (latest?.kind === 'terminal') return;
     const handle = latest ? handleFromState(latest.state) : null;
     if (handle) {
       if (

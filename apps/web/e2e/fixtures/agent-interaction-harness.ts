@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,14 +17,21 @@ import { AgentInteractionControlController } from '../../../server/dist/agent-os
 import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-actions.controller.js';
 import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction-gateway.guard.js';
 import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/agent-capability-invocation.port.js';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os/application/port/out/event/agent-conversation-live-publisher.port.js';
 import { AGENT_INTERACTION_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-interaction-repository.port.js';
+import { AGENT_SESSION_CONTROL_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-session-control.repository.port.js';
 import { AgentCapabilityRegistry } from '../../../server/dist/agent-os/application/service/agent-capability-registry.service.js';
 import { AgentAguiRunService } from '../../../server/dist/agent-os/application/service/agent-agui-run.service.js';
 import { AgentAguiProducerCoordinator } from '../../../server/dist/agent-os/application/service/agent-agui-producer-coordinator.service.js';
 import { AgentAguiRuntimeRegistry } from '../../../server/dist/agent-os/application/service/agent-agui-runtime-registry.service.js';
-import { AgentInteractionIdentityService } from '../../../server/dist/agent-os/application/service/agent-interaction-identity.service.js';
+import {
+  AgentInteractionIdentityService,
+  AUTHORITY_PROFILE_VERSION_ID,
+  FOUNDATION_CAPABILITY_KEYS,
+} from '../../../server/dist/agent-os/application/service/agent-interaction-identity.service.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
+import { AgentSessionCapabilityInvocationService } from '../../../server/dist/agent-os/application/service/agent-session-capability-invocation.service.js';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -33,6 +41,7 @@ import {
 } from '../../../server/dist/agent-os/application/service/agent-interaction.tokens.js';
 import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
 import { PrismaAgentInteractionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-interaction.repository.js';
+import { PrismaAgentSessionControlRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-session-control.repository.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../../../server/dist/agent-os/application/port/out/event/interaction-product-analytics.port.js';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, OTHER_USER_ID, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../../server/dist/test-helpers/real-prisma.js';
@@ -397,16 +406,21 @@ async function startNest(
   analyticsEvents: unknown[],
 ): Promise<INestApplication> {
   const repository = new PrismaAgentInteractionRepository(prisma as never);
+  const controls = new PrismaAgentSessionControlRepository(prisma as never);
   const publisher = new InProcessAgentConversationLivePublisher();
   const presentation = new AgentInteractionPresentationService();
   const runtimeRegistry = new AgentAguiRuntimeRegistry();
-  runtimeRegistry.register('copilotkit_agui', new DeterministicAcceptanceRuntime(presentation));
+  runtimeRegistry.register(
+    'copilotkit_agui',
+    new DeterministicAcceptanceRuntime(presentation),
+  );
   const capabilityRegistry = new AgentCapabilityRegistry();
   registerAcceptanceCapabilities(capabilityRegistry);
   const moduleRef = await Test.createTestingModule({
     controllers: [AgentInteractionBootstrapController, AgentInteractionControlController, AgentInteractionActionsController, AgentAguiController],
     providers: [
       { provide: AGENT_INTERACTION_REPOSITORY, useValue: repository },
+      { provide: AGENT_SESSION_CONTROL_REPOSITORY, useValue: controls },
       { provide: AGENT_CONVERSATION_LIVE_PUBLISHER, useValue: publisher },
       { provide: INTERACTION_CLOCK, useValue: () => new Date() },
       { provide: INTERACTION_GATEWAY_SHARED_SECRET, useValue: Buffer.from(SERVICE_SECRET) },
@@ -424,6 +438,11 @@ async function startNest(
       },
       { provide: INTERACTION_PRODUCT_ANALYTICS_PORT, useExisting: InteractionProductAnalyticsAdapter },
       { provide: AgentCapabilityRegistry, useValue: capabilityRegistry },
+      AgentSessionCapabilityInvocationService,
+      {
+        provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+        useExisting: AgentSessionCapabilityInvocationService,
+      },
       AgentInteractionIdentityService,
       AgentAguiRunService,
       AgentAguiProducerCoordinator,
@@ -529,12 +548,22 @@ function pushSchema(postgres: StartedPostgreSqlContainer) {
 }
 
 async function seedAgentVersion(prisma: PrismaClient) {
-  const capabilityKeys = [
-    'agent_os.platform_probe',
-    'analytics.readOverview',
-    'sourcing.retrieveWorkspaceEvidence',
-    'sourcing.inspectRecommendationRun',
-  ];
+  const capabilityKeys = [...FOUNDATION_CAPABILITY_KEYS];
+  const authorityProfilePolicyDocument = {
+    authorityClass: AUTHORITY_PROFILE_VERSION_ID,
+    capabilityKeys,
+  };
+  await prisma.agentAuthorityProfileVersion.create({ data: {
+    id: AUTHORITY_PROFILE_VERSION_ID,
+    organizationId: TEST_ORGANIZATION_ID,
+    profileKey: 'foundation_read_only_probe',
+    version: 1,
+    capabilityKeys,
+    policyDocument: authorityProfilePolicyDocument,
+    policyHash: createHash('sha256')
+      .update(JSON.stringify(authorityProfilePolicyDocument))
+      .digest('hex'),
+  } });
   await prisma.agentVersion.create({ data: {
     id: AGENT_VERSION_ID, agentDefinitionKey: 'operator', version: 1,
     displayName: 'Operator', description: 'Deterministic acceptance operator',

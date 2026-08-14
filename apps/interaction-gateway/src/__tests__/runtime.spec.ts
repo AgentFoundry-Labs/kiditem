@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { HttpAgent, type BaseEvent, type RunAgentInput } from '@ag-ui/client';
 import { EventType } from '@ag-ui/core';
-import { lastValueFrom, of, toArray } from 'rxjs';
+import { lastValueFrom, of, toArray, type Observable } from 'rxjs';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AuthorizedAgentOsHttpAgent } from '../authorized-agent-os-http-agent.js';
@@ -419,6 +419,35 @@ describe('CopilotKit native runtime routes', () => {
     );
   });
 
+  it('keeps a fresh client-only thread empty until its first authorized run', async () => {
+    const control = controlHarness();
+    control.authorizeConnection.mockRejectedValue(
+      new GatewayControlError(403, 'INTERACTION_CONNECTION_NOT_AUTHORIZED'),
+    );
+    const requestContext = new AsyncLocalStorage<{
+      request: Request;
+      agentDefinitionKey: string;
+      replayCursor: null;
+    }>();
+    const runner = new KidItemAgentRunner(control, requestContext);
+    const events = requestContext.run(
+      {
+        request: new Request('http://gateway.test/api/copilotkit/agent/operator/connect', {
+          headers: { cookie: COOKIE },
+        }),
+        agentDefinitionKey: 'operator',
+        replayCursor: null,
+      },
+      () => lastValueFrom(
+        (runner.connect({ threadId: 'fresh-client-only-thread' } as never) as unknown as Observable<BaseEvent>)
+          .pipe(toArray()),
+      ),
+    );
+
+    await expect(events).resolves.toEqual([]);
+    expect(control.connectLive).not.toHaveBeenCalled();
+  });
+
   it('completes terminal replay without holding a live stream that blocks a later run', async () => {
     const control = controlHarness();
     control.authorizeConnection.mockResolvedValue(connectionAuthorization([
@@ -725,6 +754,60 @@ describe('CopilotKit native runtime routes', () => {
           metadata: { approval },
         })],
       }),
+    }));
+  });
+
+  it('keeps a later active execution live after replaying an earlier terminal run', async () => {
+    const control = controlHarness();
+    const laterRunId = 'run-2';
+    control.authorizeConnection.mockResolvedValue(connectionAuthorization([
+      envelope(1, {
+        eventType: 'run_terminal',
+        payload: { status: 'completed', errorCode: null },
+      }),
+      envelope(2, {
+        execution: SECOND_EXECUTION_NAME,
+        aguiRunId: laterRunId,
+        eventType: 'state_snapshot',
+        payload: {
+          snapshotType: 'agent_progress',
+          snapshotVersion: 1,
+          data: {
+            name: 'kiditem.ui.agent_progress.v1',
+            session: SESSION_NAME,
+            task: TASK_NAME,
+            execution: SECOND_EXECUTION_NAME,
+            status: 'running',
+            progress: 0.6,
+            label: '다음 실행을 계속하고 있습니다.',
+            updatedAt: '2026-08-14T00:00:02.000Z',
+          },
+        },
+      }),
+    ]));
+    control.connectLive.mockReturnValue(of({
+      type: EventType.CUSTOM,
+      name: 'kiditem.live',
+      value: 'later-execution',
+    }));
+    const gateway = createInteractionGateway(dependencies(control));
+
+    const response = await gateway.handler(new Request(
+      'http://gateway.test/api/copilotkit/agent/operator/connect',
+      { method: 'POST', headers: { 'content-type': 'application/json', cookie: COOKIE }, body: JSON.stringify(runInput({ messages: [] })) },
+    ));
+
+    expect(await readSseEvents(response)).toEqual(expect.arrayContaining([
+      expect.objectContaining({ type: EventType.RUN_FINISHED, runId: RUN_ID }),
+      expect.objectContaining({
+        type: EventType.ACTIVITY_SNAPSHOT,
+        activityType: 'kiditem.ui.agent_progress.v1',
+      }),
+      expect.objectContaining({ name: 'kiditem.live', value: 'later-execution' }),
+    ]));
+    expect(control.connectLive).toHaveBeenCalledWith(expect.any(Request), expect.objectContaining({
+      agentDefinitionKey: 'operator',
+      copilotThreadId: THREAD_ID,
     }));
   });
 

@@ -47,7 +47,7 @@ export class PrismaAgentSessionControlRepository
         status: 'running',
         session: { lifecycle: 'active' },
         sessionTask: {
-          status: { in: ['queued', 'running', 'waiting_approval', 'paused'] },
+          status: { in: ['queued', 'interpreting', 'running', 'waiting_approval', 'paused'] },
         },
       },
       select: {

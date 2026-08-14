@@ -23,6 +23,28 @@ first execution only on first submit. An existing session locks its primary
 agent. Replay is read-only and a terminal replay completes so a later run is not
 blocked; a live join is held only while KidItem has an active grant.
 
+## Durable task controls
+
+AgentOS owns durable work independently from CopilotKit. An `AgentVersion`, its
+policy snapshot, the session task, execution, attempt, Operation run, and
+canonical event stream are correlated by KidItem resource names. `copilotThreadId`
+and `aguiRunId` are opaque transport correlations only; request IDs, runtime
+handles, tokens, and raw provider IDs are never accepted in a resource-name
+field.
+
+The Operations handler persists an opaque encrypted runtime-handle reference
+before it connects. A reclaimed worker inspects that handle before reconnecting
+and never creates a replacement external run when the original handle is
+unknown. Approval, retry, cancel, progress, artifact, and delegation state are
+written to the canonical event/control graph before live publication. Browser
+disconnect only detaches its SSE subscriber; it does not cancel the durable
+producer.
+
+Agent runtime versions are immutable. Publishing an identical manifest reuses
+the active version, while a changed manifest creates a later version and retires
+the previous active row. Existing sessions remain pinned to the version selected
+on their first submit.
+
 ## Safe UI and analytics
 
 Only the strict shared renderer kinds are accepted. Renderers use a static map;
@@ -48,11 +70,18 @@ npm run build --workspace=apps/server
 npm run build --workspace=apps/interaction-gateway
 npm run build --workspace=apps/web
 npx playwright test apps/web/e2e/agent-session-interaction.spec.ts
+npx playwright test apps/web/e2e/interaction-os/durable-session.spec.ts
+node deploy/interaction-gateway/smoke-official-recovery.mjs
 ```
 
 The acceptance harness owns and stops only the exact child processes it starts.
 It uses disposable PostgreSQL 17 and a deterministic fake runtime, while keeping
 the real Nest, gateway, persistence, and browser boundaries.
+
+`smoke-official-recovery.mjs` refuses production-like environments. It runs the
+real PostgreSQL detached-runtime recovery test (including persisted opaque
+handle reuse and worker recreation) and the gateway restart/reconnect contract.
+It does not contact Hermes, Codex, Claude, or a production database/runtime.
 
 ## KID-24 boundary caution
 

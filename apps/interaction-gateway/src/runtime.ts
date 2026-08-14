@@ -33,7 +33,7 @@ import {
 } from 'rxjs';
 
 import { AuthorizedAgentOsHttpAgent } from './authorized-agent-os-http-agent.js';
-import type { NestControlPort } from './nest-control-client.js';
+import { GatewayControlError, type NestControlPort } from './nest-control-client.js';
 
 const MAX_REPLAY_PAGES = 100;
 
@@ -84,14 +84,24 @@ export class KidItemAgentRunner extends AgentRunner {
   ): ReturnType<AgentRunner['connect']> {
     const context = this.requireRequestContext();
     const agentDefinitionKey = this.requireAgentDefinitionKey(context);
-    const stream = defer(() =>
-      this.readReplay({
-        request: context.request,
-        agentDefinitionKey,
-        threadId: request.threadId,
-        cursor: context.replayCursor,
-      }),
-    ).pipe(
+    const stream = defer(async () => {
+      try {
+        return await this.readReplay({
+          request: context.request,
+          agentDefinitionKey,
+          threadId: request.threadId,
+          cursor: context.replayCursor,
+        });
+      } catch (error) {
+        // CopilotKit connects before a browser-created UUID has its first
+        // authorized run. The control endpoint remains fail-closed; the
+        // public gateway exposes no existence signal or replay data yet.
+        if (isFreshThreadConnectionDenial(error)) {
+          return { replayEvents: [], liveEvents: EMPTY };
+        }
+        throw error;
+      }
+    }).pipe(
       mergeMap(({ replayEvents, liveEvents }) =>
         concat(from(replayEvents), liveEvents),
       ),
@@ -163,7 +173,7 @@ export class KidItemAgentRunner extends AgentRunner {
     let cursor = input.cursor;
     let session: string | null = null;
     let previousSequence: bigint | null = null;
-    let terminalReplayed = false;
+    let replayTailTerminates = false;
     const seenCursors = new Set<string>();
     const seenEventIds = new Set<string>();
     const replayEvents: BaseEvent[] = [];
@@ -211,8 +221,11 @@ export class KidItemAgentRunner extends AgentRunner {
         seenEventIds.add(event.name);
         previousSequence = sequence;
         replayEvents.push(...conversationEnvelopeToAgui(event, input.threadId));
-        terminalReplayed ||=
-          event.eventType === 'run_terminal' ||
+        // A terminal outcome belongs to one AG-UI execution, not to the
+        // whole durable session. Older completed runs remain in replay when a
+        // later execution is active. Only the final replayed event can close
+        // this reconnect stream.
+        replayTailTerminates = event.eventType === 'run_terminal' ||
           (event.eventType === 'hitl_request' &&
             event.payload.approval !== undefined);
       }
@@ -233,7 +246,7 @@ export class KidItemAgentRunner extends AgentRunner {
         continue;
       }
 
-      if (terminalReplayed) {
+      if (replayTailTerminates) {
         return { replayEvents, liveEvents: EMPTY };
       }
       if (!connection.liveJoinToken) {
@@ -271,6 +284,12 @@ export class KidItemAgentRunner extends AgentRunner {
     }
     return context.agentDefinitionKey;
   }
+}
+
+function isFreshThreadConnectionDenial(error: unknown): boolean {
+  return error instanceof GatewayControlError &&
+    error.status === 403 &&
+    error.code === 'INTERACTION_CONNECTION_NOT_AUTHORIZED';
 }
 
 export function createInteractionGateway(

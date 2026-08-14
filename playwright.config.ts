@@ -2,7 +2,10 @@ import { defineConfig } from 'playwright/test';
 
 export default defineConfig({
   testDir: './apps/web/e2e',
-  testMatch: 'agent-session-interaction.spec.ts',
+  testMatch: [
+    'agent-session-interaction.spec.ts',
+    'interaction-os/**/*.spec.ts',
+  ],
   fullyParallel: false,
   workers: 1,
   reporter: 'line',
