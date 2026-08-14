@@ -94,8 +94,11 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Finalized listeners filter by event metadata (`agentType`, `source`,
   `sourceResourceType`, `sourceResourceId`), not by output payload.
 
-## Local Agent Runtime
+## Local Agent Runtime And Official Durable Runtimes
 
+- The retained generic `AgentRun` local CLI lane below is compatibility-only.
+  Do not add behavior to it: the KID-25 target routes Agent judgment through an
+  official `AgentSession` task/execution and `AgentRuntimeAdapterRegistry`.
 - Agent OS owns local Claude/Codex process execution, code-owned prompt/skill
   resolution, scoped KidItem MCP sessions, structured-output verification, and
   detached process-group cancellation. Owner-domain runtime handlers retain
@@ -115,6 +118,12 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Local CLI/MCP processes are bound to the Nest process. Shutdown terminates
   them; restart only closes stale nonterminal rows as `process_interrupted`.
   It never resumes a process, replays a prompt, or publishes delayed output.
+- Official durable Hermes and isolated CLI adapters are a separate task-runtime
+  boundary. They persist only an encrypted native/reconnect reference, inspect
+  it before reconnecting, regenerate the same execution/attempt-scoped
+  credential, and never fall back to a different runtime or a new external
+  run. Their `home`, `work`, and `state` paths are worker-owned and owner-only;
+  gateway and web processes must never spawn those executables.
 
 ## Boundary Rules
 

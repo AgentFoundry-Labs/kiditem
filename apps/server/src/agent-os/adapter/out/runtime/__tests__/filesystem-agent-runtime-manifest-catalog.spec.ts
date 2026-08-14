@@ -1,12 +1,20 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { FilesystemAgentRuntimeManifestCatalog } from '../filesystem-agent-runtime-manifest-catalog';
+import {
+  CODE_OWNED_RUNTIME_TYPES,
+  FilesystemAgentRuntimeManifestCatalog,
+} from '../filesystem-agent-runtime-manifest-catalog';
 import { listAgentDefinitions } from '../../../../domain/agent-definition.registry';
 
 const repositoryRoot = resolve(__dirname, '../../../../../../../..');
 
 describe('FilesystemAgentRuntimeManifestCatalog', () => {
+  it('recognizes the explicit detached Hermes runtime without enabling ACP implicitly', () => {
+    expect(CODE_OWNED_RUNTIME_TYPES).toContain('hermes_http');
+    expect(CODE_OWNED_RUNTIME_TYPES).not.toContain('hermes_acp');
+  });
+
   it('compiles every code-owned definition with exact Operator capability authority', async () => {
     const catalog = new FilesystemAgentRuntimeManifestCatalog(repositoryRoot, {
       AGENT_DEFAULT_MODEL: 'gpt-test',

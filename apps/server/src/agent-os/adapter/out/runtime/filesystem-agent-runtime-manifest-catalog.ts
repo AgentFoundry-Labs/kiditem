@@ -14,12 +14,13 @@ import type { AgentDefinitionRecord } from '../../../domain/agent-os.types';
 
 const SUMMARY_PROMPT_PATH =
   'agent-config/prompts/system/session-summary.md';
-const CODE_OWNED_RUNTIME_TYPES = [
+export const CODE_OWNED_RUNTIME_TYPES = [
   'claude_cli',
   'claude_local',
   'codex_cli',
   'copilotkit_agui',
   'gemini_image',
+  'hermes_http',
 ] as const;
 const CODE_OWNED_CAPABILITY_KEYS = [
   'agent_os.platform_probe',
