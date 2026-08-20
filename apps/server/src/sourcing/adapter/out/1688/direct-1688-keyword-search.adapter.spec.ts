@@ -479,6 +479,65 @@ describe('Direct1688KeywordSearchAdapter', () => {
 
   it.each([
     {
+      name: 'live Korean slider challenge',
+      pageText: '슬라이더를 드래그하여 인증을 완료하세요',
+      reason: 'security_challenge',
+    },
+    {
+      name: 'Chinese verification challenge',
+      pageText: '请完成安全验证',
+      reason: 'security_challenge',
+    },
+    {
+      name: 'specific English security verification',
+      pageText: 'Security verification is required before continuing',
+      reason: 'security_challenge',
+    },
+    {
+      name: 'specific English login prompt',
+      pageText: 'Please log in to continue',
+      reason: 'login',
+    },
+  ])('maps a $name that appears during loading to typed attention before the readiness deadline', async ({ pageText, reason }) => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'loading' },
+      pageTextSequence: ['', '', pageText],
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason,
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    expect(fixture.page.close).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    'Security camera wholesale products',
+    'Login accessories wholesale products',
+  ])('does not classify delayed ordinary product text as attention: %s', async (pageText) => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'loading' },
+      pageTextSequence: ['', '', pageText],
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordProviderError',
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
+  });
+
+  it.each([
+    {
       name: 'security-themed product text',
       keyword: 'Security camera wholesale products',
       pageText: 'Security camera wholesale products',
@@ -755,6 +814,7 @@ function browserFixture(input?: {
   blockRenderWait?: boolean;
   blockGoto?: boolean;
   pageText?: string;
+  pageTextSequence?: string[];
   apiPayload?: unknown;
   additionalApiPayload?: unknown;
   finalUrl?: string;
@@ -770,6 +830,7 @@ function browserFixture(input?: {
   let domReadiness: unknown = input?.domReadiness ?? { kind: 'unready' };
   let domReads = 0;
   let frameReads = 0;
+  let textReads = 0;
   const apiResponseJson = vi.fn(async () => input?.apiPayload ?? ({ offers: [{
     offerId: '123456',
     title: 'API 儿童笔袋',
@@ -846,7 +907,13 @@ function browserFixture(input?: {
       domReads += 1;
       return Promise.resolve(readiness);
     }),
-    locator: vi.fn(() => ({ innerText: vi.fn().mockResolvedValue(input?.pageText ?? '') })),
+    locator: vi.fn(() => ({ innerText: vi.fn().mockImplementation(() => {
+      const text = input?.pageTextSequence
+        ? input.pageTextSequence[Math.min(textReads, input.pageTextSequence.length - 1)] ?? ''
+        : input?.pageText ?? '';
+      textReads += 1;
+      return Promise.resolve(text);
+    }) })),
     url: vi.fn(() => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm'),
     title: vi.fn().mockResolvedValue('1688 搜索'),
     close: vi.fn().mockResolvedValue(undefined),

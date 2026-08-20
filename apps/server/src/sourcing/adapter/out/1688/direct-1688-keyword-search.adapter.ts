@@ -102,7 +102,12 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
       while (readinessDeadline.hasTime()) {
         signal?.throwIfAborted();
 
+        const beforeDomAttention = await attentionRequired(this.page, signal, readinessDeadline);
+        if (beforeDomAttention) throw beforeDomAttention;
+        if (!readinessDeadline.hasTime()) break;
         const dom = await readTrustedDomReadiness(this.page, readinessDeadline, signal);
+        const afterDomAttention = await attentionRequired(this.page, signal, readinessDeadline);
+        if (afterDomAttention) throw afterDomAttention;
         if (!readinessDeadline.hasTime()) break;
         if (dom.kind === 'items') {
           const domItems = extract1688KeywordItemsFromDomRecords(dom.records);
@@ -123,8 +128,6 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
           signal,
         );
       }
-      const finalAttention = await attentionRequired(this.page, signal, readinessDeadline);
-      if (finalAttention) throw finalAttention;
       throw new Sourcing1688KeywordProviderError('search_extraction_failed');
     } catch (error) {
       await this.close();
