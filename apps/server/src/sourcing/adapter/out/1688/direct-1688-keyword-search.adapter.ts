@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
 import type { Page, Response } from 'playwright';
 import {
   type Search1688KeywordItem,
@@ -68,8 +69,9 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
 
     const observedApiItems: Search1688KeywordItem[][] = [];
     const responseTasks: Promise<void>[] = [];
-    const observeResponse = (response: Response) => {
-      if (!is1688SearchResponse(response)) return;
+    const deferredResponses: Response[] = [];
+    let extractionTrusted = false;
+    const extractResponse = (response: Response) => {
       responseTasks.push(
         abortableBrowserStep(response.json(), signal)
           .then((payload) => {
@@ -79,10 +81,21 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
           .catch(() => undefined),
       );
     };
+    const observeResponse = (response: Response) => {
+      if (!is1688SearchResponse(response)) return;
+      // A response can arrive during document parsing. Do not deserialize any
+      // body until the final navigation target has crossed the 1688 trust
+      // boundary below.
+      if (!extractionTrusted) {
+        deferredResponses.push(response);
+        return;
+      }
+      extractResponse(response);
+    };
 
     this.page.on('response', observeResponse);
     try {
-      await abortableBrowserStep(
+      const navigationResponse = await abortableBrowserStep(
         this.page.goto(searchUrlForKeyword(input.keyword), {
           waitUntil: 'domcontentloaded',
           timeout: SEARCH_TIMEOUT_MS,
@@ -96,6 +109,10 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
         signal?.throwIfAborted();
         throw error;
       });
+      assertTrusted1688Navigation(this.page.url());
+      if (navigationResponse) assertTrusted1688Navigation(navigationResponse.url());
+      extractionTrusted = true;
+      for (const response of deferredResponses) extractResponse(response);
       // 1688 can finish document parsing before its search XHR and shadow-card
       // render. This finite settle window is intentionally not networkidle or
       // an unbounded poll; abort races close the owned page immediately.
@@ -161,9 +178,9 @@ function searchUrlForKeyword(keyword: string): string {
 
 function is1688SearchResponse(response: Response): boolean {
   try {
-    const url = new URL(response.url());
-    const hostname = url.hostname.toLowerCase();
-    if (hostname !== '1688.com' && !hostname.endsWith('.1688.com')) return false;
+    const allowed = parseAllowedSupplierUrl(response.url());
+    if (allowed.platform !== '1688') return false;
+    const url = new URL(allowed.normalizedUrl);
     const contentType = response.headers()['content-type'] ?? '';
     return /json/iu.test(contentType) && /(?:search|offer|query)/iu.test(`${url.pathname}${url.search}`);
   } catch {
@@ -171,7 +188,18 @@ function is1688SearchResponse(response: Response): boolean {
   }
 }
 
+function assertTrusted1688Navigation(value: string): void {
+  try {
+    if (parseAllowedSupplierUrl(value).platform !== '1688') throw new TypeError('not_1688');
+  } catch {
+    throw new Sourcing1688KeywordProviderError('search_extraction_failed');
+  }
+}
+
 async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sourcing1688KeywordAttentionError | null> {
+  if (isKnownSecurityChallengeUrl(page.url())) {
+    return new Sourcing1688KeywordAttentionError('security_challenge');
+  }
   let text = '';
   try {
     const body = page.locator('body');
@@ -181,13 +209,23 @@ async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sour
     return null;
   }
   if (!text) return null;
-  if (/(?:滑块|安全验证|security|punish|验证码)/iu.test(text)) {
+  if (/(?:滑块|安全验证|security|punish|验证码|슬라이더\s*를?\s*드래그하여\s*인증을\s*완료하세요|정상\s*접속을\s*위해\s*인증이\s*필요합니다)/iu.test(text)) {
     return new Sourcing1688KeywordAttentionError('security_challenge');
   }
   if (/(?:请先登录|登录后|login)/iu.test(text)) {
     return new Sourcing1688KeywordAttentionError('login');
   }
   return null;
+}
+
+function isKnownSecurityChallengeUrl(value: string): boolean {
+  try {
+    const allowed = parseAllowedSupplierUrl(value);
+    return allowed.platform === '1688'
+      && /(?:punish|captcha|verify|security|slider)/iu.test(new URL(allowed.normalizedUrl).pathname);
+  } catch {
+    return false;
+  }
 }
 
 function combinedSignal(...signals: Array<AbortSignal | undefined>): AbortSignal | undefined {

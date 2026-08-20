@@ -201,6 +201,124 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it.each([
+    '슬라이더를 드래그하여 인증을 완료하세요',
+    '정상 접속을 위해 인증이 필요합니다',
+  ])('maps the live Korean security challenge to typed operator attention', async (pageText) => {
+    const fixture = browserFixture({ pageText });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('rejects an untrusted final page before forged DOM offers can be normalized', async () => {
+    const fixture = browserFixture({ finalUrl: 'https://evil.example/search' });
+    fixture.page.evaluate.mockResolvedValue([{
+      href: 'https://detail.1688.com/offer/123456.html',
+      title: 'forged offer',
+      salesText: '近30天成交 88 笔',
+    }]);
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('rejects an untrusted final navigation response before authenticated DOM extraction', async () => {
+    const fixture = browserFixture({
+      navigationResponseUrl: 'https://evil.example/search',
+      finalUrl: 'https://s.1688.com/selloffer/offer_search.htm',
+    });
+    fixture.page.evaluate.mockResolvedValue([{
+      href: 'https://detail.1688.com/offer/123456.html',
+      title: 'forged redirect offer',
+      salesText: '近30天成交 88 笔',
+    }]);
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('accepts an allowed HTTPS 1688 final page before extracting authenticated DOM offers', async () => {
+    const fixture = browserFixture({
+      finalUrl: 'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+      navigationResponseUrl: 'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+    });
+    fixture.page.evaluate.mockResolvedValue([{
+      href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+      title: 'allowed offer',
+      salesText: '近30天成交 88 笔',
+    }]);
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toMatchObject([{
+      offerId: '123456',
+      title: 'allowed offer',
+    }]);
+
+    await session.close();
+  });
+
+  it('ignores a response body from an untrusted response URL and uses the authenticated DOM fallback', async () => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      apiResponseUrl: 'http://s.1688.com/selloffer/search-api',
+    });
+    fixture.page.evaluate.mockResolvedValue([{
+      href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+      title: 'trusted DOM offer',
+      salesText: '近30天成交 88 笔',
+    }]);
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toMatchObject([{
+      offerId: '123456',
+      title: 'trusted DOM offer',
+    }]);
+
+    await session.close();
+  });
+
+  it('detects a known trusted 1688 security route without depending on page text', async () => {
+    const fixture = browserFixture({ finalUrl: 'https://s.1688.com/punish/verify.htm' });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
   it('returns a bounded unavailable error without exposing endpoint credentials', async () => {
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://operator:secret@kiditem-office:9444');
     const adapter = new Direct1688KeywordSearchAdapter();
@@ -233,6 +351,9 @@ function browserFixture(input?: {
   blockRenderWait?: boolean;
   blockGoto?: boolean;
   pageText?: string;
+  finalUrl?: string;
+  apiResponseUrl?: string;
+  navigationResponseUrl?: string;
 }) {
   const events: string[] = [];
   let responseListener: ((response: unknown) => void) | undefined;
@@ -253,7 +374,7 @@ function browserFixture(input?: {
     goto: vi.fn(() => {
       events.push('goto');
       const response = {
-        url: () => 'https://s.1688.com/selloffer/search-api',
+        url: () => input?.apiResponseUrl ?? 'https://s.1688.com/selloffer/search-api',
         headers: () => ({ 'content-type': 'application/json' }),
         json: async () => ({ offers: [{
           offerId: '123456',
@@ -277,7 +398,9 @@ function browserFixture(input?: {
         }, 5);
       }
       if (input?.blockGoto) return new Promise<void>((resolve) => { resolveGoto = resolve; });
-      return Promise.resolve(null);
+      return Promise.resolve(input?.navigationResponseUrl
+        ? { url: () => input.navigationResponseUrl }
+        : null);
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn(() => input?.blockRenderWait
@@ -285,6 +408,7 @@ function browserFixture(input?: {
       : new Promise<void>((resolve) => setTimeout(resolve, 20))),
     evaluate: vi.fn(() => Promise.resolve(domRecords)),
     locator: vi.fn(() => ({ innerText: vi.fn().mockResolvedValue(input?.pageText ?? '') })),
+    url: vi.fn(() => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm'),
     title: vi.fn().mockResolvedValue('1688 搜索'),
     close: vi.fn().mockResolvedValue(undefined),
   };

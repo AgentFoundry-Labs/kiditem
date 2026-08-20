@@ -148,4 +148,69 @@ describe('Sourcing1688KeywordSearchService', () => {
     expect(session.searchKeyword).not.toHaveBeenCalled();
     expect(searchResults.findLatest).toHaveBeenCalledWith({ organizationId, keywords: ['儿童餐盘'] });
   });
+
+  it('replays a completed zero-result marker as no_change without asking the session to navigate', async () => {
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(),
+      close: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      findLatest: vi.fn(async () => ({ generatedAt: new Date(), observations: [] })),
+    } as unknown as Sourcing1688SearchResultRepositoryPort;
+    const service = new Sourcing1688KeywordSearchService(collection, searchResults);
+
+    await expect(service.searchForOperation({
+      organizationId,
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      keyword: '儿童餐盘',
+      session,
+      signal: new AbortController().signal,
+      operationCheckpoint: vi.fn(),
+      commitWithinActiveOperationAttempt: vi.fn(),
+    })).resolves.toEqual({
+      keyword: '儿童餐盘',
+      targetId: null,
+      outcome: 'no_change',
+      discovered: 0,
+      accepted: 0,
+      duplicate: 0,
+      failed: 0,
+    });
+
+    expect(session.searchKeyword).not.toHaveBeenCalled();
+  });
+
+  it('continues to reject a non-empty snapshot that lacks the replayed keyword marker', async () => {
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(),
+      close: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      findLatest: vi.fn(async () => ({
+        generatedAt: new Date(),
+        observations: [{ keyword: 'other keyword', targetId: null, capturedAt: new Date(), items: [] }],
+      })),
+    } as unknown as Sourcing1688SearchResultRepositoryPort;
+    const service = new Sourcing1688KeywordSearchService(collection, searchResults);
+
+    await expect(service.searchForOperation({
+      organizationId,
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      keyword: '儿童餐盘',
+      session,
+      signal: new AbortController().signal,
+      operationCheckpoint: vi.fn(),
+      commitWithinActiveOperationAttempt: vi.fn(),
+    })).rejects.toThrow('Completed keyword search result is unavailable.');
+
+    expect(session.searchKeyword).not.toHaveBeenCalled();
+  });
 });

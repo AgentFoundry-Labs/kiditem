@@ -167,14 +167,15 @@ describe('Sourcing1688OperationHandler', () => {
     });
   });
 
-  it('returns a strict row-free attention result when the Office profile needs login', async () => {
+  it('returns a strict row-free attention result with no canonical fence when the Office profile needs security verification', async () => {
     const session = { searchKeyword: vi.fn(), close: vi.fn(async () => undefined) };
+    const attemptVerifier = { withActiveDomainAttemptFence: vi.fn() };
     const handler = createHandler(
       new OperationHandlerRegistryService(),
       { openSession: vi.fn(async () => session) },
-      { searchForOperation: vi.fn(async () => { throw new Sourcing1688KeywordAttentionError('login'); }) },
+      { searchForOperation: vi.fn(async () => { throw new Sourcing1688KeywordAttentionError('security_challenge'); }) },
       {},
-      { withActiveDomainAttemptFence: vi.fn() },
+      attemptVerifier,
     );
 
     const result = await handler.execute({
@@ -192,6 +193,7 @@ describe('Sourcing1688OperationHandler', () => {
     if (result.kind !== 'attention_required') throw new Error('expected attention result');
     expect(Sourcing1688BatchResultSchema.safeParse(result.result).success).toBe(true);
     expect(JSON.stringify(result.result)).not.toContain('offer');
+    expect(attemptVerifier.withActiveDomainAttemptFence).not.toHaveBeenCalled();
   });
 
   it.each(['cdp_unavailable', 'browser_context_unavailable', 'search_extraction_failed'] as const)(

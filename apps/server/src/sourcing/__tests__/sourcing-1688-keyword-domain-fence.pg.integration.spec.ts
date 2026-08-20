@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -12,9 +12,14 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
+import type { ActiveOperationAttemptTransaction } from '../../operations/application/port/active-browser-attempt-transaction';
 import { OperationAttemptVerifierService } from '../../operations/application/service/operation-attempt-verifier.service';
 import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
 import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
+import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
+import type { Search1688KeywordSession } from '../application/port/out/provider/1688-keyword-search.port';
+import { SourcingCollectionCoordinator } from '../application/service/sourcing-collection-coordinator.service';
+import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
 import { map1688HotProductsToAuthorizedOutput } from '../application/service/sourcing-collection-mappers';
 import type { SourcingCollectionPermit } from '../application/port/out/repository/sourcing-collection.repository.port';
 
@@ -101,6 +106,58 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
     )).resolves.toMatchObject({ kind: 'committed', acceptedCount: 1 });
 
     await expect(primary.sourcing1688OfferKeywordObservation.count()).resolves.toBe(1);
+  });
+
+  it('replays a committed zero-result keyword run without reopening the provider session', async () => {
+    const attempt = await createAttempt(primary);
+    const service = new Sourcing1688KeywordSearchService(
+      new SourcingCollectionCoordinator(collections),
+      new Sourcing1688SearchResultRepositoryAdapter(primary as unknown as PrismaService),
+    );
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(async () => []),
+      close: vi.fn(async () => undefined),
+    };
+    const signal = new AbortController().signal;
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationRunId: attempt.runId,
+      actorUserId: TEST_USER_ID,
+      keyword: '儿童笔袋',
+      session,
+      signal,
+      operationCheckpoint: vi.fn(async () => undefined),
+      commitWithinActiveOperationAttempt: <T>(
+        commit: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+      ) =>
+        verifier.withActiveDomainAttemptFence(exactFence(attempt), async (_active, transaction) =>
+          commit(transaction)),
+    };
+
+    await expect(service.searchForOperation(input)).resolves.toMatchObject({
+      outcome: 'no_change',
+      discovered: 0,
+      accepted: 0,
+      duplicate: 0,
+      failed: 0,
+    });
+    await expect(service.searchForOperation(input)).resolves.toMatchObject({
+      outcome: 'no_change',
+      discovered: 0,
+      accepted: 0,
+      duplicate: 0,
+      failed: 0,
+    });
+
+    expect(session.searchKeyword).toHaveBeenCalledTimes(1);
+    await expect(primary.sourcing1688OfferKeywordObservation.count()).resolves.toBe(0);
+    await expect(primary.sourcingEvidenceIngestionRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceKey: '1688.hot_product',
+        collectorKey: 'operation-1688-keyword-search',
+      },
+    })).resolves.toBe(1);
   });
 });
 
