@@ -1,9 +1,52 @@
 import { mkdir } from 'node:fs/promises';
 import { chromium, type Page } from 'playwright';
+import { Sourcing1688KeywordProviderError } from '../../../application/port/out/provider/1688-keyword-search.port';
 
 export interface AbortableBrowserSession {
   page: Page;
   close: () => Promise<void>;
+}
+
+/**
+ * CDP-only session for the Office keyword provider. Unlike the generic scrape
+ * helper below, it requires a pre-existing host Chrome context and has no
+ * launch, persistent-profile, or anonymous-browser fallback.
+ */
+export async function openCdpAbortableBrowserSession(input: {
+  cdpEndpoint: string;
+  cdpConnectTimeoutMs: number;
+  signal?: AbortSignal;
+}): Promise<AbortableBrowserSession> {
+  input.signal?.throwIfAborted();
+  const browser = await abortableBrowserStep(
+    chromium.connectOverCDP(input.cdpEndpoint, { timeout: input.cdpConnectTimeoutMs }),
+    input.signal,
+    (connectedBrowser) => connectedBrowser.close(),
+  );
+
+  try {
+    input.signal?.throwIfAborted();
+    const context = browser.contexts()[0];
+    if (!context) throw new Sourcing1688KeywordProviderError('browser_context_unavailable');
+    const page = await abortableBrowserStep(
+      context.newPage(),
+      input.signal,
+      (ownedPage) => ownedPage.close(),
+    );
+    return {
+      page,
+      close: async () => {
+        await page.close().catch(() => undefined);
+        // For a CDP connection this detaches the Playwright client. It does not
+        // close host-owned pages or launch/terminate the host Chrome process.
+        await browser.close().catch(() => undefined);
+      },
+    };
+  } catch (error) {
+    await browser.close().catch(() => undefined);
+    input.signal?.throwIfAborted();
+    throw error;
+  }
 }
 
 export async function openAbortableBrowserSession(input: {
