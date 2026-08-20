@@ -332,6 +332,11 @@ function hasRetiredExternalSourceBridge(source) {
   );
 }
 
+function hasRetiredExtension1688KeywordOperation(source) {
+  return /\bKidItemDomains\.register\s*\([\s\S]*?\boperations\s*:\s*\{[\s\S]*?['"]sourcing\.search_1688_keyword_batch['"]/.test(source)
+    || /\bKidItemDomains\.runOperation\s*\(\s*['"]sourcing\.search_1688_keyword_batch['"]/.test(source);
+}
+
 export function analyzeSourcingLongRunningActions({
   webSources,
   sourcingServerSources,
@@ -457,6 +462,13 @@ export function analyzeSourcingLongRunningActions({
   }
 
   for (const file of extensionSources) {
+    if (hasRetiredExtension1688KeywordOperation(file.source)) {
+      findings.push(finding(
+        'retired_extension_1688_keyword_operation',
+        file.path,
+        'The Office CDP domain operation owns 1688 keyword batches; the extension must not register or dispatch them.',
+      ));
+    }
     if (hasRetiredExternalSourceBridge(file.source)) {
       findings.push(finding(
         'retired_external_source_collection_bridge',
@@ -474,13 +486,22 @@ function main() {
   const result = analyzeSourcingLongRunningActions({
     webSources: collectProductionSources(root, 'apps/web/src/app/(sourcing-ai)'),
     sourcingServerSources: collectProductionSources(root, 'apps/server/src/sourcing'),
-    extensionSources: [{
-      path: 'extensions/kiditem-os/background/coupang/worker.js',
-      source: readFileSync(
-        path.join(root, 'extensions/kiditem-os/background/coupang/worker.js'),
-        'utf8',
-      ),
-    }],
+    extensionSources: [
+      {
+        path: 'extensions/kiditem-os/background/coupang/worker.js',
+        source: readFileSync(
+          path.join(root, 'extensions/kiditem-os/background/coupang/worker.js'),
+          'utf8',
+        ),
+      },
+      {
+        path: 'extensions/kiditem-os/background/sourcing/worker.js',
+        source: readFileSync(
+          path.join(root, 'extensions/kiditem-os/background/sourcing/worker.js'),
+          'utf8',
+        ),
+      },
+    ],
   });
 
   if (result.findings.length === 0) {

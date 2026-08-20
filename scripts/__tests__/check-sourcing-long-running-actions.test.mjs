@@ -276,6 +276,22 @@ test('rejects the retired approved-origin Coupang competitor catalog action whil
   );
 });
 
+test('rejects an extension registration or dispatch of the retired 1688 keyword operation', () => {
+  const result = analyzeSourcingLongRunningActions({
+    webSources: [],
+    sourcingServerSources: [],
+    extensionSources: [{
+      path: 'extensions/kiditem-os/background/sourcing/worker.js',
+      source: fixture('retired-1688-keyword-operation.worker.js'),
+    }],
+  });
+
+  assert.deepEqual(
+    result.findings.map((finding) => finding.rule),
+    ['retired_extension_1688_keyword_operation'],
+  );
+});
+
 test('rejects a mounted Naver provider POST instead of a persisted snapshot read', () => {
   const result = analyzeSourcingLongRunningActions({
     webSources: [{

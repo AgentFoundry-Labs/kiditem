@@ -20,14 +20,15 @@ const liveCommerceCollector = readFileSync(resolve(
   'extensions/kiditem-os/background/sourcing/live-commerce-collector.js',
 ), 'utf8');
 
-test('sourcing collection runs are exact browser Operations, not external action bridges', () => {
+test('sourcing collection keeps only its remaining exact browser Operations', () => {
   assert.match(
     worker,
     /"sourcing\.collect_1688_trends": runSourcing1688TrendOperation/,
   );
-  assert.match(
+  assert.doesNotMatch(
     worker,
-    /"sourcing\.search_1688_keyword_batch": runSourcing1688KeywordSearchOperation/,
+    /sourcing\.search_1688_keyword_batch|runSourcing1688KeywordSearchOperation/,
+    'Office CDP owns exact 1688 keyword batches; the extension must not register or dispatch them',
   );
   assert.match(
     worker,
@@ -65,10 +66,9 @@ test('sourcing collection runs are exact browser Operations, not external action
   assert.doesNotMatch(tiktokCollector, /requestedRunId\s*\|\|\s*createRunId/);
 });
 
-test('each exact browser collector posts only through its fenced owner-ingest route', () => {
+test('each remaining exact browser collector posts only through its fenced owner-ingest route', () => {
   for (const [source, route] of [
     [trendCollector, '/sourcing/operations/1688-trends/'],
-    [trendCollector, '/sourcing/operations/1688-search/'],
     [tiktokCollector, '/sourcing/operations/tiktok-cc-trends/'],
     [liveCommerceCollector, '/sourcing/operations/live-commerce/'],
   ]) {
@@ -76,6 +76,7 @@ test('each exact browser collector posts only through its fenced owner-ingest ro
     assert.match(source, /"x-operation-attempt-token"/);
     assert.match(source, /operation_runtime_fence_lost/);
   }
+  assert.doesNotMatch(trendCollector, /\/sourcing\/operations\/1688-search\//);
   assert.doesNotMatch(trendCollector, /\/trend\/1688-results/);
   assert.doesNotMatch(tiktokCollector, /\/trend\/tiktok-cc-results/);
   assert.doesNotMatch(liveCommerceCollector, /\/trend\/live-commerce-results/);

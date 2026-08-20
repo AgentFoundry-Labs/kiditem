@@ -83,10 +83,7 @@ const tiktokCcCollector = ProductScraperTiktokCcTrend.create({
 async function cancelSourcingCollectionSession(runId, environmentId) {
   const session = await collectionSessions.getOwned(runId, environmentId);
   if (!session) return null;
-  if (
-    session.producer === "sourcing.1688_trend"
-    || session.producer === "sourcing.1688_keyword_search"
-  ) {
+  if (session.producer === "sourcing.1688_trend") {
     await trendCollector.cancel(runId);
   } else if (session.producer === "sourcing.live_commerce") {
     await liveCommerceCollector.cancel(runId);
@@ -98,7 +95,7 @@ async function cancelSourcingCollectionSession(runId, environmentId) {
   return collectionSessions.get(runId);
 }
 
-// MV3 service workers may be suspended during a multi-keyword 1688 run.
+// MV3 service workers may be suspended during a multi-keyword daily 1688 trend run.
 // The KidItem host content script sends a small heartbeat while the page is
 // open so in-flight extraction promises and external response channels stay
 // alive until the batch finishes.
@@ -222,21 +219,6 @@ async function waitForTrendCollector(operation, collector, source) {
       return { status: "attention_required", attentionReason: "marketplace_login" };
     }
     if (status.status === "completed") {
-      if (status.operationResult && source === "1688_keyword_search") {
-        const units = Array.isArray(status.operationResult.units)
-          ? status.operationResult.units
-          : null;
-        if (!units) {
-          return failedOperation(
-            "1688_keyword_result_invalid",
-            "The 1688 keyword result was invalid.",
-          );
-        }
-        if (units.length > 0 && units.every((unit) => unit?.outcome === "failed")) {
-          return failedOperation("all_targets_failed", "All 1688 keyword targets failed.");
-        }
-        return { status: "succeeded", result: status.operationResult };
-      }
       return operationResult(source, collected, failed);
     }
     if (status.status === "failed") {
@@ -265,19 +247,6 @@ function normalize1688OperationInput(input) {
   const keywords = input.keywords.map((value) => text(value, ""));
   if (keywords.some((value) => !value || value.length > 120)) {
     throw new Error("1688_operation_input_invalid");
-  }
-  return keywords;
-}
-
-function normalize1688KeywordSearchInput(input) {
-  const keywords = normalize1688OperationInput(input);
-  if (keywords.length < 1 || keywords.length > 6) {
-    throw new Error("1688_keyword_search_input_invalid");
-  }
-  const identities = new Set(keywords.map((keyword) =>
-    keyword.normalize("NFKC").trim().replace(/\s+/g, " ").toLocaleLowerCase("en-US")));
-  if (identities.size !== keywords.length) {
-    throw new Error("1688_keyword_search_input_invalid");
   }
   return keywords;
 }
@@ -328,45 +297,6 @@ async function runSourcing1688TrendOperation(operation) {
   try {
     assertOperationActive(operation);
     return await waitForTrendCollector(operation, trendCollector, "1688");
-  } finally {
-    unbindAbort();
-  }
-}
-
-async function runSourcing1688KeywordSearchOperation(operation) {
-  assertOperationActive(operation);
-  await operation.heartbeat({
-    progress: 0,
-    stage: "waiting_browser",
-    progressCurrent: 0,
-    progressTotal: 1,
-  });
-  const keywords = normalize1688KeywordSearchInput(operation.input);
-  const started = await trendCollector.start(
-    keywords,
-    6,
-    operation.environmentId,
-    operation.runId,
-    {
-      attemptToken: operation.attemptToken,
-      resultKind: "keyword_search",
-    },
-  );
-  if (!started?.success) {
-    return failedOperation(
-      "1688_browser_search_start_failed",
-      "The 1688 browser search could not start.",
-    );
-  }
-  const unbindAbort = bindOperationAbort(operation, () =>
-    trendCollector.cancel(operation.runId, operation.environmentId));
-  try {
-    assertOperationActive(operation);
-    return await waitForTrendCollector(
-      operation,
-      trendCollector,
-      "1688_keyword_search",
-    );
   } finally {
     unbindAbort();
   }
@@ -832,7 +762,6 @@ KidItemDomains.register({
   // each result against the operation run and attempt token.
   operations: {
     "sourcing.collect_1688_trends": runSourcing1688TrendOperation,
-    "sourcing.search_1688_keyword_batch": runSourcing1688KeywordSearchOperation,
     "sourcing.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation,
     "sourcing.collect_live_commerce_url": runSourcingLiveCommerceOperation,
   },

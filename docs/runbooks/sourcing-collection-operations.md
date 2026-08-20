@@ -11,7 +11,8 @@ The ownership flow is exact:
 
 ```text
 sourcing screen -> Operations start/read -> owner operation handler
-browser handler -> KidItem OS claim -> fenced owner ingest
+v2 1688 keyword handler -> Office Chrome CDP -> fenced owner commit
+remaining browser handler -> KidItem OS claim -> fenced owner ingest
 owner snapshot -> sourcing screen
 Operations never owns sourcing or Ads canonical rows
 ```
@@ -33,6 +34,11 @@ is never a substitute canonical payload.
 - For a browser operation, load the unified KidItem OS extension in the same
   Chrome profile as the authenticated provider tab. Human login, OTP, CAPTCHA,
   and account selection stay in that profile.
+- For a version-2 1688 keyword run, confirm the Office-managed Chrome CDP
+  endpoint is reachable from the API and that its persistent Office profile is
+  authenticated. Chrome is a host process, started manually or by an Office
+  startup task; the profile may be a full clone of an authenticated operator
+  profile when all source Chrome processes were stopped for the copy.
 - Do not record credentials, cookies, tokens, raw provider rows, or extension
   payloads in tickets, logs, screenshots, or this runbook.
 
@@ -49,7 +55,7 @@ capacities are intentionally conservative:
 | --- | ---: | --- |
 | default | 2 | ordinary provider HTTP and short orchestration |
 | naver_api | 2 | bounded Naver API parallelism |
-| playwright_1688 | 1 | 1688 keyword browser claims and AlphaShop image matching remain serialized |
+| playwright_1688 | 1 | Office CDP 1688 keyword page ownership and AlphaShop image matching remain serialized |
 | snapshot_compute | 2 | bounded aggregation memory and database pressure |
 | extension_coupang | 4 dispatch slots | extension dispatch is short; each environment has one active browser claim |
 
@@ -79,7 +85,7 @@ Also confirm the intended runtime settings before starting collection:
 | OPERATION_RUNTIME_WORKER_ENABLED | Set to 1 only when server-backed operations should execute. A disabled worker leaves them queued rather than bypassing Operations. |
 | OPERATION_SCHEDULER_ENABLED | Set to 1 only for reviewed schedules; it does not make a disabled schedule active. |
 | OPERATION_RUN_LEASE_MS | Positive. Browser heartbeats occur at least once per one-third of this lease. |
-| SOURCING_PLAYWRIGHT_CDP_ENDPOINT or SOURCING_PLAYWRIGHT_USER_DATA_DIR | Applies only to the generic server URL-scrape runtime. Dashboard 1688 keyword batches use an extension-owned inactive tab in the operator's current Chrome profile; image matching uses AlphaShop HTTP and opens no tab. |
+| SOURCING_PLAYWRIGHT_CDP_ENDPOINT | Required for the version-2 1688 keyword domain Operation. It accepts `http`, `https`, `ws`, or `wss`; the initial Office value is `http://kiditem-office:9444`. Image matching remains AlphaShop HTTP and opens no browser tab. |
 | API_SELF_URL and AGENT_API_CAPABILITY_GRANT_SECRET | Required only for bounded Agent-to-API sourcing commands. The grant stays in API/Agent parent env and never in browser/MCP child logs. |
 
 ## Lifecycle And Process Ownership
@@ -129,6 +135,28 @@ queued, or creates a replacement run. After maintenance, an operator may make
 an explicit retry only once one API is ACCEPTING; that action creates a new
 OperationRun and preserves the old cancellation row.
 
+## Office 1688 Keyword CDP Runtime
+
+`sourcing.search_1688_keyword_batch` is a version-2 server domain Operation.
+It connects only to the configured Office Chrome CDP endpoint, creates one
+operation-owned page, and closes only that page when it finishes, fails, or is
+cancelled. Host Chrome, its login state, and unrelated pre-existing tabs must
+survive every run. The extension neither registers nor dispatches this operation.
+
+The endpoint accepts `http`, `https`, `ws`, and `wss`. The initial same-PC Office
+endpoint, `http://kiditem-office:9444`, reaches the host through the Compose host
+alias and needs no TLS, mTLS, or authentication proxy. A later HTTPS/WSS endpoint
+requires API-container reachability, a certificate the container trusts, and a
+proxy that preserves CDP discovery plus WebSocket upgrade traffic. That is Office
+configuration work, not an application-code change.
+
+The persistent Office profile may be prepared as a full clone of an authenticated
+operator profile: stop all source Chrome processes, copy the complete User Data
+parent, then start the selected profile with remote debugging. Operations never
+recopy, launch, terminate, or close host Chrome. Login/security challenges remain
+operator attention; there is no automatic extension, anonymous-browser, or
+fresh-profile fallback.
+
 ## Start And Inspect A Collection
 
 The normal operator path is the sourcing screen's explicit collection CTA. It
@@ -163,11 +191,13 @@ Inspect these safe fields:
 | deadlineAt and attempts | run policy copied at start and durable audit count | Do not extend a deadline or decrement attempts manually. |
 | result.summary and result.sources | terminal safe counts/outcomes | Use for UI/operator summary only; read canonical rows through their owner API. |
 
-Browser operations move to waiting_runtime until KidItem OS claims the exact
-run. The browser handler creates/resumes the extension-local session with the
-same run ID, a verified environment, and the exact producer. It sends raw
+Extension browser operations move to waiting_runtime until KidItem OS claims the
+exact run. The browser handler creates/resumes the extension-local session with
+the same run ID, a verified environment, and the exact producer. It sends raw
 provider rows only to the owner ingest endpoint using the attempt token. Its
-terminal report includes safe counts and references, never raw rows.
+terminal report includes safe counts and references, never raw rows. The v2 1688
+keyword domain Operation instead commits through its active-attempt fence after
+Office CDP provider work completes.
 
 ## Cancel, Retry, Attention, And Provider Outage
 
@@ -245,7 +275,7 @@ collection.
 | /sourcing-ai/rising-products | Click detect. | sourcing.detect_rising_products and persisted rising model; no synchronous detect endpoint. |
 | /sourcing-ai/settings | Open/edit then cancel settings interaction. | No external collection on mount or settings edit. |
 | /sourcing-ai/validation | Start validation collection. | explicit Wing-batch run, run panel, retained snapshot on failure. |
-| /sourcing-ai/wholesale-search | Explicitly run a logged-in Chrome 1688 keyword batch, then a tabless AlphaShop image match for selected targets. | sourcing.search_1688_keyword_batch and sourcing.match_wholesale_images, no route-entry batch. The extension creates and closes only its own inactive keyword tab. |
+| /sourcing-ai/wholesale-search | Explicitly run an Office CDP 1688 keyword batch, then a tabless AlphaShop image match for selected targets. | version-2 `sourcing.search_1688_keyword_batch` domain run and `sourcing.match_wholesale_images`, no route-entry batch. Only the CDP operation-owned tab closes; host Chrome, login, and unrelated tabs survive. |
 | /sourcing-ai/wing-catalog | Submit Wing catalog search/next page. | sourcing.collect_wing_catalog_batch browser claim, fenced ingest, persisted catalog snapshot. |
 
 Provider-unavailable is a required case when a real stack is available: confirm
@@ -293,8 +323,9 @@ Stop and report rather than working around any of these conditions:
 - startup cleanup timeout, operation_server_lifecycle_cleanup_failed, or
   residual active/waiting run that would require manual requeue;
 - malformed resource class limits or an unvalidated protected API environment;
-- missing authenticated KidItem/API session, unified extension capability, or
-  required provider login/CAPTCHA completion for a live browser test;
+- missing authenticated KidItem/API session, the required extension capability
+  for an extension-owned operation, Office CDP reachability for a v2 1688
+  keyword run, or required provider login/CAPTCHA completion for a live test;
 - a mount/reload/navigation causes an external collection, or a terminal result
   claims success without a persisted owner snapshot;
 - a request exposes raw provider data, credentials, tokens, cookies, or

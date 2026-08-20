@@ -4,7 +4,6 @@ ProductScraper.alibaba1688 = (() => {
   "use strict";
 
   const C = ProductScraper.common;
-
   const SEARCH_CARD = [
     "a.i18n-card-wrap[href*='/offer/']",
     "div.wp-offerlist-windows ul.offer-list-row > li",
@@ -165,6 +164,14 @@ ProductScraper.alibaba1688 = (() => {
     }
   }
 
+  function offerIdFromValue(value) {
+    var text = String(value || "");
+    var pathMatch = text.match(/\/offer(?:detail)?\/(\d{6,})(?:\.html)?(?:[/?#]|$)/i);
+    if (pathMatch) return pathMatch[1];
+    var queryMatch = text.match(/(?:[?&]|^)(?:offerId|offer_id)=(\d{6,})(?:[&#]|$)/i);
+    return queryMatch ? queryMatch[1] : "";
+  }
+
   function canonicalOfferId(card, linkEl) {
     var candidates = [];
     if (card) {
@@ -185,8 +192,8 @@ ProductScraper.alibaba1688 = (() => {
 
     for (var j = 0; j < candidates.length; j++) {
       var value = String(candidates[j] || "");
-      var direct = value.match(/\/offer\/(\d{6,})(?:\.html)?(?:[/?#]|$)/i);
-      if (direct) return direct[1];
+      var direct = offerIdFromValue(value);
+      if (direct) return direct;
       if (/^\d{6,}$/.test(value)) return value;
     }
     return "";
@@ -227,30 +234,64 @@ ProductScraper.alibaba1688 = (() => {
     return normalizeMonthlySales(card.textContent || "");
   }
 
+  function openSearchRoots() {
+    var roots = [document];
+    var index = 0;
+    while (index < roots.length && roots.length < 64) {
+      var root = roots[index++];
+      if (root.shadowRoot && roots.indexOf(root.shadowRoot) === -1) {
+        roots.push(root.shadowRoot);
+      }
+      var elements;
+      try {
+        elements = root.querySelectorAll("*");
+      } catch (e) {
+        elements = [];
+      }
+      for (var i = 0; i < elements.length && roots.length < 64; i++) {
+        if (elements[i].shadowRoot && roots.indexOf(elements[i].shadowRoot) === -1) {
+          roots.push(elements[i].shadowRoot);
+        }
+      }
+    }
+    return roots;
+  }
+
   function currentSearchCards() {
     var cards = C.qAll(SEARCH_CARD);
-    var currentRoot = document.querySelector(".space-common-offerlist");
-    if (!currentRoot) return cards;
-
-    var offerLinks = currentRoot.querySelectorAll("a[href*='/offer/']");
-    for (var i = 0; i < offerLinks.length; i++) {
-      var link = offerLinks[i];
-      var card = link.closest(
-        "[data-offer-id], [data-offerid], [offer-id], article, li, " +
-        "[class*='offer-card'], [class*='offer-item'], [class*='card-wrap'], " +
-        "[class*='result-tile']"
-      );
-      if (!card || card === currentRoot) card = link;
-      if (cards.indexOf(card) === -1) cards.push(card);
+    var roots = openSearchRoots();
+    for (var rootIndex = 0; rootIndex < roots.length; rootIndex++) {
+      var root = roots[rootIndex];
+      var offerLinks;
+      try {
+        offerLinks = root.querySelectorAll("a[href]");
+      } catch (e) {
+        offerLinks = [];
+      }
+      for (var i = 0; i < offerLinks.length; i++) {
+        var link = offerLinks[i];
+        if (!offerIdFromValue(link.getAttribute("href"))) continue;
+        var card = link.closest(
+          "[data-offer-id], [data-offerid], [offer-id], article, li, " +
+          "[class*='offer-card'], [class*='offer-item'], [class*='card-wrap'], " +
+          "[class*='result-tile'], [class*='search-offer'], [class*='offer-wrapper']"
+        );
+        if (!card) card = link;
+        if (cards.indexOf(card) === -1) cards.push(card);
+      }
     }
     return cards;
   }
 
   function offerLink(card) {
-    if (card.tagName === "A" && /\/offer\//i.test(card.getAttribute("href") || "")) {
+    if (card.tagName === "A" && offerIdFromValue(card.getAttribute("href"))) {
       return card;
     }
-    return card.querySelector("a[href*='/offer/']");
+    var links = card.querySelectorAll("a[href]");
+    for (var i = 0; i < links.length; i++) {
+      if (offerIdFromValue(links[i].getAttribute("href"))) return links[i];
+    }
+    return null;
   }
 
   function offerTitleElement(card, linkEl) {

@@ -211,60 +211,6 @@ test('collects keywords sequentially in one Chrome tab and preserves backend com
   );
 });
 
-test('posts keyword-search operations only to the fixed search-result owner route', async () => {
-  const fake = createFakeChrome(({ cb }) => cb({ ok: true, items: [item('100000003', 1)] }));
-  const requestCalls = [];
-  const { collector } = loadCollector({
-    fakeChrome: fake.chrome,
-    backendConfig: {
-      ok: true,
-      apiBase: 'http://localhost:4000/api',
-      headers: { Authorization: 'Bearer token', 'Content-Type': 'application/json' },
-      request: async (url, init) => {
-        requestCalls.push({ url, init });
-        return {
-          ok: true,
-          json: async () => ({
-            collected: 1,
-            operationResult: {
-              outcome: 'complete',
-              summary: { discovered: 1, accepted: 1, duplicate: 0, unchanged: 0, failed: 0 },
-              sources: [{ source: '1688_keyword_search', outcome: 'complete', accepted: 1, failed: 0 }],
-              units: [{
-                keyword: '文具',
-                targetId: null,
-                outcome: 'complete',
-                discovered: 1,
-                accepted: 1,
-                duplicate: 0,
-                failed: 0,
-              }],
-              snapshotGeneratedAt: '2026-08-20T00:00:00.000Z',
-            },
-          }),
-        };
-      },
-    },
-    fetchImpl: async () => assert.fail('owner ingest must use backendConfig.request'),
-  });
-
-  const started = await collector.start(
-    ['文具'],
-    6,
-    'local',
-    OPERATION_RUN_ID,
-    { attemptToken: OPERATION_ATTEMPT_TOKEN, resultKind: 'keyword_search' },
-  );
-  await waitForStatus(collector, started.runId, 'completed');
-
-  assert.equal(
-    requestCalls[0].url,
-    `http://localhost:4000/api/sourcing/operations/1688-search/${OPERATION_RUN_ID}/results`,
-  );
-  assert.deepEqual(fake.calls.create, [{ url: 'about:blank', active: false }]);
-  assert.equal(fake.calls.remove.length, 1);
-});
-
 test('keeps CAPTCHA attention inactive until the generic open command without exposing a collector restart bridge', async () => {
   let verificationRequired = true;
   const fake = createFakeChrome(({ cb, tabs, tabId }) => {

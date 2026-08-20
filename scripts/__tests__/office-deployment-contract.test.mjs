@@ -38,6 +38,38 @@ test('office Compose is image-only and preserves external state volumes', () => 
   assert.doesNotMatch(envExample, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
 });
 
+test('office Compose injects the managed Chrome CDP endpoint into the API runtime', () => {
+  const envExample = read('deploy/office/office.env.example');
+  const endpoint = /^SOURCING_PLAYWRIGHT_CDP_ENDPOINT=(.+)$/m.exec(envExample)?.[1];
+  assert.equal(endpoint, 'http://kiditem-office:9444');
+
+  const result = spawnSync(
+    'docker',
+    [
+      'compose',
+      '--env-file', 'deploy/office/office.env.example',
+      '--env-file', 'deploy/office/digest.env.example',
+      '-f', 'deploy/office/compose.office.yml',
+      'config', '--format', 'json',
+    ],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        OFFICE_API_ENV_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
+      },
+    },
+  );
+
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const resolved = JSON.parse(result.stdout);
+  assert.equal(
+    resolved.services.api.environment.SOURCING_PLAYWRIGHT_CDP_ENDPOINT,
+    endpoint,
+  );
+});
+
 test('office web image build has no Supabase authentication configuration', () => {
   const workflow = read('.github/workflows/office-images.yml');
   assert.doesNotMatch(workflow, /NEXT_PUBLIC_SUPABASE|SUPABASE_URL/);

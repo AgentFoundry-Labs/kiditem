@@ -109,12 +109,11 @@ scripts; retired extension paths are not fallbacks. Develop new scrapers via the
 Codex-global `$magic-scraper` skill, then promote them into reviewed
 extractor/runtime code with fixtures and tests.
 
-For 1688/Alibaba use a dedicated managed profile via
-`SOURCING_PLAYWRIGHT_CDP_ENDPOINT` / `runtimeConfig.playwrightCdpEndpoint`, not a
-fresh anonymous browser. Even so, 1688 search answers programmatic navigation
-with a `punish` challenge, so keyword collection that must succeed belongs in the
-Chrome extension: it runs in the operator's session and hands any slider to them
-rather than bypassing it.
+The version-2 1688 keyword Operation is server-domain owned and attaches only
+through `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome. It
+has no extension, anonymous-browser, or fresh-profile fallback. The adapter
+closes only its page; host Chrome, login, and unrelated tabs survive. Login or
+security challenges are truthful attention states, never bypassed.
 
 `magic-scraper` is development-only: never expose arbitrary browser JS, CDN
 scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
