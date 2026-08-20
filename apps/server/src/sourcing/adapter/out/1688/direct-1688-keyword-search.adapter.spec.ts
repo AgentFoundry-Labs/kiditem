@@ -85,12 +85,15 @@ describe('Direct1688KeywordSearchAdapter', () => {
 
   it('uses authenticated DOM records only when no valid search API response was observed', async () => {
     const fixture = browserFixture();
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
-      title: 'DOM 儿童笔袋',
-      priceText: '12.5',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+        title: 'DOM 儿童笔袋',
+        priceText: '12.5',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
 
@@ -125,7 +128,7 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await waitForDelayedFixture();
 
     await expect(result).resolves.toMatchObject([{ offerId: '123456', monthlySales: 88 }]);
-    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
     await session.close();
   });
 
@@ -143,8 +146,160 @@ describe('Direct1688KeywordSearchAdapter', () => {
       title: 'delayed DOM 儿童笔袋',
       monthlySales: 88,
     }]);
-    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(2);
     await session.close();
+  });
+
+  it('fails closed when trusted search DOM remains in a loading skeleton state', async () => {
+    const fixture = browserFixture({ domReadiness: { kind: 'loading' } });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
+    expect(fixture.page.close).toHaveBeenCalledOnce();
+  });
+
+  it('waits for a loading DOM state to become authenticated item records', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'loading' },
+      nextDomReadiness: {
+        kind: 'items',
+        records: [{
+          href: 'https://detail.1688.com/offer/123456.html',
+          title: 'ready DOM 儿童笔袋',
+          salesText: '近30天成交 88 笔',
+        }],
+      },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toMatchObject([{
+      offerId: '123456',
+      title: 'ready DOM 儿童笔袋',
+    }]);
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(2);
+    await session.close();
+  });
+
+  it('waits for a loading DOM state to become a trusted explicit empty result', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'loading' },
+      nextDomReadiness: { kind: 'explicit_zero' },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toEqual([]);
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(2);
+    await session.close();
+  });
+
+  it('accepts a recognized trusted API zero without relying on DOM emptiness', async () => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      apiPayload: { data: { offers: [] } },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toEqual([]);
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('fails closed when a trusted explicit API zero is accompanied by malformed relevant JSON', async () => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      apiPayload: { data: { offers: [] } },
+      additionalApiPayload: { data: { offers: [{ unexpected: true }] } },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { name: 'malformed collection', payload: { data: { offers: [{ unexpected: true }] } } },
+    { name: 'unrecognized payload', payload: { data: { pagination: { page: 1 } } } },
+  ])('fails closed for $name from a trusted search response', async ({ payload }) => {
+    const fixture = browserFixture({ emitApiOnGoto: true, apiPayload: payload });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a trusted blank page without API or ready DOM evidence', async () => {
+    const fixture = browserFixture({ domReadiness: { kind: 'unready' } });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
+  });
+
+  it('waits for an accessible same-origin iframe to leave loading and report an explicit empty result', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      frameReadiness: { kind: 'loading' },
+      nextFrameReadiness: { kind: 'explicit_zero' },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toEqual([]);
+
+    expect(fixture.sameOriginFrame?.evaluate).toHaveBeenCalledTimes(2);
+    await session.close();
+  });
+
+  it('bounds same-origin iframe readiness inspection instead of accepting a late unbounded frame', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      frameReadiness: { kind: 'unready' },
+      extraFrameReadinesses: [
+        { kind: 'unready' },
+        { kind: 'unready' },
+        { kind: 'explicit_zero' },
+      ],
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.extraSameOriginFrames[2]?.evaluate).not.toHaveBeenCalled();
   });
 
   it('closes its owned page after caller abort and does not begin another navigation', async () => {
@@ -183,7 +338,7 @@ describe('Direct1688KeywordSearchAdapter', () => {
     expect(await result).toBe(reason);
     expect(fixture.page.close).toHaveBeenCalledOnce();
     expect(fixture.browser.close).toHaveBeenCalledOnce();
-    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
     fixture.resolveRenderWait?.();
   });
 
@@ -245,19 +400,22 @@ describe('Direct1688KeywordSearchAdapter', () => {
       keyword: '儿童笔袋',
       pageText: '',
     },
-  ])('does not turn $name into operator attention', async ({ keyword, pageText }) => {
+  ])('fails closed without turning $name into operator attention', async ({ keyword, pageText }) => {
     const fixture = browserFixture({ pageText });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
 
-    await expect(session.searchKeyword({ keyword })).resolves.toEqual([]);
+    await expect(session.searchKeyword({ keyword })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordProviderError',
+      code: 'search_extraction_failed',
+    });
 
-    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
     await session.close();
   });
 
-  it('does not classify an ordinary trusted security category route as a challenge', async () => {
+  it('fails closed rather than classifying an ordinary trusted security category route as attention', async () => {
     const fixture = browserFixture({
       finalUrl: 'https://s.1688.com/security/wholesale-products.htm',
     });
@@ -265,9 +423,12 @@ describe('Direct1688KeywordSearchAdapter', () => {
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
 
-    await expect(session.searchKeyword({ keyword: 'Security camera wholesale products' })).resolves.toEqual([]);
+    await expect(session.searchKeyword({ keyword: 'Security camera wholesale products' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordProviderError',
+      code: 'search_extraction_failed',
+    });
 
-    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
     await session.close();
   });
 
@@ -293,11 +454,14 @@ describe('Direct1688KeywordSearchAdapter', () => {
 
   it('rejects an untrusted final page before forged DOM offers can be normalized', async () => {
     const fixture = browserFixture({ finalUrl: 'https://evil.example/search' });
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'https://detail.1688.com/offer/123456.html',
-      title: 'forged offer',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'https://detail.1688.com/offer/123456.html',
+        title: 'forged offer',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -315,11 +479,14 @@ describe('Direct1688KeywordSearchAdapter', () => {
       navigationResponseUrl: 'https://evil.example/search',
       finalUrl: 'https://s.1688.com/selloffer/offer_search.htm',
     });
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'https://detail.1688.com/offer/123456.html',
-      title: 'forged redirect offer',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'https://detail.1688.com/offer/123456.html',
+        title: 'forged redirect offer',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -342,11 +509,14 @@ describe('Direct1688KeywordSearchAdapter', () => {
         'https://s.1688.com/selloffer/offer_search.htm',
       ],
     });
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'https://detail.1688.com/offer/123456.html',
-      title: 'forged redirect-hop offer',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'https://detail.1688.com/offer/123456.html',
+        title: 'forged redirect-hop offer',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -370,11 +540,14 @@ describe('Direct1688KeywordSearchAdapter', () => {
       ],
       emitUntrustedSubresourceOnGoto: true,
     });
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
-      title: 'allowed offer',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+        title: 'allowed offer',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -392,11 +565,14 @@ describe('Direct1688KeywordSearchAdapter', () => {
       emitApiOnGoto: true,
       apiResponseUrl: 'http://s.1688.com/selloffer/search-api',
     });
-    fixture.page.evaluate.mockResolvedValue([{
-      href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
-      title: 'trusted DOM offer',
-      salesText: '近30天成交 88 笔',
-    }]);
+    fixture.page.evaluate.mockResolvedValue({
+      kind: 'items',
+      records: [{
+        href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+        title: 'trusted DOM offer',
+        salesText: '近30天成交 88 笔',
+      }],
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -468,9 +644,16 @@ function browserFixture(input?: {
   duplicateApiOnGoto?: boolean;
   lateApiOnGoto?: boolean;
   lateDomOnGoto?: boolean;
+  domReadiness?: unknown;
+  nextDomReadiness?: unknown;
+  frameReadiness?: unknown;
+  nextFrameReadiness?: unknown;
+  extraFrameReadinesses?: unknown[];
   blockRenderWait?: boolean;
   blockGoto?: boolean;
   pageText?: string;
+  apiPayload?: unknown;
+  additionalApiPayload?: unknown;
   finalUrl?: string;
   apiResponseUrl?: string;
   navigationResponseUrl?: string;
@@ -481,7 +664,9 @@ function browserFixture(input?: {
   let responseListener: ((response: unknown) => void) | undefined;
   let resolveGoto: (() => void) | undefined;
   let resolveRenderWait: (() => void) | undefined;
-  let domRecords: unknown[] = [];
+  let domReadiness: unknown = input?.domReadiness ?? { kind: 'unready' };
+  let domReads = 0;
+  let frameReads = 0;
   const page = {
     on: vi.fn((event: string, listener: (response: unknown) => void) => {
       if (event === 'response') {
@@ -498,7 +683,7 @@ function browserFixture(input?: {
       const response = {
         url: () => input?.apiResponseUrl ?? 'https://s.1688.com/selloffer/search-api',
         headers: () => ({ 'content-type': 'application/json' }),
-        json: async () => ({ offers: [{
+        json: async () => input?.apiPayload ?? ({ offers: [{
           offerId: '123456',
           title: 'API 儿童笔袋',
           offerUrl: 'https://detail.1688.com/offer/123456.html',
@@ -507,6 +692,12 @@ function browserFixture(input?: {
       };
       if (input?.emitApiOnGoto) {
         responseListener?.(response);
+        if (input.additionalApiPayload !== undefined) {
+          responseListener?.({
+            ...response,
+            json: async () => input.additionalApiPayload,
+          });
+        }
         if (input.duplicateApiOnGoto) responseListener?.(response);
       }
       if (input?.emitUntrustedSubresourceOnGoto) {
@@ -519,11 +710,14 @@ function browserFixture(input?: {
       if (input?.lateApiOnGoto) setTimeout(() => responseListener?.(response), 5);
       if (input?.lateDomOnGoto) {
         setTimeout(() => {
-          domRecords = [{
-            href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
-            title: 'delayed DOM 儿童笔袋',
-            salesText: '近30天成交 88 笔',
-          }];
+          domReadiness = {
+            kind: 'items',
+            records: [{
+              href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
+              title: 'delayed DOM 儿童笔袋',
+              salesText: '近30天成交 88 笔',
+            }],
+          };
         }, 5);
       }
       if (input?.blockGoto) return new Promise<void>((resolve) => { resolveGoto = resolve; });
@@ -539,13 +733,36 @@ function browserFixture(input?: {
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn(() => input?.blockRenderWait
       ? new Promise<void>((resolve) => { resolveRenderWait = resolve; })
-      : new Promise<void>((resolve) => setTimeout(resolve, 20))),
-    evaluate: vi.fn(() => Promise.resolve(domRecords)),
+      : new Promise<void>((resolve) => setTimeout(resolve, 5))),
+    evaluate: vi.fn(() => {
+      const readiness = domReads === 0 ? domReadiness : input?.nextDomReadiness ?? domReadiness;
+      domReads += 1;
+      return Promise.resolve(readiness);
+    }),
     locator: vi.fn(() => ({ innerText: vi.fn().mockResolvedValue(input?.pageText ?? '') })),
     url: vi.fn(() => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm'),
     title: vi.fn().mockResolvedValue('1688 搜索'),
     close: vi.fn().mockResolvedValue(undefined),
   };
+  const mainFrame = { url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm' };
+  const sameOriginFrame = {
+    url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm',
+    evaluate: vi.fn(() => {
+      const readiness = frameReads === 0
+        ? input?.frameReadiness ?? { kind: 'unready' }
+        : input?.nextFrameReadiness ?? input?.frameReadiness ?? { kind: 'unready' };
+      frameReads += 1;
+      return Promise.resolve(readiness);
+    }),
+  };
+  const extraSameOriginFrames = (input?.extraFrameReadinesses ?? []).map((readiness) => ({
+    url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm',
+    evaluate: vi.fn(() => Promise.resolve(readiness)),
+  }));
+  Object.assign(page, {
+    mainFrame: () => mainFrame,
+    frames: () => [mainFrame, sameOriginFrame, ...extraSameOriginFrames],
+  });
   const unrelatedPage = { close: vi.fn() };
   const context = { newPage: vi.fn().mockResolvedValue(page), pages: () => [unrelatedPage, page] };
   const browser = {
@@ -553,7 +770,17 @@ function browserFixture(input?: {
     newContext: vi.fn(),
     close: vi.fn().mockResolvedValue(undefined),
   };
-  return { browser, context, events, page, resolveGoto, resolveRenderWait, unrelatedPage };
+  return {
+    browser,
+    context,
+    events,
+    page,
+    sameOriginFrame,
+    extraSameOriginFrames,
+    resolveGoto,
+    resolveRenderWait,
+    unrelatedPage,
+  };
 }
 
 interface RedirectRequestFixture {

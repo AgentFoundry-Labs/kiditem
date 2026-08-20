@@ -7,6 +7,28 @@ const MAX_VISITED_PAYLOAD_OBJECTS = 5_000;
 const MAX_TEXT_LENGTH = 500;
 const MAX_URL_LENGTH = 2_000;
 const MAX_METRIC = 2_147_483_647;
+const API_COLLECTION_KEYS = new Set([
+  'offers',
+  'offerlist',
+  'offeritems',
+  'offerrecords',
+  'productlist',
+  'products',
+  'searchresults',
+  'resultlist',
+  'resultitems',
+]);
+
+export type Search1688KeywordApiReadiness =
+  | { kind: 'items'; items: Search1688KeywordItem[] }
+  | { kind: 'explicit_zero' }
+  | { kind: 'indeterminate' };
+
+export type Search1688KeywordDomReadiness =
+  | { kind: 'items'; records: unknown[] }
+  | { kind: 'explicit_zero' }
+  | { kind: 'loading' }
+  | { kind: 'unready' };
 
 /**
  * Projects the current 1688 search response into the narrow, persistence-safe
@@ -14,6 +36,26 @@ const MAX_METRIC = 2_147_483_647;
  * depending on one provider response shape.
  */
 export function extract1688KeywordItemsFromApiPayload(payload: unknown): Search1688KeywordItem[] {
+  const result = inspect1688KeywordApiPayload(payload);
+  return result.kind === 'items' ? result.items : [];
+}
+
+/**
+ * A trusted search-response URL alone is not enough to authorize a durable
+ * empty result. The payload must expose one of the current search collection
+ * shapes and that collection must be explicitly empty.
+ */
+export function inspect1688KeywordApiPayload(payload: unknown): Search1688KeywordApiReadiness {
+  const collections = recognizedApiCollections(payload);
+  if (collections.length === 0) return { kind: 'indeterminate' };
+  if (collections.every((collection) => collection.length === 0)) {
+    return { kind: 'explicit_zero' };
+  }
+  const items = extract1688KeywordItemsFromRecognizedPayload(collections);
+  return items.length > 0 ? { kind: 'items', items } : { kind: 'indeterminate' };
+}
+
+function extract1688KeywordItemsFromRecognizedPayload(payload: unknown): Search1688KeywordItem[] {
   const items: Search1688KeywordItem[] = [];
   const seenObjects = new WeakSet<object>();
   const queue: Array<{ value: unknown; depth: number }> = [{ value: payload, depth: 0 }];
@@ -71,7 +113,7 @@ export function merge1688KeywordSearchItems(
  * Runs inside the authenticated page through `page.evaluate`. Keep helpers
  * nested so Playwright can serialize the callback without server closures.
  */
-export function collect1688KeywordDomRecords(maxResults: number): unknown[] {
+export function inspect1688KeywordDomReadiness(maxResults: number): Search1688KeywordDomReadiness {
   const limit = Math.max(1, Math.min(40, Math.floor(Number(maxResults) || 40)));
   const roots: unknown[] = [document];
   const cards: unknown[] = [];
@@ -161,7 +203,86 @@ export function collect1688KeywordDomRecords(maxResults: number): unknown[] {
     }
   }
 
-  return cards;
+  if (cards.length > 0) return { kind: 'items', records: cards };
+
+  const loadingSelectors = [
+    '[aria-busy="true"]',
+    '[data-loading="true"]',
+    '[data-testid*="skeleton"]',
+    '[class*="skeleton"]',
+    '[class*="loading"]',
+    '[class*="placeholder"]',
+  ].join(', ');
+  if (roots.some((root) => queryAll(root, loadingSelectors).length > 0)) {
+    return { kind: 'loading' };
+  }
+  const emptySelectors = [
+    '[data-search-result] [data-empty="true"]',
+    '[data-search-result] [data-testid*="empty"]',
+    '[data-search-result] [class*="empty"]',
+    '[data-search-result] [class*="no-result"]',
+    '[data-search-result] [class*="no-results"]',
+    '[data-search-result] [class*="zero-result"]',
+    '[class*="search-result"] [data-empty="true"]',
+    '[class*="search-result"] [data-testid*="empty"]',
+    '[class*="search-result"] [class*="empty"]',
+    '[class*="search-result"] [class*="no-result"]',
+    '[class*="search-result"] [class*="no-results"]',
+    '[class*="search-result"] [class*="zero-result"]',
+    '[class*="offer-list"] [data-empty="true"]',
+    '[class*="offer-list"] [class*="empty"]',
+    '[class*="result-list"] [data-empty="true"]',
+    '[class*="result-list"] [class*="empty"]',
+  ].join(', ');
+  return roots.some((root) => queryAll(root, emptySelectors).length > 0)
+    ? { kind: 'explicit_zero' }
+    : { kind: 'unready' };
+}
+
+/** Keeps the historical rows-only helper for pure extractor consumers. */
+export function collect1688KeywordDomRecords(maxResults: number): unknown[] {
+  const result = inspect1688KeywordDomReadiness(maxResults);
+  return result.kind === 'items' ? result.records : [];
+}
+
+function recognizedApiCollections(payload: unknown): unknown[][] {
+  const collections: unknown[][] = [];
+  const seenObjects = new WeakSet<object>();
+  const queue: Array<{ value: unknown; depth: number }> = [{ value: payload, depth: 0 }];
+  let visited = 0;
+
+  while (queue.length > 0 && visited < MAX_VISITED_PAYLOAD_OBJECTS) {
+    const entry = queue.shift();
+    if (!entry || !isRecordOrArray(entry.value)) continue;
+    if (seenObjects.has(entry.value)) continue;
+    seenObjects.add(entry.value);
+    visited += 1;
+
+    if (isRecord(entry.value)) {
+      let entries: Array<[string, unknown]> = [];
+      try {
+        entries = Object.entries(entry.value);
+      } catch {
+        return collections;
+      }
+      for (const [key, child] of entries) {
+        const normalizedKey = key.replace(/[^a-z]/giu, '').toLowerCase();
+        if (API_COLLECTION_KEYS.has(normalizedKey) && Array.isArray(child)) {
+          collections.push(child);
+        }
+        if (entry.depth < MAX_PAYLOAD_DEPTH && isRecordOrArray(child)) {
+          queue.push({ value: child, depth: entry.depth + 1 });
+        }
+      }
+      continue;
+    }
+    if (entry.depth < MAX_PAYLOAD_DEPTH) {
+      for (const child of entry.value) {
+        if (isRecordOrArray(child)) queue.push({ value: child, depth: entry.depth + 1 });
+      }
+    }
+  }
+  return collections;
 }
 
 function normalize1688KeywordItem(value: Record<string, unknown>, index: number): Search1688KeywordItem | null {

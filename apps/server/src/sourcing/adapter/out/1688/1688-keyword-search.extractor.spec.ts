@@ -3,6 +3,8 @@ import {
   collect1688KeywordDomRecords,
   extract1688KeywordItemsFromApiPayload,
   extract1688KeywordItemsFromDomRecords,
+  inspect1688KeywordApiPayload,
+  inspect1688KeywordDomReadiness,
   merge1688KeywordSearchItems,
 } from './1688-keyword-search.extractor';
 
@@ -112,6 +114,64 @@ describe('1688 keyword search extractor', () => {
       querySelectorAll: () => [{ get shadowRoot() { throw new Error('closed'); } }],
     });
     expect(collect1688KeywordDomRecords(40)).toEqual([]);
+  });
+
+  it('distinguishes a recognized explicit API zero from malformed relevant JSON', () => {
+    expect(inspect1688KeywordApiPayload({ data: { offers: [] } })).toEqual({
+      kind: 'explicit_zero',
+    });
+    expect(inspect1688KeywordApiPayload({ data: { offers: [{ unexpected: true }] } })).toEqual({
+      kind: 'indeterminate',
+    });
+    expect(inspect1688KeywordApiPayload({
+      data: {
+        offers: [{ unexpected: true }],
+        metadata: {
+          offerId: '123456',
+          title: 'must not escape an unrecognized collection',
+          offerUrl: 'https://detail.1688.com/offer/123456.html',
+        },
+      },
+    })).toEqual({ kind: 'indeterminate' });
+    expect(inspect1688KeywordApiPayload({ data: { pagination: { page: 1 } } })).toEqual({
+      kind: 'indeterminate',
+    });
+  });
+
+  it('reports loading and explicit empty states through open shadow roots without exposing page text', () => {
+    const loadingRoot = {
+      querySelectorAll: (selector: string) => {
+        if (selector === '*') return [];
+        if (selector.includes('skeleton')) return [{}];
+        return [];
+      },
+    };
+    vi.stubGlobal('document', {
+      querySelectorAll: (selector: string) => selector === '*' ? [{ shadowRoot: loadingRoot }] : [],
+    });
+
+    expect(inspect1688KeywordDomReadiness(40)).toEqual({ kind: 'loading' });
+
+    vi.stubGlobal('document', {
+      querySelectorAll: (selector: string) => {
+        if (selector === '*') return [];
+        if (selector.includes('data-empty')) return [{}];
+        if (selector.includes('search-result')) return [{}];
+        return [];
+      },
+    });
+    expect(inspect1688KeywordDomReadiness(40)).toEqual({ kind: 'explicit_zero' });
+
+    vi.stubGlobal('document', {
+      querySelectorAll: (selector: string) => {
+        if (selector === '*') return [];
+        if (selector.includes('data-empty') && selector.includes('search-result')) return [];
+        if (selector.includes('data-empty')) return [{}];
+        if (selector.includes('search-result')) return [{}];
+        return [];
+      },
+    });
+    expect(inspect1688KeywordDomReadiness(40)).toEqual({ kind: 'unready' });
   });
 });
 

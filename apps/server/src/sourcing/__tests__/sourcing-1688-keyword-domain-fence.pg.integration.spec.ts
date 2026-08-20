@@ -17,7 +17,10 @@ import { OperationAttemptVerifierService } from '../../operations/application/se
 import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
 import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
 import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
-import type { Search1688KeywordSession } from '../application/port/out/provider/1688-keyword-search.port';
+import {
+  Sourcing1688KeywordProviderError,
+  type Search1688KeywordSession,
+} from '../application/port/out/provider/1688-keyword-search.port';
 import type { Sourcing1688ImageSearchPort } from '../application/port/out/provider/1688-image-search.port';
 import { SourcingCollectionCoordinator } from '../application/service/sourcing-collection-coordinator.service';
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
@@ -203,6 +206,35 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
         collectorKey: 'operation-1688-keyword-search',
       },
     })).resolves.toBe(1);
+  });
+
+  it('does not commit a completed empty marker when a live-like provider extraction is indeterminate', async () => {
+    const attempt = await createAttempt(primary);
+    const service = new Sourcing1688KeywordSearchService(
+      new SourcingCollectionCoordinator(collections),
+      new Sourcing1688SearchResultRepositoryAdapter(primary as unknown as PrismaService),
+    );
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(async () => {
+        throw new Sourcing1688KeywordProviderError('search_extraction_failed');
+      }),
+      close: vi.fn(async () => undefined),
+    };
+
+    await expect(service.searchForOperation(keywordOperationInput(attempt, session, verifier))).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(session.searchKeyword).toHaveBeenCalledTimes(1);
+    await expect(primary.sourcing1688OfferKeywordObservation.count()).resolves.toBe(0);
+    await expect(primary.sourcingEvidenceIngestionRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceKey: '1688.hot_product',
+        collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+        status: { in: ['complete', 'partial'] },
+      },
+    })).resolves.toBe(0);
   });
 
   it.each([

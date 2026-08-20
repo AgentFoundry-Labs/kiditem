@@ -231,14 +231,15 @@ describe('Sourcing1688OperationHandler', () => {
   });
 
   it.each(['cdp_unavailable', 'browser_context_unavailable', 'search_extraction_failed'] as const)(
-    'uses the bounded %s provider code when every keyword fails before persistence',
+    'uses the bounded %s provider code with no canonical attempt fence when every keyword fails before persistence',
     async (code) => {
+    const attemptVerifier = { withActiveDomainAttemptFence: vi.fn() };
     const handler = createHandler(
       new OperationHandlerRegistryService(),
       { openSession: vi.fn(async () => ({ searchKeyword: vi.fn(), close: vi.fn() })) },
       { searchForOperation: vi.fn(async () => { throw new Sourcing1688KeywordProviderError(code); }) },
       {},
-      { withActiveDomainAttemptFence: vi.fn() },
+      attemptVerifier,
     );
 
     await expect(handler.execute({
@@ -251,6 +252,7 @@ describe('Sourcing1688OperationHandler', () => {
       code,
       message: '1688 keyword provider is unavailable.',
     });
+    expect(attemptVerifier.withActiveDomainAttemptFence).not.toHaveBeenCalled();
     },
   );
 
