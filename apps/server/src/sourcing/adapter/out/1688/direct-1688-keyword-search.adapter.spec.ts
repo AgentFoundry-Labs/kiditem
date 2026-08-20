@@ -14,14 +14,20 @@ vi.mock('playwright', () => ({
   },
 }));
 
+let testMonotonicNow = 0;
+
 describe('Direct1688KeywordSearchAdapter', () => {
   beforeEach(() => {
+    testMonotonicNow = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => testMonotonicNow);
     vi.mocked(chromium.connectOverCDP).mockReset();
     vi.mocked(chromium.launchPersistentContext).mockReset();
     vi.mocked(chromium.launch).mockReset();
   });
 
   afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
     vi.unstubAllEnvs();
   });
 
@@ -60,8 +66,11 @@ describe('Direct1688KeywordSearchAdapter', () => {
     expect(chromium.launch).not.toHaveBeenCalled();
   });
 
-  it('observes API responses before serial page navigation and reuses one owned page across a batch', async () => {
-    const fixture = browserFixture({ emitApiOnGoto: true });
+  it('installs response observation before serial navigation and reuses one owned page across a DOM-backed batch', async () => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      domReadiness: readyDomItems('DOM-backed batch offer'),
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
 
@@ -83,7 +92,7 @@ describe('Direct1688KeywordSearchAdapter', () => {
     expect(fixture.browser.close).toHaveBeenCalledOnce();
   });
 
-  it('uses authenticated DOM records only when no valid search API response was observed', async () => {
+  it('uses authenticated DOM records as the only terminal extraction evidence', async () => {
     const fixture = browserFixture();
     fixture.page.evaluate.mockResolvedValue({
       kind: 'items',
@@ -105,8 +114,12 @@ describe('Direct1688KeywordSearchAdapter', () => {
     expect(fixture.page.evaluate).toHaveBeenCalledOnce();
   });
 
-  it('deduplicates offers across multiple valid API responses before applying the result cap', async () => {
-    const fixture = browserFixture({ emitApiOnGoto: true, duplicateApiOnGoto: true });
+  it('does not let duplicate unproven API responses replace authenticated DOM records', async () => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      duplicateApiOnGoto: true,
+      domReadiness: readyDomItems('DOM survives duplicate response events'),
+    });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -114,12 +127,12 @@ describe('Direct1688KeywordSearchAdapter', () => {
     const items = await session.searchKeyword({ keyword: '儿童笔袋' });
     await session.close();
 
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ offerId: '123456' });
+    expect(items).toMatchObject([{ title: 'DOM survives duplicate response events' }]);
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
   });
 
-  it('waits for a valid search API response that arrives after DOM content is loaded', async () => {
-    const fixture = browserFixture({ lateApiOnGoto: true });
+  it('does not accept an unproven search API response that arrives after DOM content is loaded', async () => {
+    const fixture = browserFixture({ lateApiOnGoto: true, domReadiness: { kind: 'loading' } });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
@@ -127,9 +140,8 @@ describe('Direct1688KeywordSearchAdapter', () => {
 
     await waitForDelayedFixture();
 
-    await expect(result).resolves.toMatchObject([{ offerId: '123456', monthlySales: 88 }]);
-    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
-    await session.close();
+    await expect(result).rejects.toMatchObject({ code: 'search_extraction_failed' });
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
   });
 
   it('waits for authenticated DOM cards that render after DOM content is loaded', async () => {
@@ -204,7 +216,7 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
-  it('accepts a recognized trusted API zero without relying on DOM emptiness', async () => {
+  it('does not accept a generic API zero without trusted DOM empty-state evidence', async () => {
     const fixture = browserFixture({
       emitApiOnGoto: true,
       apiPayload: { data: { offers: [] } },
@@ -213,13 +225,49 @@ describe('Direct1688KeywordSearchAdapter', () => {
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
     const session = await new Direct1688KeywordSearchAdapter().openSession();
 
-    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toEqual([]);
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
 
-    expect(fixture.page.evaluate).not.toHaveBeenCalled();
-    await session.close();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
+    expect(fixture.apiResponse.json).not.toHaveBeenCalled();
   });
 
-  it('fails closed when a trusted explicit API zero is accompanied by malformed relevant JSON', async () => {
+  it.each([
+    {
+      name: 'category zero collection',
+      url: 'https://s.1688.com/search/category?category=stationery',
+      payload: { products: [] },
+    },
+    {
+      name: 'mismatched-keyword offer payload',
+      url: 'https://s.1688.com/selloffer/search-api?keywords=%E5%84%BF%E7%AB%A5%E9%9B%A8%E4%BC%9E',
+      payload: { offers: [apiOffer('mismatched keyword offer')] },
+    },
+    {
+      name: 'ancillary nonempty category payload',
+      url: 'https://s.1688.com/search/category?category=stationery',
+      payload: { products: [apiOffer('ancillary offer')] },
+    },
+  ])('does not authorize $name while trusted DOM remains loading', async ({ url, payload }) => {
+    const fixture = browserFixture({
+      emitApiOnGoto: true,
+      apiResponseUrl: url,
+      apiPayload: payload,
+      domReadiness: { kind: 'loading' },
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
+  });
+
+  it('does not authorize a generic API zero when trusted DOM never becomes ready', async () => {
     const fixture = browserFixture({
       emitApiOnGoto: true,
       apiPayload: { data: { offers: [] } },
@@ -233,13 +281,13 @@ describe('Direct1688KeywordSearchAdapter', () => {
       code: 'search_extraction_failed',
     });
 
-    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
   });
 
   it.each([
     { name: 'malformed collection', payload: { data: { offers: [{ unexpected: true }] } } },
     { name: 'unrecognized payload', payload: { data: { pagination: { page: 1 } } } },
-  ])('fails closed for $name from a trusted search response', async ({ payload }) => {
+  ])('does not authorize $name from a generic search response', async ({ payload }) => {
     const fixture = browserFixture({ emitApiOnGoto: true, apiPayload: payload });
     vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
@@ -249,7 +297,7 @@ describe('Direct1688KeywordSearchAdapter', () => {
       code: 'search_extraction_failed',
     });
 
-    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(30);
   });
 
   it('fails closed for a trusted blank page without API or ready DOM evidence', async () => {
@@ -300,6 +348,61 @@ describe('Direct1688KeywordSearchAdapter', () => {
     });
 
     expect(fixture.extraSameOriginFrames[2]?.evaluate).not.toHaveBeenCalled();
+  });
+
+  it('does not authorize a DOM result whose probe finishes after the shared monotonic deadline', async () => {
+    let now = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => now);
+    const fixture = browserFixture({
+      domReadiness: {
+        kind: 'items',
+        records: [{
+          href: 'https://detail.1688.com/offer/123456.html',
+          title: 'late offer',
+          salesText: '近30天成交 88 笔',
+        }],
+      },
+    });
+    fixture.page.evaluate.mockImplementation(() => {
+      now = 6_001;
+      return Promise.resolve({
+        kind: 'items',
+        records: [{
+          href: 'https://detail.1688.com/offer/123456.html',
+          title: 'late offer',
+          salesText: '近30天成交 88 笔',
+        }],
+      });
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+  });
+
+  it('fails a never-settling readiness probe by one fake monotonic deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    const fixture = browserFixture({ domReadiness: { kind: 'unready' } });
+    fixture.page.evaluate.mockImplementation(() => new Promise(() => undefined));
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+    let failure: unknown;
+    void session.searchKeyword({ keyword: '儿童笔袋' }).catch((error: unknown) => {
+      failure = error;
+    });
+
+    await vi.advanceTimersByTimeAsync(6_001);
+
+    expect(failure).toMatchObject({ code: 'search_extraction_failed' });
+    expect(fixture.page.close).toHaveBeenCalledOnce();
   });
 
   it('closes its owned page after caller abort and does not begin another navigation', async () => {
@@ -667,6 +770,12 @@ function browserFixture(input?: {
   let domReadiness: unknown = input?.domReadiness ?? { kind: 'unready' };
   let domReads = 0;
   let frameReads = 0;
+  const apiResponseJson = vi.fn(async () => input?.apiPayload ?? ({ offers: [{
+    offerId: '123456',
+    title: 'API 儿童笔袋',
+    offerUrl: 'https://detail.1688.com/offer/123456.html',
+    tradeText: '近30天成交 88 笔',
+  }] }));
   const page = {
     on: vi.fn((event: string, listener: (response: unknown) => void) => {
       if (event === 'response') {
@@ -683,12 +792,7 @@ function browserFixture(input?: {
       const response = {
         url: () => input?.apiResponseUrl ?? 'https://s.1688.com/selloffer/search-api',
         headers: () => ({ 'content-type': 'application/json' }),
-        json: async () => input?.apiPayload ?? ({ offers: [{
-          offerId: '123456',
-          title: 'API 儿童笔袋',
-          offerUrl: 'https://detail.1688.com/offer/123456.html',
-          tradeText: '近30天成交 88 笔',
-        }] }),
+        json: apiResponseJson,
       };
       if (input?.emitApiOnGoto) {
         responseListener?.(response);
@@ -731,9 +835,12 @@ function browserFixture(input?: {
         : null);
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
-    waitForTimeout: vi.fn(() => input?.blockRenderWait
-      ? new Promise<void>((resolve) => { resolveRenderWait = resolve; })
-      : new Promise<void>((resolve) => setTimeout(resolve, 5))),
+    waitForTimeout: vi.fn((timeoutMs: number) => {
+      testMonotonicNow += timeoutMs;
+      return input?.blockRenderWait
+        ? new Promise<void>((resolve) => { resolveRenderWait = resolve; })
+        : new Promise<void>((resolve) => setTimeout(resolve, 5));
+    }),
     evaluate: vi.fn(() => {
       const readiness = domReads === 0 ? domReadiness : input?.nextDomReadiness ?? domReadiness;
       domReads += 1;
@@ -774,6 +881,7 @@ function browserFixture(input?: {
     browser,
     context,
     events,
+    apiResponse: { json: apiResponseJson },
     page,
     sameOriginFrame,
     extraSameOriginFrames,
@@ -801,4 +909,24 @@ function redirectRequestChain(urls: string[]): RedirectRequestFixture {
 
 function waitForDelayedFixture(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 25));
+}
+
+function apiOffer(title: string) {
+  return {
+    offerId: '123456',
+    title,
+    offerUrl: 'https://detail.1688.com/offer/123456.html',
+    tradeText: '近30天成交 88 笔',
+  };
+}
+
+function readyDomItems(title: string) {
+  return {
+    kind: 'items' as const,
+    records: [{
+      href: 'https://detail.1688.com/offer/123456.html',
+      title,
+      salesText: '近30天成交 88 笔',
+    }],
+  };
 }

@@ -10,9 +10,7 @@ import {
 } from '../../../application/port/out/provider/1688-keyword-search.port';
 import {
   extract1688KeywordItemsFromDomRecords,
-  inspect1688KeywordApiPayload,
   inspect1688KeywordDomReadiness,
-  merge1688KeywordSearchItems,
   type Search1688KeywordDomReadiness,
 } from './1688-keyword-search.extractor';
 import {
@@ -24,10 +22,7 @@ const CDP_CONNECT_TIMEOUT_MS = 20_000;
 const SEARCH_TIMEOUT_MS = 30_000;
 const SEARCH_RESULT_READINESS_TIMEOUT_MS = 6_000;
 const SEARCH_RESULT_POLL_INTERVAL_MS = 200;
-const SEARCH_RESULT_READINESS_ATTEMPTS =
-  SEARCH_RESULT_READINESS_TIMEOUT_MS / SEARCH_RESULT_POLL_INTERVAL_MS;
 const DOM_READINESS_STEP_TIMEOUT_MS = 1_000;
-const RESPONSE_BODY_TIMEOUT_MS = 2_000;
 const ATTENTION_TEXT_TIMEOUT_MS = 500;
 const MAX_SAME_ORIGIN_READINESS_FRAMES = 3;
 const SEARCH_RESULT_LIMIT = 40;
@@ -76,37 +71,12 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
     if (this.active) throw new Sourcing1688KeywordProviderError('search_extraction_failed');
     this.active = true;
 
-    const observedApiItems: Search1688KeywordItem[][] = [];
-    const responseTasks: Promise<void>[] = [];
-    const deferredResponses: Response[] = [];
-    let observedExplicitApiZero = false;
-    let observedIndeterminateApi = false;
-    let extractionTrusted = false;
-    const extractResponse = (response: Response) => {
-      responseTasks.push(
-        boundedBrowserStep(response.json(), RESPONSE_BODY_TIMEOUT_MS, signal)
-          .then((payload) => {
-            const result = inspect1688KeywordApiPayload(payload);
-            if (result.kind === 'items') observedApiItems.push(result.items);
-            if (result.kind === 'explicit_zero') observedExplicitApiZero = true;
-            if (result.kind === 'indeterminate') observedIndeterminateApi = true;
-          })
-          .catch(() => {
-            observedIndeterminateApi = true;
-          }),
-      );
-    };
-    const observeResponse = (response: Response) => {
-      if (!is1688SearchResponse(response)) return;
-      // A response can arrive during document parsing. Do not deserialize any
-      // body until the final navigation target has crossed the 1688 trust
-      // boundary below.
-      if (!extractionTrusted) {
-        deferredResponses.push(response);
-        return;
-      }
-      extractResponse(response);
-    };
+    // Install this before navigation to preserve the CDP response-observation
+    // ordering contract. Sanitized live QA has only established category JSON,
+    // not a stable offer-result endpoint plus request-key correlation and exact
+    // schema. An ancillary body must therefore never authorize offers or zero.
+    // DOM readiness below is the sole terminal extraction evidence.
+    const observeResponse = (_response: Response) => undefined;
 
     this.page.on('response', observeResponse);
     try {
@@ -126,40 +96,34 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
       });
       assertTrusted1688Navigation(this.page.url());
       if (navigationResponse) assertTrusted1688NavigationResponse(navigationResponse);
-      extractionTrusted = true;
-      for (const response of deferredResponses) extractResponse(response);
-      const initialAttention = await attentionRequired(this.page, signal);
+      const readinessDeadline = new ReadinessDeadline(SEARCH_RESULT_READINESS_TIMEOUT_MS);
+      const initialAttention = await attentionRequired(this.page, signal, readinessDeadline);
       if (initialAttention) throw initialAttention;
-      for (let attempt = 0; attempt < SEARCH_RESULT_READINESS_ATTEMPTS; attempt += 1) {
-        await waitForObservedApiResponses(this.page, responseTasks, signal);
+      while (readinessDeadline.hasTime()) {
         signal?.throwIfAborted();
 
-        const apiItems = observedApiItems.flat();
-        if (apiItems.length > 0) {
-          return merge1688KeywordSearchItems(apiItems, []).slice(0, SEARCH_RESULT_LIMIT);
-        }
-        if (observedIndeterminateApi) {
-          throw new Sourcing1688KeywordProviderError('search_extraction_failed');
-        }
-        if (observedExplicitApiZero) return [];
-
-        const dom = await readTrustedDomReadiness(this.page, signal);
+        const dom = await readTrustedDomReadiness(this.page, readinessDeadline, signal);
+        if (!readinessDeadline.hasTime()) break;
         if (dom.kind === 'items') {
           const domItems = extract1688KeywordItemsFromDomRecords(dom.records);
           if (domItems.length > 0) return domItems.slice(0, SEARCH_RESULT_LIMIT);
           throw new Sourcing1688KeywordProviderError('search_extraction_failed');
         }
         if (dom.kind === 'explicit_zero') return [];
-        if (attempt + 1 >= SEARCH_RESULT_READINESS_ATTEMPTS) break;
         // This is deliberately finite and never waits for network idle. It
-        // gives current 1688 XHR/shadow rendering a realistic bounded window
-        // while preserving the OperationRun's AbortSignal deadline.
-        await abortableBrowserStep(
-          this.page.waitForTimeout(SEARCH_RESULT_POLL_INTERVAL_MS),
+        // gives current 1688 shadow rendering a realistic bounded window while
+        // preserving the OperationRun's AbortSignal deadline. The same
+        // monotonic deadline caps every frame probe and poll, so serial work
+        // cannot extend the six-second readiness phase.
+        const pollMs = readinessDeadline.capped(SEARCH_RESULT_POLL_INTERVAL_MS);
+        if (pollMs <= 0) break;
+        await boundedBrowserStep(
+          this.page.waitForTimeout(pollMs),
+          pollMs,
           signal,
         );
       }
-      const finalAttention = await attentionRequired(this.page, signal);
+      const finalAttention = await attentionRequired(this.page, signal, readinessDeadline);
       if (finalAttention) throw finalAttention;
       throw new Sourcing1688KeywordProviderError('search_extraction_failed');
     } catch (error) {
@@ -182,36 +146,25 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
   }
 }
 
-async function waitForObservedApiResponses(
-  page: Page,
-  tasks: readonly Promise<void>[],
-  signal?: AbortSignal,
-): Promise<void> {
-  if (tasks.length === 0) return;
-  const settled = Promise.allSettled([...tasks]).then(() => undefined);
-  await abortableBrowserStep(
-    Promise.race([
-      settled,
-      page.waitForTimeout(SEARCH_RESULT_POLL_INTERVAL_MS),
-    ]),
-    signal,
-  );
-}
-
 async function readTrustedDomReadiness(
   page: Page,
+  deadline: ReadinessDeadline,
   signal?: AbortSignal,
 ): Promise<Search1688KeywordDomReadiness> {
+  if (!deadline.hasTime()) return { kind: 'unready' };
   const states: Search1688KeywordDomReadiness[] = [
-    await inspectDomReadiness(page, signal),
+    await inspectDomReadiness(page, deadline, signal),
   ];
+  if (!deadline.hasTime()) return { kind: 'unready' };
   const mainOrigin = new URL(page.url()).origin;
   let inspectedFrames = 0;
   for (const frame of page.frames()) {
+    if (!deadline.hasTime()) return { kind: 'unready' };
     if (frame === page.mainFrame() || !isSameOriginTrustedFrame(frame, mainOrigin)) continue;
     if (inspectedFrames >= MAX_SAME_ORIGIN_READINESS_FRAMES) break;
-    states.push(await inspectDomReadiness(frame, signal));
+    states.push(await inspectDomReadiness(frame, deadline, signal));
     inspectedFrames += 1;
+    if (!deadline.hasTime()) return { kind: 'unready' };
   }
   const records = states.flatMap((state) => state.kind === 'items' ? state.records : []);
   if (records.length > 0) return { kind: 'items', records };
@@ -222,14 +175,17 @@ async function readTrustedDomReadiness(
 
 async function inspectDomReadiness(
   target: Pick<Page, 'evaluate'> | Pick<Frame, 'evaluate'>,
+  deadline: ReadinessDeadline,
   signal?: AbortSignal,
 ): Promise<Search1688KeywordDomReadiness> {
+  if (!deadline.hasTime()) return { kind: 'unready' };
   try {
     const value = await boundedBrowserStep(
       target.evaluate(inspect1688KeywordDomReadiness, SEARCH_RESULT_LIMIT),
-      DOM_READINESS_STEP_TIMEOUT_MS,
+      deadline.capped(DOM_READINESS_STEP_TIMEOUT_MS),
       signal,
     );
+    if (!deadline.hasTime()) return { kind: 'unready' };
     return isDomReadiness(value) ? value : { kind: 'unready' };
   } catch {
     signal?.throwIfAborted();
@@ -257,6 +213,9 @@ function boundedBrowserStep<T>(
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<T> {
+  if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) {
+    return Promise.reject(new Error('browser_step_timeout'));
+  }
   let timeout: ReturnType<typeof setTimeout> | undefined;
   const timeoutError = new Promise<never>((_resolve, reject) => {
     timeout = setTimeout(() => reject(new Error('browser_step_timeout')), timeoutMs);
@@ -267,6 +226,26 @@ function boundedBrowserStep<T>(
     }),
     signal,
   );
+}
+
+class ReadinessDeadline {
+  private readonly deadline: number;
+
+  constructor(timeoutMs: number) {
+    this.deadline = performance.now() + timeoutMs;
+  }
+
+  remaining(): number {
+    return Math.max(0, this.deadline - performance.now());
+  }
+
+  capped(maximumMs: number): number {
+    return Math.min(maximumMs, this.remaining());
+  }
+
+  hasTime(): boolean {
+    return this.remaining() > 0;
+  }
 }
 
 function readCdpEndpoint(): string {
@@ -288,18 +267,6 @@ function searchUrlForKeyword(keyword: string): string {
   const url = new URL(SEARCH_URL);
   url.searchParams.set('keywords', keyword.trim());
   return url.toString();
-}
-
-function is1688SearchResponse(response: Response): boolean {
-  try {
-    const allowed = parseAllowedSupplierUrl(response.url());
-    if (allowed.platform !== '1688') return false;
-    const url = new URL(allowed.normalizedUrl);
-    const contentType = response.headers()['content-type'] ?? '';
-    return /json/iu.test(contentType) && /(?:search|offer|query)/iu.test(`${url.pathname}${url.search}`);
-  } catch {
-    return false;
-  }
 }
 
 function assertTrusted1688Navigation(value: string): void {
@@ -324,14 +291,23 @@ function assertTrusted1688NavigationResponse(response: Response): void {
   }
 }
 
-async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sourcing1688KeywordAttentionError | null> {
+async function attentionRequired(
+  page: Page,
+  signal?: AbortSignal,
+  deadline?: ReadinessDeadline,
+): Promise<Sourcing1688KeywordAttentionError | null> {
   if (isKnownSecurityChallengeUrl(page.url())) {
     return new Sourcing1688KeywordAttentionError('security_challenge');
   }
+  if (deadline && !deadline.hasTime()) return null;
   let text = '';
   try {
     const body = page.locator('body');
-    text = await boundedBrowserStep(body.innerText({ timeout: ATTENTION_TEXT_TIMEOUT_MS }), ATTENTION_TEXT_TIMEOUT_MS, signal);
+    const timeoutMs = deadline
+      ? deadline.capped(ATTENTION_TEXT_TIMEOUT_MS)
+      : ATTENTION_TEXT_TIMEOUT_MS;
+    text = await boundedBrowserStep(body.innerText({ timeout: timeoutMs }), timeoutMs, signal);
+    if (deadline && !deadline.hasTime()) return null;
   } catch {
     signal?.throwIfAborted();
     return null;
