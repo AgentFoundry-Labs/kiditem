@@ -114,7 +114,7 @@ describe('Sourcing Operations', () => {
     })).toEqual({ keyword: 'A Pencil', maxResults: 30 });
   });
 
-  it('runs keyword search in the logged-in browser while keeping image matching on the tabless provider API', () => {
+  it('runs keyword search as the versioned domain operation while keeping image matching on the tabless provider API', () => {
     const keyword = SOURCING_OPERATIONS.find(
       (operation) => operation.key === 'sourcing.search_1688_keyword_batch',
     );
@@ -123,7 +123,8 @@ describe('Sourcing Operations', () => {
     );
 
     expect(keyword).toMatchObject({
-      engineType: 'browser',
+      version: 2,
+      engineType: 'domain',
       ownerDomain: 'sourcing',
       resourceClass: 'playwright_1688',
       maxAttempts: 3,

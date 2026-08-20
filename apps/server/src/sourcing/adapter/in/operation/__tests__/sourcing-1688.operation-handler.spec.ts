@@ -1,5 +1,10 @@
 import type { OperationHandlerContext } from '../../../../../common/operation-definition';
 import { OperationHandlerRegistryService } from '../../../../../operations/application/service/operation-handler-registry.service';
+import { Sourcing1688BatchResultSchema } from '@kiditem/shared/sourcing';
+import {
+  Sourcing1688KeywordAttentionError,
+  Sourcing1688KeywordProviderError,
+} from '../../../../application/port/out/provider/1688-keyword-search.port';
 import { describe, expect, it, vi } from 'vitest';
 import { Sourcing1688OperationHandler } from '../sourcing-1688.operation-handler';
 
@@ -15,22 +20,26 @@ const baseContext: Omit<OperationHandlerContext, 'operationKey' | 'input'> = {
   checkpoint: vi.fn(async () => undefined),
 };
 
+function createHandler(...dependencies: unknown[]): Sourcing1688OperationHandler {
+  return Reflect.construct(Sourcing1688OperationHandler, dependencies) as Sourcing1688OperationHandler;
+}
+
 describe('Sourcing1688OperationHandler', () => {
-  it('registers only the tabless image matcher and leaves keyword search to the browser runtime', () => {
+  it('registers the exact keyword domain operation alongside image matching', () => {
     const registry = new OperationHandlerRegistryService();
-    const handler = new Sourcing1688OperationHandler(
-      registry,
-      {} as never,
-    );
+    const handler = createHandler(registry, {});
 
     handler.onModuleInit();
 
-    expect(registry.listDefinitions().map((definition) => definition.key)).toEqual([
-      'sourcing.match_wholesale_images',
-    ]);
+    expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
+      expect.arrayContaining([
+        'sourcing.search_1688_keyword_batch',
+        'sourcing.match_wholesale_images',
+      ]),
+    );
   });
 
-  it('resolves image/search data on the server, reports missing owner targets, and returns no rows', async () => {
+  it('keeps image matching on the server without exposing searched rows', async () => {
     const imageSearch = {
       resolveTargets: vi.fn(async () => ({
         targets: [{
@@ -43,17 +52,19 @@ describe('Sourcing1688OperationHandler', () => {
       searchForOperation: vi.fn(async () => ({
         keyword: '儿童笔袋文具盒',
         targetId: 'product-1::',
-        outcome: 'no_change',
+        outcome: 'no_change' as const,
         discovered: 0,
         accepted: 0,
         duplicate: 0,
         failed: 0,
       })),
-      refreshRecommendations: vi.fn(async () => undefined),
     };
-    const handler = new Sourcing1688OperationHandler(
+    const handler = createHandler(
       new OperationHandlerRegistryService(),
-      imageSearch as never,
+      {},
+      {},
+      imageSearch,
+      {},
     );
 
     const result = await handler.execute({
@@ -67,14 +78,6 @@ describe('Sourcing1688OperationHandler', () => {
       organizationId: baseContext.organizationId,
       targetIds: ['product-1::', 'product-2::'],
     });
-    expect(imageSearch.searchForOperation).toHaveBeenCalledWith(expect.objectContaining({
-      operationRunId: baseContext.runId,
-      targetId: 'product-1::',
-      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
-      keyword: '儿童笔袋文具盒',
-      signal: baseContext.signal,
-    }));
-    expect(imageSearch.refreshRecommendations).not.toHaveBeenCalled();
     expect(result).toMatchObject({
       kind: 'completed',
       result: {
@@ -88,14 +91,118 @@ describe('Sourcing1688OperationHandler', () => {
     expect(JSON.stringify(result)).not.toContain('owner.jpg');
   });
 
-  it('does not execute the browser-owned keyword operation in the server handler', async () => {
-    const imageSearch = {
-      resolveTargets: vi.fn(),
-      searchForOperation: vi.fn(),
+  it('uses one session for serial keyword persistence and fences every canonical commit', async () => {
+    const events: string[] = [];
+    const session = { searchKeyword: vi.fn(), close: vi.fn(async () => events.push('close')) };
+    const provider = {
+      openSession: vi.fn(async ({ signal }) => {
+        expect(signal).toBe(baseContext.signal);
+        events.push('open');
+        return session;
+      }),
     };
-    const handler = new Sourcing1688OperationHandler(
+    const attemptVerifier = {
+      withActiveDomainAttemptFence: vi.fn(async (_input, commit) => {
+        events.push('fence');
+        return commit({}, { transaction: true });
+      }),
+    };
+    const keywordSearch = {
+      searchForOperation: vi.fn(async (input: { keyword: string; session: unknown; commitWithinActiveOperationAttempt: (commit: (transaction: unknown) => Promise<unknown>) => Promise<unknown> }) => {
+        events.push(`persist:${input.keyword}`);
+        expect(input.session).toBe(session);
+        await input.commitWithinActiveOperationAttempt(async () => undefined);
+        return {
+          keyword: input.keyword,
+          targetId: null,
+          outcome: 'complete' as const,
+          discovered: 1,
+          accepted: 1,
+          duplicate: 0,
+          failed: 0,
+        };
+      }),
+    };
+    const handler = createHandler(
       new OperationHandlerRegistryService(),
-      imageSearch as never,
+      provider,
+      keywordSearch,
+      {},
+      attemptVerifier,
+    );
+
+    const result = await handler.execute({
+      ...baseContext,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keywords: ['儿童笔袋', '儿童雨伞'] },
+      checkpoint: vi.fn(async ({ progressCurrent }: { progressCurrent?: number } = {}) => {
+        events.push(`checkpoint:${progressCurrent ?? 0}`);
+      }),
+    });
+
+    expect(events).toEqual([
+      'checkpoint:0',
+      'open',
+      'persist:儿童笔袋',
+      'fence',
+      'checkpoint:1',
+      'persist:儿童雨伞',
+      'fence',
+      'checkpoint:2',
+      'close',
+    ]);
+    expect(attemptVerifier.withActiveDomainAttemptFence).toHaveBeenCalledWith({
+      organizationId: baseContext.organizationId,
+      runId: baseContext.runId,
+      expectedOperationKey: 'sourcing.search_1688_keyword_batch',
+      attemptToken: baseContext.attemptToken,
+    }, expect.any(Function));
+    expect(result).toMatchObject({
+      kind: 'completed',
+      result: {
+        outcome: 'complete',
+        summary: { discovered: 2, accepted: 2, failed: 0 },
+        units: [{ keyword: '儿童笔袋' }, { keyword: '儿童雨伞' }],
+      },
+    });
+  });
+
+  it('returns a strict row-free attention result when the Office profile needs login', async () => {
+    const session = { searchKeyword: vi.fn(), close: vi.fn(async () => undefined) };
+    const handler = createHandler(
+      new OperationHandlerRegistryService(),
+      { openSession: vi.fn(async () => session) },
+      { searchForOperation: vi.fn(async () => { throw new Sourcing1688KeywordAttentionError('login'); }) },
+      {},
+      { withActiveDomainAttemptFence: vi.fn() },
+    );
+
+    const result = await handler.execute({
+      ...baseContext,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keywords: ['儿童笔袋'] },
+      checkpoint: vi.fn(async () => undefined),
+    });
+
+    expect(result).toMatchObject({
+      kind: 'attention_required',
+      reason: 'marketplace_login',
+      result: { units: [{ keyword: '儿童笔袋', outcome: 'failed' }] },
+    });
+    if (result.kind !== 'attention_required') throw new Error('expected attention result');
+    expect(Sourcing1688BatchResultSchema.safeParse(result.result).success).toBe(true);
+    expect(JSON.stringify(result.result)).not.toContain('offer');
+  });
+
+  it.each(['cdp_unavailable', 'browser_context_unavailable', 'search_extraction_failed'] as const)(
+    'uses the bounded %s provider code when every keyword fails before persistence',
+    async (code) => {
+    const handler = createHandler(
+      new OperationHandlerRegistryService(),
+      { openSession: vi.fn(async () => ({ searchKeyword: vi.fn(), close: vi.fn() })) },
+      { searchForOperation: vi.fn(async () => { throw new Sourcing1688KeywordProviderError(code); }) },
+      {},
+      { withActiveDomainAttemptFence: vi.fn() },
     );
 
     await expect(handler.execute({
@@ -105,9 +212,27 @@ describe('Sourcing1688OperationHandler', () => {
       checkpoint: vi.fn(async () => undefined),
     })).resolves.toEqual({
       kind: 'failed',
-      code: 'unsupported_operation',
-      message: 'Unsupported 1688 operation.',
+      code,
+      message: '1688 keyword provider is unavailable.',
     });
-    expect(imageSearch.resolveTargets).not.toHaveBeenCalled();
+    },
+  );
+
+  it('propagates a coordinator or repository failure instead of hiding it as a partial provider result', async () => {
+    const failure = new Error('collection_commit_database_failure');
+    const handler = createHandler(
+      new OperationHandlerRegistryService(),
+      { openSession: vi.fn(async () => ({ searchKeyword: vi.fn(), close: vi.fn() })) },
+      { searchForOperation: vi.fn(async () => { throw failure; }) },
+      {},
+      { withActiveDomainAttemptFence: vi.fn() },
+    );
+
+    await expect(handler.execute({
+      ...baseContext,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keywords: ['儿童笔袋', '儿童雨伞'] },
+      checkpoint: vi.fn(async () => undefined),
+    })).rejects.toBe(failure);
   });
 });

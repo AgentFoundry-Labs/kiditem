@@ -66,69 +66,10 @@ function createHarness(
 }
 
 describe('SourcingBrowserTrendOperationService', () => {
-  it('fences an exact browser keyword batch and persists one typed snapshot marker per keyword', async () => {
-    const harness = createHarness(
-      { keywords: ['儿童笔袋', '儿童雨伞'] },
-      'sourcing.search_1688_keyword_batch',
-    );
-    const browserSearch = harness.service as unknown as {
-      ingest1688Search?: (input: {
-        organizationId: string;
-        operationRunId: string;
-        attemptToken: string;
-        batch: {
-          keywords: Array<{ keyword: string; items: Array<{ offerId: string; title: string }> }>;
-          errors: Array<{ keyword: string; message: string }>;
-        };
-      }) => Promise<{ operationResult: { units: Array<Record<string, unknown>> } }>;
-    };
+  it('does not retain the retired browser keyword ingestion capability', () => {
+    const { service } = createHarness();
 
-    expect(typeof browserSearch.ingest1688Search).toBe('function');
-    if (!browserSearch.ingest1688Search) return;
-
-    const result = await browserSearch.ingest1688Search({
-      organizationId: ORGANIZATION_ID,
-      operationRunId: RUN_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      batch: {
-        keywords: [
-          { keyword: '儿童笔袋', items: [{ offerId: 'offer-1', title: '儿童笔袋' }] },
-          { keyword: '儿童雨伞', items: [{ offerId: 'offer-2', title: '儿童雨伞' }] },
-        ],
-        errors: [],
-      },
-    });
-
-    expect(harness.verifier.withActiveBrowserAttemptFence).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      runId: RUN_ID,
-      expectedOperationKey: 'sourcing.search_1688_keyword_batch',
-      attemptToken: ATTEMPT_TOKEN,
-    }, expect.any(Function));
-    expect(harness.collections.claimAuthorizedRunInAttempt).toHaveBeenCalledTimes(2);
-    expect(harness.collections.commitInAttempt).toHaveBeenCalledTimes(2);
-    expect(harness.collections.commitInAttempt.mock.calls.map((call) =>
-      call[1].output.qualityReport)).toEqual([
-      expect.objectContaining({
-        resultSchemaVersion: 'sourcing-1688-search-result/v1',
-        keyword: '儿童笔袋',
-        targetId: null,
-      }),
-      expect.objectContaining({
-        resultSchemaVersion: 'sourcing-1688-search-result/v1',
-        keyword: '儿童雨伞',
-        targetId: null,
-      }),
-    ]);
-    expect(result.operationResult).toMatchObject({
-      outcome: 'complete',
-      summary: { discovered: 2, accepted: 4, failed: 0 },
-      units: [
-        { keyword: '儿童笔袋', targetId: null, outcome: 'complete' },
-        { keyword: '儿童雨伞', targetId: null, outcome: 'complete' },
-      ],
-    });
-    expect(JSON.stringify(result.operationResult)).not.toContain('offer-1');
+    expect(service).not.toHaveProperty('ingest1688Search');
   });
 
   it('fences 1688 owner ingestion, commits canonical rows in the active transaction, then publishes the persisted entry snapshot under the same token', async () => {

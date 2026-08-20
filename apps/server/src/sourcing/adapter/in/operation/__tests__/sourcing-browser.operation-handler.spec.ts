@@ -27,10 +27,12 @@ describe('SourcingBrowserOperationHandler', () => {
     );
     expect(registry.listDefinitions().map((item) => item.key)).toEqual(expect.arrayContaining([
       'sourcing.collect_1688_trends',
-      'sourcing.search_1688_keyword_batch',
       'sourcing.collect_tiktok_cc_trends',
       'sourcing.collect_live_commerce_url',
     ]));
+    expect(registry.listDefinitions().map((item) => item.key)).not.toContain(
+      'sourcing.search_1688_keyword_batch',
+    );
     await expect(handler.execute({} as never)).resolves.toEqual({
       kind: 'waiting_runtime',
     });

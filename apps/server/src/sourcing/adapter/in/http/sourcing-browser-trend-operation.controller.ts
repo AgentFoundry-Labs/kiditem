@@ -28,21 +28,6 @@ export class SourcingBrowserTrendOperationController {
     });
   }
 
-  @Post('1688-search/:runId/results')
-  ingest1688SearchResults(
-    @Param('runId', new ParseUUIDPipe({ version: '4' })) runId: string,
-    @Body() batch: Browser1688TrendBatch,
-    @CurrentOrganization() organizationId: string,
-    @Headers('x-operation-attempt-token') attemptToken: string | undefined,
-  ) {
-    return this.browserTrends.ingest1688Search({
-      organizationId,
-      operationRunId: runId,
-      attemptToken: attemptToken ?? '',
-      batch,
-    });
-  }
-
   @Post('tiktok-cc-trends/:runId/results')
   ingestTiktokCcResults(
     @Param('runId', new ParseUUIDPipe({ version: '4' })) runId: string,

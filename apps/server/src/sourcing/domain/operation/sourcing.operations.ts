@@ -251,10 +251,10 @@ export const SOURCING_KEYWORD_ANALYSIS_OPERATION = {
 
 export const SOURCING_1688_KEYWORD_BATCH_OPERATION = {
   key: 'sourcing.search_1688_keyword_batch',
-  version: 1,
+  version: 2,
   title: '1688 키워드 배치 검색',
   ownerDomain: 'sourcing',
-  engineType: 'browser',
+  engineType: 'domain',
   allowedTriggers: ['dashboard', 'domain_screen'],
   scheduleSupported: false,
   maxAttempts: 3,

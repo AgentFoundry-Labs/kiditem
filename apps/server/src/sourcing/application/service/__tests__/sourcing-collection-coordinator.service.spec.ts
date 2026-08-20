@@ -199,6 +199,43 @@ describe('SourcingCollectionCoordinator', () => {
     expect(collectionRepository.commit).not.toHaveBeenCalled();
   });
 
+  it.each([
+    'cancelled',
+    'deadline_expired',
+    'wrong_organization',
+    'wrong_operation_key',
+    'wrong_attempt_token',
+  ])('does not enter the domain-fence callback when %s wins after provider completion', async (reason) => {
+    const collectionRepository = repository();
+    vi.mocked(collectionRepository.claimAuthorizedRun).mockResolvedValue({
+      kind: 'claimed',
+      permit,
+    });
+    let providerCompleted = false;
+    const operationCheckpoint = vi.fn(async () => {
+      if (providerCompleted) throw new ConflictException(`operation_attempt_${reason}`);
+    });
+    const commitWithinActiveOperationAttempt = vi.fn(async (commit) => commit({ opaque: true }));
+    const provider = vi.fn(async () => {
+      providerCompleted = true;
+      return {
+        observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {},
+      };
+    });
+    const coordinator = new SourcingCollectionCoordinator(collectionRepository);
+
+    await expect(coordinator.execute({
+      ...request,
+      operationCheckpoint,
+      commitWithinActiveOperationAttempt,
+    } as never, provider)).rejects.toThrow(`operation_attempt_${reason}`);
+
+    expect(provider).toHaveBeenCalledOnce();
+    expect(commitWithinActiveOperationAttempt).not.toHaveBeenCalled();
+    expect(collectionRepository.commitInAttempt).not.toHaveBeenCalled();
+    expect(collectionRepository.commit).not.toHaveBeenCalled();
+  });
+
   it('uses only a pre-issued permit when an extension v2 commit requires one', async () => {
     const collectionRepository = repository();
     vi.mocked(collectionRepository.resumeAuthorizedRun).mockResolvedValue({
