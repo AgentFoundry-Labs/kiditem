@@ -92,6 +92,8 @@ export interface SourcingRecommendationPresenterItem {
   evidenceObservationIds: string[];
   coupang: {
     productId: string;
+    itemId: string | null;
+    vendorItemId: string | null;
     productName: string;
     salePriceKrw: number | null;
     ratingCount: number | null;
@@ -517,6 +519,8 @@ function presentCoupang(
   if (!productId || !productName) return null;
   return {
     productId,
+    itemId: stringValue(raw.itemId),
+    vendorItemId: stringValue(raw.vendorItemId),
     productName,
     salePriceKrw: integerOrNull(raw.salePriceKrw ?? raw.salePrice),
     ratingCount: integerOrNull(raw.ratingCount ?? raw.reviews),

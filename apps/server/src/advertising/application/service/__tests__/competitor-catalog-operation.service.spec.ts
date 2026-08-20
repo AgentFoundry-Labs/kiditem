@@ -72,6 +72,7 @@ function createHarness(operationInput: Record<string, unknown> = {
         productCount: 1,
         saved: true,
       }],
+      ignored: [],
     })),
   };
   const ingestTransaction = {
@@ -99,7 +100,12 @@ describe('CompetitorCatalogOperationService', () => {
       operationRunId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
       batch: { catalogs: [catalog] },
-    })).resolves.toEqual({ captured: 1, ignored: 0, replayed: false });
+    })).resolves.toEqual({
+      captured: 1,
+      ignored: 0,
+      ignoredReasons: { missingSerpSnapshot: 0, newerCatalogPreserved: 0 },
+      replayed: false,
+    });
 
     expect(harness.verifier.verifyActiveBrowserAttempt).not.toHaveBeenCalled();
     expect(harness.verifier.withActiveBrowserAttemptFence).toHaveBeenCalledWith({
@@ -160,7 +166,12 @@ describe('CompetitorCatalogOperationService', () => {
       operationRunId: RUN_ID,
       attemptToken: ATTEMPT_TOKEN,
       batch: { catalogs: [catalog] },
-    })).resolves.toEqual({ captured: 1, ignored: 0, replayed: true });
+    })).resolves.toEqual({
+      captured: 1,
+      ignored: 0,
+      ignoredReasons: { missingSerpSnapshot: 0, newerCatalogPreserved: 0 },
+      replayed: true,
+    });
 
     const wrongExactSeller = createHarness({
       target: 'seller_id',
@@ -187,5 +198,30 @@ describe('CompetitorCatalogOperationService', () => {
     })).rejects.toThrow('operation_attempt_fence_lost');
     expect(harness.tracking.getSellerTargets).not.toHaveBeenCalled();
     expect(harness.handler.executeSellerCatalogs).not.toHaveBeenCalled();
+  });
+
+  it('preserves the exact ignored reason instead of translating a missing baseline into provider failure', async () => {
+    const harness = createHarness();
+    harness.handler.executeSellerCatalogs.mockResolvedValueOnce({
+      success: true,
+      results: [],
+      ignored: [{
+        keyword: catalog.keyword,
+        sellerId: catalog.sellerId,
+        reason: 'serp_snapshot_missing',
+      }],
+    });
+
+    await expect(harness.service.ingest({
+      organizationId: ORGANIZATION_ID,
+      operationRunId: RUN_ID,
+      attemptToken: ATTEMPT_TOKEN,
+      batch: { catalogs: [catalog] },
+    })).resolves.toEqual({
+      captured: 0,
+      ignored: 1,
+      ignoredReasons: { missingSerpSnapshot: 1, newerCatalogPreserved: 0 },
+      replayed: false,
+    });
   });
 });

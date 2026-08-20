@@ -81,7 +81,12 @@ function createHarness(options = {}) {
         headers: { 'content-type': 'application/json' },
       });
     }
-    return new Response(JSON.stringify({ captured: 1, ignored: 0, replayed: false }), {
+    return new Response(JSON.stringify(options.persisted || {
+      captured: 1,
+      ignored: 0,
+      ignoredReasons: { missingSerpSnapshot: 0, newerCatalogPreserved: 0 },
+      replayed: false,
+    }), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
@@ -191,6 +196,26 @@ test('configured collection is serial with mixed outcome, while all failed is fa
   const failure = await failed.context.runCompetitorOperation(failed.operation);
   assert.equal(failure.status, 'failed');
   assert.equal(failed.requests.length, 0);
+});
+
+test('a collected seller with no SERP baseline is partial and never mislabeled as provider failure', async () => {
+  const harness = createHarness({
+    persisted: {
+      captured: 0,
+      ignored: 1,
+      ignoredReasons: { missingSerpSnapshot: 1, newerCatalogPreserved: 0 },
+      replayed: false,
+    },
+  });
+
+  const outcome = await harness.context.runCompetitorOperation(harness.operation);
+
+  assert.equal(outcome.status, 'succeeded');
+  assert.equal(outcome.result.outcome, 'partial');
+  assert.equal(outcome.result.summary.failed, 0);
+  assert.equal(outcome.result.summary.unchanged, 1);
+  assert.equal(outcome.result.sources[0].errorCode, 'competitor_catalog_serp_snapshot_missing');
+  assert.equal(harness.sessionCalls.some(([name]) => name === 'fail'), false);
 });
 
 test('requires attention for an empty primitive and rejects unconfigured seller input', async () => {

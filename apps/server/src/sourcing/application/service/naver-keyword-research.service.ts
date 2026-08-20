@@ -260,7 +260,7 @@ export class NaverKeywordResearchService {
     controls: Pick<NaverKeywordAnalysisCollectionControls, 'signal' | 'checkpoint'>,
   ): Promise<NaverKeywordAnalysisSnapshotPayload['result']> {
     let popular: SearchNaverDatalabPopularKeywordsResult | null = null;
-    let related: SearchNaverRelatedKeywordsResult | null = null;
+    let related: NaverKeywordAnalysisSnapshotPayload['result']['related'] = null;
     let autocomplete: SearchNaverAutocompleteKeywordsResult[] = [];
     let trends: CompareNaverDatalabSearchTrendsResult | null = null;
 
@@ -282,11 +282,15 @@ export class NaverKeywordResearchService {
         ? collectAnalysisSeeds(popular?.boards ?? [], input)
         : [];
     if (relatedSeed.length > 0) {
-      related = await this.keywordResearch.searchRelatedKeywords({
+      const providerRelated = await this.keywordResearch.searchRelatedKeywords({
         seedKeywords: relatedSeed,
         maxResults: 100,
         signal: controls.signal,
       });
+      related = {
+        ...providerRelated,
+        items: providerRelated.items.map(({ raw: _providerRaw, ...item }) => item),
+      };
       await checkpointKeywordAnalysis(controls);
       autocomplete = await Promise.all(
         relatedSeed.slice(0, MAX_ANALYSIS_AUTOCOMPLETE_SEEDS).map((keyword) =>

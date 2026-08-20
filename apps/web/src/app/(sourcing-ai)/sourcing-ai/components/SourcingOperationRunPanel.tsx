@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Sourcing1688BatchResultSchema,
   SourcingOperationResultSchema,
+  SourcingWingCatalogBatchResultSchema,
   type SourcingOperationResult,
 } from '@kiditem/shared/sourcing';
 import type { OperationRun } from '@kiditem/shared/operations';
@@ -107,6 +108,8 @@ export function SourcingOperationRunPanel({
   const isActive = run !== null && ACTIVE_STATUSES.has(run.status);
   const parsedResult = useMemo(() => {
     if (run?.status !== 'succeeded') return null;
+    const wingResult = SourcingWingCatalogBatchResultSchema.safeParse(run.result);
+    if (wingResult.success) return wingResult;
     const batchResult = Sourcing1688BatchResultSchema.safeParse(run.result);
     if (batchResult.success) return batchResult;
     return SourcingOperationResultSchema.safeParse(run.result);
@@ -140,7 +143,7 @@ export function SourcingOperationRunPanel({
 
   if (run === null) return null;
 
-  const stageLabel = run.stage === null
+  const stageLabel = !isActive || run.stage === null
     ? STATUS_LABELS[run.status]
     : STAGE_LABELS[run.stage] ?? STATUS_LABELS[run.status];
   const start = run.startedAt ?? run.createdAt;
@@ -153,7 +156,9 @@ export function SourcingOperationRunPanel({
       ? describeSucceeded(parsedResult.data)
       : '작업이 완료되었습니다. 최신 스냅샷을 확인해주세요.';
   } else if (run.status === 'failed') {
-    terminalMessage = run.error?.message ?? '작업에 실패했습니다. 다시 시도해주세요.';
+    terminalMessage = run.error?.code === 'operation_deadline_exceeded'
+      ? '제한 시간 안에 작업을 완료하지 못했습니다. 다시 시도해주세요.'
+      : '작업에 실패했습니다. 잠시 후 다시 시도해주세요.';
   } else if (run.status === 'cancelled') {
     terminalMessage = '작업이 취소되었습니다.';
   } else if (run.status === 'skipped') {

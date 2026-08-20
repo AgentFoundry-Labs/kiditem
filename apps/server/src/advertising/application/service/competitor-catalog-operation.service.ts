@@ -35,7 +35,15 @@ export class CompetitorCatalogOperationService {
     operationRunId: string;
     attemptToken: string;
     batch: AdvertisingCompetitorCatalogBatch;
-  }): Promise<{ captured: number; ignored: number; replayed: boolean }> {
+  }): Promise<{
+    captured: number;
+    ignored: number;
+    ignoredReasons: {
+      missingSerpSnapshot: number;
+      newerCatalogPreserved: number;
+    };
+    replayed: boolean;
+  }> {
     const batch = AdvertisingCompetitorCatalogBatchSchema.parse(input.batch);
     return this.attemptVerifier.withActiveBrowserAttemptFence(
       {
@@ -101,9 +109,18 @@ export class CompetitorCatalogOperationService {
               },
               input.organizationId,
             );
+            const ignoredReasons = {
+              missingSerpSnapshot: result.ignored.filter(
+                (item) => item.reason === 'serp_snapshot_missing',
+              ).length,
+              newerCatalogPreserved: result.ignored.filter(
+                (item) => item.reason === 'newer_catalog_preserved',
+              ).length,
+            };
             return {
               captured: result.results.length,
-              ignored: Math.max(0, batch.catalogs.length - result.results.length),
+              ignored: result.ignored.length,
+              ignoredReasons,
             };
           },
         );

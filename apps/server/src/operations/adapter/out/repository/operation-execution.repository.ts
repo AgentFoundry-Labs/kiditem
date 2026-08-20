@@ -522,8 +522,13 @@ export async function transitionActiveServerAttempt(
     add(Prisma.sql`native_run_type`, input.nativeRunType);
   }
   if (input.nativeRunId !== undefined) add(Prisma.sql`native_run_id`, input.nativeRunId);
-  if (input.errorCode !== undefined) add(Prisma.sql`error_code`, input.errorCode);
-  if (input.errorMessage !== undefined) add(Prisma.sql`error_message`, input.errorMessage);
+  if (input.status === 'succeeded') {
+    add(Prisma.sql`error_code`, null);
+    add(Prisma.sql`error_message`, null);
+  } else {
+    if (input.errorCode !== undefined) add(Prisma.sql`error_code`, input.errorCode);
+    if (input.errorMessage !== undefined) add(Prisma.sql`error_message`, input.errorMessage);
+  }
   if (input.finishedAt !== undefined) add(Prisma.sql`finished_at`, input.finishedAt);
   if (input.claimedBy !== undefined) add(Prisma.sql`claimed_by`, input.claimedBy);
   if (input.attemptToken !== undefined) {

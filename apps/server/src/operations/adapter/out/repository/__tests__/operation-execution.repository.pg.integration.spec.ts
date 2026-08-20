@@ -196,6 +196,51 @@ describe('operation execution repository PostgreSQL fencing', () => {
     })).resolves.toEqual({ status: 'running', result: null, attemptToken });
   });
 
+  it('clears an earlier attempt error when the exact active attempt succeeds', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createBrowserRun(locker, {
+      runId,
+      attemptToken,
+      deadlineAt: new Date(Date.now() + 60_000),
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+    });
+    await locker.operationRun.update({
+      where: { id: runId },
+      data: {
+        errorCode: 'operation_execution_failed',
+        errorMessage: 'Previous attempt failed strict validation',
+      },
+    });
+
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    await expect(repository.transitionActiveAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId,
+      expectedStatuses: ['running'],
+      expectedAttemptToken: attemptToken,
+      status: 'succeeded',
+      progress: 1,
+      result: { outcome: 'complete' },
+      finishedAt: new Date(),
+      claimedBy: null,
+      attemptToken: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    })).resolves.toMatchObject({ status: 'succeeded' });
+
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true, errorCode: true, errorMessage: true },
+    })).resolves.toEqual({
+      status: 'succeeded',
+      errorCode: null,
+      errorMessage: null,
+    });
+  });
+
   it('rejects a browser heartbeat that began before but acquired its row lock after the absolute deadline', async () => {
     const runId = randomUUID();
     const attemptToken = randomUUID();

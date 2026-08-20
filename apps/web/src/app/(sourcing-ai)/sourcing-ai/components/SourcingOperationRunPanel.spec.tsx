@@ -173,6 +173,37 @@ describe('SourcingOperationRunPanel', () => {
     error.mockRestore();
   });
 
+  it('renders a row-free Wing batch result without falling back to generic completion copy', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    render(
+      <SourcingOperationRunPanel
+        run={run({
+          status: 'succeeded',
+          progress: 1,
+          stage: 'completed',
+          result: {
+            ...safeResult('complete'),
+            keywords: [{
+              keyword: '슬라임',
+              outcome: 'complete',
+              discovered: 8,
+              accepted: 5,
+              duplicate: 1,
+              failed: 0,
+            }],
+          },
+          finishedAt: '2026-08-14T00:01:05.000Z',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('수집 완료 · 반영 5개')).toBeInTheDocument();
+    expect(screen.queryByText('작업이 완료되었습니다. 최신 스냅샷을 확인해주세요.'))
+      .not.toBeInTheDocument();
+    expect(error).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it('logs only bounded schema diagnostics for malformed results and never renders arbitrary JSON', () => {
     const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
     render(
@@ -204,5 +235,27 @@ describe('SourcingOperationRunPanel', () => {
 
     expect(screen.getByText('작업 진행 중')).toBeInTheDocument();
     expect(screen.queryByText('provider_secret_phase')).not.toBeInTheDocument();
+  });
+
+  it('uses terminal Korean copy instead of a retained stage or raw server failure', () => {
+    render(
+      <SourcingOperationRunPanel
+        run={run({
+          status: 'failed',
+          stage: 'persisting',
+          error: {
+            code: 'operation_execution_failed',
+            message: 'SearchAd response failed strict validation at result.related.items.0.raw',
+          },
+          finishedAt: '2026-08-14T00:01:05.000Z',
+        })}
+      />,
+    );
+
+    expect(screen.getByText('작업 실패')).toBeInTheDocument();
+    expect(screen.getByText('작업에 실패했습니다. 잠시 후 다시 시도해주세요.'))
+      .toBeInTheDocument();
+    expect(screen.queryByText('수집 결과 저장 중')).not.toBeInTheDocument();
+    expect(screen.queryByText(/SearchAd response failed/)).not.toBeInTheDocument();
   });
 });

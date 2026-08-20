@@ -193,6 +193,8 @@ describe('SourcingRecommendationService', () => {
           scoreComponents: {},
           sourceSnapshot: {
             productId: '123456',
+            itemId: '25745879681',
+            vendorItemId: '92734234062',
             productName: '쿠팡 유아 우산',
             salePriceKrw: 19900,
           },
@@ -210,6 +212,11 @@ describe('SourcingRecommendationService', () => {
 
     expect(home.data?.items.map((item) => item.sourcePlatform)).toEqual(['coupang']);
     expect(today.data?.items.map((item) => item.sourcePlatform)).toEqual(['coupang']);
+    expect(today.data?.items[0].coupang).toMatchObject({
+      productId: '123456',
+      itemId: '25745879681',
+      vendorItemId: '92734234062',
+    });
     expect(entry.data?.items.map((item) => item.sourcePlatform)).toEqual(['1688']);
     expect(final.data?.items.map((item) => item.sourcePlatform)).toEqual(['1688']);
   });

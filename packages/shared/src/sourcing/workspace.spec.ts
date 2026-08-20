@@ -104,6 +104,8 @@ describe('sourcing workspace contracts', () => {
         scoreComponents: { margin: 80 },
         coupang: {
           productId: 'coupang-product-1',
+          itemId: 'coupang-item-1',
+          vendorItemId: 'coupang-vendor-1',
           productName: '유아 우산',
           salePriceKrw: 15900,
           ratingCount: 20,
@@ -121,6 +123,11 @@ describe('sourcing workspace contracts', () => {
       });
     expect(parsed).toMatchObject({
       sourceUrl: 'https://detail.1688.com/offer/607635921546.html',
+      coupang: {
+        productId: 'coupang-product-1',
+        itemId: 'coupang-item-1',
+        vendorItemId: 'coupang-vendor-1',
+      },
     });
     expect(parsed).not.toHaveProperty('sourceSnapshot');
   });

@@ -5310,6 +5310,8 @@ async function runAdvertisingCompetitorCatalogOperation(operation) {
   let fenceLost = false;
   let accepted = 0;
   let failed = 0;
+  let missingSerpSnapshot = 0;
+  let newerCatalogPreserved = 0;
   try {
     const tab = await createTab({ url: targets[0].sellerStoreUrl, active: false });
     tabId = tab?.id;
@@ -5365,7 +5367,19 @@ async function runAdvertisingCompetitorCatalogOperation(operation) {
         { catalogs: [sanitized] },
       );
       accepted += Math.max(0, Number(persisted?.captured) || 0);
-      failed += Math.max(0, Number(persisted?.ignored) || 0);
+      const ignored = Math.max(0, Number(persisted?.ignored) || 0);
+      const missingBaseline = Math.min(
+        ignored,
+        Math.max(0, Number(persisted?.ignoredReasons?.missingSerpSnapshot) || 0),
+      );
+      const newerPreserved = Math.min(
+        Math.max(0, ignored - missingBaseline),
+        Math.max(0, Number(persisted?.ignoredReasons?.newerCatalogPreserved) || 0),
+      );
+      const classifiedIgnored = missingBaseline + newerPreserved;
+      missingSerpSnapshot += missingBaseline;
+      newerCatalogPreserved += newerPreserved;
+      failed += Math.max(0, ignored - classifiedIgnored);
       await collectionSessions.progress(operation.runId, {
         current: index + 1,
         total: targets.length,
@@ -5389,7 +5403,7 @@ async function runAdvertisingCompetitorCatalogOperation(operation) {
         errorMessage: "Competitor catalog collection failed for every seller.",
       };
     }
-    const outcome = failed > 0
+    const outcome = failed > 0 || missingSerpSnapshot > 0
       ? "partial"
       : accepted === 0
         ? "no_change"
@@ -5414,7 +5428,11 @@ async function runAdvertisingCompetitorCatalogOperation(operation) {
           failed,
           ...(failed > 0
             ? { errorCode: "competitor_catalog_seller_failed" }
-            : {}),
+            : missingSerpSnapshot > 0
+              ? { errorCode: "competitor_catalog_serp_snapshot_missing" }
+              : newerCatalogPreserved > 0
+                ? { errorCode: "competitor_catalog_newer_snapshot_preserved" }
+                : {}),
         }],
         snapshotGeneratedAt: new Date().toISOString(),
       },

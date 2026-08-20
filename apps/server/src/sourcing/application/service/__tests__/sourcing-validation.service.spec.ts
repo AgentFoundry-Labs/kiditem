@@ -92,6 +92,53 @@ describe('SourcingValidationService', () => {
     ]);
   });
 
+  it('persists truthful demand-only episodes when a Wing recommendation run has no 1688 supply candidates', async () => {
+    const demandRun = run();
+    const coupangItem = {
+      ...demandRun.items[0],
+      id: '00000000-0000-4000-8000-000000000030',
+      itemKey: 'c'.repeat(64),
+      sourcePlatform: 'coupang' as const,
+      externalOfferId: '8835050121',
+      matchedCoupangProductId: '8835050121',
+      displayName: '쿠팡 유아 우산',
+      sourceSnapshot: {
+        productId: '8835050121',
+        itemId: '25745879681',
+        vendorItemId: '92734234062',
+        productName: '쿠팡 유아 우산',
+        salePriceKrw: 15_900,
+      },
+    };
+    const recommendations = {
+      findLatest: vi.fn(async () => ({ ...demandRun, items: [coupangItem] })),
+      findById: vi.fn(),
+    };
+    const validations = {
+      replaceForRun: vi.fn(async (_command) => [view()]),
+      listForRun: vi.fn(),
+    };
+    const service = new SourcingValidationService(
+      recommendations as never,
+      validations as never,
+    );
+
+    await expect(service.refresh({ organizationId: ORGANIZATION_ID, limit: 50 }))
+      .resolves.toMatchObject({ status: 'ready' });
+
+    const [episode] = validations.replaceForRun.mock.calls[0][0].episodes;
+    expect(episode).toMatchObject({
+      recommendationItemId: coupangItem.id,
+      status: 'blocked',
+      summary: expect.objectContaining({ sourcePlatform: 'coupang' }),
+    });
+    expect(episode.checks).toEqual(expect.arrayContaining([
+      expect.objectContaining({ checkKey: 'coupang_demand', status: 'pass' }),
+      expect.objectContaining({ checkKey: 'offer_identity', status: 'not_applicable' }),
+      expect.objectContaining({ checkKey: 'landed_cost', status: 'missing' }),
+    ]));
+  });
+
   it('refreshes one explicit recommendation run without resolving latest', async () => {
     const recommendations = {
       findLatest: vi.fn(),

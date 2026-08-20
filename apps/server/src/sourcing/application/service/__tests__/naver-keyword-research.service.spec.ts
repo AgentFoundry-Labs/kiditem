@@ -224,6 +224,46 @@ describe('NaverKeywordResearchService.searchPopularKeywords NEW/급상승', () =
     );
   });
 
+  it('drops provider-only SearchAd raw rows before validating and publishing the shared snapshot', async () => {
+    const { service, keywordResearch, snapshots } = makeService([], []);
+    vi.mocked(keywordResearch.searchRelatedKeywords).mockResolvedValueOnce({
+      source: 'naver-searchad-keywordstool',
+      seedKeywords: ['레고'],
+      generatedAt: '2026-08-14T00:00:00.000Z',
+      items: [{
+        keyword: '레고 장난감',
+        monthlyPcSearchCount: 100,
+        monthlyMobileSearchCount: 200,
+        monthlyTotalSearchCount: 300,
+        monthlyPcClickCount: 10,
+        monthlyMobileClickCount: 20,
+        monthlyTotalClickCount: 30,
+        monthlyPcClickRate: 0.1,
+        monthlyMobileClickRate: 0.2,
+        averageAdRank: 3,
+        competitionIndex: '높음',
+        raw: { relKeyword: '레고 장난감', credentialAdjacentProviderField: 'discard' },
+      }],
+    });
+    const transaction = { opaque: true };
+
+    await expect(service.collectAnalysis({
+      organizationId: 'org-1',
+      input: { action: 'related', keyword: '레고' },
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(async () => undefined),
+      withinActiveOperationAttemptFence: vi.fn(async (commit) => commit(transaction as never)),
+    })).resolves.toEqual(expect.objectContaining({ snapshot: expect.anything() }));
+
+    const published = vi.mocked(snapshots.upsertInAttempt).mock.calls[0][1] as {
+      payload: { result: { related: { items: Array<Record<string, unknown>> } } };
+    };
+    expect(published.payload.result.related.items).toEqual([
+      expect.objectContaining({ keyword: '레고 장난감' }),
+    ]);
+    expect(published.payload.result.related.items[0]).not.toHaveProperty('raw');
+  });
+
   it('does not publish the trend-agent snapshot when the final active attempt fence is lost', async () => {
     const { service, snapshots } = makeService([], [board([{ rank: 1, keyword: '레고' }])]);
     const keywordAnalysis = service as unknown as {

@@ -1359,10 +1359,13 @@ describe('OperationRepositoryAdapter active-attempt transition fence', () => {
     expect(assignmentText).toContain('stage IS DISTINCT FROM');
     expect(assignmentText).toContain('progress_current =');
     expect(assignmentText).toContain('progress_total =');
+    expect(assignmentText).toContain('error_code =');
+    expect(assignmentText).toContain('error_message =');
     expect(assignments.values).toContain('completed');
     expect(assignments.values).toContain(11);
     expect(assignments.values).toContain(12);
     expect(assignments.values).toContain(11 / 12);
+    expect(assignments.values.filter((value) => value === null)).toHaveLength(2);
   });
 
   it('atomically requires the exact token and database-current lease and deadline', async () => {
