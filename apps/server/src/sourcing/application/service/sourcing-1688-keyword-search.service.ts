@@ -9,6 +9,7 @@ import {
   SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
   SOURCING_1688_KEYWORD_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+  type Sourcing1688CompletedKeywordRunInput,
   type Sourcing1688SearchResultRepositoryPort,
 } from '../port/out/repository/sourcing-1688-search-result.repository.port';
 import {
@@ -47,6 +48,15 @@ export class Sourcing1688KeywordSearchService {
     commitWithinActiveOperationAttempt: ActiveOperationAttemptCommitFence;
   }): Promise<Sourcing1688BatchUnitResult> {
     const keyword = canonicalizeSourcingWingCatalogKeyword(input.keyword);
+    const targetKey = normalizeCollectionTarget(keyword);
+    const idempotencyKey = `1688-keyword-operation:${input.operationRunId}:${hashCollectionRequest(
+      targetKey,
+    )}`;
+    const requestHash = hashCollectionRequest({
+      operationRunId: input.operationRunId,
+      keyword,
+      maxResults: OPERATION_KEYWORD_RESULT_LIMIT,
+    });
     let discovered = 0;
     let rejected = 0;
     const execution = await this.collectionCoordinator.execute(
@@ -54,15 +64,9 @@ export class Sourcing1688KeywordSearchService {
         organizationId: input.organizationId,
         sourceKey: '1688.hot_product',
         scopeKey: 'default',
-        targetKey: normalizeCollectionTarget(keyword),
-        idempotencyKey: `1688-keyword-operation:${input.operationRunId}:${hashCollectionRequest(
-          normalizeCollectionTarget(keyword),
-        )}`,
-        requestHash: hashCollectionRequest({
-          operationRunId: input.operationRunId,
-          keyword,
-          maxResults: OPERATION_KEYWORD_RESULT_LIMIT,
-        }),
+        targetKey,
+        idempotencyKey,
+        requestHash,
         collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
         collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
         triggerKind: 'manual',
@@ -114,7 +118,17 @@ export class Sourcing1688KeywordSearchService {
         });
       },
     );
-    if (execution.kind === 'existing') return this.replayExisting(input.organizationId, keyword);
+    if (execution.kind === 'existing') {
+      return this.replayExisting({
+        organizationId: input.organizationId,
+        runId: execution.runId,
+        operationRunId: input.operationRunId,
+        keyword,
+        targetKey,
+        idempotencyKey,
+        requestHash,
+      });
+    }
 
     const persisted = execution.acceptedCount + execution.duplicateCount;
     const allRejected = discovered > 0 && persisted === 0 && rejected > 0;
@@ -130,19 +144,14 @@ export class Sourcing1688KeywordSearchService {
   }
 
   private async replayExisting(
-    organizationId: string,
-    keyword: string,
+    input: Sourcing1688CompletedKeywordRunInput,
   ): Promise<Sourcing1688BatchUnitResult> {
-    const snapshot = await this.searchResults.findLatest({ organizationId, keywords: [keyword] });
-    const observation = snapshot.observations.find(
-      (candidate) => candidate.targetId === null
-        && normalizeCollectionTarget(candidate.keyword) === normalizeCollectionTarget(keyword),
-    );
+    const observation = await this.searchResults.findCompletedKeywordRun(input);
     if (!observation) {
       throw new BadRequestException('Completed keyword search result is unavailable.');
     }
     return {
-      keyword,
+      keyword: input.keyword,
       targetId: null,
       outcome: observation.items.length > 0 ? 'complete' : 'no_change',
       discovered: observation.items.length,

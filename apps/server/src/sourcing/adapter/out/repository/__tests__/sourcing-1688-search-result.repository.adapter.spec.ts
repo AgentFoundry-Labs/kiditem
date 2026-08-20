@@ -157,6 +157,137 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
     expect(JSON.stringify(snapshot)).not.toContain('rawOffer');
   });
 
+  it('reads a durable zero result only from the exact completed keyword run', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-run',
+      completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童餐盘',
+        targetId: null,
+        operationRunId: 'operation-current',
+      },
+    });
+    const offerRows = vi.fn().mockResolvedValue([]);
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedKeywordRun({
+      organizationId: 'org-current',
+      runId: 'current-run',
+      operationRunId: 'operation-current',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+    })).resolves.toEqual({
+      keyword: '儿童餐盘',
+      targetId: null,
+      capturedAt: new Date('2026-08-20T00:01:00.000Z'),
+      items: [],
+    });
+
+    expect(findFirst).toHaveBeenCalledWith({
+      where: {
+        id: 'current-run',
+        organizationId: 'org-current',
+        sourceKey: '1688.hot_product',
+        scopeKey: 'default',
+        targetKey: '儿童餐盘',
+        idempotencyKey: 'idempotency-current',
+        requestHash: 'request-current',
+        collectorKey: 'operation-1688-keyword-search',
+        collectorVersion: 'sourcing-1688-search-result/v1',
+        status: { in: ['complete', 'partial'] },
+        completedAt: { not: null },
+      },
+      select: {
+        id: true,
+        completedAt: true,
+        qualityReport: true,
+      },
+    });
+    expect(offerRows).toHaveBeenCalledWith(expect.objectContaining({
+      where: { organizationId: 'org-current', ingestionRunId: 'current-run' },
+    }));
+  });
+
+  it('fails closed when the exact run marker belongs to another operation or keyword', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-run',
+      completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: 'older keyword',
+        targetId: null,
+        operationRunId: 'operation-older',
+      },
+    });
+    const offerRows = vi.fn();
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedKeywordRun({
+      organizationId: 'org-current',
+      runId: 'current-run',
+      operationRunId: 'operation-current',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+    })).resolves.toBeNull();
+
+    expect(offerRows).not.toHaveBeenCalled();
+  });
+
+  it('reads an image result only from the exact completed target run', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-image-run',
+      completedAt: new Date('2026-08-20T00:02:00.000Z'),
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+        operationRunId: 'operation-current',
+      },
+    });
+    const offerRows = vi.fn().mockResolvedValue([]);
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedImageRun({
+      organizationId: 'org-current',
+      runId: 'current-image-run',
+      operationRunId: 'operation-current',
+      targetId: 'product-1::',
+      keyword: '儿童笔袋文具盒',
+      targetKey: 'image-target:current',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+    })).resolves.toEqual({
+      keyword: '儿童笔袋文具盒',
+      targetId: 'product-1::',
+      capturedAt: new Date('2026-08-20T00:02:00.000Z'),
+      items: [],
+    });
+
+    expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        id: 'current-image-run',
+        organizationId: 'org-current',
+        sourceKey: '1688.image_search',
+        targetKey: 'image-target:current',
+        collectorKey: 'operation-1688-image-match',
+      }),
+    }));
+  });
+
   it('bounds an unfiltered latest read to the typed snapshot maximum', async () => {
     const ingestionRuns = vi.fn().mockResolvedValue(
       Array.from({ length: 31 }, (_, index) => ({

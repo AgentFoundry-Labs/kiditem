@@ -12,7 +12,10 @@ import {
   SOURCING_1688_IMAGE_COLLECTOR_KEY,
   SOURCING_1688_KEYWORD_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+  type Sourcing1688CompletedImageRunInput,
+  type Sourcing1688CompletedKeywordRunInput,
   type Sourcing1688SearchResultRepositoryPort,
+  type Sourcing1688StoredSearchObservation,
   type Sourcing1688StoredSearchSnapshot,
 } from '../../../application/port/out/repository/sourcing-1688-search-result.repository.port';
 
@@ -182,6 +185,125 @@ implements Sourcing1688SearchResultRepositoryPort {
       }),
     };
   }
+
+  async findCompletedKeywordRun(
+    input: Sourcing1688CompletedKeywordRunInput,
+  ): Promise<Sourcing1688StoredSearchObservation | null> {
+    const run = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        sourceKey: '1688.hot_product',
+        scopeKey: 'default',
+        targetKey: input.targetKey,
+        idempotencyKey: input.idempotencyKey,
+        requestHash: input.requestHash,
+        collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+        collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+        status: { in: [...TERMINAL_COLLECTION_STATUSES] },
+        completedAt: { not: null },
+      },
+      select: {
+        id: true,
+        completedAt: true,
+        qualityReport: true,
+      },
+    });
+    if (!run || !run.completedAt || !matchesCompletedKeywordRun(run.qualityReport, input)) {
+      return null;
+    }
+    const result = await this.readExactRunItems({
+      organizationId: input.organizationId,
+      ingestionRunId: run.id,
+      keyword: input.keyword,
+    });
+    if (!result) return null;
+    return {
+      keyword: input.keyword,
+      targetId: null,
+      capturedAt: result.capturedAt ?? run.completedAt,
+      items: result.items,
+    };
+  }
+
+  async findCompletedImageRun(
+    input: Sourcing1688CompletedImageRunInput,
+  ): Promise<Sourcing1688StoredSearchObservation | null> {
+    const run = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        sourceKey: '1688.image_search',
+        scopeKey: 'default',
+        targetKey: input.targetKey,
+        idempotencyKey: input.idempotencyKey,
+        requestHash: input.requestHash,
+        collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY,
+        collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+        status: { in: [...TERMINAL_COLLECTION_STATUSES] },
+        completedAt: { not: null },
+      },
+      select: {
+        id: true,
+        completedAt: true,
+        qualityReport: true,
+      },
+    });
+    if (!run || !run.completedAt || !matchesCompletedImageRun(run.qualityReport, input)) {
+      return null;
+    }
+    const result = await this.readExactRunItems({
+      organizationId: input.organizationId,
+      ingestionRunId: run.id,
+      keyword: input.keyword,
+    });
+    if (!result) return null;
+    return {
+      keyword: input.keyword,
+      targetId: input.targetId,
+      capturedAt: result.capturedAt ?? run.completedAt,
+      items: result.items,
+    };
+  }
+
+  private async readExactRunItems(input: {
+    organizationId: string;
+    ingestionRunId: string;
+    keyword: string;
+  }): Promise<{
+    capturedAt: Date | null;
+    items: Sourcing1688SearchItem[];
+  } | null> {
+    const rows = await this.prisma.sourcing1688OfferKeywordObservation.findMany({
+      where: {
+        organizationId: input.organizationId,
+        ingestionRunId: input.ingestionRunId,
+      },
+      select: {
+        sourceKeywordNormalized: true,
+        externalOfferId: true,
+        title: true,
+        priceCny: true,
+        sourceUrl: true,
+        imageUrl: true,
+        rank: true,
+        monthlySales: true,
+        supplierName: true,
+        capturedAt: true,
+        rawOffer: true,
+      },
+      orderBy: [{ capturedAt: 'desc' }, { rank: 'asc' }, { id: 'asc' }],
+    });
+    const values = rows.map((row) => ({
+      capturedAt: row.capturedAt,
+      item: row.sourceKeywordNormalized === input.keyword ? parseSearchItem(row) : null,
+    }));
+    if (values.some(({ item }) => !item)) return null;
+    return {
+      capturedAt: values[0]?.capturedAt ?? null,
+      items: values.map(({ item }) => item as Sourcing1688SearchItem),
+    };
+  }
 }
 
 interface ResultRun {
@@ -203,6 +325,28 @@ function parseResultMarker(value: unknown): {
   const targetId = typeof value.targetId === 'string' ? value.targetId.trim() : null;
   if (!keyword || (value.targetId !== null && !targetId)) return null;
   return { keyword, targetId };
+}
+
+function matchesCompletedKeywordRun(
+  value: unknown,
+  input: Sourcing1688CompletedKeywordRunInput,
+): boolean {
+  const marker = parseResultMarker(value);
+  return marker?.targetId === null
+    && marker.keyword === input.keyword
+    && isRecord(value)
+    && value.operationRunId === input.operationRunId;
+}
+
+function matchesCompletedImageRun(
+  value: unknown,
+  input: Sourcing1688CompletedImageRunInput,
+): boolean {
+  const marker = parseResultMarker(value);
+  return marker?.targetId === input.targetId
+    && marker.keyword === input.keyword
+    && isRecord(value)
+    && value.operationRunId === input.operationRunId;
 }
 
 function parseSearchItem(row: {

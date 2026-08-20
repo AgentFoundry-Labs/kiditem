@@ -20,8 +20,16 @@ import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/reposi
 import type { Search1688KeywordSession } from '../application/port/out/provider/1688-keyword-search.port';
 import { SourcingCollectionCoordinator } from '../application/service/sourcing-collection-coordinator.service';
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
-import { map1688HotProductsToAuthorizedOutput } from '../application/service/sourcing-collection-mappers';
+import {
+  hashCollectionRequest,
+  map1688HotProductsToAuthorizedOutput,
+  normalizeCollectionTarget,
+} from '../application/service/sourcing-collection-mappers';
 import type { SourcingCollectionPermit } from '../application/port/out/repository/sourcing-collection.repository.port';
+import {
+  SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+  SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+} from '../application/port/out/repository/sourcing-1688-search-result.repository.port';
 
 const OPERATION_KEY = 'sourcing.search_1688_keyword_batch';
 
@@ -141,9 +149,10 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
       duplicate: 0,
       failed: 0,
     });
-    const snapshot = await new Sourcing1688SearchResultRepositoryAdapter(
+    const searchResults = new Sourcing1688SearchResultRepositoryAdapter(
       primary as unknown as PrismaService,
-    ).findLatest({
+    );
+    const snapshot = await searchResults.findLatest({
       organizationId: TEST_ORGANIZATION_ID,
       keywords: ['儿童笔袋'],
     });
@@ -153,6 +162,26 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
       targetId: null,
       items: [],
     })]);
+    const identity = keywordCollectionIdentity(attempt.runId, '儿童笔袋');
+    const run = await primary.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: identity.idempotencyKey,
+      },
+      select: { id: true },
+    });
+    if (!run) throw new Error('Expected committed keyword run.');
+    await expect(searchResults.findCompletedKeywordRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId: run.id,
+      operationRunId: attempt.runId,
+      keyword: '儿童笔袋',
+      ...identity,
+    })).resolves.toEqual(expect.objectContaining({
+      keyword: '儿童笔袋',
+      targetId: null,
+      items: [],
+    }));
 
     await expect(service.searchForOperation(input)).resolves.toMatchObject({
       outcome: 'no_change',
@@ -171,6 +200,78 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
         collectorKey: 'operation-1688-keyword-search',
       },
     })).resolves.toBe(1);
+  });
+
+  it('fails closed for a failed exact replay run instead of returning an older completed zero result', async () => {
+    const olderAttempt = await createAttempt(primary);
+    const currentAttempt = await createAttempt(primary);
+    const searchResults = new Sourcing1688SearchResultRepositoryAdapter(
+      primary as unknown as PrismaService,
+    );
+    const service = new Sourcing1688KeywordSearchService(
+      new SourcingCollectionCoordinator(collections),
+      searchResults,
+    );
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(async () => []),
+      close: vi.fn(async () => undefined),
+    };
+    const makeInput = (attempt: Attempt) => ({
+      organizationId: TEST_ORGANIZATION_ID,
+      operationRunId: attempt.runId,
+      actorUserId: TEST_USER_ID,
+      keyword: '儿童笔袋',
+      session,
+      signal: new AbortController().signal,
+      operationCheckpoint: vi.fn(async () => undefined),
+      commitWithinActiveOperationAttempt: <T>(
+        commit: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+      ) => verifier.withActiveDomainAttemptFence(exactFence(attempt), async (_active, transaction) =>
+        commit(transaction)),
+    });
+
+    await expect(service.searchForOperation(makeInput(olderAttempt))).resolves.toMatchObject({
+      outcome: 'no_change',
+    });
+
+    const identity = keywordCollectionIdentity(currentAttempt.runId, '儿童笔袋');
+    const failedRun = await primary.sourcingEvidenceIngestionRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceKey: '1688.hot_product',
+        scopeKey: 'default',
+        targetKey: identity.targetKey,
+        idempotencyKey: identity.idempotencyKey,
+        requestHash: identity.requestHash,
+        collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+        collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+        triggerKind: 'manual',
+        triggeredByUserId: TEST_USER_ID,
+        status: 'failed',
+        completedAt: new Date(),
+        errorCode: 'test_failed_run',
+        errorMessage: 'test-only failed replay run',
+      },
+    });
+
+    await expect(searchResults.findCompletedKeywordRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId: failedRun.id,
+      operationRunId: currentAttempt.runId,
+      keyword: '儿童笔袋',
+      ...identity,
+    })).resolves.toBeNull();
+    await expect(service.searchForOperation(makeInput(currentAttempt))).rejects.toThrow(
+      'Completed keyword search result is unavailable.',
+    );
+
+    expect(session.searchKeyword).toHaveBeenCalledTimes(1);
+    await expect(primary.sourcingEvidenceIngestionRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sourceKey: '1688.hot_product',
+      },
+    })).resolves.toBe(2);
   });
 });
 
@@ -264,4 +365,17 @@ function keywordOutput(permit: SourcingCollectionPermit) {
 
 function sha256(value: string): string {
   return createHash('sha256').update(value).digest('hex');
+}
+
+function keywordCollectionIdentity(operationRunId: string, keyword: string) {
+  const targetKey = normalizeCollectionTarget(keyword);
+  return {
+    targetKey,
+    idempotencyKey: `1688-keyword-operation:${operationRunId}:${hashCollectionRequest(targetKey)}`,
+    requestHash: hashCollectionRequest({
+      operationRunId,
+      keyword,
+      maxResults: 6,
+    }),
+  };
 }

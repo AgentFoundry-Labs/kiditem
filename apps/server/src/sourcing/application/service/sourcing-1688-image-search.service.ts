@@ -64,6 +64,17 @@ export class Sourcing1688ImageSearchService {
     const keyword = input.keyword.trim();
     if (!keyword) throw new BadRequestException('1688 image search requires a keyword');
     input.signal.throwIfAborted();
+    const targetKey = `image-target:${hashCollectionRequest(input.targetId)}`;
+    const idempotencyKey = `1688-image-operation:${input.operationRunId}:${hashCollectionRequest(
+      input.targetId,
+    )}`;
+    const requestHash = hashCollectionRequest({
+      operationRunId: input.operationRunId,
+      targetId: input.targetId,
+      imageUrl: input.imageUrl,
+      keyword,
+      maxResults: OPERATION_IMAGE_RESULT_LIMIT,
+    });
     let discovered = 0;
     let rejected = 0;
     const execution = await this.collectionCoordinator.execute(
@@ -71,17 +82,9 @@ export class Sourcing1688ImageSearchService {
         organizationId: input.organizationId,
         sourceKey: '1688.image_search',
         scopeKey: 'default',
-        targetKey: `image-target:${hashCollectionRequest(input.targetId)}`,
-        idempotencyKey: `1688-image-operation:${input.operationRunId}:${hashCollectionRequest(
-          input.targetId,
-        )}`,
-        requestHash: hashCollectionRequest({
-          operationRunId: input.operationRunId,
-          targetId: input.targetId,
-          imageUrl: input.imageUrl,
-          keyword,
-          maxResults: OPERATION_IMAGE_RESULT_LIMIT,
-        }),
+        targetKey,
+        idempotencyKey,
+        requestHash,
         collectorKey: SOURCING_1688_IMAGE_COLLECTOR_KEY,
         collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
         triggerKind: 'manual',
@@ -154,18 +157,22 @@ export class Sourcing1688ImageSearchService {
             resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
             keyword,
             targetId: input.targetId,
+            operationRunId: input.operationRunId,
           },
         });
       },
     );
     if (execution.kind === 'existing') {
-      const snapshot = await this.searchResults.findLatest({
+      const observation = await this.searchResults.findCompletedImageRun({
         organizationId: input.organizationId,
-        targetIds: [input.targetId],
+        runId: execution.runId,
+        operationRunId: input.operationRunId,
+        targetId: input.targetId,
+        keyword,
+        targetKey,
+        idempotencyKey,
+        requestHash,
       });
-      const observation = snapshot.observations.find(
-        (candidate) => candidate.targetId === input.targetId,
-      );
       if (!observation) {
         throw new BadRequestException('Completed image search result is unavailable.');
       }

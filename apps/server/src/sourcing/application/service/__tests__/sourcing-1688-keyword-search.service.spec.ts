@@ -124,8 +124,14 @@ describe('Sourcing1688KeywordSearchService', () => {
           keyword: '儿童餐盘',
           targetId: null,
           capturedAt: new Date(),
-          items: [{ offerId: 'offer-1' }],
+          items: [],
         }],
+      })),
+      findCompletedKeywordRun: vi.fn(async () => ({
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date(),
+        items: [{ offerId: 'offer-current' }],
       })),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
@@ -146,7 +152,14 @@ describe('Sourcing1688KeywordSearchService', () => {
     });
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
-    expect(searchResults.findLatest).toHaveBeenCalledWith({ organizationId, keywords: ['儿童餐盘'] });
+    expect(searchResults.findCompletedKeywordRun).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId,
+      runId: 'collection-run',
+      operationRunId: 'operation-run',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+    }));
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
   });
 
   it('replays a completed zero-result marker as no_change without asking the session to navigate', async () => {
@@ -164,8 +177,14 @@ describe('Sourcing1688KeywordSearchService', () => {
           keyword: '儿童餐盘',
           targetId: null,
           capturedAt: new Date(),
-          items: [],
+          items: [{ offerId: 'offer-older' }],
         }],
+      })),
+      findCompletedKeywordRun: vi.fn(async () => ({
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date(),
+        items: [],
       })),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
@@ -190,14 +209,16 @@ describe('Sourcing1688KeywordSearchService', () => {
     });
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
   });
 
   it.each([
-    'failed collection',
-    'collecting collection',
-    'corrupt result marker',
-    'missing result marker',
-  ])('fails closed when a %s cannot project a completed keyword marker', async () => {
+    'failed current collection',
+    'collecting current collection',
+    'cancelled current collection',
+    'corrupt current result marker',
+    'missing current result marker',
+  ])('fails closed when a %s would otherwise be masked by an older completed zero result', async () => {
     const session: Search1688KeywordSession = {
       searchKeyword: vi.fn(),
       close: vi.fn(),
@@ -208,7 +229,16 @@ describe('Sourcing1688KeywordSearchService', () => {
     const searchResults = {
       // The production adapter yields no observation and no generatedAt value
       // for failed, collecting, corrupt, or missing result markers.
-      findLatest: vi.fn(async () => ({ generatedAt: null, observations: [] })),
+      findLatest: vi.fn(async () => ({
+        generatedAt: new Date(),
+        observations: [{
+          keyword: '儿童餐盘',
+          targetId: null,
+          capturedAt: new Date(),
+          items: [],
+        }],
+      })),
+      findCompletedKeywordRun: vi.fn(async () => null),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
 
@@ -224,6 +254,7 @@ describe('Sourcing1688KeywordSearchService', () => {
     })).rejects.toThrow('Completed keyword search result is unavailable.');
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
   });
 
   it('continues to reject a non-empty snapshot that lacks the replayed keyword marker', async () => {
@@ -239,6 +270,7 @@ describe('Sourcing1688KeywordSearchService', () => {
         generatedAt: new Date(),
         observations: [{ keyword: 'other keyword', targetId: null, capturedAt: new Date(), items: [] }],
       })),
+      findCompletedKeywordRun: vi.fn(async () => null),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
 

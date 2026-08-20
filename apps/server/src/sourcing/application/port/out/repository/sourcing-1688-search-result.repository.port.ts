@@ -29,6 +29,27 @@ export interface Sourcing1688StoredSearchSnapshot {
   observations: Sourcing1688StoredSearchObservation[];
 }
 
+export interface Sourcing1688CompletedKeywordRunInput {
+  organizationId: string;
+  runId: string;
+  operationRunId: string;
+  keyword: string;
+  targetKey: string;
+  idempotencyKey: string;
+  requestHash: string;
+}
+
+export interface Sourcing1688CompletedImageRunInput {
+  organizationId: string;
+  runId: string;
+  operationRunId: string;
+  targetId: string;
+  keyword: string;
+  targetKey: string;
+  idempotencyKey: string;
+  requestHash: string;
+}
+
 export interface Sourcing1688SearchResultRepositoryPort {
   resolveImageTargets(input: {
     organizationId: string;
@@ -42,4 +63,10 @@ export interface Sourcing1688SearchResultRepositoryPort {
     keywords?: string[];
     targetIds?: string[];
   }): Promise<Sourcing1688StoredSearchSnapshot>;
+  findCompletedKeywordRun(
+    input: Sourcing1688CompletedKeywordRunInput,
+  ): Promise<Sourcing1688StoredSearchObservation | null>;
+  findCompletedImageRun(
+    input: Sourcing1688CompletedImageRunInput,
+  ): Promise<Sourcing1688StoredSearchObservation | null>;
 }

@@ -196,6 +196,7 @@ describe('Sourcing1688ImageSearchService', () => {
         resultSchemaVersion: 'sourcing-1688-search-result/v1',
         keyword: '儿童笔袋文具盒',
         targetId: 'product-1::',
+        operationRunId: 'operation-run',
       },
       typedRecords: [{ row: { searchMetadata: { score: 91, supplierTags: ['源头工厂'] } } }],
     });
@@ -258,5 +259,54 @@ describe('Sourcing1688ImageSearchService', () => {
       signal: new AbortController().signal,
       checkpoint: vi.fn(),
     })).resolves.toMatchObject({ outcome: 'failed', discovered: 1, failed: 1 });
+  });
+
+  it('fails closed for an exact image run that is invalid instead of replaying an older target result', async () => {
+    const provider: Sourcing1688ImageSearchPort = {
+      getStatus: vi.fn(),
+      searchByImage: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'current-image-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      findLatest: vi.fn(async () => ({
+        generatedAt: new Date(),
+        observations: [{
+          keyword: 'older keyword',
+          targetId: 'product-1::',
+          capturedAt: new Date(),
+          items: [],
+        }],
+      })),
+      findCompletedImageRun: vi.fn(async () => null),
+    };
+    const service = new Sourcing1688ImageSearchService(
+      provider,
+      collection,
+      { refresh: vi.fn() } as never,
+      searchResults as never,
+    );
+
+    await expect(service.searchForOperation({
+      organizationId: 'org-1',
+      operationRunId: 'operation-current',
+      actorUserId: null,
+      targetId: 'product-1::',
+      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+      keyword: '儿童笔袋文具盒',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(),
+    })).rejects.toThrow('Completed image search result is unavailable.');
+
+    expect(provider.searchByImage).not.toHaveBeenCalled();
+    expect(searchResults.findCompletedImageRun).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      runId: 'current-image-run',
+      operationRunId: 'operation-current',
+      targetId: 'product-1::',
+      keyword: '儿童笔袋文具盒',
+    }));
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
   });
 });
