@@ -7,6 +7,7 @@ import { kstBusinessDate } from '../../../common/kst';
 import type { Search1688KeywordSession } from '../port/out/provider/1688-keyword-search.port';
 import {
   SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+  SOURCING_1688_ALL_RESULTS_REJECTED,
   SOURCING_1688_KEYWORD_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
   type Sourcing1688CompletedKeywordRunInput,
@@ -108,6 +109,7 @@ export class Sourcing1688KeywordSearchService {
             capturedAt,
             searchMetadata: { score: item.score },
           })),
+          discoveredCount: discovered,
           rejectedCount: rejected,
           qualityReport: {
             resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
@@ -127,6 +129,7 @@ export class Sourcing1688KeywordSearchService {
         targetKey,
         idempotencyKey,
         requestHash,
+        maxResults: OPERATION_KEYWORD_RESULT_LIMIT,
       });
     }
 
@@ -140,24 +143,29 @@ export class Sourcing1688KeywordSearchService {
       accepted: execution.acceptedCount,
       duplicate: execution.duplicateCount,
       failed: rejected,
+      ...(allRejected ? { errorCode: SOURCING_1688_ALL_RESULTS_REJECTED } : {}),
     };
   }
 
   private async replayExisting(
     input: Sourcing1688CompletedKeywordRunInput,
   ): Promise<Sourcing1688BatchUnitResult> {
-    const observation = await this.searchResults.findCompletedKeywordRun(input);
-    if (!observation) {
+    const run = await this.searchResults.findCompletedKeywordRun(input);
+    if (!run) {
       throw new BadRequestException('Completed keyword search result is unavailable.');
     }
+    const allRejected = run.discoveredCount > 0
+      && run.acceptedCount + run.duplicateCount === 0
+      && run.rejectedCount > 0;
     return {
       keyword: input.keyword,
       targetId: null,
-      outcome: observation.items.length > 0 ? 'complete' : 'no_change',
-      discovered: observation.items.length,
-      accepted: 0,
-      duplicate: observation.items.length,
-      failed: 0,
+      outcome: allRejected ? 'failed' : run.discoveredCount > 0 ? 'complete' : 'no_change',
+      discovered: run.discoveredCount,
+      accepted: run.acceptedCount,
+      duplicate: run.duplicateCount,
+      failed: run.rejectedCount,
+      ...(allRejected && run.errorCode ? { errorCode: run.errorCode } : {}),
     };
   }
 }

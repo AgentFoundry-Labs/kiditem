@@ -160,7 +160,14 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
   it('reads a durable zero result only from the exact completed keyword run', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'current-run',
+      status: 'complete',
       completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      discoveredCount: 0,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      staleDiscardedCount: 0,
+      errorCode: null,
       qualityReport: {
         resultSchemaVersion: 'sourcing-1688-search-result/v1',
         keyword: '儿童餐盘',
@@ -182,11 +189,18 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
       targetKey: '儿童餐盘',
       idempotencyKey: 'idempotency-current',
       requestHash: 'request-current',
+      maxResults: 6,
     })).resolves.toEqual({
       keyword: '儿童餐盘',
       targetId: null,
       capturedAt: new Date('2026-08-20T00:01:00.000Z'),
       items: [],
+      terminalStatus: 'complete',
+      discoveredCount: 0,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      errorCode: null,
     });
 
     expect(findFirst).toHaveBeenCalledWith({
@@ -205,7 +219,14 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
       },
       select: {
         id: true,
+        status: true,
         completedAt: true,
+        discoveredCount: true,
+        acceptedCount: true,
+        duplicateCount: true,
+        rejectedCount: true,
+        staleDiscardedCount: true,
+        errorCode: true,
         qualityReport: true,
       },
     });
@@ -244,10 +265,141 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
     expect(offerRows).not.toHaveBeenCalled();
   });
 
+  it('projects a bounded all-rejected outcome from the exact partial run counters', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-run',
+      status: 'partial',
+      completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      discoveredCount: 2,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 2,
+      staleDiscardedCount: 0,
+      errorCode: null,
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童餐盘',
+        targetId: null,
+        operationRunId: 'operation-current',
+      },
+    });
+    const offerRows = vi.fn().mockResolvedValue([]);
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedKeywordRun({
+      organizationId: 'org-current',
+      runId: 'current-run',
+      operationRunId: 'operation-current',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+      maxResults: 6,
+    })).resolves.toMatchObject({
+      items: [],
+      terminalStatus: 'partial',
+      discoveredCount: 2,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 2,
+      errorCode: 'all_results_rejected',
+    });
+  });
+
+  it('fails closed when exact run counters exceed the operation maximum', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-run',
+      status: 'partial',
+      completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      discoveredCount: 7,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 7,
+      staleDiscardedCount: 0,
+      errorCode: null,
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童餐盘',
+        targetId: null,
+        operationRunId: 'operation-current',
+      },
+    });
+    const offerRows = vi.fn();
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedKeywordRun({
+      organizationId: 'org-current',
+      runId: 'current-run',
+      operationRunId: 'operation-current',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+      maxResults: 6,
+    })).resolves.toBeNull();
+
+    expect(offerRows).not.toHaveBeenCalled();
+  });
+
+  it('preserves both bounded duplicate layers for a complete exact run', async () => {
+    const findFirst = vi.fn().mockResolvedValue({
+      id: 'current-run',
+      status: 'complete',
+      completedAt: new Date('2026-08-20T00:01:00.000Z'),
+      discoveredCount: 6,
+      acceptedCount: 6,
+      duplicateCount: 12,
+      rejectedCount: 0,
+      staleDiscardedCount: 0,
+      errorCode: null,
+      qualityReport: {
+        resultSchemaVersion: 'sourcing-1688-search-result/v1',
+        keyword: '儿童餐盘',
+        targetId: null,
+        operationRunId: 'operation-current',
+      },
+    });
+    const offerRows = vi.fn().mockResolvedValue([]);
+    const repository = new Sourcing1688SearchResultRepositoryAdapter({
+      sourcingEvidenceIngestionRun: { findFirst },
+      sourcing1688OfferKeywordObservation: { findMany: offerRows },
+    } as never);
+
+    await expect(repository.findCompletedKeywordRun({
+      organizationId: 'org-current',
+      runId: 'current-run',
+      operationRunId: 'operation-current',
+      keyword: '儿童餐盘',
+      targetKey: '儿童餐盘',
+      idempotencyKey: 'idempotency-current',
+      requestHash: 'request-current',
+      maxResults: 6,
+    })).resolves.toMatchObject({
+      terminalStatus: 'complete',
+      discoveredCount: 6,
+      acceptedCount: 6,
+      duplicateCount: 12,
+      rejectedCount: 0,
+    });
+  });
+
   it('reads an image result only from the exact completed target run', async () => {
     const findFirst = vi.fn().mockResolvedValue({
       id: 'current-image-run',
+      status: 'complete',
       completedAt: new Date('2026-08-20T00:02:00.000Z'),
+      discoveredCount: 0,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      staleDiscardedCount: 0,
+      errorCode: null,
       qualityReport: {
         resultSchemaVersion: 'sourcing-1688-search-result/v1',
         keyword: '儿童笔袋文具盒',
@@ -270,11 +422,18 @@ describe('Sourcing1688SearchResultRepositoryAdapter', () => {
       targetKey: 'image-target:current',
       idempotencyKey: 'idempotency-current',
       requestHash: 'request-current',
+      maxResults: 18,
     })).resolves.toEqual({
       keyword: '儿童笔袋文具盒',
       targetId: 'product-1::',
       capturedAt: new Date('2026-08-20T00:02:00.000Z'),
       items: [],
+      terminalStatus: 'complete',
+      discoveredCount: 0,
+      acceptedCount: 0,
+      duplicateCount: 0,
+      rejectedCount: 0,
+      errorCode: null,
     });
 
     expect(findFirst).toHaveBeenCalledWith(expect.objectContaining({

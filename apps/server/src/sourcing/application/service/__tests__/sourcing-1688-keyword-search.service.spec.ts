@@ -132,6 +132,12 @@ describe('Sourcing1688KeywordSearchService', () => {
         targetId: null,
         capturedAt: new Date(),
         items: [{ offerId: 'offer-current' }],
+        terminalStatus: 'complete',
+        discoveredCount: 1,
+        acceptedCount: 1,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
       })),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
@@ -147,8 +153,8 @@ describe('Sourcing1688KeywordSearchService', () => {
       commitWithinActiveOperationAttempt: vi.fn(),
     })).resolves.toMatchObject({
       outcome: 'complete',
-      accepted: 0,
-      duplicate: 1,
+      accepted: 1,
+      duplicate: 0,
     });
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
@@ -185,6 +191,12 @@ describe('Sourcing1688KeywordSearchService', () => {
         targetId: null,
         capturedAt: new Date(),
         items: [],
+        terminalStatus: 'complete',
+        discoveredCount: 0,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
       })),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
@@ -207,6 +219,109 @@ describe('Sourcing1688KeywordSearchService', () => {
       duplicate: 0,
       failed: 0,
     });
+
+    expect(session.searchKeyword).not.toHaveBeenCalled();
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'durable zero result',
+      run: {
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [],
+        terminalStatus: 'complete',
+        discoveredCount: 0,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'no_change', discovered: 0, accepted: 0, duplicate: 0, failed: 0,
+      },
+    },
+    {
+      name: 'all accepted result',
+      run: {
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [{ offerId: 'offer-1' }, { offerId: 'offer-2' }],
+        terminalStatus: 'complete',
+        discoveredCount: 2,
+        acceptedCount: 2,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 2, duplicate: 0, failed: 0,
+      },
+    },
+    {
+      name: 'mixed accepted and rejected result',
+      run: {
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [{ offerId: 'offer-1' }],
+        terminalStatus: 'partial',
+        discoveredCount: 2,
+        acceptedCount: 1,
+        duplicateCount: 0,
+        rejectedCount: 1,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 1, duplicate: 0, failed: 1,
+      },
+    },
+    {
+      name: 'all rejected result',
+      run: {
+        keyword: '儿童餐盘',
+        targetId: null,
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [],
+        terminalStatus: 'partial',
+        discoveredCount: 2,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 2,
+        errorCode: 'all_results_rejected',
+      },
+      expected: {
+        outcome: 'failed', discovered: 2, accepted: 0, duplicate: 0, failed: 2,
+        errorCode: 'all_results_rejected',
+      },
+    },
+  ])('replays a $name with the first-run outcome and counts', async ({ run, expected }) => {
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(),
+      close: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      findLatest: vi.fn(),
+      findCompletedKeywordRun: vi.fn(async () => run),
+    } as unknown as Sourcing1688SearchResultRepositoryPort;
+    const service = new Sourcing1688KeywordSearchService(collection, searchResults);
+
+    await expect(service.searchForOperation({
+      organizationId,
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      keyword: '儿童餐盘',
+      session,
+      signal: new AbortController().signal,
+      operationCheckpoint: vi.fn(),
+      commitWithinActiveOperationAttempt: vi.fn(),
+    })).resolves.toMatchObject(expected);
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
     expect(searchResults.findLatest).not.toHaveBeenCalled();

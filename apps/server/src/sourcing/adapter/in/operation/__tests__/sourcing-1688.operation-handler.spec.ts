@@ -167,6 +167,40 @@ describe('Sourcing1688OperationHandler', () => {
     });
   });
 
+  it('reports persisted mixed keyword counts as a partial batch without reopening provider state', async () => {
+    const handler = createHandler(
+      new OperationHandlerRegistryService(),
+      { openSession: vi.fn(async () => ({ searchKeyword: vi.fn(), close: vi.fn() })) },
+      {
+        searchForOperation: vi.fn(async () => ({
+          keyword: '儿童笔袋',
+          targetId: null,
+          outcome: 'complete' as const,
+          discovered: 2,
+          accepted: 1,
+          duplicate: 0,
+          failed: 1,
+        })),
+      },
+      {},
+      { withActiveDomainAttemptFence: vi.fn() },
+    );
+
+    await expect(handler.execute({
+      ...baseContext,
+      operationKey: 'sourcing.search_1688_keyword_batch',
+      input: { keywords: ['儿童笔袋'] },
+      checkpoint: vi.fn(async () => undefined),
+    })).resolves.toMatchObject({
+      kind: 'completed',
+      result: {
+        outcome: 'partial',
+        summary: { discovered: 2, accepted: 1, duplicate: 0, failed: 1 },
+        units: [{ keyword: '儿童笔袋', outcome: 'complete', failed: 1 }],
+      },
+    });
+  });
+
   it('returns a strict row-free attention result with no canonical fence when the Office profile needs security verification', async () => {
     const session = { searchKeyword: vi.fn(), close: vi.fn(async () => undefined) };
     const attemptVerifier = { withActiveDomainAttemptFence: vi.fn() };

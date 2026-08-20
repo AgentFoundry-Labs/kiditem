@@ -12,8 +12,10 @@ import {
   SOURCING_1688_IMAGE_COLLECTOR_KEY,
   SOURCING_1688_KEYWORD_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+  SOURCING_1688_ALL_RESULTS_REJECTED,
   type Sourcing1688CompletedImageRunInput,
   type Sourcing1688CompletedKeywordRunInput,
+  type Sourcing1688CompletedSearchRun,
   type Sourcing1688SearchResultRepositoryPort,
   type Sourcing1688StoredSearchObservation,
   type Sourcing1688StoredSearchSnapshot,
@@ -188,7 +190,7 @@ implements Sourcing1688SearchResultRepositoryPort {
 
   async findCompletedKeywordRun(
     input: Sourcing1688CompletedKeywordRunInput,
-  ): Promise<Sourcing1688StoredSearchObservation | null> {
+  ): Promise<Sourcing1688CompletedSearchRun | null> {
     const run = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
       where: {
         id: input.runId,
@@ -205,30 +207,41 @@ implements Sourcing1688SearchResultRepositoryPort {
       },
       select: {
         id: true,
+        status: true,
         completedAt: true,
+        discoveredCount: true,
+        acceptedCount: true,
+        duplicateCount: true,
+        rejectedCount: true,
+        staleDiscardedCount: true,
+        errorCode: true,
         qualityReport: true,
       },
     });
     if (!run || !run.completedAt || !matchesCompletedKeywordRun(run.qualityReport, input)) {
       return null;
     }
+    const counters = exactReplayCounters(run, input.maxResults);
+    if (!counters) return null;
     const result = await this.readExactRunItems({
       organizationId: input.organizationId,
       ingestionRunId: run.id,
       keyword: input.keyword,
+      maxResults: input.maxResults,
     });
-    if (!result) return null;
+    if (!result || result.items.length > counters.discoveredCount) return null;
     return {
       keyword: input.keyword,
       targetId: null,
       capturedAt: result.capturedAt ?? run.completedAt,
       items: result.items,
+      ...counters,
     };
   }
 
   async findCompletedImageRun(
     input: Sourcing1688CompletedImageRunInput,
-  ): Promise<Sourcing1688StoredSearchObservation | null> {
+  ): Promise<Sourcing1688CompletedSearchRun | null> {
     const run = await this.prisma.sourcingEvidenceIngestionRun.findFirst({
       where: {
         id: input.runId,
@@ -245,24 +258,35 @@ implements Sourcing1688SearchResultRepositoryPort {
       },
       select: {
         id: true,
+        status: true,
         completedAt: true,
+        discoveredCount: true,
+        acceptedCount: true,
+        duplicateCount: true,
+        rejectedCount: true,
+        staleDiscardedCount: true,
+        errorCode: true,
         qualityReport: true,
       },
     });
     if (!run || !run.completedAt || !matchesCompletedImageRun(run.qualityReport, input)) {
       return null;
     }
+    const counters = exactReplayCounters(run, input.maxResults);
+    if (!counters) return null;
     const result = await this.readExactRunItems({
       organizationId: input.organizationId,
       ingestionRunId: run.id,
       keyword: input.keyword,
+      maxResults: input.maxResults,
     });
-    if (!result) return null;
+    if (!result || result.items.length > counters.discoveredCount) return null;
     return {
       keyword: input.keyword,
       targetId: input.targetId,
       capturedAt: result.capturedAt ?? run.completedAt,
       items: result.items,
+      ...counters,
     };
   }
 
@@ -270,6 +294,7 @@ implements Sourcing1688SearchResultRepositoryPort {
     organizationId: string;
     ingestionRunId: string;
     keyword: string;
+    maxResults: number;
   }): Promise<{
     capturedAt: Date | null;
     items: Sourcing1688SearchItem[];
@@ -294,6 +319,7 @@ implements Sourcing1688SearchResultRepositoryPort {
       },
       orderBy: [{ capturedAt: 'desc' }, { rank: 'asc' }, { id: 'asc' }],
     });
+    if (rows.length > input.maxResults) return null;
     const values = rows.map((row) => ({
       capturedAt: row.capturedAt,
       item: row.sourceKeywordNormalized === input.keyword ? parseSearchItem(row) : null,
@@ -311,6 +337,49 @@ interface ResultRun {
   completedAt: Date;
   keyword: string;
   targetId: string | null;
+}
+
+function exactReplayCounters(input: {
+  status: string;
+  discoveredCount: number;
+  acceptedCount: number;
+  duplicateCount: number;
+  rejectedCount: number;
+  staleDiscardedCount: number;
+  errorCode: string | null;
+}, maxResults: number): Pick<Sourcing1688CompletedSearchRun,
+  'terminalStatus' | 'discoveredCount' | 'acceptedCount' | 'duplicateCount' | 'rejectedCount' | 'errorCode'
+> | null {
+  if (!Number.isSafeInteger(maxResults) || maxResults < 1) return null;
+  const boundedValues = [
+    input.discoveredCount,
+    input.acceptedCount,
+    input.rejectedCount,
+    input.staleDiscardedCount,
+  ];
+  if (boundedValues.some((value) =>
+    !Number.isSafeInteger(value) || value < 0 || value > maxResults)
+    || !Number.isSafeInteger(input.duplicateCount)
+    || input.duplicateCount < 0
+    || input.duplicateCount > maxResults * 2) {
+    return null;
+  }
+  if (input.status !== 'complete' && input.status !== 'partial') return null;
+  if (input.discoveredCount > maxResults
+    || input.acceptedCount + input.rejectedCount + input.staleDiscardedCount > input.discoveredCount
+    || (input.status === 'complete' && input.rejectedCount !== 0)
+    || (input.status === 'partial' && input.rejectedCount === 0)) return null;
+  const allRejected = input.discoveredCount > 0
+    && input.acceptedCount + input.duplicateCount === 0
+    && input.rejectedCount > 0;
+  return {
+    terminalStatus: input.status,
+    discoveredCount: input.discoveredCount,
+    acceptedCount: input.acceptedCount,
+    duplicateCount: input.duplicateCount,
+    rejectedCount: input.rejectedCount,
+    errorCode: allRejected ? SOURCING_1688_ALL_RESULTS_REJECTED : null,
+  };
 }
 
 function parseResultMarker(value: unknown): {

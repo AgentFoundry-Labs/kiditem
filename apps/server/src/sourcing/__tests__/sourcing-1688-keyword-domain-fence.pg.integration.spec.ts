@@ -18,8 +18,10 @@ import { OperationLifecycleGateService } from '../../operations/application/serv
 import { SourcingCollectionRepositoryAdapter } from '../adapter/out/repository/sourcing-collection.repository.adapter';
 import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/repository/sourcing-1688-search-result.repository.adapter';
 import type { Search1688KeywordSession } from '../application/port/out/provider/1688-keyword-search.port';
+import type { Sourcing1688ImageSearchPort } from '../application/port/out/provider/1688-image-search.port';
 import { SourcingCollectionCoordinator } from '../application/service/sourcing-collection-coordinator.service';
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
+import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
 import {
   hashCollectionRequest,
   map1688HotProductsToAuthorizedOutput,
@@ -177,6 +179,7 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
       operationRunId: attempt.runId,
       keyword: '儿童笔袋',
       ...identity,
+      maxResults: 6,
     })).resolves.toEqual(expect.objectContaining({
       keyword: '儿童笔袋',
       targetId: null,
@@ -200,6 +203,191 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
         collectorKey: 'operation-1688-keyword-search',
       },
     })).resolves.toBe(1);
+  });
+
+  it.each([
+    {
+      name: 'all-accepted provider result',
+      items: [acceptedKeywordItem()],
+      expected: {
+        outcome: 'complete', discovered: 1, accepted: 1, duplicate: 0, failed: 0,
+        terminalStatus: 'complete', rejectedCount: 0,
+      },
+    },
+    {
+      name: 'all-rejected provider result',
+      items: [rejectedKeywordItem()],
+      expected: {
+        outcome: 'failed', discovered: 1, accepted: 0, duplicate: 0, failed: 1,
+        errorCode: 'all_results_rejected', terminalStatus: 'partial', rejectedCount: 1,
+      },
+    },
+    {
+      name: 'mixed provider result',
+      items: [acceptedKeywordItem(), rejectedKeywordItem()],
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 1, duplicate: 0, failed: 1,
+        terminalStatus: 'partial', rejectedCount: 1,
+      },
+    },
+  ])('replays a $name with its original bounded outcome and counters', async ({ items, expected }) => {
+    const attempt = await createAttempt(primary);
+    const searchResults = new Sourcing1688SearchResultRepositoryAdapter(
+      primary as unknown as PrismaService,
+    );
+    const service = new Sourcing1688KeywordSearchService(
+      new SourcingCollectionCoordinator(collections),
+      searchResults,
+    );
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(async () => items),
+      close: vi.fn(async () => undefined),
+    };
+    const input = keywordOperationInput(attempt, session, verifier);
+
+    const serviceExpected = {
+      outcome: expected.outcome,
+      discovered: expected.discovered,
+      accepted: expected.accepted,
+      duplicate: expected.duplicate,
+      failed: expected.failed,
+      ...(expected.errorCode ? { errorCode: expected.errorCode } : {}),
+    };
+    await expect(service.searchForOperation(input)).resolves.toMatchObject(serviceExpected);
+    await expect(service.searchForOperation(input)).resolves.toMatchObject(serviceExpected);
+
+    const identity = keywordCollectionIdentity(attempt.runId, '儿童笔袋');
+    const run = await primary.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: identity.idempotencyKey,
+      },
+      select: { id: true },
+    });
+    if (!run) throw new Error('Expected committed keyword run.');
+    await expect(searchResults.findCompletedKeywordRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId: run.id,
+      operationRunId: attempt.runId,
+      keyword: '儿童笔袋',
+      ...identity,
+      maxResults: 6,
+    })).resolves.toMatchObject({
+      terminalStatus: expected.terminalStatus,
+      discoveredCount: expected.discovered,
+      acceptedCount: expected.accepted,
+      duplicateCount: expected.duplicate,
+      rejectedCount: expected.failed,
+      ...(expected.errorCode ? { errorCode: expected.errorCode } : {}),
+    });
+    expect(session.searchKeyword).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {
+      name: 'all-accepted image result',
+      items: [acceptedImageItem()],
+      expected: {
+        outcome: 'complete', discovered: 1, accepted: 1, duplicate: 0, failed: 0,
+        errorCode: null, terminalStatus: 'complete', rejectedCount: 0,
+      },
+    },
+    {
+      name: 'durable zero image result',
+      items: [],
+      expected: {
+        outcome: 'no_change', discovered: 0, accepted: 0, duplicate: 0, failed: 0,
+        errorCode: null, terminalStatus: 'complete', rejectedCount: 0,
+      },
+    },
+    {
+      name: 'all-rejected image result',
+      items: [rejectedImageItem()],
+      expected: {
+        outcome: 'failed', discovered: 1, accepted: 0, duplicate: 0, failed: 1,
+        errorCode: 'all_results_rejected', terminalStatus: 'partial', rejectedCount: 1,
+      },
+    },
+    {
+      name: 'mixed image result',
+      items: [acceptedImageItem(), rejectedImageItem()],
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 1, duplicate: 0, failed: 1,
+        errorCode: null, terminalStatus: 'partial', rejectedCount: 1,
+      },
+    },
+  ])('replays a $name with its original bounded outcome and counters', async ({ items, expected }) => {
+    const searchResults = new Sourcing1688SearchResultRepositoryAdapter(
+      primary as unknown as PrismaService,
+    );
+    const provider: Sourcing1688ImageSearchPort = {
+      getStatus: vi.fn(),
+      searchByImage: vi.fn(async (input) => ({
+        imageUrl: input.imageUrl,
+        convertedImageUrl: null,
+        items,
+      })),
+    };
+    const service = new Sourcing1688ImageSearchService(
+      provider,
+      new SourcingCollectionCoordinator(collections),
+      { refresh: vi.fn() } as never,
+      searchResults,
+    );
+    const operationRunId = randomUUID();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationRunId,
+      actorUserId: TEST_USER_ID,
+      targetId: 'product-1::',
+      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+      keyword: '儿童笔袋文具盒',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(async () => undefined),
+    };
+    const serviceExpected = {
+      outcome: expected.outcome,
+      discovered: expected.discovered,
+      accepted: expected.accepted,
+      duplicate: expected.duplicate,
+      failed: expected.failed,
+      ...(expected.errorCode ? { errorCode: expected.errorCode } : {}),
+    };
+
+    await expect(service.searchForOperation(input)).resolves.toMatchObject(serviceExpected);
+    await expect(service.searchForOperation(input)).resolves.toMatchObject(serviceExpected);
+
+    const identity = imageCollectionIdentity({
+      operationRunId,
+      targetId: input.targetId,
+      imageUrl: input.imageUrl,
+      keyword: input.keyword,
+    });
+    const run = await primary.sourcingEvidenceIngestionRun.findFirst({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: identity.idempotencyKey,
+      },
+      select: { id: true },
+    });
+    if (!run) throw new Error('Expected committed image run.');
+    await expect(searchResults.findCompletedImageRun({
+      organizationId: TEST_ORGANIZATION_ID,
+      runId: run.id,
+      operationRunId,
+      targetId: input.targetId,
+      keyword: input.keyword,
+      ...identity,
+      maxResults: 18,
+    })).resolves.toMatchObject({
+      terminalStatus: expected.terminalStatus,
+      discoveredCount: expected.discovered,
+      acceptedCount: expected.accepted,
+      duplicateCount: expected.duplicate,
+      rejectedCount: expected.rejectedCount,
+      errorCode: expected.errorCode,
+    });
+    expect(provider.searchByImage).toHaveBeenCalledTimes(1);
   });
 
   it('fails closed for a failed exact replay run instead of returning an older completed zero result', async () => {
@@ -260,6 +448,7 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
       operationRunId: currentAttempt.runId,
       keyword: '儿童笔袋',
       ...identity,
+      maxResults: 6,
     })).resolves.toBeNull();
     await expect(service.searchForOperation(makeInput(currentAttempt))).rejects.toThrow(
       'Completed keyword search result is unavailable.',
@@ -377,5 +566,85 @@ function keywordCollectionIdentity(operationRunId: string, keyword: string) {
       keyword,
       maxResults: 6,
     }),
+  };
+}
+
+function imageCollectionIdentity(input: {
+  operationRunId: string;
+  targetId: string;
+  imageUrl: string;
+  keyword: string;
+}) {
+  return {
+    targetKey: `image-target:${hashCollectionRequest(input.targetId)}`,
+    idempotencyKey: `1688-image-operation:${input.operationRunId}:${hashCollectionRequest(
+      input.targetId,
+    )}`,
+    requestHash: hashCollectionRequest({
+      operationRunId: input.operationRunId,
+      targetId: input.targetId,
+      imageUrl: input.imageUrl,
+      keyword: input.keyword,
+      maxResults: 18,
+    }),
+  };
+}
+
+function keywordOperationInput(
+  attempt: Attempt,
+  session: Search1688KeywordSession,
+  verifier: OperationAttemptVerifierService,
+) {
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    operationRunId: attempt.runId,
+    actorUserId: TEST_USER_ID,
+    keyword: '儿童笔袋',
+    session,
+    signal: new AbortController().signal,
+    operationCheckpoint: vi.fn(async () => undefined),
+    commitWithinActiveOperationAttempt: <T>(
+      commit: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+    ) => verifier.withActiveDomainAttemptFence(exactFence(attempt), async (_active, transaction) =>
+      commit(transaction)),
+  };
+}
+
+function acceptedKeywordItem() {
+  return {
+    offerId: 'offer-accepted',
+    title: 'Accepted offer',
+    priceCny: 12.5,
+    sourceUrl: 'https://detail.1688.com/offer/123456.html',
+    imageUrl: null,
+    monthlySales: 10,
+    tradeScore: null,
+    repurchaseRate: null,
+    supplierName: null,
+    score: 88,
+  };
+}
+
+function rejectedKeywordItem() {
+  return {
+    ...acceptedKeywordItem(),
+    offerId: null,
+  };
+}
+
+function acceptedImageItem() {
+  return {
+    title: 'Accepted image offer',
+    priceCny: 12.5,
+    sourceUrl: 'https://detail.1688.com/offer/123456.html',
+    imageUrl: null,
+    score: 88,
+  };
+}
+
+function rejectedImageItem() {
+  return {
+    ...acceptedImageItem(),
+    sourceUrl: 'http://localhost:3000/offer/123456',
   };
 }

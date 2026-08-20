@@ -23,6 +23,7 @@ import { SourcingRecommendationService } from './sourcing-recommendation.service
 import {
   SOURCING_1688_IMAGE_COLLECTOR_KEY,
   SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+  SOURCING_1688_ALL_RESULTS_REJECTED,
   SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
   type Sourcing1688SearchResultRepositoryPort,
 } from '../port/out/repository/sourcing-1688-search-result.repository.port';
@@ -152,6 +153,7 @@ export class Sourcing1688ImageSearchService {
         return map1688HotProductsToAuthorizedOutput({
           permit,
           rows,
+          discoveredCount: discovered,
           rejectedCount,
           qualityReport: {
             resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
@@ -172,18 +174,23 @@ export class Sourcing1688ImageSearchService {
         targetKey,
         idempotencyKey,
         requestHash,
+        maxResults: OPERATION_IMAGE_RESULT_LIMIT,
       });
       if (!observation) {
         throw new BadRequestException('Completed image search result is unavailable.');
       }
+      const allRejected = observation.discoveredCount > 0
+        && observation.acceptedCount + observation.duplicateCount === 0
+        && observation.rejectedCount > 0;
       return {
         keyword: observation.keyword,
         targetId: input.targetId,
-        outcome: observation.items.length > 0 ? 'complete' : 'no_change',
-        discovered: observation.items.length,
-        accepted: 0,
-        duplicate: observation.items.length,
-        failed: 0,
+        outcome: allRejected ? 'failed' : observation.discoveredCount > 0 ? 'complete' : 'no_change',
+        discovered: observation.discoveredCount,
+        accepted: observation.acceptedCount,
+        duplicate: observation.duplicateCount,
+        failed: observation.rejectedCount,
+        ...(allRejected && observation.errorCode ? { errorCode: observation.errorCode } : {}),
       };
     }
     const persisted = execution.acceptedCount + execution.duplicateCount;
@@ -196,6 +203,7 @@ export class Sourcing1688ImageSearchService {
       accepted: execution.acceptedCount,
       duplicate: execution.duplicateCount,
       failed: rejected,
+      ...(allRejected ? { errorCode: SOURCING_1688_ALL_RESULTS_REJECTED } : {}),
     };
   }
 

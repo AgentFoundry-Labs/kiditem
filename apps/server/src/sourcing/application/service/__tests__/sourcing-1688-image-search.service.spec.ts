@@ -232,7 +232,7 @@ describe('Sourcing1688ImageSearchService', () => {
           },
           checkpoint: vi.fn(),
         });
-        expect(output).toMatchObject({ discoveredCount: 0, rejectedCount: 1 });
+        expect(output).toMatchObject({ discoveredCount: 1, rejectedCount: 1 });
         return {
           kind: 'committed',
           runId: 'collection-run',
@@ -259,6 +259,114 @@ describe('Sourcing1688ImageSearchService', () => {
       signal: new AbortController().signal,
       checkpoint: vi.fn(),
     })).resolves.toMatchObject({ outcome: 'failed', discovered: 1, failed: 1 });
+  });
+
+  it.each([
+    {
+      name: 'durable zero result',
+      run: {
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [],
+        terminalStatus: 'complete',
+        discoveredCount: 0,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'no_change', discovered: 0, accepted: 0, duplicate: 0, failed: 0,
+      },
+    },
+    {
+      name: 'all accepted result',
+      run: {
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [{ offerId: 'offer-1' }, { offerId: 'offer-2' }],
+        terminalStatus: 'complete',
+        discoveredCount: 2,
+        acceptedCount: 2,
+        duplicateCount: 0,
+        rejectedCount: 0,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 2, duplicate: 0, failed: 0,
+      },
+    },
+    {
+      name: 'mixed accepted and rejected result',
+      run: {
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [{ offerId: 'offer-1' }],
+        terminalStatus: 'partial',
+        discoveredCount: 2,
+        acceptedCount: 1,
+        duplicateCount: 0,
+        rejectedCount: 1,
+        errorCode: null,
+      },
+      expected: {
+        outcome: 'complete', discovered: 2, accepted: 1, duplicate: 0, failed: 1,
+      },
+    },
+    {
+      name: 'all rejected result',
+      run: {
+        keyword: '儿童笔袋文具盒',
+        targetId: 'product-1::',
+        capturedAt: new Date('2026-08-20T00:00:00.000Z'),
+        items: [],
+        terminalStatus: 'partial',
+        discoveredCount: 2,
+        acceptedCount: 0,
+        duplicateCount: 0,
+        rejectedCount: 2,
+        errorCode: 'all_results_rejected',
+      },
+      expected: {
+        outcome: 'failed', discovered: 2, accepted: 0, duplicate: 0, failed: 2,
+        errorCode: 'all_results_rejected',
+      },
+    },
+  ])('replays a $name with the first-run outcome and counts', async ({ run, expected }) => {
+    const provider: Sourcing1688ImageSearchPort = {
+      getStatus: vi.fn(),
+      searchByImage: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      findLatest: vi.fn(),
+      findCompletedImageRun: vi.fn(async () => run),
+    };
+    const service = new Sourcing1688ImageSearchService(
+      provider,
+      collection,
+      { refresh: vi.fn() } as never,
+      searchResults as never,
+    );
+
+    await expect(service.searchForOperation({
+      organizationId: 'org-1',
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      targetId: 'product-1::',
+      imageUrl: 'https://thumbnail10.coupangcdn.com/owner.jpg',
+      keyword: '儿童笔袋文具盒',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn(),
+    })).resolves.toMatchObject(expected);
+
+    expect(provider.searchByImage).not.toHaveBeenCalled();
+    expect(searchResults.findLatest).not.toHaveBeenCalled();
   });
 
   it('fails closed for an exact image run that is invalid instead of replaying an older target result', async () => {
