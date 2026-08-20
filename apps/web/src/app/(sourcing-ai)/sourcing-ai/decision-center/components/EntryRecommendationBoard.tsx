@@ -67,7 +67,7 @@ export function EntryRecommendationBoard() {
     operationKey: 'sourcing.collect_daily_trends',
     input: {},
     snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-    wakeBrowserRuntime: false,
+    wakeBrowserRuntime: true,
   });
   const isCollecting = dailyTrendOperation.isStarting || (
     dailyTrendOperation.run !== null

@@ -114,7 +114,7 @@ describe('Sourcing Operations', () => {
     })).toEqual({ keyword: 'A Pencil', maxResults: 30 });
   });
 
-  it('registers exact bounded 1688 Playwright batch operations', () => {
+  it('runs keyword search in the logged-in browser while keeping image matching on the tabless provider API', () => {
     const keyword = SOURCING_OPERATIONS.find(
       (operation) => operation.key === 'sourcing.search_1688_keyword_batch',
     );
@@ -122,17 +122,24 @@ describe('Sourcing Operations', () => {
       (operation) => operation.key === 'sourcing.match_wholesale_images',
     );
 
-    for (const definition of [keyword, image]) {
-      expect(definition).toMatchObject({
-        engineType: 'domain',
-        ownerDomain: 'sourcing',
-        resourceClass: 'playwright_1688',
-        maxAttempts: 3,
-        executionTimeoutMs: 15 * 60_000,
-        allowedTriggers: ['dashboard', 'domain_screen'],
-        scheduleSupported: false,
-      });
-    }
+    expect(keyword).toMatchObject({
+      engineType: 'browser',
+      ownerDomain: 'sourcing',
+      resourceClass: 'playwright_1688',
+      maxAttempts: 3,
+      executionTimeoutMs: 15 * 60_000,
+      allowedTriggers: ['dashboard', 'domain_screen'],
+      scheduleSupported: false,
+    });
+    expect(image).toMatchObject({
+      engineType: 'domain',
+      ownerDomain: 'sourcing',
+      resourceClass: 'playwright_1688',
+      maxAttempts: 3,
+      executionTimeoutMs: 15 * 60_000,
+      allowedTriggers: ['dashboard', 'domain_screen'],
+      scheduleSupported: false,
+    });
 
     expect(keyword?.inputSchema.parse({
       keywords: ['  Ａ   Pencil ', '儿童笔袋'],

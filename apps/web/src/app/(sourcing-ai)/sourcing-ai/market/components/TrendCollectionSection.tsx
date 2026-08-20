@@ -47,7 +47,7 @@ export function TrendCollectionSection() {
     operationKey: 'sourcing.collect_daily_trends',
     input: DEFAULT_TREND_OPERATION_INPUT,
     snapshotQueryKey: queryKeys.sourcing.trend(),
-    wakeBrowserRuntime: false,
+    wakeBrowserRuntime: true,
   });
 
   const seedsQuery = useQuery({

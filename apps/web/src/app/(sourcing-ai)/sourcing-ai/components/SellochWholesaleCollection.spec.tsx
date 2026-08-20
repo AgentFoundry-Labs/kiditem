@@ -142,6 +142,7 @@ describe('wholesale route-entry Operation boundaries', () => {
       input: {
         keywords: keywordTargets.slice(0, 6).map((target) => target.keyword),
       },
+      wakeBrowserRuntime: true,
     }));
 
     fireEvent.click(screen.getByRole('button', { name: '상위 6개 검색' }));
@@ -156,6 +157,7 @@ describe('wholesale route-entry Operation boundaries', () => {
     expect(mocks.useOperation).toHaveBeenLastCalledWith(expect.objectContaining({
       operationKey: 'sourcing.match_wholesale_images',
       input: { targetIds: imageMatches.map((match) => match.id) },
+      wakeBrowserRuntime: false,
     }));
 
     fireEvent.click(screen.getByRole('button', { name: '전체 수집' }));

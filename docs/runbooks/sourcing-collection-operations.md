@@ -49,7 +49,7 @@ capacities are intentionally conservative:
 | --- | ---: | --- |
 | default | 2 | ordinary provider HTTP and short orchestration |
 | naver_api | 2 | bounded Naver API parallelism |
-| playwright_1688 | 1 | one persistent 1688 browser profile remains serialized |
+| playwright_1688 | 1 | 1688 keyword browser claims and AlphaShop image matching remain serialized |
 | snapshot_compute | 2 | bounded aggregation memory and database pressure |
 | extension_coupang | 4 dispatch slots | extension dispatch is short; each environment has one active browser claim |
 
@@ -79,7 +79,7 @@ Also confirm the intended runtime settings before starting collection:
 | OPERATION_RUNTIME_WORKER_ENABLED | Set to 1 only when server-backed operations should execute. A disabled worker leaves them queued rather than bypassing Operations. |
 | OPERATION_SCHEDULER_ENABLED | Set to 1 only for reviewed schedules; it does not make a disabled schedule active. |
 | OPERATION_RUN_LEASE_MS | Positive. Browser heartbeats occur at least once per one-third of this lease. |
-| SOURCING_PLAYWRIGHT_CDP_ENDPOINT or SOURCING_PLAYWRIGHT_USER_DATA_DIR | For 1688, point only to the prepared dedicated automation profile; never a personal default profile. |
+| SOURCING_PLAYWRIGHT_CDP_ENDPOINT or SOURCING_PLAYWRIGHT_USER_DATA_DIR | Applies only to the generic server URL-scrape runtime. Dashboard 1688 keyword batches use an extension-owned inactive tab in the operator's current Chrome profile; image matching uses AlphaShop HTTP and opens no tab. |
 | API_SELF_URL and AGENT_API_CAPABILITY_GRANT_SECRET | Required only for bounded Agent-to-API sourcing commands. The grant stays in API/Agent parent env and never in browser/MCP child logs. |
 
 ## Lifecycle And Process Ownership
@@ -245,7 +245,7 @@ collection.
 | /sourcing-ai/rising-products | Click detect. | sourcing.detect_rising_products and persisted rising model; no synchronous detect endpoint. |
 | /sourcing-ai/settings | Open/edit then cancel settings interaction. | No external collection on mount or settings edit. |
 | /sourcing-ai/validation | Start validation collection. | explicit Wing-batch run, run panel, retained snapshot on failure. |
-| /sourcing-ai/wholesale-search | Explicitly run 1688 keyword batch, then an image match for selected targets. | sourcing.search_1688_keyword_batch and sourcing.match_wholesale_images, no route-entry batch. |
+| /sourcing-ai/wholesale-search | Explicitly run a logged-in Chrome 1688 keyword batch, then a tabless AlphaShop image match for selected targets. | sourcing.search_1688_keyword_batch and sourcing.match_wholesale_images, no route-entry batch. The extension creates and closes only its own inactive keyword tab. |
 | /sourcing-ai/wing-catalog | Submit Wing catalog search/next page. | sourcing.collect_wing_catalog_batch browser claim, fenced ingest, persisted catalog snapshot. |
 
 Provider-unavailable is a required case when a real stack is available: confirm

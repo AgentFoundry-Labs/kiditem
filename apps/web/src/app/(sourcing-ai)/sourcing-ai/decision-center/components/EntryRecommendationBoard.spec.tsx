@@ -231,7 +231,7 @@ describe('EntryRecommendationBoard review state', () => {
       operationKey: 'sourcing.collect_daily_trends',
       input: {},
       snapshotQueryKey: ['sourcing', 'workspace', 'org-a'],
-      wakeBrowserRuntime: false,
+      wakeBrowserRuntime: true,
     }));
 
     await user.click(screen.getByRole('button', { name: '지금 수집' }));

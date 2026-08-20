@@ -1,10 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
 import {
-  SOURCING_1688_KEYWORD_SEARCH_PORT,
-  type Sourcing1688KeywordSearchPort,
-} from '../port/out/provider/1688-keyword-search.port';
-import {
   SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT,
   SOURCING_NAVER_DATALAB_TREND_PORT,
   SOURCING_NAVER_KEYWORD_RESEARCH_PORT,
@@ -59,8 +55,6 @@ const NAVER_SEARCHAD_BATCH_SIZE = 5;
 const NAVER_DATALAB_BATCH_SIZE = 50;
 // 검색광고 월검색량을 조회할 키워드 상한(시드 + 인기보드 상위 키워드). 배치 5개 기준 콜 수 제어용.
 const NAVER_KEYWORD_VOLUME_LIMIT = 60;
-const ONE_1688_MAX_RESULTS_PER_SEED = 20;
-const MAX_1688_OFFERS_PER_RUN = 200;
 const MAX_EXTENSION_1688_TARGETS = 20;
 const MAX_TIKTOK_CC_TARGETS = 20;
 const SHORTS_LIMIT = 50;
@@ -148,8 +142,6 @@ export class TrendCollectService implements TrendCollectionPort {
     private readonly datalabTrend: NaverDatalabTrendPort,
     @Inject(SOURCING_NAVER_DATALAB_POPULAR_KEYWORD_PORT)
     private readonly popularKeywords: NaverDatalabPopularKeywordPort,
-    @Inject(SOURCING_1688_KEYWORD_SEARCH_PORT)
-    private readonly keywordSearch1688: Sourcing1688KeywordSearchPort,
     @Inject(SHORTSTREND_TREND_PORT)
     private readonly shortstrend: ShortstrendTrendPort,
     @Inject(TREND_COLLECTION_REPOSITORY_PORT)
@@ -357,21 +349,7 @@ export class TrendCollectService implements TrendCollectionPort {
           ),
         );
       } else if (source === '1688') {
-        results.push(
-          await this.safe('1688', () =>
-            this.collect1688(
-              organizationId,
-              enabledSeeds,
-              businessDate,
-              capturedAt,
-              triggeredByUserId ?? null,
-              collectionRunKey,
-              signal,
-              undefined,
-            ),
-            signal,
-          ),
-        );
+        results.push(browserOwned1688Result());
       } else if (source === 'shorts') {
         results.push(
           await this.safe('shorts', () =>
@@ -428,16 +406,7 @@ export class TrendCollectService implements TrendCollectionPort {
             controls.checkpoint,
           )
         : source === '1688'
-          ? this.collect1688(
-              organizationId,
-              enabledSeeds,
-              businessDate,
-              capturedAt,
-              triggeredByUserId ?? null,
-              collectionRunKey,
-              controls.signal,
-              controls.checkpoint,
-            )
+          ? Promise.resolve(browserOwned1688Result())
           : this.collectShorts(
               organizationId,
               enabledSeeds,
@@ -734,123 +703,6 @@ export class TrendCollectService implements TrendCollectionPort {
     return rows;
   }
 
-  private async collect1688(
-    organizationId: string,
-    enabledSeeds: TrendSeedRow[],
-    businessDate: Date,
-    capturedAt: Date,
-    triggeredByUserId: string | null,
-    collectionRunKey?: string,
-    signal?: AbortSignal,
-    operationCheckpoint?: TrendCollectionControls['checkpoint'],
-  ): Promise<TrendSourceCollectResult> {
-    const seeds = collectionSeedsFor(enabledSeeds, '1688');
-    const errors: string[] = [];
-    const execution = await this.collectionCoordinator.execute(
-      collectionRequest({
-        organizationId,
-        sourceKey: '1688.hot_product',
-        targetKey: toDateString(businessDate),
-        idempotencyKey: collectionIdempotencyKey(
-          collectionRunKey,
-          '1688',
-          businessDate,
-          triggeredByUserId,
-        ),
-        requestHash: hashCollectionRequest({
-          source: '1688',
-          seeds: seeds.map((seed) => seed.keywordCn?.trim() || seed.keyword),
-          businessDate: toDateString(businessDate),
-        }),
-        collectorKey: 'trend-1688-hot-product',
-        triggerKind: triggeredByUserId ? 'manual' : 'schedule',
-        triggeredByUserId,
-      }),
-      async ({ permit, checkpoint }) => {
-        signal?.throwIfAborted();
-        const rows: Sourcing1688OfferKeywordObservationInput[] = [];
-        const seenKeywordOffers = new Set<string>();
-        for (const [seedIndex, seed] of seeds.entries()) {
-          signal?.throwIfAborted();
-          await operationCheckpoint?.({
-            stage: 'collecting_1688_seed',
-            progressCurrent: seedIndex,
-            progressTotal: seeds.length,
-          });
-          signal?.throwIfAborted();
-          await checkpoint();
-          signal?.throwIfAborted();
-          if (rows.length >= MAX_1688_OFFERS_PER_RUN) break;
-          const keyword = seed.keywordCn?.trim() || seed.keyword;
-          let items;
-          try {
-            const result = await this.keywordSearch1688.searchByKeyword({
-              keyword,
-              maxResults: ONE_1688_MAX_RESULTS_PER_SEED,
-              signal,
-            });
-            signal?.throwIfAborted();
-            items = [...(result.items ?? [])]
-              .filter((item) => item && item.offerId)
-              .sort((a, b) => (b.monthlySales ?? 0) - (a.monthlySales ?? 0));
-          } catch (error) {
-            signal?.throwIfAborted();
-            const message = errorMessage(error);
-            errors.push(`${seed.keyword}: ${message}`);
-            if (isBlocking1688CollectionError(message)) break;
-            continue;
-          }
-          if (items.length === 0) {
-            errors.push(`${seed.keyword}: 1688 검색 결과 0건`);
-            continue;
-          }
-          items.forEach((item, index) => {
-            if (rows.length >= MAX_1688_OFFERS_PER_RUN) return;
-            const offerId = item.offerId as string;
-            const identity = `${normalizeCollectionTarget(seed.keyword)}\u001f${offerId}`;
-            if (seenKeywordOffers.has(identity)) return;
-            seenKeywordOffers.add(identity);
-            rows.push({
-              organizationId,
-              businessDate,
-              offerId,
-              sourceKeyword: seed.keyword,
-              rank: index + 1,
-              title: item.title ?? null,
-              priceCny: item.priceCny ?? null,
-              monthlySales: toInt(item.monthlySales),
-              repurchaseRate: item.repurchaseRate ?? null,
-              tradeScore: item.tradeScore == null ? null : String(item.tradeScore),
-              supplierName: item.supplierName ?? null,
-              imageUrl: item.imageUrl ?? null,
-              sourceUrl: item.sourceUrl ?? null,
-              capturedAt,
-            });
-          });
-        }
-        await operationCheckpoint?.({
-          stage: 'collecting_1688_seed',
-          progressCurrent: seeds.length,
-          progressTotal: seeds.length,
-        });
-        await checkpoint();
-        signal?.throwIfAborted();
-        return map1688HotProductsToAuthorizedOutput({
-          permit,
-          rows,
-          rejectedCount: errors.length,
-          qualityReport: { source: '1688', partialErrors: errors.length },
-        });
-      },
-    );
-    return {
-      source: '1688',
-      ok: errors.length === 0,
-      collected: collectedFromExecution(execution),
-      error: errors.length ? errors.join('; ') : undefined,
-    };
-  }
-
   private async collectShorts(
     organizationId: string,
     enabledSeeds: TrendSeedRow[],
@@ -958,10 +810,6 @@ function collectionSeedsFor(
     result.push(seed);
   }
   return result;
-}
-
-function isBlocking1688CollectionError(message: string): boolean {
-  return /로그인|슬라이더|검증|USER_VALIDATE|verification|검색 결과가 0건/i.test(message);
 }
 
 function buildShortsRows(
@@ -1127,6 +975,15 @@ function collectedFromExecution(execution: {
   acceptedCount?: number;
 }): number {
   return execution.kind === 'committed' ? execution.acceptedCount ?? 0 : 0;
+}
+
+function browserOwned1688Result(): TrendSourceCollectResult {
+  return {
+    source: '1688',
+    ok: false,
+    collected: 0,
+    error: '1688_browser_operation_required',
+  };
 }
 
 function errorMessage(error: unknown): string {

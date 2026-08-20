@@ -27,6 +27,10 @@ test('sourcing collection runs are exact browser Operations, not external action
   );
   assert.match(
     worker,
+    /"sourcing\.search_1688_keyword_batch": runSourcing1688KeywordSearchOperation/,
+  );
+  assert.match(
+    worker,
     /"sourcing\.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation/,
   );
   assert.match(
@@ -64,6 +68,7 @@ test('sourcing collection runs are exact browser Operations, not external action
 test('each exact browser collector posts only through its fenced owner-ingest route', () => {
   for (const [source, route] of [
     [trendCollector, '/sourcing/operations/1688-trends/'],
+    [trendCollector, '/sourcing/operations/1688-search/'],
     [tiktokCollector, '/sourcing/operations/tiktok-cc-trends/'],
     [liveCommerceCollector, '/sourcing/operations/live-commerce/'],
   ]) {

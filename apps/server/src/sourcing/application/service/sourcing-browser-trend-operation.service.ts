@@ -1,4 +1,9 @@
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
+import type {
+  Sourcing1688BatchResult,
+  Sourcing1688BatchUnitResult,
+} from '@kiditem/shared/sourcing';
+import { Sourcing1688KeywordBatchInputSchema } from '@kiditem/shared/sourcing';
 import { kstBusinessDate } from '../../../common/kst';
 import {
   OPERATION_ATTEMPT_VERIFIER_PORT,
@@ -28,8 +33,13 @@ import {
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
 import { SourcingRecommendationService } from './sourcing-recommendation.service';
+import {
+  SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+  SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+} from '../port/out/repository/sourcing-1688-search-result.repository.port';
 
 const TREND_1688_OPERATION_KEY = 'sourcing.collect_1688_trends';
+const SEARCH_1688_OPERATION_KEY = 'sourcing.search_1688_keyword_batch';
 const TIKTOK_CC_OPERATION_KEY = 'sourcing.collect_tiktok_cc_trends';
 const BROWSER_TREND_COLLECTOR_VERSION = 'sourcing-browser-trend/v1';
 const TIKTOK_TYPES = new Set(['hashtag', 'keyword', 'product', 'song']);
@@ -78,6 +88,10 @@ export interface BrowserTrendIngestResult {
   duplicate: boolean;
 }
 
+export interface Browser1688SearchIngestResult extends BrowserTrendIngestResult {
+  operationResult: Sourcing1688BatchResult;
+}
+
 /**
  * Browser trend payloads never write directly from an HTTP route. The owner
  * locks the exact Operation attempt first, verifies its bounded input, and
@@ -94,6 +108,110 @@ export class SourcingBrowserTrendOperationService {
     @Inject(SOURCING_RECOMMENDATION_REPOSITORY_PORT)
     private readonly recommendationRuns: SourcingRecommendationRepositoryPort,
   ) {}
+
+  async ingest1688Search(input: {
+    organizationId: string;
+    operationRunId: string;
+    attemptToken: string;
+    batch: Browser1688TrendBatch;
+  }): Promise<Browser1688SearchIngestResult> {
+    const batch = normalize1688Batch(input.batch);
+    const failedKeywords = normalize1688ErrorKeywords(input.batch.errors, batch.keywords);
+    const units = await this.attemptVerifier.withActiveBrowserAttemptFence(
+      {
+        organizationId: input.organizationId,
+        runId: input.operationRunId,
+        expectedOperationKey: SEARCH_1688_OPERATION_KEY,
+        attemptToken: input.attemptToken,
+      },
+      async (attempt, transaction) => {
+        const operationInput = Sourcing1688KeywordBatchInputSchema.safeParse(attempt.input);
+        if (!operationInput.success) {
+          throw new BadRequestException('1688_browser_search_input_invalid');
+        }
+        const expectedKeywords = normalizeKeywordSet(operationInput.data.keywords);
+        if (!sameKeywordSet(expectedKeywords, batch.keywords.map((item) => item.keyword))) {
+          throw new ConflictException('1688_browser_search_input_mismatch');
+        }
+
+        const results: Sourcing1688BatchUnitResult[] = [];
+        for (const entry of batch.entries) {
+          const keywordIdentity = normalizeCollectionTarget(entry.keyword);
+          const extractionFailed = failedKeywords.has(keywordIdentity);
+          const claim = await this.collections.claimAuthorizedRunInAttempt(transaction, {
+            organizationId: input.organizationId,
+            sourceKey: '1688.hot_product',
+            scopeKey: 'default',
+            targetKey: keywordIdentity,
+            idempotencyKey: `browser-1688-keyword:${input.operationRunId}:${hashCollectionRequest(keywordIdentity)}`,
+            requestHash: hashCollectionRequest({
+              operationRunId: input.operationRunId,
+              keyword: entry.keyword,
+            }),
+            collectorKey: SOURCING_1688_KEYWORD_COLLECTOR_KEY,
+            collectorVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+            triggerKind: 'extension',
+            triggeredByUserId: attempt.requestedByUserId,
+            leaseDurationMs: 120_000,
+          });
+
+          if (claim.kind === 'existing') {
+            results.push(searchUnit({
+              keyword: entry.keyword,
+              discovered: entry.discovered,
+              accepted: 0,
+              duplicate: entry.rows.length,
+              failed: extractionFailed ? 1 : entry.rejected,
+              extractionFailed,
+            }));
+            continue;
+          }
+          if (claim.kind !== 'claimed') {
+            throw claimConflict(claim, '1688_browser_search_claim_conflict');
+          }
+          const committed = await this.collections.commitInAttempt(transaction, {
+            permit: claim.permit,
+            output: map1688HotProductsToAuthorizedOutput({
+              permit: claim.permit,
+              rows: entry.rows.map((row) => ({
+                ...row,
+                organizationId: input.organizationId,
+              })),
+              rejectedCount: entry.rejected + (extractionFailed ? 1 : 0),
+              qualityReport: {
+                resultSchemaVersion: SOURCING_1688_SEARCH_RESULT_SCHEMA_VERSION,
+                keyword: entry.keyword,
+                targetId: null,
+                operationRunId: input.operationRunId,
+              },
+            }),
+          });
+          if (committed.kind !== 'committed') {
+            throw new ConflictException(`1688_browser_search_commit_${committed.kind}`);
+          }
+          results.push(searchUnit({
+            keyword: entry.keyword,
+            discovered: entry.discovered,
+            accepted: committed.acceptedCount,
+            duplicate: committed.duplicateCount,
+            failed: entry.rejected + (extractionFailed ? 1 : 0),
+            extractionFailed,
+          }));
+        }
+        return results;
+      },
+    );
+
+    const operationResult = searchOperationResult(units);
+    return {
+      businessDate: toDateString(kstBusinessDate(new Date())),
+      collected: operationResult.summary.accepted,
+      errorCount: operationResult.summary.failed,
+      duplicate: operationResult.summary.accepted === 0
+        && operationResult.summary.duplicate > 0,
+      operationResult,
+    };
+  }
 
   async ingest1688(input: {
     organizationId: string;
@@ -277,6 +395,7 @@ export class SourcingBrowserTrendOperationService {
 function normalize1688Batch(input: Browser1688TrendBatch): {
   keywords: Array<{ keyword: string }>;
   rows: Sourcing1688OfferKeywordObservationInput[];
+  entries: Normalized1688KeywordEntry[];
   errorCount: number;
 } {
   if (!Array.isArray(input.keywords) || input.keywords.length === 0 || input.keywords.length > 20) {
@@ -287,6 +406,7 @@ function normalize1688Batch(input: Browser1688TrendBatch): {
   const seen = new Set<string>();
   const keywords: Array<{ keyword: string }> = [];
   const rows: Sourcing1688OfferKeywordObservationInput[] = [];
+  const entries: Normalized1688KeywordEntry[] = [];
   for (const keywordResult of input.keywords) {
     const keyword = text(keywordResult.keyword, 120);
     if (!keyword) throw new ConflictException('1688_browser_batch_invalid');
@@ -294,13 +414,21 @@ function normalize1688Batch(input: Browser1688TrendBatch): {
     if (!Array.isArray(keywordResult.items) || keywordResult.items.length > 20) {
       throw new ConflictException('1688_browser_batch_invalid');
     }
+    const entryRows: Sourcing1688OfferKeywordObservationInput[] = [];
+    let rejected = 0;
     keywordResult.items.forEach((item, index) => {
       const offerId = text(item.offerId, 128);
-      if (!offerId) return;
+      if (!offerId) {
+        rejected += 1;
+        return;
+      }
       const identity = `${normalizeCollectionTarget(keyword)}\u001f${offerId}`;
-      if (seen.has(identity)) return;
+      if (seen.has(identity)) {
+        rejected += 1;
+        return;
+      }
       seen.add(identity);
-      rows.push({
+      const row = {
         organizationId: '',
         businessDate,
         offerId,
@@ -315,10 +443,98 @@ function normalize1688Batch(input: Browser1688TrendBatch): {
         imageUrl: optionalUrl(item.imageUrl),
         sourceUrl: optionalUrl(item.sourceUrl),
         capturedAt,
-      });
+      };
+      rows.push(row);
+      entryRows.push(row);
+    });
+    entries.push({
+      keyword,
+      rows: entryRows,
+      discovered: keywordResult.items.length,
+      rejected,
     });
   }
-  return { keywords, rows, errorCount: errorCount(input.errors) };
+  return { keywords, rows, entries, errorCount: errorCount(input.errors) };
+}
+
+interface Normalized1688KeywordEntry {
+  keyword: string;
+  rows: Sourcing1688OfferKeywordObservationInput[];
+  discovered: number;
+  rejected: number;
+}
+
+function normalize1688ErrorKeywords(
+  value: Browser1688TrendBatch['errors'],
+  keywords: Array<{ keyword: string }>,
+): Set<string> {
+  if (value === undefined) return new Set();
+  if (!Array.isArray(value) || value.length > keywords.length) {
+    throw new ConflictException('1688_browser_batch_invalid');
+  }
+  const allowed = normalizeKeywordSet(keywords.map(({ keyword }) => keyword));
+  const result = new Set<string>();
+  for (const error of value) {
+    const keyword = text(error?.keyword, 120);
+    if (!keyword) throw new ConflictException('1688_browser_batch_invalid');
+    const identity = normalizeCollectionTarget(keyword);
+    if (!allowed.has(identity)) {
+      throw new ConflictException('1688_browser_batch_invalid');
+    }
+    result.add(identity);
+  }
+  return result;
+}
+
+function searchUnit(input: {
+  keyword: string;
+  discovered: number;
+  accepted: number;
+  duplicate: number;
+  failed: number;
+  extractionFailed: boolean;
+}): Sourcing1688BatchUnitResult {
+  const persisted = input.accepted + input.duplicate;
+  const outcome = input.extractionFailed || (input.discovered > 0 && persisted === 0)
+    ? 'failed'
+    : input.discovered > 0
+      ? 'complete'
+      : 'no_change';
+  return {
+    keyword: input.keyword,
+    targetId: null,
+    outcome,
+    discovered: input.discovered,
+    accepted: input.accepted,
+    duplicate: input.duplicate,
+    failed: input.failed,
+    ...(outcome === 'failed' ? { errorCode: '1688_browser_extraction_failed' } : {}),
+  };
+}
+
+function searchOperationResult(units: Sourcing1688BatchUnitResult[]): Sourcing1688BatchResult {
+  const summary = units.reduce((total, unit) => ({
+    discovered: total.discovered + unit.discovered,
+    accepted: total.accepted + unit.accepted,
+    duplicate: total.duplicate + unit.duplicate,
+    unchanged: total.unchanged + (unit.outcome === 'no_change' ? 1 : 0),
+    failed: total.failed + unit.failed,
+  }), { discovered: 0, accepted: 0, duplicate: 0, unchanged: 0, failed: 0 });
+  const hasFailure = units.some((unit) => unit.outcome === 'failed' || unit.failed > 0);
+  const hasChange = units.some((unit) => unit.outcome === 'complete');
+  const outcome = hasFailure ? 'partial' : hasChange ? 'complete' : 'no_change';
+  return {
+    outcome,
+    summary,
+    sources: [{
+      source: '1688_keyword_search',
+      outcome,
+      accepted: summary.accepted,
+      failed: summary.failed,
+    }],
+    units,
+    snapshotGeneratedAt: new Date().toISOString(),
+  };
 }
 
 function normalizeTiktokBatch(input: BrowserTiktokCcTrendBatch): {

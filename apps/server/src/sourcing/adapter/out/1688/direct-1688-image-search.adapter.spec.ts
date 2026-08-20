@@ -2,40 +2,12 @@ import { BadGatewayException, BadRequestException } from '@nestjs/common';
 import { lookup } from 'node:dns/promises';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Direct1688ImageSearchAdapter } from './direct-1688-image-search.adapter';
-import type { Direct1688KeywordSearchAdapter } from './direct-1688-keyword-search.adapter';
 
 vi.mock('node:dns/promises', () => ({
   lookup: vi.fn(),
 }));
 
 const lookupMock = vi.mocked(lookup);
-
-function keywordAdapterStub(): Direct1688KeywordSearchAdapter {
-  return {
-    getStatus: vi.fn(() => ({
-      configured: true,
-      baseUrl: 'https://h5api.test',
-    })),
-    searchByKeyword: vi.fn(async () => ({
-      keyword: '말랑이',
-      page: 1,
-      items: [
-        {
-          offerId: '773667152445',
-          title: '儿童解压玩具捏捏乐',
-          priceCny: 4.29,
-          sourceUrl: 'https://detail.1688.com/offer/773667152445.html',
-          imageUrl: 'https://cbu01.alicdn.com/1.jpg',
-          monthlySales: 4552,
-          tradeScore: 92,
-          repurchaseRate: '53%',
-          supplierName: '义乌市筱琦贸易有限公司',
-          score: 94,
-        },
-      ],
-    })),
-  } as unknown as Direct1688KeywordSearchAdapter;
-}
 
 describe('Direct1688ImageSearchAdapter', () => {
   beforeEach(() => {
@@ -50,7 +22,7 @@ describe('Direct1688ImageSearchAdapter', () => {
 
   it('reports the direct 1688 AlphaShop matcher as configured', () => {
     vi.stubEnv('DIRECT_1688_ALPHA_BASE_URL', 'https://alpha.test');
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
 
     expect(adapter.getStatus()).toEqual({
       configured: true,
@@ -59,8 +31,7 @@ describe('Direct1688ImageSearchAdapter', () => {
   });
 
   it('uploads the source image and returns AlphaShop 1688 candidates', async () => {
-    const keywordSearch = keywordAdapterStub();
-    const adapter = new Direct1688ImageSearchAdapter(keywordSearch);
+    const adapter = new Direct1688ImageSearchAdapter();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(Buffer.from('image-bytes'), {
         status: 200,
@@ -145,7 +116,6 @@ describe('Direct1688ImageSearchAdapter', () => {
       maxResults: 8,
     });
 
-    expect(keywordSearch.searchByKeyword).not.toHaveBeenCalled();
     expect(fetchMock).toHaveBeenCalledTimes(3);
     expect(JSON.parse(fetchMock.mock.calls[1]?.[1]?.body as string)).toMatchObject({
       imageBase64: expect.stringMatching(/^data:image\/jpeg;base64,/),
@@ -190,31 +160,22 @@ describe('Direct1688ImageSearchAdapter', () => {
     });
   });
 
-  it('falls back to helper keyword search when AlphaShop search fails', async () => {
-    const keywordSearch = keywordAdapterStub();
-    const adapter = new Direct1688ImageSearchAdapter(keywordSearch);
+  it('does not silently degrade an image match into a CDP-backed keyword search', async () => {
+    const adapter = new Direct1688ImageSearchAdapter();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('upstream unavailable', {
       status: 502,
     })));
 
-    const result = await adapter.searchByImage({
+    await expect(adapter.searchByImage({
       imageUrl: 'https://img.coupangcdn.com/example.jpg',
       keyword: '말랑이',
       maxResults: 8,
-    });
+    })).rejects.toThrow('1688 AlphaShop image search failed');
 
-    expect(keywordSearch.searchByKeyword).toHaveBeenCalledWith({
-      keyword: '말랑이',
-      page: 1,
-      maxResults: 8,
-    });
-    expect(result.convertedImageUrl).toBeNull();
-    expect(result.items[0]?.sourceUrl).toBe('https://detail.1688.com/offer/773667152445.html');
   });
 
-  it('passes the operation signal through image download, upload, search, and keyword fallback', async () => {
-    const keywordSearch = keywordAdapterStub();
-    const adapter = new Direct1688ImageSearchAdapter(keywordSearch);
+  it('passes the operation signal through image download and upload without a browser fallback', async () => {
+    const adapter = new Direct1688ImageSearchAdapter();
     const controller = new AbortController();
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(Buffer.from('image-bytes'), {
@@ -224,28 +185,22 @@ describe('Direct1688ImageSearchAdapter', () => {
       .mockResolvedValueOnce(new Response('upload unavailable', { status: 502 }));
     vi.stubGlobal('fetch', fetchMock);
 
-    await adapter.searchByImage({
+    await expect(adapter.searchByImage({
       imageUrl: 'https://img.coupangcdn.com/example.jpg',
       keyword: '말랑이',
       maxResults: 8,
       signal: controller.signal,
-    });
+    })).rejects.toThrow('1688 AlphaShop image search failed');
 
     for (const call of fetchMock.mock.calls) {
       const signal = call[1]?.signal as AbortSignal | undefined;
       expect(signal).toBeDefined();
       expect(signal?.aborted).toBe(false);
     }
-    expect(keywordSearch.searchByKeyword).toHaveBeenCalledWith({
-      keyword: '말랑이',
-      page: 1,
-      maxResults: 8,
-      signal: controller.signal,
-    });
   });
 
   it('preserves the abort reason during a blocked source-image fetch and starts no next request', async () => {
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
     const blockedFetch = deferred<Response>();
     const fetchMock = vi.fn().mockReturnValueOnce(blockedFetch.promise);
     vi.stubGlobal('fetch', fetchMock);
@@ -266,7 +221,7 @@ describe('Direct1688ImageSearchAdapter', () => {
   });
 
   it('rejects an already-aborted operation before DNS or provider IO', async () => {
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
     const controller = new AbortController();
@@ -283,7 +238,7 @@ describe('Direct1688ImageSearchAdapter', () => {
   });
 
   it('rejects source image hosts that resolve to private addresses before fetch', async () => {
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
     lookupMock.mockResolvedValueOnce([{ address: '169.254.169.254', family: 4 }]);
     const fetchMock = vi.fn();
     vi.stubGlobal('fetch', fetchMock);
@@ -295,7 +250,7 @@ describe('Direct1688ImageSearchAdapter', () => {
   });
 
   it('rejects redirects to private hosts before following them', async () => {
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
     const fetchMock = vi.fn().mockResolvedValueOnce(new Response(null, {
       status: 302,
       headers: {
@@ -311,7 +266,7 @@ describe('Direct1688ImageSearchAdapter', () => {
   });
 
   it('fails clearly when AlphaShop search fails and no keyword fallback is available', async () => {
-    const adapter = new Direct1688ImageSearchAdapter(keywordAdapterStub());
+    const adapter = new Direct1688ImageSearchAdapter();
     vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce(new Response('upstream unavailable', {
       status: 502,
     })));

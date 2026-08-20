@@ -5,7 +5,6 @@ import type {
   NaverDatalabTrendPort,
   NaverKeywordResearchPort,
 } from '../../port/out/provider/naver-keyword-research.port';
-import type { Sourcing1688KeywordSearchPort } from '../../port/out/provider/1688-keyword-search.port';
 import type { ShortstrendTrendPort } from '../../port/out/provider/shortstrend-trend.port';
 import type {
   TrendCollectionRepositoryPort,
@@ -71,10 +70,6 @@ function buildPorts() {
       boards: [],
     })),
   };
-  const keywordSearch1688: Sourcing1688KeywordSearchPort = {
-    getStatus: vi.fn(() => ({ configured: true, baseUrl: 'https://h5api.m.1688.com' })),
-    searchByKeyword: vi.fn(async (input) => ({ keyword: input.keyword, page: 1, items: [] })),
-  };
   const shortstrend: ShortstrendTrendPort = {
     fetchTrending: vi.fn(async () => ({
       source: 'shortstrend' as const,
@@ -126,7 +121,6 @@ function buildPorts() {
     keywordResearch,
     datalabTrend,
     popularKeywords,
-    keywordSearch1688,
     shortstrend,
     repository,
     collectionCoordinator,
@@ -137,7 +131,6 @@ function buildPorts() {
     keywordResearch,
     datalabTrend,
     popularKeywords,
-    keywordSearch1688,
     shortstrend,
     repository,
     collectionCoordinator,
@@ -360,27 +353,6 @@ describe('TrendCollectService', () => {
       'operation-run-1',
       controller.signal,
     )).rejects.toThrow('operation_attempt_fence_lost');
-  });
-
-  it('passes the signal to 1688 and stops before the next seed after abort', async () => {
-    const controller = new AbortController();
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => {
-      controller.abort(new Error('operation_attempt_fence_lost'));
-      return { keyword: input.keyword, page: 1, items: [] };
-    });
-
-    await expect(ports.service.collect(
-      ORGANIZATION_ID,
-      ['1688'],
-      null,
-      'operation-run-1',
-      controller.signal,
-    )).rejects.toThrow('operation_attempt_fence_lost');
-
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledTimes(1);
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ signal: controller.signal }),
-    );
   });
 
   it('passes the signal to the Shorts batch and stops after provider abort', async () => {
@@ -691,111 +663,21 @@ describe('TrendCollectService', () => {
     );
   });
 
-  it('ranks 1688 offers by monthly sales descending within a seed result set', async () => {
-    ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['1688'] }),
-    ]);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'A', title: 'a', priceCny: 10, sourceUrl: 'u', imageUrl: null, monthlySales: 100, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-        { offerId: 'C', title: 'c', priceCny: 11, sourceUrl: 'u', imageUrl: null, monthlySales: 500, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
-
+  it('refuses the retired direct 1688 provider path', async () => {
     const result = await ports.service.collect(ORGANIZATION_ID, ['1688']);
 
-    expect(result.results[0]).toEqual(expect.objectContaining({ source: '1688', ok: true }));
-    expect(result.results[0].collected).toBeGreaterThanOrEqual(3);
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '史莱姆', maxResults: 20 }),
-    );
-    const rows = typedRows(ports, 'offer_1688_keyword_observation');
-    expect(rows.find((row: any) => row.offerId === 'B')).toEqual(
-      expect.objectContaining({ rank: 1, sourceKeyword: '슬라임' }),
-    );
-    expect(rows.find((row: any) => row.offerId === 'C').rank).toBe(2);
-    expect(rows.find((row: any) => row.offerId === 'A').rank).toBe(3);
-  });
-
-  it('uses stationery/toy baseline seeds for 1688 and Shorts when no user seed exists', async () => {
-    ports.repository.listSeeds = vi.fn(async () => []);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        {
-          offerId: `offer-${input.keyword}`,
-          title: `${input.keyword} 신상품`,
-          priceCny: 8,
-          sourceUrl: 'https://detail.1688.com/offer/1.html',
-          imageUrl: null,
-          monthlySales: 100,
-          tradeScore: null,
-          repurchaseRate: null,
-          supplierName: null,
-          score: 50,
-        },
-      ],
-    }));
-
-    const result = await ports.service.collect(ORGANIZATION_ID, ['1688', 'shorts']);
-
-    // 기본 완구·문구 시드 10 + 도우인 트렌드 큐레이션 시드 8 = 1688 은 18개 키워드 수집.
-    expect(result.results).toEqual([
-      { source: '1688', ok: true, collected: 18 },
-      { source: 'shorts', ok: true, collected: 0 },
-    ]);
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '文具' }),
-    );
-    // 도우인 트렌드 키워드(谷子=굿즈)는 1688 수집에만 추가로 태워진다.
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledWith(
-      expect.objectContaining({ keyword: '谷子' }),
-    );
-    // shorts 는 도우인 시드의 영향을 받지 않는다(1688 전용 baseline).
-    expect(ports.shortstrend.fetchTrending).toHaveBeenCalledWith(
-      expect.objectContaining({
-        keywords: expect.arrayContaining(['문구', '완구', '슬라임']),
-        limit: 50,
-        publishedWithinDays: 30,
-      }),
-    );
-    expect(ports.shortstrend.fetchTrending).not.toHaveBeenCalledWith(
-      expect.objectContaining({ keywords: expect.arrayContaining(['굿즈']) }),
-    );
-  });
-
-  it('stops the 1688 baseline batch after a login or verification blocker', async () => {
-    ports.repository.listSeeds = vi.fn(async () => []);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async () => {
-      throw new Error('1688 로그인/슬라이더 검증이 필요합니다.');
-    });
-
-    const result = await ports.service.collect(ORGANIZATION_ID, ['1688']);
-
-    expect(ports.keywordSearch1688.searchByKeyword).toHaveBeenCalledTimes(1);
     expect(result.results[0]).toEqual(expect.objectContaining({
       source: '1688',
       ok: false,
       collected: 0,
-      error: expect.stringContaining('로그인/슬라이더'),
+      error: expect.stringContaining('1688_browser_operation_required'),
     }));
   });
 
   it('degrades gracefully when shorts port returns an error, without aborting other sources', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['naver', '1688', 'shorts'] }),
+      seed({ keyword: '슬라임', sources: ['naver', 'shorts'] }),
     ]);
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
     ports.shortstrend.fetchTrending = vi.fn(async () => ({
       source: 'shortstrend',
       generatedAt: '2026-07-13T00:00:00.000Z',
@@ -803,20 +685,18 @@ describe('TrendCollectService', () => {
       error: 'shortstrend unreachable',
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
 
     expect(result.results).toEqual([
       expect.objectContaining({ source: 'naver', ok: true, collected: 1 }),
-      expect.objectContaining({ source: '1688', ok: true }),
       { source: 'shorts', ok: false, collected: 0, error: 'shortstrend unreachable' },
     ]);
     expect(typedRows(ports, 'shorts')).toEqual([]);
-    expect(typedRows(ports, 'offer_1688_keyword_observation')).not.toEqual([]);
   });
 
   it('isolates a failing source so the others still collect', async () => {
     ports.repository.listSeeds = vi.fn(async () => [
-      seed({ keyword: '슬라임', keywordCn: '史莱姆', sources: ['naver', '1688', 'shorts'] }),
+      seed({ keyword: '슬라임', sources: ['naver', 'shorts'] }),
     ]);
     ports.keywordResearch.searchRelatedKeywords = vi.fn(async () => {
       throw new Error('SearchAd 401');
@@ -824,13 +704,6 @@ describe('TrendCollectService', () => {
     ports.popularKeywords.searchPopularKeywords = vi.fn(async () => {
       throw new Error('DataLab down');
     });
-    ports.keywordSearch1688.searchByKeyword = vi.fn(async (input) => ({
-      keyword: input.keyword,
-      page: 1,
-      items: [
-        { offerId: 'B', title: 'b', priceCny: 12, sourceUrl: 'u', imageUrl: null, monthlySales: 900, tradeScore: null, repurchaseRate: null, supplierName: null, score: 40 },
-      ],
-    }));
     ports.shortstrend.fetchTrending = vi.fn(async () => ({
       source: 'shortstrend',
       generatedAt: '2026-07-13T00:00:00.000Z',
@@ -851,13 +724,11 @@ describe('TrendCollectService', () => {
       ],
     }));
 
-    const result = await ports.service.collect(ORGANIZATION_ID);
+    const result = await ports.service.collect(ORGANIZATION_ID, ['naver', 'shorts']);
 
     const naver = result.results.find((r) => r.source === 'naver');
-    const one688 = result.results.find((r) => r.source === '1688');
     const shorts = result.results.find((r) => r.source === 'shorts');
     expect(naver).toEqual(expect.objectContaining({ source: 'naver', ok: false, collected: 0 }));
-    expect(one688).toEqual(expect.objectContaining({ source: '1688', ok: true }));
     expect(shorts).toEqual({ source: 'shorts', ok: true, collected: 1 });
     expect(typedRows(ports, 'shorts')).toHaveLength(1);
   });

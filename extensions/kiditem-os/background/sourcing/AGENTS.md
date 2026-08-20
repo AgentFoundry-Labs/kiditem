@@ -23,10 +23,12 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `http://localhost:3000`, `http://localhost:4000`,
   and `http://kiditem-office`.
 - Product data sync posts to `/product-data`.
-- Browser Operation owner-result routes are API-root paths: 1688 trends post to
-  `/sourcing/operations/1688-trends/:runId/results`, live-commerce snapshots to
-  `/sourcing/operations/live-commerce/:runId/results`, and TikTok Creative
-  Center snapshots to `/sourcing/operations/tiktok-cc-trends/:runId/results`.
+- Browser Operation owner-result routes are API-root paths: 1688 trend children
+  post to `/sourcing/operations/1688-trends/:runId/results`, explicit 1688
+  keyword batches post to `/sourcing/operations/1688-search/:runId/results`,
+  live-commerce snapshots to `/sourcing/operations/live-commerce/:runId/results`,
+  and TikTok Creative Center snapshots to
+  `/sourcing/operations/tiktok-cc-trends/:runId/results`.
   TikTok targets remain a read from `/sourcing/trend/tiktok-cc-targets`.
 - Every browser result requires the exact claimed `OperationRun` id in `:runId`
   and its current `x-operation-attempt-token`; the owner fences organization,
@@ -55,6 +57,10 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   background worker.
 - 1688 description fetching skips data URLs, icons, logos, and duplicate image
   URLs.
+- 1688 keyword batches create one extension-owned inactive tab, reuse the
+  current Chrome profile's 1688 cookies, navigate keywords serially, and close
+  only that owned tab after a terminal success/failure. Never move this path
+  back to a server Playwright profile or navigate/close an operator tab.
 - Page-world `_detail_url` is untrusted input. `url-policy.js` must be loaded
   before `worker.js`; call only `KiditemSourcingUrlPolicy.parseAllowedSupplierUrl`
   and use `fetch(..., { redirect: 'error', credentials: 'include' })`. Do not

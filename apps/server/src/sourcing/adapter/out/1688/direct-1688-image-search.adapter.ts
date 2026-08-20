@@ -14,7 +14,6 @@ import {
   type Search1688ImageStatus,
   type Sourcing1688ImageSearchPort,
 } from '../../../application/port/out/provider/1688-image-search.port';
-import { Direct1688KeywordSearchAdapter } from './direct-1688-keyword-search.adapter';
 import { abortableBrowserStep } from './abortable-browser-session';
 
 const DEFAULT_1688_ALPHA_BASE_URL = 'https://overseaplugin.1688.com';
@@ -35,8 +34,6 @@ const publicImageFetchDispatcher = new Agent({
 
 @Injectable()
 export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort {
-  constructor(private readonly keywordSearch: Direct1688KeywordSearchAdapter) {}
-
   getStatus(): Search1688ImageStatus {
     return {
       configured: true,
@@ -68,51 +65,8 @@ export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort
     } catch (error) {
       input.signal?.throwIfAborted();
       if (error instanceof BadRequestException) throw error;
-
-      const keyword = input.keyword?.trim();
-      if (!keyword) {
-        throw new BadGatewayException(`1688 AlphaShop image search failed: ${errorMessage(error)}`);
-      }
-
-      return this.searchByKeywordFallback({
-        imageUrl: input.imageUrl,
-        keyword,
-        maxResults,
-        signal: input.signal,
-      });
+      throw new BadGatewayException(`1688 AlphaShop image search failed: ${errorMessage(error)}`);
     }
-  }
-
-  private async searchByKeywordFallback(input: {
-    imageUrl: string;
-    keyword: string;
-    maxResults: number;
-    signal?: AbortSignal;
-  }): Promise<Search1688ImageResult> {
-    input.signal?.throwIfAborted();
-    const result = await this.keywordSearch.searchByKeyword({
-      keyword: input.keyword,
-      page: 1,
-      maxResults: input.maxResults,
-      ...(input.signal ? { signal: input.signal } : {}),
-    });
-    input.signal?.throwIfAborted();
-
-    return {
-      imageUrl: input.imageUrl,
-      convertedImageUrl: null,
-      items: result.items.map((item) => ({
-        title: item.title,
-        priceCny: item.priceCny,
-        sourceUrl: item.sourceUrl,
-        imageUrl: item.imageUrl,
-        score: item.score,
-        salesNum: item.monthlySales,
-        salesText: item.monthlySales == null ? null : String(item.monthlySales),
-        supplierName: item.supplierName,
-        repurchaseRate: item.repurchaseRate,
-      })),
-    };
   }
 }
 

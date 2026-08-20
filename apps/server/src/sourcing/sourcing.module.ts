@@ -34,7 +34,6 @@ import { SourcingKeywordAnalysisOperationHandler } from "./adapter/in/operation/
 import { LiveCommerceController } from "./adapter/in/http/live-commerce.controller";
 import { NaverKeywordResearchService } from "./application/service/naver-keyword-research.service";
 import { Sourcing1688ImageSearchService } from "./application/service/sourcing-1688-image-search.service";
-import { Sourcing1688KeywordSearchService } from "./application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "./application/service/sourcing-1688-search-result.service";
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
@@ -82,12 +81,10 @@ import { RegistrationContentWorkspaceAdapter } from "./adapter/out/ai/registrati
 import { CandidateContentAssetAdapter } from "./adapter/out/ai/candidate-content-asset.adapter";
 import { SellpiaSalePriceAdapter } from "./adapter/out/inventory/sellpia-sale-price.adapter";
 import { Direct1688ImageSearchAdapter } from "./adapter/out/1688/direct-1688-image-search.adapter";
-import { Direct1688KeywordSearchAdapter } from "./adapter/out/1688/direct-1688-keyword-search.adapter";
 import { ShortstrendTrendAdapter } from "./adapter/out/shortstrend/shortstrend-trend.adapter";
 import { TaobaoLiveAdapter } from "./adapter/out/taobao/taobao-live.adapter";
 import { SourcingSupplyIntelligenceAdapter } from "./adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "./application/port/out/provider/1688-image-search.port";
-import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "./application/port/out/provider/1688-keyword-search.port";
 import { SHORTSTREND_TREND_PORT } from "./application/port/out/provider/shortstrend-trend.port";
 import { TAOBAO_LIVE_PORT } from "./application/port/out/provider/taobao-live.port";
 import {
@@ -172,7 +169,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingService,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
-    Sourcing1688KeywordSearchService,
     Sourcing1688SearchResultService,
     SourcingPromotionService,
     SourcingWorkspaceArchiveService,
@@ -225,17 +221,12 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     CandidateContentAssetAdapter,
     SellpiaSalePriceAdapter,
     Direct1688ImageSearchAdapter,
-    Direct1688KeywordSearchAdapter,
     ShortstrendTrendAdapter,
     TaobaoLiveAdapter,
     SourcingSupplyIntelligenceAdapter,
     {
       provide: SOURCING_1688_IMAGE_SEARCH_PORT,
       useExisting: Direct1688ImageSearchAdapter,
-    },
-    {
-      provide: SOURCING_1688_KEYWORD_SEARCH_PORT,
-      useExisting: Direct1688KeywordSearchAdapter,
     },
     {
       provide: SHORTSTREND_TREND_PORT,

@@ -5,7 +5,6 @@ import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
-import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
 import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
@@ -82,7 +81,6 @@ import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-tren
 import { LinkfoxEchotikShadowAdapter } from "../adapter/out/linkfox/linkfox-echotik-shadow.adapter";
 import { SourcingPlaywrightRuntimeHandler } from "../adapter/out/runtime/sourcing-playwright-runtime.handler";
 import { Direct1688ImageSearchAdapter } from "../adapter/out/1688/direct-1688-image-search.adapter";
-import { Direct1688KeywordSearchAdapter } from "../adapter/out/1688/direct-1688-keyword-search.adapter";
 import { ShortstrendTrendAdapter } from "../adapter/out/shortstrend/shortstrend-trend.adapter";
 import { TrendCollectionRepositoryAdapter } from "../adapter/out/repository/trend-collection.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-commerce.repository.adapter";
@@ -97,7 +95,6 @@ import {
 import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-agent-workspace-capability.port";
 import { SOURCING_COLLECTION_OPERATION_PORT } from "../application/port/out/cross-domain/sourcing-collection-operation.port";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "../application/port/out/provider/1688-image-search.port";
-import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "../application/port/out/provider/1688-keyword-search.port";
 import { SHORTSTREND_TREND_PORT } from "../application/port/out/provider/shortstrend-trend.port";
 import { TAOBAO_LIVE_PORT } from "../application/port/out/provider/taobao-live.port";
 import {
@@ -207,7 +204,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingExtensionIngestService);
     expect(providers).toContain(NaverKeywordResearchService);
     expect(providers).toContain(Sourcing1688ImageSearchService);
-    expect(providers).toContain(Sourcing1688KeywordSearchService);
+    expect(providerNames(providers)).not.toContain("Sourcing1688KeywordSearchService");
     expect(providers).toContain(Sourcing1688SearchResultService);
     expect(providers).toContain(Sourcing1688OperationHandler);
     expect(providers).toContain(SourcingTrendOperationHandler);
@@ -294,7 +291,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(MarketShadowOperationAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(Direct1688ImageSearchAdapter);
-    expect(providers).toContain(Direct1688KeywordSearchAdapter);
+    expect(providerNames(providers)).not.toContain("Direct1688KeywordSearchAdapter");
     expect(providers).toContain(ShortstrendTrendAdapter);
     expect(providers).toContain(TrendCollectionRepositoryAdapter);
     expect(providers).toContain(LiveCommerceRepositoryAdapter);
@@ -493,16 +490,6 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expect(imageSearchBinding).toBeDefined();
     expect(imageSearchBinding!.useExisting).toBe(Direct1688ImageSearchAdapter);
-    const keywordSearchBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_1688_KEYWORD_SEARCH_PORT,
-    );
-    expect(keywordSearchBinding).toBeDefined();
-    expect(keywordSearchBinding!.useExisting).toBe(
-      Direct1688KeywordSearchAdapter,
-    );
     const shortstrendBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -699,4 +686,13 @@ function expectBinding(
         (provider as { provide?: unknown }).provide === token,
     )?.useExisting,
   ).toBe(adapter);
+}
+
+function providerNames(providers: unknown[]): string[] {
+  return providers.flatMap((provider) => {
+    if (typeof provider === "function") return [provider.name];
+    if (typeof provider !== "object" || provider === null) return [];
+    const useClass = (provider as { useClass?: unknown }).useClass;
+    return typeof useClass === "function" ? [useClass.name] : [];
+  });
 }

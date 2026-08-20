@@ -5,6 +5,10 @@
   const SEARCH_ORIGIN = "https://s.1688.com";
   const NAVIGATION_TIMEOUT_MS = 30000;
   const EXTRACTION_TIMEOUT_MS = 20000;
+  const RESULT_KIND_TREND = "trend";
+  const RESULT_KIND_KEYWORD_SEARCH = "keyword_search";
+  const TREND_OWNER_PATH = "/sourcing/operations/1688-trends/";
+  const KEYWORD_SEARCH_OWNER_PATH = "/sourcing/operations/1688-search/";
 
   function create(options) {
     const chromeApi = options.chrome;
@@ -178,8 +182,11 @@
       if (typeof run.operationAttemptToken !== "string" || !run.operationAttemptToken) {
         throw new Error("operation_attempt_token_required");
       }
+      const ownerPath = run.resultKind === RESULT_KIND_KEYWORD_SEARCH
+        ? KEYWORD_SEARCH_OWNER_PATH
+        : TREND_OWNER_PATH;
       const response = await request(
-        `${config.apiBase}/sourcing/operations/1688-trends/${encodeURIComponent(run.runId)}/results`,
+        `${config.apiBase}${ownerPath}${encodeURIComponent(run.runId)}/results`,
         {
           method: "POST",
           headers: {
@@ -302,6 +309,7 @@
           completedAt: now().toISOString(),
           currentKeyword: null,
           error: null,
+          operationResult: result?.operationResult || null,
           tabId: null,
         });
         await sessions.succeed(run.runId);
@@ -332,11 +340,15 @@
       operationContext,
     ) {
       const operationAttemptToken = operationContext?.attemptToken;
+      const resultKind = operationContext?.resultKind || RESULT_KIND_TREND;
       if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
         return { success: false, error: "operation_attempt_token_required" };
       }
       if (typeof requestedRunId !== "string" || !requestedRunId) {
         return { success: false, error: "operation_run_id_required" };
+      }
+      if (resultKind !== RESULT_KIND_TREND && resultKind !== RESULT_KIND_KEYWORD_SEARCH) {
+        return { success: false, error: "operation_result_kind_invalid" };
       }
       const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
@@ -362,6 +374,7 @@
         runId,
         keywords,
         maxResultsPerKeyword,
+        resultKind,
         operationAttemptToken,
         backendConfig,
         reusableTabId: null,
@@ -380,6 +393,7 @@
           currentKeywordIndex: 0,
           totalKeywords: keywords.length,
           errors: [],
+          operationResult: null,
           startedAt,
           updatedAt: startedAt,
           completedAt: null,
@@ -390,7 +404,9 @@
       await sessions.start({
         environmentId,
         runId,
-        producer: "sourcing.1688_trend",
+        producer: resultKind === RESULT_KIND_KEYWORD_SEARCH
+          ? "sourcing.1688_keyword_search"
+          : "sourcing.1688_trend",
         classification: "background_preferred",
         restartStrategy: "extension",
         inputIdentity: {

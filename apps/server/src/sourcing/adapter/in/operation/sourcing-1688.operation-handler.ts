@@ -13,10 +13,8 @@ import {
   type OperationHandlerRegistryPort,
 } from '../../../../operations/application/port/in/operation-handler-registry.port';
 import { Sourcing1688ImageSearchService } from '../../../application/service/sourcing-1688-image-search.service';
-import { Sourcing1688KeywordSearchService } from '../../../application/service/sourcing-1688-keyword-search.service';
 import {
   SOURCING_1688_IMAGE_MATCH_OPERATION,
-  SOURCING_1688_KEYWORD_BATCH_OPERATION,
 } from '../../../domain/operation/sourcing.operations';
 
 @Injectable()
@@ -25,19 +23,14 @@ implements OperationHandler, OnModuleInit {
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
     private readonly registry: OperationHandlerRegistryPort,
-    private readonly keywordSearch: Sourcing1688KeywordSearchService,
     private readonly imageSearch: Sourcing1688ImageSearchService,
   ) {}
 
   onModuleInit(): void {
-    this.registry.register(SOURCING_1688_KEYWORD_BATCH_OPERATION, this);
     this.registry.register(SOURCING_1688_IMAGE_MATCH_OPERATION, this);
   }
 
   async execute(context: OperationHandlerContext): Promise<OperationHandlerResult> {
-    if (context.operationKey === SOURCING_1688_KEYWORD_BATCH_OPERATION.key) {
-      return this.executeKeywords(context);
-    }
     if (context.operationKey === SOURCING_1688_IMAGE_MATCH_OPERATION.key) {
       return this.executeImageMatches(context);
     }
@@ -46,41 +39,6 @@ implements OperationHandler, OnModuleInit {
       code: 'unsupported_operation',
       message: 'Unsupported 1688 operation.',
     };
-  }
-
-  private async executeKeywords(
-    context: OperationHandlerContext,
-  ): Promise<OperationHandlerResult> {
-    const keywords = context.input.keywords as string[];
-    const units: Sourcing1688BatchUnitResult[] = [];
-    await context.checkpoint({
-      stage: 'searching_1688_keywords',
-      progressCurrent: 0,
-      progressTotal: keywords.length,
-    });
-    for (const keyword of keywords) {
-      context.signal.throwIfAborted();
-      try {
-        units.push(await this.keywordSearch.searchForOperation({
-          organizationId: context.organizationId,
-          operationRunId: context.runId,
-          actorUserId: context.requestedByUserId,
-          keyword,
-          signal: context.signal,
-          checkpoint: () => context.checkpoint({ stage: 'persisting_1688_keyword' }),
-        }));
-      } catch (error) {
-        context.signal.throwIfAborted();
-        units.push(failedUnit(keyword, null, error));
-      }
-      await context.checkpoint({
-        stage: 'searching_1688_keywords',
-        progressCurrent: units.length,
-        progressTotal: keywords.length,
-      });
-    }
-    if (units.every((unit) => unit.outcome === 'failed')) return allFailed();
-    return completedResult(units, '1688_keyword_search');
   }
 
   private async executeImageMatches(

@@ -55,6 +55,7 @@ export function SellochWholesaleCoupangMatches() {
     operationKey: 'sourcing.match_wholesale_images',
     input: operationInput,
     snapshotQueryKey,
+    wakeBrowserRuntime: false,
   });
   const collecting = operation.isStarting || isActiveOperation(operation.run?.status);
   const observationsByTargetId = useMemo(

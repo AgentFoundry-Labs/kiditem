@@ -108,6 +108,7 @@ export function SellochWholesaleKeywordSearch() {
     operationKey: 'sourcing.search_1688_keyword_batch',
     input: operationInput,
     snapshotQueryKey,
+    wakeBrowserRuntime: true,
   });
   const operationActive = operation.isStarting || isActiveOperation(operation.run?.status);
   const observationsByKeyword = useMemo(

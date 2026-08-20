@@ -99,7 +99,7 @@ describe('TrendCollectionSection operation migration', () => {
       operationKey: 'sourcing.collect_daily_trends',
       input: { sources: ['naver', '1688', 'shorts'] },
       snapshotQueryKey: ['sourcing', 'trend'],
-      wakeBrowserRuntime: false,
+      wakeBrowserRuntime: true,
     });
   });
 
