@@ -1,7 +1,7 @@
 # Office 1688 CDP Keyword Collection Design
 
 - Date: 2026-08-20
-- Status: Concept approved; written design awaiting user review
+- Status: Revised after user feedback; written design awaiting approval
 - Tracking issue: KID-24
 - Source baseline: `d817db4eb878`
 - Classification: bounded Sourcing runtime migration across Operations, the
@@ -17,7 +17,7 @@
 
 The Office deployment will execute `sourcing.search_1688_keyword_batch` as a
 server-owned `domain` operation that attaches through Chrome DevTools Protocol
-(CDP) to a dedicated, already logged-in Chrome profile on the same Office PC.
+(CDP) to an Office-managed, already logged-in Chrome profile on the same PC.
 The API remains in Docker; Chrome remains a host process. The initial endpoint
 is configured as:
 
@@ -72,7 +72,7 @@ the authenticated profile and not permission to bypass the challenge.
   `engineType: domain`;
 - increment the operation definition version because executor ownership changes;
 - retain `resourceClass: playwright_1688` with capacity one;
-- attach to a dedicated Office Chrome through a configurable CDP endpoint;
+- attach to the Office-managed Chrome through a configurable CDP endpoint;
 - search one to six canonical keywords serially in one operation-owned page;
 - extract and validate current 1688 search data;
 - persist through the existing source-control and active-attempt transaction
@@ -89,7 +89,6 @@ the authenticated profile and not permission to bypass the challenge.
 - `sourcing.match_wholesale_images`, which remains a server-owned direct
   AlphaShop/provider operation and opens no Chrome tab;
 - arbitrary URL scraping or exposing raw CDP through an API, Agent OS, or MCP;
-- using a personal daily-driver Chrome profile as the automation runtime;
 - CAPTCHA, slider, login, or security-challenge bypass;
 - a second queue, a second run ledger, or resurrection of runs after API restart;
 - automatic fallback to KidItem OS, an anonymous Playwright browser, or a fresh
@@ -110,7 +109,7 @@ Office API container ---- PostgreSQL
 kiditem-office host alias / internal CDP hostname
     |
     v
-Dedicated host Chrome + persistent 1688 automation profile
+Host Chrome + persistent Office 1688 profile
 ```
 
 The Office Compose topology already maps `${OFFICE_HOST}` to the Docker host
@@ -183,13 +182,6 @@ boot. Chrome and its authenticated profile remain running independently.
 `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` is runtime configuration, not persisted run
 input. No hostname or scheme is hardcoded in application code.
 
-An optional `SOURCING_PLAYWRIGHT_CDP_HEADERS_JSON` secret-backed value contains
-a strict JSON object of string header names and values for an authenticated
-reverse proxy. It is empty for the initial host-gateway deployment. A malformed
-object or non-string value fails configuration validation; the value is never
-logged. This uses Playwright's supported `connectOverCDP` connection headers and
-avoids placing credentials in a URL.
-
 The strict configuration parser supports these schemes:
 
 - `http://` and `https://` for a CDP discovery endpoint;
@@ -199,42 +191,40 @@ It rejects unsupported schemes, embedded username/password credentials, and
 malformed URLs. The resolved endpoint and any authorization data are never
 written to an `OperationRun` result or application log.
 
-The initial Office value may be `http://kiditem-office:9444` because it crosses
-only the Docker host gateway on the same physical PC and is restricted by the
-host firewall. Later it can be changed to an internal real hostname such as an
-HTTPS or WSS endpoint without changing the operation or UI contracts.
+The initial Office value is `http://kiditem-office:9444`. Because the API
+container and Chrome run on the same physical PC, this does not require a TLS
+proxy or application-level CDP authentication. Later it can be replaced by an
+HTTPS or WSS hostname without changing application code, the operation, or the
+UI contract.
 
-That later transition is valid only when all of these conditions hold:
+That later transition has three technical requirements:
 
-1. the name is a dedicated internal CDP hostname, not the public KidItem app
-   domain;
-2. the API container trusts the TLS certificate and complete certificate chain;
-3. an HTTP reverse proxy preserves the CDP discovery response and WebSocket
-   `Upgrade` traffic, or a stable direct WSS endpoint is supplied;
-4. network policy restricts access to the Office API host/container;
-5. strong authentication is added if network isolation alone is insufficient;
-6. a smoke test is run from inside the `kiditem-api` container before cutover.
+1. the API container can resolve and reach the configured hostname;
+2. the API container trusts the TLS certificate chain;
+3. the reverse proxy preserves the CDP discovery response and WebSocket
+   `Upgrade` traffic, or a stable direct WSS endpoint is supplied.
 
 Playwright's installed `connectOverCDP` contract accepts an HTTP URL or CDP
-WebSocket URL and supports additional connection headers. Credentials must not
-be embedded in the endpoint URL or printed. A private certificate is installed
-in the container trust store or supplied through the standard Node CA mechanism;
-TLS verification is never disabled. Changing from the local HTTP alias to
-HTTPS/WSS is therefore configuration and deployment work, not another Sourcing
-architecture migration.
+WebSocket URL. A private certificate is installed in the container trust store
+or supplied through the standard Node CA mechanism; TLS verification is not
+disabled. If the endpoint is later exposed beyond the same Office host, network
+restriction or proxy authentication is added at that deployment boundary.
+Changing from the local HTTP alias to HTTPS/WSS is configuration work, not
+another Sourcing architecture migration.
 
 ## 6. Browser profile and tab ownership
 
-The supported runtime is a dedicated permanent Chrome automation profile:
+The supported runtime is a persistent Office Chrome profile. It may be a clone
+of the already authenticated profile; it does not require a separate 1688
+account:
 
 - seed it once from a verified authenticated profile only while all source
   Chrome processes are stopped, copying the complete `User Data` parent;
 - confirm the exact copied profile path in `chrome://version`;
-- keep it separate from the operator's personal default profile;
 - allow an operator to complete 1688 login/security prompts manually;
-- persist cookies and storage in that dedicated profile directory;
-- start Chrome through an Office startup task with a fixed remote-debugging
-  port and the dedicated user-data/profile arguments;
+- persist cookies and storage in the selected profile directory;
+- start Chrome manually or through an Office startup task with a fixed
+  remote-debugging port and the selected user-data/profile arguments;
 - never recopy the source profile as part of an operation.
 
 Closing an operation-owned page does not delete the profile or log the account
@@ -286,30 +276,20 @@ Expected outcomes remain truthful and bounded:
 | cancel/deadline/shutdown | existing terminal lifecycle code | no post-fence write |
 
 Login and security challenges are not automatically retried as ordinary network
-errors. The UI directs the operator to the dedicated Chrome profile, and an
+errors. The UI directs the operator to the Office Chrome profile, and an
 explicit new/retry operation is required after the operator resolves the issue.
 Raw cookies, HTML, provider responses, exception messages, CDP URLs, and result
 rows never appear in the safe `OperationRun.result`.
 
-## 9. Security boundary
+## 9. Minimal Office security boundary
 
-Raw CDP access is equivalent to broad control of the logged-in browser and its
-cookies. It must not be exposed to the public internet or an unrestricted Office
-LAN.
-
-The initial host setup must:
-
-- bind remote debugging only as broadly as Docker host access requires;
-- restrict port 9444 with the Windows/host firewall to the Docker host-gateway
-  path and approved local administration;
-- use a dedicated least-privilege 1688 account/profile where practical;
-- keep CDP endpoint/auth values in runtime environment or secrets, not source;
-- avoid logging `/json/version` payloads because they include a browser
-  WebSocket URL;
-- verify from a non-approved host that the port is unreachable.
-
-A future TLS proxy must preserve the same authorization boundary. TLS alone is
-not access control.
+Raw CDP can control the logged-in browser, so port 9444 is kept off the public
+internet. For the initial same-PC deployment, the Docker host-gateway route is
+sufficient; a separate authentication service, mTLS setup, or dedicated proxy
+is not required. The endpoint stays in environment configuration and the
+application does not log `/json/version` or the browser WebSocket URL. If the
+endpoint is later reachable from another machine, restrict it with the host
+firewall, private network, or proxy authentication appropriate to that topology.
 
 ## 10. Migration and cleanup
 
@@ -326,7 +306,7 @@ The cutover is performed in one cohesive implementation:
    return to an extension bridge or synchronous controller;
 7. update Office env examples, environment runbook, Sourcing operation runbook,
    architecture documentation, and scoped `AGENTS.md` rules;
-8. deploy only after the dedicated Chrome/CDP smoke check passes from the API
+8. deploy only after the Office Chrome/CDP smoke check passes from the API
    container.
 
 There is no runtime dual path. Rollback means deploying the previous known-good
@@ -340,8 +320,6 @@ application/extension pair, not falling back inside a failed run.
   resource class remains `playwright_1688`;
 - input remains strict, normalized, unique, and bounded to six keywords;
 - endpoint parser accepts HTTP/HTTPS/WS/WSS and rejects unsafe/malformed forms;
-- strict optional connection headers reach the CDP handshake without appearing
-  in logs or results, and invalid header JSON fails configuration validation;
 - absent or unreachable CDP fails closed without canonical writes;
 - current API and DOM fixtures parse mobile `offerId`, open shadow roots, price,
   image, and localized sales count correctly;
@@ -382,7 +360,7 @@ With the dedicated Chrome profile logged in:
    `OperationRun`;
 4. start a six-keyword operation and verify serial progress and bounded output;
 5. confirm the unrelated tab, Chrome process, CDP port, and login session survive;
-6. force or observe a login/security page and verify `attention_required` with
+6. if a login/security page is encountered, verify `attention_required` with
    zero challenged-unit writes;
 7. cancel while provider work is in flight and verify no late canonical write;
 8. restart the API and verify the old run does not resurrect;
@@ -404,10 +382,10 @@ This migration is complete only when:
 - every canonical keyword write is protected by the active domain attempt fence;
 - cancel, deadline, shutdown, wrong token, and lifecycle loss cannot publish a
   late result;
-- the dedicated host Chrome, login profile, and unrelated tabs survive each run;
+- the host Chrome, login profile, and unrelated tabs survive each run;
 - login/security challenges become truthful operator attention states;
 - HTTP, HTTPS, WS, and WSS endpoint forms are configuration-compatible, with
-  the TLS/network/auth requirements in this document enforced operationally;
+  the reachability, certificate, and WebSocket proxy requirements documented;
 - the exact extension keyword handler and its obsolete hook are removed while
   all other extension collection operations remain registered;
 - there is no anonymous browser, direct controller, extension bridge, or
