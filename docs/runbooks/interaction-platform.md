@@ -26,19 +26,37 @@ blocked; a live join is held only while KidItem has an active grant.
 ## Durable task controls
 
 AgentOS owns durable work independently from CopilotKit. An `AgentVersion`, its
-policy snapshot, the session task, execution, attempt, Operation run, and
-canonical event stream are correlated by KidItem resource names. `copilotThreadId`
-and `aguiRunId` are opaque transport correlations only; request IDs, runtime
-handles, tokens, and raw provider IDs are never accepted in a resource-name
-field.
+policy snapshot, the session task, execution, immutable attempt, immutable
+OperationRun envelope, and canonical event stream are correlated by KidItem
+resource names. `copilotThreadId` and `aguiRunId` are opaque transport
+correlations only; request IDs, runtime handles, tokens, and raw provider IDs
+are never accepted in a resource-name field.
 
 The Operations handler persists an opaque encrypted runtime-handle reference
-before it connects. A reclaimed worker inspects that handle before reconnecting
-and never creates a replacement external run when the original handle is
-unknown. Approval, retry, cancel, progress, artifact, and delegation state are
-written to the canonical event/control graph before live publication. Browser
-disconnect only detaches its SSE subscriber; it does not cancel the durable
-producer.
+before it connects. The `AgentExecutionAttempt` owns that stable external
+handle; it is never replaced merely because an Operations envelope is
+cancelled. Each envelope is a distinct immutable `OperationRun` connected to
+the attempt by an explicit binding. A continuation atomically creates a
+successor queued envelope, binding, and initial handle checkpoint, with a
+recorded predecessor and an organization/attempt-scoped continuation key. It
+never requeues or resurrects the predecessor. Lifecycle recovery runs only
+after the Operations lifecycle gate accepts work: candidate discovery first
+deterministically selects the current/latest binding for each attempt, then
+applies the lifecycle-cancellation predicate and bounded batch limit. The
+selected binding supplies the recorded predecessor for its successor.
+
+Approval, retry, cancel, progress, artifact, and delegation state are written
+to the canonical event/control graph before live publication. An approval
+stores its exact immutable source binding/run when requested; approval
+continuation never infers that predecessor from a latest-binding query. For an
+approved HITL request, first persist the decision and its outbox record, then
+create the approval-keyed successor envelope and persist interrupt-delivery
+state before issuing the exact-handle runtime interrupt. Those writes are
+idempotent. On API
+startup, pending conversation outbox and interrupt deliveries are retried from
+their durable state; a delivery failure must not reverse the decision, mutate a
+predecessor envelope, or start a second external run. Browser disconnect only
+detaches its SSE subscriber; it does not cancel the durable producer.
 
 Agent runtime versions are immutable. Publishing an identical manifest reuses
 the active version, while a changed manifest creates a later version and retires
@@ -82,13 +100,17 @@ the real Nest, gateway, persistence, and browser boundaries.
 the exact server, gateway, and web artifacts, then runs the real browser
 harness (gateway restart, reconnect, approval, cancel, and canonical resource
 correlation) plus the real PostgreSQL detached-runtime recovery suite
-(persisted opaque-handle reuse and Operations worker/runtime-adapter
+(persisted opaque-handle reuse, immutable OperationRun successor lineage,
+approval continuation/outbox retry, and Operations worker/runtime-adapter
 recreation). It does not contact Hermes, Codex, Claude, or a production
 database/runtime.
 
-## KID-24 boundary caution
+## Process-root boundary
 
-Interaction controllers are provisionally wired by `AgentOsModule`. KID-24's
-long-running operation module is expected to become the durable operations
-owner; move provider wiring only after that branch lands, without deleting or
-rewriting InventoryCommitment behavior in this change.
+The API root is the only owner of the Operations lifecycle. It composes
+`AgentOsHttpModule`, whose interaction controllers, guards, HMAC secrets,
+AG-UI producers, and Operations-backed session controls wrap the
+controller-free `AgentOsModule`. The Agent worker and MCP/CLI roots import only
+the controller-free runtime graph: they must boot without interaction HTTP
+secrets and must not reach `OperationsModule` transitively. Preserve this split
+when adding a runtime, capability, controller, or control service.

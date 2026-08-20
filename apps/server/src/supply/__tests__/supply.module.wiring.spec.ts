@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { SupplyModule } from '../supply.module';
+import { SupplyAgentRuntimeModule } from '../supply-agent-runtime.module';
 import { SuppliersController } from '../adapter/in/http/suppliers.controller';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import { ProcurementTestIntentsController } from '../adapter/in/http/procurement-test-intents.controller';
@@ -54,6 +55,13 @@ function expectBinding(providers: unknown[], token: symbol, adapter: unknown) {
   expect(binding!.useExisting).toBe(adapter);
 }
 
+function supplyProviders(): unknown[] {
+  return [
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SupplyAgentRuntimeModule) ?? []),
+  ];
+}
+
 // supply owner module — extracted from SourcingModule during issue #192
 // follow-up Track A PR 1. This spec freezes the module metadata so a removed
 // controller, a missing provider, or a route rename fails at vitest time
@@ -70,7 +78,7 @@ describe('SupplyModule owner wiring', () => {
   });
 
   it('declares supply services as providers', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? [];
+    const providers = supplyProviders();
     for (const cls of [
       SuppliersService,
       ProcurementService,
@@ -87,12 +95,13 @@ describe('SupplyModule owner wiring', () => {
 
   it('imports InventoryModule so submission consumes owner-provided gate ports', () => {
     const imports: unknown[] = Reflect.getMetadata('imports', SupplyModule) ?? [];
+    expect(imports).toContain(SupplyAgentRuntimeModule);
     expect(imports).toContain(InventoryModule);
     expect(imports).toContain(ChannelsModule);
   });
 
   it('binds outgoing repository ports to local adapters', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? [];
+    const providers = supplyProviders();
 
     expect(providers).toContain(SupplierRepositoryAdapter);
     expect(providers).toContain(ProcurementRepositoryAdapter);
@@ -155,6 +164,24 @@ describe('SupplyModule owner wiring', () => {
     const exports: unknown[] = Reflect.getMetadata('exports', SupplyModule) ?? [];
     expect(exports).toContain(ROCKET_FINAL_ORDER_RECONCILIATION_PORT);
     expect(exports).toContain(SUPPLY_SOURCING_PROCUREMENT_PORT);
+  });
+
+  it('keeps Agent providers controller-free and owned only by the runtime module', () => {
+    const ownerProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SupplyModule) ?? [];
+    const runtimeProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SupplyAgentRuntimeModule) ?? [];
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, SupplyAgentRuntimeModule) ?? [])
+      .toEqual([]);
+    for (const provider of [
+      SupplyAgentCapabilityAdapter,
+      OrderAgentRuntimeHandler,
+      PurchaseOrderDraftService,
+      PurchaseOrderSubmissionService,
+    ]) {
+      expect(runtimeProviders).toContain(provider);
+      expect(ownerProviders).not.toContain(provider);
+    }
   });
 
   it('keeps public /api route prefixes', () => {

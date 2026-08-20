@@ -1,15 +1,24 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import {
-  COMPOSITE_OPERATION_COORDINATOR_PORT,
-  type CompositeOperationCoordinatorPort,
-} from '../port/in/composite-operation-coordinator.port';
+
+export interface OperationDispatchControls {
+  signal: AbortSignal;
+  checkpoint(update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }): Promise<void>;
+}
 
 @Injectable()
 export class OperationDispatcherService {
@@ -22,12 +31,17 @@ export class OperationDispatcherService {
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
   ) {}
 
-  async dispatch(run: OperationRunRecord): Promise<void> {
+  async dispatch(
+    run: OperationRunRecord,
+    controls: OperationDispatchControls,
+  ): Promise<void> {
     if (!run.attemptToken) {
       throw new Error('operation_attempt_token_missing');
     }
+    const attemptToken = run.attemptToken;
 
     try {
+      controls.signal.throwIfAborted();
       const handler = this.registry.getHandler(run.operationKey);
       const result = await handler.execute({
         runId: run.id,
@@ -38,16 +52,22 @@ export class OperationDispatcherService {
         requestedByUserId: run.requestedByUserId,
         scheduleId: run.scheduleId,
         parentRunId: run.parentRunId,
-        attemptToken: run.attemptToken,
+        attemptToken,
+        signal: controls.signal,
+        checkpoint: controls.checkpoint,
       });
+      controls.signal.throwIfAborted();
+      await controls.checkpoint();
+      controls.signal.throwIfAborted();
 
       switch (result.kind) {
         case 'completed':
-          await this.repository.transition({
+          controls.signal.throwIfAborted();
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'succeeded',
             result: result.result,
             progress: 1,
@@ -59,11 +79,12 @@ export class OperationDispatcherService {
           });
           return;
         case 'delegated':
-          await this.repository.transition({
+          controls.signal.throwIfAborted();
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'running',
             nativeRunType: result.nativeRunType,
             nativeRunId: result.nativeRunId,
@@ -74,11 +95,12 @@ export class OperationDispatcherService {
           });
           return;
         case 'waiting_runtime':
-          await this.repository.transition({
+          controls.signal.throwIfAborted();
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'waiting_runtime',
             claimedBy: null,
             attemptToken: null,
@@ -87,17 +109,26 @@ export class OperationDispatcherService {
           });
           return;
         case 'waiting_dependency':
+          controls.signal.throwIfAborted();
           await this.compositeCoordinator.waitForChild({
             parent: run,
             child: result.child,
           });
           return;
+        case 'waiting_dependencies':
+          controls.signal.throwIfAborted();
+          await this.compositeCoordinator.waitForChildren({
+            parent: run,
+            children: result.children,
+          });
+          return;
         case 'attention_required':
-          await this.repository.transition({
+          controls.signal.throwIfAborted();
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'attention_required',
             result: result.result,
             errorCode: 'operation_attention_required',
@@ -125,11 +156,12 @@ export class OperationDispatcherService {
           });
           return;
         case 'failed':
-          await this.repository.transition({
+          controls.signal.throwIfAborted();
+          await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
             expectedStatuses: ['running'],
-            expectedAttemptToken: run.attemptToken,
+            expectedAttemptToken: attemptToken,
             status: 'failed',
             errorCode: result.code,
             errorMessage: result.message,
@@ -142,17 +174,28 @@ export class OperationDispatcherService {
           return;
       }
     } catch (error) {
-      await this.fail(run, error);
+      if (controls.signal.aborted) return;
+      try {
+        await controls.checkpoint();
+      } catch {
+        if (controls.signal.aborted) return;
+      }
+      if (controls.signal.aborted) return;
+      await this.fail(run, attemptToken, error);
     }
   }
 
-  private async fail(run: OperationRunRecord, _error: unknown): Promise<void> {
+  private async fail(
+    run: OperationRunRecord,
+    attemptToken: string,
+    _error: unknown,
+  ): Promise<void> {
     const terminal = run.attempts >= run.maxAttempts;
-    await this.repository.transition({
+    await this.repository.transitionActiveAttempt({
       organizationId: run.organizationId,
       runId: run.id,
       expectedStatuses: ['running'],
-      expectedAttemptToken: run.attemptToken,
+      expectedAttemptToken: attemptToken,
       status: terminal ? 'failed' : 'queued',
       errorCode: 'operation_execution_failed',
       errorMessage: 'Operation execution failed',

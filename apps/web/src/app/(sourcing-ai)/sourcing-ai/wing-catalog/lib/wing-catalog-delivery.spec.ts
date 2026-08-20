@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { buildCoupangProductUrl, buildCoupangReviewUrl } from './wing-catalog-delivery';
-import type { WingCatalogProduct } from './wing-catalog-extension';
+import type { WingCatalogProduct } from './wing-catalog-presenter';
 
 function makeRow(overrides: Partial<WingCatalogProduct>): WingCatalogProduct {
   return {

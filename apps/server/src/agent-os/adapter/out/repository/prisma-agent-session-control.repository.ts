@@ -387,8 +387,6 @@ export class PrismaAgentSessionControlRepository
       if (existing) {
         if (
           existing.runtimeType !== input.runtimeType ||
-          (input.operationRunId !== undefined &&
-            existing.operationRunId !== input.operationRunId) ||
           (input.externalRunId !== undefined &&
             existing.externalRunId !== input.externalRunId) ||
           (input.encryptedHandleRef !== undefined &&
@@ -419,7 +417,6 @@ export class PrismaAgentSessionControlRepository
           externalRunId: input.externalRunId ?? null,
           encryptedHandleRef: input.encryptedHandleRef ?? null,
           runtimeGeneration: 0,
-          operationRunId: input.operationRunId ?? null,
           state: 'running',
         },
       }));
@@ -454,29 +451,37 @@ export class PrismaAgentSessionControlRepository
           existing.organizationId !== input.organizationId ||
           existing.sessionId !== input.sessionId ||
           existing.executionId !== input.executionId ||
-          existing.runtimeType !== execution.runtimeType ||
-          existing.operationRunId !== input.operationRunId
+          existing.runtimeType !== execution.runtimeType
         ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        const binding = await tx.agentExecutionAttemptOperationBinding.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            executionAttemptId: existing.id,
+            operationRunId: input.operationRunId,
+          },
+        });
+        if (!binding) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
         return mapAttempt(existing);
       }
-      const existingOperation = await tx.agentExecutionAttempt.findFirst({
+      const existingOperation = await tx.agentExecutionAttemptOperationBinding.findFirst({
         where: {
           organizationId: input.organizationId,
           operationRunId: input.operationRunId,
         },
+        include: { attempt: true },
       });
       if (existingOperation) {
         if (
-          existingOperation.executionId !== input.executionId ||
-          existingOperation.sessionId !== input.sessionId
+          existingOperation.attempt.executionId !== input.executionId ||
+          existingOperation.attempt.sessionId !== input.sessionId
         ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
-        return mapAttempt(existingOperation);
+        return mapAttempt(existingOperation.attempt);
       }
       const latest = await tx.agentExecutionAttempt.aggregate({
         where: { executionId: input.executionId },
         _max: { attemptNumber: true },
       });
-      return mapAttempt(await tx.agentExecutionAttempt.create({
+      const attempt = await tx.agentExecutionAttempt.create({
         data: {
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -484,23 +489,65 @@ export class PrismaAgentSessionControlRepository
           attemptNumber: (latest._max.attemptNumber ?? 0) + 1,
           idempotencyKey: input.idempotencyKey,
           runtimeType: execution.runtimeType,
-          operationRunId: input.operationRunId,
           state: 'queued',
         },
-      }));
+      });
+      const operation = await tx.operationRun.findFirst({
+        where: { id: input.operationRunId, organizationId: input.organizationId },
+        select: { id: true },
+      });
+      if (!operation) throw scope();
+      await tx.agentExecutionAttemptOperationBinding.create({
+        data: {
+          organizationId: input.organizationId,
+          executionAttemptId: attempt.id,
+          executionId: attempt.executionId,
+          sessionId: attempt.sessionId,
+          operationRunId: operation.id,
+          continuationKey: `initial:${operation.id}`,
+        },
+      });
+      return mapAttempt(attempt);
     }).catch(rethrowStable);
   }
 
   async findAttemptForOperation(
     input: Parameters<AgentSessionControlRepositoryPort['findAttemptForOperation']>[0],
   ): Promise<ExecutionAttemptRecord | null> {
-    const attempt = await this.prisma.agentExecutionAttempt.findFirst({
+    const binding = await this.prisma.agentExecutionAttemptOperationBinding.findFirst({
       where: {
         organizationId: input.organizationId,
         operationRunId: input.operationRunId,
       },
+      include: { attempt: true },
     });
-    return attempt ? mapAttempt(attempt) : null;
+    return binding ? mapAttempt(binding.attempt) : null;
+  }
+
+  async activateAttemptForOperation(
+    input: Parameters<AgentSessionControlRepositoryPort['activateAttemptForOperation']>[0],
+  ): Promise<ExecutionAttemptRecord> {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['attempt-operation-activate', input.organizationId, input.operationRunId]);
+      const binding = await tx.agentExecutionAttemptOperationBinding.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+        },
+        include: { attempt: true },
+      });
+      if (
+        !binding ||
+        binding.attempt.sessionId !== input.sessionId ||
+        binding.attempt.executionId !== input.executionId
+      ) throw scope();
+      if (binding.attempt.state === 'running') return mapAttempt(binding.attempt);
+      if (binding.attempt.state !== 'queued') throw state();
+      return mapAttempt(await tx.agentExecutionAttempt.update({
+        where: { id: binding.attempt.id },
+        data: { state: 'running', startedAt: new Date() },
+      }));
+    }).catch(rethrowStable);
   }
 
   async finishAttempt(
@@ -585,6 +632,15 @@ export class PrismaAgentSessionControlRepository
         },
       });
       if (!attempt) throw scope();
+      const operationBinding = await tx.agentExecutionAttemptOperationBinding.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          executionAttemptId: input.attemptId,
+          operationRunId: input.operationRunId,
+        },
+        select: { id: true, operationRunId: true },
+      });
+      if (!operationBinding) throw scope();
       const existing = await tx.agentSessionApproval.findFirst({
         where: { executionId: input.executionId, idempotencyKey: input.idempotencyKey },
       });
@@ -594,6 +650,8 @@ export class PrismaAgentSessionControlRepository
           existing.sessionId !== input.sessionId ||
           existing.taskId !== input.taskId ||
           existing.attemptId !== input.attemptId ||
+          existing.operationBindingId !== operationBinding.id ||
+          existing.predecessorOperationRunId !== operationBinding.operationRunId ||
           existing.capabilityKey !== input.capabilityKey ||
           existing.argumentsHash !== input.argumentsHash ||
           !canonicalEqual(existing.resourceSnapshot, input.resourceSnapshot) ||
@@ -619,6 +677,8 @@ export class PrismaAgentSessionControlRepository
           taskId: input.taskId,
           executionId: input.executionId,
           attemptId: input.attemptId,
+          operationBindingId: operationBinding.id,
+          predecessorOperationRunId: operationBinding.operationRunId,
           capabilityKey: input.capabilityKey,
           argumentsHash: input.argumentsHash,
           resourceSnapshot: input.resourceSnapshot as Prisma.InputJsonValue,
@@ -649,6 +709,9 @@ export class PrismaAgentSessionControlRepository
           idempotent.decidedByActorType !== input.actorType ||
           idempotent.decidedByActorId !== input.actorId
         ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        if (input.decision === 'approved') {
+          await ensureApprovalContinuation(tx, idempotent);
+        }
         return mapApproval(idempotent, false);
       }
       const approval = await tx.agentSessionApproval.findFirst({
@@ -660,7 +723,7 @@ export class PrismaAgentSessionControlRepository
       });
       if (!approval) throw scope();
       if (approval.state !== input.expectedState || approval.expiresAt <= new Date()) throw state();
-      return mapApproval(await tx.agentSessionApproval.update({
+      const decided = await tx.agentSessionApproval.update({
         where: { id: approval.id },
         data: {
           state: input.decision,
@@ -669,7 +732,11 @@ export class PrismaAgentSessionControlRepository
           decidedByActorId: input.actorId,
           decidedAt: new Date(),
         },
-      }), true);
+      });
+      if (input.decision === 'approved') {
+        await ensureApprovalContinuation(tx, decided);
+      }
+      return mapApproval(decided, true);
     }).catch(rethrowStable);
   }
 
@@ -689,6 +756,8 @@ export class PrismaAgentSessionControlRepository
         taskId: true,
         executionId: true,
         attemptId: true,
+        operationBindingId: true,
+        predecessorOperationRunId: true,
         capabilityKey: true,
         argumentsHash: true,
         resourceSnapshot: true,
@@ -706,7 +775,6 @@ export class PrismaAgentSessionControlRepository
             externalRunId: true,
             encryptedHandleRef: true,
             runtimeGeneration: true,
-            operationRunId: true,
           },
         },
       },
@@ -723,7 +791,8 @@ export class PrismaAgentSessionControlRepository
       taskId: approval.taskId,
       executionId: approval.executionId,
       attemptId: approval.attemptId,
-      operationRunId: approval.attempt.operationRunId,
+      operationBindingId: approval.operationBindingId,
+      operationRunId: approval.predecessorOperationRunId,
       capabilityKey: approval.capabilityKey,
       argumentsHash: approval.argumentsHash,
       resourceSnapshot: resourceSnapshot.data,
@@ -889,17 +958,26 @@ export class PrismaAgentSessionControlRepository
             id: true,
             runtimeType: true,
             attempts: {
-              where: { state: { in: ['queued', 'running'] }, operationRunId: { not: null } },
+              where: {
+                state: { in: ['queued', 'running'] },
+                operationBindings: { some: {} },
+              },
               orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
               take: 1,
-              select: { operationRunId: true },
+              select: {
+                operationBindings: {
+                  orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                  take: 1,
+                  select: { operationRunId: true },
+                },
+              },
             },
           },
         },
       },
     });
     const execution = task?.executions[0];
-    const operationRunId = execution?.attempts[0]?.operationRunId ?? null;
+    const operationRunId = execution?.attempts[0]?.operationBindings[0]?.operationRunId ?? null;
     if (!task || !execution || !operationRunId) return null;
     return {
       organizationId: task.organizationId,
@@ -935,7 +1013,13 @@ export class PrismaAgentSessionControlRepository
             attempts: {
               orderBy: [{ startedAt: 'desc' }, { id: 'desc' }],
               take: 1,
-              select: { operationRunId: true },
+              select: {
+                operationBindings: {
+                  orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                  take: 1,
+                  select: { operationRunId: true },
+                },
+              },
             },
           },
         },
@@ -952,7 +1036,7 @@ export class PrismaAgentSessionControlRepository
       executionStatus: execution.status,
       runtimeType: execution.runtimeType,
       requestedByUserId: task.session.createdByUserId,
-      operationRunId: execution.attempts[0]?.operationRunId ?? null,
+      operationRunId: execution.attempts[0]?.operationBindings[0]?.operationRunId ?? null,
     };
   }
 
@@ -1005,7 +1089,16 @@ export class PrismaAgentSessionControlRepository
           id: true,
           status: true,
           runtimeType: true,
-          attempts: { take: 1, select: { operationRunId: true } },
+          attempts: {
+            take: 1,
+            select: {
+              operationBindings: {
+                orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+                take: 1,
+                select: { operationRunId: true },
+              },
+            },
+          },
         },
       });
       if (existing) {
@@ -1018,7 +1111,7 @@ export class PrismaAgentSessionControlRepository
           executionStatus: existing.status,
           runtimeType: existing.runtimeType,
           requestedByUserId: task.session.createdByUserId,
-          operationRunId: existing.attempts[0]?.operationRunId ?? null,
+          operationRunId: existing.attempts[0]?.operationBindings[0]?.operationRunId ?? null,
         };
       }
       if (task.status !== input.expectedStatus) throw state();
@@ -1061,6 +1154,328 @@ export class PrismaAgentSessionControlRepository
     }).catch(rethrowStable);
   }
 
+  async continueOperationAttempt(
+    input: Parameters<AgentSessionControlRepositoryPort['continueOperationAttempt']>[0],
+  ) {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      input.signal.throwIfAborted();
+      await lock(tx, [
+        'attempt-operation-continuation',
+        input.organizationId,
+        input.attemptId,
+        input.continuationKey,
+      ]);
+      const existing = await tx.agentExecutionAttemptOperationBinding.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          executionAttemptId: input.attemptId,
+          continuationKey: input.continuationKey,
+        },
+        select: {
+          executionAttemptId: true,
+          operationRunId: true,
+          predecessorOperationRunId: true,
+        },
+      });
+      if (existing) {
+        if (existing.predecessorOperationRunId !== input.predecessorOperationRunId) {
+          throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+        }
+        return {
+          operationRunId: existing.operationRunId,
+          attemptId: existing.executionAttemptId,
+        };
+      }
+      const predecessor = await tx.agentExecutionAttemptOperationBinding.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          executionAttemptId: input.attemptId,
+          operationRunId: input.predecessorOperationRunId,
+        },
+        include: {
+          attempt: {
+            include: {
+              execution: {
+                select: {
+                  id: true,
+                  status: true,
+                  sessionTaskId: true,
+                  sessionTask: { select: { status: true } },
+                },
+              },
+            },
+          },
+          operationRun: true,
+        },
+      });
+      if (!predecessor) throw scope();
+      if (
+        predecessor.attempt.executionId !== input.executionId ||
+        predecessor.attempt.sessionId !== input.sessionId ||
+        predecessor.attempt.execution.sessionTaskId !== input.taskId ||
+        predecessor.attempt.state !== 'running' ||
+        predecessor.attempt.execution.status !== 'running' ||
+        !['running', 'waiting_approval'].includes(
+          predecessor.attempt.execution.sessionTask.status,
+        ) ||
+        !predecessor.attempt.externalRunId ||
+        !predecessor.attempt.encryptedHandleRef
+      ) throw state();
+      const lifecycleCancelled = predecessor.operationRun.status === 'cancelled' && [
+        'operation_server_shutdown',
+        'operation_server_lifecycle_expired',
+      ].includes(predecessor.operationRun.errorCode ?? '');
+      const approvalBoundary = predecessor.operationRun.status === 'attention_required';
+      if (!lifecycleCancelled && !approvalBoundary) throw state();
+      input.signal.throwIfAborted();
+      const operationRun = await tx.operationRun.create({
+        data: {
+          organizationId: input.organizationId,
+          operationKey: predecessor.operationRun.operationKey,
+          definitionVersion: predecessor.operationRun.definitionVersion,
+          ownerDomain: predecessor.operationRun.ownerDomain,
+          title: predecessor.operationRun.title,
+          engineType: predecessor.operationRun.engineType,
+          resourceClass: predecessor.operationRun.resourceClass,
+          executionTimeoutMs: predecessor.operationRun.executionTimeoutMs,
+          triggerSource: predecessor.operationRun.triggerSource,
+          requestedByUserId: predecessor.operationRun.requestedByUserId,
+          parentRunId: predecessor.operationRun.parentRunId,
+          scheduleId: predecessor.operationRun.scheduleId,
+          idempotencyKey: `agent-session-continuation:${input.attemptId}:${input.continuationKey}`,
+          input: predecessor.operationRun.input as Prisma.InputJsonValue,
+          maxAttempts: predecessor.operationRun.maxAttempts,
+        },
+        select: { id: true },
+      });
+      await tx.agentExecutionAttemptOperationBinding.create({
+        data: {
+          organizationId: input.organizationId,
+          executionAttemptId: predecessor.attempt.id,
+          executionId: predecessor.attempt.executionId,
+          sessionId: predecessor.attempt.sessionId,
+          operationRunId: operationRun.id,
+          predecessorOperationRunId: predecessor.operationRunId,
+          continuationKey: input.continuationKey,
+        },
+      });
+      await tx.operationRunCheckpoint.create({
+        data: {
+          organizationId: input.organizationId,
+          operationRunId: operationRun.id,
+          sequence: 1n,
+          kind: 'runtime_handle_continuation',
+          state: {
+            runtimeHandle: {
+              runtimeType: predecessor.attempt.runtimeType,
+              executionId: predecessor.attempt.executionId,
+              attemptId: predecessor.attempt.id,
+              externalRunId: predecessor.attempt.externalRunId,
+              encryptedHandleRef: predecessor.attempt.encryptedHandleRef,
+              generation: predecessor.attempt.runtimeGeneration,
+            },
+          } as Prisma.InputJsonValue,
+        },
+      });
+      return { operationRunId: operationRun.id, attemptId: predecessor.attempt.id };
+    }).catch(rethrowStable);
+  }
+
+  async listLifecycleRecoveryCandidates(
+    input: Parameters<AgentSessionControlRepositoryPort['listLifecycleRecoveryCandidates']>[0],
+  ) {
+    // The lifecycle predicate intentionally applies *after* DISTINCT ON.  An
+    // earlier cancelled envelope is not recoverable when a newer immutable
+    // envelope already exists for the same stable runtime attempt.
+    const organizationFilter = input.organizationId
+      ? Prisma.sql`WHERE binding.organization_id = ${input.organizationId}::uuid`
+      : Prisma.empty;
+    const bindings = await this.prisma.$queryRaw<Array<{
+      organizationId: string;
+      sessionId: string;
+      taskId: string;
+      executionId: string;
+      attemptId: string;
+      predecessorOperationRunId: string;
+    }>>(Prisma.sql`
+      WITH latest_binding AS (
+        SELECT DISTINCT ON (binding.execution_attempt_id)
+          binding.organization_id,
+          binding.session_id,
+          binding.execution_id,
+          binding.execution_attempt_id,
+          binding.operation_run_id
+        FROM agent_execution_attempt_operation_bindings AS binding
+        ${organizationFilter}
+        ORDER BY
+          binding.execution_attempt_id,
+          binding.created_at DESC,
+          binding.id DESC
+      )
+      SELECT
+        binding.organization_id AS "organizationId",
+        binding.session_id AS "sessionId",
+        execution.session_task_id AS "taskId",
+        binding.execution_id AS "executionId",
+        binding.execution_attempt_id AS "attemptId",
+        binding.operation_run_id AS "predecessorOperationRunId"
+      FROM latest_binding AS binding
+      JOIN operation_runs AS operation_run
+        ON operation_run.id = binding.operation_run_id
+        AND operation_run.organization_id = binding.organization_id
+      JOIN agent_execution_attempts AS attempt
+        ON attempt.id = binding.execution_attempt_id
+        AND attempt.execution_id = binding.execution_id
+        AND attempt.session_id = binding.session_id
+        AND attempt.organization_id = binding.organization_id
+      JOIN agent_executions AS execution
+        ON execution.id = binding.execution_id
+        AND execution.organization_id = binding.organization_id
+      JOIN agent_session_tasks AS task
+        ON task.id = execution.session_task_id
+        AND task.session_id = binding.session_id
+        AND task.organization_id = binding.organization_id
+      WHERE operation_run.status = 'cancelled'
+        AND operation_run.error_code IN (
+          'operation_server_shutdown',
+          'operation_server_lifecycle_expired'
+        )
+        AND attempt.state = 'running'
+        AND attempt.external_run_id IS NOT NULL
+        AND attempt.encrypted_handle_ref IS NOT NULL
+        AND execution.status = 'running'
+        AND task.status = 'running'
+      ORDER BY binding.execution_attempt_id ASC
+      LIMIT ${input.limit}
+    `);
+    return bindings;
+  }
+
+  async advanceApprovedContinuation(
+    input: Parameters<AgentSessionControlRepositoryPort['advanceApprovedContinuation']>[0],
+  ) {
+    input.signal.throwIfAborted();
+    const approval = await this.prisma.agentSessionApproval.findFirst({
+      where: {
+        id: input.approvalId,
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+      },
+      include: {
+        continuation: true,
+        operationBinding: {
+          select: { id: true, operationRunId: true },
+        },
+        attempt: {
+          select: {
+            runtimeType: true,
+            externalRunId: true,
+            encryptedHandleRef: true,
+            runtimeGeneration: true,
+          },
+        },
+      },
+    });
+    if (!approval) throw scope();
+    if (approval.state !== 'approved' || !approval.continuation) throw state();
+    if (
+      approval.operationBinding.id !== approval.operationBindingId ||
+      approval.operationBinding.operationRunId !== approval.predecessorOperationRunId ||
+      !approval.attempt.externalRunId ||
+      !approval.attempt.encryptedHandleRef
+    ) throw scope();
+    if (approval.continuation.state === 'interrupt_delivered') {
+      if (!approval.continuation.successorOperationRunId) throw state();
+      return mapApprovalContinuation(
+        approval,
+        approval.continuation.successorOperationRunId,
+        'interrupt_delivered',
+      );
+    }
+    const successor = await this.continueOperationAttempt({
+      signal: input.signal,
+      organizationId: input.organizationId,
+      sessionId: approval.sessionId,
+      taskId: approval.taskId,
+      executionId: approval.executionId,
+      attemptId: approval.attemptId,
+      predecessorOperationRunId: approval.predecessorOperationRunId,
+      continuationKey: `approval:${approval.id}`,
+    });
+    await this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lock(tx, ['approval-continuation', input.organizationId, input.approvalId]);
+      const continuation = await tx.agentSessionApprovalContinuation.findFirst({
+        where: {
+          approvalId: input.approvalId,
+          organizationId: input.organizationId,
+        },
+      });
+      if (!continuation) throw state();
+      if (
+        continuation.successorOperationRunId !== null &&
+        continuation.successorOperationRunId !== successor.operationRunId
+      ) throw conflict('AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT');
+      if (continuation.state === 'interrupt_delivered') return;
+      await tx.agentSessionApprovalContinuation.update({
+        where: { id: continuation.id },
+        data: {
+          successorOperationRunId: successor.operationRunId,
+          state: 'successor_created',
+        },
+      });
+    }).catch(rethrowStable);
+    return mapApprovalContinuation(approval, successor.operationRunId, 'successor_created');
+  }
+
+  async markApprovalContinuationInterruptDelivered(
+    input: Parameters<AgentSessionControlRepositoryPort['markApprovalContinuationInterruptDelivered']>[0],
+  ): Promise<void> {
+    const updated = await this.prisma.agentSessionApprovalContinuation.updateMany({
+      where: {
+        organizationId: input.organizationId,
+        approvalId: input.approvalId,
+        successorOperationRunId: input.operationRunId,
+        state: { in: ['successor_created', 'interrupt_delivered'] },
+      },
+      data: { state: 'interrupt_delivered', interruptDeliveredAt: new Date() },
+    });
+    if (updated.count !== 1) {
+      const continuation = await this.prisma.agentSessionApprovalContinuation.findFirst({
+        where: { organizationId: input.organizationId, approvalId: input.approvalId },
+        select: { successorOperationRunId: true, state: true },
+      });
+      if (
+        !continuation ||
+        continuation.successorOperationRunId !== input.operationRunId ||
+        continuation.state !== 'interrupt_delivered'
+      ) throw state();
+    }
+  }
+
+  async listIncompleteApprovalContinuations(
+    input: Parameters<AgentSessionControlRepositoryPort['listIncompleteApprovalContinuations']>[0],
+  ) {
+    const continuations = await this.prisma.agentSessionApprovalContinuation.findMany({
+      where: {
+        ...(input.organizationId ? { organizationId: input.organizationId } : {}),
+        state: { in: ['pending', 'successor_created'] },
+        approval: { state: 'approved' },
+      },
+      select: {
+        organizationId: true,
+        approvalId: true,
+        approval: { select: { sessionId: true } },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: input.limit,
+    });
+    return continuations.map((continuation) => ({
+      organizationId: continuation.organizationId,
+      sessionId: continuation.approval.sessionId,
+      approvalId: continuation.approvalId,
+    }));
+  }
+
   private async throwScopeOrStateForTask(input: {
     organizationId: string;
     sessionId: string;
@@ -1099,7 +1514,7 @@ function mapDelegation(
     state: row.state,
   };
 }
-function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; externalRunId: string | null; encryptedHandleRef: string | null; runtimeGeneration: number; operationRunId: string | null; state: string }): ExecutionAttemptRecord {
+function mapAttempt(row: { id: string; executionId: string; attemptNumber: number; runtimeType: string; externalRunId: string | null; encryptedHandleRef: string | null; runtimeGeneration: number; state: string }): ExecutionAttemptRecord {
   return {
     id: row.id,
     executionId: row.executionId,
@@ -1108,12 +1523,57 @@ function mapAttempt(row: { id: string; executionId: string; attemptNumber: numbe
     externalRunId: row.externalRunId,
     encryptedHandleRef: row.encryptedHandleRef,
     runtimeGeneration: row.runtimeGeneration,
-    operationRunId: row.operationRunId,
     state: row.state,
   };
 }
 function mapApproval(row: { id: string; state: string; decisionIdempotencyKey: string | null }, changed: boolean): SessionApprovalRecord {
   return { id: row.id, state: row.state, decisionIdempotencyKey: row.decisionIdempotencyKey, changed };
+}
+async function ensureApprovalContinuation(
+  tx: Prisma.TransactionClient,
+  approval: { id: string; organizationId: string; state: string },
+): Promise<void> {
+  if (approval.state !== 'approved') return;
+  const existing = await tx.agentSessionApprovalContinuation.findFirst({
+    where: { approvalId: approval.id, organizationId: approval.organizationId },
+    select: { id: true },
+  });
+  if (existing) return;
+  await tx.agentSessionApprovalContinuation.create({
+    data: {
+      organizationId: approval.organizationId,
+      approvalId: approval.id,
+      state: 'pending',
+    },
+  });
+}
+function mapApprovalContinuation(
+  approval: {
+    id: string;
+    attemptId: string;
+    executionId: string;
+    attempt: {
+      runtimeType: string;
+      externalRunId: string | null;
+      encryptedHandleRef: string | null;
+      runtimeGeneration: number;
+    };
+  },
+  operationRunId: string,
+  continuationState: 'successor_created' | 'interrupt_delivered',
+) {
+  if (!approval.attempt.externalRunId || !approval.attempt.encryptedHandleRef) throw state();
+  return {
+    approvalId: approval.id,
+    operationRunId,
+    attemptId: approval.attemptId,
+    runtimeType: approval.attempt.runtimeType,
+    executionId: approval.executionId,
+    externalRunId: approval.attempt.externalRunId,
+    encryptedHandleRef: approval.attempt.encryptedHandleRef,
+    runtimeGeneration: approval.attempt.runtimeGeneration,
+    state: continuationState,
+  };
 }
 function mapArtifact(row: { id: string; sha256: string; lifecycle: string }): SessionArtifactRecord {
   return { id: row.id, sha256: row.sha256, lifecycle: row.lifecycle };

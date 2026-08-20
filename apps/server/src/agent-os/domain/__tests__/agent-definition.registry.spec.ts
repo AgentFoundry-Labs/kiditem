@@ -91,6 +91,9 @@ describe('agent definition registry', () => {
       'sourcing.refreshValidation',
       'sourcing.scrapeUrlWorkflow',
     ]);
+    expect(sourcing?.defaultToolPolicies).not.toContainEqual(
+      expect.objectContaining({ toolKey: 'market.collect_shadow_signals' }),
+    );
     expect(
       sourcing?.defaultToolPolicies.find(
         (policy) => policy.toolKey === 'sourcing.scrapeUrlWorkflow',

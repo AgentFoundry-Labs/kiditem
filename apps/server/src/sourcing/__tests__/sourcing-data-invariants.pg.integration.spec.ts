@@ -129,6 +129,56 @@ describe('Sourcing durable data invariants (PG integration)', () => {
     ).resolves.toBe(0);
   });
 
+  it('serializes one recoverable Wing finalize claim and exposes durable completion', async () => {
+    const input = recoverableWingFinalizeClaim();
+    const claims = await Promise.all(
+      Array.from({ length: 8 }, () => collectionRepository.claimRecoverableRun(input)),
+    );
+    const winner = claims.find(
+      (claim): claim is Extract<typeof claim, { kind: 'claimed' }> => claim.kind === 'claimed',
+    );
+    if (!winner) throw new Error('Expected one recoverable finalize owner');
+
+    expect(claims.filter((claim) => claim.kind === 'claimed')).toHaveLength(1);
+    expect(claims.filter((claim) => claim.kind === 'in_progress')).toHaveLength(7);
+    await expect(collectionRepository.commit({
+      permit: winner.permit,
+      output: {
+        observations: [],
+        typedRecords: [],
+        discoveredCount: 0,
+        rejectedCount: 0,
+        qualityReport: { purpose: 'recommendation_validation' },
+      },
+    })).resolves.toMatchObject({ kind: 'committed' });
+    await expect(collectionRepository.claimRecoverableRun(input)).resolves.toEqual({
+      kind: 'completed',
+      runId: winner.permit.runId,
+    });
+  });
+
+  it('reclaims a failed Wing finalize marker with a new token and generation', async () => {
+    const input = recoverableWingFinalizeClaim();
+    const first = await collectionRepository.claimRecoverableRun(input);
+    if (first.kind !== 'claimed') throw new Error('Expected first finalize claim');
+    await collectionRepository.fail({
+      permit: first.permit,
+      error: { code: 'REFRESH_FAILED', message: 'retry me', retryable: true },
+    });
+
+    const resumed = await collectionRepository.claimRecoverableRun(input);
+
+    expect(resumed).toMatchObject({
+      kind: 'claimed',
+      permit: {
+        runId: first.permit.runId,
+        generation: first.permit.generation + 1,
+      },
+    });
+    if (resumed.kind !== 'claimed') throw new Error('Expected resumed finalize claim');
+    expect(resumed.permit.leaseToken).not.toBe(first.permit.leaseToken);
+  });
+
   it('commits extension evidence and stable candidate projection in one authorized transaction', async () => {
     const claim = await collectionRepository.claimAuthorizedRun({
       organizationId: TEST_ORGANIZATION_ID,
@@ -233,6 +283,23 @@ function collectionClaim(idempotencyKey: string) {
     triggerKind: 'manual' as const,
     triggeredByUserId: TEST_USER_ID,
     leaseDurationMs: 60_000,
+  };
+}
+
+function recoverableWingFinalizeClaim() {
+  const operationRunId = '00000000-0000-4000-8000-000000000090';
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    sourceKey: 'coupang.wing_catalog',
+    scopeKey: 'default',
+    targetKey: `finalize:${operationRunId}`,
+    idempotencyKey: `wing-operation:${operationRunId}:finalize`,
+    requestHash: sha256(`${operationRunId}:recommendation_validation`),
+    collectorKey: 'wing-catalog-operation-finalize',
+    collectorVersion: '2026-08-14',
+    triggerKind: 'extension' as const,
+    triggeredByUserId: TEST_USER_ID,
+    leaseDurationMs: 120_000,
   };
 }
 

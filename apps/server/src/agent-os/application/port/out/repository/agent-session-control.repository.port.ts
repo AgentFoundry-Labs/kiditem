@@ -45,7 +45,6 @@ export interface ExecutionAttemptRecord {
   externalRunId: string | null;
   encryptedHandleRef: string | null;
   runtimeGeneration: number;
-  operationRunId: string | null;
   state: string;
 }
 
@@ -63,6 +62,7 @@ export interface SessionApprovalDetailRecord {
   taskId: string;
   executionId: string;
   attemptId: string;
+  operationBindingId: string;
   operationRunId: string | null;
   capabilityKey: string;
   argumentsHash: string;
@@ -75,6 +75,24 @@ export interface SessionApprovalDetailRecord {
   externalRunId: string | null;
   encryptedHandleRef: string | null;
   runtimeGeneration: number;
+}
+
+export interface AgentSessionApprovalContinuationRecord {
+  approvalId: string;
+  operationRunId: string;
+  attemptId: string;
+  runtimeType: string;
+  executionId: string;
+  externalRunId: string;
+  encryptedHandleRef: string;
+  runtimeGeneration: number;
+  state: 'successor_created' | 'interrupt_delivered';
+}
+
+export interface IncompleteApprovalContinuationRecord {
+  organizationId: string;
+  sessionId: string;
+  approvalId: string;
 }
 
 export interface SessionTaskExecutionRecord {
@@ -93,6 +111,20 @@ export interface SessionArtifactRecord {
   id: string;
   sha256: string;
   lifecycle: string;
+}
+
+export interface AgentSessionOperationContinuationRecord {
+  operationRunId: string;
+  attemptId: string;
+}
+
+export interface AgentSessionLifecycleRecoveryRecord {
+  organizationId: string;
+  sessionId: string;
+  taskId: string;
+  executionId: string;
+  attemptId: string;
+  predecessorOperationRunId: string;
 }
 
 export interface AgentSessionControlRepositoryPort {
@@ -137,6 +169,12 @@ export interface AgentSessionControlRepositoryPort {
     organizationId: string;
     operationRunId: string;
   }): Promise<ExecutionAttemptRecord | null>;
+  activateAttemptForOperation(input: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    operationRunId: string;
+  }): Promise<ExecutionAttemptRecord>;
   startAttempt(input: {
     organizationId: string;
     sessionId: string;
@@ -144,7 +182,6 @@ export interface AgentSessionControlRepositoryPort {
     runtimeType: string;
     externalRunId?: string | null;
     encryptedHandleRef?: string | null;
-    operationRunId?: string | null;
     idempotencyKey: string;
   }): Promise<ExecutionAttemptRecord>;
   persistAttemptHandle(input: {
@@ -173,6 +210,7 @@ export interface AgentSessionControlRepositoryPort {
     taskId: string;
     executionId: string;
     attemptId: string;
+    operationRunId: string;
     capabilityKey: string;
     argumentsHash: string;
     resourceSnapshot: unknown[];
@@ -254,4 +292,33 @@ export interface AgentSessionControlRepositoryPort {
     expectedStatus: 'failed' | 'paused' | 'waiting_dependency';
     idempotencyKey: string;
   }): Promise<SessionTaskExecutionRecord>;
+  continueOperationAttempt(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    executionId: string;
+    attemptId: string;
+    predecessorOperationRunId: string;
+    continuationKey: string;
+  }): Promise<AgentSessionOperationContinuationRecord>;
+  listLifecycleRecoveryCandidates(input: {
+    organizationId?: string;
+    limit: number;
+  }): Promise<AgentSessionLifecycleRecoveryRecord[]>;
+  advanceApprovedContinuation(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    sessionId: string;
+    approvalId: string;
+  }): Promise<AgentSessionApprovalContinuationRecord>;
+  markApprovalContinuationInterruptDelivered(input: {
+    organizationId: string;
+    approvalId: string;
+    operationRunId: string;
+  }): Promise<void>;
+  listIncompleteApprovalContinuations(input: {
+    organizationId?: string;
+    limit: number;
+  }): Promise<IncompleteApprovalContinuationRecord[]>;
 }

@@ -34,6 +34,9 @@ Current runbooks:
 - [Sourcing Backend Normalized Cutover](sourcing-backend-cutover.md) — preserve
   canonical sourcing history and provenance while removing the lossy 1688
   hot-product storage and resetting only derived dashboard projections.
+- [Sourcing Collection Operations](sourcing-collection-operations.md) — operate
+  operation-backed sourcing collection, browser claims, lifecycle recovery,
+  provider outages, and the 14-route Chrome regression matrix.
 - [Office Deploy](office-deploy.md) — build immutable office images in GitHub
   Actions, apply digest-only releases to the Windows office runtime, verify
   health, manage disk pressure, and roll back without local image builds.

@@ -113,8 +113,9 @@ export class SourcingValidationService {
     limit: number;
     now: Date;
   }): Promise<SourcingValidationEnvelope> {
-    const episodes = input.run.items
-      .filter((item) => item.sourcePlatform === '1688')
+    const supplyItems = input.run.items.filter((item) => item.sourcePlatform === '1688');
+    const validationItems = supplyItems.length > 0 ? supplyItems : input.run.items;
+    const episodes = validationItems
       .slice(0, input.limit)
       .map((item) => buildEpisode(item, input.now));
     const items = episodes.length === 0

@@ -1,24 +1,10 @@
 import { Module } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
-import { AutomationModule } from '../automation/automation.module';
-import { ReadinessModule } from '../readiness/readiness.module';
-import { OperationsModule } from '../operations/operations.module';
 import { DashboardCapabilityModule } from '../analytics/dashboard/dashboard-capability.module';
-import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
-import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
-import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
-import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
-import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
-import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
-import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
-import { AgentInteractionBootstrapController } from './adapter/in/http/agent-interaction-bootstrap.controller';
-import { AgentInteractionControlController } from './adapter/in/http/agent-interaction-control.controller';
-import { AgentAguiController } from './adapter/in/http/agent-agui.controller';
-import { AgentInteractionActionsController } from './adapter/in/http/agent-interaction-actions.controller';
-import { AgentSessionController } from './adapter/in/http/agent-session.controller';
+import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { ReadinessStateModule } from '../readiness/readiness-state.module';
 import { AgentOsPlatformProbeCapabilityAdapter } from './adapter/in/agent/agent-os-platform-probe-capability.adapter';
 import { AnalyticsOverviewAgentCapabilityAdapter } from './adapter/in/agent/analytics-overview-agent-capability.adapter';
-import { InteractionGatewayGuard } from './adapter/in/http/interaction-gateway.guard';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { PrismaAgentInteractionRepository } from './adapter/out/repository/prisma-agent-interaction.repository';
 import { PrismaAgentVersionRepository } from './adapter/out/repository/prisma-agent-version.repository';
@@ -26,12 +12,10 @@ import { PrismaAgentSessionControlRepository } from './adapter/out/repository/pr
 import { PrismaAgentExecutionContextRepository } from './adapter/out/repository/prisma-agent-execution-context.repository';
 import { PrismaAgentConversationModelViewRepository } from './adapter/out/repository/prisma-agent-conversation-model-view.repository';
 import { InProcessAgentConversationLivePublisher } from './adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
-import { InteractionProductAnalyticsAdapter } from './adapter/out/event/interaction-product-analytics.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from './adapter/out/cross-domain/agent-os-live-readiness.adapter';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './adapter/out/runtime/openai-responses-operator-runtime.adapter';
-import { OpenAiResponsesAguiRuntimeAdapter } from './adapter/out/runtime/openai-responses-agui-runtime.adapter';
 import { OperatorRuntimeHandler } from './adapter/out/runtime/operator-runtime.handler';
 import { RoutingRuntimeAdapter } from './adapter/out/runtime/routing-runtime.adapter';
 import { FilesystemAgentRuntimeAssetsAdapter } from './adapter/out/runtime/filesystem-agent-runtime-assets.adapter';
@@ -51,7 +35,6 @@ import { AGENT_SESSION_CONTROL_REPOSITORY } from './application/port/out/reposit
 import { AGENT_EXECUTION_CONTEXT_REPOSITORY } from './application/port/out/repository/agent-execution-context.repository.port';
 import { AGENT_CONVERSATION_MODEL_VIEW_REPOSITORY } from './application/port/out/repository/agent-conversation-model-view.repository.port';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from './application/port/out/event/agent-conversation-live-publisher.port';
-import { INTERACTION_PRODUCT_ANALYTICS_PORT } from './application/port/out/event/interaction-product-analytics.port';
 import { AGENT_RUNTIME_PORT } from './application/port/out/runtime/agent-runtime.port';
 import { AGENT_RUNTIME_ASSETS_PORT } from './application/port/out/runtime/agent-runtime-assets.port';
 import { AGENT_MCP_SESSION_PORT } from './application/port/out/runtime/agent-mcp-session.port';
@@ -59,7 +42,6 @@ import { AGENT_DURABLE_RUNTIME_ASSETS_PORT } from './application/port/out/runtim
 import { AGENT_SESSION_RESOURCE_VERSION_VALIDATOR } from './application/port/out/resource/agent-session-resource-version-validator.port';
 import { AGENT_RUNNER_PORT } from './application/port/in/agent-runner.port';
 import { AGENT_INTERACTION_PORT } from './application/port/in/agent-interaction.port';
-import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from './application/port/in/agent-capability-invocation.port';
 import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
 import { AgentApprovalService } from './application/service/agent-approval.service';
@@ -72,7 +54,6 @@ import { OperatorContextBuilder } from './application/service/operator-context-b
 import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
 import { AgentRunExecutor } from './application/service/agent-run-executor.service';
 import { AgentRunGraphService } from './application/service/agent-run-graph.service';
-import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 import { AgentTaskDelegationService } from './application/service/agent-task-delegation.service';
 import { AgentToolRouter } from './application/service/agent-tool-router.service';
@@ -82,13 +63,6 @@ import { OperatorDecisionExecutor } from './application/service/operator-decisio
 import { OperatorDecisionParser } from './application/service/operator-decision-parser.service';
 import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-runtime-assets-startup-validator.service';
 import { AgentInteractionService } from './application/service/agent-interaction.service';
-import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
-import { AgentInteractionIdentityService } from './application/service/agent-interaction-identity.service';
-import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
-import { AgentAguiRunService } from './application/service/agent-agui-run.service';
-import { AgentAguiProducerCoordinator } from './application/service/agent-agui-producer-coordinator.service';
-import { AgentAguiRuntimeRegistry } from './application/service/agent-agui-runtime-registry.service';
-import { AgentInteractionPresentationService } from './application/service/agent-interaction-presentation.service';
 import {
   AGENT_RUNTIME_MANIFEST_CATALOG,
   AgentRuntimeCatalogStartupValidator,
@@ -101,13 +75,8 @@ import {
 import { AgentExecutionContextBuilder } from './application/service/agent-execution-context-builder.service';
 import { AgentSessionCapabilityInvocationService } from './application/service/agent-session-capability-invocation.service';
 import { AgentRuntimeAdapterRegistry } from './application/service/agent-runtime-adapter.registry';
-import { AgentSessionApprovalService } from './application/service/agent-session-approval.service';
-import { AgentSessionCancellationService } from './application/service/agent-session-cancellation.service';
-import { AgentSessionExecutionService } from './application/service/agent-session-execution.service';
-import { AgentSessionRuntimeControlService } from './application/service/agent-session-runtime-control.service';
-import { AgentSessionTaskDispatchService } from './application/service/agent-session-task-dispatch.service';
-import { AgentSessionDelegationService } from './application/service/agent-session-delegation.service';
 import { resolveAgentOsRepositoryRoot } from './seed-agent-os';
+import { AgentApiCapabilityGrantService } from './application/service/agent-api-capability-grant.service';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -118,40 +87,14 @@ const agentInteractionProviders = [
 ];
 
 @Module({
-  imports: [AutomationModule, ReadinessModule, DashboardCapabilityModule, OperationsModule],
-  controllers: [
-    AgentCatalogController,
-    AgentRunRequestsController,
-    AgentExecutorController,
-    AgentRunsQueryController,
-    AgentRunObservabilityController,
-    AgentApprovalsController,
-    AgentConversationsController,
-    AgentInteractionBootstrapController,
-    AgentInteractionControlController,
-    AgentAguiController,
-    AgentInteractionActionsController,
-    AgentSessionController,
+  imports: [
+    PrismaModule,
+    OperationAlertRuntimeModule,
+    ReadinessStateModule,
+    DashboardCapabilityModule,
   ],
   providers: [
     ...agentInteractionProviders,
-    ...interactionEnvironmentProviders,
-    AgentInteractionIdentityService,
-    AgentAguiRunService,
-    AgentSessionRuntimeControlService,
-    AgentSessionApprovalService,
-    AgentSessionCancellationService,
-    AgentSessionExecutionService,
-    AgentSessionTaskDispatchService,
-    AgentSessionDelegationService,
-    AgentAguiProducerCoordinator,
-    AgentAguiRuntimeRegistry,
-    {
-      // Provisional wiring: KID-24 will relocate this HTTP composition boundary.
-      provide: AgentInteractionPresentationService,
-      useFactory: () => new AgentInteractionPresentationService(),
-    },
-    InteractionGatewayGuard,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,
@@ -165,7 +108,6 @@ const agentInteractionProviders = [
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
-    AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
     {
@@ -193,7 +135,6 @@ const agentInteractionProviders = [
     KidItemMcpToolRegistry,
     OpenAiResponsesOperatorRuntimeAdapter,
     OpenAiConversationSummarizerAdapter,
-    OpenAiResponsesAguiRuntimeAdapter,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
     OperatorRuntimeHandler,
@@ -201,7 +142,7 @@ const agentInteractionProviders = [
     AgentLocalCliRuntimeAdapter,
     AgentLocalProcessRegistry,
     KidItemMcpSessionAdapter,
-    AgentInlineRunReconciler,
+    AgentApiCapabilityGrantService,
     FilesystemAgentRuntimeAssetsAdapter,
     {
       provide: FilesystemAgentDurableRuntimeAssetsAdapter,
@@ -261,26 +202,9 @@ const agentInteractionProviders = [
     },
     InProcessAgentConversationLivePublisher,
     {
-      provide: InteractionProductAnalyticsAdapter,
-      inject: [EventEmitter2],
-      useFactory: (events: EventEmitter2) => {
-        const key = process.env.INTERACTION_ANALYTICS_HMAC_KEY;
-        if (!key) throw new Error('INTERACTION_ANALYTICS_HMAC_KEY_REQUIRED');
-        return new InteractionProductAnalyticsAdapter(
-          key,
-          async (event) => { events.emit('interaction.product.analytics', event); },
-        );
-      },
-    },
-    {
-      provide: INTERACTION_PRODUCT_ANALYTICS_PORT,
-      useExisting: InteractionProductAnalyticsAdapter,
-    },
-    {
       provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
       useExisting: InProcessAgentConversationLivePublisher,
     },
-    { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
     {
       provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
       useExisting: AgentSessionCapabilityInvocationService,
@@ -298,12 +222,12 @@ const agentInteractionProviders = [
   ],
   exports: [
     AGENT_INTERACTION_PORT,
-    AGENT_AGUI_RUNNER_PORT,
     AGENT_RUNNER_PORT,
+    AGENT_OS_REPOSITORY_PORT,
+    AgentApiCapabilityGrantService,
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
-    AgentRunWorker,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,
@@ -316,12 +240,11 @@ const agentInteractionProviders = [
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
-    AgentSessionRuntimeControlService,
-    AgentSessionApprovalService,
-    AgentSessionTaskDispatchService,
-    AgentSessionDelegationService,
     AGENT_INTERACTION_REPOSITORY,
     AGENT_SESSION_CONTROL_REPOSITORY,
+    AGENT_CONVERSATION_LIVE_PUBLISHER,
+    AGENT_SESSION_RESOURCE_VERSION_VALIDATOR,
+    OpenAiResponsesOperatorRuntimeAdapter,
     AgentTaskDelegationService,
     AgentToolRouter,
     AgentOsMcpToolExecutor,

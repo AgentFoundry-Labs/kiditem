@@ -11,7 +11,7 @@ import type { Request } from 'express';
  * - `req.authUser.organizationId` 가 null 이면 401 (no_organization_context)
  *
  * HTTP 컨텍스트가 아닌 경우(예: SSE 구독, WS)는 통과시킨다.
- * SSE 경로는 `AppModule` 의 미들웨어 제외 규칙과 조합된다.
+ * SSE 경로는 API root의 미들웨어 규칙과 조합된다.
  */
 @Injectable()
 export class OrganizationScopeGuard implements CanActivate {

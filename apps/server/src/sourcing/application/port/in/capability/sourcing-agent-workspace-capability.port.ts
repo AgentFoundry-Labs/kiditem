@@ -41,13 +41,6 @@ export interface SourcingAgentWorkspaceCapabilityPort {
     validation: { itemCount: number; missingCount: number };
   }>;
 
-  refreshCollection(input: {
-    organizationId: string;
-    requestedByUserId: string | null;
-    sources: Array<'naver' | '1688' | 'shorts'>;
-    idempotencyKey: string;
-  }): Promise<{ operationRunId: string; status: string }>;
-
   refreshValidation(input: {
     organizationId: string;
     recommendationRunId: string;

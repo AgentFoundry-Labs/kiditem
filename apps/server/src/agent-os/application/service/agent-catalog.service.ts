@@ -23,6 +23,8 @@ import {
 } from '../../domain/agent-definition.registry';
 import { listAgentSkills } from '../../domain/agent-skill.registry';
 
+const SHADOW_SIGNAL_CAPABILITY_KEY = 'market.collect_shadow_signals';
+
 @Injectable()
 export class AgentCatalogService {
   constructor(
@@ -171,6 +173,16 @@ export class AgentCatalogService {
   async upsertInstanceToolPolicy(
     input: UpsertInstanceToolPolicyInput & { actorUserId?: string | null },
   ): Promise<void> {
+    if (
+      input.toolKey === SHADOW_SIGNAL_CAPABILITY_KEY &&
+      (input.effect !== 'approval_required' || input.approvalMode !== 'admin')
+    ) {
+      throw new AgentOsCatalogError(
+        'shadow_signal_admin_approval_required',
+        'market.collect_shadow_signals must remain an explicit admin-approved policy.',
+      );
+    }
+
     const previous = await this.repository.resolveInstanceToolPolicy({
       organizationId: input.organizationId,
       agentInstanceId: input.agentInstanceId,

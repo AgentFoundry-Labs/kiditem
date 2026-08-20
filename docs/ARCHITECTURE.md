@@ -25,6 +25,27 @@ Company Chrome extension
   -> authenticated Coupang Wing form automation
 ```
 
+The Nest backend has static process roots; an environment flag never decides
+whether a process owns Operations:
+
+```text
+main.ts   -> ApiApplicationModule         -> HTTP + owner domains + Operations
+worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
+MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+```
+
+`AgentRuntimeApplicationModule` is the shared controller-free runtime beneath
+the worker and MCP roots. `AgentOsHttpModule` owns all Agent OS HTTP
+controllers and the API-only Operations-backed interaction services, while
+`AgentOsWorkerModule` owns only `AgentRunWorker`. Sourcing,
+Supply, and AI publish controller-free Agent runtime modules; only the API-side
+Sourcing collection binding imports Operations. The MCP-side binding sends a
+strict bounded command back to the API with a two-minute HMAC grant.
+
+Production supports exactly one API instance. API replicas, rolling overlap,
+and overlapping lifecycle ownership are unsupported. The Agent worker is a
+separate process and cannot query or mutate `OperationRun` rows.
+
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 
@@ -79,6 +100,20 @@ The global notification sheet is one chronological list: Alert rows and run
 projections share the same compact row presentation, with no separate Agent OS
 or `내 작업` card section. Manual shipment and Rocket actions publish distinct
 browser collection producers so their titles and return links remain stable.
+
+Sourcing has one exact ownership flow:
+
+```text
+sourcing screen -> Operations start/read -> owner operation handler
+browser handler -> KidItem OS claim -> fenced owner ingest
+owner snapshot -> sourcing screen
+Operations never owns sourcing or Ads canonical rows
+```
+
+Operations provides the run envelope, resource-class dispatch, lifecycle gate,
+and browser lease only. The Sourcing or Advertising owner handler writes its
+own canonical observations and exposes its own read model; no raw
+`OperationRun.result` becomes a canonical row.
 
 ## Monorepo Shape
 
@@ -204,6 +239,7 @@ their implementation structures are listed in the Backend Implementation Map.
 
 | Path | Kind | Ownership / Surfaces |
 |---|---|---|
+| `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
 | `apps/server/src/activity-events` | Owner Capability | Activity event read endpoint. |
 | `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
 | `apps/server/src/agent-os` | Platform | Agent catalog, queue, runtime, policy, cost, and observability. |
@@ -994,9 +1030,11 @@ selection store. React Query owns bootstrap freshness; CopilotKit/AG-UI owns
 in-memory messages and tool state. Navigation results contain an opaque,
 short-lived `actionRef`, never a model-supplied URL or database ID; Nest
 reauthorizes the action and returns one
-allowlisted route. The current controller providers are provisionally wired in
-`AgentOsModule` until the KID-24 long-running operation module boundary lands;
-that follow-up must move wiring without changing these ownership contracts.
+allowlisted route. `AgentOsModule` remains controller-free and exposes only the
+core repositories, runtime registries, and capability ports shared by API and
+Agent process roots. Interaction controllers, HTTP guards and secrets, AG-UI
+producers, and Operations-backed session controls are composed only by
+`AgentOsHttpModule`; worker and MCP roots cannot reach them transitively.
 
 ## Verification Baseline
 

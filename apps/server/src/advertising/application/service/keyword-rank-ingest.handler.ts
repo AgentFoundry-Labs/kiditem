@@ -250,6 +250,11 @@ export class KeywordRankIngestHandler {
       productCount: number;
       saved: true;
     }> = [];
+    const ignored: Array<{
+      keyword: string;
+      sellerId: string;
+      reason: "serp_snapshot_missing" | "newer_catalog_preserved";
+    }> = [];
     for (const entry of payload.data ?? []) {
       if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
         continue;
@@ -259,11 +264,14 @@ export class KeywordRankIngestHandler {
       const catalog = this.parseSellerCatalogs([row])[0];
       if (!keyword || !catalog) continue;
       const capturedAt = new Date(catalog.capturedAt);
+      let ignoredReason: "serp_snapshot_missing" | "newer_catalog_preserved" =
+        "serp_snapshot_missing";
       const saved = await this.keywordRankRepo.mutateLatestSerpSnapshot({
         organizationId,
         keyword,
         capturedAt,
         mutateItems: (snapshot) => {
+          ignoredReason = "newer_catalog_preserved";
           const envelope = this.readSnapshotEnvelope(snapshot.items);
           const previous = envelope.sellerCatalogs.find(
             (existing) => existing.sellerId === catalog.sellerId,
@@ -282,8 +290,9 @@ export class KeywordRankIngestHandler {
         },
       });
       if (!saved) {
+        ignored.push({ keyword, sellerId: catalog.sellerId, reason: ignoredReason });
         this.logger.warn(
-          `competitor_seller_catalog skipped without a fresh SERP snapshot (keyword=${keyword})`,
+          `competitor_seller_catalog ignored (${ignoredReason}, keyword=${keyword})`,
         );
         continue;
       }
@@ -294,7 +303,7 @@ export class KeywordRankIngestHandler {
         saved: true,
       });
     }
-    return { success: true, results };
+    return { success: true, results, ignored };
   }
 
   async executeSellerIdentities(

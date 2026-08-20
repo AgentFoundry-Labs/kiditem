@@ -25,7 +25,6 @@ import {
   OPERATION_REPOSITORY_PORT,
   type OperationRunRepositoryPort,
 } from '../../../../operations/application/port/out/repository/operation.repository.port';
-import { resolveOperationRunLeaseMs } from '../../../../operations/application/service/operation-runtime.config';
 import {
   OPERATION_HANDLER_REGISTRY_PORT,
   type OperationHandlerRegistryPort,
@@ -103,6 +102,8 @@ const RuntimeArtifactPayloadSchema = z
   })
   .strict();
 
+const RUNTIME_CANCEL_TIMEOUT_MS = 250;
+
 interface SessionTaskOperationInput {
   readonly organizationId: string;
   readonly sessionId: string;
@@ -114,8 +115,6 @@ interface SessionTaskOperationInput {
 export class AgentSessionTaskOperationHandler
   implements OperationHandler, OnModuleInit
 {
-  private readonly leaseMs = resolveOperationRunLeaseMs();
-
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
     private readonly operationRegistry: OperationHandlerRegistryPort,
@@ -140,6 +139,7 @@ export class AgentSessionTaskOperationHandler
   async execute(
     operation: OperationHandlerContext,
   ): Promise<OperationHandlerResult> {
+    operation.signal.throwIfAborted();
     const input = parseOperationInput(operation.input);
     const execution = await this.executions.loadExecutionRuntimeContext({
       executionId: input.executionId,
@@ -164,13 +164,11 @@ export class AgentSessionTaskOperationHandler
         execution.runtimeType,
       );
     }
-    const attempt = await this.controls.startAttempt({
+    const attempt = await this.controls.activateAttemptForOperation({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
       executionId: input.executionId,
-      runtimeType: execution.runtimeType,
       operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
     });
     await this.ensureTaskRunning(operation.organizationId, input.sessionId, input.taskId);
     const context = await this.contextBuilder.build({
@@ -312,28 +310,22 @@ export class AgentSessionTaskOperationHandler
   ): Promise<OperationHandlerResult> {
     let eventCount = 0;
     let assistantOpen = false;
-    let leaseLost = false;
-    const heartbeat = async () => {
-      if (!this.operations.heartbeatRun) return;
-      const now = new Date();
-      const ok = await this.operations.heartbeatRun({
-        organizationId: operation.organizationId,
-        runId: operation.runId,
-        attemptToken: operation.attemptToken,
-        now,
-        leaseExpiresAt: new Date(now.getTime() + this.leaseMs),
-      });
-      if (!ok) leaseLost = true;
-    };
-    await heartbeat();
-    const timer = setInterval(
-      () => void heartbeat().catch(() => { leaseLost = true; }),
-      Math.max(100, Math.floor(this.leaseMs / 3)),
-    );
-    timer.unref?.();
+    const iterator = runtime.connect(handle)[Symbol.asyncIterator]();
     try {
-      for await (const unsafeEvent of runtime.connect(handle)) {
-        if (leaseLost) return failure('AGENT_OPERATION_LEASE_LOST');
+      while (true) {
+        const next = await nextRuntimeEvent(iterator, operation.signal);
+        operation.signal.throwIfAborted();
+        if (next.done) {
+          return this.finalize(
+            operation,
+            input,
+            attemptId,
+            handle,
+            'failed',
+            'AGENT_RUNTIME_TERMINAL_MISSING',
+          );
+        }
+        const unsafeEvent = next.value;
         const event = normalizedEvent(unsafeEvent);
         eventCount += 1;
         if (event.kind === 'interrupt') {
@@ -403,6 +395,7 @@ export class AgentSessionTaskOperationHandler
           });
         }
         if (event.kind === 'terminal') {
+          operation.signal.throwIfAborted();
           return this.finalize(
             operation,
             input,
@@ -415,16 +408,51 @@ export class AgentSessionTaskOperationHandler
           );
         }
       }
-      return this.finalize(
+    } catch (error) {
+      if (!operation.signal.aborted) throw error;
+      await this.stopAbortedConsumption(
+        operation,
+        input,
+        attemptId,
+        runtime,
+        handle,
+      );
+      throw abortReason(operation.signal);
+    } finally {
+      void iterator.return?.().catch(() => undefined);
+    }
+  }
+
+  private async stopAbortedConsumption(
+    operation: OperationHandlerContext,
+    input: SessionTaskOperationInput,
+    attemptId: string,
+    runtime: AgentDurableRuntimeAdapter,
+    handle: RuntimeHandle,
+  ): Promise<void> {
+    if (!isDeadlineAbort(operation.signal.reason)) return;
+    const errorCode = 'OPERATION_DEADLINE_EXCEEDED';
+    try {
+      await cancelRuntimeWithinDeadline(runtime, handle);
+    } catch {
+      // The operation deadline is authoritative. A broken adapter cancel must
+      // not leave the canonical AgentOS graph nonterminal.
+    } finally {
+      await this.recordRuntimeEvent(operation, input, attemptId, 0, {
+        kind: 'terminal',
+        status: 'failed',
+        errorCode,
+      });
+      await this.finalize(
         operation,
         input,
         attemptId,
         handle,
         'failed',
-        'AGENT_RUNTIME_TERMINAL_MISSING',
+        errorCode,
+        'running',
+        true,
       );
-    } finally {
-      clearInterval(timer);
     }
   }
 
@@ -444,6 +472,7 @@ export class AgentSessionTaskOperationHandler
       task: names.task,
       execution: names.execution,
       attempt: names.attempt,
+      operationRunId: operation.runId,
       capabilityKey: payload.capabilityKey,
       arguments: payload.arguments,
       summary: payload.summary,
@@ -532,14 +561,18 @@ export class AgentSessionTaskOperationHandler
   }
 
   private async finalize(
-    operation: Pick<OperationHandlerContext, 'organizationId' | 'runId'>,
+    operation: Pick<OperationHandlerContext, 'organizationId' | 'runId'> & {
+      signal?: AbortSignal;
+    },
     input: SessionTaskOperationInput,
     attemptId: string,
     handle: RuntimeHandle | null,
     status: 'completed' | 'failed' | 'cancelled',
     errorCode?: string,
     expectedAttemptState = 'running',
+    allowAborted = false,
   ): Promise<OperationHandlerResult> {
+    if (!allowAborted) operation.signal?.throwIfAborted();
     await this.controls.finishAttempt({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
@@ -701,6 +734,58 @@ function normalizedEvent(event: NormalizedRuntimeEvent): NormalizedRuntimeEvent 
     throw new Error('AGENT_RUNTIME_EVENT_INVALID');
   }
   return event;
+}
+
+function nextRuntimeEvent(
+  iterator: AsyncIterator<NormalizedRuntimeEvent>,
+  signal: AbortSignal,
+): Promise<IteratorResult<NormalizedRuntimeEvent>> {
+  if (signal.aborted) return Promise.reject(abortReason(signal));
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(abortReason(signal));
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    void iterator.next().then(
+      (result) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(result);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new Error('operation_attempt_aborted');
+}
+
+function isDeadlineAbort(reason: unknown): boolean {
+  return reason instanceof Error && reason.message === 'operation_deadline_exceeded';
+}
+
+async function cancelRuntimeWithinDeadline(
+  runtime: AgentDurableRuntimeAdapter,
+  handle: RuntimeHandle,
+): Promise<void> {
+  let timeout: ReturnType<typeof setTimeout> | null = null;
+  const deadline = new Promise<void>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      reject(new Error('agent_runtime_cancel_timeout'));
+    }, RUNTIME_CANCEL_TIMEOUT_MS);
+    timeout.unref?.();
+  });
+  try {
+    await Promise.race([runtime.cancel(handle), deadline]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 function failure(code: string): OperationHandlerResult {

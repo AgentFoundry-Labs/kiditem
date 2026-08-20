@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
+import { AgentMcpApplicationModule } from '../../../../agent-mcp-application.module';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod/v3';
@@ -313,17 +314,39 @@ export function loadKidItemAgentOsMcpEnv(repositoryRoot: string): void {
   config({ path: resolve(repositoryRoot, '.env') });
 }
 
+export async function createKidItemAgentOsMcpApplicationContext(input: {
+  repositoryRoot: string;
+  createApplicationContext?: (
+    root: unknown,
+    options: { logger: false },
+  ) => unknown | Promise<unknown>;
+  loadApplicationModule?: () => Promise<{
+    AgentMcpApplicationModule: unknown;
+  }>;
+}): Promise<any> {
+  loadKidItemAgentOsMcpEnv(input.repositoryRoot);
+  delete process.env.AGENT_API_CAPABILITY_GRANT_SECRET;
+  const loadApplicationModule: () => Promise<{
+    AgentMcpApplicationModule: unknown;
+  }> = input.loadApplicationModule ?? (async () => ({
+    AgentMcpApplicationModule,
+  }));
+  const loadedApplicationModule = await loadApplicationModule();
+  const rootModule = loadedApplicationModule.AgentMcpApplicationModule;
+  const createApplicationContext = input.createApplicationContext ??
+    ((root, options) => NestFactory.createApplicationContext(root as never, options));
+  return createApplicationContext(rootModule, { logger: false });
+}
+
 export async function runKidItemAgentOsMcpServer(): Promise<void> {
   const repositoryRoot = readRequiredEnv(
     process.env,
     'KIDITEM_AGENT_OS_ENV_ROOT',
   );
-  loadKidItemAgentOsMcpEnv(repositoryRoot);
-  const { AppModule } = await import('../../../../app.module');
-  const context = readKidItemAgentOsMcpContext();
-  const app = await NestFactory.createApplicationContext(AppModule, {
-    logger: false,
+  const app = await createKidItemAgentOsMcpApplicationContext({
+    repositoryRoot,
   });
+  const context = readKidItemAgentOsMcpContext();
   const executor = app.get(AgentOsMcpToolExecutor);
   const server = createKidItemAgentOsMcpServer({ context, executor });
   let closed = false;

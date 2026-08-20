@@ -1,4 +1,4 @@
-import type { WingCatalogProduct } from '../../wing-catalog/lib/wing-catalog-extension';
+import type { WingCatalogProduct } from '../../wing-catalog/lib/wing-catalog-presenter';
 
 export const DEFAULT_TODAY_RECOMMENDATION_KEYWORDS = [
   '슬라임',

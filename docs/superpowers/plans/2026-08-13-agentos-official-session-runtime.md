@@ -35,9 +35,25 @@
 - Existing KidItem registries/adapters are evidence and migration inputs, not
   architecture constraints. Retain an implementation only when its semantics
   exactly satisfy this target; otherwise replace it behind the new tests.
-- Operations owns `OperationRun`, lease, attempt envelope, checkpoint,
-  scheduling, dispatch, and cancellation transport. AgentOS owns task
-  semantics and runtime-native handles.
+- Operations owns immutable `OperationRun` lifecycle envelopes, leases,
+  checkpoints, scheduling, dispatch, and cancellation transport. AgentOS owns
+  task semantics, the immutable `AgentExecutionAttempt`, and its opaque
+  runtime-handle identity. An attempt is not an OperationRun: its operation
+  envelopes are explicit `AgentExecutionAttemptOperationBinding` rows. A
+  successor envelope points to its exact predecessor binding/run and carries
+  the same attempt and persisted external handle; neither resumes nor mutates
+  the predecessor `OperationRun`.
+- A continuation may run only after the Operations lifecycle gate is
+  `ACCEPTING`. It atomically creates a new queued `OperationRun`, its binding,
+  and initial handle checkpoint using an organization-scoped, attempt-scoped
+  continuation key. Lifecycle candidate discovery deterministically selects
+  the current/latest binding per attempt before applying the lifecycle
+  predicate and bounded batch limit; the selected binding provides the
+  predecessor for that recovery successor. Approval continuation is different:
+  it uses the exact immutable source binding/run stored on the approval and
+  never infers that predecessor from a latest-binding query. The resulting
+  immutable chain is idempotent for lifecycle recovery and for a resolved
+  approval.
 - The AgentOS-owned `agent-os.execute-session-task` Operation resumes the
   AgentOS task-execution input port only. It does not itself invoke a business
   capability. Business capability calls remain inside an authorized official
@@ -889,14 +905,22 @@ npm exec --workspace=apps/server vitest -- run \
 
 Expected: missing control services.
 
-- [ ] **Step 3: Normalize runtime events**
+- [ ] **Step 3: Normalize runtime events and durable continuation**
 
 Stream text as standard AG-UI events. Convert progress, delegation, approval,
 and artifact events to the shared registered schemas, append every normalized
 event through `appendExecutionEvent`, and publish only after the append commits.
 On approval request, persist both control state and its conversation event and
 checkpoint before emitting the standard interrupt; invoke no capability until
-valid resume. Reconcile terminal state in this order:
+valid continuation. Approval resolution is a durable sequence: persist the
+immutable human decision and its outbox row; atomically create the successor
+OperationRun envelope/binding/checkpoint from the explicit predecessor; persist
+the idempotent interrupt-delivery state; then send the exact runtime interrupt
+for the stable attempt handle. A failed live publication or process restart
+does not undo the decision or create another external run: pending outbox and
+interrupt delivery are retried from persisted state on API startup. The old
+OperationRun remains terminal/immutable throughout. Reconcile terminal state
+in this order:
 runtime handle → attempt → execution → task → OperationRun. Conditional
 updates make duplicate events harmless.
 
@@ -906,7 +930,9 @@ Expose organization-scoped session/task inspection plus approval decision,
 retry/resume, and cancel endpoints. Derive actor/organization from auth, never
 DTOs. Panel close and gateway disconnect do not call cancel. Reconnect reads
 existing state; retry/resume creates a new execution/attempt only when the
-server state machine allows it.
+server state machine allows it. An approved HITL response continues the same
+attempt through a successor OperationRun envelope; it is not a generic
+OperationRun requeue or resurrection.
 
 - [ ] **Step 5: Reach GREEN and run scanners**
 
@@ -1025,10 +1051,15 @@ cross-org inserts fail.
 
 Use a deterministic detached fake runtime whose handle survives object
 recreation. Start, checkpoint three events, recreate handler/adapter, reclaim
-the lease, reconnect, request approval, approve, finish, and assert one
-external run, monotonic checkpoints, one capability invocation, and one
-terminal attempt/execution/task/OperationRun. Repeat cancellation while
-detached and handle-lost behavior.
+the lease, reconnect, request approval, approve, finish, and assert one stable
+attempt/external run, monotonic checkpoints, one capability invocation, and an
+immutable OperationRun binding lineage. Verify API lifecycle cancellation
+creates exactly one successor from the current binding only after the lifecycle
+gate accepts work; the predecessor stays cancelled and is never requeued.
+Verify approval persists decision/outbox, creates exactly one approval-keyed
+successor, persists interrupt delivery, and retries pending delivery after an
+API restart without a duplicate interrupt or external run. Repeat cancellation
+while detached and handle-lost behavior.
 
 - [ ] **Step 3: Add browser acceptance**
 
@@ -1092,6 +1123,13 @@ git commit -m "test: prove durable agent runtime recovery"
   names across planes; branded storage IDs, external thread/run IDs, request
   IDs, idempotency keys, sequences, tokens, digests, and runtime handles remain
   separate and fully correlated.
+- [ ] `AgentExecutionAttempt` and its opaque external handle are immutable and
+  stable across recovery. Each Operations lifecycle envelope is a distinct,
+  immutable `OperationRun` joined through an explicit binding lineage. Startup
+  recovery selects the current/latest binding per attempt before its lifecycle
+  predicate and bounded batch limit; approval continuation instead uses the
+  source binding/run stored on the approval. Neither path resurrects a
+  cancelled/attention run.
 - [ ] Every execution rebuilds its capability set from the exact Agent version
   and policy snapshot; browser and parent authority never leak.
 - [ ] Only configured orchestrators delegate to allowlisted targets within
@@ -1115,5 +1153,9 @@ git commit -m "test: prove durable agent runtime recovery"
   a known external run.
 - [ ] Approval binds actor, task, attempt, capability, arguments, resources,
   and expiry; session creation itself approves nothing.
+- [ ] An approved decision is durable before continuation: the decision/outbox,
+  successor envelope, and interrupt-delivery state are independently
+  idempotent and startup retry resumes pending delivery without duplicating an
+  external run or mutating the predecessor envelope.
 - [ ] Panel close/reconnect remains read-only; explicit cancel/retry/resume is
   idempotent and visible in both interaction surfaces.

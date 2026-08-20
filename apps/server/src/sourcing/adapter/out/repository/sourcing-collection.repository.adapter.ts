@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { Prisma } from '@prisma/client';
+import type { ActiveOperationAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
 import {
   isActiveCollectionStatus,
@@ -11,6 +12,7 @@ import type {
   AuthorizedCollectionOutput,
   ClaimAuthorizedRunInput,
   ClaimAuthorizedRunResult,
+  ClaimRecoverableRunResult,
   CommitAuthorizedCollectionInput,
   CommitAuthorizedCollectionResult,
   FailAuthorizedCollectionInput,
@@ -32,7 +34,21 @@ export class SourcingCollectionRepositoryAdapter
     input: ClaimAuthorizedRunInput,
   ): Promise<ClaimAuthorizedRunResult> {
     validateClaim(input);
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.claimAuthorizedRunTx(tx, input));
+  }
+
+  async claimAuthorizedRunInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult> {
+    validateClaim(input);
+    return this.claimAuthorizedRunTx(asTransaction(transaction), input);
+  }
+
+  private async claimAuthorizedRunTx(
+    tx: Transaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimAuthorizedRunResult> {
       await lockCollectionTarget(tx, input);
       const now = await databaseClock(tx);
 
@@ -109,7 +125,6 @@ export class SourcingCollectionRepositoryAdapter
         },
       });
       return { kind: 'claimed', permit: toPermit(run) };
-    });
   }
 
   async resumeAuthorizedRun(
@@ -151,6 +166,141 @@ export class SourcingCollectionRepositoryAdapter
     });
   }
 
+  async claimRecoverableRun(
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
+    validateClaim(input);
+    return this.prisma.$transaction((tx) => this.claimRecoverableRunTx(tx, input));
+  }
+
+  async claimRecoverableRunInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
+    validateClaim(input);
+    return this.claimRecoverableRunTx(asTransaction(transaction), input);
+  }
+
+  private async claimRecoverableRunTx(
+    tx: Transaction,
+    input: ClaimAuthorizedRunInput,
+  ): Promise<ClaimRecoverableRunResult> {
+      await lockCollectionTarget(tx, input);
+      const now = await databaseClock(tx);
+      const existing = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          idempotencyKey: input.idempotencyKey,
+        },
+      });
+
+      if (existing) {
+        if (!sameRecoverableIdentity(existing, input)) {
+          return { kind: 'idempotency_conflict' };
+        }
+        if (existing.status === 'complete' || existing.status === 'partial') {
+          return { kind: 'completed', runId: existing.id };
+        }
+        if (
+          existing.status === 'collecting'
+          && !existing.cancelRequestedAt
+          && existing.leaseExpiresAt > now
+        ) {
+          return {
+            kind: 'in_progress',
+            runId: existing.id,
+            leaseExpiresAt: existing.leaseExpiresAt,
+          };
+        }
+        if (
+          existing.cancelRequestedAt
+          || existing.status === 'cancel_requested'
+          || existing.status === 'cancelled'
+          || existing.status === 'quarantined'
+        ) {
+          return {
+            kind: 'denied',
+            reasonCode: existing.status === 'quarantined'
+              ? 'source_collection_quarantined'
+              : 'source_collection_session_cancelled',
+          };
+        }
+
+        const sourceControl = await findEnabledSourceControl(tx, {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+        });
+        if (!sourceControl.allowed) {
+          return { kind: 'denied', reasonCode: sourceControl.reasonCode };
+        }
+        const leaseToken = randomUUID();
+        const leaseExpiresAt = new Date(
+          now.getTime() + Math.min(input.leaseDurationMs, MAX_LEASE_DURATION_MS),
+        );
+        const generation = existing.generation + 1;
+        const resumed = await tx.sourcingEvidenceIngestionRun.update({
+          where: { id: existing.id },
+          data: {
+            status: 'collecting',
+            leaseToken,
+            leaseExpiresAt,
+            sourceControlCheckedAt: now,
+            generation,
+            completedAt: null,
+            errorCode: null,
+            errorMessage: null,
+            startedAt: now,
+          },
+        });
+        return { kind: 'claimed', permit: toPermit(resumed) };
+      }
+
+      const active = await tx.sourcingEvidenceIngestionRun.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          status: { in: ['collecting', 'cancel_requested'] },
+        },
+        orderBy: { startedAt: 'desc' },
+      });
+      if (active) return { kind: 'idempotency_conflict' };
+
+      const sourceControl = await findEnabledSourceControl(tx, {
+        organizationId: input.organizationId,
+        sourceKey: input.sourceKey,
+      });
+      if (!sourceControl.allowed) {
+        return { kind: 'denied', reasonCode: sourceControl.reasonCode };
+      }
+      const leaseExpiresAt = new Date(
+        now.getTime() + Math.min(input.leaseDurationMs, MAX_LEASE_DURATION_MS),
+      );
+      const created = await tx.sourcingEvidenceIngestionRun.create({
+        data: {
+          organizationId: input.organizationId,
+          sourceKey: input.sourceKey,
+          scopeKey: input.scopeKey,
+          targetKey: input.targetKey,
+          idempotencyKey: input.idempotencyKey,
+          requestHash: input.requestHash,
+          collectorKey: input.collectorKey,
+          collectorVersion: input.collectorVersion,
+          triggerKind: input.triggerKind,
+          triggeredByUserId: input.triggeredByUserId,
+          status: 'collecting',
+          leaseExpiresAt,
+          sourceControlCheckedAt: now,
+          generation: 1,
+          startedAt: now,
+          coverageNumerator: 0,
+          qualityReport: {} as Prisma.InputJsonValue,
+        },
+      });
+      return { kind: 'claimed', permit: toPermit(created) };
+  }
+
   async checkpoint(
     permit: SourcingCollectionPermit,
   ): Promise<'continue' | 'cancel' | 'superseded'> {
@@ -171,7 +321,20 @@ export class SourcingCollectionRepositoryAdapter
   async commit(
     input: CommitAuthorizedCollectionInput,
   ): Promise<CommitAuthorizedCollectionResult> {
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.commitTx(tx, input));
+  }
+
+  async commitInAttempt(
+    transaction: ActiveOperationAttemptTransaction,
+    input: CommitAuthorizedCollectionInput,
+  ): Promise<CommitAuthorizedCollectionResult> {
+    return this.commitTx(asTransaction(transaction), input);
+  }
+
+  private async commitTx(
+    tx: Transaction,
+    input: CommitAuthorizedCollectionInput,
+  ): Promise<CommitAuthorizedCollectionResult> {
       await lockCollectionPermit(tx, input.permit);
       const now = await databaseClock(tx);
       const run = await tx.sourcingEvidenceIngestionRun.findFirst({
@@ -226,7 +389,6 @@ export class SourcingCollectionRepositoryAdapter
         duplicateCount,
         staleDiscardedCount: typedResult.staleDiscardedCount,
       };
-    });
   }
 
   async fail(input: FailAuthorizedCollectionInput): Promise<void> {
@@ -270,6 +432,12 @@ export class SourcingCollectionRepositoryAdapter
 }
 
 type Transaction = Prisma.TransactionClient;
+
+function asTransaction(
+  transaction: ActiveOperationAttemptTransaction,
+): Transaction {
+  return transaction as unknown as Transaction;
+}
 
 async function findEnabledSourceControl(
   tx: Transaction,
@@ -442,6 +610,7 @@ async function persistTypedRecord(
           supplierName: row.supplierName,
           imageUrl: row.imageUrl,
           sourceUrl: row.sourceUrl,
+          ...(row.searchMetadata ? row.searchMetadata : {}),
         } as Prisma.InputJsonValue,
         capturedAt: row.capturedAt,
       },
@@ -833,6 +1002,25 @@ function toPermit(row: {
     generation: row.generation,
     leaseExpiresAt: row.leaseExpiresAt,
   };
+}
+
+function sameRecoverableIdentity(
+  row: {
+    sourceKey: string;
+    scopeKey: string;
+    targetKey: string;
+    requestHash: string;
+    collectorKey: string;
+    collectorVersion: string;
+  },
+  input: ClaimAuthorizedRunInput,
+): boolean {
+  return row.sourceKey === input.sourceKey
+    && row.scopeKey === input.scopeKey
+    && row.targetKey === input.targetKey
+    && row.requestHash === input.requestHash
+    && row.collectorKey === input.collectorKey
+    && row.collectorVersion === input.collectorVersion;
 }
 
 function validateClaim(input: ClaimAuthorizedRunInput): void {

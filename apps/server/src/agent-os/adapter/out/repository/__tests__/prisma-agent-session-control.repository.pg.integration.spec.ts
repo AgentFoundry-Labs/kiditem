@@ -277,19 +277,33 @@ describe('PrismaAgentSessionControlRepository', () => {
         definitionVersion: 1,
         ownerDomain: 'agent-os',
         title: 'Execute agent task',
-        engineType: 'agent-os',
+        engineType: 'agent_os',
         triggerSource: 'agent',
         input: {},
       },
     });
-    await expect(repository.startAttempt({
+    const reserved = await repository.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+      idempotencyKey: `operation:${operation.id}`,
+    });
+    await expect(repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       executionId: fixture.executionId,
-      runtimeType: 'copilotkit_agui',
       operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
-    })).resolves.toMatchObject({ operationRunId: operation.id });
+    })).resolves.toMatchObject({ id: reserved.id, state: 'running' });
+    await expect(prisma!.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: reserved.id,
+        operationRunId: operation.id,
+      },
+      select: { operationRunId: true },
+    })).resolves.toEqual({ operationRunId: operation.id });
     await expect(repository.loadCancelableTask({
       organizationId: TEST_ORGANIZATION_ID,
       actorId: TEST_USER_ID,
@@ -297,6 +311,88 @@ describe('PrismaAgentSessionControlRepository', () => {
       taskId: fixture.taskId,
       expectedStatus: 'running',
     })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
+  });
+
+  it('recovers the true latest lifecycle envelope after more than one bounded batch of historical bindings', async () => {
+    const fixture = await createRootGraph();
+    const initial = await prisma!.operationRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'agent-os.execute-session-task',
+        definitionVersion: 1,
+        ownerDomain: 'agent-os',
+        title: 'Recover latest immutable envelope',
+        engineType: 'agent_os',
+        triggerSource: 'agent',
+        input: {},
+      },
+    });
+    const attempt = await repository.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      operationRunId: initial.id,
+      idempotencyKey: `operation:${initial.id}`,
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: initial.id,
+    });
+    await repository.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'runtime-latest-binding',
+      encryptedHandleRef: 'vault://runtime-latest-binding',
+      runtimeGeneration: 1,
+    });
+
+    let predecessorOperationRunId = initial.id;
+    for (let index = 0; index <= 100; index += 1) {
+      await prisma!.operationRun.update({
+        where: { id: predecessorOperationRunId },
+        data: {
+          status: 'cancelled',
+          errorCode: 'operation_server_lifecycle_expired',
+          finishedAt: new Date(),
+        },
+      });
+      const successor = await repository.continueOperationAttempt({
+        signal: new AbortController().signal,
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: attempt.id,
+        predecessorOperationRunId,
+        continuationKey: `lifecycle:${predecessorOperationRunId}`,
+      });
+      predecessorOperationRunId = successor.operationRunId;
+    }
+    await prisma!.operationRun.update({
+      where: { id: predecessorOperationRunId },
+      data: {
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+        finishedAt: new Date(),
+      },
+    });
+
+    await expect(repository.listLifecycleRecoveryCandidates({ limit: 100 })).resolves.toEqual([
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: attempt.id,
+        predecessorOperationRunId,
+      },
+    ]);
   });
 
   it('reserves a queued attempt before worker claim so explicit queued cancellation has an exact Operation run', async () => {
@@ -312,7 +408,7 @@ describe('PrismaAgentSessionControlRepository', () => {
         definitionVersion: 1,
         ownerDomain: 'agent-os',
         title: 'Execute queued agent task',
-        engineType: 'agent-os',
+        engineType: 'agent_os',
         triggerSource: 'agent',
         input: {},
       },
@@ -335,31 +431,48 @@ describe('PrismaAgentSessionControlRepository', () => {
       taskId: fixture.taskId,
       expectedStatus: 'queued',
     })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
-    await expect(repository.startAttempt({
+    await expect(repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       executionId: fixture.executionId,
-      runtimeType: 'copilotkit_agui',
       operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
     })).resolves.toMatchObject({ id: reserved.id, state: 'running' });
   });
 
   it('binds an approval to one invocation attempt and decides it idempotently', async () => {
     const fixture = await createRootGraph();
-    const attempt = await repository.startAttempt({
+    const operation = await prisma!.operationRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'agent-os.execute-session-task',
+        definitionVersion: 1,
+        ownerDomain: 'agent-os',
+        title: 'Execute approved agent task',
+        engineType: 'agent_os',
+        triggerSource: 'agent',
+        input: {},
+      },
+    });
+    const attempt = await repository.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+      idempotencyKey: `operation:${operation.id}`,
+    });
+    await repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       executionId: fixture.executionId,
-      runtimeType: 'codex_cli',
-      idempotencyKey: 'attempt:approval',
+      operationRunId: operation.id,
     });
     await expect(repository.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       executionId: fixture.executionId,
       attemptId: attempt.id,
-      runtimeType: 'codex_cli',
+      runtimeType: 'copilotkit_agui',
       externalRunId: 'runtime-approval-1',
       encryptedHandleRef: 'vault://runtime-approval-1',
       runtimeGeneration: 4,
@@ -370,6 +483,7 @@ describe('PrismaAgentSessionControlRepository', () => {
       taskId: fixture.taskId,
       executionId: fixture.executionId,
       attemptId: attempt.id,
+      operationRunId: operation.id,
       capabilityKey: 'supply.submit_purchase_order',
       argumentsHash: 'a'.repeat(64),
       resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],
@@ -382,6 +496,7 @@ describe('PrismaAgentSessionControlRepository', () => {
       taskId: fixture.taskId,
       executionId: fixture.executionId,
       attemptId: attempt.id,
+      operationRunId: operation.id,
       capabilityKey: 'supply.submit_purchase_order',
       argumentsHash: 'b'.repeat(64),
       resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],
@@ -398,11 +513,20 @@ describe('PrismaAgentSessionControlRepository', () => {
       actorId: TEST_USER_ID,
       idempotencyKey: 'approval-decision:1',
     });
-    await expect(repository.loadApproval({
+    const detail = await repository.loadApproval({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       approvalId: approval.id,
-    })).resolves.toMatchObject({ runtimeGeneration: 4 });
+    });
+    expect(detail).toMatchObject({
+      runtimeGeneration: 4,
+      operationRunId: operation.id,
+      operationBindingId: expect.any(String),
+    });
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, approvalId: approval.id },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toEqual({ state: 'pending', successorOperationRunId: null });
     await expect(repository.decideApproval({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
@@ -420,6 +544,7 @@ describe('PrismaAgentSessionControlRepository', () => {
       taskId: fixture.taskId,
       executionId: fixture.executionId,
       attemptId: attempt.id,
+      operationRunId: operation.id,
       capabilityKey: 'supply.submit_purchase_order',
       argumentsHash: 'a'.repeat(64),
       resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],

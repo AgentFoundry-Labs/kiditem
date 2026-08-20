@@ -57,6 +57,11 @@ const setup = createPostgresGlobalSetup({
     .withDatabase('kiditem_test')
     .withUsername('kiditem_test')
     .withPassword('kiditem_test')
+    .withCommand([
+      'postgres',
+      '-c',
+      'shared_preload_libraries=pg_stat_statements',
+    ])
     .start(),
   pushSchema: (databaseUrl) => {
     const prismaArgs = ['db', 'push'];

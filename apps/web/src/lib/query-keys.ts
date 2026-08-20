@@ -28,6 +28,8 @@ export const queryKeys = {
     catalog: () => [...queryKeys.operations.all, 'catalog'] as const,
     runs: () => [...queryKeys.operations.all, 'runs'] as const,
     run: (runId: string) => [...queryKeys.operations.runs(), runId] as const,
+    reconnect: (operationKey: string, input?: Record<string, unknown>) =>
+      [...queryKeys.operations.all, 'reconnect', operationKey, input] as const,
     schedules: () => [...queryKeys.operations.all, 'schedules'] as const,
   },
   marketplace: {
@@ -305,6 +307,26 @@ export const queryKeys = {
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
     liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
+    risingProducts: () => [...queryKeys.sourcing.all, 'rising-products'] as const,
+    wingTrackedProducts: () =>
+      [...queryKeys.sourcing.all, 'wing-tracked-products'] as const,
+    wingTrackedHistories: (days: number) =>
+      [...queryKeys.sourcing.all, 'wing-tracked-products', 'history', days] as const,
+    wingCatalog: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
+    keywordSuggestions: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'keyword-suggestions', keyword.trim()] as const,
+    naverRelatedKeywords: (keyword: string) =>
+      [...queryKeys.sourcing.all, 'naver-related-keywords', keyword.trim()] as const,
+    wholesale1688Results: (
+      keywords: readonly string[],
+      targetIds: readonly string[],
+    ) => [
+      ...queryKeys.sourcing.all,
+      'wholesale-1688-results',
+      keywords,
+      targetIds,
+    ] as const,
     competitorCollectionStatus: (runId: string | null) =>
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },

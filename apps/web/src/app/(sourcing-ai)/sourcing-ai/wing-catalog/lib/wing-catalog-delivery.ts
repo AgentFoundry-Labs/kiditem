@@ -1,4 +1,4 @@
-import type { WingCatalogProduct } from './wing-catalog-extension';
+import type { WingCatalogProduct } from './wing-catalog-presenter';
 
 /** 쿠팡 상품 상세 URL. itemId/vendorItemId 가 있으면 옵션까지 지정한다. */
 export function buildCoupangProductUrl(

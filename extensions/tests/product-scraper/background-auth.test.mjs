@@ -294,7 +294,7 @@ test('통합 서비스워커가 공용 모듈과 소싱 모듈을 소싱 워커�
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
 // external-dispatch.js 만 처리하고, 소싱 워커는 자기 액션만 남긴다.
-test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한다', () => {
+test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리하고 소싱은 exact Operation만 등록한다', () => {
   const dispatchSource = fs.readFileSync(
     path.resolve('extensions/kiditem-os/background/external-dispatch.js'),
     'utf8',
@@ -314,7 +314,24 @@ test('수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한�
     );
   }
   assert.doesNotMatch(backgroundSource, /msg\.action === ["']ping["']/);
-  assert.match(backgroundSource, /msg\.action === "start1688TrendCollection"/);
+  for (const legacyAction of [
+    'start1688TrendCollection',
+    'get1688TrendCollectionStatus',
+    'cancel1688TrendCollection',
+    'startTiktokCcCollection',
+    'getTiktokCcCollectionStatus',
+    'cancelTiktokCcCollection',
+    'collectLiveCommerceUrl',
+  ]) {
+    assert.doesNotMatch(
+      backgroundSource,
+      new RegExp(`msg\\.action === ["']${legacyAction}["']`),
+      legacyAction,
+    );
+  }
+  assert.match(backgroundSource, /"sourcing\.collect_1688_trends": runSourcing1688TrendOperation/);
+  assert.match(backgroundSource, /"sourcing\.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation/);
+  assert.match(backgroundSource, /"sourcing\.collect_live_commerce_url": runSourcingLiveCommerceOperation/);
 });
 
 test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
@@ -328,24 +345,6 @@ test('accepts a heartbeat port that keeps long 1688 trend runs alive', () => {
   });
 
   assert.equal(messageListeners.length, 1);
-});
-
-test('rejects invalid 1688 trend collection inputs before opening a tab', async () => {
-  const env = loadBackground();
-
-  const empty = await sendExternal(env.externalListeners, {
-    action: 'start1688TrendCollection',
-    keywords: [],
-    maxResultsPerKeyword: 20,
-  });
-  const oversized = await sendExternal(env.externalListeners, {
-    action: 'start1688TrendCollection',
-    keywords: ['문구'],
-    maxResultsPerKeyword: 21,
-  });
-
-  assert.equal(empty?.success, false);
-  assert.equal(oversized?.success, false);
 });
 
 test('stores office auth and routes requests to the office API origin', async () => {

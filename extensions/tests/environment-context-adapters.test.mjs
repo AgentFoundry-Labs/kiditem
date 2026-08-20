@@ -13,7 +13,13 @@ const generatedPaths = [
   'extensions/kiditem-os/background/environment-context.js',
 ];
 
-function createHarness({ initialStorage = {}, responses = [200], requiresAuth = true } = {}) {
+function createHarness({
+  initialStorage = {},
+  responses = [200],
+  requiresAuth = true,
+  fetchImpl,
+  requestTimeoutMs = 15_000,
+} = {}) {
   const storage = structuredClone(initialStorage);
   const storageListeners = [];
   const fetchCalls = [];
@@ -72,6 +78,7 @@ function createHarness({ initialStorage = {}, responses = [200], requiresAuth = 
   };
   const fetchFn = async (url, init) => {
     fetchCalls.push({ url, init });
+    if (fetchImpl) return fetchImpl(url, init);
     const status = responseQueue.shift() ?? 200;
     return { ok: status >= 200 && status < 300, status };
   };
@@ -92,6 +99,7 @@ function createHarness({ initialStorage = {}, responses = [200], requiresAuth = 
     fetchFn,
     requiresAuth,
     authResyncTimeoutMs: 30,
+    requestTimeoutMs,
     now: () => 1234,
     legacyStorageKeys: ['kiditem_auth_token', 'apiBase'],
   });
@@ -172,6 +180,94 @@ test('routes concurrent requests to fixed environment API origins', async () => 
   ]);
   assert.equal(new Headers(fetchCalls[0].init.headers).get('authorization'), 'Bearer local-token');
   assert.equal(new Headers(fetchCalls[1].init.headers).get('authorization'), 'Bearer office-token');
+});
+
+test('composes a caller abort with the request timeout and removes its listener after rejection', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_runtime_fence_lost');
+  const originalAdd = caller.signal.addEventListener.bind(caller.signal);
+  const originalRemove = caller.signal.removeEventListener.bind(caller.signal);
+  let added = 0;
+  let removed = 0;
+  caller.signal.addEventListener = (...args) => {
+    added += 1;
+    return originalAdd(...args);
+  };
+  caller.signal.removeEventListener = (...args) => {
+    removed += 1;
+    return originalRemove(...args);
+  };
+  const harness = createHarness({
+    requestTimeoutMs: 1_000,
+    fetchImpl: (_url, init) => new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), {
+        once: true,
+      });
+    }),
+  });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch(
+    'local',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.fetchCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+  assert.equal(added, 1);
+  assert.equal(removed, 1);
+});
+
+test('rejects an already-aborted caller before starting a network request', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  caller.abort(callerReason);
+  const harness = createHarness();
+  await harness.environmentContext.setAccessToken('office', 'office-token');
+
+  await assert.rejects(
+    harness.environmentContext.authedFetch('office', '/api/heartbeat', {
+      signal: caller.signal,
+    }),
+    (error) => error === callerReason,
+  );
+  assert.equal(harness.fetchCalls.length, 0);
+});
+
+test('caller abort interrupts a 401 token-resync wait with the original reason', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  const harness = createHarness({ responses: [401], requestTimeoutMs: 1_000 });
+  await harness.environmentContext.setAccessToken('local', 'local-token');
+
+  const pending = harness.environmentContext.authedFetch(
+    'local',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.fetchCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+});
+
+test('caller abort interrupts an initial missing-token resync wait', async () => {
+  const caller = new AbortController();
+  const callerReason = new Error('operation_deadline_exceeded');
+  const harness = createHarness();
+
+  const pending = harness.environmentContext.authedFetch(
+    'office',
+    '/api/heartbeat',
+    { signal: caller.signal },
+  );
+  await waitForCount(harness.scriptCalls, 1);
+  caller.abort(callerReason);
+
+  await assert.rejects(pending, (error) => error === callerReason);
+  assert.equal(harness.fetchCalls.length, 0);
 });
 
 test('resyncs a 401 through only the owning environment and retries once when the token changed', async () => {

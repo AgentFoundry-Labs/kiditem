@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { AutomationModule } from '../../automation/automation.module';
 import { OperationsModule } from '../../operations/operations.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { CoupangShipmentsController } from '../adapter/in/http/coupang-shipments.controller';
@@ -47,6 +46,7 @@ import { SellpiaInventoryFreshnessService } from '../application/service/sellpia
 import { TransfersService } from '../application/service/transfers.service';
 import { WarehousesService } from '../application/service/warehouses.service';
 import { InventoryModule } from '../inventory.module';
+import { InventoryFreshnessRuntimeModule } from '../inventory-freshness-runtime.module';
 
 const IMPORTS_KEY = 'imports';
 const CONTROLLERS_KEY = 'controllers';
@@ -72,9 +72,13 @@ const FORBIDDEN_LEGACY_FILES = [
 ] as const;
 
 describe('InventoryModule authoritative capability wiring', () => {
-  it('imports Prisma plus the Automation alert and Operations capabilities', () => {
+  it('imports Prisma plus the controller-free freshness runtime and Operations', () => {
     const imports: unknown[] = Reflect.getMetadata(IMPORTS_KEY, InventoryModule) ?? [];
-    expect(new Set(imports)).toEqual(new Set([AutomationModule, OperationsModule, PrismaModule]));
+    expect(new Set(imports)).toEqual(new Set([
+      InventoryFreshnessRuntimeModule,
+      OperationsModule,
+      PrismaModule,
+    ]));
   });
 
   it('mounts only snapshot/import and record-only capability controllers', () => {
@@ -90,7 +94,10 @@ describe('InventoryModule authoritative capability wiring', () => {
   });
 
   it('declares retained repositories and services', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    const providers: unknown[] = [
+      ...(Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? []),
+      ...(Reflect.getMetadata(PROVIDERS_KEY, InventoryFreshnessRuntimeModule) ?? []),
+    ];
     for (const provider of [
       SellpiaImportRunRepositoryAdapter,
       SellpiaSnapshotPublicationRepositoryAdapter,
@@ -184,7 +191,10 @@ describe('InventoryModule authoritative capability wiring', () => {
   });
 
   it('binds freshness ownership and exports only the cross-domain inventory gates', () => {
-    const providers: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, InventoryModule) ?? [];
+    const providers: unknown[] = Reflect.getMetadata(
+      PROVIDERS_KEY,
+      InventoryFreshnessRuntimeModule,
+    ) ?? [];
     expect(providers).toContainEqual({
       provide: SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
       useExisting: SellpiaInventoryFreshnessRepositoryAdapter,
@@ -198,12 +208,13 @@ describe('InventoryModule authoritative capability wiring', () => {
         useExisting: SellpiaInventoryFreshnessService,
       });
     }
-    expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? []).toEqual([
-      SELLPIA_INVENTORY_SKU_READ_PORT,
-      SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
-      INVENTORY_AVAILABILITY_PORT,
-      ROCKET_WORKBOOK_PROGRESS_PORT,
-    ]);
+    expect(Reflect.getMetadata(EXPORTS_KEY, InventoryFreshnessRuntimeModule) ?? [])
+      .toEqual([
+        SELLPIA_INVENTORY_FRESHNESS_PORT,
+        SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+      ]);
+    expect(Reflect.getMetadata(EXPORTS_KEY, InventoryModule) ?? [])
+      .toContain(InventoryFreshnessRuntimeModule);
   });
 
   it('has no executable legacy inventory runtime', () => {

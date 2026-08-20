@@ -28,6 +28,44 @@
     return error;
   }
 
+  function composeRequestSignal(callerSignal, timeoutMs) {
+    const controller = new AbortController();
+    const forwardAbort = () => controller.abort(callerSignal.reason);
+    if (callerSignal?.aborted) forwardAbort();
+    else callerSignal?.addEventListener('abort', forwardAbort, { once: true });
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let cleaned = false;
+    return {
+      signal: controller.signal,
+      cleanup() {
+        if (cleaned) return;
+        cleaned = true;
+        clearTimeout(timer);
+        callerSignal?.removeEventListener('abort', forwardAbort);
+      },
+    };
+  }
+
+  function waitWithCallerSignal(promise, callerSignal) {
+    if (!callerSignal) return promise;
+    callerSignal.throwIfAborted();
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const finish = (operation) => {
+        if (settled) return;
+        settled = true;
+        callerSignal.removeEventListener('abort', handleAbort);
+        operation();
+      };
+      const handleAbort = () => finish(() => reject(callerSignal.reason));
+      callerSignal.addEventListener('abort', handleAbort, { once: true });
+      Promise.resolve(promise).then(
+        (value) => finish(() => resolve(value)),
+        (error) => finish(() => reject(error)),
+      );
+    });
+  }
+
   function create(options) {
     if (!options?.chrome?.storage?.local) {
       throw new Error('Chrome local storage is required');
@@ -267,17 +305,21 @@
       if (typeof token === 'string' && token.trim()) {
         headers.set('Authorization', `Bearer ${token}`);
       }
-      const { timeoutMs = requestTimeoutMs, ...requestInit } = init;
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      const {
+        timeoutMs = requestTimeoutMs,
+        signal: callerSignal,
+        ...requestInit
+      } = init;
+      const requestSignal = composeRequestSignal(callerSignal, timeoutMs);
       try {
+        requestSignal.signal.throwIfAborted();
         return await fetchFn(url, {
           ...requestInit,
           headers,
-          signal: controller.signal,
+          signal: requestSignal.signal,
         });
       } finally {
-        clearTimeout(timer);
+        requestSignal.cleanup();
       }
     }
 
@@ -288,7 +330,10 @@
       }
       let token = await getAccessToken(environmentId);
       if (!token) {
-        token = await requestResyncedAccessToken(environmentId, null);
+        token = await waitWithCallerSignal(
+          requestResyncedAccessToken(environmentId, null),
+          init.signal,
+        );
         if (!token) {
           throw createError(
             'environment_auth_required',
@@ -299,7 +344,10 @@
       }
       const response = await fetchOnce(environment, path, init, token);
       if (response.status !== 401) return response;
-      const nextToken = await requestResyncedAccessToken(environmentId, token);
+      const nextToken = await waitWithCallerSignal(
+        requestResyncedAccessToken(environmentId, token),
+        init.signal,
+      );
       if (!nextToken || nextToken === token) return response;
       return fetchOnce(environment, path, init, nextToken);
     }

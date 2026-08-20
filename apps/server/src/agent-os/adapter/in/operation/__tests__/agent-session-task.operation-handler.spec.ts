@@ -8,7 +8,10 @@ import {
   formatAgentSessionTaskName,
   OrganizationIdSchema,
 } from '@kiditem/shared/identifiers';
-import { AgentSessionTaskOperationInputSchema } from '../../../../domain/operation/agent-os.operations';
+import {
+  AGENT_OS_OPERATIONS,
+  AgentSessionTaskOperationInputSchema,
+} from '../../../../domain/operation/agent-os.operations';
 import { AgentSessionTaskOperationHandler } from '../agent-session-task.operation-handler';
 
 const SESSION_ID = '00000000-0000-4000-8000-000000000001';
@@ -54,7 +57,21 @@ const operation = {
   runId: 'operation-1', organizationId: ORGANIZATION_ID, operationKey: 'agent-os.execute-session-task', triggerSource: 'agent' as const,
   input: { session: SESSION_NAME, task: TASK_NAME, execution: EXECUTION_NAME },
   requestedByUserId: null, scheduleId: null, parentRunId: null, attemptToken: 'attempt-token-1',
+  signal: new AbortController().signal,
+  checkpoint: vi.fn(),
 };
+
+function never<T>(): Promise<T> {
+  return new Promise<T>(() => undefined);
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
 
 function harness(options: {
   checkpoint?: Record<string, unknown>;
@@ -81,6 +98,7 @@ function harness(options: {
   };
   const controls = {
     startAttempt: vi.fn().mockResolvedValue({ id: ATTEMPT_ID, executionId: EXECUTION_ID, attemptNumber: 1, runtimeType: 'hermes_http', state: 'running' }),
+    activateAttemptForOperation: vi.fn().mockResolvedValue({ id: ATTEMPT_ID, executionId: EXECUTION_ID, attemptNumber: 1, runtimeType: 'hermes_http', state: 'running' }),
     findAttemptForOperation: vi.fn().mockResolvedValue({
       id: ATTEMPT_ID,
       executionId: EXECUTION_ID,
@@ -119,7 +137,6 @@ function harness(options: {
   };
   const approvals = { request: vi.fn() };
   const operations = {
-    heartbeatRun: vi.fn().mockResolvedValue(true),
     findRunById: vi.fn().mockResolvedValue({ input: operation.input }),
   };
   const handler = new AgentSessionTaskOperationHandler(
@@ -137,6 +154,13 @@ function harness(options: {
 }
 
 describe('AgentSessionTaskOperationHandler', () => {
+  it('registers a finite API-owned Operations resource policy', () => {
+    expect(AGENT_OS_OPERATIONS[0]).toMatchObject({
+      resourceClass: 'default',
+      executionTimeoutMs: 60 * 60_000,
+    });
+  });
+
   it('requires canonical operation resource names with one matching session parent', () => {
     expect(AgentSessionTaskOperationInputSchema.parse(operation.input)).toEqual(operation.input);
     expect(() => AgentSessionTaskOperationInputSchema.parse({
@@ -218,7 +242,7 @@ describe('AgentSessionTaskOperationHandler', () => {
       kind: 'completed',
       result: { executionId: EXECUTION_ID, taskId: TASK_ID, status: 'completed' },
     });
-    expect(controls.startAttempt).not.toHaveBeenCalled();
+    expect(controls.activateAttemptForOperation).not.toHaveBeenCalled();
     expect(runtime.start).not.toHaveBeenCalled();
     expect(runtime.inspect).not.toHaveBeenCalled();
   });
@@ -412,4 +436,147 @@ describe('AgentSessionTaskOperationHandler', () => {
       state: expect.objectContaining({ runtimeHandle: null, status: 'cancelled' }),
     }));
   });
+
+  it('cancels the exact durable runtime and terminalizes the canonical graph when an idle stream hits its deadline', async () => {
+    const { handler, runtime, controls, executions, runtimeControl } = harness();
+    runtime.connect.mockImplementation(async function* () {
+      await never<void>();
+    });
+    const controller = new AbortController();
+    const running = handler.execute({
+      ...operation,
+      signal: controller.signal,
+      checkpoint: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(runtime.connect).toHaveBeenCalledWith(handle));
+    controller.abort(new Error('operation_deadline_exceeded'));
+
+    await expect(running).rejects.toThrow('operation_deadline_exceeded');
+    expect(runtime.cancel).toHaveBeenCalledWith(handle);
+    expect(runtimeControl.record).toHaveBeenCalledWith(expect.objectContaining({
+      event: { kind: 'terminal', status: 'failed', errorCode: 'OPERATION_DEADLINE_EXCEEDED' },
+    }));
+    expect(controls.finishAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      state: 'failed',
+      errorCode: 'OPERATION_DEADLINE_EXCEEDED',
+    }));
+    expect(executions.markExecutionTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      id: EXECUTION_ID,
+      status: 'failed',
+      errorCode: 'OPERATION_DEADLINE_EXCEEDED',
+    }));
+    expect(controls.transitionTask).toHaveBeenCalledWith(expect.objectContaining({
+      taskId: TASK_ID,
+      state: 'failed',
+    }));
+  }, 250);
+
+  it('terminalizes the canonical graph when an exact deadline cancel rejects', async () => {
+    const { handler, runtime, controls, executions, runtimeControl } = harness();
+    runtime.connect.mockImplementation(async function* () {
+      await never<void>();
+    });
+    runtime.cancel.mockRejectedValueOnce(new Error('runtime_cancel_rejected'));
+    const controller = new AbortController();
+    const running = handler.execute({
+      ...operation,
+      signal: controller.signal,
+      checkpoint: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(runtime.connect).toHaveBeenCalledWith(handle));
+    controller.abort(new Error('operation_deadline_exceeded'));
+
+    await expect(running).rejects.toThrow('operation_deadline_exceeded');
+    expect(controls.finishAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      state: 'failed',
+      errorCode: 'OPERATION_DEADLINE_EXCEEDED',
+    }));
+    expect(executions.markExecutionTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      id: EXECUTION_ID,
+      status: 'failed',
+    }));
+    expect(runtimeControl.record).toHaveBeenCalledWith(expect.objectContaining({
+      event: { kind: 'terminal', status: 'failed', errorCode: 'OPERATION_DEADLINE_EXCEEDED' },
+    }));
+  });
+
+  it('bounds an exact deadline cancel that never resolves and rejects late success', async () => {
+    const { handler, runtime, controls, executions, runtimeControl } = harness();
+    const lateTerminal = deferred<void>();
+    runtime.connect.mockImplementation(async function* () {
+      await lateTerminal.promise;
+      yield { kind: 'terminal', status: 'completed', output: { late: true } };
+    });
+    runtime.cancel.mockImplementation(() => never<void>());
+    const controller = new AbortController();
+    const running = handler.execute({
+      ...operation,
+      signal: controller.signal,
+      checkpoint: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(runtime.connect).toHaveBeenCalledWith(handle));
+    controller.abort(new Error('operation_deadline_exceeded'));
+
+    await expect(Promise.race([
+      running.then(
+        () => 'resolved',
+        (error: unknown) => error instanceof Error ? error.message : String(error),
+      ),
+      new Promise<string>((resolve) => setTimeout(() => resolve('timed_out'), 350)),
+    ])).resolves.toBe('operation_deadline_exceeded');
+    lateTerminal.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(controls.finishAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: ATTEMPT_ID,
+      state: 'failed',
+      errorCode: 'OPERATION_DEADLINE_EXCEEDED',
+    }));
+    expect(executions.markExecutionTerminal).toHaveBeenCalledWith(expect.objectContaining({
+      id: EXECUTION_ID,
+      status: 'failed',
+    }));
+    expect(runtimeControl.record).not.toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({ kind: 'terminal', status: 'completed' }),
+    }));
+  }, 500);
+
+  it.each([
+    'operation_server_shutdown',
+    'operation_attempt_fence_lost',
+  ])('stops %s stream consumption without cancelling the durable runtime or accepting a late success', async (reason) => {
+    const { handler, runtime, controls, executions, runtimeControl } = harness();
+    const lateTerminal = deferred<void>();
+    runtime.connect.mockImplementation(async function* () {
+      await lateTerminal.promise;
+      yield { kind: 'terminal', status: 'completed', output: { late: true } };
+    });
+    const controller = new AbortController();
+    const running = handler.execute({
+      ...operation,
+      signal: controller.signal,
+      checkpoint: vi.fn(),
+    });
+
+    await vi.waitFor(() => expect(runtime.connect).toHaveBeenCalledWith(handle));
+    controller.abort(new Error(reason));
+
+    await expect(running).rejects.toThrow(reason);
+    lateTerminal.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(runtime.cancel).not.toHaveBeenCalled();
+    expect(controls.finishAttempt).not.toHaveBeenCalled();
+    expect(executions.markExecutionTerminal).not.toHaveBeenCalled();
+    expect(runtimeControl.record).not.toHaveBeenCalledWith(expect.objectContaining({
+      event: expect.objectContaining({ kind: 'terminal', status: 'completed' }),
+    }));
+  }, 250);
 });

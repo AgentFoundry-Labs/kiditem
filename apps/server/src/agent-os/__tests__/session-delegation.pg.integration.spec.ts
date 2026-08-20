@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -12,11 +11,13 @@ import {
 import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
 import { CompositeOperationCoordinatorService } from '../../operations/application/service/composite-operation-coordinator.service';
 import { OperationHandlerRegistryService } from '../../operations/application/service/operation-handler-registry.service';
+import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
 import { OperationRunService } from '../../operations/application/service/operation-run.service';
 import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
 import { AgentSessionDelegationService } from '../application/service/agent-session-delegation.service';
 import { AgentSessionTaskDispatchService } from '../application/service/agent-session-task-dispatch.service';
 import { AGENT_OS_OPERATIONS } from '../domain/operation/agent-os.operations';
+import type { PrismaClient } from '@prisma/client';
 
 const ROOT_VERSION_ID = '40000000-0000-4000-8000-000000000001';
 const CHILD_VERSION_ID = '40000000-0000-4000-8000-000000000002';
@@ -33,10 +34,17 @@ beforeAll(async () => {
   const operationsRepository = new OperationRepositoryAdapter(prisma as never);
   const registry = new OperationHandlerRegistryService();
   registry.register(AGENT_OS_OPERATIONS[0], {} as never);
+  const lifecycleGate = new OperationLifecycleGateService();
+  lifecycleGate.open();
   const operations = new OperationRunService(
     registry,
     operationsRepository,
-    new CompositeOperationCoordinatorService(registry, operationsRepository),
+    new CompositeOperationCoordinatorService(
+      registry,
+      operationsRepository,
+      lifecycleGate,
+    ),
+    lifecycleGate,
   );
   delegations = new AgentSessionDelegationService(
     controls,

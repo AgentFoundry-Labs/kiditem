@@ -1,4 +1,4 @@
-import type { WingCatalogProduct } from './wing-catalog-extension';
+import type { WingCatalogProduct } from './wing-catalog-presenter';
 
 export interface KeywordFrequency {
   keyword: string;

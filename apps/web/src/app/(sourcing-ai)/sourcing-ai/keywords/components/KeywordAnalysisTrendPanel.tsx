@@ -1,6 +1,6 @@
 import { BarChart3, Loader2, Search, Tags, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import type { NaverDatalabKeywordTrend } from '../../recommendations/lib/naver-keyword-api';
+import type { NaverDatalabKeywordTrend } from '../../lib/keyword-analysis-snapshot-api';
 import type { RelatedKeywordGroups } from './keyword-analysis-helpers';
 
 export function TrendComparePanel({

@@ -73,15 +73,31 @@ function harness(overrides: { storedApproval?: Record<string, unknown>; current?
   const runtime = { interrupt: vi.fn().mockResolvedValue(undefined) };
   const runtimes = { requireCompatible: vi.fn().mockReturnValue(runtime) };
   const operations = { resume: vi.fn().mockResolvedValue({ id: OPERATION_RUN_ID, status: 'queued' }), cancel: vi.fn() };
+  const continuations = {
+    assertAccepting: vi.fn(),
+    continueApproval: vi.fn().mockResolvedValue({
+      operationRunId: '00000000-0000-4000-8000-000000000008',
+      attemptId: ATTEMPT_ID,
+    }),
+  };
   const service = new AgentSessionApprovalService(
     controls as never,
     runtimeControl as never,
     resources as never,
-    runtimes as never,
     operations as never,
+    continuations as never,
     () => new Date('2026-08-14T00:00:00.000Z'),
   );
-  return { service, controls, runtimeControl, resources, runtime, runtimes, operations };
+  return {
+    service,
+    controls,
+    runtimeControl,
+    resources,
+    runtime,
+    runtimes,
+    operations,
+    continuations,
+  };
 }
 
 describe('AgentSessionApprovalService', () => {
@@ -94,6 +110,7 @@ describe('AgentSessionApprovalService', () => {
       task,
       execution,
       attempt,
+      operationRunId: OPERATION_RUN_ID,
       capabilityKey: 'supply.submitPurchaseOrder',
       arguments: { purchaseOrderId: 'po-1' },
       summary: '발주서를 제출합니다.',
@@ -141,6 +158,7 @@ describe('AgentSessionApprovalService', () => {
       task,
       execution,
       attempt,
+      operationRunId: OPERATION_RUN_ID,
       capabilityKey: 'supply.submitPurchaseOrder',
       arguments: { purchaseOrderId: 'po-1' },
       summary: '발주서를 제출합니다.',
@@ -174,19 +192,17 @@ describe('AgentSessionApprovalService', () => {
     expect(operations.resume).not.toHaveBeenCalled();
   });
 
-  it('resumes one exact approved handle and never resumes a rejected approval', async () => {
+  it('continues one exact approved handle and never continues a rejected approval', async () => {
     const accepted = harness();
     await accepted.service.decide({
       organizationId: ORGANIZATION_ID, session, approvalId: APPROVAL_ID, actorId: 'user-1',
       decision: 'approved', argumentsHash: 'a'.repeat(64), idempotencyKey: 'decision-1',
     });
-    expect(accepted.runtime.interrupt).toHaveBeenCalledWith(expect.objectContaining({
-      runtimeType: 'hermes_http', executionId: EXECUTION_ID, attemptId: ATTEMPT_ID,
-      generation: 7,
-    }), { interruptId: APPROVAL_ID, payload: { decision: 'approved' } });
-    expect(accepted.operations.resume).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: ORGANIZATION_ID, runId: OPERATION_RUN_ID, requestedByUserId: 'user-1',
-    }));
+    expect(accepted.continuations.continueApproval).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sessionId: SESSION_ID,
+      approvalId: APPROVAL_ID,
+    });
 
     const rejected = harness();
     rejected.controls.decideApproval.mockResolvedValue({ id: APPROVAL_ID, state: 'rejected', decisionIdempotencyKey: 'decision-2', changed: true });
@@ -194,11 +210,27 @@ describe('AgentSessionApprovalService', () => {
       organizationId: ORGANIZATION_ID, session, approvalId: APPROVAL_ID, actorId: 'user-1',
       decision: 'rejected', argumentsHash: 'a'.repeat(64), idempotencyKey: 'decision-2',
     });
-    expect(rejected.runtime.interrupt).not.toHaveBeenCalled();
     expect(rejected.operations.resume).not.toHaveBeenCalled();
+    expect(rejected.continuations.continueApproval).not.toHaveBeenCalled();
     expect(rejected.operations.cancel).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID, runId: OPERATION_RUN_ID,
     }));
+  });
+
+  it('never requeues the immutable attention-required OperationRun after approval', async () => {
+    const accepted = harness();
+
+    await accepted.service.decide({
+      organizationId: ORGANIZATION_ID,
+      session,
+      approvalId: APPROVAL_ID,
+      actorId: 'user-1',
+      decision: 'approved',
+      argumentsHash: 'a'.repeat(64),
+      idempotencyKey: 'decision:immutable-operation-run',
+    });
+
+    expect(accepted.operations.resume).not.toHaveBeenCalled();
   });
 
   it('persists and publishes the canonical approval decision before resuming the runtime', async () => {
@@ -227,7 +259,7 @@ describe('AgentSessionApprovalService', () => {
       pointer: expect.objectContaining({ eventId: 'event-1' }),
     }));
     expect(accepted.runtimeControl.persist.mock.invocationCallOrder[0])
-      .toBeLessThan(accepted.runtime.interrupt.mock.invocationCallOrder[0]);
+      .toBeLessThan(accepted.continuations.continueApproval.mock.invocationCallOrder[0]);
   });
 
   it('rejects approval when the exact execution can no longer invoke that capability', async () => {
@@ -293,11 +325,10 @@ describe('AgentSessionApprovalService', () => {
       idempotencyKey: 'decision-recover',
     })).resolves.toEqual({ state: 'approved' });
     expect(recovered.controls.decideApproval).not.toHaveBeenCalled();
-    expect(recovered.runtime.interrupt).toHaveBeenCalledWith(expect.objectContaining({
-      generation: 7,
-    }), expect.objectContaining({ interruptId: APPROVAL_ID }));
-    expect(recovered.operations.resume).toHaveBeenCalledWith(expect.objectContaining({
-      runId: OPERATION_RUN_ID,
-    }));
+    expect(recovered.continuations.continueApproval).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sessionId: SESSION_ID,
+      approvalId: APPROVAL_ID,
+    });
   });
 });

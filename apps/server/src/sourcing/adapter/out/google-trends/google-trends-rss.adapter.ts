@@ -28,6 +28,9 @@ export class GoogleTrendsRssAdapter implements MarketShadowSignalPort {
   ): Promise<FetchMarketShadowSignalsResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    const signal = input.signal
+      ? AbortSignal.any([input.signal, controller.signal])
+      : controller.signal;
 
     try {
       const response = await fetch(GOOGLE_TRENDS_RSS_URL, {
@@ -36,7 +39,7 @@ export class GoogleTrendsRssAdapter implements MarketShadowSignalPort {
           Accept: 'application/rss+xml, application/xml;q=0.9, text/xml;q=0.8',
         },
         redirect: 'follow',
-        signal: controller.signal,
+        signal,
       });
       if (!response.ok) {
         throw new BadGatewayException(
@@ -52,7 +55,7 @@ export class GoogleTrendsRssAdapter implements MarketShadowSignalPort {
         items,
       };
     } catch (error) {
-      if (controller.signal.aborted || isAbortError(error)) {
+      if (signal.aborted || isAbortError(error)) {
         throw new GatewayTimeoutException(
           `Google Trends RSS 요청 시간이 ${REQUEST_TIMEOUT_MS}ms를 초과했습니다.`,
         );

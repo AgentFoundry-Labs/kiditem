@@ -97,6 +97,10 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 
 ## Cross-Domain Ports
 
+- For an advertising operation launched from a sourcing screen, Operations owns
+  only the run/lease and the Advertising handler owns canonical tracking,
+  competitor, and daily fact rows. The operation result is a safe summary, not
+  a fact sink; the screen reads Advertising's persisted snapshot.
 - Operation-alert lifecycle writes go through advertising's local
   `operation-alert.port`, bound to automation's `OPERATION_ALERT_PORT`.
 - Sellable-stock reads go through Channels' exported read-only

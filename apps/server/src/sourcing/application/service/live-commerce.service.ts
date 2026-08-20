@@ -19,9 +19,19 @@ import {
   mapTrendTypedRecordsToAuthorizedOutput,
   normalizeCollectionTarget,
 } from './sourcing-collection-mappers';
-import { SourcingCollectionCoordinator } from './sourcing-collection-coordinator.service';
+import {
+  SourcingCollectionCoordinator,
+  type ActiveOperationAttemptCommitFence,
+} from './sourcing-collection-coordinator.service';
 
 const MAX_LIVE_KEYWORD_SAMPLE_TITLES = 3;
+const LIVE_COMPOSITE_ID_SEPARATOR = '\u0000';
+
+export interface LiveCommerceOperationControls {
+  signal?: AbortSignal;
+  checkpoint?: () => Promise<void>;
+  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
+}
 
 export interface LiveTrendKeywordView {
   keyword: string;
@@ -34,35 +44,6 @@ export interface LiveTrendKeywordView {
   sampleTitles: string[];
   topImageUrl: string | null;
   latestCapturedAt: string | null;
-}
-
-const EXTENSION_SOURCES = ['1688', 'douyin'] as const;
-type ExtensionLiveCommerceSource = (typeof EXTENSION_SOURCES)[number];
-
-export interface ExtensionLiveCommerceIngestInput {
-  source: ExtensionLiveCommerceSource;
-  pageUrl: string;
-  broadcast: {
-    broadcastId: string;
-    title?: string;
-    broadcasterId?: string;
-    broadcasterName?: string;
-    status?: string;
-    viewerCount?: number;
-    likeCount?: number;
-    startedAt?: string;
-    endedAt?: string;
-    coverImageUrl?: string;
-  };
-  products: Array<{
-    productId: string;
-    rank?: number;
-    title?: string;
-    priceCny?: number;
-    salesCount?: number;
-    imageUrl?: string;
-    sourceUrl?: string;
-  }>;
 }
 
 @Injectable()
@@ -120,10 +101,14 @@ export class LiveCommerceService {
     organizationId: string,
     input: { queryDate?: string; liveIds?: string[]; pageSize?: number },
     idempotencyKey?: string,
+    controls: LiveCommerceOperationControls = {},
   ) {
+    await checkpointOperation(controls);
     const capturedAt = new Date();
     const businessDate = kstBusinessDate(capturedAt);
-    const queryDate = input.queryDate ?? formatChinaCalendarDate(capturedAt);
+    const queryDate = input.queryDate
+      ? canonicalTaobaoQueryDate(input.queryDate)
+      : formatChinaCalendarDate(capturedAt);
     const collectionSummary: {
       current: { broadcastCount: number; productCount: number; warnings: string[] } | null;
     } = { current: null };
@@ -135,14 +120,21 @@ export class LiveCommerceService {
         idempotencyKey,
         request: input,
         collectorKey: 'taobao-live-collection',
+        signal: controls.signal,
+        operationCheckpoint: controls.checkpoint,
+        commitWithinActiveOperationAttempt: controls.commitWithinActiveOperationAttempt,
       }),
       async ({ permit, checkpoint }) => {
+        await checkpointOperation(controls);
         await checkpoint();
         const result = await this.taobao.collect({
           queryDate,
           liveIds: input.liveIds ?? [],
           pageSize: input.pageSize ?? 100,
+          signal: controls.signal,
         });
+        await checkpointOperation(controls);
+        await checkpoint();
         const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
           organizationId,
           businessDate,
@@ -162,6 +154,7 @@ export class LiveCommerceService {
           productCount: products.length,
           warnings: result.warnings,
         };
+        await checkpointOperation(controls);
         await checkpoint();
         return mapTrendTypedRecordsToAuthorizedOutput({
           permit,
@@ -173,87 +166,12 @@ export class LiveCommerceService {
         });
       },
     );
+    await checkpointOperation(controls);
     const collected = collectionSummary.current;
     if (!collected) throw new BadRequestException('An idempotent Taobao collection is already in progress.');
     return {
       businessDate: toDateString(businessDate),
       ...collected,
-    };
-  }
-
-  async ingestExtension(
-    organizationId: string,
-    input: ExtensionLiveCommerceIngestInput,
-    idempotencyKey?: string,
-  ) {
-    assertSourcePageUrl(input.source, input.pageUrl);
-    const capturedAt = new Date();
-    const businessDate = kstBusinessDate(capturedAt);
-    const broadcastId = input.broadcast.broadcastId.trim();
-    const broadcast: LiveCommerceBroadcastSnapshotUpsert = {
-      organizationId,
-      businessDate,
-      source: input.source,
-      broadcastId,
-      title: optionalText(input.broadcast.title),
-      broadcasterId: optionalText(input.broadcast.broadcasterId),
-      broadcasterName: optionalText(input.broadcast.broadcasterName),
-      status: optionalText(input.broadcast.status),
-      viewerCount: nonNegativeInteger(input.broadcast.viewerCount),
-      likeCount: nonNegativeInteger(input.broadcast.likeCount),
-      startedAt: optionalDate(input.broadcast.startedAt),
-      endedAt: optionalDate(input.broadcast.endedAt),
-      coverImageUrl: optionalHttpUrl(input.broadcast.coverImageUrl),
-      sourceUrl: input.pageUrl,
-      capturedAt,
-    };
-    const seen = new Set<string>();
-    const products: LiveCommerceProductSnapshotUpsert[] = [];
-    for (const [index, item] of input.products.entries()) {
-      const productId = item.productId.trim();
-      if (!productId || seen.has(productId)) continue;
-      seen.add(productId);
-      products.push({
-        organizationId,
-        businessDate,
-        source: input.source,
-        broadcastId,
-        productId,
-        rank: nonNegativeInteger(item.rank) ?? index + 1,
-        title: optionalText(item.title),
-        priceCny: nonNegativeNumber(item.priceCny),
-        salesCount: nonNegativeInteger(item.salesCount),
-        imageUrl: optionalHttpUrl(item.imageUrl),
-        sourceUrl: optionalSourceProductUrl(input.source, item.sourceUrl),
-        capturedAt,
-      });
-    }
-    await this.collectionCoordinator.execute(
-      liveCollectionRequest({
-        organizationId,
-        sourceKey: `${input.source}.live_commerce`,
-        targetKey: broadcastId,
-        idempotencyKey,
-        request: input,
-        collectorKey: `extension-${input.source}-live-commerce`,
-      }),
-      async ({ permit, checkpoint }) => {
-        await checkpoint();
-        return mapTrendTypedRecordsToAuthorizedOutput({
-          permit,
-          typedRecords: [
-            { kind: 'live_commerce_broadcast', row: broadcast },
-            ...products.map((row) => ({ kind: 'live_commerce_product' as const, row })),
-          ],
-          qualityReport: { source: input.source, mode: 'extension' },
-        });
-      },
-    );
-    return {
-      businessDate: toDateString(businessDate),
-      source: input.source,
-      broadcastCount: 1,
-      productCount: products.length,
     };
   }
 
@@ -293,7 +211,7 @@ export class LiveCommerceService {
     const productRows = await this.repository.findProductSnapshots({ organizationId, ...input });
     const latest = latestRows(
       productRows,
-      (row) => `${row.source} ${row.broadcastId} ${row.productId}`,
+      (row) => [row.source, row.broadcastId, row.productId].join(LIVE_COMPOSITE_ID_SEPARATOR),
     );
 
     const groups = new Map<string, LiveKeywordAggregate>();
@@ -357,7 +275,7 @@ function createLiveKeywordAggregate(): LiveKeywordAggregate {
 
 function accumulateLiveKeyword(aggregate: LiveKeywordAggregate, row: LiveCommerceProductSnapshotRow): void {
   aggregate.productCount += 1;
-  aggregate.broadcastIds.add(`${row.source} ${row.broadcastId}`);
+  aggregate.broadcastIds.add([row.source, row.broadcastId].join(LIVE_COMPOSITE_ID_SEPARATOR));
   aggregate.sources.add(row.source);
   if (row.salesCount != null) {
     aggregate.totalSales += row.salesCount;
@@ -377,68 +295,6 @@ function accumulateLiveKeyword(aggregate: LiveKeywordAggregate, row: LiveCommerc
   }
 }
 
-function assertSourcePageUrl(source: ExtensionLiveCommerceSource, rawUrl: string): void {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    throw new BadRequestException('라이브 방송 URL이 올바르지 않습니다.');
-  }
-  if (url.protocol !== 'https:') {
-    throw new BadRequestException('라이브 방송은 HTTPS URL만 수집할 수 있습니다.');
-  }
-  const host = url.hostname.toLowerCase();
-  const valid = source === '1688' ? isHost(host, '1688.com') : isHost(host, 'douyin.com');
-  if (!valid) throw new BadRequestException(`${source} 라이브 방송 URL과 수집 소스가 일치하지 않습니다.`);
-}
-
-function optionalSourceProductUrl(source: ExtensionLiveCommerceSource, rawUrl: string | undefined): string | null {
-  if (!rawUrl) return null;
-  try {
-    const url = new URL(rawUrl);
-    const host = url.hostname.toLowerCase();
-    const valid = source === '1688'
-      ? isHost(host, '1688.com')
-      : isHost(host, 'douyin.com') || isHost(host, 'jinritemai.com');
-    return valid ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function isHost(host: string, root: string): boolean {
-  return host === root || host.endsWith(`.${root}`);
-}
-
-function optionalText(value: string | undefined): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
-}
-
-function optionalHttpUrl(value: string | undefined): string | null {
-  if (!value) return null;
-  try {
-    const url = new URL(value);
-    return url.protocol === 'https:' || url.protocol === 'http:' ? url.toString() : null;
-  } catch {
-    return null;
-  }
-}
-
-function optionalDate(value: string | undefined): Date | null {
-  if (!value) return null;
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
-function nonNegativeNumber(value: number | undefined): number | null {
-  return typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
-}
-
-function nonNegativeInteger(value: number | undefined): number | null {
-  const number = nonNegativeNumber(value);
-  return number === null ? null : Math.trunc(number);
-}
-
 function formatChinaCalendarDate(date: Date): string {
   const parts = new Intl.DateTimeFormat('en', {
     timeZone: 'Asia/Shanghai',
@@ -448,6 +304,19 @@ function formatChinaCalendarDate(date: Date): string {
   }).formatToParts(date);
   const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
   return `${read('year')}${read('month')}${read('day')}`;
+}
+
+function canonicalTaobaoQueryDate(value: string): string {
+  const normalized = value.trim();
+  if (/^\d{8}$/.test(normalized)) return normalized;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(normalized)) return normalized.replaceAll('-', '');
+  throw new BadRequestException('taobao_query_date_invalid');
+}
+
+async function checkpointOperation(controls: LiveCommerceOperationControls): Promise<void> {
+  controls.signal?.throwIfAborted();
+  await controls.checkpoint?.();
+  controls.signal?.throwIfAborted();
 }
 
 function latestRows<T extends { capturedAt: Date }>(rows: T[], keyOf: (row: T) => string): T[] {
@@ -471,6 +340,9 @@ function liveCollectionRequest(input: {
   idempotencyKey?: string;
   request: unknown;
   collectorKey: string;
+  signal?: AbortSignal;
+  operationCheckpoint?: () => Promise<void>;
+  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
 }) {
   const requestHash = hashCollectionRequest(input.request);
   return {
@@ -485,5 +357,8 @@ function liveCollectionRequest(input: {
     triggerKind: 'manual' as const,
     triggeredByUserId: null,
     leaseDurationMs: 120_000,
+    signal: input.signal,
+    operationCheckpoint: input.operationCheckpoint,
+    commitWithinActiveOperationAttempt: input.commitWithinActiveOperationAttempt,
   };
 }

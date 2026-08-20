@@ -1,13 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import { BrowserCollectionRunIdSchema } from "@kiditem/shared/browser-collection-session";
+import { useEffect, useMemo, useState } from "react";
+import type { AdvertisingCompetitorCatalogInput } from "@kiditem/shared/sourcing";
 import Link from "next/link";
 import {
   keepPreviousData,
-  useMutation,
   useQuery,
-  useQueryClient,
 } from "@tanstack/react-query";
 import {
   AlertCircle,
@@ -19,64 +17,55 @@ import {
   Trophy,
 } from "lucide-react";
 import { toast } from "sonner";
-import { BrowserCollectionRunControls } from "@/components/browser-collection/BrowserCollectionRunControls";
-import { useBrowserCollectionSession } from "@/hooks/useBrowserCollectionSession";
 import { friendlyError } from "@/lib/api-error";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 import {
-  autoConfigureCompetitorTrackers,
   fetchCompetitorTrackingOverview,
   type CompetitorSeller,
 } from "../lib/competitor-tracking-api";
 import {
   competitorExtensionGateMessage,
   detectCompetitorExtensionGate,
-  getCompetitorCollectionStatus,
-  getCompetitorSellerCollectionStatus,
-  runCompetitorCollection,
-  runCompetitorSellerCollection,
   type CompetitorExtensionGate,
 } from "../lib/competitor-extension";
 import { useCompetitorProductTracking } from "../hooks/useCompetitorProductTracking";
 import { CompetitorSellerDetail } from "./CompetitorSellerDetail";
 import { CompetitorSellerList } from "./CompetitorSellerList";
+import { useSourcingOperationAction } from "../../hooks/use-sourcing-operation-action";
+import { SourcingOperationRunPanel } from "../../components/SourcingOperationRunPanel";
 
 type GateState = CompetitorExtensionGate | { status: "checking" };
-type ActiveRun = {
-  runId: string;
-  extensionId: string;
-  mode: "all" | "seller";
-  sellerId?: string;
-  sellerKey?: string;
-  sellerName?: string;
-} | null;
+const ACTIVE_OPERATION_STATUSES = new Set([
+  "queued",
+  "waiting_runtime",
+  "waiting_dependency",
+  "running",
+  "attention_required",
+]);
 
 export function CompetitorTrackingPage() {
-  const queryClient = useQueryClient();
   const productTracking = useCompetitorProductTracking();
+  const [initialRunId] = useState(readOperationRunId);
   const [periodDays, setPeriodDays] = useState(30);
   const [search, setSearch] = useState("");
   const [selectedSellerKey, setSelectedSellerKey] = useState<string | null>(
     null,
   );
   const [gate, setGate] = useState<GateState>({ status: "checking" });
-  const [activeRun, setActiveRun] = useState<ActiveRun>(null);
-  const [linkedRunId] = useState(readCollectionRunId);
-  const completedRunRef = useRef<string | null>(null);
-  const collectionSessionQuery = useBrowserCollectionSession(
-    activeRun?.runId ?? linkedRunId,
-  );
-  const collectionSession =
-    collectionSessionQuery.data?.producer === "advertising.competitor_catalog" ||
-    collectionSessionQuery.data?.producer === "advertising.keyword_rank"
-      ? collectionSessionQuery.data
-      : null;
+  const [requestedSellerKey, setRequestedSellerKey] = useState<string | null>(null);
+  const snapshotQueryKey = queryKeys.sourcing.competitors(periodDays);
+  const operation = useSourcingOperationAction({
+    operationKey: "advertising.collect_competitor_catalog",
+    input: { target: "configured_watchlist" },
+    snapshotQueryKey,
+    initialRunId,
+  });
 
   const overviewQuery = useQuery({
     queryKey: queryKeys.sourcing.competitors(periodDays),
     queryFn: () => fetchCompetitorTrackingOverview(periodDays),
-    refetchInterval: activeRun ? 5_000 : 60_000,
+    refetchInterval: 60_000,
     // 기간 전환 시 전체화면 스켈레톤으로 되돌아가지 않도록 직전 데이터를 유지한다.
     placeholderData: keepPreviousData,
   });
@@ -94,165 +83,6 @@ export function CompetitorTrackingPage() {
       active = false;
     };
   }, []);
-
-  useEffect(() => {
-    if (activeRun || gate.status !== "ready" || !collectionSession) return;
-    if (
-      collectionSession.status !== "running" &&
-      collectionSession.status !== "attention_required"
-    ) {
-      return;
-    }
-    setActiveRun({
-      runId: collectionSession.runId,
-      extensionId: gate.extensionId,
-      mode:
-        collectionSession.producer === "advertising.competitor_catalog"
-          ? "seller"
-          : "all",
-      sellerId:
-        typeof collectionSession.inputIdentity.sellerId === "string"
-          ? collectionSession.inputIdentity.sellerId
-          : undefined,
-    });
-  }, [activeRun, collectionSession, gate]);
-
-  const statusQuery = useQuery({
-    queryKey: queryKeys.sourcing.competitorCollectionStatus(
-      activeRun?.runId ?? null,
-    ),
-    queryFn: () =>
-      activeRun!.mode === "seller"
-        ? getCompetitorSellerCollectionStatus(
-            activeRun!.extensionId,
-            activeRun!.runId,
-          )
-        : getCompetitorCollectionStatus(
-            activeRun!.extensionId,
-            activeRun!.runId,
-          ),
-    enabled: Boolean(activeRun),
-    refetchInterval: (query) => {
-      const status = query.state.data?.status;
-      return status === "done" || status === "error" || status === "cancelled"
-        ? false
-        : 2_000;
-    },
-  });
-
-  useEffect(() => {
-    if (!activeRun || !statusQuery.data) return;
-    const status = statusQuery.data.status;
-    if (status !== "done" && status !== "error" && status !== "cancelled") return;
-    if (completedRunRef.current === activeRun.runId) return;
-    completedRunRef.current = activeRun.runId;
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.competitors(periodDays),
-    });
-    if (status === "done") {
-      if (activeRun.mode === "seller") {
-        toast.success(
-          `${activeRun.sellerName ?? "판매자"} 상품 수집 완료 · ${formatNumber(statusQuery.data.catalogProductCount ?? 0)}개`,
-        );
-      } else {
-        toast.success(
-          `쿠팡 경쟁 판매자 수집 완료 · ${formatNumber(statusQuery.data.completed ?? 0)}개 키워드`,
-        );
-      }
-    } else if (status === "cancelled") {
-      toast.info("쿠팡 경쟁 판매자 수집을 중단했습니다.");
-    } else {
-      toast.error(
-        statusQuery.data.error ?? "쿠팡 경쟁 판매자 수집에 실패했습니다.",
-      );
-    }
-    setActiveRun(null);
-  }, [activeRun, periodDays, queryClient, statusQuery.data]);
-
-  const collectMutation = useMutation({
-    mutationFn: async (requestedRunId?: string) => {
-      const configured = await autoConfigureCompetitorTrackers(12);
-      const nextGate = await detectCompetitorExtensionGate();
-      setGate(nextGate);
-      if (nextGate.status !== "ready") {
-        throw new Error(
-          competitorExtensionGateMessage(nextGate) ??
-            "쿠팡 확장프로그램을 사용할 수 없습니다.",
-        );
-      }
-      const run = await runCompetitorCollection(
-        nextGate.extensionId,
-        requestedRunId,
-      );
-      return { configured, run, extensionId: nextGate.extensionId };
-    },
-    onSuccess: ({ configured, run, extensionId }) => {
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.competitors(periodDays),
-      });
-      if (run.started && run.runId) {
-        completedRunRef.current = null;
-        setActiveRun({ runId: run.runId, extensionId, mode: "all" });
-        toast.success(
-          `${formatNumber(configured.configuredCount)}개 키워드로 경쟁 판매자 수집을 시작했습니다.`,
-        );
-      } else {
-        toast.success(
-          "추적 키워드가 준비됐습니다. 수집 데이터를 새로고침합니다.",
-        );
-        overviewQuery.refetch();
-      }
-    },
-    onError: (error) => toast.error(friendlyError(error) ?? "수집 시작 실패"),
-  });
-
-  const collectSellerMutation = useMutation({
-    mutationFn: async ({
-      seller,
-      requestedRunId,
-    }: {
-      seller: CompetitorSeller;
-      requestedRunId?: string;
-    }) => {
-      if (!seller.sellerId || !seller.sellerStoreUrl) {
-        throw new Error("판매자샵 주소가 확인된 판매자만 수집할 수 있습니다.");
-      }
-      const nextGate = await detectCompetitorExtensionGate();
-      setGate(nextGate);
-      if (nextGate.status !== "ready") {
-        throw new Error(
-          competitorExtensionGateMessage(nextGate) ??
-            "쿠팡 확장프로그램을 사용할 수 없습니다.",
-        );
-      }
-      const run = await runCompetitorSellerCollection(
-        nextGate.extensionId,
-        seller.sellerId,
-        requestedRunId,
-      );
-      return { seller, run, extensionId: nextGate.extensionId };
-    },
-    onSuccess: ({ seller, run, extensionId }) => {
-      if (run.started && run.runId) {
-        completedRunRef.current = null;
-        setActiveRun({
-          runId: run.runId,
-          extensionId,
-          mode: "seller",
-          sellerKey: seller.sellerKey,
-          sellerId: seller.sellerId ?? undefined,
-          sellerName: seller.brandName ?? seller.sellerName,
-        });
-        toast.success(
-          `${seller.brandName ?? seller.sellerName} 전체상품 수집을 시작했습니다.`,
-        );
-      } else {
-        overviewQuery.refetch();
-      }
-    },
-    onError: (error) =>
-      toast.error(friendlyError(error) ?? "판매자 상품 수집 시작 실패"),
-  });
 
   const data = overviewQuery.data;
   const filteredSellers = useMemo(() => {
@@ -283,39 +113,39 @@ export function CompetitorTrackingPage() {
     gate.status === "checking"
       ? null
       : competitorExtensionGateMessage(gate as CompetitorExtensionGate);
-  const collecting =
-    Boolean(activeRun) ||
-    collectionSession?.status === "running" ||
-    collectionSession?.status === "attention_required";
-  const collectingSellerKey =
-    activeRun?.mode === "seller" ? activeRun.sellerKey : null;
-  const pendingSellerKey = collectSellerMutation.isPending
-    ? collectSellerMutation.variables?.seller.sellerKey
-    : null;
+  const collecting = operation.isStarting || (
+    operation.run !== null && ACTIVE_OPERATION_STATUSES.has(operation.run.status)
+  );
+  const collectingSellerKey = collecting ? requestedSellerKey : null;
 
-  const restartCollection = async (
-    session: NonNullable<typeof collectionSession>,
+  const startCollection = async (
+    input: AdvertisingCompetitorCatalogInput,
+    requestedSeller: CompetitorSeller | null = null,
   ) => {
-    if (session.producer === "advertising.keyword_rank") {
-      await collectMutation.mutateAsync(session.runId);
+    if (input.target === "seller_id" && !requestedSeller?.sellerId) {
+      toast.error("검증된 판매자 ID가 필요합니다.");
       return;
     }
-    const sellerId =
-      activeRun?.sellerId ??
-      (typeof session.inputIdentity.sellerId === "string"
-        ? session.inputIdentity.sellerId
-        : null) ??
-      statusQuery.data?.sellerId ??
-      null;
-    const seller = data?.sellers.find((candidate) => candidate.sellerId === sellerId);
-    if (!seller) {
-      toast.error("처음부터 다시 수집할 판매자를 확인할 수 없습니다.");
-      return;
+    setRequestedSellerKey(requestedSeller?.sellerKey ?? null);
+    try {
+      const run = await operation.start(input, [snapshotQueryKey]);
+      const params = new URLSearchParams(window.location.search);
+      params.delete("collectionRun");
+      params.set("operationRun", run.id);
+      window.history.replaceState(
+        {},
+        "",
+        `${window.location.pathname}?${params.toString()}`,
+      );
+      toast.success(
+        requestedSeller
+          ? `${requestedSeller.brandName ?? requestedSeller.sellerName} 전체상품 수집을 시작했습니다.`
+          : "설정된 경쟁 판매자 수집을 시작했습니다.",
+      );
+    } catch (error) {
+      setRequestedSellerKey(null);
+      toast.error(friendlyError(error) ?? "판매자 수집 시작 실패");
     }
-    await collectSellerMutation.mutateAsync({
-      seller,
-      requestedRunId: session.runId,
-    });
   };
 
   if (overviewQuery.isLoading) return <LoadingState />;
@@ -371,12 +201,8 @@ export function CompetitorTrackingPage() {
             </select>
             <button
               type="button"
-              onClick={() => collectMutation.mutate(undefined)}
-              disabled={
-                collectMutation.isPending ||
-                collectSellerMutation.isPending ||
-                collecting
-              }
+              onClick={() => void startCollection({ target: "configured_watchlist" })}
+              disabled={collecting}
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <RefreshCw
@@ -389,12 +215,13 @@ export function CompetitorTrackingPage() {
         </div>
       </section>
 
-      {collectionSession && (
-        <BrowserCollectionRunControls
-          session={collectionSession}
-          onWebRestart={restartCollection}
-        />
-      )}
+      <SourcingOperationRunPanel
+        run={operation.run}
+        onCancel={() => void operation.cancel()}
+        onRetryAttention={() => void operation.retryAttention()}
+        isCancelling={operation.isCancelling}
+        isRetrying={operation.isRetrying}
+      />
 
       {(gateMessage ||
         collecting ||
@@ -402,9 +229,9 @@ export function CompetitorTrackingPage() {
         <CollectionNotice
           gateMessage={gateMessage}
           collecting={collecting}
-          currentKeyword={statusQuery.data?.current ?? null}
-          completed={statusQuery.data?.completed ?? 0}
-          total={statusQuery.data?.total ?? 0}
+          currentKeyword={operation.run?.stage ?? null}
+          completed={operation.run?.progressCurrent ?? 0}
+          total={operation.run?.progressTotal ?? 0}
           unresolvedCount={data.summary.unresolvedSellerProductCount}
         />
       )}
@@ -447,8 +274,8 @@ export function CompetitorTrackingPage() {
         <DataEmptyState
           status={data.collection.status}
           keywords={data.collection.suggestedKeywords}
-          onCollect={() => collectMutation.mutate(undefined)}
-          pending={collectMutation.isPending}
+          onCollect={() => void startCollection({ target: "configured_watchlist" })}
+          pending={collecting}
         />
       ) : (
         <section className="grid min-w-0 gap-4 xl:grid-cols-[460px_minmax(0,1fr)]">
@@ -458,11 +285,18 @@ export function CompetitorTrackingPage() {
             search={search}
             onSearchChange={setSearch}
             onSelect={setSelectedSellerKey}
-            onCollectSeller={(seller) =>
-              collectSellerMutation.mutate({ seller })
-            }
-            collectingSellerKey={collectingSellerKey ?? pendingSellerKey}
-            collectionDisabled={collecting || collectSellerMutation.isPending}
+            onCollectSeller={(seller) => {
+              if (!seller.sellerId) {
+                toast.error("검증된 판매자 ID가 필요합니다.");
+                return;
+              }
+              void startCollection(
+                { target: "seller_id", sellerId: seller.sellerId },
+                seller,
+              );
+            }}
+            collectingSellerKey={collectingSellerKey}
+            collectionDisabled={collecting}
           />
           {selectedSeller ? (
             <CompetitorSellerDetail
@@ -484,13 +318,14 @@ export function CompetitorTrackingPage() {
   );
 }
 
-function readCollectionRunId(): string | null {
+function readOperationRunId(): string | null {
   if (typeof window === "undefined") return null;
-  const parsed = BrowserCollectionRunIdSchema.safeParse(
-    new URLSearchParams(window.location.search).get("collectionRun"),
-  );
-  return parsed.success ? parsed.data : null;
+  const runId = new URLSearchParams(window.location.search).get("operationRun");
+  return runId !== null && OPERATION_RUN_ID_PATTERN.test(runId) ? runId : null;
 }
+
+const OPERATION_RUN_ID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function SummaryCard({
   icon: Icon,

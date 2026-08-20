@@ -349,21 +349,19 @@ model AgentExecutionAttempt {
   externalRunId      String?   @map("external_run_id")
   encryptedHandleRef String?   @map("encrypted_handle_ref")
   runtimeGeneration  Int       @default(0) @map("runtime_generation")
-  operationRunId     String?   @map("operation_run_id") @db.Uuid
   state              String
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz
   errorCode          String?   @map("error_code")
   errorMessage       String?   @map("error_message") @db.Text
 
-  execution AgentExecution         @relation("AgentExecutionAttempts", fields: [executionId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
-  operationRun OperationRun?       @relation("AgentExecutionAttemptOperationRun", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  approvals AgentSessionApproval[] @relation("AgentSessionApprovalAttempt")
+  execution         AgentExecution                          @relation("AgentExecutionAttempts", fields: [executionId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
+  operationBindings AgentExecutionAttemptOperationBinding[] @relation("AgentExecutionAttemptOperationBindings")
+  approvals         AgentSessionApproval[]                  @relation("AgentSessionApprovalAttempt")
 
   @@unique([executionId, attemptNumber], map: "agent_execution_attempts_execution_number_key")
   @@unique([executionId, idempotencyKey], map: "agent_execution_attempts_execution_idempotency_key")
   @@unique([id, executionId, sessionId, organizationId], map: "agent_execution_attempts_id_execution_session_org_key")
-  @@unique([operationRunId, organizationId], map: "agent_execution_attempts_operation_run_org_key")
   @@index([organizationId, state, startedAt])
   @@index([executionId, sessionId, organizationId])
   @@index([externalRunId])
@@ -371,7 +369,33 @@ model AgentExecutionAttempt {
 }
 
 /// @namespace AgentOS
-/// @describe Invocation-scoped human approval request and immutable terminal decision identity.
+/// @describe Immutable lifecycle-envelope binding for one durable Agent execution attempt. A successor OperationRun retains the same external runtime handle and references the previous immutable OperationRun.
+model AgentExecutionAttemptOperationBinding {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  executionAttemptId        String   @map("execution_attempt_id") @db.Uuid
+  executionId               String   @map("execution_id") @db.Uuid
+  sessionId                 String   @map("session_id") @db.Uuid
+  operationRunId            String   @map("operation_run_id") @db.Uuid
+  predecessorOperationRunId String?  @map("predecessor_operation_run_id") @db.Uuid
+  continuationKey           String   @map("continuation_key")
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  attempt                 AgentExecutionAttempt @relation("AgentExecutionAttemptOperationBindings", fields: [executionAttemptId, executionId, sessionId, organizationId], references: [id, executionId, sessionId, organizationId], onDelete: Restrict)
+  operationRun            OperationRun          @relation("AgentExecutionAttemptOperationBindingOperationRun", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  predecessorOperationRun OperationRun?         @relation("AgentExecutionAttemptOperationBindingPredecessorRun", fields: [predecessorOperationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  approvals               AgentSessionApproval[] @relation("AgentSessionApprovalOperationBinding")
+
+  @@unique([id, organizationId], map: "agent_execution_attempt_operation_bindings_id_org_key")
+  @@unique([operationRunId, organizationId], map: "agent_attempt_op_bindings_operation_run_org_key")
+  @@unique([organizationId, executionAttemptId, continuationKey], map: "agent_attempt_op_bindings_org_attempt_continuation_key")
+  @@index([organizationId, executionAttemptId, createdAt])
+  @@index([predecessorOperationRunId, organizationId])
+  @@map("agent_execution_attempt_operation_bindings")
+}
+
+/// @namespace AgentOS
+/// @describe Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it.
 model AgentSessionApproval {
   id                     String    @id @default(uuid()) @db.Uuid
   organizationId         String    @map("organization_id") @db.Uuid
@@ -379,6 +403,8 @@ model AgentSessionApproval {
   taskId                 String    @map("task_id") @db.Uuid
   executionId            String    @map("execution_id") @db.Uuid
   attemptId              String    @map("attempt_id") @db.Uuid
+  operationBindingId     String    @map("operation_binding_id") @db.Uuid
+  predecessorOperationRunId String @map("predecessor_operation_run_id") @db.Uuid
   capabilityKey          String    @map("capability_key")
   argumentsHash          String    @map("arguments_hash")
   resourceSnapshot       Json      @map("resource_snapshot") @db.JsonB
@@ -395,6 +421,9 @@ model AgentSessionApproval {
   task      AgentSessionTask      @relation("AgentSessionTaskApprovals", fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   execution AgentExecution        @relation("AgentExecutionApprovals", fields: [executionId, taskId, sessionId, organizationId], references: [id, sessionTaskId, sessionId, organizationId], onDelete: Restrict)
   attempt   AgentExecutionAttempt @relation("AgentSessionApprovalAttempt", fields: [attemptId, executionId, sessionId, organizationId], references: [id, executionId, sessionId, organizationId], onDelete: Restrict)
+  operationBinding AgentExecutionAttemptOperationBinding @relation("AgentSessionApprovalOperationBinding", fields: [operationBindingId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  predecessorOperationRun OperationRun @relation("AgentSessionApprovalPredecessorOperationRun", fields: [predecessorOperationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  continuation AgentSessionApprovalContinuation?
 
   @@unique([executionId, idempotencyKey], map: "agent_session_approvals_execution_idempotency_key")
   @@unique([organizationId, decisionIdempotencyKey], map: "agent_session_approvals_org_decision_idempotency_key")
@@ -404,7 +433,30 @@ model AgentSessionApproval {
   @@index([taskId, sessionId, organizationId])
   @@index([executionId, taskId, sessionId, organizationId])
   @@index([attemptId, executionId, sessionId, organizationId])
+  @@index([operationBindingId, organizationId])
+  @@index([predecessorOperationRunId, organizationId])
   @@map("agent_session_approvals")
+}
+
+/// @namespace AgentOS
+/// @describe Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately.
+model AgentSessionApprovalContinuation {
+  id                    String    @id @default(uuid()) @db.Uuid
+  organizationId        String    @map("organization_id") @db.Uuid
+  approvalId            String    @map("approval_id") @db.Uuid
+  successorOperationRunId String? @map("successor_operation_run_id") @db.Uuid
+  state                 String    @default("pending")
+  interruptDeliveredAt  DateTime? @map("interrupt_delivered_at") @db.Timestamptz
+  createdAt             DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt             DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  approval     AgentSessionApproval @relation(fields: [approvalId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  successorOperationRun OperationRun? @relation("AgentSessionApprovalContinuationSuccessorRun", fields: [successorOperationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([approvalId, organizationId], map: "agent_session_approval_continuations_approval_org_key")
+  @@unique([successorOperationRunId, organizationId], map: "agent_session_approval_continuations_successor_run_org_key")
+  @@index([organizationId, state, createdAt])
+  @@map("agent_session_approval_continuations")
 }
 
 /// @namespace AgentOS

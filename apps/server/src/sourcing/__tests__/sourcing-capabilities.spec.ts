@@ -60,13 +60,14 @@ describe('sourcing capability manifest', () => {
     ]);
   });
 
-  it('keeps external market signals as a disabled-impact admin workflow', () => {
+  it('starts external market signals through an OperationRun workflow', () => {
     expect(
       SOURCING_CAPABILITIES.find(
         (capability) => capability.key === 'market.collect_shadow_signals',
       ),
     ).toMatchObject({
-      outputSchema: { decisionImpact: 'disabled' },
+      outputSchema: { operationRunId: 'string', status: 'string' },
+      effects: ['db_write', 'external_io', 'job_enqueue'],
       approval: 'on_write',
     });
   });

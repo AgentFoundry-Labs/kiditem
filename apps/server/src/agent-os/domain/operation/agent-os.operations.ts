@@ -45,6 +45,8 @@ export const AGENT_OS_OPERATIONS = [
     allowedTriggers: ['agent', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 5,
+    resourceClass: 'default',
+    executionTimeoutMs: 60 * 60_000,
     inputSchema: AgentSessionTaskOperationInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

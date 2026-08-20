@@ -74,7 +74,7 @@ describe('SourcingValidationRepositoryAdapter', () => {
     }));
   });
 
-  it('lists only 1688 supply validation episodes for the validation workspace', async () => {
+  it('lists the persisted validation episodes for the exact recommendation run without hiding demand-only rows', async () => {
     const prisma = {
       sourcingValidationEpisode: {
         findMany: vi.fn(async () => []),
@@ -88,13 +88,14 @@ describe('SourcingValidationRepositoryAdapter', () => {
       limit: 50,
     });
 
-    expect(prisma.sourcingValidationEpisode.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          recommendationItem: { sourcePlatform: '1688' },
-        }),
+    const query = vi.mocked(prisma.sourcingValidationEpisode.findMany).mock.calls[0][0];
+    expect(query).toEqual(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: ORGANIZATION_ID,
+        recommendationRunId: RUN_ID,
       }),
-    );
+    }));
+    expect(query.where).not.toHaveProperty('recommendationItem');
   });
 });
 

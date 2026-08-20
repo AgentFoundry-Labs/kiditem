@@ -20,6 +20,7 @@
 | AgentCostEvent | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
 | AgentExecution | `agent_executions` | Required session/task-owned interaction execution and terminal control state. |
 | AgentExecutionAttempt | `agent_execution_attempts` | One immutable numbered runtime attempt and its opaque reconnect handle identity. |
+| AgentExecutionAttemptOperationBinding | `agent_execution_attempt_operation_bindings` | Immutable lifecycle-envelope binding for one durable Agent execution attempt. A successor OperationRun retains the same external runtime handle and references the previous immutable OperationRun. |
 | AgentExecutionUsage | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
@@ -30,7 +31,8 @@
 | AgentRunRequest | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
 | AgentRuntimeState | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
 | AgentSession | `agent_sessions` | Organization-scoped canonical interaction session rooted at the first submitted user message. |
-| AgentSessionApproval | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity. |
+| AgentSessionApproval | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it. |
+| AgentSessionApprovalContinuation | `agent_session_approval_continuations` | Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately. |
 | AgentSessionArtifact | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
 | AgentSessionTask | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
 | AgentSessionTaskDelegation | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
@@ -207,12 +209,22 @@ erDiagram
     String externalRunId
     String encryptedHandleRef
     Int runtimeGeneration
-    String operationRunId FK
     String state
     DateTime startedAt
     DateTime finishedAt
     String errorCode
     String errorMessage
+  }
+  AgentExecutionAttemptOperationBinding {
+    String id PK
+    String organizationId FK
+    String executionAttemptId FK
+    String executionId FK
+    String sessionId FK
+    String operationRunId FK
+    String predecessorOperationRunId FK
+    String continuationKey
+    DateTime createdAt
   }
   AgentExecutionUsage {
     String id PK
@@ -414,6 +426,8 @@ erDiagram
     String taskId FK
     String executionId FK
     String attemptId FK
+    String operationBindingId FK
+    String predecessorOperationRunId FK
     String capabilityKey
     String argumentsHash
     Json resourceSnapshot
@@ -425,6 +439,16 @@ erDiagram
     String decidedByActorId
     DateTime requestedAt
     DateTime decidedAt
+  }
+  AgentSessionApprovalContinuation {
+    String id PK
+    String organizationId FK
+    String approvalId FK
+    String successorOperationRunId FK
+    String state
+    DateTime interruptDeliveredAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   AgentSessionArtifact {
     String id PK
@@ -584,7 +608,9 @@ erDiagram
   AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentExecution ||--o{ AgentSessionApproval : "execution"
   AgentExecution ||--o{ AgentSessionArtifact : "execution"
+  AgentExecutionAttempt ||--o{ AgentExecutionAttemptOperationBinding : "attempt"
   AgentExecutionAttempt ||--o{ AgentSessionApproval : "attempt"
+  AgentExecutionAttemptOperationBinding ||--o{ AgentSessionApproval : "operationBinding"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
@@ -629,6 +655,7 @@ erDiagram
   AgentSession ||--o{ AgentSessionArtifact : "session"
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
+  AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
@@ -667,7 +694,8 @@ erDiagram
 | AgentConversation | organization | references external | Core | Organization |
 | AgentCostEvent | organization | references external | Core | Organization |
 | AgentExecution | organization | references external | Core | Organization |
-| AgentExecutionAttempt | operationRun | references external | System | OperationRun |
+| AgentExecutionAttemptOperationBinding | operationRun | references external | System | OperationRun |
+| AgentExecutionAttemptOperationBinding | predecessorOperationRun | references external | System | OperationRun |
 | AgentExecutionUsage | organization | references external | Core | Organization |
 | AgentInstance | agentInstance | referenced by external | Core | User |
 | AgentInstance | organization | references external | Core | Organization |
@@ -681,6 +709,8 @@ erDiagram
 | AgentRuntimeState | organization | references external | Core | Organization |
 | AgentSession | creator | references external | Core | User |
 | AgentSession | organization | references external | Core | Organization |
+| AgentSessionApproval | predecessorOperationRun | references external | System | OperationRun |
+| AgentSessionApprovalContinuation | successorOperationRun | references external | System | OperationRun |
 | AgentTaskSession | organization | references external | Core | Organization |
 | AgentToolInvocation | organization | references external | Core | Organization |
 | WorkflowRun | triggeredByUser | references external | Core | User |

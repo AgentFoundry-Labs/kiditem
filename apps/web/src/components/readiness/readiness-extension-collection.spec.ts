@@ -828,8 +828,11 @@ describe('readiness extension collection', () => {
       'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
     );
     expect(competitorExtensionSource).toContain('browserCollectionSessions');
-    expect(competitorPageSource).toContain('useBrowserCollectionSession');
-    expect(competitorPageSource).toContain('BrowserCollectionRunControls');
-    expect(competitorPageSource).toContain('collectionRun');
+    expect(competitorPageSource).toContain('useSourcingOperationAction');
+    expect(competitorPageSource).toContain('SourcingOperationRunPanel');
+    expect(competitorPageSource).toContain('operation.start(input, [snapshotQueryKey])');
+    expect(competitorPageSource).toContain('params.set("operationRun", run.id)');
+    expect(competitorPageSource).not.toContain('useBrowserCollectionSession');
+    expect(competitorPageSource).not.toContain('BrowserCollectionRunControls');
   });
 });

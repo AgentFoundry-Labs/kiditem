@@ -25,6 +25,7 @@ export const CODE_OWNED_RUNTIME_TYPES = [
 const CODE_OWNED_CAPABILITY_KEYS = [
   'agent_os.platform_probe',
   'analytics.readOverview',
+  'market.collect_shadow_signals',
   'sourcing.retrieveWorkspaceEvidence',
   'sourcing.inspectRecommendationRun',
   'sourcing.refreshCollection',

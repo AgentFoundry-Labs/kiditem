@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 31 |
+| [AgentOS](erd/agentos.md) | 33 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
@@ -55,6 +55,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentCostEvent | AgentOS | `agent_cost_events` | Cost ledger source of truth. Insert + AgentRuntimeState aggregate update share one transaction. |
 | AgentExecution | AgentOS | `agent_executions` | Required session/task-owned interaction execution and terminal control state. |
 | AgentExecutionAttempt | AgentOS | `agent_execution_attempts` | One immutable numbered runtime attempt and its opaque reconnect handle identity. |
+| AgentExecutionAttemptOperationBinding | AgentOS | `agent_execution_attempt_operation_bindings` | Immutable lifecycle-envelope binding for one durable Agent execution attempt. A successor OperationRun retains the same external runtime handle and references the previous immutable OperationRun. |
 | AgentExecutionUsage | AgentOS | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
@@ -65,7 +66,8 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentRunRequest | AgentOS | `agent_run_requests` | Durable request inbox + queue + dedupe + audit. Replaces AgentWakeupRequest. Queue state lives here, not on AgentRun. |
 | AgentRuntimeState | AgentOS | `agent_runtime_states` | Frequently-changing per-instance runtime state (last run, totals, cached aggregates). 1:1 with AgentInstance. |
 | AgentSession | AgentOS | `agent_sessions` | Organization-scoped canonical interaction session rooted at the first submitted user message. |
-| AgentSessionApproval | AgentOS | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity. |
+| AgentSessionApproval | AgentOS | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it. |
+| AgentSessionApprovalContinuation | AgentOS | `agent_session_approval_continuations` | Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately. |
 | AgentSessionArtifact | AgentOS | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
 | AgentSessionTask | AgentOS | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
 | AgentSessionTaskDelegation | AgentOS | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
@@ -429,12 +431,22 @@ erDiagram
     String externalRunId
     String encryptedHandleRef
     Int runtimeGeneration
-    String operationRunId FK
     String state
     DateTime startedAt
     DateTime finishedAt
     String errorCode
     String errorMessage
+  }
+  AgentExecutionAttemptOperationBinding {
+    String id PK
+    String organizationId FK
+    String executionAttemptId FK
+    String executionId FK
+    String sessionId FK
+    String operationRunId FK
+    String predecessorOperationRunId FK
+    String continuationKey
+    DateTime createdAt
   }
   AgentExecutionUsage {
     String id PK
@@ -636,6 +648,8 @@ erDiagram
     String taskId FK
     String executionId FK
     String attemptId FK
+    String operationBindingId FK
+    String predecessorOperationRunId FK
     String capabilityKey
     String argumentsHash
     Json resourceSnapshot
@@ -647,6 +661,16 @@ erDiagram
     String decidedByActorId
     DateTime requestedAt
     DateTime decidedAt
+  }
+  AgentSessionApprovalContinuation {
+    String id PK
+    String organizationId FK
+    String approvalId FK
+    String successorOperationRunId FK
+    String state
+    DateTime interruptDeliveredAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   AgentSessionArtifact {
     String id PK
@@ -1757,6 +1781,8 @@ erDiagram
     String ownerDomain
     String title
     String engineType
+    String resourceClass
+    Int executionTimeoutMs
     String status
     String triggerSource
     String requestedByUserId FK
@@ -1766,6 +1792,11 @@ erDiagram
     Json input
     Json result
     Float progress
+    String stage
+    DateTime stageUpdatedAt
+    Int progressCurrent
+    Int progressTotal
+    DateTime deadlineAt
     String nativeRunType
     String nativeRunId
     Int attempts
@@ -3176,7 +3207,9 @@ erDiagram
   AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentExecution ||--o{ AgentSessionApproval : "execution"
   AgentExecution ||--o{ AgentSessionArtifact : "execution"
+  AgentExecutionAttempt ||--o{ AgentExecutionAttemptOperationBinding : "attempt"
   AgentExecutionAttempt ||--o{ AgentSessionApproval : "attempt"
+  AgentExecutionAttemptOperationBinding ||--o{ AgentSessionApproval : "operationBinding"
   AgentInstance ||--o{ AgentApprovalRequest : "agentInstance"
   AgentInstance o|--o{ AgentArtifact : "agentInstance"
   AgentInstance ||--o{ AgentAuthorizationEvent : "agentInstance"
@@ -3222,6 +3255,7 @@ erDiagram
   AgentSession ||--o{ AgentSessionArtifact : "session"
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
+  AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
@@ -3326,7 +3360,10 @@ erDiagram
   MasterProductAbcFormulaVersion o|--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
-  OperationRun o|--o| AgentExecutionAttempt : "operationRun"
+  OperationRun ||--|| AgentExecutionAttemptOperationBinding : "operationRun"
+  OperationRun o|--o{ AgentExecutionAttemptOperationBinding : "predecessorOperationRun"
+  OperationRun ||--o{ AgentSessionApproval : "predecessorOperationRun"
+  OperationRun o|--o| AgentSessionApprovalContinuation : "successorOperationRun"
   OperationRun o|--o{ OperationRun : "parentRun"
   OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"

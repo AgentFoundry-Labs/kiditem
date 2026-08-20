@@ -1,5 +1,6 @@
 import type {
   OperationEngineType,
+  OperationResourceClass,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
 import type { z } from 'zod';
@@ -13,6 +14,8 @@ export interface OperationDefinition {
   allowedTriggers: readonly OperationTriggerSource[];
   scheduleSupported: boolean;
   maxAttempts: number;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   inputSchema: z.ZodType<Record<string, unknown>>;
 }
 
@@ -26,6 +29,12 @@ export interface OperationHandlerContext {
   scheduleId: string | null;
   parentRunId: string | null;
   attemptToken: string;
+  signal: AbortSignal;
+  checkpoint(update?: {
+    stage?: string;
+    progressCurrent?: number;
+    progressTotal?: number;
+  }): Promise<void>;
 }
 
 export interface OperationCancelContext {
@@ -47,6 +56,7 @@ export type OperationHandlerResult =
   | { kind: 'delegated'; nativeRunType: string; nativeRunId: string }
   | { kind: 'waiting_runtime' }
   | { kind: 'waiting_dependency'; child: StartChildOperation }
+  | { kind: 'waiting_dependencies'; children: StartChildOperation[] }
   | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
   | { kind: 'cancelled'; result: Record<string, unknown> }
   | { kind: 'failed'; code: string; message: string };

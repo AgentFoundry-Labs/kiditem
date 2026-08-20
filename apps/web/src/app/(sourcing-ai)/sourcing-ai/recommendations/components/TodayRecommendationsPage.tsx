@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   AlertCircle,
@@ -16,8 +16,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
-  searchWingCatalogProducts,
-} from '../../wing-catalog/lib/wing-catalog-extension';
+} from '../../wing-catalog/lib/wing-catalog-presenter';
 import { fetchPopularKeywordBoards } from '../../market/lib/trend-collection-api';
 import { popularKeywordSuggestions } from '../../lib/popular-keyword-suggestions';
 import {
@@ -28,15 +27,16 @@ import {
   type TodayRecommendationRow,
 } from '../lib/today-recommendations';
 import { createProductInterestTarget } from '../../lib/sourcing-interest-target';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
-  useIngestSourcingCoupangObservations,
   useSaveSourcingInterestTarget,
   useSourcingInterestTargets,
   useSourcingRecommendations,
 } from '../../hooks/use-sourcing-workspace';
 import { toTodayRecommendationRows } from '../../lib/sourcing-recommendation-presenter';
 import { SourcingReadState } from '../../components/SourcingReadState';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 
 const keywordLimitOptions = [10, 20, 50];
 const pageOptions = [1, 2];
@@ -48,16 +48,12 @@ export function TodayRecommendationsPage() {
   const [maxPages, setMaxPages] = useState(1);
   const [errors, setErrors] = useState<string[]>([]);
   const [interestNotice, setInterestNotice] = useState<string | null>(null);
-  const [isRunning, setIsRunning] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, keyword: '' });
   const [editingKeywords, setEditingKeywords] = useState(false);
-  const cancelRef = useRef(false);
   const recommendationsQuery = useSourcingRecommendations('today');
   const popularKeywordsQuery = useQuery({
     queryKey: queryKeys.sourcing.trendPopularKeywords(7),
     queryFn: () => fetchPopularKeywordBoards(7),
   });
-  const ingestObservations = useIngestSourcingCoupangObservations();
   const interestTargetsQuery = useSourcingInterestTargets();
   const saveInterestTarget = useSaveSourcingInterestTarget();
   const rows = useMemo(
@@ -69,14 +65,24 @@ export function TodayRecommendationsPage() {
   const aRows = rows.filter((row) => row.grade === 'A');
   const keywordOpportunities = useMemo(() => buildRisingKeywordOpportunities(rows).slice(0, 5), [rows]);
 
-  const keywords = useMemo(() => (
-    Array.from(new Set(
-      keywordText
-        .split(/\n|,/)
-        .map((keyword) => keyword.trim())
-        .filter(Boolean),
-    )).slice(0, keywordLimit)
-  ), [keywordLimit, keywordText]);
+  const keywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      keywordText.split(/\n|,/),
+      Math.min(keywordLimit, 12),
+    ),
+    [keywordLimit, keywordText],
+  );
+  const operationInput = useMemo(() => ({
+    keywords,
+    maxPages,
+    purpose: 'recommendation_validation' as const,
+  }), [keywords, maxPages]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey: queryKeys.sourcing.all,
+  });
+  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
 
   const applyKeywordAnalysisPool = useCallback(() => {
     if (popularKeywordsQuery.isLoading) {
@@ -102,75 +108,14 @@ export function TodayRecommendationsPage() {
     setKeywordPoolNotice(`키워드 분석 순위권 ${formatNumber(keywords.length)}개를 후보 풀로 가져왔습니다.`);
   }, [popularKeywordsQuery.data, popularKeywordsQuery.error, popularKeywordsQuery.isLoading]);
 
-  useEffect(() => {
-    if (!popularKeywordsQuery.isSuccess) return;
-    applyKeywordAnalysisPool();
-  }, [applyKeywordAnalysisPool, popularKeywordsQuery.isSuccess]);
-
-  const runRecommendations = async () => {
+  const runRecommendations = () => {
     if (keywords.length === 0) {
       setErrors(['키워드를 1개 이상 입력하세요.']);
       return;
     }
 
-    cancelRef.current = false;
-    setIsRunning(true);
     setErrors([]);
-    setProgress({ current: 0, total: keywords.length, keyword: '' });
-
-    const nextErrors: string[] = [];
-    let ingestedCount = 0;
-
-    for (let index = 0; index < keywords.length; index += 1) {
-      if (cancelRef.current) break;
-      const keyword = keywords[index];
-      setProgress({ current: index + 1, total: keywords.length, keyword });
-
-      try {
-        const response = await searchWingCatalogProducts({ keyword, maxPages });
-        const capturedAt = new Date().toISOString();
-        const observations = (response.rows ?? []).map((product) => ({
-          productId: product.productId,
-          itemId: product.itemId,
-          vendorItemId: product.vendorItemId,
-          productName: product.productName,
-          sourceKeyword: keyword,
-          salePriceKrw: product.salePrice,
-          ratingCount: product.ratingCount,
-          ratingAverage: product.rating,
-          viewsLast28d: product.pvLast28Day,
-          salesLast28d: product.salesLast28d,
-          capturedAt,
-        }));
-        for (const items of chunk(observations, 100)) {
-          if (cancelRef.current) break;
-          await ingestObservations.mutateAsync({
-            idempotencyKey: createSecureRandomUuid(),
-            items,
-          });
-          ingestedCount += items.length;
-        }
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        nextErrors.push(`${keyword}: ${message}`);
-        setErrors([...nextErrors]);
-        if (message.includes('확장프로그램') || message.includes('Wing 로그인')) break;
-      }
-
-      await sleep(700);
-    }
-
-    await recommendationsQuery.refetch();
-    setIsRunning(false);
-    setProgress((current) => ({
-      ...current,
-      keyword: cancelRef.current ? '중단됨' : '완료',
-    }));
-  };
-
-  const cancelRun = () => {
-    cancelRef.current = true;
-    setIsRunning(false);
+    void operation.start();
   };
 
   const trackProductInterest = async (row: TodayRecommendationRow) => {
@@ -310,17 +255,24 @@ export function TodayRecommendationsPage() {
                 </button>
                 <button
                   type="button"
-                  onClick={cancelRun}
+                  onClick={() => void operation.cancel()}
                   disabled={!isRunning}
                   className="h-11 rounded-lg border border-[var(--border)] bg-[var(--surface)] text-sm font-black text-[var(--text-secondary)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   중단
                 </button>
               </div>
-              <ProgressBar current={progress.current} total={progress.total} label={progress.keyword} />
             </div>
           </div>
         </section>
+
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         <section className="space-y-4">
             <section className="grid gap-3 md:grid-cols-3">
@@ -608,14 +560,10 @@ function resolveSalesLast3d(row: TodayRecommendationRow): number | null {
   return row.salesLast3d;
 }
 
-function sleep(ms: number) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-function chunk<T>(items: T[], size: number): T[][] {
-  const chunks: T[][] = [];
-  for (let offset = 0; offset < items.length; offset += size) {
-    chunks.push(items.slice(offset, offset + size));
-  }
-  return chunks;
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }

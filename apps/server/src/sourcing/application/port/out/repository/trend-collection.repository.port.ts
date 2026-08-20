@@ -100,6 +100,18 @@ export interface Sourcing1688OfferKeywordObservationInput {
   imageUrl: string | null;
   sourceUrl: string | null;
   capturedAt: Date;
+  searchMetadata?: {
+    score: number;
+    salesText?: string | null;
+    supplierFactoryUrl?: string | null;
+    supplierTags?: string[];
+    purchaseTags?: string[];
+    minOrderQuantity?: number | null;
+    shippingFulfillmentRate?: string | null;
+    shippingPickupRate?: string | null;
+    shipFrom?: string | null;
+    serviceScore?: number | null;
+  };
 }
 
 export interface Sourcing1688HotProductSnapshotRow {

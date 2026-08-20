@@ -7,6 +7,68 @@ const OperationResultForbiddenKey =
   /(?:^|[_-])(file|base64|rows?|raw|payload|response|html|cookie|token|credential|secret)(?:$|[_-])/i;
 const BrowserRuntimeIdSchema = z.string().min(1).max(120);
 
+export const MAX_OPERATION_PERSISTED_INT = 2_147_483_647;
+
+export const OperationProgressCountSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .max(MAX_OPERATION_PERSISTED_INT)
+  .nullable();
+
+export const OperationExecutionTimeoutMsSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(MAX_OPERATION_PERSISTED_INT);
+
+function validatePairedOperationProgressCounts(
+  value: {
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
+  },
+  context: z.RefinementCtx,
+): void {
+  const hasCurrent = Object.prototype.hasOwnProperty.call(
+    value,
+    'progressCurrent',
+  );
+  const hasTotal = Object.prototype.hasOwnProperty.call(value, 'progressTotal');
+  if (hasCurrent !== hasTotal) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message:
+        'Operation progressCurrent and progressTotal must be provided together',
+      path: hasCurrent ? ['progressTotal'] : ['progressCurrent'],
+    });
+    return;
+  }
+  if (!hasCurrent) return;
+
+  const current = value.progressCurrent;
+  const total = value.progressTotal;
+  if ((current === null) !== (total === null)) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Operation progress counts must both be numbers or both be null',
+    });
+    return;
+  }
+  if (
+    current !== null &&
+    total !== null &&
+    current !== undefined &&
+    total !== undefined &&
+    current > total
+  ) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'Operation progressCurrent must not exceed progressTotal',
+      path: ['progressCurrent'],
+    });
+  }
+}
+
 function validateSafeOperationResult(
   value: Record<string, unknown>,
   context: z.RefinementCtx,
@@ -75,6 +137,16 @@ export const OperationEngineTypeSchema = z.enum([
   'browser',
 ]);
 
+export const OperationResourceClassSchema = z.enum([
+  'default',
+  'naver_api',
+  'extension_coupang',
+  'playwright_1688',
+  'snapshot_compute',
+]);
+
+export const OperationStageSchema = z.string().regex(/^[a-z][a-z0-9_]{0,79}$/);
+
 export const OperationTriggerSourceSchema = z.enum([
   'dashboard',
   'domain_screen',
@@ -125,6 +197,8 @@ export const OperationRunSchema = z
     title: z.string().min(1).max(300),
     ownerDomain: z.string().min(1).max(120),
     engineType: OperationEngineTypeSchema,
+    resourceClass: OperationResourceClassSchema,
+    executionTimeoutMs: OperationExecutionTimeoutMsSchema,
     status: OperationStatusSchema,
     triggerSource: OperationTriggerSourceSchema,
     parentRunId: z.string().uuid().nullable(),
@@ -132,6 +206,11 @@ export const OperationRunSchema = z
     nativeRunType: z.string().min(1).max(120).nullable(),
     nativeRunId: z.string().min(1).max(200).nullable(),
     progress: z.number().min(0).max(1).nullable(),
+    stage: OperationStageSchema.nullable(),
+    stageUpdatedAt: zIsoDate.nullable(),
+    progressCurrent: OperationProgressCountSchema,
+    progressTotal: OperationProgressCountSchema,
+    deadlineAt: zIsoDate.nullable(),
     result: OperationJsonSchema.nullable(),
     error: OperationRunErrorSchema.nullable(),
     requestedBy: OperationRunActorSchema.nullable(),
@@ -141,7 +220,8 @@ export const OperationRunSchema = z
     createdAt: zIsoDate,
     updatedAt: zIsoDate,
   })
-  .strict();
+  .strict()
+  .superRefine(validatePairedOperationProgressCounts);
 
 export const OperationDefinitionSchema = z
   .object({
@@ -150,6 +230,8 @@ export const OperationDefinitionSchema = z
     title: z.string().min(1).max(300),
     ownerDomain: z.string().min(1).max(120),
     engineType: OperationEngineTypeSchema,
+    resourceClass: OperationResourceClassSchema,
+    executionTimeoutMs: OperationExecutionTimeoutMsSchema,
     scheduleSupported: z.boolean(),
   })
   .strict();
@@ -176,6 +258,9 @@ export const OperationCatalogResponseSchema = z
 export const OperationRunListResponseSchema = z
   .object({ items: z.array(OperationRunSchema) })
   .strict();
+export const OperationRunReconnectResponseSchema = z
+  .object({ run: OperationRunSchema.nullable() })
+  .strict();
 export const OperationScheduleListResponseSchema = z
   .object({ items: z.array(OperationScheduleSchema) })
   .strict();
@@ -188,6 +273,7 @@ export const BrowserOperationClaimSchema = z
     attempt: z.number().int().positive(),
     input: OperationJsonSchema,
     leaseExpiresAt: z.string().datetime({ offset: true }),
+    deadlineAt: z.string().datetime({ offset: true }),
   })
   .strict();
 
@@ -202,14 +288,21 @@ export const BrowserOperationHeartbeatRequestSchema = z
   .object({
     attemptToken: z.string().uuid(),
     progress: z.number().min(0).max(1).nullable().optional(),
+    stage: OperationStageSchema.nullable().optional(),
+    progressCurrent: OperationProgressCountSchema.optional(),
+    progressTotal: OperationProgressCountSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(validatePairedOperationProgressCounts);
 
 export const BrowserOperationReportRequestSchema = z
   .object({
     attemptToken: z.string().uuid(),
     status: z.enum(['running', 'attention_required', 'succeeded', 'failed']),
     progress: z.number().min(0).max(1).nullable().optional(),
+    stage: OperationStageSchema.nullable().optional(),
+    progressCurrent: OperationProgressCountSchema.optional(),
+    progressTotal: OperationProgressCountSchema.optional(),
     result: OperationJsonSchema.optional(),
     errorCode: z.string().min(1).max(120).optional(),
     errorMessage: z.string().min(1).max(2_000).optional(),
@@ -217,6 +310,7 @@ export const BrowserOperationReportRequestSchema = z
   })
   .strict()
   .superRefine((report, context) => {
+    validatePairedOperationProgressCounts(report, context);
     if (report.result !== undefined) {
       validateSafeOperationResult(report.result, context);
     }
@@ -243,6 +337,10 @@ export const BrowserOperationReportRequestSchema = z
 
 export type OperationStatus = z.infer<typeof OperationStatusSchema>;
 export type OperationEngineType = z.infer<typeof OperationEngineTypeSchema>;
+export type OperationResourceClass = z.infer<
+  typeof OperationResourceClassSchema
+>;
+export type OperationStage = z.infer<typeof OperationStageSchema>;
 export type OperationTriggerSource = z.infer<typeof OperationTriggerSourceSchema>;
 export type OperationMisfirePolicy = z.infer<typeof OperationMisfirePolicySchema>;
 export type CreateOperationRunRequest = z.infer<
@@ -261,6 +359,9 @@ export type OperationCatalogResponse = z.infer<
 >;
 export type OperationRunListResponse = z.infer<
   typeof OperationRunListResponseSchema
+>;
+export type OperationRunReconnectResponse = z.infer<
+  typeof OperationRunReconnectResponseSchema
 >;
 export type OperationScheduleListResponse = z.infer<
   typeof OperationScheduleListResponseSchema

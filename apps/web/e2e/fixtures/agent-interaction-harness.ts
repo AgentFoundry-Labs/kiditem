@@ -34,6 +34,7 @@ import {
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
 import { AgentSessionCapabilityInvocationService } from '../../../server/dist/agent-os/application/service/agent-session-capability-invocation.service.js';
 import { AgentSessionApprovalService } from '../../../server/dist/agent-os/application/service/agent-session-approval.service.js';
+import { AgentSessionOperationContinuationService } from '../../../server/dist/agent-os/application/service/agent-session-operation-continuation.service.js';
 import { AgentSessionCancellationService } from '../../../server/dist/agent-os/application/service/agent-session-cancellation.service.js';
 import { AgentSessionDelegationService } from '../../../server/dist/agent-os/application/service/agent-session-delegation.service.js';
 import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/agent-session-execution.service.js';
@@ -52,6 +53,7 @@ import { PrismaAgentSessionControlRepository } from '../../../server/dist/agent-
 import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
 import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
 import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
+import { OperationLifecycleGateService } from '../../../server/dist/operations/application/service/operation-lifecycle-gate.service.js';
 import { OperationRunService } from '../../../server/dist/operations/application/service/operation-run.service.js';
 import { AGENT_OS_OPERATIONS } from '../../../server/dist/agent-os/domain/operation/agent-os.operations.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
@@ -139,6 +141,7 @@ class AcceptanceDurableControlPlane {
     private readonly delegations: AgentSessionDelegationService,
     private readonly approvals: AgentSessionApprovalService,
     private readonly presentation: AgentInteractionPresentationService,
+    private readonly markApprovalBoundary: (operationRunId: string) => Promise<void>,
   ) {}
 
   async begin(input: AgentAguiRuntimeInput): Promise<void> {
@@ -164,13 +167,11 @@ class AcceptanceDurableControlPlane {
       operationRunId: delegated.operationsRunId,
     });
     if (!attempt) throw new Error('durable acceptance child attempt was not reserved');
-    const activeAttempt = await this.controls.startAttempt({
+    const activeAttempt = await this.controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: input.sessionId,
       executionId: delegated.childExecutionId,
-      runtimeType: 'hermes_http',
       operationRunId: delegated.operationsRunId,
-      idempotencyKey: `operation:${delegated.operationsRunId}`,
     });
     await this.controls.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
@@ -317,12 +318,14 @@ class AcceptanceDurableControlPlane {
       },
     });
     await this.runtimeControl.publish(waitingApprovalProgress);
+    await this.markApprovalBoundary(delegated.operationsRunId);
     const approval = await this.approvals.request({
       organizationId: TEST_ORGANIZATION_ID,
       session,
       task: childTask,
       execution: childExecution,
       attempt: childAttempt,
+      operationRunId: delegated.operationsRunId,
       capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
       arguments: { query: 'durable acceptance' },
       summary: '별도 승인이 필요한 durable 작업입니다.',
@@ -427,6 +430,7 @@ class AcceptanceDurableControlPlane {
       taskId: graph.childTaskId,
       executionId: graph.childExecutionId,
       attemptId: graph.childAttemptId,
+      operationRunId: graph.childOperationRunId,
       capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
       argumentsHash: createHash('sha256').update('stale').digest('hex'),
       resourceSnapshot: [],
@@ -683,7 +687,18 @@ class AgentInteractionAcceptanceHarness {
     const childTaskCard = page.getByTestId(`agent-task-${graph.childTaskId}`);
     await childTaskCard.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await childTaskCard.getByRole('button', { name: '취소' }).click({ timeout: 10_000 });
-    await this.waitForOperationStatus(graph.childOperationRunId, 'cancelled');
+    const cancellationBinding = await this.prisma.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: graph.childAttemptId,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { operationRunId: true },
+    });
+    if (cancellationBinding.operationRunId === graph.childOperationRunId) {
+      throw new Error('approval resume must cancel the immutable successor envelope, not the predecessor');
+    }
+    await this.waitForOperationStatus(cancellationBinding.operationRunId, 'cancelled');
 
     const stale = await page.request.post(
       `http://127.0.0.1:${NEST_PORT}/api/agent-os/sessions/${encodeURIComponent(graph.sessionId)}/approvals/${encodeURIComponent(staleApprovalId)}/decision`,
@@ -966,14 +981,18 @@ async function startNest(
     execute: async () => ({ kind: 'completed', result: {} }),
     cancel: async () => undefined,
   } as never);
+  const operationLifecycle = new OperationLifecycleGateService();
+  operationLifecycle.open();
   const operationCoordinator = new CompositeOperationCoordinatorService(
     operationRegistry,
     operationRepository,
+    operationLifecycle,
   );
   const operations = new OperationRunService(
     operationRegistry,
     operationRepository,
     operationCoordinator,
+    operationLifecycle,
   );
   const dispatch = new AgentSessionTaskDispatchService(operations, controls);
   const runtimeControl = new AgentSessionRuntimeControlService(
@@ -993,12 +1012,17 @@ async function startNest(
     },
     cancel: async () => undefined,
   };
+  const continuations = new AgentSessionOperationContinuationService(
+    controls,
+    operationLifecycle,
+    { requireCompatible: () => approvalRuntime } as never,
+  );
   const approvals = new AgentSessionApprovalService(
     controls,
     runtimeControl,
     { areCurrent: async () => true } as never,
-    { requireCompatible: () => approvalRuntime } as never,
     operations,
+    continuations,
     () => new Date(),
   );
   const cancellations = new AgentSessionCancellationService(controls, operations);
@@ -1010,6 +1034,20 @@ async function startNest(
     delegations,
     approvals,
     presentation,
+    async (operationRunId) => {
+      const transitioned = await operationRepository.transition({
+        organizationId: TEST_ORGANIZATION_ID,
+        runId: operationRunId,
+        expectedStatuses: ['queued'],
+        status: 'attention_required',
+        errorCode: 'acceptance_approval_required',
+        errorMessage: 'acceptance approval boundary',
+        finishedAt: new Date(),
+      });
+      if (!transitioned) {
+        throw new Error('durable acceptance operation did not enter approval boundary');
+      }
+    },
   );
   durableControls = createdDurableControls;
   const runtimeRegistry = new AgentAguiRuntimeRegistry();

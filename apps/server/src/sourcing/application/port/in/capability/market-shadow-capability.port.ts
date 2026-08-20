@@ -7,11 +7,8 @@ export interface MarketShadowCollectionCapabilityInput {
 }
 
 export interface MarketShadowCollectionCapabilityResult {
-  claimed: boolean;
-  snapshotId: string;
-  businessDate: string;
+  operationRunId: string;
   status: string;
-  decisionImpact: 'disabled';
 }
 
 export interface MarketShadowCollectionCapabilityPort {

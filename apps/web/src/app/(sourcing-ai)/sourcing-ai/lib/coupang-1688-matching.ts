@@ -1,4 +1,8 @@
-import type { Search1688ImageResultItem } from './1688-image-search-api';
+import {
+  buildSourcing1688TargetId,
+  deriveSourcing1688SearchQuery,
+  type Sourcing1688SearchItem,
+} from '@kiditem/shared/sourcing';
 import type { TodayRecommendationRow } from '../recommendations/lib/today-recommendations';
 
 const CNY_TO_KRW = 190;
@@ -47,44 +51,6 @@ interface BuildImageSearchRowsInput {
   limit?: number;
 }
 
-interface QueryRule {
-  terms: string[];
-  query: string;
-}
-
-const queryRules: QueryRule[] = [
-  { terms: ['말랑이', '스퀴시', '스트레스볼', '악뿌볼'], query: '解压玩具捏捏乐' },
-  { terms: ['슬라임'], query: '儿童史莱姆玩具' },
-  { terms: ['잔디인형', '인형'], query: '儿童毛绒玩具' },
-  { terms: ['도장'], query: '儿童印章玩具' },
-  { terms: ['레고', '블록'], query: '积木玩具' },
-  { terms: ['우산'], query: '儿童雨伞' },
-  { terms: ['물총'], query: '儿童水枪玩具' },
-  { terms: ['목욕놀이', '목욕'], query: '儿童洗澡玩具' },
-  { terms: ['필통'], query: '儿童笔袋文具盒' },
-  { terms: ['선글라스'], query: '儿童太阳镜' },
-  { terms: ['쿨매트', '냉감매트'], query: '婴儿凉席垫' },
-  { terms: ['보드게임'], query: '儿童桌游玩具' },
-  { terms: ['물놀이', '스프링 매트', '매트'], query: '儿童喷水戏水垫' },
-  { terms: ['헤어핀', '머리핀'], query: '儿童发夹' },
-  { terms: ['양말'], query: '儿童袜子' },
-  { terms: ['모래놀이'], query: '儿童沙滩玩具' },
-  { terms: ['스티커북', '스티커'], query: '儿童贴纸书' },
-  { terms: ['앞치마'], query: '儿童围裙' },
-  { terms: ['물컵', '빨대컵'], query: '儿童水杯' },
-  { terms: ['방수팩'], query: '儿童防水袋' },
-  { terms: ['캐리어'], query: '儿童行李箱' },
-  { terms: ['퍼즐'], query: '儿童拼图玩具' },
-  { terms: ['캠핑의자', '의자'], query: '儿童露营椅' },
-  { terms: ['젤리슈즈', '샌들', '신발'], query: '儿童洞洞鞋凉鞋' },
-  { terms: ['베개', '枕'], query: '儿童凉感枕套' },
-  { terms: ['선풍기', '팬'], query: '婴儿车夹扇USB风扇' },
-  { terms: ['주차번호판'], query: '汽车临时停车号码牌' },
-  { terms: ['강아지계단'], query: '宠物楼梯' },
-  { terms: ['안전벨트클립'], query: '汽车安全带夹' },
-  { terms: ['식탁매트'], query: '儿童餐垫' },
-];
-
 export function buildCoupangImageSearchRows({
   coupangRows,
   limit = 24,
@@ -101,7 +67,7 @@ export function buildCoupangImageSearchRows({
       const targetSalePriceKrw = resolveTargetSalePrice(row);
 
       return {
-        id: `${row.productId}:${row.itemId ?? ''}:${row.vendorItemId ?? ''}`,
+        id: buildSourcing1688TargetId(row),
         coupangProduct: row,
         searchQuery,
         searchUrl: build1688SearchUrl(searchQuery),
@@ -112,7 +78,7 @@ export function buildCoupangImageSearchRows({
 }
 
 export function buildImageSearchOffer(
-  item: Search1688ImageResultItem,
+  item: Wholesale1688OfferItem,
   targetSalePriceKrw: number,
 ): ImageSearchOffer {
   const landedCostKrw = estimateLandedCostKrw(item.priceCny);
@@ -149,6 +115,24 @@ export function buildImageSearchOffer(
   };
 }
 
+type Wholesale1688OfferItem = Pick<
+  Sourcing1688SearchItem,
+  'title' | 'priceCny' | 'sourceUrl' | 'imageUrl' | 'score'
+> & Partial<Pick<
+  Sourcing1688SearchItem,
+  | 'salesText'
+  | 'supplierName'
+  | 'supplierFactoryUrl'
+  | 'supplierTags'
+  | 'purchaseTags'
+  | 'minOrderQuantity'
+  | 'shippingFulfillmentRate'
+  | 'shippingPickupRate'
+  | 'shipFrom'
+  | 'serviceScore'
+  | 'repurchaseRate'
+>> & { salesNum?: number | null };
+
 export function selectBestImageSearchOffer(offers: ImageSearchOffer[]): ImageSearchOffer | null {
   return offers
     .slice()
@@ -172,10 +156,7 @@ export function build1688SearchUrl(query: string): string {
 }
 
 export function derive1688SearchQuery(row: Pick<TodayRecommendationRow, 'productName' | 'primaryKeyword' | 'keywords'>): string {
-  const haystack = normalizeText([row.productName, row.primaryKeyword, ...row.keywords].join(' '));
-  const rule = queryRules.find((candidate) => candidate.terms.some((term) => haystack.includes(normalizeText(term))));
-  if (rule) return rule.query;
-  return stripCoupangNoise(row.primaryKeyword || row.keywords[0] || row.productName).slice(0, 40);
+  return deriveSourcing1688SearchQuery(row);
 }
 
 function resolveTargetSalePrice(row: TodayRecommendationRow): number {
@@ -259,15 +240,4 @@ function parsePercent(value: string | null | undefined): number | null {
 function clampScore(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(100, Math.round(value)));
-}
-
-function stripCoupangNoise(value: string): string {
-  return value
-    .replace(/\b(쿠팡|로켓배송|무료배송|당일배송|신상|인기|정품)\b/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-}
-
-function normalizeText(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, '');
 }

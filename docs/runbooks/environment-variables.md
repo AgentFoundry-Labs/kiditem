@@ -104,6 +104,7 @@ AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
 AGENT_RUNTIME_WORKER_ENABLED
+AGENT_API_CAPABILITY_GRANT_SECRET
 AGENT_DEFAULT_MODEL
 ```
 
@@ -122,12 +123,21 @@ these variables only enable the server processes that honor it.
 | `OPERATION_SCHEDULER_ENABLED` | Enabled cron schedules should create OperationRuns | Operation scheduler | Set `1` only with the runtime worker enabled and browser runtime connected. Default is disabled. |
 | `OPERATION_SCHEDULER_INTERVAL_MS` | Scheduler polling cadence needs tuning | Operation scheduler | Optional positive integer; defaults to `30000`. |
 | `OPERATION_RUN_LEASE_MS` | Operation worker/browser lease duration needs tuning | Operation worker and browser runtime API | Optional positive integer; defaults to `60000`. Extension heartbeats at no slower than one-third of the browser lease. |
+| `OPERATION_RESOURCE_CLASS_LIMITS` | API needs a non-default per-class capacity | API Operations worker | Optional complete JSON object. When absent, defaults are `default:2`, `naver_api:2`, `playwright_1688:1`, `snapshot_compute:2`, and `extension_coupang:4`. Every class must be present with a positive integer; unknown classes, zero/negative values, or malformed JSON fail API startup with `operation_resource_class_limits_invalid`. |
 
 Cron expressions use the standard five fields (`minute hour day-of-month month
 day-of-week`) and are evaluated in the schedule's explicit IANA timezone. The
 dashboard stores the cron, timezone, misfire policy, and enabled state per
 operation; disabling a schedule preserves its expression but sets its next run
 to `null`.
+
+Validate this value before an Office deployment without printing any protected
+environment file: compare the intended complete key set to the table above,
+then boot the isolated API. Do not use a partial JSON override: the parser does
+not merge omitted keys with defaults. A failed validation is fail-closed; keep
+the old runtime running and correct the configuration before attempting another
+API boot. Resource limits belong only to the API Operations owner, never the
+Agent worker or an MCP child.
 
 Web container, current Office shape:
 
@@ -147,7 +157,8 @@ same-origin `/api/*` routing.
 | `DATABASE_URL` | API runtime | Yes | Prisma adapter | Main application database URL. |
 | `WEB_ORIGIN` | API runtime | Yes | API bootstrap, detail page client renderer | Single canonical browser origin used to construct extension render document URLs. There is no localhost fallback; never derive it from `CORS_ORIGINS`. |
 | `CORS_ORIGINS` | API runtime | Yes in Office | Nest CORS | Comma-separated trusted Office origins. Same-origin `/api/*` still works through nginx. |
-| `API_SELF_URL` | API runtime | Optional | Action board service | Defaults to `http://localhost:4000`. Set if self-calls need the public or container URL. |
+| `API_SELF_URL` | API and Agent worker runtime | Required for Agent sourcing collection commands | Action board and MCP HTTP command adapters | Use the container-local API base (`http://api:4000` in Office). It is passed to the bounded MCP descriptor; it is not a browser secret. |
+| `AGENT_API_CAPABILITY_GRANT_SECRET` | Protected API/worker env | Required for Agent sourcing collection commands | API verifier and trusted parent MCP-session adapter | At least 32 random UTF-8 bytes with no fallback key. Never expose it to web code, model CLI/MCP child env, descriptors, logs, or artifacts; the MCP entrypoint deletes any dotenv-loaded copy before Nest context creation. |
 
 ## Web Runtime And Build
 
@@ -293,7 +304,7 @@ The Nest service account owns the persistent local Claude/Codex login used by
 Agent OS. Existing CLI login files are discovered through that account's
 isolated child environment. Optional API-key variables remain restricted server
 secrets; they are never copied to the browser or KidItem MCP child process.
-The four `INTERACTION_*` secrets have deliberately separate purposes and must
+The five `INTERACTION_*` secrets have deliberately separate purposes and must
 use independent random values. Never expose them through `NEXT_PUBLIC_*`, send
 them to the browser or gateway request bodies, include them in Agent OS prompts,
 or print their values in logs, deployment output, tests, issues, or pull
@@ -336,7 +347,7 @@ The deployed API blocks current Coupang Wing scraping paths when
 | `PLAYWRITER_BROWSER_PROFILE_DIR` | Custom Chrome profile needed | Coupang inventory scrape adapter | Local/operator use. |
 | `PLAYWRITER_DIRECT_PORT` | Custom Chrome CDP port needed | Coupang inventory scrape adapter | Defaults to `9222`. |
 | `PUPPETEER_EXECUTABLE_PATH` | Puppeteer render path uses a non-default browser | Render image controller | The Office API image sets `/usr/bin/chromium`; image verification smoke-checks Puppeteer launch. |
-| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | Sourcing URL scrape or the 1688 keyword browser fallback should reuse a managed browser session | Sourcing Playwright runtime; direct 1688 keyword search adapter | Optional loopback CDP endpoint such as `http://127.0.0.1:9222`. Use a dedicated managed automation profile; never point it at a personal default Chrome profile. A saved login and a request-level CAPTCHA/user-validation challenge are separate states, so complete any challenge in this managed browser. |
+| `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` | The Office version-2 1688 keyword domain Operation or generic sourcing URL-scrape runtime needs its managed Chrome session | Sourcing Playwright runtime | Office example: `http://kiditem-office:9444`. Accepts `http`, `https`, `ws`, or `wss` CDP endpoints. Keyword batches are CDP-only: no extension, anonymous-browser, or fresh-profile fallback. Initial same-PC Office HTTP needs no TLS/mTLS/auth proxy. A later HTTPS/WSS endpoint needs container reachability, a trusted certificate, and WebSocket proxying, but no Sourcing code change. Chrome runs manually or from an Office startup task using a persistent Office profile, which may be a full clone of an authenticated operator profile. |
 | `SOURCING_PLAYWRIGHT_USER_DATA_DIR` | Sourcing URL scrape needs a prepared browser login session | Sourcing Playwright runtime | Defaults to `.kiditem/playwright/sourcing`. Use a dedicated automation profile, not a personal default Chrome profile. |
 | `SOURCING_PLAYWRIGHT_HEADLESS` | Local sourcing scrape login/profile debugging | Sourcing Playwright runtime | Defaults to `true`; set `false` while preparing or debugging the 1688/Alibaba profile. |
 
@@ -356,7 +367,6 @@ variables apply when running `agents/` as a separate runtime.
 | `AI_TEXT_MODEL` | Text generation agents | Python content agents | No silent fallback. |
 | `AI_IMAGE_ANALYSIS_MODEL` | Vision analysis agents | Python content agents | No silent fallback. |
 | `DETAIL_PAGE_TEMPLATE` | Default template selection needed | Python config | Defaults to `bold_vertical`. |
-| `DIRECT_1688_MTOP_BASE_URL` | Custom 1688 public mtop host needed | Nest sourcing 1688 keyword/matching APIs | Defaults to `https://h5api.m.1688.com`; wholesale keyword/matching search does not require TMAPI. |
 | `TMAPI_TOKEN` | Legacy 1688/TMAPI sourcing matcher enabled | Python sourcing matcher | Optional unless the legacy matcher is used. |
 | `TMAPI_BASE_URL` | Custom TMAPI endpoint needed | Python sourcing matcher | Defaults in code. |
 | `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY` | LLM tracing enabled | Python config/Langfuse | Both keys required to enable. |

@@ -15,6 +15,7 @@ x-api-environment: &api-environment
   S3_ACCESS_KEY: ${MINIO_ROOT_USER}
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
+  SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
 
 services:
   postgres:
@@ -78,7 +79,6 @@ services:
     container_name: kiditem-api
     environment:
       <<: *api-environment
-      AGENT_RUNTIME_WORKER_ENABLED: "0"
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:
@@ -88,13 +88,14 @@ services:
         condition: service_completed_successfully
     expose:
       - "4000"
+    stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
       test: ["CMD-SHELL", "node -e \"fetch('http://127.0.0.1:4000/api/auth/me').then((r)=>process.exit(r.status===401||r.status===403?0:1)).catch(()=>process.exit(1))\""]
       interval: 10s
       timeout: 5s
       retries: 12
-      start_period: 30s
+      start_period: 60s
 
   worker:
     env_file:

@@ -1,8 +1,12 @@
 import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
+import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
+import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
+import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
+import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
 import { SourcingAgentRagService } from "../application/service/sourcing-agent-rag.service";
 import { NaverKeywordResearchService } from "../application/service/naver-keyword-research.service";
 import { TrendCollectService } from "../application/service/trend-collect.service";
@@ -25,6 +29,8 @@ import { SourcingEvidenceLedgerService } from "../application/service/sourcing-e
 import { SourcingLaunchCandidateService } from "../application/service/sourcing-launch-candidate.service";
 import { SourcingDecisionBatchService } from "../application/service/sourcing-decision-batch.service";
 import { SourcingCollectionCoordinator } from "../application/service/sourcing-collection-coordinator.service";
+import { SourcingBrowserTrendOperationService } from "../application/service/sourcing-browser-trend-operation.service";
+import { SourcingBrowserLiveCommerceOperationService } from "../application/service/sourcing-browser-live-commerce-operation.service";
 import { SourcingScrapeResultService } from "../application/service/sourcing-scrape-result.service";
 import { SourcingAgentWorkspaceCapabilityService } from "../application/service/sourcing-agent-workspace-capability.service";
 import { SourcingExtensionIngestService } from "../application/service/sourcing-extension-ingest.service";
@@ -32,11 +38,13 @@ import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
 import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing-scrape-url-capability.adapter";
 import { SourcingWorkspaceCapabilityAdapter } from "../adapter/in/agent/sourcing-workspace-capability.adapter";
-import { Sourcing1688TrendExtensionController } from "../adapter/in/http/sourcing-1688-trend-extension.controller";
-import { SourcingLiveCommerceExtensionController } from "../adapter/in/http/sourcing-live-commerce-extension.controller";
+import { SourcingBrowserTrendOperationController } from "../adapter/in/http/sourcing-browser-trend-operation.controller";
+import { SourcingBrowserLiveCommerceOperationController } from "../adapter/in/http/sourcing-browser-live-commerce-operation.controller";
+import { SourcingKeywordAnalysisController } from "../adapter/in/http/sourcing-keyword-analysis.controller";
 import { MarketShadowSignalController } from "../adapter/in/http/market-shadow-signal.controller";
 import { SourcingIntelligenceController } from "../adapter/in/http/sourcing-intelligence.controller";
 import { SourcingInterestTargetController } from "../adapter/in/http/sourcing-interest-target.controller";
+import { Sourcing1688SearchResultController } from "../adapter/in/http/sourcing-1688-search-result.controller";
 import { SourcingWorkspaceController } from "../adapter/in/http/sourcing-workspace.controller";
 import { SourcingReviewController } from "../adapter/in/http/sourcing-review.controller";
 import { NaverDatalabPopularKeywordAdapter } from "../adapter/out/naver/naver-datalab-popular-keyword.adapter";
@@ -58,8 +66,16 @@ import { SourcingEvidenceLedgerRepositoryAdapter } from "../adapter/out/reposito
 import { SourcingLaunchCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-launch-candidate.repository.adapter";
 import { SourcingDecisionBatchRepositoryAdapter } from "../adapter/out/repository/sourcing-decision-batch.repository.adapter";
 import { SourcingCollectionRepositoryAdapter } from "../adapter/out/repository/sourcing-collection.repository.adapter";
+import { Sourcing1688SearchResultRepositoryAdapter } from "../adapter/out/repository/sourcing-1688-search-result.repository.adapter";
+import { Sourcing1688OperationHandler } from "../adapter/in/operation/sourcing-1688.operation-handler";
+import { SourcingTrendOperationHandler } from "../adapter/in/operation/sourcing-trend.operation-handler";
+import { SourcingLiveCommerceOperationHandler } from "../adapter/in/operation/sourcing-live-commerce.operation-handler";
+import { SourcingKeywordAnalysisOperationHandler } from "../adapter/in/operation/sourcing-keyword-analysis.operation-handler";
+import { SourcingRisingProductOperationHandler } from "../adapter/in/operation/sourcing-rising-product.operation-handler";
+import { SourcingShadowSignalOperationHandler } from "../adapter/in/operation/sourcing-shadow-signal.operation-handler";
 import { SourcingSupplyIntelligenceAdapter } from "../adapter/out/supply/sourcing-supply-intelligence.adapter";
 import { SourcingCollectionOperationAdapter } from "../adapter/out/operations/sourcing-collection-operation.adapter";
+import { MarketShadowOperationAdapter } from "../adapter/out/operations/market-shadow-operation.adapter";
 import { SourcingWorkspaceSnapshotRepositoryAdapter } from "../adapter/out/repository/sourcing-workspace-snapshot.repository.adapter";
 import { MarketShadowSnapshotRepositoryAdapter } from "../adapter/out/repository/market-shadow-snapshot.repository.adapter";
 import { GoogleTrendsRssAdapter } from "../adapter/out/google-trends/google-trends-rss.adapter";
@@ -73,6 +89,7 @@ import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-co
 import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
 import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
+import { MARKET_SHADOW_OPERATION_PORT } from "../application/port/out/cross-domain/market-shadow-operation.port";
 import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
@@ -104,12 +121,12 @@ import { SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT } from "../application/port/ou
 import { SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-launch-candidate.repository.port";
 import { SOURCING_DECISION_BATCH_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-decision-batch.repository.port";
 import { SOURCING_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection.repository.port";
+import { SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-1688-search-result.repository.port";
 import { SOURCING_SUPPLY_INTELLIGENCE_PORT } from "../application/port/out/cross-domain/sourcing-supply-intelligence.port";
 import { MARKET_SHADOW_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/market-shadow-snapshot.repository.port";
 import { SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-workspace-snapshot.repository.port";
 import { TREND_COLLECTION_REPOSITORY_PORT } from "../application/port/out/repository/trend-collection.repository.port";
 import { LIVE_COMMERCE_REPOSITORY_PORT } from "../application/port/out/repository/live-commerce.repository.port";
-import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
 import { SupplyModule } from "../../supply/supply.module";
 import { ProductRegistrationService } from "../application/service/product-registration.service";
@@ -131,6 +148,15 @@ const PROVIDERS_KEY = "providers";
 const PATH_KEY = "path";
 const SELF_DECLARED_DEPS_KEY = "self:paramtypes";
 
+function sourcingProviders(): unknown[] {
+  return [
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentApiCollectionModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingShadowOperationModule) ?? []),
+  ];
+}
+
 // Sourcing owner module — Chinese new-product discovery. Suppliers and
 // procurement were extracted to SupplyModule during issue #192 follow-up
 // Track A PR 1. This spec freezes the module metadata so a removed
@@ -144,12 +170,10 @@ describe("SourcingModule canonical owner wiring", () => {
       controllers.map((controller) => (controller as { name: string }).name),
     ).toEqual([
       "SourcingExtensionIngestController",
-      "Sourcing1688TrendExtensionController",
-      "SourcingTiktokCcTrendExtensionController",
-      "SourcingLiveCommerceExtensionController",
-      "SourcingKeywordResearchController",
-      "Sourcing1688ImageSearchController",
-      "Sourcing1688KeywordSearchController",
+      "SourcingBrowserTrendOperationController",
+      "SourcingBrowserLiveCommerceOperationController",
+      "SourcingKeywordAnalysisController",
+      "Sourcing1688SearchResultController",
       "SourcingAgentRagController",
       "SourcingRisingProductController",
       "SourcingIntelligenceController",
@@ -162,21 +186,35 @@ describe("SourcingModule canonical owner wiring", () => {
       "TrendCollectionController",
       "LiveCommerceController",
     ]);
-    expect(controllers).toContain(Sourcing1688TrendExtensionController);
-    expect(controllers).toContain(SourcingLiveCommerceExtensionController);
+    expect(controllers).toContain(SourcingBrowserTrendOperationController);
+    expect(controllers).toContain(SourcingBrowserLiveCommerceOperationController);
+    expect(controllers).toContain(SourcingKeywordAnalysisController);
+    expect(controllers.map((controller) => (controller as { name: string }).name)).not.toEqual(
+      expect.arrayContaining([
+        "Sourcing1688TrendExtensionController",
+        "SourcingTiktokCcTrendExtensionController",
+        "SourcingLiveCommerceExtensionController",
+      ]),
+    );
     expect(controllers).toContain(MarketShadowSignalController);
     expect(controllers).toContain(SourcingIntelligenceController);
     expect(controllers).toContain(SourcingInterestTargetController);
   });
 
   it("declares every application service as a provider", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const providers = sourcingProviders();
     expect(providers).toContain(SourcingService);
     expect(providers).toContain(SourcingExtensionIngestService);
     expect(providers).toContain(NaverKeywordResearchService);
     expect(providers).toContain(Sourcing1688ImageSearchService);
     expect(providers).toContain(Sourcing1688KeywordSearchService);
+    expect(providers).toContain(Sourcing1688SearchResultService);
+    expect(providers).toContain(Sourcing1688OperationHandler);
+    expect(providers).toContain(SourcingTrendOperationHandler);
+    expect(providers).toContain(SourcingLiveCommerceOperationHandler);
+    expect(providers).toContain(SourcingKeywordAnalysisOperationHandler);
+    expect(providers).toContain(SourcingRisingProductOperationHandler);
+    expect(providers).toContain(SourcingShadowSignalOperationHandler);
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
@@ -194,6 +232,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingLaunchCandidateService);
     expect(providers).toContain(SourcingDecisionBatchService);
     expect(providers).toContain(SourcingCollectionCoordinator);
+    expect(providers).toContain(SourcingBrowserTrendOperationService);
+    expect(providers).toContain(SourcingBrowserLiveCommerceOperationService);
     expect(providers).toContain(SourcingScrapeResultService);
     expect(
       providers.map((provider) => (provider as { name?: string }).name),
@@ -219,8 +259,7 @@ describe("SourcingModule canonical owner wiring", () => {
   });
 
   it("binds outgoing ports to their adapters", () => {
-    const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const providers = sourcingProviders();
     expect(providers).toContain(NaverDatalabPopularKeywordAdapter);
     expect(providers).toContain(NaverDatalabTrendAdapter);
     expect(providers).toContain(NaverAutocompleteKeywordAdapter);
@@ -240,6 +279,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingLaunchCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingDecisionBatchRepositoryAdapter);
     expect(providers).toContain(SourcingCollectionRepositoryAdapter);
+    expect(providers).toContain(Sourcing1688SearchResultRepositoryAdapter);
     expect(providers).toContain(SourcingSupplyIntelligenceAdapter);
     expect(providers).toContain(SourcingWorkspaceSnapshotRepositoryAdapter);
     expect(providers).toContain(MarketShadowSnapshotRepositoryAdapter);
@@ -251,6 +291,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingWorkspaceCapabilityAdapter);
     expect(providers).toContain(SourcingAgentWorkspaceCapabilityService);
     expect(providers).toContain(SourcingCollectionOperationAdapter);
+    expect(providers).toContain(MarketShadowOperationAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
     expect(providers).toContain(Direct1688ImageSearchAdapter);
     expect(providers).toContain(Direct1688KeywordSearchAdapter);
@@ -305,6 +346,13 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(shadowCapabilityBinding?.useExisting).toBe(
       MarketShadowSignalCapabilityAdapter,
     );
+    const shadowOperationBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === MARKET_SHADOW_OPERATION_PORT,
+    );
+    expect(shadowOperationBinding?.useExisting).toBe(MarketShadowOperationAdapter);
     const listingPrepBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -410,6 +458,11 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expectBinding(
       providers,
+      SOURCING_1688_SEARCH_RESULT_REPOSITORY_PORT,
+      Sourcing1688SearchResultRepositoryAdapter,
+    );
+    expectBinding(
+      providers,
       SOURCING_SUPPLY_INTELLIGENCE_PORT,
       SourcingSupplyIntelligenceAdapter,
     );
@@ -447,9 +500,7 @@ describe("SourcingModule canonical owner wiring", () => {
         (p as any).provide === SOURCING_1688_KEYWORD_SEARCH_PORT,
     );
     expect(keywordSearchBinding).toBeDefined();
-    expect(keywordSearchBinding!.useExisting).toBe(
-      Direct1688KeywordSearchAdapter,
-    );
+    expect(keywordSearchBinding!.useExisting).toBe(Direct1688KeywordSearchAdapter);
     const shortstrendBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -573,12 +624,33 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(imports.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("imports AutomationModule so its operation-alert adapter can resolve the owner-side port", () => {
+  it("imports controller-free Agent runtime and retains API owner dependencies", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
-    expect(imports).toContain(AutomationModule);
+    expect(imports).toContain(SourcingAgentRuntimeModule);
+    expect(imports).toContain(SourcingAgentApiCollectionModule);
+    expect(imports).toContain(SourcingShadowOperationModule);
     expect(imports).toContain(ChannelsModule);
     expect(imports).toContain(SupplyModule);
+  });
+
+  it("owns Agent providers only in the controller-free runtime", () => {
+    const ownerProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
+    const runtimeProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? [];
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, SourcingAgentRuntimeModule) ?? [])
+      .toEqual([]);
+    for (const provider of [
+      SourcingAgentGatewayAdapter,
+      SourcingListingPrepCapabilityAdapter,
+      SourcingScrapeUrlCapabilityAdapter,
+      SourcingWorkspaceCapabilityAdapter,
+      SourcingRuntimeHandler,
+    ]) {
+      expect(runtimeProviders).toContain(provider);
+      expect(ownerProviders).not.toContain(provider);
+    }
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {
@@ -590,12 +662,10 @@ describe("SourcingModule canonical owner wiring", () => {
       ),
     ).toEqual([
       "sourcing",
-      "sourcing/extension/trend",
-      "sourcing/extension/trend",
-      "sourcing/extension/trend",
-      "sourcing/keyword-research/naver",
-      "sourcing/1688/image-search",
-      "sourcing/1688/keyword-search",
+      "sourcing/operations",
+      "sourcing/operations",
+      "sourcing/keyword-analysis",
+      "sourcing/wholesale/1688-results",
       "sourcing/agent-rag",
       "sourcing/rising-products",
       "sourcing/intelligence",
@@ -627,4 +697,13 @@ function expectBinding(
         (provider as { provide?: unknown }).provide === token,
     )?.useExisting,
   ).toBe(adapter);
+}
+
+function providerNames(providers: unknown[]): string[] {
+  return providers.flatMap((provider) => {
+    if (typeof provider === "function") return [provider.name];
+    if (typeof provider !== "object" || provider === null) return [];
+    const useClass = (provider as { useClass?: unknown }).useClass;
+    return typeof useClass === "function" ? [useClass.name] : [];
+  });
 }

@@ -92,6 +92,8 @@ export interface SourcingRecommendationPresenterItem {
   evidenceObservationIds: string[];
   coupang: {
     productId: string;
+    itemId: string | null;
+    vendorItemId: string | null;
     productName: string;
     salePriceKrw: number | null;
     ratingCount: number | null;
@@ -136,6 +138,8 @@ export class SourcingRecommendationService {
   async refresh(input: {
     organizationId: string;
     limit?: number;
+    idempotencyKey?: string;
+    deferPublication?: boolean;
   }): Promise<SourcingRecommendationEnvelope> {
     const limit = normalizeLimit(input.limit);
     const cutoffAt = new Date();
@@ -262,8 +266,13 @@ export class SourcingRecommendationService {
       coupangEvidenceIds: coupangResult.items.map((item) => item.evidenceObservationId),
       targets,
       popularRows,
+      refreshIdempotencyKey: input.idempotencyKey,
     });
-    const inputManifestHash = hashManifest(inputManifest.stable);
+    const inputManifestHash = hashManifest(
+      input.idempotencyKey
+        ? { refreshIdempotencyKey: input.idempotencyKey }
+        : inputManifest.stable,
+    );
     const result = await this.runs.createOrGet({
       organizationId: input.organizationId,
       policyKey: SOURCING_RECOMMENDATION_POLICY_KEY,
@@ -272,10 +281,12 @@ export class SourcingRecommendationService {
       calculationVersion: SOURCING_RECOMMENDATION_CALCULATION_VERSION,
       inputManifestHash,
       inputManifest: inputManifest.full,
-      status: warningCodes.length > 0 ? 'partial' : 'complete',
+      status: input.deferPublication
+        ? warningCodes.length > 0 ? 'staged_partial' : 'staged_complete'
+        : warningCodes.length > 0 ? 'partial' : 'complete',
       businessDate,
       generatedAt: cutoffAt,
-      completedAt: cutoffAt,
+      completedAt: input.deferPublication ? null : cutoffAt,
       expiresAt: null,
       warningCodes,
       errorCode: null,
@@ -364,6 +375,7 @@ function buildInputManifest(input: {
   coupangEvidenceIds: string[];
   targets: Awaited<ReturnType<SourcingInterestTargetRepositoryPort['list']>>;
   popularRows: Awaited<ReturnType<TrendCollectionRepositoryPort['findPopularKeywordHistory']>>;
+  refreshIdempotencyKey?: string;
 }): { stable: Record<string, unknown>; full: Record<string, unknown> } {
   const stable = {
     businessDate: input.businessDate.toISOString().slice(0, 10),
@@ -383,6 +395,9 @@ function buildInputManifest(input: {
       modelVersion: SOURCING_RECOMMENDATION_MODEL_VERSION,
       calculationVersion: SOURCING_RECOMMENDATION_CALCULATION_VERSION,
     },
+    ...(input.refreshIdempotencyKey
+      ? { refreshIdempotencyKey: input.refreshIdempotencyKey }
+      : {}),
   };
   return {
     stable,
@@ -504,6 +519,8 @@ function presentCoupang(
   if (!productId || !productName) return null;
   return {
     productId,
+    itemId: stringValue(raw.itemId),
+    vendorItemId: stringValue(raw.vendorItemId),
     productName,
     salePriceKrw: integerOrNull(raw.salePriceKrw ?? raw.salePrice),
     ratingCount: integerOrNull(raw.ratingCount ?? raw.reviews),

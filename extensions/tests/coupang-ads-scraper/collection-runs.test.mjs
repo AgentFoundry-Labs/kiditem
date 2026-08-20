@@ -395,6 +395,26 @@ test('cancel uses dedicated window ownership and ordinary tab owner cancellation
   ]);
 });
 
+test('fenced operation abort cancels only its owned session and closes the managed tab', async () => {
+  const { calls, controller } = createRuntime([
+    session({
+      runId: 'operation-run',
+      environmentId: 'office',
+      producer: 'sourcing.wing_catalog_batch',
+    }),
+  ]);
+
+  await controller.abortOperationSession('operation-run', 'office');
+
+  assert.deepEqual(JSON.parse(JSON.stringify(calls)), [
+    ['cancel', 'operation-run', { closeManagedTab: true }],
+  ]);
+  await assert.rejects(
+    controller.abortOperationSession('operation-run', 'local'),
+    /environment/i,
+  );
+});
+
 test('attention preserves the ownership recorded by the original tab attach', async () => {
   const { calls, controller } = createRuntime([
     session({ runId: 'web-run' }),

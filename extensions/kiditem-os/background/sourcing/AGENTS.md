@@ -23,9 +23,16 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   `http://localhost:3000`, `http://localhost:4000`,
   and `http://kiditem-office`.
 - Product data sync posts to `/product-data`.
-- Live-commerce snapshots post to `/trend/live-commerce-results`.
-- TikTok Creative Center reads targets from `/trend/tiktok-cc-targets` and posts
-  snapshots to `/trend/tiktok-cc-results`.
+- Browser Operation owner-result routes are API-root paths: 1688 trend children
+  post to `/sourcing/operations/1688-trends/:runId/results`, live-commerce
+  snapshots to `/sourcing/operations/live-commerce/:runId/results`, and TikTok
+  Creative Center snapshots to
+  `/sourcing/operations/tiktok-cc-trends/:runId/results`.
+  TikTok targets remain a read from `/sourcing/trend/tiktok-cc-targets`.
+- Every browser result requires the exact claimed `OperationRun` id in `:runId`
+  and its current `x-operation-attempt-token`; the owner fences organization,
+  run, operation key, and token. Do not restore `/sourcing/extension/trend/*`
+  endpoints or a generic action/session bridge.
 - Authorization uses the current KidItem opaque session token delivered by the
   logged-in KidItem web tab through `chrome.runtime.sendMessage` and stored in
   `chrome.storage.local` for extension API calls. Do not reintroduce a separate
@@ -49,6 +56,11 @@ that contain `__tests__` or other `_`-prefixed committed paths.
   background worker.
 - 1688 description fetching skips data URLs, icons, logos, and duplicate image
   URLs.
+- This extension owns only the remaining exact browser Operations: daily 1688
+  trends, TikTok Creative Center trends, and live-commerce snapshots. Office
+  CDP owns 1688 keyword batches; never reintroduce their extension registry,
+  owner-result route, response hook, anonymous/fresh-profile fallback, or an
+  operator-tab navigation/close path.
 - Page-world `_detail_url` is untrusted input. `url-policy.js` must be loaded
   before `worker.js`; call only `KiditemSourcingUrlPolicy.parseAllowedSupplierUrl`
   and use `fetch(..., { redirect: 'error', credentials: 'include' })`. Do not

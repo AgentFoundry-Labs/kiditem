@@ -102,13 +102,20 @@ describe('ShortstrendTrendAdapter', () => {
   it('keeps only stationery/toy videos from the recent ranked pool', async () => {
     const fetchMock = mockTwoStepFetch();
     const adapter = new ShortstrendTrendAdapter();
+    const controller = new AbortController();
 
-    const result = await adapter.fetchTrending({ limit: 50 });
+    const result = await adapter.fetchTrending({
+      limit: 50,
+      signal: controller.signal,
+    });
 
     expect(result.source).toBe('shortstrend');
     expect(result.error).toBeUndefined();
     // 최신 수집시각 요청 + 최근 48시간 풀 조회 요청 두 번.
     expect(fetchMock).toHaveBeenCalledTimes(2);
+    controller.abort(new Error('operation_attempt_fence_lost'));
+    expect(fetchMock.mock.calls[0]?.[1]?.signal?.aborted).toBe(true);
+    expect(fetchMock.mock.calls[1]?.[1]?.signal?.aborted).toBe(true);
     // publishable key가 apikey 헤더로 전송되는지 확인.
     const [, batchInit] = fetchMock.mock.calls[1];
     expect((batchInit?.headers as Record<string, string>).apikey).toContain('sb_publishable_');

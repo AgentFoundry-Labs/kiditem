@@ -160,6 +160,8 @@ erDiagram
     String ownerDomain
     String title
     String engineType
+    String resourceClass
+    Int executionTimeoutMs
     String status
     String triggerSource
     String requestedByUserId FK
@@ -169,6 +171,11 @@ erDiagram
     Json input
     Json result
     Float progress
+    String stage
+    DateTime stageUpdatedAt
+    Int progressCurrent
+    Int progressTotal
+    DateTime deadlineAt
     String nativeRunType
     String nativeRunId
     Int attempts
@@ -234,9 +241,12 @@ erDiagram
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
-| OperationRun | operationRun | referenced by external | AgentOS | AgentExecutionAttempt |
+| OperationRun | operationRun | referenced by external | AgentOS | AgentExecutionAttemptOperationBinding |
 | OperationRun | organization | references external | Core | Organization |
+| OperationRun | predecessorOperationRun | referenced by external | AgentOS | AgentExecutionAttemptOperationBinding |
+| OperationRun | predecessorOperationRun | referenced by external | AgentOS | AgentSessionApproval |
 | OperationRun | requestedBy | references external | Core | User |
+| OperationRun | successorOperationRun | referenced by external | AgentOS | AgentSessionApprovalContinuation |
 | OperationRunCheckpoint | organization | references external | Core | Organization |
 | OperationSchedule | createdBy | references external | Core | User |
 | OperationSchedule | organization | references external | Core | Organization |

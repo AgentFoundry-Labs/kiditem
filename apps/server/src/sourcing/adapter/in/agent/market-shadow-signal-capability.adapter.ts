@@ -1,23 +1,23 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import { kstBusinessDate } from '../../../../common/kst';
-import { SourcingShadowSignalService } from '../../../application/service/sourcing-shadow-signal.service';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import type {
   MarketShadowCollectionCapabilityInput,
   MarketShadowCollectionCapabilityPort,
   MarketShadowCollectionCapabilityResult,
 } from '../../../application/port/in/capability/market-shadow-capability.port';
+import {
+  MARKET_SHADOW_OPERATION_PORT,
+  type MarketShadowOperationPort,
+} from '../../../application/port/out/cross-domain/market-shadow-operation.port';
 
 const CAPABILITY_KEY = 'market.collect_shadow_signals';
 const InputSchema = z.object({}).strict();
 const OutputSchema = z.object({
-  claimed: z.boolean(),
-  snapshotId: z.string(),
-  businessDate: z.string(),
+  operationRunId: z.string().uuid(),
   status: z.string(),
-  decisionImpact: z.literal('disabled'),
 });
 
 @Injectable()
@@ -26,7 +26,8 @@ export class MarketShadowSignalCapabilityAdapter
 {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    private readonly shadowSignals: SourcingShadowSignalService,
+    @Inject(MARKET_SHADOW_OPERATION_PORT)
+    private readonly operations: MarketShadowOperationPort,
   ) {}
 
   onModuleInit(): void {
@@ -36,8 +37,12 @@ export class MarketShadowSignalCapabilityAdapter
   async collectShadowSignals(
     input: MarketShadowCollectionCapabilityInput,
   ): Promise<MarketShadowCollectionCapabilityResult> {
-    const result = await this.shadowSignals.collect(input.organizationId);
-    return toCapabilityResult(result);
+    return this.operations.startShadowCollection({
+      organizationId: input.organizationId,
+      requestedByUserId: null,
+      triggerSource: 'agent',
+      idempotencyKey: capabilityIdempotencyKey(input.organizationId),
+    });
   }
 
   private handler(): AgentCapabilityHandler<z.infer<typeof InputSchema>> {
@@ -47,7 +52,7 @@ export class MarketShadowSignalCapabilityAdapter
       executionKind: 'job_trigger',
       inputSchema: InputSchema,
       outputSchema: OutputSchema,
-      sideEffects: ['read', 'external_io', 'db_write'],
+      sideEffects: ['db_write', 'external_io', 'job_enqueue'],
       approvalRisk: 'low',
       idempotencyKey: ({ organizationId }) => [
         organizationId,
@@ -55,26 +60,18 @@ export class MarketShadowSignalCapabilityAdapter
         kstBusinessDate(new Date()).toISOString().slice(0, 10),
       ].join(':'),
       execute: async ({ organizationId }) => {
-        const collection = await this.shadowSignals.collect(organizationId);
-        const result = toCapabilityResult(collection);
-        const payloadResult = recordValue(collection.snapshot.payload.result);
+        const result = await this.collectShadowSignals({ organizationId });
         return {
-          resourceType: 'market_shadow_signal_snapshot',
-          resourceId: collection.snapshot.id,
+          resourceType: 'operation_run',
+          resourceId: result.operationRunId,
           outputSummary: { ...result },
           artifacts: [{
-            artifactType: 'market_shadow_signal_snapshot',
-            targetDomain: 'sourcing',
-            targetModel: 'SourcingWorkspaceSnapshot',
-            targetId: collection.snapshot.id,
-            title: '시장 shadow 신호 스냅샷',
-            summary: {
-              ...result,
-              evaluation: recordValue(payloadResult.evaluation),
-              errors: Array.isArray(payloadResult.errors)
-                ? payloadResult.errors
-                : [],
-            },
+            artifactType: 'operation_run',
+            targetDomain: 'operations',
+            targetModel: 'OperationRun',
+            targetId: result.operationRunId,
+            title: '시장 shadow 신호 수집 실행',
+            summary: { ...result },
           }],
         };
       },
@@ -82,25 +79,10 @@ export class MarketShadowSignalCapabilityAdapter
   }
 }
 
-function toCapabilityResult(input: Awaited<
-  ReturnType<SourcingShadowSignalService['collect']>
->): MarketShadowCollectionCapabilityResult {
-  const payloadResult = recordValue(input.snapshot.payload.result);
-  return {
-    claimed: input.claimed,
-    snapshotId: input.snapshot.id,
-    businessDate: input.snapshot.businessDate.toISOString().slice(0, 10),
-    status: stringValue(payloadResult.status) ?? 'unknown',
-    decisionImpact: 'disabled',
-  };
-}
-
-function recordValue(value: unknown): Record<string, unknown> {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : {};
-}
-
-function stringValue(value: unknown): string | null {
-  return typeof value === 'string' && value.trim() ? value.trim() : null;
+function capabilityIdempotencyKey(organizationId: string): string {
+  return [
+    organizationId,
+    CAPABILITY_KEY,
+    kstBusinessDate(new Date()).toISOString().slice(0, 10),
+  ].join(':');
 }

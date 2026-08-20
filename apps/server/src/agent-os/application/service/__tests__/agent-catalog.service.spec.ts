@@ -132,4 +132,43 @@ describe('AgentCatalogService', () => {
       approvalMode: 'none',
     });
   });
+
+  it('allows shadow signals only as an explicit admin-approved instance policy', async () => {
+    const repository = {
+      resolveInstanceToolPolicy: vi.fn().mockResolvedValue(null),
+      upsertInstanceToolPolicy: vi.fn().mockResolvedValue(undefined),
+    };
+    const policy = {
+      logAdminPolicyChange: vi.fn().mockResolvedValue(undefined),
+    };
+    const service = new AgentCatalogService(repository as never, policy as never);
+    const policyInput = {
+      organizationId: ORG,
+      agentInstanceId: 'agent-sourcing-1',
+      toolKey: 'market.collect_shadow_signals',
+      effect: 'approval_required' as const,
+    };
+
+    await expect(
+      service.upsertInstanceToolPolicy({
+        ...policyInput,
+        approvalMode: 'none',
+      }),
+    ).rejects.toMatchObject({
+      code: 'shadow_signal_admin_approval_required',
+    });
+    expect(repository.resolveInstanceToolPolicy).not.toHaveBeenCalled();
+    expect(repository.upsertInstanceToolPolicy).not.toHaveBeenCalled();
+
+    await expect(
+      service.upsertInstanceToolPolicy({
+        ...policyInput,
+        approvalMode: 'admin',
+      }),
+    ).resolves.toBeUndefined();
+    expect(repository.upsertInstanceToolPolicy).toHaveBeenCalledWith({
+      ...policyInput,
+      approvalMode: 'admin',
+    });
+  });
 });

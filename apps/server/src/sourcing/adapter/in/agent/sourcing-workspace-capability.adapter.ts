@@ -42,15 +42,6 @@ const InspectRunOutput = z.object({
   }).strict(),
 }).strict();
 
-const CollectionInput = z.object({
-  sources: z.array(z.enum(['naver', '1688', 'shorts'])).min(1).max(3),
-}).strict();
-
-const CollectionOutput = z.object({
-  operationRunId: z.string(),
-  status: z.string(),
-}).strict();
-
 const ValidationInput = z.object({
   recommendationRunId: z.string().uuid(),
 }).strict();
@@ -80,7 +71,6 @@ const ReviewOutput = z.object({
 
 type EvidenceInputType = z.infer<typeof EvidenceInput>;
 type InspectRunInputType = z.infer<typeof InspectRunInput>;
-type CollectionInputType = z.infer<typeof CollectionInput>;
 type ValidationInputType = z.infer<typeof ValidationInput>;
 type ReviewInputType = z.infer<typeof ReviewInput>;
 
@@ -100,7 +90,6 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
     return [
       this.evidenceHandler(),
       this.inspectRunHandler(),
-      this.collectionHandler(),
       this.validationHandler(),
       this.reviewHandler(),
     ];
@@ -169,53 +158,6 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
             targetId: result.runId,
             title: '소싱 추천 실행',
             summary: result,
-          }],
-        };
-      },
-    };
-  }
-
-  private collectionHandler(): AgentCapabilityHandler<CollectionInputType> {
-    return {
-      key: 'sourcing.refreshCollection',
-      ownerDomain: 'sourcing',
-      executionKind: 'job_trigger',
-      inputSchema: CollectionInput,
-      outputSchema: CollectionOutput,
-      sideEffects: ['db_write', 'external_io', 'job_enqueue'],
-      approvalRisk: 'low',
-      idempotencyKey: (execution) => {
-        if (!execution.requestId) return null;
-        return [
-          execution.organizationId,
-          execution.requestId,
-          'sourcing.refreshCollection',
-          [...execution.input.sources].sort().join(','),
-        ].join(':');
-      },
-      execute: async (execution) => {
-        const sources = [...new Set(execution.input.sources)].sort() as CollectionInputType['sources'];
-        const result = await this.workspace.refreshCollection({
-          organizationId: execution.organizationId,
-          requestedByUserId: execution.requestedByUserId ?? null,
-          sources,
-          idempotencyKey: requireIdempotencyKey(this.collectionHandlerKey(execution)),
-        });
-        return {
-          resourceType: 'operation_run',
-          resourceId: result.operationRunId,
-          outputSummary: result,
-          artifacts: [{
-            artifactType: 'operation_run',
-            targetDomain: 'operations',
-            targetModel: 'OperationRun',
-            targetId: result.operationRunId,
-            title: '소싱 수집 실행',
-            summary: {
-              operationRunId: result.operationRunId,
-              status: result.status,
-              sources,
-            },
           }],
         };
       },
@@ -299,18 +241,6 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
         };
       },
     };
-  }
-
-  private collectionHandlerKey(
-    execution: AgentCapabilityExecutionInput<CollectionInputType>,
-  ): string | null {
-    if (!execution.requestId) return null;
-    return [
-      execution.organizationId,
-      execution.requestId,
-      'sourcing.refreshCollection',
-      [...execution.input.sources].sort().join(','),
-    ].join(':');
   }
 
   private reviewIdempotencyKey(

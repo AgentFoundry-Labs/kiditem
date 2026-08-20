@@ -14,7 +14,7 @@ import {
   type Search1688ImageStatus,
   type Sourcing1688ImageSearchPort,
 } from '../../../application/port/out/provider/1688-image-search.port';
-import { Direct1688KeywordSearchAdapter } from './direct-1688-keyword-search.adapter';
+import { abortableBrowserStep } from './abortable-browser-session';
 
 const DEFAULT_1688_ALPHA_BASE_URL = 'https://overseaplugin.1688.com';
 const DEFAULT_1688_ALPHA_SOURCE = 'www.coupang.com';
@@ -34,8 +34,6 @@ const publicImageFetchDispatcher = new Agent({
 
 @Injectable()
 export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort {
-  constructor(private readonly keywordSearch: Direct1688KeywordSearchAdapter) {}
-
   getStatus(): Search1688ImageStatus {
     return {
       configured: true,
@@ -44,10 +42,11 @@ export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort
   }
 
   async searchByImage(input: Search1688ImageInput): Promise<Search1688ImageResult> {
+    input.signal?.throwIfAborted();
     const maxResults = clampInteger(input.maxResults ?? 12, 1, MAX_ALPHA_PAGE_SIZE);
 
     try {
-      const uploadedImage = await uploadImageForAlphaSearch(input.imageUrl);
+      const uploadedImage = await uploadImageForAlphaSearch(input.imageUrl, input.signal);
       const searchResult = await postAlphaJson<AlphaImageSearchResponse>('/alpha/imageSearch', {
         language: readAlphaLanguage(),
         currency: readAlphaCurrency(),
@@ -56,7 +55,7 @@ export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort
         platform: '1688',
         beginPage: 1,
         pageSize: maxResults,
-      });
+      }, input.signal);
 
       return {
         imageUrl: input.imageUrl,
@@ -64,47 +63,10 @@ export class Direct1688ImageSearchAdapter implements Sourcing1688ImageSearchPort
         items: normalizeAlphaItems(searchResult.data).slice(0, maxResults),
       };
     } catch (error) {
+      input.signal?.throwIfAborted();
       if (error instanceof BadRequestException) throw error;
-
-      const keyword = input.keyword?.trim();
-      if (!keyword) {
-        throw new BadGatewayException(`1688 AlphaShop image search failed: ${errorMessage(error)}`);
-      }
-
-      return this.searchByKeywordFallback({
-        imageUrl: input.imageUrl,
-        keyword,
-        maxResults,
-      });
+      throw new BadGatewayException(`1688 AlphaShop image search failed: ${errorMessage(error)}`);
     }
-  }
-
-  private async searchByKeywordFallback(input: {
-    imageUrl: string;
-    keyword: string;
-    maxResults: number;
-  }): Promise<Search1688ImageResult> {
-    const result = await this.keywordSearch.searchByKeyword({
-      keyword: input.keyword,
-      page: 1,
-      maxResults: input.maxResults,
-    });
-
-    return {
-      imageUrl: input.imageUrl,
-      convertedImageUrl: null,
-      items: result.items.map((item) => ({
-        title: item.title,
-        priceCny: item.priceCny,
-        sourceUrl: item.sourceUrl,
-        imageUrl: item.imageUrl,
-        score: item.score,
-        salesNum: item.monthlySales,
-        salesText: item.monthlySales == null ? null : String(item.monthlySales),
-        supplierName: item.supplierName,
-        repurchaseRate: item.repurchaseRate,
-      })),
-    };
   }
 }
 
@@ -128,12 +90,17 @@ interface AlphaUploadedImage {
   yoloCropRegion: string | null;
 }
 
-async function uploadImageForAlphaSearch(imageUrl: string): Promise<AlphaUploadedImage> {
-  const imageBase64 = await fetchImageAsDataUrl(imageUrl);
+async function uploadImageForAlphaSearch(
+  imageUrl: string,
+  signal?: AbortSignal,
+): Promise<AlphaUploadedImage> {
+  signal?.throwIfAborted();
+  const imageBase64 = await fetchImageAsDataUrl(imageUrl, signal);
   const payload = await postAlphaJson<AlphaUploadResponse>('/image/uploadV2', {
     imageBase64,
     regionRecognition: true,
-  });
+  }, signal);
+  signal?.throwIfAborted();
   const result = isRecord(payload.result) ? payload.result : null;
   const uploadedImageUrl = stringValue(result?.imageUrl);
   const currentRegion = stringValue(result?.currentRegion);
@@ -150,7 +117,11 @@ async function uploadImageForAlphaSearch(imageUrl: string): Promise<AlphaUploade
   };
 }
 
-async function fetchImageAsDataUrl(imageUrl: string): Promise<string> {
+async function fetchImageAsDataUrl(
+  imageUrl: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  signal?.throwIfAborted();
   const value = imageUrl.trim();
   if (!value) throw new BadRequestException('imageUrl is required');
   if (/^data:image\//i.test(value)) return value;
@@ -165,12 +136,12 @@ async function fetchImageAsDataUrl(imageUrl: string): Promise<string> {
     throw new BadRequestException('imageUrl must use http or https');
   }
 
-  const { response, finalUrl } = await fetchPublicImageResponse(parsed);
+  const { response, finalUrl } = await fetchPublicImageResponse(parsed, signal);
   if (!response.ok) {
     throw new BadGatewayException(`image download failed: ${response.status}`);
   }
 
-  const bytes = await readResponseBytes(response);
+  const bytes = await readResponseBytes(response, signal);
   const contentType = normalizeImageContentType(response.headers.get('content-type')) ||
     inferImageContentType(finalUrl.pathname) ||
     'image/jpeg';
@@ -178,27 +149,29 @@ async function fetchImageAsDataUrl(imageUrl: string): Promise<string> {
   return `data:${contentType};base64,${bytes.toString('base64')}`;
 }
 
-async function fetchPublicImageResponse(initialUrl: URL): Promise<{
+async function fetchPublicImageResponse(initialUrl: URL, signal?: AbortSignal): Promise<{
   response: Response;
   finalUrl: URL;
 }> {
   let currentUrl = initialUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_IMAGE_REDIRECTS; redirectCount += 1) {
-    await assertSafeImageFetchUrl(currentUrl);
+    signal?.throwIfAborted();
+    await assertSafeImageFetchUrl(currentUrl, signal);
 
     let response: Response;
     try {
-      response = await fetch(currentUrl.toString(), {
+      response = await abortableBrowserStep(fetch(currentUrl.toString(), {
         headers: {
           Accept: 'image/avif,image/webp,image/apng,image/*,*/*;q=0.8',
           'User-Agent': 'Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko) Chrome Safari/537.36',
         },
         dispatcher: publicImageFetchDispatcher,
         redirect: 'manual',
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      } as RequestInit & { dispatcher: Agent });
+        signal: requestSignal(signal),
+      } as RequestInit & { dispatcher: Agent }), signal);
     } catch (error) {
+      signal?.throwIfAborted();
       throw new BadGatewayException(`image download failed: ${errorMessage(error)}`);
     }
 
@@ -256,7 +229,8 @@ function publicImageLookup(
   })();
 }
 
-async function assertSafeImageFetchUrl(url: URL): Promise<void> {
+async function assertSafeImageFetchUrl(url: URL, signal?: AbortSignal): Promise<void> {
+  signal?.throwIfAborted();
   try {
     assertPublicHttpUrl(url.toString());
   } catch (error) {
@@ -267,13 +241,16 @@ async function assertSafeImageFetchUrl(url: URL): Promise<void> {
   }
 
   const host = normalizeLookupHost(url.hostname);
-  await resolvePublicHostAddresses(host);
+  await resolvePublicHostAddresses(host, undefined, signal);
+  signal?.throwIfAborted();
 }
 
 async function resolvePublicHostAddresses(
   hostname: string,
   family?: number,
+  signal?: AbortSignal,
 ): Promise<Array<{ address: string; family: number }>> {
+  signal?.throwIfAborted();
   const host = normalizeLookupHost(hostname);
   const ipFamily = isIP(host);
   if (ipFamily !== 0) {
@@ -283,8 +260,12 @@ async function resolvePublicHostAddresses(
 
   let records: Array<{ address: string; family: number }>;
   try {
-    records = await dns.lookup(host, { all: true, family, verbatim: true });
+    records = await abortableBrowserStep(
+      dns.lookup(host, { all: true, family, verbatim: true }),
+      signal,
+    );
   } catch (error) {
+    signal?.throwIfAborted();
     throw new BadGatewayException(`image host lookup failed: ${errorMessage(error)}`);
   }
 
@@ -332,14 +313,15 @@ function isRedirectStatus(status: number): boolean {
   return status === 301 || status === 302 || status === 303 || status === 307 || status === 308;
 }
 
-async function readResponseBytes(response: Response): Promise<Buffer> {
+async function readResponseBytes(response: Response, signal?: AbortSignal): Promise<Buffer> {
+  signal?.throwIfAborted();
   const contentLength = Number(response.headers.get('content-length'));
   if (Number.isFinite(contentLength) && contentLength > MAX_IMAGE_BYTES) {
     throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
   }
 
   if (!response.body) {
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = Buffer.from(await abortableBrowserStep(response.arrayBuffer(), signal));
     if (bytes.length > MAX_IMAGE_BYTES) {
       throw new BadRequestException('imageUrl image is too large for 1688 AlphaShop search');
     }
@@ -349,10 +331,15 @@ async function readResponseBytes(response: Response): Promise<Buffer> {
   const reader = response.body.getReader();
   const chunks: Buffer[] = [];
   let totalBytes = 0;
+  const cancelOnAbort = () => {
+    void reader.cancel(signal?.reason).catch(() => undefined);
+  };
+  signal?.addEventListener('abort', cancelOnAbort, { once: true });
 
   try {
     while (true) {
-      const { done, value } = await reader.read();
+      signal?.throwIfAborted();
+      const { done, value } = await abortableBrowserStep(reader.read(), signal);
       if (done) break;
       if (!value) continue;
 
@@ -364,6 +351,7 @@ async function readResponseBytes(response: Response): Promise<Buffer> {
       chunks.push(Buffer.from(value));
     }
   } finally {
+    signal?.removeEventListener('abort', cancelOnAbort);
     reader.releaseLock();
   }
 
@@ -373,11 +361,13 @@ async function readResponseBytes(response: Response): Promise<Buffer> {
 async function postAlphaJson<T extends { retCode?: unknown; retMsg?: unknown; success?: unknown }>(
   endpoint: string,
   body: Record<string, unknown>,
+  signal?: AbortSignal,
 ): Promise<T> {
+  signal?.throwIfAborted();
   const url = `${readAlphaBaseUrl()}${endpoint}`;
   let response: Response;
   try {
-    response = await fetch(url, {
+    response = await abortableBrowserStep(fetch(url, {
       method: 'POST',
       referrerPolicy: 'no-referrer',
       headers: {
@@ -389,9 +379,10 @@ async function postAlphaJson<T extends { retCode?: unknown; retMsg?: unknown; su
         version: readAlphaVersion(),
         ...body,
       }),
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-    });
+      signal: requestSignal(signal),
+    }), signal);
   } catch (error) {
+    signal?.throwIfAborted();
     throw new BadGatewayException(`1688 AlphaShop request failed: ${errorMessage(error)}`);
   }
 
@@ -401,8 +392,9 @@ async function postAlphaJson<T extends { retCode?: unknown; retMsg?: unknown; su
 
   let payload: T;
   try {
-    payload = await response.json() as T;
+    payload = await abortableBrowserStep(response.json() as Promise<T>, signal);
   } catch {
+    signal?.throwIfAborted();
     throw new BadGatewayException('1688 AlphaShop returned invalid JSON');
   }
 
@@ -411,6 +403,11 @@ async function postAlphaJson<T extends { retCode?: unknown; retMsg?: unknown; su
   }
 
   return payload;
+}
+
+function requestSignal(signal?: AbortSignal): AbortSignal {
+  const timeout = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  return signal ? AbortSignal.any([signal, timeout]) : timeout;
 }
 
 function normalizeAlphaItems(value: unknown): Search1688ImageItem[] {

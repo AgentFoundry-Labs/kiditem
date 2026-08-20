@@ -31,31 +31,22 @@ import {
   type AgentSessionControlRepositoryPort,
 } from '../port/out/repository/agent-session-control.repository.port';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
-import { AgentRuntimeAdapterRegistry } from './agent-runtime-adapter.registry';
 import {
   AgentSessionRuntimeControlService,
   type PersistedAgentSessionRuntimeEvent,
 } from './agent-session-runtime-control.service';
+import { AgentSessionOperationContinuationService } from './agent-session-operation-continuation.service';
 import {
   INTERACTION_CLOCK,
   type InteractionClock,
 } from './agent-interaction.tokens';
-import type { RuntimeHandle } from '../port/out/runtime/agent-durable-runtime.port';
-
-const runtimeRequirements = {
-  detached: true,
-  reconnect: true,
-  interrupt: true,
-  cancel: true,
-  inspect: true,
-} as const;
-
 interface RequestInput {
   organizationId: string;
   session: AgentSessionName;
   task: AgentSessionTaskName;
   execution: AgentExecutionName;
   attempt: AgentExecutionAttemptName;
+  operationRunId: string;
   capabilityKey: string;
   arguments: Record<string, unknown>;
   summary: string;
@@ -82,9 +73,9 @@ export class AgentSessionApprovalService {
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     @Inject(AGENT_SESSION_RESOURCE_VERSION_VALIDATOR)
     private readonly resources: AgentSessionResourceVersionValidatorPort,
-    private readonly runtimes: AgentRuntimeAdapterRegistry,
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
+    private readonly continuations: AgentSessionOperationContinuationService,
     @Inject(INTERACTION_CLOCK)
     private readonly now: InteractionClock,
   ) {}
@@ -116,6 +107,7 @@ export class AgentSessionApprovalService {
       taskId: graph.taskId,
       executionId: graph.executionId,
       attemptId: graph.attemptId,
+      operationRunId: input.operationRunId,
       capabilityKey,
       argumentsHash,
       resourceSnapshot: resources,
@@ -206,6 +198,7 @@ export class AgentSessionApprovalService {
       throw invalid('APPROVAL_EXPIRED');
     }
     if (input.decision === 'approved') {
+      this.continuations.assertAccepting();
       const capabilityAllowed = await this.controls.isExecutionCapabilityAllowed({
         organizationId: session.organization,
         sessionId: session.session,
@@ -264,20 +257,11 @@ export class AgentSessionApprovalService {
       return { state: decision.state };
     }
     if (decision.state !== 'approved') throw invalid('APPROVAL_STATE_INVALID');
-    const handle = handleFromApproval(approval);
-    const runtime = this.runtimes.requireCompatible(
-      approval.runtimeType,
-      runtimeRequirements,
-    );
-    await runtime.interrupt(handle, {
-      interruptId: approval.id,
-      payload: { decision: 'approved' },
-    });
     if (!approval.operationRunId) throw invalid('APPROVAL_OPERATION_MISSING');
-    await this.operations.resume({
+    await this.continuations.continueApproval({
       organizationId: session.organization,
-      runId: approval.operationRunId,
-      requestedByUserId: input.actorId,
+      sessionId: session.session,
+      approvalId: approval.id,
     });
     return { state: decision.state };
   }
@@ -316,27 +300,6 @@ function parseDecisionSession(input: DecideInput) {
   } catch {
     throw invalid('APPROVAL_CONTEXT_CHANGED');
   }
-}
-
-function handleFromApproval(approval: {
-  runtimeType: string;
-  executionId: string;
-  attemptId: string;
-  externalRunId: string | null;
-  encryptedHandleRef: string | null;
-  runtimeGeneration: number;
-}): RuntimeHandle {
-  if (!approval.externalRunId || !approval.encryptedHandleRef) {
-    throw invalid('APPROVAL_RUNTIME_HANDLE_MISSING');
-  }
-  return {
-    runtimeType: approval.runtimeType,
-    executionId: approval.executionId,
-    attemptId: approval.attemptId,
-    externalRunId: approval.externalRunId,
-    encryptedHandleRef: approval.encryptedHandleRef,
-    generation: approval.runtimeGeneration,
-  };
 }
 
 function boundedCapabilityKey(value: string): string {

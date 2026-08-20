@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import { z } from 'zod';
 import {
   AgentExecutionAttemptIdSchema,
@@ -24,20 +23,25 @@ import {
 } from '../../test-helpers/real-prisma';
 import { OperationCheckpointRepositoryAdapter } from '../../operations/adapter/out/repository/operation-checkpoint.repository.adapter';
 import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
+import { OperationAttemptExecutorService } from '../../operations/application/service/operation-attempt-executor.service';
 import { CompositeOperationCoordinatorService } from '../../operations/application/service/composite-operation-coordinator.service';
 import { OperationDispatcherService } from '../../operations/application/service/operation-dispatcher.service';
 import { OperationHandlerRegistryService } from '../../operations/application/service/operation-handler-registry.service';
+import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
 import { OperationRunService } from '../../operations/application/service/operation-run.service';
 import { OperationRunWorkerService } from '../../operations/application/service/operation-run-worker.service';
+import { OperationServerLifecycleService } from '../../operations/application/service/operation-server-lifecycle.service';
 import { AgentSessionTaskOperationHandler } from '../adapter/in/operation/agent-session-task.operation-handler';
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { PrismaAgentInteractionRepository } from '../adapter/out/repository/prisma-agent-interaction.repository';
 import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
 import { AgentSessionApprovalService } from '../application/service/agent-session-approval.service';
+import { AgentSessionOperationContinuationService } from '../application/service/agent-session-operation-continuation.service';
 import { AgentSessionCapabilityInvocationService } from '../application/service/agent-session-capability-invocation.service';
 import { AgentCapabilityRegistry } from '../application/service/agent-capability-registry.service';
 import { AgentSessionRuntimeControlService } from '../application/service/agent-session-runtime-control.service';
 import { AgentSessionTaskOperationInputSchema } from '../domain/operation/agent-os.operations';
+import type { PrismaClient } from '@prisma/client';
 
 const VERSION_ID = '50000000-0000-4000-8000-000000000001';
 const AUTHORITY_PROFILE_ID = 'foundation_read_only_probe:v1';
@@ -60,15 +64,204 @@ beforeEach(async () => {
 });
 
 describe('official durable runtime recovery', () => {
+  it('recovers a lifecycle-cancelled AgentOS graph through an immutable successor after API restart', async () => {
+    const graph = await createRunningGraph();
+    const operation = await createOperation(graph);
+    const controls = new PrismaAgentSessionControlRepository(prisma as never);
+    const attempt = await controls.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.taskId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+      idempotencyKey: `operation:${operation.runId}`,
+    });
+    await controls.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+    });
+    await controls.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      executionId: graph.executionId,
+      attemptId: attempt.id,
+      runtimeType: 'hermes_http',
+      externalRunId: 'external-durable-run-1',
+      encryptedHandleRef: 'vault://opaque-handle-1',
+      runtimeGeneration: 1,
+    });
+
+    const repository = new OperationRepositoryAdapter(prisma as never);
+    const lifecycleGate = new OperationLifecycleGateService();
+    const lifecycle = new OperationServerLifecycleService(
+      repository,
+      lifecycleGate,
+      { start: vi.fn(), stopIntake: vi.fn(), drainUntil: vi.fn() } as never,
+      { start: vi.fn(), stopIntake: vi.fn(), abortActive: vi.fn(), drainUntil: vi.fn() } as never,
+      { batchSize: 100, startupTimeoutMs: 2_000, shutdownTimeoutMs: 500 },
+    );
+
+    await lifecycle.onApplicationBootstrap();
+    expect(lifecycleGate.state()).toBe('ACCEPTING');
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: operation.runId },
+      select: { status: true, errorCode: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      errorCode: 'operation_server_lifecycle_expired',
+    });
+
+    const continuations = new AgentSessionOperationContinuationService(
+      controls,
+      lifecycleGate,
+      { requireCompatible: vi.fn() } as never,
+    );
+    await continuations.onApplicationBootstrap();
+    const successor = await prisma!.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: attempt.id,
+        predecessorOperationRunId: operation.runId,
+      },
+      select: { operationRunId: true },
+    });
+    expect(successor.operationRunId).not.toBe(operation.runId);
+    await expect(Promise.all([
+      prisma!.agentSessionTask.findUniqueOrThrow({ where: { id: graph.taskId }, select: { status: true } }),
+      prisma!.agentExecution.findUniqueOrThrow({ where: { id: graph.executionId }, select: { status: true } }),
+      prisma!.agentExecutionAttempt.findUniqueOrThrow({ where: { id: attempt.id }, select: { state: true } }),
+    ])).resolves.toEqual([
+      { status: 'running' },
+      { status: 'running' },
+      { state: 'running' },
+    ]);
+
+    const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
+    const recovered = makeWorker({
+      graph,
+      operation: { ...operation, runId: successor.operationRunId },
+      controls,
+      checkpoints,
+      backend: new DurableFakeRuntimeBackend(graph, 'complete'),
+    });
+    await runWorkerTick(recovered.worker);
+
+    expect(recovered.runtime.start).not.toHaveBeenCalled();
+    expect(recovered.runtime.inspect).toHaveBeenCalledTimes(1);
+    expect(recovered.runtime.connect).toHaveBeenCalledTimes(1);
+    await expect(Promise.all([
+      prisma!.operationRun.findUniqueOrThrow({ where: { id: operation.runId }, select: { status: true } }),
+      prisma!.operationRun.findUniqueOrThrow({ where: { id: successor.operationRunId }, select: { status: true } }),
+      prisma!.agentSessionTask.findUniqueOrThrow({ where: { id: graph.taskId }, select: { status: true } }),
+      prisma!.agentExecution.findUniqueOrThrow({ where: { id: graph.executionId }, select: { status: true } }),
+      prisma!.agentExecutionAttempt.findUniqueOrThrow({ where: { id: attempt.id }, select: { state: true } }),
+    ])).resolves.toEqual([
+      { status: 'cancelled' },
+      { status: 'succeeded' },
+      { status: 'completed' },
+      { status: 'completed' },
+      { state: 'succeeded' },
+    ]);
+  });
+
+  it('creates one immutable successor OperationRun binding for a durable attempt cancelled by a prior API lifecycle', async () => {
+    const graph = await createRunningGraph();
+    const operation = await createOperation(graph);
+    const controls = new PrismaAgentSessionControlRepository(prisma as never);
+    const attempt = await controls.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.taskId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+      idempotencyKey: `operation:${operation.runId}`,
+    });
+    await controls.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+    });
+    await controls.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      executionId: graph.executionId,
+      attemptId: attempt.id,
+      runtimeType: 'hermes_http',
+      externalRunId: 'external-durable-run-1',
+      encryptedHandleRef: 'vault://opaque-handle-1',
+      runtimeGeneration: 1,
+    });
+    await prisma!.operationRun.update({
+      where: { id: operation.runId },
+      data: {
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+        errorMessage: 'prior api lifecycle ended',
+        finishedAt: new Date(),
+      },
+    });
+
+    const input = {
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.taskId,
+      executionId: graph.executionId,
+      attemptId: attempt.id,
+      predecessorOperationRunId: operation.runId,
+      continuationKey: `lifecycle:${operation.runId}`,
+    };
+
+    const first = await controls.continueOperationAttempt(input);
+    const second = await controls.continueOperationAttempt(input);
+
+    expect(second).toEqual(first);
+    expect(first.operationRunId).not.toBe(operation.runId);
+    expect(first.attemptId).toBe(attempt.id);
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: operation.runId },
+      select: { status: true, errorCode: true },
+    })).resolves.toEqual({
+      status: 'cancelled',
+      errorCode: 'operation_server_lifecycle_expired',
+    });
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: first.operationRunId },
+      select: { status: true, input: true },
+    })).resolves.toEqual({ status: 'queued', input: operation.input });
+    await expect(prisma!.operationRunCheckpoint.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationRunId: first.operationRunId,
+      },
+      select: { kind: true, state: true },
+    })).resolves.toEqual({
+      kind: 'runtime_handle_continuation',
+      state: {
+        runtimeHandle: {
+          runtimeType: 'hermes_http',
+          executionId: graph.executionId,
+          attemptId: attempt.id,
+          externalRunId: 'external-durable-run-1',
+          encryptedHandleRef: 'vault://opaque-handle-1',
+          generation: 1,
+        },
+      },
+    });
+  });
+
   it('correlates opaque transport IDs with canonical resource names and rejects them as operation input', async () => {
     const graph = await createRunningGraph();
     const operation = await createOperation(graph);
     const controls = new PrismaAgentSessionControlRepository(prisma as never);
-    const attempt = await controls.startAttempt({
+    const attempt = await controls.reserveAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
+      taskId: graph.taskId,
       executionId: graph.executionId,
-      runtimeType: 'hermes_http',
       operationRunId: operation.runId,
       idempotencyKey: `operation:${operation.runId}`,
     });
@@ -128,6 +321,7 @@ describe('official durable runtime recovery', () => {
     const operation = await createOperation(graph);
     const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
     const controls = new PrismaAgentSessionControlRepository(prisma as never);
+    await reserveOperationAttempt(controls, graph, operation);
     const backend = new DurableFakeRuntimeBackend(graph, 'crash');
     const first = makeWorker({
       graph,
@@ -137,7 +331,7 @@ describe('official durable runtime recovery', () => {
       backend,
     });
 
-    await first.worker.tick();
+    await runWorkerTick(first.worker);
     expect(first.runtime.start).toHaveBeenCalledTimes(1);
     expect(await prisma!.agentConversationEvent.count({
       where: { organizationId: TEST_ORGANIZATION_ID, executionId: graph.executionId },
@@ -158,7 +352,7 @@ describe('official durable runtime recovery', () => {
       backend,
     });
 
-    await recovered.worker.tick();
+    await runWorkerTick(recovered.worker);
 
     expect(recovered.runtime).not.toBe(first.runtime);
     expect(recovered.runtime.start).not.toHaveBeenCalled();
@@ -168,14 +362,19 @@ describe('official durable runtime recovery', () => {
       where: { organizationId: TEST_ORGANIZATION_ID, executionId: graph.executionId },
     })).toBe(5);
     const [attempt, task, terminal, operationRun] = await Promise.all([
-      prisma!.agentExecutionAttempt.findFirstOrThrow({
-        where: { executionId: graph.executionId, operationRunId: operation.runId },
+      prisma!.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          executionId: graph.executionId,
+          operationRunId: operation.runId,
+        },
+        include: { attempt: true },
       }),
       prisma!.agentSessionTask.findUniqueOrThrow({ where: { id: graph.taskId } }),
       checkpoints.findLatest({ organizationId: TEST_ORGANIZATION_ID, operationRunId: operation.runId }),
       prisma!.operationRun.findUniqueOrThrow({ where: { id: operation.runId } }),
     ]);
-    expect(attempt).toMatchObject({
+    expect(attempt.attempt).toMatchObject({
       state: 'succeeded',
       externalRunId: 'external-durable-run-1',
       encryptedHandleRef: 'vault://opaque-handle-1',
@@ -190,6 +389,7 @@ describe('official durable runtime recovery', () => {
     const operation = await createOperation(graph);
     const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
     const controls = new PrismaAgentSessionControlRepository(prisma as never);
+    await reserveOperationAttempt(controls, graph, operation);
     const invocation = recoveryCapabilityInvocation(controls);
     const backend = new DurableFakeRuntimeBackend(
       graph,
@@ -224,7 +424,7 @@ describe('official durable runtime recovery', () => {
       backend,
     });
 
-    await first.worker.tick();
+    await runWorkerTick(first.worker);
     const [approval, attempt] = await Promise.all([
       prisma!.agentSessionApproval.findFirstOrThrow({
         where: { organizationId: TEST_ORGANIZATION_ID, executionId: graph.executionId },
@@ -254,17 +454,29 @@ describe('official durable runtime recovery', () => {
     expect(first.runtime.interrupt).toHaveBeenCalledTimes(1);
     expect(invocation.execute).toHaveBeenCalledTimes(1);
     expect(await prisma!.operationRun.findUniqueOrThrow({ where: { id: operation.runId } })).toMatchObject({
-      status: 'queued',
+      status: 'attention_required',
     });
+    const continuation = await prisma!.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: attempt.id,
+        predecessorOperationRunId: operation.runId,
+      },
+      select: { operationRunId: true },
+    });
+    expect(await prisma!.operationRun.findUniqueOrThrow({
+      where: { id: continuation.operationRunId },
+      select: { status: true },
+    })).toEqual({ status: 'queued' });
 
     const resumed = makeWorker({
       graph,
-      operation,
+      operation: { ...operation, runId: continuation.operationRunId },
       controls,
       checkpoints,
       backend,
     });
-    await resumed.worker.tick();
+    await runWorkerTick(resumed.worker);
     expect(resumed.runtime).not.toBe(first.runtime);
     expect(resumed.runtime.start).not.toHaveBeenCalled();
     expect(resumed.runtime.inspect).toHaveBeenCalledTimes(1);
@@ -276,9 +488,159 @@ describe('official durable runtime recovery', () => {
       where: { id: attempt.id },
     })).toMatchObject({ state: 'succeeded', externalRunId: 'external-durable-run-1' });
     expect(await prisma!.operationRun.findUniqueOrThrow({ where: { id: operation.runId } })).toMatchObject({
+      status: 'attention_required',
+    });
+    expect(await prisma!.operationRun.findUniqueOrThrow({
+      where: { id: continuation.operationRunId },
+    })).toMatchObject({
       status: 'succeeded',
     });
     expect(invocation.execute).toHaveBeenCalledTimes(1);
+  });
+
+  it('drains a decision persisted before successor creation after API restart', async () => {
+    const boundary = await createApprovalBoundary();
+    await boundary.controls.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: boundary.graph.sessionId,
+      approvalId: boundary.approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'human',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval:crash-after-decision',
+    });
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toEqual({ state: 'pending', successorOperationRunId: null });
+
+    const gate = new OperationLifecycleGateService();
+    gate.open();
+    const recoveredRuntime = runtimeFor(boundary.backend);
+    const recovered = new AgentSessionOperationContinuationService(
+      boundary.controls,
+      gate,
+      { requireCompatible: vi.fn(() => recoveredRuntime) } as never,
+    );
+    await recovered.onApplicationBootstrap();
+
+    expect(recoveredRuntime.interrupt).toHaveBeenCalledTimes(1);
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true, successorOperationRunId: true, interruptDeliveredAt: true },
+    })).resolves.toMatchObject({
+      state: 'interrupt_delivered',
+      successorOperationRunId: expect.any(String),
+      interruptDeliveredAt: expect.any(Date),
+    });
+  });
+
+  it('delivers the exact idempotent interrupt after crashing after successor creation', async () => {
+    const boundary = await createApprovalBoundary();
+    await boundary.controls.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: boundary.graph.sessionId,
+      approvalId: boundary.approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'human',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval:crash-after-successor',
+    });
+    const created = await boundary.controls.advanceApprovedContinuation({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: boundary.graph.sessionId,
+      approvalId: boundary.approval.id,
+    });
+    expect(created.state).toBe('successor_created');
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toEqual({
+      state: 'successor_created',
+      successorOperationRunId: created.operationRunId,
+    });
+
+    const gate = new OperationLifecycleGateService();
+    gate.open();
+    const recoveredRuntime = runtimeFor(boundary.backend);
+    const recovered = new AgentSessionOperationContinuationService(
+      boundary.controls,
+      gate,
+      { requireCompatible: vi.fn(() => recoveredRuntime) } as never,
+    );
+    await recovered.onApplicationBootstrap();
+
+    expect(recoveredRuntime.interrupt).toHaveBeenCalledWith({
+      runtimeType: 'hermes_http',
+      executionId: boundary.graph.executionId,
+      attemptId: boundary.attempt.id,
+      externalRunId: 'external-durable-run-1',
+      encryptedHandleRef: 'vault://opaque-handle-1',
+      generation: 1,
+    }, {
+      interruptId: boundary.approval.id,
+      payload: { decision: 'approved' },
+    });
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toEqual({
+      state: 'interrupt_delivered',
+      successorOperationRunId: created.operationRunId,
+    });
+  });
+
+  it('retries the same interrupt after a crash before its delivery checkpoint', async () => {
+    const boundary = await createApprovalBoundary();
+    await boundary.controls.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: boundary.graph.sessionId,
+      approvalId: boundary.approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'human',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval:crash-after-interrupt',
+    });
+    const gate = new OperationLifecycleGateService();
+    gate.open();
+    const crashingRuntime = runtimeFor(boundary.backend);
+    const crashing = new AgentSessionOperationContinuationService({
+      advanceApprovedContinuation: boundary.controls.advanceApprovedContinuation.bind(boundary.controls),
+      markApprovalContinuationInterruptDelivered: vi.fn().mockRejectedValue(
+        new Error('simulated crash after interrupt'),
+      ),
+    } as never, gate, { requireCompatible: vi.fn(() => crashingRuntime) } as never);
+
+    await expect(crashing.continueApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: boundary.graph.sessionId,
+      approvalId: boundary.approval.id,
+    })).rejects.toThrow('simulated crash after interrupt');
+    expect(crashingRuntime.interrupt).toHaveBeenCalledTimes(1);
+    const firstInterrupt = crashingRuntime.interrupt.mock.calls[0];
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toMatchObject({ state: 'successor_created' });
+
+    const recoveredRuntime = runtimeFor(boundary.backend);
+    const recovered = new AgentSessionOperationContinuationService(
+      boundary.controls,
+      gate,
+      { requireCompatible: vi.fn(() => recoveredRuntime) } as never,
+    );
+    await recovered.recoverIncompleteApprovalContinuations();
+
+    expect(recoveredRuntime.interrupt).toHaveBeenCalledTimes(1);
+    expect(recoveredRuntime.interrupt.mock.calls[0]).toEqual(firstInterrupt);
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { approvalId: boundary.approval.id, organizationId: TEST_ORGANIZATION_ID },
+      select: { state: true },
+    })).resolves.toEqual({ state: 'interrupt_delivered' });
   });
 
   it('fails a detached attempt with an unknown handle without starting a replacement run', async () => {
@@ -287,13 +649,19 @@ describe('official durable runtime recovery', () => {
     const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
     const controls = new PrismaAgentSessionControlRepository(prisma as never);
     const runtime = runtimeFor(new DurableFakeRuntimeBackend(graph, 'unknown'));
-    const attempt = await controls.startAttempt({
+    const attempt = await controls.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.taskId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+      idempotencyKey: `operation:${operation.runId}`,
+    });
+    await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
       executionId: graph.executionId,
-      runtimeType: 'hermes_http',
       operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
     });
     await controls.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
@@ -340,13 +708,19 @@ describe('official durable runtime recovery', () => {
     const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
     const controls = new PrismaAgentSessionControlRepository(prisma as never);
     const runtime = runtimeFor(new DurableFakeRuntimeBackend(graph, 'complete'));
-    const attempt = await controls.startAttempt({
+    const attempt = await controls.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: graph.sessionId,
+      taskId: graph.taskId,
+      executionId: graph.executionId,
+      operationRunId: operation.runId,
+      idempotencyKey: `operation:${operation.runId}`,
+    });
+    await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
       executionId: graph.executionId,
-      runtimeType: 'hermes_http',
       operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
     });
     await controls.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
@@ -477,6 +851,39 @@ function makeHandler(input: {
   return { handler, executions, runtimeControl, approvals, operations };
 }
 
+async function createApprovalBoundary(): Promise<{
+  graph: DurableGraph;
+  operation: Awaited<ReturnType<typeof createOperation>>;
+  controls: PrismaAgentSessionControlRepository;
+  backend: DurableFakeRuntimeBackend;
+  approval: { id: string };
+  attempt: { id: string };
+}> {
+  const graph = await createRunningGraph([APPROVAL_CAPABILITY]);
+  const operation = await createOperation(graph);
+  const controls = new PrismaAgentSessionControlRepository(prisma as never);
+  const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
+  await reserveOperationAttempt(controls, graph, operation);
+  const backend = new DurableFakeRuntimeBackend(graph, 'approval');
+  const worker = makeWorker({ graph, operation, controls, checkpoints, backend });
+  await runWorkerTick(worker.worker);
+  const [approval, attempt] = await Promise.all([
+    prisma!.agentSessionApproval.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, executionId: graph.executionId },
+      select: { id: true },
+    }),
+    prisma!.agentExecutionAttempt.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, executionId: graph.executionId },
+      select: { id: true },
+    }),
+  ]);
+  await expect(prisma!.operationRun.findUniqueOrThrow({
+    where: { id: operation.runId },
+    select: { status: true },
+  })).resolves.toEqual({ status: 'attention_required' });
+  return { graph, operation, controls, backend, approval, attempt };
+}
+
 function makeWorker(input: {
   graph: DurableGraph;
   operation: Record<string, unknown>;
@@ -487,19 +894,35 @@ function makeWorker(input: {
   const runtime = runtimeFor(input.backend);
   const repository = new OperationRepositoryAdapter(prisma as never);
   const registry = new OperationHandlerRegistryService();
-  const coordinator = new CompositeOperationCoordinatorService(registry, repository);
-  const operations = new OperationRunService(registry, repository, coordinator);
+  const lifecycleGate = new OperationLifecycleGateService();
+  lifecycleGate.open();
+  const coordinator = new CompositeOperationCoordinatorService(
+    registry,
+    repository,
+    lifecycleGate,
+  );
+  const operations = new OperationRunService(
+    registry,
+    repository,
+    coordinator,
+    lifecycleGate,
+  );
   const runtimeControl = new AgentSessionRuntimeControlService(
     new PrismaAgentInteractionRepository(prisma as never),
     new InProcessAgentConversationLivePublisher(),
     () => new Date(),
   );
+  const continuations = new AgentSessionOperationContinuationService(
+    input.controls,
+    lifecycleGate,
+    { requireCompatible: vi.fn(() => runtime) } as never,
+  );
   const approvals = new AgentSessionApprovalService(
     input.controls,
     runtimeControl,
     { areCurrent: vi.fn().mockResolvedValue(true) } as never,
-    { requireCompatible: vi.fn(() => runtime) } as never,
     operations,
+    continuations,
     () => new Date(),
   );
   const handler = makeHandler({
@@ -513,11 +936,22 @@ function makeWorker(input: {
   });
   handler.handler.onModuleInit();
   const dispatcher = new OperationDispatcherService(registry, repository, coordinator);
+  const attemptExecutor = new OperationAttemptExecutorService(dispatcher, repository);
   return {
-    worker: new OperationRunWorkerService(dispatcher, repository, coordinator),
+    worker: new OperationRunWorkerService(
+      attemptExecutor,
+      repository,
+      coordinator,
+      lifecycleGate,
+    ),
     runtime,
     approvals,
   };
+}
+
+async function runWorkerTick(worker: OperationRunWorkerService): Promise<void> {
+  await worker.tick();
+  await worker.drainUntil(Date.now() + 5_000, true);
 }
 
 function recoveryCapabilityInvocation(
@@ -786,7 +1220,9 @@ async function createOperation(graph: DurableGraph) {
       definitionVersion: 1,
       ownerDomain: 'agent-os',
       title: 'Durable recovery',
-      engineType: 'agent-os',
+      engineType: 'agent_os',
+      resourceClass: 'default',
+      executionTimeoutMs: 60 * 60_000,
       triggerSource: 'agent',
       input: { session, task, execution },
     },
@@ -800,5 +1236,22 @@ async function createOperation(graph: DurableGraph) {
     scheduleId: null,
     parentRunId: null,
     attemptToken: 'durable-recovery-token',
+    signal: new AbortController().signal,
+    checkpoint: async () => undefined,
   };
+}
+
+async function reserveOperationAttempt(
+  controls: PrismaAgentSessionControlRepository,
+  graph: DurableGraph,
+  operation: { runId: string },
+) {
+  await controls.reserveAttemptForOperation({
+    organizationId: TEST_ORGANIZATION_ID,
+    sessionId: graph.sessionId,
+    taskId: graph.taskId,
+    executionId: graph.executionId,
+    operationRunId: operation.runId,
+    idempotencyKey: `operation:${operation.runId}`,
+  });
 }

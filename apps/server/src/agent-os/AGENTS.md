@@ -26,9 +26,10 @@ agent-os/
   `POST /api/agent-os/executor/claim-and-run`
 - Code-owned agent catalog/bootstrap and runtime handler registration
 - Organization-scoped interaction bootstrap, run authorization, AG-UI event
-  persistence/replay/live join, and action reauthorization. Current module
-  wiring is provisional until KID-24 lands; preserve the boundary contract when
-  moving providers.
+  persistence/replay/live join, and action reauthorization. `AgentOsModule`
+  owns only controller-free core providers; `AgentOsHttpModule` owns the HTTP
+  controllers, guards, secrets, AG-UI producers, and Operations-backed session
+  controls. Worker and MCP roots must not reach that HTTP wrapper transitively.
 
 ## Main Data Models
 

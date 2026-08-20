@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AutomationModule } from '../automation/automation.module';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
+import { InventoryFreshnessRuntimeModule } from './inventory-freshness-runtime.module';
 import { CoupangShipmentsController } from './adapter/in/http/coupang-shipments.controller';
 import { InventorySkuSnapshotController } from './adapter/in/http/inventory-sku-snapshot.controller';
 import { SellpiaInventoryImportController } from './adapter/in/http/sellpia-inventory-import.controller';
@@ -13,7 +13,6 @@ import { WarehousesController } from './adapter/in/http/warehouses.controller';
 import { ConfirmedChannelComponentReferenceRepositoryAdapter } from './adapter/out/repository/confirmed-channel-component-reference.repository.adapter';
 import { SellpiaImportRunRepositoryAdapter } from './adapter/out/repository/sellpia-import-run.repository.adapter';
 import { SellpiaSnapshotPublicationRepositoryAdapter } from './adapter/out/repository/sellpia-snapshot-publication.repository.adapter';
-import { SellpiaInventoryFreshnessRepositoryAdapter } from './adapter/out/repository/sellpia-inventory-freshness.repository.adapter';
 import { InventorySkuSnapshotListRepositoryAdapter } from './adapter/out/repository/inventory-sku-snapshot-list.repository.adapter';
 import { InventoryAvailabilityRepositoryAdapter } from './adapter/out/repository/inventory-availability.repository.adapter';
 import { RocketWorkbookProgressRepositoryAdapter } from './adapter/out/repository/rocket-workbook-progress.repository.adapter';
@@ -22,22 +21,18 @@ import { TransfersRepositoryAdapter } from './adapter/out/repository/transfers.r
 import { WarehousesRepositoryAdapter } from './adapter/out/repository/warehouses.repository.adapter';
 import { CoupangShipmentDateSummaryRepositoryAdapter } from './adapter/out/repository/coupang-shipment-date-summary.repository.adapter';
 import { LocalCoupangShipmentFilesAdapter } from './adapter/out/storage/local-coupang-shipment-files.adapter';
-import { InventoryOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { COUPANG_SHIPMENTS_PORT } from './application/port/in/fulfillment';
 import {
   INVENTORY_SKU_SNAPSHOT_LIST_PORT,
   INVENTORY_AVAILABILITY_PORT,
   ROCKET_WORKBOOK_PROGRESS_PORT,
   SELLPIA_INVENTORY_IMPORT_PORT,
-  SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
-  SELLPIA_INVENTORY_FRESHNESS_PORT,
   SELLPIA_INVENTORY_SKU_READ_PORT,
 } from './application/port/in/stock';
 import { TRANSFERS_PORT, WAREHOUSES_PORT } from './application/port/in/warehouse';
 import { CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT } from './application/port/out/cross-domain/confirmed-channel-component-reference.port';
 import { SELLPIA_IMPORT_RUN_REPOSITORY_PORT } from './application/port/out/repository/sellpia-import-run.repository.port';
 import { SELLPIA_SNAPSHOT_PUBLICATION_REPOSITORY_PORT } from './application/port/out/repository/sellpia-snapshot-publication.repository.port';
-import { SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT } from './application/port/out/repository/sellpia-inventory-freshness.repository.port';
 import { INVENTORY_SKU_SNAPSHOT_LIST_REPOSITORY_PORT } from './application/port/out/repository/inventory-sku-snapshot-list.repository.port';
 import { INVENTORY_AVAILABILITY_REPOSITORY_PORT } from './application/port/out/repository/inventory-availability.repository.port';
 import { ROCKET_WORKBOOK_PROGRESS_REPOSITORY_PORT } from './application/port/out/repository/rocket-workbook-progress.repository.port';
@@ -45,7 +40,6 @@ import { SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT } from './application/port/o
 import { TRANSFERS_REPOSITORY_PORT } from './application/port/out/repository/transfers.repository.port';
 import { WAREHOUSES_REPOSITORY_PORT } from './application/port/out/repository/warehouses.repository.port';
 import { COUPANG_SHIPMENT_DATE_SUMMARY_REPOSITORY_PORT } from './application/port/out/repository/coupang-shipment-date-summary.repository.port';
-import { INVENTORY_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
 import { COUPANG_SHIPMENT_FILE_STORAGE_PORT } from './application/port/out/storage';
 import { CoupangShipmentsService } from './application/service/coupang-shipments.service';
 import { InventorySkuSnapshotListService } from './application/service/inventory-sku-snapshot-list.service';
@@ -53,7 +47,6 @@ import { InventoryAvailabilityService } from './application/service/inventory-av
 import { RocketWorkbookProgressService } from './application/service/rocket-workbook-progress.service';
 import { SellpiaInventoryImportService } from './application/service/sellpia-inventory-import.service';
 import { SellpiaInventoryFileValidator } from './application/service/sellpia-inventory-file.validator';
-import { SellpiaInventoryFreshnessService } from './application/service/sellpia-inventory-freshness.service';
 import { SellpiaInventorySkuReadService } from './application/service/sellpia-inventory-sku-read.service';
 import { TransfersService } from './application/service/transfers.service';
 import { WarehousesService } from './application/service/warehouses.service';
@@ -70,10 +63,6 @@ const REPOSITORY_PORT_BINDINGS = [
   {
     provide: CONFIRMED_CHANNEL_COMPONENT_REFERENCE_PORT,
     useExisting: ConfirmedChannelComponentReferenceRepositoryAdapter,
-  },
-  {
-    provide: SELLPIA_INVENTORY_FRESHNESS_REPOSITORY_PORT,
-    useExisting: SellpiaInventoryFreshnessRepositoryAdapter,
   },
   {
     provide: SELLPIA_INVENTORY_SKU_READ_REPOSITORY_PORT,
@@ -104,8 +93,6 @@ const APPLICATION_PORT_BINDINGS = [
   { provide: SELLPIA_INVENTORY_SKU_READ_PORT, useExisting: SellpiaInventorySkuReadService },
   { provide: INVENTORY_SKU_SNAPSHOT_LIST_PORT, useExisting: InventorySkuSnapshotListService },
   { provide: SELLPIA_INVENTORY_IMPORT_PORT, useExisting: SellpiaInventoryImportService },
-  { provide: SELLPIA_INVENTORY_FRESHNESS_PORT, useExisting: SellpiaInventoryFreshnessService },
-  { provide: SELLPIA_INVENTORY_FRESHNESS_GATE_PORT, useExisting: SellpiaInventoryFreshnessService },
   { provide: INVENTORY_AVAILABILITY_PORT, useExisting: InventoryAvailabilityService },
   { provide: ROCKET_WORKBOOK_PROGRESS_PORT, useExisting: RocketWorkbookProgressService },
   { provide: WAREHOUSES_PORT, useExisting: WarehousesService },
@@ -114,7 +101,7 @@ const APPLICATION_PORT_BINDINGS = [
 ];
 
 @Module({
-  imports: [AutomationModule, OperationsModule, PrismaModule],
+  imports: [InventoryFreshnessRuntimeModule, OperationsModule, PrismaModule],
   controllers: [
     InventorySkuSnapshotController,
     SellpiaInventoryImportController,
@@ -127,7 +114,6 @@ const APPLICATION_PORT_BINDINGS = [
     SellpiaImportRunRepositoryAdapter,
     SellpiaSnapshotPublicationRepositoryAdapter,
     ConfirmedChannelComponentReferenceRepositoryAdapter,
-    SellpiaInventoryFreshnessRepositoryAdapter,
     InventorySkuSnapshotListRepositoryAdapter,
     InventoryAvailabilityRepositoryAdapter,
     RocketWorkbookProgressRepositoryAdapter,
@@ -136,29 +122,23 @@ const APPLICATION_PORT_BINDINGS = [
     TransfersRepositoryAdapter,
     LocalCoupangShipmentFilesAdapter,
     CoupangShipmentDateSummaryRepositoryAdapter,
-    InventoryOperationAlertAdapter,
     InventorySkuSnapshotListService,
     InventoryAvailabilityService,
     RocketWorkbookProgressService,
     SellpiaInventorySkuReadService,
     SellpiaInventoryImportService,
     SellpiaInventoryFileValidator,
-    SellpiaInventoryFreshnessService,
     SellpiaInventoryOperationHandler,
     CoupangShipmentSummaryOperationHandler,
     WarehousesService,
     TransfersService,
     CoupangShipmentsService,
     ...REPOSITORY_PORT_BINDINGS,
-    {
-      provide: INVENTORY_OPERATION_ALERT_PORT,
-      useExisting: InventoryOperationAlertAdapter,
-    },
     ...APPLICATION_PORT_BINDINGS,
   ],
   exports: [
     SELLPIA_INVENTORY_SKU_READ_PORT,
-    SELLPIA_INVENTORY_FRESHNESS_GATE_PORT,
+    InventoryFreshnessRuntimeModule,
     INVENTORY_AVAILABILITY_PORT,
     ROCKET_WORKBOOK_PROGRESS_PORT,
   ],
