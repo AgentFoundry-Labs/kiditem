@@ -120,11 +120,12 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
         // preserving the OperationRun's AbortSignal deadline. The same
         // monotonic deadline caps every frame probe and poll, so serial work
         // cannot extend the six-second readiness phase.
-        const pollMs = readinessDeadline.capped(SEARCH_RESULT_POLL_INTERVAL_MS);
+        const remainingReadinessMs = readinessDeadline.remaining();
+        const pollMs = Math.min(SEARCH_RESULT_POLL_INTERVAL_MS, remainingReadinessMs);
         if (pollMs <= 0) break;
         await boundedBrowserStep(
           this.page.waitForTimeout(pollMs),
-          pollMs,
+          remainingReadinessMs,
           signal,
         );
       }

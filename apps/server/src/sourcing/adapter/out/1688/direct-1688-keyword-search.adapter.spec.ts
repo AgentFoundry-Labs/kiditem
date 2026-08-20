@@ -201,6 +201,50 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it('does not close before a production-shaped browser poll completes just after its 200ms interval', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      nextDomReadiness: readyDomItems('post-poll 1688 offer'),
+      productionPollDelayMs: 225,
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toMatchObject([{
+      offerId: '123456',
+      title: 'post-poll 1688 offer',
+    }]);
+
+    expect(fixture.page.evaluate).toHaveBeenCalledTimes(2);
+    expect(fixture.page.close).not.toHaveBeenCalled();
+    await session.close();
+  });
+
+  it('keeps a never-settling browser poll within the one shared six-second readiness deadline', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(0));
+    vi.spyOn(performance, 'now').mockImplementation(() => Date.now());
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      blockRenderWait: true,
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+    let failure: unknown;
+    void session.searchKeyword({ keyword: '儿童笔袋' }).catch((error: unknown) => {
+      failure = error;
+    });
+
+    await vi.advanceTimersByTimeAsync(5_999);
+    expect(failure).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(2);
+    expect(failure).toMatchObject({ code: 'search_extraction_failed' });
+    expect(fixture.page.close).toHaveBeenCalledOnce();
+  });
+
   it('waits for a loading DOM state to become a trusted explicit empty result', async () => {
     const fixture = browserFixture({
       domReadiness: { kind: 'loading' },
@@ -901,6 +945,7 @@ function browserFixture(input?: {
   nextFrameReadiness?: unknown;
   extraFrameReadinesses?: unknown[];
   blockRenderWait?: boolean;
+  productionPollDelayMs?: number;
   blockGoto?: boolean;
   pageText?: string;
   pageTextSequence?: string[];
@@ -998,7 +1043,7 @@ function browserFixture(input?: {
       }
       return input?.blockRenderWait
         ? new Promise<void>((resolve) => { resolveRenderWait = resolve; })
-        : new Promise<void>((resolve) => setTimeout(resolve, 5));
+        : new Promise<void>((resolve) => setTimeout(resolve, input?.productionPollDelayMs ?? 5));
     }),
     evaluate: vi.fn(() => {
       const readiness = domReads === 0 ? domReadiness : input?.nextDomReadiness ?? domReadiness;
