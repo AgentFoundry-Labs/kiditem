@@ -159,14 +159,9 @@ async function readTrustedDomReadiness(
     await inspectDomReadiness(page, deadline, signal),
   ];
   if (!deadline.hasTime()) return { kind: 'unready' };
-  const mainOrigin = new URL(page.url()).origin;
-  let inspectedFrames = 0;
-  for (const frame of page.frames()) {
+  for (const frame of trustedReadinessFrames(page, deadline, signal)) {
     if (!deadline.hasTime()) return { kind: 'unready' };
-    if (frame === page.mainFrame() || !isSameOriginTrustedFrame(frame, mainOrigin)) continue;
-    if (inspectedFrames >= MAX_SAME_ORIGIN_READINESS_FRAMES) break;
     states.push(await inspectDomReadiness(frame, deadline, signal));
-    inspectedFrames += 1;
     if (!deadline.hasTime()) return { kind: 'unready' };
   }
   const records = states.flatMap((state) => state.kind === 'items' ? state.records : []);
@@ -203,6 +198,28 @@ function isSameOriginTrustedFrame(frame: Frame, origin: string): boolean {
   } catch {
     return false;
   }
+}
+
+function trustedReadinessFrames(
+  page: Pick<Page, 'url' | 'frames' | 'mainFrame'>,
+  deadline: ReadinessDeadline,
+  signal?: AbortSignal,
+): Frame[] {
+  if (!deadline.hasTime()) return [];
+  let mainOrigin = '';
+  try {
+    mainOrigin = new URL(page.url()).origin;
+  } catch {
+    return [];
+  }
+  const frames: Frame[] = [];
+  for (const frame of page.frames()) {
+    signal?.throwIfAborted();
+    if (!deadline.hasTime() || frames.length >= MAX_SAME_ORIGIN_READINESS_FRAMES) break;
+    if (frame === page.mainFrame() || !isSameOriginTrustedFrame(frame, mainOrigin)) continue;
+    frames.push(frame);
+  }
+  return frames;
 }
 
 function isDomReadiness(value: unknown): value is Search1688KeywordDomReadiness {
@@ -303,6 +320,14 @@ async function attentionRequired(
     return new Sourcing1688KeywordAttentionError('security_challenge');
   }
   if (deadline && !deadline.hasTime()) return null;
+  if (deadline) {
+    for (const frame of trustedReadinessFrames(page, deadline, signal)) {
+      if (isKnownSecurityChallengeUrl(frame.url())) {
+        return new Sourcing1688KeywordAttentionError('security_challenge');
+      }
+    }
+  }
+  if (deadline && !deadline.hasTime()) return null;
   let text = '';
   try {
     const body = page.locator('body');
@@ -331,6 +356,7 @@ function isKnownSecurityChallengeUrl(value: string): boolean {
     if (allowed.platform !== '1688') return false;
     const url = new URL(allowed.normalizedUrl);
     const pathname = url.pathname;
+    if (/(?:^|\/)_____tmd_____\/punish(?:[/.]|$)/iu.test(pathname)) return true;
     if (/(?:^|\/)punish(?:[/.]|$)/iu.test(pathname)) return true;
     if (/(?:^|\/)captcha(?:[/.]|$)/iu.test(pathname)) return true;
     return /(?:^|\/)(?:captcha|verify)(?:[/.]|$)/iu.test(pathname)

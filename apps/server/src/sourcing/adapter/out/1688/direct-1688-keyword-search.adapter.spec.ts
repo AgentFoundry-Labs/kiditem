@@ -777,6 +777,95 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it('maps an allowlisted same-origin _____tmd_____/punish frame to typed security attention', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'explicit_zero' },
+      sameOriginFrameUrl: 'https://s.1688.com//selloffer/offer_search.htm/_____tmd_____/punish',
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    expect(fixture.page.close).toHaveBeenCalledOnce();
+  });
+
+  it('maps a same-origin punish frame inserted after loading begins to typed security attention', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'loading' },
+      lateSameOriginFrameUrl: 'https://s.1688.com//selloffer/offer_search.htm/_____tmd_____/punish',
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    expect(fixture.page.close).toHaveBeenCalledOnce();
+  });
+
+  it('does not authorize an untrusted punish frame as attention', async () => {
+    const fixture = browserFixture({
+      sameOriginFrameUrl: 'https://evil.example/_____tmd_____/punish',
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordProviderError',
+      code: 'search_extraction_failed',
+    });
+  });
+
+  it('keeps an ordinary trusted 1688 iframe in the normal DOM readiness path', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      frameReadiness: { kind: 'explicit_zero' },
+      sameOriginFrameUrl: 'https://s.1688.com/selloffer/embedded-results.htm',
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).resolves.toEqual([]);
+
+    expect(fixture.sameOriginFrame?.evaluate).toHaveBeenCalledOnce();
+    await session.close();
+  });
+
+  it('does not inspect a fourth same-origin punish frame beyond the readiness frame cap', async () => {
+    const fixture = browserFixture({
+      domReadiness: { kind: 'unready' },
+      frameReadiness: { kind: 'unready' },
+      extraFrameReadinesses: [{ kind: 'unready' }, { kind: 'unready' }, { kind: 'unready' }],
+      extraSameOriginFrameUrls: [
+        'https://s.1688.com/selloffer/first.htm',
+        'https://s.1688.com/selloffer/second.htm',
+        'https://s.1688.com//selloffer/offer_search.htm/_____tmd_____/punish',
+      ],
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordProviderError',
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.extraSameOriginFrames[2]?.evaluate).not.toHaveBeenCalled();
+  });
+
   it('returns a bounded unavailable error without exposing endpoint credentials', async () => {
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://operator:secret@kiditem-office:9444');
     const adapter = new Direct1688KeywordSearchAdapter();
@@ -815,6 +904,9 @@ function browserFixture(input?: {
   blockGoto?: boolean;
   pageText?: string;
   pageTextSequence?: string[];
+  sameOriginFrameUrl?: string;
+  lateSameOriginFrameUrl?: string;
+  extraSameOriginFrameUrls?: string[];
   apiPayload?: unknown;
   additionalApiPayload?: unknown;
   finalUrl?: string;
@@ -831,6 +923,8 @@ function browserFixture(input?: {
   let domReads = 0;
   let frameReads = 0;
   let textReads = 0;
+  let renderWaits = 0;
+  let sameOriginFrameUrl = input?.sameOriginFrameUrl ?? input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm';
   const apiResponseJson = vi.fn(async () => input?.apiPayload ?? ({ offers: [{
     offerId: '123456',
     title: 'API 儿童笔袋',
@@ -897,7 +991,11 @@ function browserFixture(input?: {
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
     waitForTimeout: vi.fn((timeoutMs: number) => {
+      renderWaits += 1;
       testMonotonicNow += timeoutMs;
+      if (renderWaits === 1 && input?.lateSameOriginFrameUrl) {
+        sameOriginFrameUrl = input.lateSameOriginFrameUrl;
+      }
       return input?.blockRenderWait
         ? new Promise<void>((resolve) => { resolveRenderWait = resolve; })
         : new Promise<void>((resolve) => setTimeout(resolve, 5));
@@ -920,7 +1018,7 @@ function browserFixture(input?: {
   };
   const mainFrame = { url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm' };
   const sameOriginFrame = {
-    url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm',
+    url: () => sameOriginFrameUrl,
     evaluate: vi.fn(() => {
       const readiness = frameReads === 0
         ? input?.frameReadiness ?? { kind: 'unready' }
@@ -929,8 +1027,10 @@ function browserFixture(input?: {
       return Promise.resolve(readiness);
     }),
   };
-  const extraSameOriginFrames = (input?.extraFrameReadinesses ?? []).map((readiness) => ({
-    url: () => input?.finalUrl ?? 'https://s.1688.com/selloffer/offer_search.htm',
+  const extraSameOriginFrames = (input?.extraFrameReadinesses ?? []).map((readiness, index) => ({
+    url: () => input?.extraSameOriginFrameUrls?.[index]
+      ?? input?.finalUrl
+      ?? 'https://s.1688.com/selloffer/offer_search.htm',
     evaluate: vi.fn(() => Promise.resolve(readiness)),
   }));
   Object.assign(page, {
