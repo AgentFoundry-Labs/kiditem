@@ -138,6 +138,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1,
       limit: 50,
       periodDays: 30,
+      activeStatus: 'all',
     });
     const listItem = page.items.find((item) => item.id === product.id);
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
@@ -251,6 +252,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1,
       limit: 50,
       periodDays: 30,
+      activeStatus: 'all',
     });
     const byId = new Map(page.items.map((item) => [item.id, item]));
     const detail = await service.getProduct(TEST_ORGANIZATION_ID, product.id);
@@ -308,6 +310,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       page: 1,
       limit: 1,
       periodDays: 30,
+      activeStatus: 'all',
     });
 
     expect(page.items).toHaveLength(1);
@@ -328,6 +331,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       limit: 50,
       periodDays: 30,
       abcGrade: 'unclassified',
+      activeStatus: 'all',
     });
     expect(unclassifiedPage.total).toBe(1);
     expect(unclassifiedPage.items.map((item) => item.id)).toEqual([unclassified.id]);
@@ -350,7 +354,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       ],
     });
 
-    const all = await service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30 });
+    const all = await service.listProducts(TEST_ORGANIZATION_ID, {
+      page: 1,
+      limit: 50,
+      periodDays: 30,
+      activeStatus: 'all',
+    });
     expect(all.total).toBe(4);
     expect(all.items.find((item) => item.id === observing.id)).toMatchObject({
       abcGrade: null,
@@ -359,7 +368,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(all.summary).toMatchObject({
       abcGradeCounts: { A: 0, B: 1, C: 0, unclassified: 3 },
       abcStatusCounts: {
-        INSUFFICIENT_EVIDENCE: 2,
+        INSUFFICIENT_EVIDENCE: 1,
         SOURCE_UNMAPPED: 1,
         ORDERS_SOURCE_STALE: 1,
         CALIBRATION_PENDING: 0,
@@ -367,15 +376,15 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
 
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'INSUFFICIENT_EVIDENCE',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: observing.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'SOURCE_UNMAPPED',
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'SOURCE_UNMAPPED',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: mapping.id })] });
     await expect(service.listProducts(TEST_ORGANIZATION_ID, {
-      page: 1, limit: 50, periodDays: 30, abcCalculationStatus: 'ORDERS_SOURCE_STALE',
+      page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcCalculationStatus: 'ORDERS_SOURCE_STALE',
     })).resolves.toMatchObject({ total: 1, items: [expect.objectContaining({ id: orderStale.id })] });
-    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, abcGrade: 'unclassified' }))
+    await expect(service.listProducts(TEST_ORGANIZATION_ID, { page: 1, limit: 50, periodDays: 30, activeStatus: 'all', abcGrade: 'unclassified' }))
       .resolves.toMatchObject({ total: 3 });
     expect(all.items.map((item) => item.id)).not.toContain(foreign.id);
     expect(all.items.map((item) => item.id)).toContain(unpublished.id);
