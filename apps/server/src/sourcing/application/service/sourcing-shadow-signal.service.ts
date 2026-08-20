@@ -1,5 +1,6 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { kstBusinessDate } from '../../../common/kst';
+import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
 import { matchStationeryToyTrend } from '../../domain/stationery-toy-trend';
 import {
   LINKFOX_ECHOTIK_SHADOW_PORT,
@@ -113,6 +114,17 @@ export interface MarketShadowCollectionResult {
   snapshot: MarketShadowSnapshotRow;
 }
 
+export type MarketShadowOperationAttemptFence = <T>(
+  callback: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+) => Promise<T>;
+
+export interface MarketShadowCollectionControls {
+  signal?: AbortSignal;
+  checkpoint?: () => Promise<void>;
+  /** Owns both snapshot writes under one active OperationRun attempt fence. */
+  withinActiveOperationAttemptFence?: MarketShadowOperationAttemptFence;
+}
+
 @Injectable()
 export class SourcingShadowSignalService {
   constructor(
@@ -130,7 +142,9 @@ export class SourcingShadowSignalService {
   async collect(
     organizationId: string,
     now = new Date(),
+    controls: MarketShadowCollectionControls = {},
   ): Promise<MarketShadowCollectionResult> {
+    await checkpointShadowCollection(controls);
     const businessDate = kstBusinessDate(now);
     const seeds = await this.trends.listSeeds(organizationId);
     const seedKeywords = buildSeedKeywords(seeds);
@@ -140,23 +154,40 @@ export class SourcingShadowSignalService {
       now,
       linkfoxPilot,
     );
-    const claim = await this.snapshots.claimDaily({
+    await checkpointShadowCollection(controls);
+    const claimInput = {
       organizationId,
       businessDate,
       payload: collectingPayload,
-    });
+    };
+    const claim = controls.withinActiveOperationAttemptFence
+      ? await controls.withinActiveOperationAttemptFence((transaction) =>
+        this.snapshots.claimDailyInAttempt(transaction, claimInput))
+      : await this.snapshots.claimDaily(claimInput);
     if (!claim.claimed) return { claimed: false, snapshot: claim.row };
+
+    await this.checkpointClaimOrAbandon(
+      controls,
+      organizationId,
+      businessDate,
+      claim.row,
+    );
 
     const linkfoxRequest = linkfoxPilot.status === 'armed' && this.linkfox
       ? this.linkfox.fetchNewProductRank({
           date: businessDate.toISOString().slice(0, 10),
           region: linkfoxPilot.region,
           pageSize: 50,
+          ...(controls.signal ? { signal: controls.signal } : {}),
         })
       : Promise.resolve(null);
     const [googleResult, baselineResult, observationResult, linkfoxResult] =
       await Promise.allSettled([
-      this.googleTrends.fetchTrending({ seedKeywords, limit: 100 }),
+      this.googleTrends.fetchTrending({
+        seedKeywords,
+        limit: 100,
+        ...(controls.signal ? { signal: controls.signal } : {}),
+      }),
       this.loadBaseline(organizationId),
       this.loadObservationDays(organizationId, businessDate),
       linkfoxRequest,
@@ -240,12 +271,73 @@ export class SourcingShadowSignalService {
       now,
       errors,
     });
-    const snapshot = await this.snapshots.finalizeDaily({
+    await this.checkpointClaimOrAbandon(
+      controls,
+      organizationId,
+      businessDate,
+      claim.row,
+    );
+    const finalizeInput = {
       organizationId,
       businessDate,
       payload,
-    });
+    };
+    const snapshot = await this.finalizeClaimedSnapshot(
+      controls,
+      claim.row,
+      finalizeInput,
+    );
     return { claimed: true, snapshot };
+  }
+
+  private async checkpointClaimOrAbandon(
+    controls: MarketShadowCollectionControls,
+    organizationId: string,
+    businessDate: Date,
+    claim: MarketShadowSnapshotRow,
+  ): Promise<void> {
+    try {
+      await checkpointShadowCollection(controls);
+    } catch (error) {
+      await this.abandonClaim(organizationId, businessDate, claim);
+      throw error;
+    }
+  }
+
+  private async finalizeClaimedSnapshot(
+    controls: MarketShadowCollectionControls,
+    claim: MarketShadowSnapshotRow,
+    input: {
+      organizationId: string;
+      businessDate: Date;
+      payload: Record<string, unknown>;
+    },
+  ): Promise<MarketShadowSnapshotRow> {
+    if (!controls.withinActiveOperationAttemptFence) {
+      return this.snapshots.finalizeDaily(input);
+    }
+
+    try {
+      return await controls.withinActiveOperationAttemptFence((transaction) =>
+        this.snapshots.finalizeDailyInAttempt(transaction, input));
+    } catch (error) {
+      // A transaction may reject after the callback and roll its terminal
+      // update back. The exact collecting predicate keeps a committed result.
+      await this.abandonClaim(input.organizationId, input.businessDate, claim);
+      throw error;
+    }
+  }
+
+  private async abandonClaim(
+    organizationId: string,
+    businessDate: Date,
+    claim: MarketShadowSnapshotRow,
+  ): Promise<void> {
+    await this.snapshots.abandonDailyClaim({
+      organizationId,
+      businessDate,
+      snapshotId: claim.id,
+    });
   }
 
   async listRecent(
@@ -296,6 +388,14 @@ export class SourcingShadowSignalService {
       new Set(rows.map((row) => row.businessDate.toISOString().slice(0, 10))).size,
     );
   }
+}
+
+async function checkpointShadowCollection(
+  controls: MarketShadowCollectionControls,
+): Promise<void> {
+  controls.signal?.throwIfAborted();
+  await controls.checkpoint?.();
+  controls.signal?.throwIfAborted();
 }
 
 function buildCollectingPayload(

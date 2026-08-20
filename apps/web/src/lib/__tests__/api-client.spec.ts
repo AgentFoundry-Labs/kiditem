@@ -446,3 +446,240 @@ describe('api base helpers', () => {
       .toBe('https://api.kiditem.local');
   });
 });
+
+describe('apiClient request deadlines', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.stubGlobal('fetch', vi.fn());
+    getAuthSessionMock.mockReset();
+    getAuthSessionMock.mockReturnValue(null);
+    clearAuthSessionMock.mockReset();
+  });
+
+  afterEach(() => {
+    vi.clearAllTimers();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  function installAbortableNeverSettlingFetch() {
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementationOnce((_url: string, init?: RequestInit) =>
+      new Promise((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), {
+          once: true,
+        });
+      }));
+    return fetchMock;
+  }
+
+  function installResponseWithNeverSettlingBody(
+    status = 200,
+    ok = status < 400,
+  ) {
+    const body = () => new Promise<never>(() => undefined);
+    const response = {
+      ok,
+      status,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      clone() {
+        return response;
+      },
+      json: body,
+      text: body,
+    } as unknown as Response;
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockResolvedValueOnce(response);
+    return fetchMock;
+  }
+
+  it('turns the default GET deadline into request_timeout and clears the timer', async () => {
+    const fetchMock = installAbortableNeverSettlingFetch();
+
+    const pending = apiClient.get('/api/slow');
+    await vi.advanceTimersByTimeAsync(0);
+
+    const init = fetchMock.mock.calls[0]?.[1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(vi.getTimerCount()).toBe(1);
+
+    const rejected = expect(pending).rejects.toMatchObject({
+      status: 0,
+      code: 'request_timeout',
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('honors an explicit GET deadline for a never-settling fetch', async () => {
+    installAbortableNeverSettlingFetch();
+
+    const pending = apiClient.get('/api/slow', { timeoutMs: 10 });
+    const rejected = expect(pending).rejects.toMatchObject({ code: 'request_timeout' });
+    await vi.advanceTimersByTimeAsync(10);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['successful JSON body', () => apiClient.get('/api/body-slow'), 200, true],
+    ['HTTP error body', () => apiClient.get('/api/body-slow'), 503, false],
+    ['nullable empty-body decision', () => apiClient.getNullable('/api/body-slow'), 200, true],
+  ])('keeps the default GET deadline through a never-settling %s', async (
+    _label,
+    request,
+    status,
+    ok,
+  ) => {
+    installResponseWithNeverSettlingBody(status, ok);
+
+    const pending = request();
+    const rejected = expect(pending).rejects.toMatchObject({
+      status: 0,
+      code: 'request_timeout',
+    });
+    await vi.advanceTimersByTimeAsync(15_000);
+
+    await rejected;
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('preserves caller abort identity instead of reporting request_timeout', async () => {
+    installAbortableNeverSettlingFetch();
+    const caller = new AbortController();
+    const reason = new DOMException('route changed', 'AbortError');
+
+    const pending = apiClient.get('/api/slow', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    caller.abort(reason);
+
+    await expect(pending).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['Error', new Error('navigation')],
+    ['string', 'navigation'],
+    ['custom object', { code: 'route_changed' }],
+  ])('normalizes an active caller %s reason during body consumption to AbortError', async (
+    _label,
+    reason,
+  ) => {
+    installResponseWithNeverSettlingBody();
+    const caller = new AbortController();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const pending = apiClient.get('/api/body-slow', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    caller.abort(reason);
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError', cause: reason });
+    expect(errorLog).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    errorLog.mockRestore();
+  });
+
+  it('preserves an already-aborted caller signal without allocating a timer', async () => {
+    const caller = new AbortController();
+    const reason = new DOMException('already left', 'AbortError');
+    caller.abort(reason);
+    const fetchMock = fetch as ReturnType<typeof vi.fn>;
+    fetchMock.mockImplementationOnce((_url: string, init?: RequestInit) =>
+      Promise.reject(init?.signal?.reason));
+
+    await expect(apiClient.get('/api/slow', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    })).rejects.toBe(reason);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it.each([
+    ['Error', new Error('navigation')],
+    ['string', 'navigation'],
+    ['custom object', { code: 'route_changed' }],
+  ])('normalizes an already-aborted caller %s reason without logging a network error', async (
+    _label,
+    reason,
+  ) => {
+    const caller = new AbortController();
+    caller.abort(reason);
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    await expect(apiClient.get('/api/already-left', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    })).rejects.toMatchObject({ name: 'AbortError', cause: reason });
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(errorLog).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+    errorLog.mockRestore();
+  });
+
+  it('keeps an already-aborted DOM AbortError as caller cancellation', async () => {
+    const caller = new AbortController();
+    const reason = new DOMException('route changed', 'AbortError');
+    caller.abort(reason);
+
+    await expect(apiClient.get('/api/already-left', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    })).rejects.toBe(reason);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('does not reclassify a first-settled network rejection when the caller aborts later', async () => {
+    const caller = new AbortController();
+    const networkError = new TypeError('offline first');
+    let rejectFetch!: (reason: unknown) => void;
+    (fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(
+      () => new Promise((_resolve, reject) => { rejectFetch = reject; }),
+    );
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+    const pending = apiClient.get('/api/fail-first', {
+      signal: caller.signal,
+      timeoutMs: 10_000,
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    rejectFetch(networkError);
+    caller.abort(new Error('navigation after failure'));
+
+    await expect(pending).rejects.toMatchObject({ code: 'network_error' });
+    expect(errorLog).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+    errorLog.mockRestore();
+  });
+
+  it('cleans its timer when fetch rejects before the deadline', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    (fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new TypeError('offline'));
+
+    await expect(apiClient.get('/api/fail-fast', { timeoutMs: 10_000 }))
+      .rejects.toMatchObject({ code: 'network_error' });
+
+    expect(vi.getTimerCount()).toBe(0);
+    error.mockRestore();
+  });
+
+  it('cleans its timer on an HTTP error response', async () => {
+    (fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
+      jsonResponse(503, { error: 'unavailable', message: 'try later' }),
+    );
+
+    await expect(apiClient.get('/api/http-error', { timeoutMs: 10_000 }))
+      .rejects.toMatchObject({ status: 503, code: 'unavailable' });
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});

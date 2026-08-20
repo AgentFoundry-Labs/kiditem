@@ -30,7 +30,9 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     queryDate: string;
     liveIds: string[];
     pageSize: number;
+    signal?: AbortSignal;
   }): Promise<TaobaoLiveCollection> {
+    input.signal?.throwIfAborted();
     const config = this.config();
     const warnings: string[] = [];
     const rooms: TaobaoLiveRoom[] = [];
@@ -38,15 +40,28 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     let successCount = 0;
 
     const tasks: Array<Promise<void>> = [
-      this.queryDataApi(config, 'taobao.live.contents.query', input.queryDate, input.pageSize)
+      this.queryDataApi(
+        config,
+        'taobao.live.contents.query',
+        input.queryDate,
+        input.pageSize,
+        input.signal,
+      )
         .then((records) => {
           successCount += 1;
           rooms.push(...records.map(normalizeTaobaoRoom).filter(isPresent));
         })
         .catch((error) => {
+          input.signal?.throwIfAborted();
           warnings.push(`방송 목록: ${errorMessage(error)}`);
         }),
-      this.queryDataApi(config, 'taobao.live.items.query', input.queryDate, input.pageSize)
+      this.queryDataApi(
+        config,
+        'taobao.live.items.query',
+        input.queryDate,
+        input.pageSize,
+        input.signal,
+      )
         .then((records) => {
           successCount += 1;
           products.push(
@@ -56,6 +71,7 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
           );
         })
         .catch((error) => {
+          input.signal?.throwIfAborted();
           warnings.push(`방송 상품: ${errorMessage(error)}`);
         }),
     ];
@@ -64,18 +80,20 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
       .slice(0, MAX_LIVE_IDS);
     if (liveIds.length > 0) {
       tasks.push(
-        this.queryKnownRooms(config, liveIds)
+        this.queryKnownRooms(config, liveIds, input.signal)
           .then((items) => {
             successCount += 1;
             rooms.push(...items);
           })
           .catch((error) => {
+            input.signal?.throwIfAborted();
             warnings.push(`지정 방송방: ${errorMessage(error)}`);
           }),
       );
     }
 
     await Promise.all(tasks);
+    input.signal?.throwIfAborted();
     if (successCount === 0) {
       throw new Error(warnings.join(' · ') || '타오바오 라이브 API 호출에 실패했습니다.');
     }
@@ -89,12 +107,13 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
   private async queryKnownRooms(
     config: TaobaoTopConfig,
     liveIds: string[],
+    signal?: AbortSignal,
   ): Promise<TaobaoLiveRoom[]> {
     const response = await this.callTop(config, 'taobao.live.batchlives.get', {
       live_ids: liveIds.join(','),
       source: 'top',
       type: '1,2,5',
-    });
+    }, signal);
     const root = recordValue(response.live_batchlives_get_response) ?? response;
     assertNoTopError(root);
     const result = recordValue(root.result) ?? root;
@@ -109,6 +128,7 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     method: 'taobao.live.contents.query' | 'taobao.live.items.query',
     queryDate: string,
     pageSize: number,
+    signal?: AbortSignal,
   ): Promise<JsonRecord[]> {
     const request: JsonRecord = {
       query_date: queryDate,
@@ -117,7 +137,7 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     };
     const response = await this.callTop(config, method, {
       query_request: JSON.stringify(request),
-    });
+    }, signal);
     const responseKey = method === 'taobao.live.contents.query'
       ? 'live_contents_query_response'
       : 'live_items_query_response';
@@ -134,7 +154,9 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     config: TaobaoTopConfig,
     method: string,
     businessParams: Record<string, string>,
+    signal?: AbortSignal,
   ): Promise<JsonRecord> {
+    signal?.throwIfAborted();
     const params: Record<string, string> = {
       method,
       app_key: config.appKey,
@@ -148,6 +170,12 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
     params.sign = signTopParams(params, config.appSecret);
 
     const controller = new AbortController();
+    const abortForOperation = () => controller.abort();
+    signal?.addEventListener('abort', abortForOperation, { once: true });
+    if (signal?.aborted) {
+      signal.removeEventListener('abort', abortForOperation);
+      signal.throwIfAborted();
+    }
     const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
     try {
       const response = await this.fetchImpl(config.baseUrl, {
@@ -156,21 +184,25 @@ export class TaobaoLiveAdapter implements TaobaoLivePort {
         body: new URLSearchParams(params),
         signal: controller.signal,
       });
+      signal?.throwIfAborted();
       if (!response.ok) {
         throw new Error(`HTTP ${response.status}`);
       }
       const body = await response.json() as unknown;
+      signal?.throwIfAborted();
       const record = recordValue(body);
       if (!record) throw new Error('타오바오 라이브 API 응답 형식이 올바르지 않습니다.');
       assertNoTopError(record);
       return record;
     } catch (error) {
+      if (signal?.aborted) signal.throwIfAborted();
       if (error instanceof Error && error.name === 'AbortError') {
         throw new Error(`타오바오 라이브 API가 ${config.timeoutMs}ms 안에 응답하지 않았습니다.`);
       }
       throw error;
     } finally {
       clearTimeout(timeout);
+      signal?.removeEventListener('abort', abortForOperation);
     }
   }
 

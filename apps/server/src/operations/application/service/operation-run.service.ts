@@ -1,4 +1,11 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
+import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
+import {
+  COMPOSITE_OPERATION_COORDINATOR_PORT,
+  type CompositeOperationCoordinatorPort,
+} from '../port/in/composite-operation-coordinator.port';
+import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 import type { OperationRun, OperationStatus } from '@kiditem/shared/operations';
 import type {
   CancelOperationRunCommand,
@@ -6,17 +13,11 @@ import type {
   OperationRunnerPort,
   StartOperationCommand,
 } from '../port/in/operation-runner.port';
-import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
-import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
-import {
-  COMPOSITE_OPERATION_COORDINATOR_PORT,
-  type CompositeOperationCoordinatorPort,
-} from '../port/in/composite-operation-coordinator.port';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
@@ -25,6 +26,9 @@ const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'running',
   'attention_required',
 ];
+const RECONNECTABLE_OPERATION_STATUSES = new Set<OperationStatus>(
+  CANCELLABLE_OPERATION_STATUSES,
+);
 
 @Injectable()
 export class OperationRunService implements OperationRunnerPort {
@@ -35,9 +39,11 @@ export class OperationRunService implements OperationRunnerPort {
     private readonly repository: OperationRunRepositoryPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    private readonly lifecycleGate: OperationLifecycleGateService,
   ) {}
 
   async start(command: StartOperationCommand): Promise<OperationRun> {
+    this.lifecycleGate.assertAccepting();
     const definition = this.registry.getDefinition(command.operationKey);
     if (!definition.allowedTriggers.includes(command.triggerSource)) {
       throw new Error(`trigger_not_allowed: ${command.triggerSource}`);
@@ -53,14 +59,20 @@ export class OperationRunService implements OperationRunnerPort {
       if (existing) return this.toWire(existing);
     }
 
+    this.lifecycleGate.assertAccepting();
+    const signal = this.lifecycleGate.signal();
+    signal.throwIfAborted();
     return this.toWire(
       await this.repository.createRun({
+        signal,
         organizationId: command.organizationId,
         operationKey: definition.key,
         definitionVersion: definition.version,
         ownerDomain: definition.ownerDomain,
         title: definition.title,
         engineType: definition.engineType,
+        resourceClass: definition.resourceClass,
+        executionTimeoutMs: definition.executionTimeoutMs,
         triggerSource: command.triggerSource,
         requestedByUserId: command.requestedByUserId,
         parentRunId: command.parentRunId ?? null,
@@ -82,6 +94,32 @@ export class OperationRunService implements OperationRunnerPort {
     return records.map((record) => this.toWire(record));
   }
 
+  async findReconnectable(input: {
+    organizationId: string;
+    requestedByUserId: string;
+    operationKey: string;
+    input?: Record<string, unknown>;
+  }): Promise<OperationRun | null> {
+    const normalizedInput = input.input === undefined
+      ? undefined
+      : this.registry.parseInput(input.operationKey, input.input);
+    const now = await this.repository.readLifecycleDatabaseTime();
+    const records = await this.repository.listReconnectableRuns({
+      organizationId: input.organizationId,
+      requestedByUserId: input.requestedByUserId,
+      operationKey: input.operationKey,
+      now,
+      limit: 50,
+    });
+    const matching = records.filter((record) =>
+      record.requestedByUserId === input.requestedByUserId
+      && RECONNECTABLE_OPERATION_STATUSES.has(record.status)
+      && (record.deadlineAt === null || record.deadlineAt.getTime() > now.getTime())
+      && (normalizedInput === undefined || sameOperationInput(record.input, normalizedInput)),
+    );
+    return matching.length === 1 ? this.toWire(matching[0]) : null;
+  }
+
   async get(organizationId: string, runId: string): Promise<OperationRun> {
     const record = await this.repository.findRunById({ organizationId, runId });
     if (!record) throw new NotFoundException('operation_run_not_found');
@@ -100,6 +138,10 @@ export class OperationRunService implements OperationRunnerPort {
     }
 
     const reason = command.reason ?? 'operator_cancelled';
+    const cancelled = await this.compositeCoordinator.cancelChildren(existing, reason);
+    if (!cancelled) {
+      return this.toWire(await this.require(command.organizationId, command.runId));
+    }
     await this.registry.getHandler(existing.operationKey).cancel?.({
       runId: existing.id,
       organizationId: existing.organizationId,
@@ -107,18 +149,7 @@ export class OperationRunService implements OperationRunnerPort {
       reason,
       requestedByUserId: command.requestedByUserId,
     });
-    await this.compositeCoordinator.cancelChildren(existing, reason);
-
-    const cancelled = await this.repository.transition({
-      organizationId: command.organizationId,
-      runId: command.runId,
-      expectedStatuses: CANCELLABLE_OPERATION_STATUSES,
-      status: 'cancelled',
-      errorCode: command.reason ? 'cancelled_by_operator' : null,
-      errorMessage: command.reason ?? null,
-      finishedAt: new Date(),
-    });
-    return this.toWire(cancelled ?? (await this.require(command.organizationId, command.runId)));
+    return this.toWire(cancelled);
   }
 
   private async require(
@@ -138,6 +169,8 @@ export class OperationRunService implements OperationRunnerPort {
       title: record.title,
       ownerDomain: record.ownerDomain,
       engineType: record.engineType,
+      resourceClass: record.resourceClass,
+      executionTimeoutMs: record.executionTimeoutMs,
       status: record.status,
       triggerSource: record.triggerSource,
       parentRunId: record.parentRunId,
@@ -145,6 +178,11 @@ export class OperationRunService implements OperationRunnerPort {
       nativeRunType: record.nativeRunType,
       nativeRunId: record.nativeRunId,
       progress: record.progress,
+      stage: record.stage,
+      stageUpdatedAt: record.stageUpdatedAt,
+      progressCurrent: record.progressCurrent,
+      progressTotal: record.progressTotal,
+      deadlineAt: record.deadlineAt,
       result: record.result,
       error:
         record.errorCode === null && record.errorMessage === null
@@ -161,4 +199,22 @@ export class OperationRunService implements OperationRunnerPort {
       updatedAt: record.updatedAt,
     } satisfies OperationRun;
   }
+}
+
+function sameOperationInput(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): boolean {
+  return JSON.stringify(canonicalizeOperationInput(left))
+    === JSON.stringify(canonicalizeOperationInput(right));
+}
+
+function canonicalizeOperationInput(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalizeOperationInput);
+  if (value === null || typeof value !== 'object') return value;
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => [key, canonicalizeOperationInput(nested)]),
+  );
 }

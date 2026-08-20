@@ -37,9 +37,11 @@ async function backendRequestConfig(environmentId) {
       error: "선택한 KidItem 환경에서 로그인 후 다시 시도해주세요.",
     };
   }
-  const base = `${environment.apiOrigin}/api/sourcing/extension`;
+  const apiBase = `${environment.apiOrigin}/api`;
+  const base = `${apiBase}/sourcing/extension`;
   return {
     ok: true,
+    apiBase,
     base,
     headers: { "Content-Type": "application/json" },
     request(url, init = {}) {
@@ -93,28 +95,7 @@ async function cancelSourcingCollectionSession(runId, environmentId) {
   return collectionSessions.get(runId);
 }
 
-async function restartSourcingCollectionSession(runId, environmentId) {
-  const session = await collectionSessions.getOwned(runId, environmentId);
-  if (!session) throw new Error("Collection session not found");
-  if (session.producer === "sourcing.1688_trend") {
-    await trendCollector.restart(runId);
-    return collectionSessions.get(runId);
-  }
-  if (session.producer === "sourcing.tiktok_cc_trend") {
-    await tiktokCcCollector.restart(runId);
-    return collectionSessions.get(runId);
-  }
-  if (session.producer === "sourcing.live_commerce") {
-    await collectionSessions.requireAttention(runId, {
-      reason: "manual_confirmation",
-      message: "현재 방송 URL을 확인한 뒤 처음부터 다시 수집해주세요.",
-    });
-    return collectionSessions.get(runId);
-  }
-  throw new Error("Unsupported collection producer");
-}
-
-// MV3 service workers may be suspended during a multi-keyword 1688 run.
+// MV3 service workers may be suspended during a multi-keyword daily 1688 trend run.
 // The KidItem host content script sends a small heartbeat while the page is
 // open so in-flight extraction promises and external response channels stay
 // alive until the batch finishes.
@@ -125,64 +106,276 @@ chrome.runtime.onConnect.addListener((port) => {
   });
 });
 
-const RUN_ID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const SOURCING_COLLECTION_POLL_MS = 250;
 
-function validateRequiredRunId(value) {
-  return typeof value === "string" && RUN_ID_PATTERN.test(value);
+function count(value) {
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : 0;
 }
 
-function validateTrendStartMessage(msg) {
-  if (!validateRequiredRunId(msg?.runId)) {
-    return { ok: false, error: "server-issued runId is required" };
-  }
-  if (!Array.isArray(msg?.keywords) || msg.keywords.length < 1 || msg.keywords.length > 20) {
-    return { ok: false, error: "keywords must contain 1 to 20 strings" };
-  }
-  const keywords = [];
-  for (const raw of msg.keywords) {
-    if (typeof raw !== "string") {
-      return { ok: false, error: "each keyword must be a string" };
-    }
-    const keyword = raw.trim();
-    if (!keyword || keyword.length > 100) {
-      return { ok: false, error: "each keyword must contain 1 to 100 characters" };
-    }
-    keywords.push(keyword);
-  }
-
-  const requestedLimit = msg.maxResultsPerKeyword === undefined
-    ? 20
-    : msg.maxResultsPerKeyword;
-  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 20) {
-    return { ok: false, error: "maxResultsPerKeyword must be an integer from 1 to 20" };
-  }
-  return { ok: true, runId: msg.runId, keywords, maxResultsPerKeyword: requestedLimit };
+function text(value, fallback) {
+  return typeof value === "string" && value.trim() ? value.trim() : fallback;
 }
 
-function validateOptionalRunId(value) {
-  return value === undefined ||
-    (typeof value === "string" && value.length > 0 && value.length <= 200);
+function operationResult(source, collected, failed) {
+  const outcome = failed > 0 ? "partial" : collected > 0 ? "complete" : "no_change";
+  return {
+    status: "succeeded",
+    result: {
+      outcome,
+      summary: {
+        discovered: collected,
+        accepted: collected,
+        duplicate: 0,
+        unchanged: 0,
+        failed,
+      },
+      sources: [{ source, outcome, accepted: collected, failed }],
+    },
+  };
 }
 
-function validateTiktokCcStartMessage(msg) {
-  if (!validateRequiredRunId(msg?.runId)) {
-    return { ok: false, error: "server-issued runId is required" };
-  }
-  const options = {};
-  if (msg.maxItems !== undefined) {
-    if (!Number.isInteger(msg.maxItems) || msg.maxItems < 1 || msg.maxItems > 500) {
-      return { ok: false, error: "maxItems must be an integer from 1 to 500" };
+function failedOperation(errorCode, errorMessage) {
+  return {
+    status: "failed",
+    errorCode,
+    errorMessage,
+  };
+}
+
+function assertOperationActive(operation) {
+  operation.signal?.throwIfAborted?.();
+}
+
+function operationFenceLost() {
+  const error = new Error("operation_runtime_fence_lost");
+  error.code = "operation_runtime_fence_lost";
+  error.status = 409;
+  return error;
+}
+
+function isOperationFenceLost(value) {
+  return value === "operation_runtime_fence_lost";
+}
+
+// The operation runtime owns cancellation. Once it aborts a claimed attempt,
+// close the matching collector session as well so a stale browser tab cannot
+// continue extracting or submit a late owner result.
+function bindOperationAbort(operation, cancel) {
+  const signal = operation.signal;
+  if (!signal?.addEventListener) return () => undefined;
+  let detached = false;
+  const onAbort = () => {
+    if (detached) return;
+    void Promise.resolve(cancel()).catch(() => undefined);
+  };
+  if (signal.aborted) onAbort();
+  signal.addEventListener("abort", onAbort, { once: true });
+  return () => {
+    detached = true;
+    signal.removeEventListener?.("abort", onAbort);
+  };
+}
+
+function sleepUntilOperationPoll(signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason || new Error("operation_cancelled"));
+      return;
     }
-    options.maxItems = msg.maxItems;
-  }
-  if (msg.region !== undefined) {
-    if (typeof msg.region !== "string" || !/^[A-Za-z]{2,8}$/.test(msg.region)) {
-      return { ok: false, error: "region must be 2 to 8 letters" };
+    const timer = setTimeout(() => {
+      signal?.removeEventListener?.("abort", onAbort);
+      resolve();
+    }, SOURCING_COLLECTION_POLL_MS);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(signal.reason || new Error("operation_cancelled"));
+    };
+    signal?.addEventListener?.("abort", onAbort, { once: true });
+  });
+}
+
+async function waitForTrendCollector(operation, collector, source) {
+  for (;;) {
+    assertOperationActive(operation);
+    const status = await collector.getStatus(operation.runId, operation.environmentId);
+    assertOperationActive(operation);
+    if (!status?.success) {
+      return failedOperation(
+        `${source}_collection_status_unavailable`,
+        "The browser collection status was unavailable.",
+      );
     }
-    options.region = msg.region;
+    const collected = count(status.collected);
+    const failed = Array.isArray(status.errors) ? status.errors.length : 0;
+    const current = count(status.currentKeywordIndex ?? status.currentTargetIndex);
+    const total = count(status.totalKeywords ?? status.totalTargets);
+    await operation.heartbeat({
+      progress: total > 0 ? Math.min(1, current / total) : 0,
+      stage: status.status === "attention_required" ? "attention_required" : "collecting_browser",
+      progressCurrent: current,
+      progressTotal: total,
+    });
+    if (status.status === "attention_required") {
+      return { status: "attention_required", attentionReason: "marketplace_login" };
+    }
+    if (status.status === "completed") {
+      return operationResult(source, collected, failed);
+    }
+    if (status.status === "failed") {
+      if (isOperationFenceLost(status.error) || isOperationFenceLost(status.errorCode)) {
+        throw operationFenceLost();
+      }
+      return failedOperation(
+        `${source}_collection_failed`,
+        "The browser collection could not be completed.",
+      );
+    }
+    if (status.status === "cancelled") {
+      throw operation.signal?.reason || new Error("operation_cancelled");
+    }
+    await sleepUntilOperationPoll(operation.signal);
   }
-  return { ok: true, runId: msg.runId, options };
+}
+
+function normalize1688OperationInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("1688_operation_input_invalid");
+  }
+  if (!Array.isArray(input.keywords) || input.keywords.length > 20) {
+    throw new Error("1688_operation_input_invalid");
+  }
+  const keywords = input.keywords.map((value) => text(value, ""));
+  if (keywords.some((value) => !value || value.length > 120)) {
+    throw new Error("1688_operation_input_invalid");
+  }
+  return keywords;
+}
+
+function normalizeTiktokOperationInput(input) {
+  if (!input || typeof input !== "object" || Array.isArray(input)) {
+    throw new Error("tiktok_cc_operation_input_invalid");
+  }
+  const result = {};
+  if (input.maxItems !== undefined) {
+    if (!Number.isInteger(input.maxItems) || input.maxItems < 1 || input.maxItems > 100) {
+      throw new Error("tiktok_cc_operation_input_invalid");
+    }
+    result.maxItems = input.maxItems;
+  }
+  if (input.region !== undefined) {
+    const region = text(input.region, "");
+    if (!/^[A-Za-z]{2,12}$/.test(region)) {
+      throw new Error("tiktok_cc_operation_input_invalid");
+    }
+    result.region = region;
+  }
+  return result;
+}
+
+async function runSourcing1688TrendOperation(operation) {
+  assertOperationActive(operation);
+  await operation.heartbeat({
+    progress: 0,
+    stage: "waiting_browser",
+    progressCurrent: 0,
+    progressTotal: 1,
+  });
+  const keywords = normalize1688OperationInput(operation.input);
+  if (keywords.length === 0) return operationResult("1688", 0, 0);
+  const started = await trendCollector.start(
+    keywords,
+    20,
+    operation.environmentId,
+    operation.runId,
+    { attemptToken: operation.attemptToken },
+  );
+  if (!started?.success) {
+    return failedOperation("1688_browser_collection_start_failed", "The 1688 browser collection could not start.");
+  }
+  const unbindAbort = bindOperationAbort(operation, () =>
+    trendCollector.cancel(operation.runId, operation.environmentId));
+  try {
+    assertOperationActive(operation);
+    return await waitForTrendCollector(operation, trendCollector, "1688");
+  } finally {
+    unbindAbort();
+  }
+}
+
+async function runSourcingTiktokCcTrendOperation(operation) {
+  assertOperationActive(operation);
+  await operation.heartbeat({
+    progress: 0,
+    stage: "waiting_browser",
+    progressCurrent: 0,
+    progressTotal: 1,
+  });
+  const input = normalizeTiktokOperationInput(operation.input);
+  const started = await tiktokCcCollector.start(
+    input,
+    operation.environmentId,
+    operation.runId,
+    { attemptToken: operation.attemptToken },
+  );
+  if (!started?.success) {
+    return failedOperation("tiktok_cc_browser_collection_start_failed", "The TikTok browser collection could not start.");
+  }
+  const unbindAbort = bindOperationAbort(operation, () =>
+    tiktokCcCollector.cancel(operation.runId, operation.environmentId));
+  try {
+    assertOperationActive(operation);
+    return await waitForTrendCollector(operation, tiktokCcCollector, "tiktok_cc_trend");
+  } finally {
+    unbindAbort();
+  }
+}
+
+async function runSourcingLiveCommerceOperation(operation) {
+  assertOperationActive(operation);
+  const validated = liveCommerceCollector.validateLiveUrl(operation.input?.url);
+  if (!validated.ok) {
+    return failedOperation("live_commerce_operation_input_invalid", "The live-commerce URL is invalid.");
+  }
+  await operation.heartbeat({
+    progress: 0,
+    stage: "waiting_browser",
+    progressCurrent: 0,
+    progressTotal: 1,
+  });
+  const unbindAbort = bindOperationAbort(operation, () =>
+    liveCommerceCollector.cancel(operation.runId, operation.environmentId));
+  try {
+    assertOperationActive(operation);
+    const collected = await liveCommerceCollector.collect(
+      validated.url,
+      operation.runId,
+      operation.environmentId,
+      { attemptToken: operation.attemptToken },
+    );
+    assertOperationActive(operation);
+    if (collected?.errorCode === "operation_runtime_fence_lost") {
+      throw operationFenceLost();
+    }
+    if (collected?.status === "attention_required") {
+      return { status: "attention_required", attentionReason: "marketplace_login" };
+    }
+    if (!collected?.success) {
+      return failedOperation("live_commerce_browser_collection_failed", "The live-commerce browser collection could not be completed.");
+    }
+    await operation.heartbeat({
+      progress: 1,
+      stage: "persisted",
+      progressCurrent: 1,
+      progressTotal: 1,
+    });
+    return operationResult(
+      `live_commerce_${text(collected.source, "browser")}`,
+      count(collected.broadcastCount) + count(collected.productCount),
+      0,
+    );
+  } finally {
+    unbindAbort();
+  }
 }
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -214,83 +407,10 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   };
 
-  // 수집 세션 공통 액션(list/get/cancel/restart/openAttentionTab)과 ping 은
+  // 수집 세션 공통 액션(list/get/cancel/openAttentionTab)과 ping 은
   // 통합 서비스워커가 처리한다. 도메인 워커가 각자 응답하면 세 리스너가 같은
-  // 메시지에 경쟁 응답하게 된다. 이 도메인의 cancel/restart 구현과 capabilities 는
+  // 메시지에 경쟁 응답하게 된다. 이 도메인의 cancel 구현과 capabilities 는
   // 파일 끝의 KidItemDomains.register 로 넘긴다.
-
-  if (msg.action === "start1688TrendCollection") {
-    const validated = validateTrendStartMessage(msg);
-    if (!validated.ok) {
-      sendResponse({ success: false, error: validated.error });
-      return;
-    }
-    trendCollector
-      .start(
-        validated.keywords,
-        validated.maxResultsPerKeyword,
-        environmentId,
-        validated.runId,
-      )
-      .then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "get1688TrendCollectionStatus") {
-    if (!validateOptionalRunId(msg.runId)) {
-      sendResponse({ success: false, error: "invalid runId" });
-      return;
-    }
-    trendCollector.getStatus(msg.runId, environmentId).then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "cancel1688TrendCollection") {
-    if (!validateOptionalRunId(msg.runId)) {
-      sendResponse({ success: false, error: "invalid runId" });
-      return;
-    }
-    trendCollector.cancel(msg.runId, environmentId).then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "startTiktokCcCollection") {
-    const validated = validateTiktokCcStartMessage(msg);
-    if (!validated.ok) {
-      sendResponse({ success: false, error: validated.error });
-      return;
-    }
-    tiktokCcCollector
-      .start(validated.options, environmentId, validated.runId)
-      .then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "getTiktokCcCollectionStatus") {
-    if (!validateOptionalRunId(msg.runId)) {
-      sendResponse({ success: false, error: "invalid runId" });
-      return;
-    }
-    tiktokCcCollector.getStatus(msg.runId, environmentId).then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "cancelTiktokCcCollection") {
-    if (!validateOptionalRunId(msg.runId)) {
-      sendResponse({ success: false, error: "invalid runId" });
-      return;
-    }
-    tiktokCcCollector.cancel(msg.runId, environmentId).then(sendResponse);
-    return true;
-  }
-
-  if (msg.action === "collectLiveCommerceUrl") {
-    if (!validateRequiredRunId(msg.runId)) {
-      sendResponse({ success: false, error: "server-issued runId is required" });
-      return;
-    }
-    return respond(liveCommerceCollector.collect(msg.url, msg.runId, environmentId));
-  }
 
   if (msg.action === "setAuthToken") {
     const token = typeof msg.token === "string" ? msg.token : null;
@@ -637,6 +757,14 @@ async function fetchDescriptionContent(detailUrl, sourceUrl) {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["sourcing"],
+  // Browser-owned sourcing work is claimed only by the exact Operation key.
+  // Do not add a generic URL/action dispatcher here: the owner routes fence
+  // each result against the operation run and attempt token.
+  operations: {
+    "sourcing.collect_1688_trends": runSourcing1688TrendOperation,
+    "sourcing.collect_tiktok_cc_trends": runSourcingTiktokCcTrendOperation,
+    "sourcing.collect_live_commerce_url": runSourcingLiveCommerceOperation,
+  },
   capabilities: {
     sourcingProductScraper: true,
     sourcing1688TrendCollector: true,
@@ -647,6 +775,4 @@ KidItemDomains.register({
   },
   cancelCollectionSession: (runId, environmentId) =>
     cancelSourcingCollectionSession(runId, environmentId),
-  restartCollectionSession: (runId, environmentId) =>
-    restartSourcingCollectionSession(runId, environmentId),
 });

@@ -1,6 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { OperationHandlerContext } from '../../../../../common/operation-definition';
 import { CHANNELS_OPERATIONS } from '../../../../domain/operation/channels.operations';
 import { CoupangRocketPurchaseOrderOperationHandler } from '../coupang-rocket-purchase-order.operation-handler';
+
+const context: OperationHandlerContext = {
+  runId: 'run-1',
+  organizationId: 'org-1',
+  operationKey: 'channels.collect_coupang_rocket_purchase_orders',
+  triggerSource: 'schedule',
+  input: {},
+  requestedByUserId: null,
+  scheduleId: null,
+  parentRunId: null,
+  attemptToken: 'attempt-1',
+  signal: new AbortController().signal,
+  checkpoint: vi.fn().mockResolvedValue(undefined),
+};
 
 describe('CoupangRocketPurchaseOrderOperationHandler', () => {
   it('registers the schedulable Rocket browser operation', async () => {
@@ -9,7 +24,7 @@ describe('CoupangRocketPurchaseOrderOperationHandler', () => {
 
     handler.onModuleInit();
 
-    await expect(handler.execute({} as never)).resolves.toEqual({
+    await expect(handler.execute(context)).resolves.toEqual({
       kind: 'waiting_runtime',
     });
     expect(registry.register).toHaveBeenCalledWith(CHANNELS_OPERATIONS[0], handler);

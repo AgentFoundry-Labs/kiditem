@@ -85,7 +85,16 @@ export function createMockPrisma() {
     $disconnect: vi.fn(),
     $executeRaw: vi.fn().mockResolvedValue(0),
     $executeRawUnsafe: vi.fn().mockResolvedValue(0),
-    $queryRaw: vi.fn().mockResolvedValue([]),
+    $queryRaw: vi.fn().mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = Array.isArray(strings) ? strings.join(' ') : '';
+      if (sql.includes('clock_timestamp() AS database_time')) {
+        return [{ database_time: new Date() }];
+      }
+      if (sql.includes('SELECT EXISTS')) {
+        return [{ remaining: false }];
+      }
+      return [];
+    }),
     $queryRawUnsafe: vi.fn().mockResolvedValue([]),
     $transaction: vi.fn().mockImplementation((fn) =>
       typeof fn === 'function' ? fn(mock) : Promise.all(fn),

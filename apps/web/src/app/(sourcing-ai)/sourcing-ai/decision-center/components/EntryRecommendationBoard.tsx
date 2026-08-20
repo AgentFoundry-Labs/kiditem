@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef, useState } from 'react';
+import { useMutation } from '@tanstack/react-query';
+import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
-import { startTrendCollectionAction } from '@/lib/manual-operation-actions';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { isTerminalOperationStatus, useOperationRun } from '@/hooks/useOperationRun';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
 import { useAuth } from '@/hooks/useAuth';
 import {
   askSourcingAssistant,
@@ -16,21 +16,22 @@ import {
   type EntryRecommendation,
   type EntrySourceStatus,
 } from '../lib/entry-recommendation-api';
-import { collectInterestKeywordsFrom1688 } from '../lib/collect-interest-1688';
 import {
   toEntryInterestKeywordStatuses,
   toEntryRecommendations,
   toEntrySourceStatuses,
 } from '../../lib/sourcing-recommendation-presenter';
 import {
-  useRefreshSourcingRecommendations,
   useSaveSourcingReviewSelection,
   useSourcingInterestTargets,
   useSourcingRecommendations,
   useSourcingReviewSelections,
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
+import { normalizeWingOperationKeywords } from '../../lib/wing-operation-input';
 import { SourcingReadState } from '../../components/SourcingReadState';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
 import { SourcingAssistantPanel, type AssistantTurn } from './SourcingAssistantPanel';
@@ -52,101 +53,26 @@ type InterestFilter = 'all' | 'interest' | 'other';
 export function EntryRecommendationBoard() {
   const { user } = useAuth();
   const organizationId = user?.organizationId ?? null;
-  const queryClient = useQueryClient();
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
   const [turns, setTurns] = useState<AssistantTurn[]>([]);
   const assistantConversationIdRef = useRef<string | null>(null);
-  const [operationRunId, setOperationRunId] = useState<string | null>(null);
-  const handledRunRef = useRef<string | null>(null);
-  const refreshRecommendations = useRefreshSourcingRecommendations();
   const saveSelection = useSaveSourcingReviewSelection();
-
-  const { data: run, isError: runQueryFailed } = useOperationRun(operationRunId);
-  // run 조회가 실패하면 `run` 이 계속 undefined 라 "수집 중"으로 굳어 버튼이 영구히
-  // 잠긴다. 조회 실패는 수집 중이 아니라 상태를 모르는 것이므로 잠금을 푼다.
-  const isCollecting =
-    operationRunId !== null &&
-    !runQueryFailed &&
-    (!run || !isTerminalOperationStatus(run.status));
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
   const recommendationRunId = recommendationsQuery.data?.data?.runId ?? null;
   const selectionsQuery = useSourcingReviewSelections('entry', recommendationRunId);
   const interestTargetsQuery = useSourcingInterestTargets();
-
-  const collectMutation = useMutation({
-    mutationFn: () => startTrendCollectionAction({ sourceSurface: 'domain_screen' }),
-    onSuccess: (operationRun) => {
-      setOperationRunId(operationRun.id);
-      toast.info('트렌드 수집을 시작했습니다.');
-    },
-    onError: (error: unknown) => {
-      toast.error(isApiError(error) ? error.message : '수집을 시작하지 못했습니다.');
-    },
+  const dailyTrendOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: {},
+    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+    wakeBrowserRuntime: true,
   });
-
-  // 수집이 끝나면 한 번만 반응한다. 폴링이 같은 terminal 상태를 반복해서 주기 때문이다.
-  useEffect(() => {
-    if (!run || !isTerminalOperationStatus(run.status)) return;
-    if (handledRunRef.current === run.id) return;
-    handledRunRef.current = run.id;
-    setOperationRunId(null);
-
-    if (run.status === 'succeeded') {
-      toast.success('수집이 끝났습니다. 추천을 갱신합니다.');
-    } else {
-      // 상태 문자열만 보여주면 왜 실패했는지 알 수 없다. run 이 실은 사유를 같이 낸다.
-      const detail = run.error?.message?.trim();
-      toast.error(
-        detail
-          ? `수집이 ${run.status} 상태로 끝났습니다 — ${detail}`
-          : `수집이 ${run.status} 상태로 끝났습니다.`,
-      );
-    }
-
-    if (run.status === 'succeeded') {
-      void refreshRecommendations.mutateAsync().catch(() => {
-        toast.error('수집은 완료됐지만 추천 결과를 갱신하지 못했습니다. 새로고침으로 다시 시도해주세요.');
-      });
-    }
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-    });
-  }, [organizationId, queryClient, refreshRecommendations, run]);
-
-  /**
-   * 관심 키워드로 1688 공급 후보를 확장 프로그램으로 수집한다.
-   *
-   * 서버가 아니라 확장이 도는 이유는 `collect-interest-1688.ts` 주석 참고.
-   * 슬라이더 검증이 뜨면 확장이 탭을 열어 두고 운영자에게 넘기므로, 그 사유를
-   * 삼키지 않고 토스트로 그대로 전달한다.
-   */
-  const collectInterestMutation = useMutation({
-    mutationFn: () =>
-      collectInterestKeywordsFrom1688(
-        interestKeywords
-          .filter((entry) => entry.state !== 'candidates')
-          .map((entry) => entry.keyword),
-      ),
-    onSuccess: (result) => {
-      if (result.merged > 0) {
-        // "추가"가 아니라 "반영" — 병합 후 중복이 제거되므로 순증가분과 다를 수 있다.
-        toast.success(`관심 키워드 수집 완료 — 후보 ${result.merged}건을 표에 반영했습니다.`);
-      } else {
-        toast.warning('수집은 끝났지만 표에 반영할 후보가 없었습니다.');
-      }
-      for (const error of result.errors.slice(0, 3)) {
-        toast.error(`${error.keyword}: ${error.message}`);
-      }
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-      });
-    },
-    onError: (error: unknown) => {
-      toast.error(error instanceof Error ? error.message : '관심 키워드 수집에 실패했습니다.');
-    },
-  });
+  const isCollecting = dailyTrendOperation.isStarting || (
+    dailyTrendOperation.run !== null
+    && !isTerminalOperationStatus(dailyTrendOperation.run.status)
+  );
 
   const assistantMutation = useMutation({
     mutationFn: (question: string) =>
@@ -208,6 +134,38 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
+  const missingInterestKeywordIdentities = useMemo(
+    () => new Set(
+      interestKeywords
+        .filter((entry) => entry.state !== 'candidates')
+        .map((entry) => sourcingWingCatalogKeywordIdentity(entry.keyword)),
+    ),
+    [interestKeywords],
+  );
+  const interestOperationKeywords = useMemo(
+    () => normalizeWingOperationKeywords(
+      [
+        ...interestTargets.map((target) => target.keyword ?? target.label),
+        ...interestKeywords.map((entry) => entry.keyword),
+      ].filter((keyword) =>
+        missingInterestKeywordIdentities.has(sourcingWingCatalogKeywordIdentity(keyword))),
+      20,
+    ),
+    [interestKeywords, interestTargets, missingInterestKeywordIdentities],
+  );
+  const interestOperationInput = useMemo(
+    () => ({ keywords: interestOperationKeywords }),
+    [interestOperationKeywords],
+  );
+  const interestCollectionOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_1688_trends',
+    input: interestOperationInput,
+    snapshotQueryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
+  });
+  const interestCollectionActive =
+    interestCollectionOperation.isStarting
+    || (interestCollectionOperation.run !== null
+      && !isTerminalOperationStatus(interestCollectionOperation.run.status));
   const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
   const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
@@ -271,10 +229,18 @@ export function EntryRecommendationBoard() {
         <Toolbar
           selectedCount={selectedIds.size}
           totalCount={items.length}
-          isCollecting={isCollecting || collectMutation.isPending}
+          isCollecting={isCollecting}
           isRefreshing={recommendationsQuery.isFetching}
-          onCollect={() => collectMutation.mutate()}
+          onCollect={() => void dailyTrendOperation.start({})}
           onRefresh={() => void recommendationsQuery.refetch()}
+        />
+
+        <SourcingOperationRunPanel
+          run={dailyTrendOperation.run}
+          onCancel={() => { void dailyTrendOperation.cancel(); }}
+          onRetryAttention={() => { void dailyTrendOperation.retryAttention(); }}
+          isCancelling={dailyTrendOperation.isCancelling}
+          isRetrying={dailyTrendOperation.isRetrying}
         />
 
         <SourceStrip sources={sources} dataGaps={dataGaps} />
@@ -284,9 +250,20 @@ export function EntryRecommendationBoard() {
           filter={interestFilter}
           interestCount={interestCount}
           totalCount={visibleItems.length}
-          isCollecting={collectInterestMutation.isPending}
-          onCollect={() => collectInterestMutation.mutate()}
+          isCollecting={interestCollectionActive}
+          onCollect={() => {
+            if (interestOperationKeywords.length === 0) return;
+            void interestCollectionOperation.start({ keywords: interestOperationKeywords });
+          }}
           onFilterChange={setInterestFilter}
+        />
+
+        <SourcingOperationRunPanel
+          run={interestCollectionOperation.run}
+          onCancel={() => { void interestCollectionOperation.cancel(); }}
+          onRetryAttention={() => { void interestCollectionOperation.retryAttention(); }}
+          isCancelling={interestCollectionOperation.isCancelling}
+          isRetrying={interestCollectionOperation.isRetrying}
         />
 
         {activeItem && (

@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api-client';
 
-// `/api/ads/wing-tracked-products/*` — 쿠팡 Wing 카탈로그 상품 추적 CRUD + 일별 지표 스냅샷.
-// 지표 수집 자체는 확장(wing-catalog-extension)이 카탈로그를 재검색해서 담당한다.
+// `/api/ads/wing-tracked-products/*` — 쿠팡 Wing 카탈로그 상품 추적 CRUD + 일별 지표 스냅샷 read.
+// 지표 수집은 Ads-owned browser Operation의 token-fenced sink만 쓴다.
 
 export interface WingTrackedSnapshot {
   trackedProductId: string;
@@ -54,15 +54,14 @@ export interface AddWingTrackedProductInput extends WingTrackedMetrics {
   sourceKeyword?: string | null;
 }
 
-export interface IngestWingSnapshotItem extends WingTrackedMetrics {
-  productId: string;
-  sourceKeyword?: string | null;
-}
-
 export interface WingTrackedHistory {
   trackedProductId: string;
   productName: string;
   points: WingTrackedSnapshot[];
+}
+
+export interface WingTrackedHistoriesResponse {
+  items: WingTrackedHistory[];
 }
 
 const BASE = '/api/ads/wing-tracked-products';
@@ -77,12 +76,6 @@ export function addWingTrackedProduct(
   return apiClient.post<WingTrackedProduct>(BASE, input);
 }
 
-export function ingestWingTrackedSnapshots(
-  items: IngestWingSnapshotItem[],
-): Promise<{ captured: number }> {
-  return apiClient.post<{ captured: number }>(`${BASE}/snapshots`, { items });
-}
-
 export function deleteWingTrackedProduct(id: string): Promise<{ id: string }> {
   return apiClient.delete<{ id: string }>(`${BASE}/${id}`);
 }
@@ -90,5 +83,14 @@ export function deleteWingTrackedProduct(id: string): Promise<{ id: string }> {
 export function fetchWingTrackedHistory(id: string, days = 30): Promise<WingTrackedHistory> {
   return apiClient.get<WingTrackedHistory>(
     `${BASE}/${id}/history?days=${encodeURIComponent(String(days))}`,
+  );
+}
+
+export function fetchWingTrackedHistories(
+  days = 30,
+): Promise<WingTrackedHistoriesResponse> {
+  return apiClient.get<WingTrackedHistoriesResponse>(
+    `${BASE}/history?days=${encodeURIComponent(String(days))}`,
+    { timeoutMs: 10_000 },
   );
 }

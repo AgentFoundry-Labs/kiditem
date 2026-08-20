@@ -64,6 +64,7 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
   private readonly cache = new Map<string, CachedTrending>();
 
   async fetchTrending(input: FetchShortstrendTrendingInput): Promise<FetchShortstrendTrendingResult> {
+    input.signal?.throwIfAborted();
     const seeds = normalizeSeeds(input.keywords);
     const limit = clampInteger(input.limit ?? DEFAULT_LIMIT, 1, MAX_LIMIT);
     const publishedWithinDays = clampInteger(
@@ -83,6 +84,7 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
           keywords: seeds,
           publishedWithinDays,
           limit,
+          signal: input.signal,
         });
         const result: FetchShortstrendTrendingResult = {
           source: 'youtube',
@@ -93,12 +95,12 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
         return result;
       }
 
-      const latestCollectedAt = await this.fetchLatestCollectedAt();
+      const latestCollectedAt = await this.fetchLatestCollectedAt(input.signal);
       if (!latestCollectedAt) {
         return { source: 'shortstrend', generatedAt: new Date().toISOString(), items: [] };
       }
 
-      const rows = await this.fetchRecentRows(latestCollectedAt);
+      const rows = await this.fetchRecentRows(latestCollectedAt, input.signal);
       const items = buildRankedItems(rows, seeds, limit);
       const result: FetchShortstrendTrendingResult = {
         source: 'shortstrend',
@@ -108,6 +110,7 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
       this.writeCache(cacheKey, result);
       return result;
     } catch (error) {
+      input.signal?.throwIfAborted();
       return {
         source: 'shortstrend',
         generatedAt: new Date().toISOString(),
@@ -117,21 +120,25 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
     }
   }
 
-  private async fetchLatestCollectedAt(): Promise<string | null> {
+  private async fetchLatestCollectedAt(signal?: AbortSignal): Promise<string | null> {
     const url = new URL(`${readBaseUrl()}${REST_PATH}/${readTable()}`);
     url.searchParams.set('select', 'collected_at');
     url.searchParams.set('order', 'collected_at.desc');
     url.searchParams.set('limit', '1');
-    const rows = await this.fetchRows(url);
+    const rows = await this.fetchRows(url, signal);
     const latest = rows[0]?.collected_at;
     return typeof latest === 'string' && latest.trim() ? latest : null;
   }
 
-  private async fetchRecentRows(latestCollectedAt: string): Promise<ShortstrendVideoRow[]> {
+  private async fetchRecentRows(
+    latestCollectedAt: string,
+    signal?: AbortSignal,
+  ): Promise<ShortstrendVideoRow[]> {
     const cutoff = new Date(Date.parse(latestCollectedAt) - RECENT_WINDOW_MS).toISOString();
     const rows: ShortstrendVideoRow[] = [];
 
     while (rows.length < POOL_SIZE) {
+      signal?.throwIfAborted();
       const pageSize = Math.min(REST_PAGE_SIZE, POOL_SIZE - rows.length);
       const url = new URL(`${readBaseUrl()}${REST_PATH}/${readTable()}`);
       url.searchParams.set('select', SELECT_COLUMNS);
@@ -141,7 +148,7 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
       url.searchParams.set('limit', String(pageSize));
       url.searchParams.set('offset', String(rows.length));
 
-      const page = await this.fetchRows(url);
+      const page = await this.fetchRows(url, signal);
       rows.push(...page);
       if (page.length < pageSize) break;
     }
@@ -149,12 +156,17 @@ export class ShortstrendTrendAdapter implements ShortstrendTrendPort {
     return rows;
   }
 
-  private async fetchRows(url: URL): Promise<ShortstrendVideoRow[]> {
+  private async fetchRows(
+    url: URL,
+    signal?: AbortSignal,
+  ): Promise<ShortstrendVideoRow[]> {
     let response: Response;
     try {
       response = await fetch(url, {
         headers: shortstrendHeaders(),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       });
     } catch (error) {
       throw new Error(`shortstrend 요청 실패: ${errorMessage(error)}`);

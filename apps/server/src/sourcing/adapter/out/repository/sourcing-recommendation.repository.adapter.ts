@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
+import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CreateRecommendationRunResult,
@@ -14,6 +15,44 @@ export class SourcingRecommendationRepositoryAdapter
   implements SourcingRecommendationRepositoryPort
 {
   constructor(private readonly prisma: PrismaService) {}
+
+  async publishStagedRunInAttempt(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: { organizationId: string; runId: string },
+  ): Promise<'published' | 'already_published' | 'missing'> {
+    const tx = transaction as unknown as Prisma.TransactionClient;
+    const run = await tx.sourcingRecommendationRun.findFirst({
+      where: { id: input.runId, organizationId: input.organizationId },
+      select: { status: true },
+    });
+    if (!run) return 'missing';
+    if (run.status === 'complete' || run.status === 'partial') {
+      return 'already_published';
+    }
+    const status = run.status === 'staged_complete'
+      ? 'complete'
+      : run.status === 'staged_partial'
+        ? 'partial'
+        : null;
+    if (!status) return 'missing';
+    const clockRows = await tx.$queryRaw<Array<{ now: Date }>>`
+      SELECT clock_timestamp() AS now
+      FROM sourcing_recommendation_runs
+      WHERE id = ${input.runId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+    `;
+    const now = clockRows[0]?.now;
+    if (!now) return 'missing';
+    const updated = await tx.sourcingRecommendationRun.updateMany({
+      where: {
+        id: input.runId,
+        organizationId: input.organizationId,
+        status: run.status,
+      },
+      data: { status, completedAt: now },
+    });
+    return updated.count === 1 ? 'published' : 'missing';
+  }
 
   async findById(input: {
     organizationId: string;

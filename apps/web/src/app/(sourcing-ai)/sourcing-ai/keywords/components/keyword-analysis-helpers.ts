@@ -5,7 +5,7 @@ import type {
   NaverDatalabPopularKeywordBoardKey,
   NaverDatalabPopularKeywordRank,
   NaverDatalabTimeUnit,
-} from '../../recommendations/lib/naver-keyword-api';
+} from '../../lib/keyword-analysis-snapshot-api';
 export const boardKeys: NaverDatalabPopularKeywordBoardKey[] = [
   'toys_dolls',
   'toys_block',

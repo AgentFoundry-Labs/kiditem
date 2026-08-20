@@ -14,7 +14,7 @@ import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express
 const express = require('express') as typeof import('express');
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
-import { AppModule } from './app.module';
+import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
 import { ChatService } from './chat/chat.service';
@@ -41,7 +41,7 @@ async function bootstrap() {
   expressApp.use('/api/chat/copilot', express.json({ limit: '25mb' }));
 
   // ChatService / SessionAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
-  // 이 raw express handler 는 Nest router 앞에 있어 AppModule middleware 와
+  // 이 raw express handler 는 Nest router 앞에 있어 API root middleware 와
   // OrganizationScopeGuard 가 적용되지 않으므로, SessionAuthMiddleware 를 직접
   // 호출해 `req.authUser` 를 채운 뒤 401/auth_required / no_organization_context 를
   // 손수 처리한다.
@@ -82,7 +82,7 @@ async function bootstrap() {
   });
 
   const app = await NestFactory.create<NestExpressApplication>(
-    AppModule,
+    ApiApplicationModule,
     new ExpressAdapter(expressApp),
   );
   app.enableShutdownHooks();

@@ -32,6 +32,7 @@ export function hashCollectionRequest(value: unknown): string {
 export function map1688HotProductsToAuthorizedOutput(input: {
   permit: SourcingCollectionPermit;
   rows: Sourcing1688OfferKeywordObservationInput[];
+  discoveredCount?: number;
   rejectedCount?: number;
   qualityReport?: Record<string, unknown>;
 }): AuthorizedCollectionOutput {
@@ -48,7 +49,7 @@ export function map1688HotProductsToAuthorizedOutput(input: {
         evidenceRevision: observations[index].revision,
       },
     })),
-    discoveredCount: rows.length,
+    discoveredCount: input.discoveredCount ?? rows.length,
     rejectedCount: input.rejectedCount ?? 0,
     qualityReport: input.qualityReport ?? {},
   };
@@ -70,6 +71,7 @@ function to1688Observation(
     supplierName: row.supplierName,
     imageUrl: row.imageUrl,
     sourceUrl: row.sourceUrl,
+    ...(row.searchMetadata ? row.searchMetadata : {}),
   };
   return {
     organizationId: permit.organizationId,

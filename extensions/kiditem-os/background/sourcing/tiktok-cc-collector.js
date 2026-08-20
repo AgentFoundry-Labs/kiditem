@@ -9,10 +9,9 @@
 // field mapping in the extractor against real captured responses before relying
 // on the output.
 //
-// Mirrors ProductScraper1688Trend.create(...) lifecycle exactly (start / restart
-// / getStatus / cancel) so background.js can wire it identically. Unlike the
-// 1688 collector, keyword targets are fetched from the backend
-// (GET /trend/tiktok-cc-targets) and results POST to /trend/tiktok-cc-results.
+// The exact Operation handler owns this collector. It uses OperationRun.id for
+// its session identity, reads targets through a typed API, and posts only to
+// the fenced owner-ingest route.
 //
 // See [[reference_market_trend_research_tools]] for the sourcing trend context.
 (function (global) {
@@ -21,7 +20,7 @@
   const STATUS_KEY = "kiditem_tiktok_cc_collection_status";
   const NAVIGATION_TIMEOUT_MS = 35_000;
   const EXTRACTION_TIMEOUT_MS = 25_000;
-  const MAX_ITEMS_DEFAULT = 500;
+  const MAX_ITEMS_DEFAULT = 100;
   const MAX_TARGETS = 50;
 
   // Creative Center Trends pages (english locale). Region is selected in-page and
@@ -38,15 +37,8 @@
     const ensureContentScripts = options.ensureContentScripts;
     const sessions = options.sessions;
     const now = options.now || (() => new Date());
-    const createRunId = options.createRunId || (() => {
-      if (global.crypto && typeof global.crypto.randomUUID === "function") {
-        return global.crypto.randomUUID();
-      }
-      return `tiktok-cc-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    });
 
     const activeRuns = new Map();
-    const runsById = new Map();
 
     function storageGet(key) {
       return new Promise((resolve) => {
@@ -195,7 +187,7 @@
 
     async function fetchTargets(config) {
       const request = config.request || fetch;
-      const response = await request(`${config.base}/trend/tiktok-cc-targets`, {
+      const response = await request(`${config.apiBase}/sourcing/trend/tiktok-cc-targets`, {
         method: "GET",
         headers: config.headers,
       });
@@ -247,16 +239,30 @@
     async function postBatch(run, region, items, errors) {
       const config = run.backendConfig;
       const request = config.request || fetch;
-      const body = { runId: run.runId, region, items };
+      if (typeof run.operationAttemptToken !== "string" || !run.operationAttemptToken) {
+        throw new Error("operation_attempt_token_required");
+      }
+      const body = { region, items };
       if (errors && errors.length) body.errors = errors;
-      const response = await request(`${config.base}/trend/tiktok-cc-results`, {
-        method: "POST",
-        headers: config.headers,
-        body: JSON.stringify(body),
-      });
+      const response = await request(
+        `${config.apiBase}/sourcing/operations/tiktok-cc-trends/${encodeURIComponent(run.runId)}/results`,
+        {
+          method: "POST",
+          headers: {
+            ...config.headers,
+            "x-operation-attempt-token": run.operationAttemptToken,
+          },
+          body: JSON.stringify(body),
+        },
+      );
       if (!response.ok) {
         const text = await response.text().catch(() => "");
-        throw new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+        const error = new Error(`HTTP ${response.status}: ${text.slice(0, 200)}`);
+        if (response.status === 409) {
+          error.code = "operation_runtime_fence_lost";
+          error.status = 409;
+        }
+        throw error;
       }
       return response.json().catch(() => ({}));
     }
@@ -365,7 +371,7 @@
         if (!run.cancelRequested) {
           await setStatus(run, {
             status: "failed",
-            error: (error && error.message) || String(error),
+            error: error?.code || (error && error.message) || String(error),
             errors,
             completedAt: now().toISOString(),
             tabId: null,
@@ -374,7 +380,6 @@
         }
       } finally {
         if (!run.keepTabOpen) await removeTab(run.tabId);
-        if (!run.keepTabOpen) runsById.delete(run.runId);
         if (activeRuns.get(run.environmentId) === run) {
           activeRuns.delete(run.environmentId);
         }
@@ -386,8 +391,15 @@
       return Math.max(1, Math.min(MAX_ITEMS_DEFAULT, value));
     }
 
-    async function start(startOptions, environmentId, requestedRunId) {
+    async function start(startOptions, environmentId, requestedRunId, operationContext) {
       const opts = startOptions || {};
+      const operationAttemptToken = operationContext?.attemptToken;
+      if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
+        return { success: false, error: "operation_attempt_token_required" };
+      }
+      if (typeof requestedRunId !== "string" || !requestedRunId) {
+        return { success: false, error: "operation_run_id_required" };
+      }
       const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
         return {
@@ -419,7 +431,7 @@
       const regionOverride = sanitizeRegion(opts.region);
       const collectionTargets = buildCollectionTargets(targets);
 
-      const runId = requestedRunId || createRunId();
+      const runId = requestedRunId;
       const startedAt = now().toISOString();
       const run = {
         environmentId,
@@ -427,6 +439,7 @@
         targets: collectionTargets,
         maxItems,
         regionOverride,
+        operationAttemptToken,
         backendConfig,
         reusableTabId: null,
         tabId: null,
@@ -451,7 +464,6 @@
         },
       };
       activeRuns.set(environmentId, run);
-      runsById.set(runId, run);
       await sessions.start({
         environmentId,
         runId,
@@ -500,7 +512,6 @@
         });
         await sessions.cancel(activeRun.runId);
         await removeTab(activeRun.tabId);
-        runsById.delete(activeRun.runId);
         activeRuns.delete(environmentId);
         return { success: true, runId: activeRun.runId, status: "cancelled" };
       }
@@ -519,49 +530,7 @@
       return { success: true, runId: stored.runId, status: "cancelled" };
     }
 
-    async function restart(runId) {
-      const run = runsById.get(runId);
-      const session = await sessions.get(runId);
-      if (!run || !session) throw new Error("Collection session not found");
-      const activeRun = activeRuns.get(session.environmentId);
-      if (activeRun?.status.status === "running") {
-        return {
-          success: false,
-          error: "collection_in_progress",
-          runId: activeRun.runId,
-        };
-      }
-      if (session.restartStrategy !== "extension") {
-        throw new Error("Collection session requires a web restart");
-      }
-
-      await sessions.restart(runId);
-      run.cancelRequested = false;
-      run.keepTabOpen = false;
-      run.reusableTabId = run.tabId;
-      const restartedAt = now().toISOString();
-      run.status = {
-        ...run.status,
-        status: "running",
-        collected: 0,
-        region: run.regionOverride || null,
-        businessDate: null,
-        error: null,
-        currentTarget: null,
-        currentTargetIndex: 0,
-        totalTargets: run.targets.length,
-        errors: [],
-        startedAt: restartedAt,
-        updatedAt: restartedAt,
-        completedAt: null,
-      };
-      activeRuns.set(session.environmentId, run);
-      await storageSet(run.status);
-      Promise.resolve().then(() => executeRun(run));
-      return { success: true, runId, status: "running" };
-    }
-
-    return { start, restart, getStatus, cancel, isBlockedUrl };
+    return { start, getStatus, cancel, isBlockedUrl };
   }
 
   global.ProductScraperTiktokCcTrend = { create, BASE_URLS };

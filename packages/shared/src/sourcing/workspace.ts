@@ -133,6 +133,8 @@ export const SourcingRecommendationItemSchema = z
     coupang: z
       .object({
         productId: z.string().trim().min(1).max(200),
+        itemId: z.string().trim().min(1).max(200).nullable(),
+        vendorItemId: z.string().trim().min(1).max(200).nullable(),
         productName: z.string().trim().min(1).max(500),
         salePriceKrw: z.number().int().nonnegative().nullable(),
         ratingCount: z.number().int().nonnegative().nullable(),

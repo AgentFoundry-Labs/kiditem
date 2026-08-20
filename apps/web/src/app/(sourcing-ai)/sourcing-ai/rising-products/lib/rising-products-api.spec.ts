@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/lib/api-client';
+import * as risingProductsApi from './rising-products-api';
 
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
@@ -6,8 +8,7 @@ vi.mock('@/lib/api-client', () => ({
   },
 }));
 
-import { apiClient } from '@/lib/api-client';
-import { fetchLatestRisingProducts } from './rising-products-api';
+const { fetchLatestRisingProducts } = risingProductsApi;
 
 const getNullable = vi.mocked(apiClient.getNullable);
 
@@ -30,5 +31,10 @@ describe('fetchLatestRisingProducts', () => {
     getNullable.mockResolvedValue(result as never);
 
     await expect(fetchLatestRisingProducts()).resolves.toBe(result);
+  });
+
+  it('does not expose the retired synchronous detect request helper', () => {
+    expect((risingProductsApi as unknown as { detectRisingProducts?: unknown })
+      .detectRisingProducts).toBeUndefined();
   });
 });

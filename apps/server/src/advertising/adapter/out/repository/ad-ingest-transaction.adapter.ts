@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { AdIngestTransactionPort } from '../../../application/port/out/transaction/ad-ingest-transaction.port';
+import type { ActiveBrowserAttemptTransaction } from '../../../../operations/application/port/active-browser-attempt-transaction';
 import { runWithAdIngestTransaction } from './ad-ingest-transaction-context';
 
 const SETTING_PREFIX = 'advertising.extension-sync.idempotency.';
@@ -15,52 +16,10 @@ export class AdIngestTransactionAdapter implements AdIngestTransactionPort {
     input: { organizationId: string; idempotencyKey: string },
     operation: () => Promise<T>,
   ): Promise<{ value: T; replayed: boolean }> {
-    const keyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
-    const settingKey = `${SETTING_PREFIX}${keyHash}`;
-
     for (let attempt = 1; attempt <= 3; attempt += 1) {
       try {
-        return await this.prisma.$transaction(async (tx) => runWithAdIngestTransaction(tx, async () => {
-          const existing = await tx.systemSetting.findUnique({
-            where: {
-              organizationId_key: {
-                organizationId: input.organizationId,
-                key: settingKey,
-              },
-            },
-            select: { value: true },
-          });
-          const existingValue = toRecord(existing?.value);
-          if (existingValue.state === 'complete') {
-            const response = toRecord(existingValue.response) as T;
-            return { value: response, replayed: true };
-          }
-
-          await tx.systemSetting.create({
-            data: {
-              organizationId: input.organizationId,
-              key: settingKey,
-              value: { state: 'running', keyHash },
-            },
-          });
-          const value = await operation();
-          await tx.systemSetting.update({
-            where: {
-              organizationId_key: {
-                organizationId: input.organizationId,
-                key: settingKey,
-              },
-            },
-            data: {
-              value: {
-                state: 'complete',
-                keyHash,
-                response: value as Prisma.InputJsonValue,
-              },
-            },
-          });
-          return { value, replayed: false };
-        }), {
+        return await this.prisma.$transaction(async (tx) =>
+          this.runIdempotentTransaction(tx, input, operation), {
           isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           maxWait: 10_000,
           timeout: 120_000,
@@ -70,6 +29,71 @@ export class AdIngestTransactionAdapter implements AdIngestTransactionPort {
       }
     }
     throw new Error('unreachable idempotent ingest retry state');
+  }
+
+  runIdempotentInAttempt<T extends Record<string, unknown>>(
+    transaction: ActiveBrowserAttemptTransaction,
+    input: { organizationId: string; idempotencyKey: string },
+    operation: () => Promise<T>,
+  ): Promise<{ value: T; replayed: boolean }> {
+    return this.runIdempotentTransaction(
+      transaction as unknown as Prisma.TransactionClient,
+      input,
+      operation,
+    );
+  }
+
+  private runIdempotentTransaction<T extends Record<string, unknown>>(
+    tx: Prisma.TransactionClient,
+    input: { organizationId: string; idempotencyKey: string },
+    operation: () => Promise<T>,
+  ): Promise<{ value: T; replayed: boolean }> {
+    const keyHash = createHash('sha256').update(input.idempotencyKey).digest('hex');
+    const settingKey = `${SETTING_PREFIX}${keyHash}`;
+    return runWithAdIngestTransaction(tx, async () => {
+      const existing = await tx.systemSetting.findUnique({
+        where: {
+          organizationId_key: {
+            organizationId: input.organizationId,
+            key: settingKey,
+          },
+        },
+        select: { value: true },
+      });
+      const existingValue = toRecord(existing?.value);
+      if (existingValue.state === 'complete') {
+        return {
+          value: toRecord(existingValue.response) as T,
+          replayed: true,
+        };
+      }
+      if (existing) throw new Error('advertising_ingest_marker_incomplete');
+
+      await tx.systemSetting.create({
+        data: {
+          organizationId: input.organizationId,
+          key: settingKey,
+          value: { state: 'running', keyHash },
+        },
+      });
+      const value = await operation();
+      await tx.systemSetting.update({
+        where: {
+          organizationId_key: {
+            organizationId: input.organizationId,
+            key: settingKey,
+          },
+        },
+        data: {
+          value: {
+            state: 'complete',
+            keyHash,
+            response: value as Prisma.InputJsonValue,
+          },
+        },
+      });
+      return { value, replayed: false };
+    });
   }
 }
 

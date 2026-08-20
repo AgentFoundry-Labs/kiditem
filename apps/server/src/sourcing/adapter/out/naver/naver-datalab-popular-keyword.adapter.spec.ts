@@ -95,6 +95,20 @@ describe('NaverDatalabPopularKeywordAdapter', () => {
     });
   });
 
+  it('passes the operation AbortSignal to Shopping Insight batches', async () => {
+    const fetchMock = vi.fn(async () => shoppingInsightResponse([]));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const controller = new AbortController();
+
+    await new NaverDatalabPopularKeywordAdapter().searchPopularKeywords({
+      boardKeys: ['toys_dolls'],
+      keywords: ['레고'],
+      signal: controller.signal,
+    });
+
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBe(controller.signal);
+  });
+
   it('batches the board candidate pool into official five-keyword requests', async () => {
     const fetchMock = vi.fn(async (_url, init) => {
       const request = JSON.parse(String(init?.body));

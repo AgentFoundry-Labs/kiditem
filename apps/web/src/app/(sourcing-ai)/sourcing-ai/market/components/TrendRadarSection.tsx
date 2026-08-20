@@ -29,6 +29,9 @@ import {
 } from 'recharts';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber, formatPercent } from '@/lib/utils';
+import { isTerminalOperationStatus } from '@/hooks/useOperationRun';
+import { SourcingOperationRunPanel } from '../../components/SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../../hooks/use-sourcing-operation-action';
 import {
   filterTrendOpportunities,
   rankTrendOpportunitiesForChannel,
@@ -41,7 +44,7 @@ import {
   type TrendDecision,
   type TrendSource,
 } from '../lib/market-intelligence';
-import { fetchLiveNaverMarket } from '../lib/live-naver-market';
+import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
 import { fetchLiveSnsMarket } from '../lib/live-sns-market';
 
 const categoryOptions: Array<{ value: MarketCategory; label: string }> = [
@@ -120,6 +123,7 @@ const sourceMeta: Record<TrendSource, { label: string; className: string }> = {
 };
 
 const pressable = 'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
+const NAVER_SNAPSHOT_DAYS = 30;
 
 export function TrendRadarSection() {
   const [channelView, setChannelView] = useState<TrendChannelView>('domestic');
@@ -128,12 +132,16 @@ export function TrendRadarSection() {
   const [selectedId, setSelectedId] = useState(trendOpportunities[0].id);
 
   const liveNaverQuery = useQuery({
-    queryKey: queryKeys.sourcing.liveNaverMarket(),
-    queryFn: fetchLiveNaverMarket,
+    queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
+    queryFn: fetchPersistedNaverMarket,
     enabled: channelView === 'domestic',
     staleTime: 10 * 60 * 1000,
-    refetchInterval: 10 * 60 * 1000,
-    refetchIntervalInBackground: false,
+  });
+  const naverOperation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_daily_trends',
+    input: { sources: ['naver'] },
+    snapshotQueryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
+    wakeBrowserRuntime: false,
   });
   const liveSnsQuery = useQuery({
     queryKey: ['sourcing', 'live-sns-market'] as const,
@@ -228,7 +236,7 @@ export function TrendRadarSection() {
                 {activeViewMeta.description}{' '}
                 {isLive
                   ? liveDomestic
-                    ? '네이버 원천의 최신 제공값이며 화면이 열려 있는 동안 10분마다 갱신합니다.'
+                    ? 'OperationRun이 저장한 네이버 스냅샷을 읽습니다. 새 수집은 명시적으로 시작하세요.'
                     : '유튜브 쇼츠(shortstrend) 실데이터이며 화면이 열려 있는 동안 10분마다 갱신합니다.'
                   : '판매량 확정 순위가 아니며, 현재는 리서치 스냅샷 산식입니다.'}
               </p>
@@ -242,18 +250,36 @@ export function TrendRadarSection() {
 
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
               {isLive && (
-                <button
-                  type="button"
-                  onClick={refetchLive}
-                  disabled={liveFetching}
-                  className={cn(
-                    'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 text-xs font-semibold text-[var(--text-secondary)] hover:border-purple-200 hover:text-purple-700 disabled:opacity-50',
-                    pressable,
+                <>
+                  <button
+                    type="button"
+                    onClick={refetchLive}
+                    disabled={liveFetching}
+                    className={cn(
+                      'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg border border-[var(--border)] bg-white px-3 text-xs font-semibold text-[var(--text-secondary)] hover:border-purple-200 hover:text-purple-700 disabled:opacity-50',
+                      pressable,
+                    )}
+                  >
+                    <RefreshCw size={13} className={liveFetching ? 'animate-spin' : ''} />
+                    저장본 새로고침
+                  </button>
+                  {liveDomestic && (
+                    <button
+                      type="button"
+                      onClick={() => void naverOperation.start({ sources: ['naver'] })}
+                      disabled={naverOperation.isStarting || (
+                        naverOperation.run !== null
+                        && !isTerminalOperationStatus(naverOperation.run.status)
+                      )}
+                      className={cn(
+                        'inline-flex h-9 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-semibold text-white disabled:opacity-50',
+                        pressable,
+                      )}
+                    >
+                      네이버 수집
+                    </button>
                   )}
-                >
-                  <RefreshCw size={13} className={liveFetching ? 'animate-spin' : ''} />
-                  지금 갱신
-                </button>
+                </>
               )}
               <div role="group" aria-label="카테고리 필터" className="flex items-center rounded-lg bg-[var(--surface-sunken)] p-1">
                 {categoryOptions.map((option) => (
@@ -324,6 +350,17 @@ export function TrendRadarSection() {
               {isLive ? '실연동 · 화면 10분 갱신' : '실시간 플랫폼 공식 순위 아님'}
             </span>
           </div>
+          {liveDomestic && (
+            <div className="mt-3">
+              <SourcingOperationRunPanel
+                run={naverOperation.run}
+                onCancel={() => { void naverOperation.cancel(); }}
+                onRetryAttention={() => { void naverOperation.retryAttention(); }}
+                isCancelling={naverOperation.isCancelling}
+                isRetrying={naverOperation.isRetrying}
+              />
+            </div>
+          )}
         </div>
 
         <div className="grid items-start xl:grid-cols-[minmax(0,1.65fr)_minmax(340px,0.75fr)]">
@@ -358,7 +395,7 @@ export function TrendRadarSection() {
               <div className="flex items-center justify-center gap-2 px-5 py-12 text-sm text-[var(--text-secondary)]">
                 <RefreshCw size={16} className="animate-spin text-purple-600" />
                 {liveDomestic
-                  ? '네이버 문구·완구 최신 키워드를 수집하고 있습니다…'
+                  ? '저장된 네이버 문구·완구 키워드를 불러오는 중입니다…'
                   : '유튜브 쇼츠 최신 트렌드를 불러오고 있습니다…'}
               </div>
             )}
@@ -367,7 +404,7 @@ export function TrendRadarSection() {
               <div className="px-5 py-12 text-center">
                 <AlertCircle size={30} className="mx-auto text-rose-400" />
                 <p className="mt-3 text-sm font-semibold text-rose-700">
-                  {liveDomestic ? '네이버' : '유튜브 쇼츠'} 실데이터를 가져오지 못했습니다.
+                  {liveDomestic ? '네이버 저장 스냅샷' : '유튜브 쇼츠'} 데이터를 가져오지 못했습니다.
                 </p>
                 <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                   {liveErrorObj instanceof Error ? liveErrorObj.message : '연동 상태를 확인해주세요.'}

@@ -13,10 +13,20 @@ import {
   type SourcingCollectionPermit,
   type SourcingCollectionRepositoryPort,
 } from '../port/out/repository/sourcing-collection.repository.port';
+import type { ActiveOperationAttemptTransaction } from '../../../operations/application/port/active-browser-attempt-transaction';
+
+export type ActiveOperationAttemptCommitFence = <T>(
+  commit: (transaction: ActiveOperationAttemptTransaction) => Promise<T>,
+) => Promise<T>;
 
 export type ExecuteSourcingCollectionInput = ClaimAuthorizedRunInput & {
   /** v2 extension posts may commit only a permit issued before browser IO. */
   requireExistingPermit?: boolean;
+  /** Operation-owned cancellation/fence checked before provider work and commit. */
+  signal?: AbortSignal;
+  operationCheckpoint?: () => Promise<void>;
+  /** Atomically fences the final canonical write to an active OperationRun attempt. */
+  commitWithinActiveOperationAttempt?: ActiveOperationAttemptCommitFence;
 };
 
 export type SourcingAuthorizedCollector = (context: {
@@ -45,6 +55,7 @@ export class SourcingCollectionCoordinator {
     input: ExecuteSourcingCollectionInput,
     collector: SourcingAuthorizedCollector,
   ): Promise<SourcingCollectionExecutionResult> {
+    await checkpointOperation(input);
     const claim = input.requireExistingPermit
       ? await this.repository.resumeAuthorizedRun(input)
       : await this.repository.claimAuthorizedRun(input);
@@ -61,8 +72,10 @@ export class SourcingCollectionCoordinator {
 
     let output: AuthorizedCollectionOutput;
     try {
+      await checkpointOperation(input);
       await checkpoint();
       output = await collector({ permit: claim.permit, checkpoint });
+      await checkpointOperation(input);
       await checkpoint();
     } catch (error: unknown) {
       await this.repository.fail({
@@ -72,7 +85,30 @@ export class SourcingCollectionCoordinator {
       throw error;
     }
 
-    return mapCommit(await this.repository.commit({ permit: claim.permit, output }));
+    // This is intentionally adjacent to the canonical write: collection
+    // permit state alone cannot observe a cancelled OperationRun attempt.
+    await checkpointOperation(input);
+    await checkpoint();
+    await checkpointOperation(input);
+    if (!input.commitWithinActiveOperationAttempt) {
+      return mapCommit(await this.repository.commit({ permit: claim.permit, output }));
+    }
+
+    let committed: CommitAuthorizedCollectionResult;
+    try {
+      committed = await input.commitWithinActiveOperationAttempt((transaction) =>
+        this.repository.commitInAttempt(transaction, {
+          permit: claim.permit,
+          output,
+        }));
+    } catch (error: unknown) {
+      await this.repository.fail({
+        permit: claim.permit,
+        error: normalizeCollectionError(error),
+      }).catch(() => undefined);
+      throw error;
+    }
+    return mapCommit(committed);
   }
 
   async issuePermit(input: ClaimAuthorizedRunInput): Promise<SourcingCollectionPermit> {
@@ -81,6 +117,12 @@ export class SourcingCollectionCoordinator {
     if (claim.kind === 'idempotency_conflict') throw idempotencyConflict();
     return claim.permit;
   }
+}
+
+async function checkpointOperation(input: ExecuteSourcingCollectionInput): Promise<void> {
+  input.signal?.throwIfAborted();
+  await input.operationCheckpoint?.();
+  input.signal?.throwIfAborted();
 }
 
 function sourceDenied(reasonCode: string): ForbiddenException {

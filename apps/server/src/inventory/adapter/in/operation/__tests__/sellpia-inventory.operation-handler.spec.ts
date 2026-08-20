@@ -19,6 +19,8 @@ describe('SellpiaInventoryOperationHandler', () => {
       scheduleId: null,
       parentRunId: null,
       attemptToken: 'attempt-1',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
     })).resolves.toEqual({ kind: 'waiting_runtime' });
 
     expect(INVENTORY_OPERATIONS[0]).toMatchObject({
@@ -50,6 +52,8 @@ describe('SellpiaInventoryOperationHandler', () => {
       scheduleId: null,
       parentRunId: null,
       attemptToken: 'attempt-2',
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
     });
 
     expect(freshness.requestRefresh).toHaveBeenCalledWith({

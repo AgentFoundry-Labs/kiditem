@@ -13,6 +13,8 @@ export const PRODUCT_PROFITABILITY_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen'],
     scheduleSupported: false,
     maxAttempts: 3,
+    resourceClass: 'default',
+    executionTimeoutMs: 900_000,
     inputSchema: EmptyInputSchema,
   },
   {
@@ -24,6 +26,8 @@ export const PRODUCT_PROFITABILITY_OPERATIONS = [
     allowedTriggers: [],
     scheduleSupported: false,
     maxAttempts: 2,
+    resourceClass: 'snapshot_compute',
+    executionTimeoutMs: 900_000,
     inputSchema: EmptyInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

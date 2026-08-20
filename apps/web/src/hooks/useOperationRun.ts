@@ -1,6 +1,11 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type QueryKey,
+} from '@tanstack/react-query';
 import type {
   OperationRun,
   UpsertOperationScheduleRequest,
@@ -43,6 +48,19 @@ export function useOperationRun(runId: string | null) {
   });
 }
 
+export function useReconnectableOperationRun(
+  operationKey: string,
+  input: Record<string, unknown> | undefined,
+  enabled: boolean,
+) {
+  return useQuery({
+    queryKey: queryKeys.operations.reconnect(operationKey, input),
+    queryFn: () => operationsApi.findReconnectable(operationKey, input),
+    enabled,
+    staleTime: 15_000,
+  });
+}
+
 export function useOperationSchedules() {
   return useQuery({
     queryKey: queryKeys.operations.schedules(),
@@ -78,12 +96,22 @@ export function useRetryBrowserOperationRun() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: operationsApi.retryBrowserRun,
-    onSuccess: (_response, runId) =>
-      Promise.all([
-        queryClient.invalidateQueries({ queryKey: queryKeys.operations.run(runId) }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.operations.runs() }),
-      ]),
+    onSuccess: (replacementRun, runId) => {
+      queryClient.setQueryData(
+        queryKeys.operations.run(replacementRun.id),
+        replacementRun,
+      );
+      invalidateAfterRetry(queryClient, queryKeys.operations.run(runId));
+      invalidateAfterRetry(queryClient, queryKeys.operations.runs());
+    },
   });
+}
+
+function invalidateAfterRetry(
+  queryClient: ReturnType<typeof useQueryClient>,
+  queryKey: QueryKey,
+) {
+  void queryClient.invalidateQueries({ queryKey }).catch(() => undefined);
 }
 
 export function useUpsertOperationSchedule() {

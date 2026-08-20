@@ -1,13 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AutomationModule } from '../automation/automation.module';
-import { ReadinessModule } from '../readiness/readiness.module';
-import { AgentCatalogController } from './adapter/in/http/agent-catalog.controller';
-import { AgentApprovalsController } from './adapter/in/http/agent-approvals.controller';
-import { AgentConversationsController } from './adapter/in/http/agent-conversations.controller';
-import { AgentExecutorController } from './adapter/in/http/agent-executor.controller';
-import { AgentRunObservabilityController } from './adapter/in/http/agent-run-observability.controller';
-import { AgentRunRequestsController } from './adapter/in/http/agent-run-requests.controller';
-import { AgentRunsQueryController } from './adapter/in/http/agent-runs-query.controller';
+import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
+import { PrismaModule } from '../prisma/prisma.module';
+import { ReadinessStateModule } from '../readiness/readiness-state.module';
 import { AgentOsRepositoryAdapter } from './adapter/out/repository/agent-os.repository.adapter';
 import { FilesystemAgentLogStoreAdapter } from './adapter/out/log-store/filesystem-agent-log-store.adapter';
 import { AgentRunOperationAlertBridge } from './adapter/out/automation/agent-run-operation-alert.bridge';
@@ -38,7 +32,6 @@ import { OperatorContextBuilder } from './application/service/operator-context-b
 import { AgentRunCoordinator } from './application/service/agent-run-coordinator.service';
 import { AgentRunExecutor } from './application/service/agent-run-executor.service';
 import { AgentRunGraphService } from './application/service/agent-run-graph.service';
-import { AgentRunWorker } from './application/service/agent-run-worker.service';
 import { AgentRuntimeHandlerRegistry } from './application/service/agent-runtime-handler-registry.service';
 import { AgentTaskDelegationService } from './application/service/agent-task-delegation.service';
 import { AgentToolRouter } from './application/service/agent-tool-router.service';
@@ -48,7 +41,7 @@ import { OperatorDecisionExecutor } from './application/service/operator-decisio
 import { OperatorDecisionParser } from './application/service/operator-decision-parser.service';
 import { AgentRuntimeAssetsStartupValidator } from './application/service/agent-runtime-assets-startup-validator.service';
 import { AgentInteractionService } from './application/service/agent-interaction.service';
-import { AgentInlineRunReconciler } from './application/service/agent-inline-run-reconciler.service';
+import { AgentApiCapabilityGrantService } from './application/service/agent-api-capability-grant.service';
 
 const agentInteractionProviders = [
   AgentInteractionService,
@@ -59,16 +52,7 @@ const agentInteractionProviders = [
 ];
 
 @Module({
-  imports: [AutomationModule, ReadinessModule],
-  controllers: [
-    AgentCatalogController,
-    AgentRunRequestsController,
-    AgentExecutorController,
-    AgentRunsQueryController,
-    AgentRunObservabilityController,
-    AgentApprovalsController,
-    AgentConversationsController,
-  ],
+  imports: [PrismaModule, OperationAlertRuntimeModule, ReadinessStateModule],
   providers: [
     ...agentInteractionProviders,
     AgentApprovalService,
@@ -82,7 +66,6 @@ const agentInteractionProviders = [
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
-    AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAssetsStartupValidator,
     AgentTaskDelegationService,
@@ -97,7 +80,7 @@ const agentInteractionProviders = [
     AgentLocalCliRuntimeAdapter,
     AgentLocalProcessRegistry,
     KidItemMcpSessionAdapter,
-    AgentInlineRunReconciler,
+    AgentApiCapabilityGrantService,
     FilesystemAgentRuntimeAssetsAdapter,
     AgentRunOperationAlertBridge,
     AgentOsLiveReadinessAdapter,
@@ -121,10 +104,11 @@ const agentInteractionProviders = [
   exports: [
     AGENT_INTERACTION_PORT,
     AGENT_RUNNER_PORT,
+    AGENT_OS_REPOSITORY_PORT,
+    AgentApiCapabilityGrantService,
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
-    AgentRunWorker,
     AgentApprovalService,
     AgentCatalogService,
     AgentCapabilityRegistry,

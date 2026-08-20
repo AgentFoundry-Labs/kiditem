@@ -399,6 +399,30 @@ describe("KeywordRankIngestHandler", () => {
     expect(result.results).toEqual([
       expect.objectContaining({ sellerId: "seller-1", productCount: 1 }),
     ]);
+    expect(result.ignored).toEqual([]);
+  });
+
+  it("reports a missing SERP prerequisite separately from seller collection failure", async () => {
+    repo.findLatestSerp.mockResolvedValue(null);
+    const payload = {
+      type: "competitor_seller_catalog",
+      data: [{
+        keyword: "문구 세트",
+        sellerId: "seller-1",
+        sellerStoreUrl: "https://shop.coupang.com/seller-1",
+        capturedAt: "2026-07-14T04:00:00.000Z",
+        products: [{ vendorItemId: "catalog-1", name: "신상품" }],
+      }],
+    } as ExtensionSyncDto;
+
+    const result = await handler.executeSellerCatalogs(payload, "organization-1");
+
+    expect(result.results).toEqual([]);
+    expect(result.ignored).toEqual([{
+      keyword: "문구 세트",
+      sellerId: "seller-1",
+      reason: "serp_snapshot_missing",
+    }]);
   });
 
   it("adds seller identity only to server-selected overlapping products", async () => {
@@ -515,6 +539,11 @@ describe("KeywordRankIngestHandler", () => {
     );
 
     expect(result.results).toEqual([]);
+    expect(result.ignored).toEqual([{
+      keyword: "문구 세트",
+      sellerId: "seller-1",
+      reason: "newer_catalog_preserved",
+    }]);
     expect(repo.mutateLatestSerpSnapshot).toHaveBeenCalledOnce();
   });
 

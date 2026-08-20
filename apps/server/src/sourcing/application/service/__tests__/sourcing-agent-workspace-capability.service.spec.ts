@@ -42,29 +42,6 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
     });
   });
 
-  it('starts collection once with the caller-provided request idempotency key', async () => {
-    const dependencies = mocks();
-    dependencies.collections.startCollection.mockResolvedValue({
-      operationRunId: 'operation-1',
-      status: 'requested',
-    });
-    const service = createService(dependencies);
-
-    await service.refreshCollection({
-      organizationId: ORGANIZATION_ID,
-      requestedByUserId: USER_ID,
-      sources: ['1688'],
-      idempotencyKey: 'agent:request-1:sourcing.refreshCollection:1688',
-    });
-
-    expect(dependencies.collections.startCollection).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      requestedByUserId: USER_ID,
-      sources: ['1688'],
-      idempotencyKey: 'agent:request-1:sourcing.refreshCollection:1688',
-    });
-  });
-
   it('inspects an explicit recommendation run without recalculating it', async () => {
     const dependencies = mocks();
     dependencies.recommendations.findById.mockResolvedValue(recommendationRun());
@@ -123,7 +100,6 @@ function mocks() {
     rag: { retrieveWorkspaceEvidence: vi.fn() },
     recommendations: { findById: vi.fn(), findLatest: vi.fn() },
     validationRows: { listForRun: vi.fn() },
-    collections: { startCollection: vi.fn() },
     validations: { refreshForRun: vi.fn() },
     reviews: { createBatch: vi.fn() },
   };
@@ -134,7 +110,6 @@ function createService(dependencies: ReturnType<typeof mocks>) {
     dependencies.rag as never,
     dependencies.recommendations as never,
     dependencies.validationRows as never,
-    dependencies.collections as never,
     dependencies.validations as never,
     dependencies.reviews as never,
   );

@@ -1,8 +1,14 @@
 import type {
   OperationEngineType,
+  OperationResourceClass,
+  OperationStage,
   OperationStatus,
   OperationTriggerSource,
 } from '@kiditem/shared/operations';
+import type {
+  ActiveBrowserAttemptTransaction,
+  ActiveOperationAttemptTransaction,
+} from '../../active-browser-attempt-transaction';
 
 export const OPERATION_REPOSITORY_PORT = Symbol('OPERATION_REPOSITORY_PORT');
 
@@ -20,6 +26,8 @@ export interface OperationRunRecord {
   ownerDomain: string;
   title: string;
   engineType: OperationEngineType;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   status: OperationStatus;
   triggerSource: OperationTriggerSource;
   requestedByUserId: string | null;
@@ -29,6 +37,11 @@ export interface OperationRunRecord {
   input: Record<string, unknown>;
   result: Record<string, unknown> | null;
   progress: number | null;
+  stage: OperationStage | null;
+  stageUpdatedAt: Date | null;
+  progressCurrent: number | null;
+  progressTotal: number | null;
+  deadlineAt: Date | null;
   nativeRunType: string | null;
   nativeRunId: string | null;
   attempts: number;
@@ -47,13 +60,32 @@ export interface OperationRunRecord {
   requestedBy: OperationRunActorRecord | null;
 }
 
+export interface ActiveBrowserOperationAttemptRecord {
+  runId: string;
+  organizationId: string;
+  operationKey: string;
+  engineType: OperationEngineType;
+  status: OperationStatus;
+  attemptToken: string;
+  input: Record<string, unknown>;
+  requestedByUserId: string | null;
+  startedAt: Date;
+  leaseExpiresAt: Date;
+  deadlineAt: Date;
+}
+
+export type ActiveDomainOperationAttemptRecord = ActiveBrowserOperationAttemptRecord;
+
 export interface CreateOperationRunRecord {
+  signal: AbortSignal;
   organizationId: string;
   operationKey: string;
   definitionVersion: number;
   ownerDomain: string;
   title: string;
   engineType: OperationEngineType;
+  resourceClass: OperationResourceClass;
+  executionTimeoutMs: number;
   triggerSource: OperationTriggerSource;
   requestedByUserId: string | null;
   parentRunId: string | null;
@@ -65,11 +97,16 @@ export interface CreateOperationRunRecord {
 }
 
 export interface OperationRunTransition {
+  signal?: AbortSignal;
   organizationId: string;
   runId: string;
   expectedStatuses: readonly OperationStatus[];
   status: OperationStatus;
   progress?: number | null;
+  stage?: OperationStage | null;
+  progressCurrent?: number | null;
+  progressTotal?: number | null;
+  deadlineAt?: Date | null;
   result?: Record<string, unknown> | null;
   nativeRunType?: string | null;
   nativeRunId?: string | null;
@@ -82,8 +119,29 @@ export interface OperationRunTransition {
   claimedAt?: Date | null;
   leaseExpiresAt?: Date | null;
   expectedAttemptToken?: string | null;
-  attemptDelta?: number;
 }
+
+export type OperationActiveAttemptTransition = Pick<
+  OperationRunTransition,
+  | 'organizationId'
+  | 'runId'
+  | 'expectedStatuses'
+  | 'status'
+  | 'progress'
+  | 'stage'
+  | 'progressCurrent'
+  | 'progressTotal'
+  | 'result'
+  | 'nativeRunType'
+  | 'nativeRunId'
+  | 'errorCode'
+  | 'errorMessage'
+  | 'finishedAt'
+  | 'claimedBy'
+  | 'attemptToken'
+  | 'claimedAt'
+  | 'leaseExpiresAt'
+> & { expectedAttemptToken: string };
 
 export interface OperationScheduleRecord {
   id: string;
@@ -113,7 +171,42 @@ export interface UpsertOperationScheduleRecord {
   createdByUserId: string;
 }
 
+export interface OperationLifecycleBatchResult {
+  updated: number;
+  remaining: boolean;
+}
+
+export interface OperationCompositeCancellationResult {
+  parent: OperationRunRecord;
+  children: OperationRunRecord[];
+}
+
 export interface OperationRunRepositoryPort {
+  withActiveBrowserAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveBrowserOperationAttemptRecord,
+    transaction: ActiveBrowserAttemptTransaction,
+  ) => Promise<T>): Promise<T | null>;
+  withActiveDomainAttemptFence<T>(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+  }, operation: (
+    attempt: ActiveDomainOperationAttemptRecord,
+    transaction: ActiveOperationAttemptTransaction,
+  ) => Promise<T>): Promise<T | null>;
+  findActiveBrowserAttempt(input: {
+    organizationId: string;
+    runId: string;
+    expectedOperationKey: string;
+    attemptToken: string;
+    now: Date;
+  }): Promise<ActiveBrowserOperationAttemptRecord | null>;
   findRunById(input: {
     organizationId: string;
     runId: string;
@@ -124,9 +217,40 @@ export interface OperationRunRepositoryPort {
     idempotencyKey: string;
   }): Promise<OperationRunRecord | null>;
   createRun(input: CreateOperationRunRecord): Promise<OperationRunRecord>;
+  createChildAndWaitForDependency(input: {
+    signal: AbortSignal;
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    child: Omit<CreateOperationRunRecord, 'signal'>;
+  }): Promise<OperationRunRecord | null>;
+  createChildrenAndWaitForDependencies(input: {
+    signal: AbortSignal;
+    parentOrganizationId: string;
+    parentRunId: string;
+    expectedAttemptToken: string;
+    children: Array<Omit<CreateOperationRunRecord, 'signal'>>;
+  }): Promise<OperationRunRecord[] | null>;
+  cancelRunAndActiveChildren(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    parentRunId: string;
+    parentErrorCode: string | null;
+    parentErrorMessage: string | null;
+    childErrorCode: string;
+    childErrorMessage: string;
+    finishedAt: Date;
+  }): Promise<OperationCompositeCancellationResult | null>;
   listRuns(input: {
     organizationId: string;
     status?: OperationStatus;
+    limit: number;
+  }): Promise<OperationRunRecord[]>;
+  listReconnectableRuns(input: {
+    organizationId: string;
+    requestedByUserId: string;
+    operationKey: string;
+    now: Date;
     limit: number;
   }): Promise<OperationRunRecord[]>;
   listChildRuns(input: {
@@ -137,11 +261,58 @@ export interface OperationRunRepositoryPort {
     limit: number;
   }): Promise<OperationRunRecord[]>;
   transition(input: OperationRunTransition): Promise<OperationRunRecord | null>;
+  transitionActiveAttempt(
+    input: OperationActiveAttemptTransition,
+  ): Promise<OperationRunRecord | null>;
   claimNextRun(input: {
+    resourceClass: OperationResourceClass;
     workerId: string;
     now: Date;
     leaseExpiresAt: Date;
+    signal: AbortSignal;
   }): Promise<OperationRunRecord | null>;
+  readLifecycleDatabaseTime(): Promise<Date>;
+  cancelRunsForLifecycle(input: {
+    cutoff: Date | null;
+    errorCode:
+      | 'operation_server_shutdown'
+      | 'operation_server_lifecycle_expired';
+    errorMessage: string;
+    finishedAt: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult>;
+  advanceSchedulesPastLifecycleCutoff(input: {
+    cutoff: Date;
+    limit: number;
+    statementTimeoutMs: number;
+  }): Promise<OperationLifecycleBatchResult>;
+  cancelClaimedAttemptForLifecycle(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    claimedBy: string;
+    errorCode: 'operation_server_shutdown';
+    finishedAt: Date;
+  }): Promise<boolean>;
+  cancelExpiredWorkerAttempts(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number>;
+  heartbeatRun(input: {
+    organizationId: string;
+    runId: string;
+    attemptToken: string;
+    now: Date;
+    leaseExpiresAt: Date;
+    stage?: OperationStage | null;
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
+  }): Promise<OperationRunRecord | null>;
+  expirePastDeadlineRuns(input: {
+    now: Date;
+    limit: number;
+  }): Promise<number>;
   listSchedules(input: {
     organizationId: string;
   }): Promise<OperationScheduleRecord[]>;
@@ -167,17 +338,21 @@ export interface OperationRunRepositoryPort {
     nextRunAt: Date;
   }): Promise<boolean>;
   claimNextBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runtimeId: string;
     now: Date;
     leaseExpiresAt: Date;
   }): Promise<OperationRunRecord | null>;
   heartbeatBrowserRun(input: {
+    signal: AbortSignal;
     organizationId: string;
     runId: string;
     attemptToken: string;
-    now: Date;
-    leaseExpiresAt: Date;
+    leaseDurationMs: number;
     progress?: number | null;
+    stage?: OperationStage | null;
+    progressCurrent?: number | null;
+    progressTotal?: number | null;
   }): Promise<OperationRunRecord | null>;
 }

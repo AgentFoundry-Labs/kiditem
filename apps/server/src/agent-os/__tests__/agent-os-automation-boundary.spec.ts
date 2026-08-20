@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
 import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { describe, expect, it } from 'vitest';
 
 const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const AGENT_OS_ROOT = path.resolve(__dirname, '..');
@@ -31,6 +31,7 @@ describe('agent-os -> automation boundary', () => {
     const violators = hits.filter((line) => {
       if (line.includes('agent-os/agent-os.module.ts:')) {
         return !line.includes('../automation/automation.module') &&
+          !line.includes('../automation/operation-alert-runtime.module') &&
           !line.includes('./adapter/out/automation/');
       }
       if (line.includes('agent-os/adapter/out/automation/')) {

@@ -1,12 +1,17 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Loader2, RefreshCw } from 'lucide-react';
 import { cn, formatNumber, formatPercent } from '@/lib/utils';
+import { queryKeys } from '@/lib/query-keys';
 import {
-  useRefreshSourcingValidation,
+  useSourcingRecommendations,
   useSourcingValidation,
 } from '../hooks/use-sourcing-workspace';
 import { SourcingReadState } from './SourcingReadState';
+import { SourcingOperationRunPanel } from './SourcingOperationRunPanel';
+import { useSourcingOperationAction } from '../hooks/use-sourcing-operation-action';
+import { normalizeWingOperationKeywords } from '../lib/wing-operation-input';
 
 const STATUS_LABELS = {
   pending: '검증 대기',
@@ -26,8 +31,36 @@ const STATUS_STYLES = {
 
 export function SellochValidationPage() {
   const validationQuery = useSourcingValidation();
-  const refreshValidation = useRefreshSourcingValidation();
+  const recommendationsQuery = useSourcingRecommendations('today');
+  const [inputError, setInputError] = useState<string | null>(null);
   const items = validationQuery.data?.data?.items ?? [];
+  const keywords = useMemo(() => normalizeWingOperationKeywords(
+    (recommendationsQuery.data?.data?.items ?? []).flatMap((item) => [
+      item.keyword,
+      ...item.sourceKeywords,
+    ]),
+    12,
+  ), [recommendationsQuery.data]);
+  const operationInput = useMemo(() => ({
+    keywords,
+    maxPages: 1,
+    purpose: 'recommendation_validation' as const,
+  }), [keywords]);
+  const operation = useSourcingOperationAction({
+    operationKey: 'sourcing.collect_wing_catalog_batch',
+    input: operationInput,
+    snapshotQueryKey: queryKeys.sourcing.all,
+  });
+  const isRunning = operation.isStarting || isActiveOperation(operation.run?.status);
+
+  const refreshValidation = () => {
+    if (keywords.length === 0) {
+      setInputError('검증할 추천 키워드가 없습니다. 오늘의 추천을 먼저 새로고침하세요.');
+      return;
+    }
+    setInputError(null);
+    void operation.start();
+  };
 
   return (
     <main className="min-h-full bg-transparent text-[#171923]">
@@ -41,11 +74,11 @@ export function SellochValidationPage() {
           </div>
           <button
             type="button"
-            onClick={() => refreshValidation.mutate()}
-            disabled={refreshValidation.isPending}
+            onClick={refreshValidation}
+            disabled={isRunning}
             className="inline-flex h-10 items-center gap-2 rounded-xl border border-[#dbe5f4] bg-white px-4 text-xs font-black text-[#667085] transition hover:border-[#6d5dfc] hover:text-[#5b52e6] disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {refreshValidation.isPending ? (
+            {isRunning ? (
               <Loader2 size={15} className="animate-spin motion-reduce:animate-none" aria-hidden="true" />
             ) : (
               <RefreshCw size={15} aria-hidden="true" />
@@ -53,6 +86,15 @@ export function SellochValidationPage() {
             검증 새로고침
           </button>
         </header>
+
+        {inputError ? <p className="text-sm font-bold text-rose-700">{inputError}</p> : null}
+        <SourcingOperationRunPanel
+          run={operation.run}
+          onCancel={() => { void operation.cancel(); }}
+          onRetryAttention={() => { void operation.retryAttention(); }}
+          isCancelling={operation.isCancelling}
+          isRetrying={operation.isRetrying}
+        />
 
         <section className="overflow-hidden rounded-[18px] border border-[#eef1f5] bg-white">
           <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-4">
@@ -103,6 +145,14 @@ export function SellochValidationPage() {
       </div>
     </main>
   );
+}
+
+function isActiveOperation(status: string | undefined): boolean {
+  return status === 'queued'
+    || status === 'waiting_runtime'
+    || status === 'waiting_dependency'
+    || status === 'running'
+    || status === 'attention_required';
 }
 
 function scoreLabel(value: number | null): string {

@@ -15,6 +15,8 @@ export const ORDERS_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
+    resourceClass: 'extension_coupang',
+    executionTimeoutMs: 900_000,
     inputSchema: MarketplaceOrderCollectionInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

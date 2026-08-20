@@ -15,7 +15,6 @@ describe('SourcingWorkspaceCapabilityAdapter', () => {
     expect(registry.register.mock.calls.map(([handler]) => handler.key)).toEqual([
       'sourcing.retrieveWorkspaceEvidence',
       'sourcing.inspectRecommendationRun',
-      'sourcing.refreshCollection',
       'sourcing.refreshValidation',
       'sourcing.createReviewBatch',
     ]);
@@ -85,7 +84,6 @@ function workspace() {
   return {
     retrieveWorkspaceEvidence: vi.fn(),
     inspectRecommendationRun: vi.fn(),
-    refreshCollection: vi.fn(),
     refreshValidation: vi.fn(),
     createReviewBatch: vi.fn(),
   };

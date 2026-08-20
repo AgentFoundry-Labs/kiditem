@@ -18,6 +18,7 @@ export interface NaverDatalabTrendStatus {
 export interface SearchNaverRelatedKeywordsInput {
   seedKeywords: string[];
   maxResults?: number;
+  signal?: AbortSignal;
 }
 
 export interface NaverRelatedKeyword {
@@ -68,6 +69,7 @@ export type NaverDatalabPopularKeywordBoardKey =
 
 export interface CompareNaverDatalabSearchTrendsInput {
   keywords: string[];
+  signal?: AbortSignal;
   startDate?: string;
   endDate?: string;
   timeUnit?: NaverDatalabTimeUnit;
@@ -110,6 +112,7 @@ export interface NaverDatalabTrendPort {
 
 export interface SearchNaverDatalabPopularKeywordsInput {
   boardKeys?: NaverDatalabPopularKeywordBoardKey[];
+  signal?: AbortSignal;
   /** API HUB Shopping Insight에서 보드별로 비교할 후보. 미지정 시 보드의 결정론적 후보를 사용한다. */
   keywords?: string[];
   timeUnit?: NaverDatalabTimeUnit;
@@ -167,6 +170,7 @@ export interface NaverDatalabPopularKeywordPort {
 export interface SearchNaverAutocompleteKeywordsInput {
   keyword: string;
   maxResults?: number;
+  signal?: AbortSignal;
 }
 
 export interface NaverAutocompleteKeyword {

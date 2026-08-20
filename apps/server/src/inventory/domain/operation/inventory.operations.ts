@@ -20,6 +20,8 @@ export const INVENTORY_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
+    resourceClass: 'default',
+    executionTimeoutMs: 900_000,
     inputSchema: SellpiaInventoryRefreshInputSchema,
   },
   {
@@ -31,6 +33,8 @@ export const INVENTORY_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
+    resourceClass: 'extension_coupang',
+    executionTimeoutMs: 900_000,
     inputSchema: CoupangShipmentSummaryInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

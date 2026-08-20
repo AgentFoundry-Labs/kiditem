@@ -5,6 +5,7 @@
   const SEARCH_ORIGIN = "https://s.1688.com";
   const NAVIGATION_TIMEOUT_MS = 30000;
   const EXTRACTION_TIMEOUT_MS = 20000;
+  const TREND_OWNER_PATH = "/sourcing/operations/1688-trends/";
 
   function create(options) {
     const chromeApi = options.chrome;
@@ -12,15 +13,8 @@
     const ensureContentScripts = options.ensureContentScripts;
     const sessions = options.sessions;
     const now = options.now || (() => new Date());
-    const createRunId = options.createRunId || (() => {
-      if (global.crypto && typeof global.crypto.randomUUID === "function") {
-        return global.crypto.randomUUID();
-      }
-      return `1688-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-    });
 
     const activeRuns = new Map();
-    const runsById = new Map();
 
     function storageGet(key) {
       return new Promise((resolve) => {
@@ -182,14 +176,28 @@
     async function postBatch(run, keywords, errors) {
       const config = run.backendConfig;
       const request = config.request || fetch;
-      const response = await request(`${config.base}/trend/1688-results`, {
-        method: "POST",
-        headers: config.headers,
-        body: JSON.stringify({ runId: run.runId, keywords, errors }),
-      });
+      if (typeof run.operationAttemptToken !== "string" || !run.operationAttemptToken) {
+        throw new Error("operation_attempt_token_required");
+      }
+      const response = await request(
+        `${config.apiBase}${TREND_OWNER_PATH}${encodeURIComponent(run.runId)}/results`,
+        {
+          method: "POST",
+          headers: {
+            ...config.headers,
+            "x-operation-attempt-token": run.operationAttemptToken,
+          },
+          body: JSON.stringify({ keywords, errors }),
+        },
+      );
       if (!response.ok) {
         const body = await response.text().catch(() => "");
-        throw new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
+        const error = new Error(`HTTP ${response.status}: ${body.slice(0, 200)}`);
+        if (response.status === 409) {
+          error.code = "operation_runtime_fence_lost";
+          error.status = 409;
+        }
+        throw error;
       }
       return response.json().catch(() => ({}));
     }
@@ -302,7 +310,7 @@
         if (!run.cancelRequested) {
           await setStatus(run, {
             status: "failed",
-            error: error?.message || String(error),
+            error: error?.code || error?.message || String(error),
             errors,
             completedAt: now().toISOString(),
             tabId: null,
@@ -311,7 +319,6 @@
         }
       } finally {
         if (!run.keepTabOpen) await removeTab(run.tabId);
-        if (!run.keepTabOpen) runsById.delete(run.runId);
         if (activeRuns.get(run.environmentId) === run) {
           activeRuns.delete(run.environmentId);
         }
@@ -323,7 +330,15 @@
       maxResultsPerKeyword,
       environmentId,
       requestedRunId,
+      operationContext,
     ) {
+      const operationAttemptToken = operationContext?.attemptToken;
+      if (typeof operationAttemptToken !== "string" || !operationAttemptToken) {
+        return { success: false, error: "operation_attempt_token_required" };
+      }
+      if (typeof requestedRunId !== "string" || !requestedRunId) {
+        return { success: false, error: "operation_run_id_required" };
+      }
       const activeRun = activeRuns.get(environmentId);
       if (activeRun && activeRun.status.status === "running") {
         return {
@@ -341,13 +356,14 @@
         };
       }
 
-      const runId = requestedRunId || createRunId();
+      const runId = requestedRunId;
       const startedAt = now().toISOString();
       const run = {
         environmentId,
         runId,
         keywords,
         maxResultsPerKeyword,
+        operationAttemptToken,
         backendConfig,
         reusableTabId: null,
         tabId: null,
@@ -372,7 +388,6 @@
         },
       };
       activeRuns.set(environmentId, run);
-      runsById.set(runId, run);
       await sessions.start({
         environmentId,
         runId,
@@ -421,7 +436,6 @@
         });
         await sessions.cancel(activeRun.runId);
         await removeTab(activeRun.tabId);
-        runsById.delete(activeRun.runId);
         activeRuns.delete(environmentId);
         return { success: true, runId: activeRun.runId, status: "cancelled" };
       }
@@ -440,48 +454,7 @@
       return { success: true, runId: stored.runId, status: "cancelled" };
     }
 
-    async function restart(runId) {
-      const run = runsById.get(runId);
-      const session = await sessions.get(runId);
-      if (!run || !session) throw new Error("Collection session not found");
-      const activeRun = activeRuns.get(session.environmentId);
-      if (activeRun?.status.status === "running") {
-        return {
-          success: false,
-          error: "collection_in_progress",
-          runId: activeRun.runId,
-        };
-      }
-      if (session.restartStrategy !== "extension") {
-        throw new Error("Collection session requires a web restart");
-      }
-
-      await sessions.restart(runId);
-      run.cancelRequested = false;
-      run.keepTabOpen = false;
-      run.reusableTabId = run.tabId;
-      const restartedAt = now().toISOString();
-      run.status = {
-        ...run.status,
-        status: "running",
-        collected: 0,
-        businessDate: null,
-        error: null,
-        verificationUrl: null,
-        currentKeyword: null,
-        currentKeywordIndex: 0,
-        errors: [],
-        startedAt: restartedAt,
-        updatedAt: restartedAt,
-        completedAt: null,
-      };
-      activeRuns.set(session.environmentId, run);
-      await storageSet(run.status);
-      Promise.resolve().then(() => executeRun(run));
-      return { success: true, runId, status: "running" };
-    }
-
-    return { start, restart, getStatus, cancel, isVerificationUrl };
+    return { start, getStatus, cancel, isVerificationUrl };
   }
 
   global.ProductScraper1688Trend = { create };

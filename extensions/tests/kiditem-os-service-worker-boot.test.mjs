@@ -24,11 +24,13 @@ const manifest = JSON.parse(
 
 function createFakeChrome() {
   const storage = {};
+  const createdTabs = [];
   const externalMessageListeners = [];
   const connectExternalListeners = [];
   const noopEvent = () => ({ addListener() {}, removeListener() {} });
   return {
     storage,
+    createdTabs,
     externalMessageListeners,
     connectExternalListeners,
     chrome: {
@@ -76,6 +78,7 @@ function createFakeChrome() {
       },
       tabs: {
         async create(properties) {
+          createdTabs.push(properties);
           return { id: 1, windowId: 1, ...properties };
         },
         async get(id) {
@@ -165,6 +168,38 @@ test('통합 서비스워커가 세 도메인을 모두 싣고 부팅한다', ()
   assert.ok(context.KidItemDomains);
 });
 
+test('브라우저 Operation runtime 인스턴스를 하나만 만들고 공용 dispatch에 보관한다', () => {
+  const source = readFileSync(entryPath, 'utf8');
+  assert.equal(
+    source.match(/KidItemOperationRuntimeClient\.create\(/g)?.length,
+    1,
+  );
+  assert.match(source, /const browserOperationRuntime\s*=\s*KidItemOperationRuntimeClient\.create/);
+  assert.match(source, /operationRuntime:\s*browserOperationRuntime/);
+  assert.match(source, /browserOperationRuntime\.install\(\)/);
+});
+
+test('wakeOperationRuntime에는 공용 dispatch만 즉시 응답한다', async () => {
+  const { fake } = bootServiceWorker();
+  const responses = [];
+  let keptAlive = 0;
+
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      { action: 'wakeOperationRuntime' },
+      { url: 'http://localhost:3000/sourcing-ai/wing-catalog' },
+      (response) => responses.push(response),
+    );
+    if (result === true) keptAlive += 1;
+  }
+
+  assert.equal(keptAlive, 0);
+  assert.deepEqual(JSON.parse(JSON.stringify(responses)), [
+    { success: true, accepted: true },
+  ]);
+  await Promise.resolve();
+});
+
 test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다', async () => {
   const { fake } = bootServiceWorker();
 
@@ -224,6 +259,36 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+});
+
+test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 시작할 수 없다', () => {
+  const { fake, context } = bootServiceWorker();
+
+  for (const action of [
+    'searchWingCatalogProducts',
+    'searchCoupangKeywordSuggestions',
+  ]) {
+    let keptAlive = 0;
+    for (const listener of fake.externalMessageListeners) {
+      const result = listener(
+        { action, keyword: '문구', maxPages: 1 },
+        { url: 'http://localhost:3000/sourcing-ai/wing-catalog' },
+        () => {},
+      );
+      if (result === true) keptAlive += 1;
+    }
+    assert.equal(keptAlive, 0, `${action}: exact OperationRun handler만 source work를 시작한다`);
+  }
+
+  assert.deepEqual(fake.createdTabs, []);
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_wing_catalog_batch'),
+    'function',
+  );
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_keyword_suggestions'),
+    'function',
+  );
 });
 
 test('수익성 광고비 갱신은 정확한 브라우저 operation key로만 등록된다', () => {
@@ -289,27 +354,37 @@ test('수집 세션 공통 액션에 도메인 워커가 경쟁 응답하지 않
   }
 });
 
-test('도메인 고유 액션은 그 도메인 워커만 받는다', () => {
-  const { fake } = bootServiceWorker();
+test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge는 받지 않는다', () => {
+  const { fake, context } = bootServiceWorker();
 
-  // 각 도메인에서 하나씩. 소유 워커만 채널을 연다.
-  for (const message of [
-    { action: 'collectKakaoOrders', date: '2026-07-15' },
-    {
-      action: 'start1688TrendCollection',
-      runId: '11111111-1111-4111-8111-111111111111',
-      keywords: ['테스트'],
-    },
-  ]) {
-    let keptAlive = 0;
-    for (const listener of fake.externalMessageListeners) {
-      const result = listener(
-        message,
-        { url: 'http://localhost:3000/order-collection' },
-        () => {},
-      );
-      if (result === true) keptAlive += 1;
-    }
-    assert.equal(keptAlive, 1, `${message.action}: 소유 워커 하나만 처리해야 한다`);
+  let orderKeptAlive = 0;
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      { action: 'collectKakaoOrders', date: '2026-07-15' },
+      { url: 'http://localhost:3000/order-collection' },
+      () => {},
+    );
+    if (result === true) orderKeptAlive += 1;
   }
+  assert.equal(orderKeptAlive, 1, 'collectKakaoOrders: 소유 워커 하나만 처리해야 한다');
+
+  let sourcingBridgeKeptAlive = 0;
+  for (const listener of fake.externalMessageListeners) {
+    const result = listener(
+      {
+        action: 'start1688TrendCollection',
+        runId: '11111111-1111-4111-8111-111111111111',
+        keywords: ['테스트'],
+      },
+      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
+      () => {},
+    );
+    if (result === true) sourcingBridgeKeptAlive += 1;
+  }
+  assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
+  assert.equal(
+    typeof context.KidItemDomains.runOperation('sourcing.collect_1688_trends'),
+    'function',
+    '소싱은 exact browser Operation handler로만 등록한다',
+  );
 });

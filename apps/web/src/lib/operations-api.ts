@@ -1,6 +1,7 @@
 import {
   OperationCatalogResponseSchema,
   OperationRunListResponseSchema,
+  OperationRunReconnectResponseSchema,
   OperationRunSchema,
   OperationScheduleListResponseSchema,
   OperationScheduleSchema,
@@ -24,13 +25,30 @@ export const operationsApi = {
   getRun: (runId: string) =>
     apiClient.getParsed(`/api/operations/runs/${runId}`, OperationRunSchema),
 
+  async findReconnectable(
+    operationKey: string,
+    input?: Record<string, unknown>,
+  ): Promise<OperationRun | null> {
+    const suffix = input === undefined
+      ? ''
+      : `?input=${encodeURIComponent(JSON.stringify(input))}`;
+    const response = await apiClient.getParsed(
+      `/api/operations/${encodeURIComponent(operationKey)}/runs/reconnect${suffix}`,
+      OperationRunReconnectResponseSchema,
+    );
+    return response.run;
+  },
+
   async start(operationKey: string, input: StartOperationInput): Promise<OperationRun> {
     const raw = await apiClient.post<unknown>(
       `/api/operations/${encodeURIComponent(operationKey)}/runs`,
       { sourceSurface: input.sourceSurface, input: input.input },
-      input.idempotencyKey
-        ? { headers: { 'Idempotency-Key': input.idempotencyKey } }
-        : undefined,
+      {
+        timeoutMs: 10_000,
+        ...(input.idempotencyKey
+          ? { headers: { 'Idempotency-Key': input.idempotencyKey } }
+          : {}),
+      },
     );
     return OperationRunSchema.parse(raw);
   },
@@ -40,8 +58,12 @@ export const operationsApi = {
     return OperationRunSchema.parse(raw);
   },
 
-  retryBrowserRun: (runId: string) =>
-    apiClient.post<unknown>(`/api/operation-runtime/browser/runs/${runId}/retry`),
+  async retryBrowserRun(runId: string): Promise<OperationRun> {
+    const raw = await apiClient.post<unknown>(
+      `/api/operation-runtime/browser/runs/${runId}/retry`,
+    );
+    return OperationRunSchema.parse(raw);
+  },
 
   listSchedules: () =>
     apiClient.getParsed('/api/operation-schedules', OperationScheduleListResponseSchema),

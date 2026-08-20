@@ -46,6 +46,7 @@ export class NaverAutocompleteKeywordAdapter implements NaverAutocompleteKeyword
     });
     const response = await fetch(`${readBaseUrl()}${AUTOCOMPLETE_URI}?${params.toString()}`, {
       method: 'GET',
+      signal: input.signal,
       headers: {
         Accept: 'application/json, text/plain, */*',
         'User-Agent':

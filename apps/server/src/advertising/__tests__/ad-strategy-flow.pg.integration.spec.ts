@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import { EventEmitterModule } from '@nestjs/event-emitter';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { periodBounds } from '../domain/ad-metrics';
 import { AdvertisingModule } from '../advertising.module';
 import { AdStrategyService } from '../application/service/ad-strategy.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -838,6 +839,11 @@ describe('AdStrategy flow (PG integration)', () => {
     }
 
     it('attaches latest listing+option daily snapshot to action.channelState (C4-#1)', async () => {
+      const latestBusinessDate = periodBounds('14d').to;
+      const latestBusinessDateText = latestBusinessDate.toISOString().slice(0, 10);
+      const previousBusinessDateText = new Date(
+        latestBusinessDate.getTime() - 86_400_000,
+      ).toISOString().slice(0, 10);
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -846,13 +852,13 @@ describe('AdStrategy flow (PG integration)', () => {
       });
       // H3 — the strategy aggregate now reads ad-metric columns from the
       // same `ChannelListingDailySnapshot` rows. Land the ad metrics on the
-      // 2026-04-14 row so it remains the latest businessDate AND carries
+      // latest completed business-date row so it remains the latest businessDate AND carries
       // the spend/revenue the rule engine needs.
       await seedListingDaily({
         organizationId: TEST_ORGANIZATION_ID,
         listingId: a.listing.id,
         externalId: a.listing.externalId,
-        businessDate: '2026-04-13',
+        businessDate: previousBusinessDateText,
         isOfferWinner: true,
         myPrice: 12000,
       });
@@ -862,7 +868,7 @@ describe('AdStrategy flow (PG integration)', () => {
           listingId: a.listing.id,
           channel: 'coupang',
           externalId: a.listing.externalId,
-          businessDate: new Date('2026-04-14T00:00:00Z'),
+          businessDate: latestBusinessDate,
           isOfferWinner: false,
           myPrice: 12000,
           winnerPrice: 11500,
@@ -880,7 +886,7 @@ describe('AdStrategy flow (PG integration)', () => {
         listingOptionId: a.listingOption.id,
         externalId: a.listing.externalId,
         externalOptionId: 'VI-C4-EV',
-        businessDate: '2026-04-14',
+        businessDate: latestBusinessDateText,
         stockQty: 0,
       });
 
@@ -890,16 +896,18 @@ describe('AdStrategy flow (PG integration)', () => {
       );
       expect(action).toBeDefined();
       expect(action?.channelState).not.toBeNull();
-      expect(action?.channelState?.businessDate).toBe('2026-04-14');
+      expect(action?.channelState?.businessDate).toBe(latestBusinessDateText);
       expect(action?.channelState?.isOfferWinner).toBe(false);
       expect(action?.channelState?.winnerGapPrice).toBe(-500);
       expect(action?.channelState?.primaryOption?.stockQty).toBe(0);
       expect(action?.reason).toContain('아이템위너 아님');
       expect(action?.reason).toContain('옵션 재고 0');
-      expect(action?.reason).toContain('2026-04-14 관측');
+      expect(action?.reason).toContain(`${latestBusinessDateText} 관측`);
     });
 
     it('uses the deterministic hydrated primary option, not an arbitrary option daily row (C4-#1b)', async () => {
+      const latestBusinessDate = periodBounds('14d').to;
+      const latestBusinessDateText = latestBusinessDate.toISOString().slice(0, 10);
       const a = await seedGradedListing({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -937,7 +945,7 @@ describe('AdStrategy flow (PG integration)', () => {
           quantity: 1,
         },
       });
-      // H3 — bake ad metrics into the 2026-04-14 listing-daily so it remains
+      // H3 — bake ad metrics into the latest completed listing-daily so it remains
       // the strategy aggregate input AND the latest channel-state.
       await prisma.channelListingDailySnapshot.create({
         data: {
@@ -945,7 +953,7 @@ describe('AdStrategy flow (PG integration)', () => {
           listingId: a.listing.id,
           channel: 'coupang',
           externalId: a.listing.externalId,
-          businessDate: new Date('2026-04-14T00:00:00Z'),
+          businessDate: latestBusinessDate,
           isOfferWinner: true,
           adSpend: 10000,
           adRevenue: 60000,
@@ -960,7 +968,7 @@ describe('AdStrategy flow (PG integration)', () => {
         listingOptionId: a.listingOption.id,
         externalId: a.listing.externalId,
         externalOptionId: a.listingOption.externalOptionId,
-        businessDate: '2026-04-14',
+        businessDate: latestBusinessDateText,
         stockQty: 0,
       });
       await seedOptionDaily({
@@ -969,7 +977,7 @@ describe('AdStrategy flow (PG integration)', () => {
         listingOptionId: earlierListingOption.id,
         externalId: a.listing.externalId,
         externalOptionId: earlierListingOption.externalOptionId,
-        businessDate: '2026-04-14',
+        businessDate: latestBusinessDateText,
         stockQty: 7,
       });
 

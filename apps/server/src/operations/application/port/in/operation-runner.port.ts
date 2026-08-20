@@ -34,6 +34,13 @@ export interface CancelOperationRunCommand {
 export interface OperationRunnerPort {
   start(command: StartOperationCommand): Promise<OperationRun>;
   list(query: ListOperationRunsQuery): Promise<OperationRun[]>;
+  findReconnectable(input: {
+    organizationId: string;
+    requestedByUserId: string;
+    operationKey: string;
+    /** Exact static input may disambiguate; omitted dynamic forms require one candidate. */
+    input?: Record<string, unknown>;
+  }): Promise<OperationRun | null>;
   get(organizationId: string, runId: string): Promise<OperationRun>;
   cancel(command: CancelOperationRunCommand): Promise<OperationRun>;
 }

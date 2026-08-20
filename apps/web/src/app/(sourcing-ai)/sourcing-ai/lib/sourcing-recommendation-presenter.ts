@@ -23,8 +23,8 @@ export function toTodayRecommendationRow(item: SourcingRecommendationItem): Toda
 
   return {
     productId: coupang?.productId ?? item.externalOfferId,
-    itemId: null,
-    vendorItemId: null,
+    itemId: coupang?.itemId ?? null,
+    vendorItemId: coupang?.vendorItemId ?? null,
     productName: item.displayName,
     itemName: null,
     brandName: null,

@@ -242,8 +242,7 @@ test('web restart handlers preserve the requested run id and use the shared begi
     /msg\.action === "runWingSalesRankCheck"[\s\S]*?startWingSalesRankCheck\(\{\s*runId:\s*msg\.runId/s,
   );
   for (const [name, nextName] of [
-    ['startCoupangKeywordRankCheck', 'startCoupangCompetitorSellerCatalogCollection'],
-    ['startCoupangCompetitorSellerCatalogCollection', 'runCoupangCompetitorSellerCatalogCollection'],
+    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'],
     ['startWingSalesRankCheck', 'runWingSalesRankBatch'],
   ]) {
     const source = functionSource(name, nextName);
@@ -272,7 +271,7 @@ test('shared producers declare stable collection modes and opaque input owners',
     ['searchCoupangKeywordSuggestions', 'getOrCreateCoupangSearchTab', 'suggestions'],
     ['startWingSalesRankCheck', 'runWingSalesRankBatch', 'batch'],
     ['checkCoupangKeywordRank', 'startCoupangKeywordRankCheck', 'single_serp'],
-    ['startCoupangKeywordRankCheck', 'startCoupangCompetitorSellerCatalogCollection', 'all_trackers'],
+    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch', 'all_trackers'],
   ]) {
     assert.match(functionSource(name, nextName), new RegExp(`collectionMode:\\s*["']${mode}["']`));
   }
@@ -315,8 +314,7 @@ test('stale domain state only yields to a restartable generic same-run session',
 
   for (const [name, nextName] of [
     ['startWingSalesRankCheck', 'runWingSalesRankBatch'],
-    ['startCoupangKeywordRankCheck', 'startCoupangCompetitorSellerCatalogCollection'],
-    ['startCoupangCompetitorSellerCatalogCollection', 'runCoupangCompetitorSellerCatalogCollection'],
+    ['startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch'],
   ]) {
     assert.match(functionSource(name, nextName), /canRestartStoredDomainRun\(/);
   }
@@ -414,10 +412,7 @@ test('ordinary tab cancellation dispatches domain owners and fences late termina
     functionSource('runCoupangKeywordRankBatch'),
     /if \(await collectionRuns\.isCancelled\(runId\)\)/,
   );
-  assert.match(
-    functionSource('runCoupangCompetitorSellerCatalogCollection'),
-    /if \(await collectionRuns\.isCancelled\(runId\)\)/,
-  );
+  assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
   assert.match(worker, /status:\s*"cancelled"/);
 });
 
@@ -460,50 +455,6 @@ test('cancelled keyword batch skips seller phases, sync, terminal writes, and su
   });
 });
 
-test('seller cancellation after tab creation attaches ownership but skips all late work', async () => {
-  const calls = [];
-  const context = vm.createContext({
-    console,
-    Date,
-    COMPETITOR_SELLER_CATALOG_STATUS_KEY: 'seller-status',
-    chrome: { storage: { local: { set: async () => calls.push('status') } } },
-    createTab: async () => ({ id: 41, windowId: 7 }),
-    collectionRuns: {
-      attachTab: async () => calls.push('attach'),
-      isCancelled: async () => true,
-      requireAttention: async () => calls.push('attention'),
-    },
-    collectionSessions: {
-      progress: async () => calls.push('progress'),
-      succeed: async () => calls.push('succeed'),
-      fail: async () => calls.push('fail'),
-    },
-    collectCoupangSellerCatalogs: async () => calls.push('collect'),
-    postCompetitorSellerCatalogSync: async () => calls.push('sync'),
-    requestCoupangCompetitorCatalogCancellation: async () =>
-      calls.push('cancel-owner'),
-    notifyDashboard: () => calls.push('notify'),
-    removeTab: async () => calls.push('remove'),
-  });
-  vm.runInContext(
-    `${functionSource('runCoupangCompetitorSellerCatalogCollection', 'runCoupangKeywordRankBatch')}\n` +
-      'globalThis.runSeller = runCoupangCompetitorSellerCatalogCollection;',
-    context,
-  );
-
-  await context.runSeller(
-    {
-      sellerId: 'seller-a',
-      sellerName: '판매자 A',
-      sellerStoreUrl: 'https://www.coupang.com/np/products/brand-shop',
-    },
-    'cancelled-run',
-    123,
-  );
-
-  assert.deepEqual(calls, ['attach', 'cancel-owner']);
-});
-
 test('keyword terminal cancellation reasserts domain cancelled instead of succeeding', async () => {
   const calls = [];
   const cancellationStates = [false, true];
@@ -537,60 +488,6 @@ test('keyword terminal cancellation reasserts domain cancelled instead of succee
     cancelled: true,
     runId: 'cancelled-run',
   });
-});
-
-test('seller terminal cancellation reasserts domain cancelled after a racing done write', async () => {
-  const calls = [];
-  const cancellationStates = [false, false, false, false, false, true, true];
-  const context = vm.createContext({
-    console,
-    Date,
-    COMPETITOR_SELLER_CATALOG_STATUS_KEY: 'seller-status',
-    chrome: { storage: { local: { set: async () => calls.push('status') } } },
-    createTab: async () => ({ id: 41, windowId: 7 }),
-    collectionRuns: {
-      attachTab: async () => calls.push('attach'),
-      isCancelled: async () => cancellationStates.shift() ?? true,
-      requireAttention: async () => calls.push('attention'),
-    },
-    collectionSessions: {
-      progress: async () => calls.push('progress'),
-      succeed: async () => calls.push('succeed'),
-      fail: async () => calls.push('fail'),
-    },
-    collectCoupangSellerCatalogs: async () => [{
-      sellerId: 'seller-a',
-      sellerName: '판매자 A',
-      collectedProductCount: 3,
-    }],
-    postCompetitorSellerCatalogSync: async () => ({ success: true }),
-    requestCoupangCompetitorCatalogCancellation: async () => calls.push('cancel-owner'),
-    notifyDashboard: () => calls.push('notify'),
-    removeTab: async () => calls.push('remove'),
-  });
-  vm.runInContext(
-    `${functionSource('runCoupangCompetitorSellerCatalogCollection', 'runCoupangKeywordRankBatch')}\n` +
-      'globalThis.runSeller = runCoupangCompetitorSellerCatalogCollection;',
-    context,
-  );
-
-  await context.runSeller(
-    {
-      sellerId: 'seller-a',
-      sellerName: '판매자 A',
-      sellerStoreUrl: 'https://www.coupang.com/np/products/brand-shop',
-    },
-    'cancelled-run',
-    123,
-  );
-
-  assert.deepEqual(calls, [
-    'attach',
-    'progress',
-    'status',
-    'status',
-    'cancel-owner',
-  ]);
 });
 
 test('cancellation during initial target fetch cannot be overwritten by pre-batch status writes', async () => {
@@ -644,7 +541,7 @@ test('cancellation during initial target fetch cannot be overwritten by pre-batc
     });
     vm.runInContext(
       `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-      `${functionSource('startCoupangKeywordRankCheck', 'startCoupangCompetitorSellerCatalogCollection')}\n` +
+      `${functionSource('startCoupangKeywordRankCheck', 'runCoupangKeywordRankBatch')}\n` +
         'globalThis.startKeyword = startCoupangKeywordRankCheck;',
       keywordContext,
     );
@@ -720,76 +617,6 @@ test('cancellation during initial target fetch cannot be overwritten by pre-batc
     assert.deepEqual(calls, ['cancel-owner']);
   }
 
-  let sellerCancelled = false;
-  let sellerStatus = null;
-  const sellerCalls = [];
-  const sellerContext = vm.createContext({
-    console,
-    Date,
-    COMPETITOR_SELLER_CATALOG_STATUS_KEY: 'seller-status',
-    getStorage: async () => ({ 'seller-status': sellerStatus }),
-    fetchCoupangCompetitorSellerTargets: async () => {
-      sellerCancelled = true;
-      return [{
-        sellerId: 'seller-a',
-        sellerName: '판매자 A',
-        sellerStoreUrl: 'https://shop.coupang.com/vid/seller-a',
-      }];
-    },
-    isCoupangSellerStoreUrl: () => true,
-    collectionSessions: {
-      get: async () => ({
-        producer: 'advertising.competitor_catalog',
-        restartStrategy: 'web',
-        inputIdentity: { sellerId: 'seller-a' },
-      }),
-    },
-    collectionRuns: {
-      createRunId: () => 'seller-run',
-      beginWebCollection: async () => {
-        sellerCancelled = false;
-        return 'seller-run';
-      },
-      isCancelled: async () => sellerCancelled,
-    },
-    requestCoupangCompetitorCatalogCancellation: async () => {
-      sellerCalls.push('cancel-owner');
-      sellerStatus = {
-        runId: 'seller-run',
-        status: 'cancelled',
-        cancelled: true,
-      };
-    },
-    chrome: {
-      storage: {
-        local: {
-          set: async (next) => {
-            sellerStatus = next['seller-status'];
-            sellerCalls.push(`status:${sellerStatus.status}`);
-          },
-        },
-      },
-    },
-    runCoupangCompetitorSellerCatalogCollection: () => {
-      sellerCalls.push('runner');
-      return Promise.resolve();
-    },
-  });
-  vm.runInContext(
-    `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-    `${functionSource('startCoupangCompetitorSellerCatalogCollection', 'runCoupangCompetitorSellerCatalogCollection')}\n` +
-      'globalThis.startSeller = startCoupangCompetitorSellerCatalogCollection;',
-    sellerContext,
-  );
-
-  const sellerResult = await sellerContext.startSeller({
-    sellerId: 'seller-a',
-    runId: '11111111-1111-4111-8111-111111111111',
-  });
-  assert.equal(sellerResult.cancelled, true);
-  assert.equal(sellerCancelled, true);
-  assert.equal(sellerStatus.status, 'cancelled');
-  assert.deepEqual(sellerCalls, ['cancel-owner']);
 });
 
 test('Wing cancellation skips rank sync and wins the terminal status race', async () => {
@@ -1087,113 +914,13 @@ test('automatic collectors clean up owned tabs and replace a missing shared Wing
   assert.deepEqual(rankCalls, []);
 });
 
-test('seller same-run restart requires the exact persisted stable seller owner', async () => {
-  const calls = [];
-  const context = vm.createContext({
-    console,
-    Date,
-    COMPETITOR_SELLER_CATALOG_STATUS_KEY: 'seller-status',
-    getStorage: async () => ({}),
-    fetchCoupangCompetitorSellerTargets: async () => [
-      {
-        sellerId: 'seller-b',
-        sellerName: '판매자 B',
-        sellerStoreUrl: 'https://www.coupang.com/np/products/brand-shop',
-      },
-    ],
-    isCoupangSellerStoreUrl: () => true,
-    collectionSessions: {
-      get: async () => ({
-        producer: 'advertising.competitor_catalog',
-        restartStrategy: 'web',
-        inputIdentity: { sellerId: 'seller-a' },
-      }),
-    },
-    collectionRuns: {
-      createRunId: () => 'fresh-run',
-      beginWebCollection: async () => calls.push('begin'),
-    },
-    chrome: { storage: { local: { set: async () => calls.push('status') } } },
-    runCoupangCompetitorSellerCatalogCollection: () => Promise.resolve(),
-  });
-  vm.runInContext(
-    `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-    `${functionSource('startCoupangCompetitorSellerCatalogCollection', 'runCoupangCompetitorSellerCatalogCollection')}\n` +
-      'globalThis.startSeller = startCoupangCompetitorSellerCatalogCollection;',
-    context,
+test('retires the web-origin competitor seller collector while preserving the exact operation handler', () => {
+  assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
+  assert.doesNotMatch(worker, /startCoupangCompetitorSellerCatalogCollection/);
+  assert.match(
+    worker,
+    /"advertising\.collect_competitor_catalog": runAdvertisingCompetitorCatalogOperation/,
   );
-
-  await assert.rejects(
-    context.startSeller({
-      sellerId: 'seller-b',
-      runId: '11111111-1111-4111-8111-111111111111',
-    }),
-    /seller owner/i,
-  );
-  assert.deepEqual(calls, []);
-
-  context.collectionSessions.get = async () => ({
-    producer: 'advertising.competitor_catalog',
-    restartStrategy: 'web',
-    inputIdentity: {},
-  });
-  await assert.rejects(
-    context.startSeller({
-      sellerId: 'seller-b',
-      runId: '11111111-1111-4111-8111-111111111111',
-    }),
-    /seller owner/i,
-  );
-  assert.deepEqual(calls, []);
-});
-
-test('seller target lookup failures terminate the newly prepared generic session', async () => {
-  for (const lookup of ['missing', 'error']) {
-    const calls = [];
-    const context = vm.createContext({
-      console,
-      Date,
-      COMPETITOR_SELLER_CATALOG_STATUS_KEY: 'seller-status',
-      getStorage: async () => ({}),
-      fetchCoupangCompetitorSellerTargets: async () => {
-        if (lookup === 'error') throw new Error('target lookup failed');
-        return [];
-      },
-      isCoupangSellerStoreUrl: () => true,
-      collectionSessions: {
-        fail: async () => calls.push('fail'),
-      },
-      collectionRuns: {
-        createRunId: () => 'seller-run',
-        beginWebCollection: async () => 'seller-run',
-        isCancelled: async () => false,
-      },
-      requestCoupangCompetitorCatalogCancellation: async () =>
-        calls.push('cancel-owner'),
-      chrome: { storage: { local: { set: async () => calls.push('status') } } },
-      runCoupangCompetitorSellerCatalogCollection: () => {
-        calls.push('runner');
-        return Promise.resolve();
-      },
-    });
-    vm.runInContext(
-      `${functionSource('canRestartStoredDomainRun', 'stableInputFingerprint')}\n` +
-      `${functionSource('startCoupangCompetitorSellerCatalogCollection', 'runCoupangCompetitorSellerCatalogCollection')}\n` +
-        'globalThis.startSeller = startCoupangCompetitorSellerCatalogCollection;',
-      context,
-    );
-
-    if (lookup === 'error') {
-      await assert.rejects(
-        context.startSeller({ sellerId: 'seller-a' }),
-        /target lookup failed/,
-      );
-    } else {
-      const result = await context.startSeller({ sellerId: 'seller-a' });
-      assert.equal(result.success, false);
-    }
-    assert.deepEqual(calls, ['fail']);
-  }
 });
 
 test('interactive focus helper requires a deliberate user-action reason', async () => {

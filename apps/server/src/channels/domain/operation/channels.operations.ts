@@ -17,6 +17,8 @@ export const CHANNELS_OPERATIONS = [
     allowedTriggers: ['dashboard', 'domain_screen', 'schedule'],
     scheduleSupported: true,
     maxAttempts: 3,
+    resourceClass: 'extension_coupang',
+    executionTimeoutMs: 900_000,
     inputSchema: CoupangRocketPurchaseOrderInputSchema,
   },
 ] as const satisfies readonly OperationDefinition[];

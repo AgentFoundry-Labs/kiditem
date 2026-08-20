@@ -114,6 +114,10 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     const optionLinked = await setupProductOption(prisma, {
       organizationId: TEST_ORGANIZATION_ID, masterId: masterLinked.id, sku: 'SKU-T-LINKED',
     });
+    await prisma.sellpiaInventorySku.update({
+      where: { id: optionLinked.id },
+      data: { masterProductId: masterLinked.id },
+    });
     await setupChannelListing(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       masterId: masterLinked.id,

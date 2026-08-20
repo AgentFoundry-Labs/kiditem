@@ -111,6 +111,37 @@ describe('SourcingRecommendationService', () => {
     expect(first.data?.items[0]).not.toHaveProperty('sourceSnapshot');
   });
 
+  it('binds a durable caller idempotency key into the immutable recommendation manifest', async () => {
+    const { service, runs, sources } = createService();
+
+    await service.refresh({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: 'wing-operation:run-1:recommendation-refresh',
+    });
+    sources.listLatestOfferObservations.mockResolvedValueOnce({
+      rejectedCount: 0,
+      items: [],
+    });
+    await service.refresh({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: 'wing-operation:run-1:recommendation-refresh',
+    });
+    await service.refresh({
+      organizationId: ORGANIZATION_ID,
+      limit: 50,
+      idempotencyKey: 'wing-operation:run-2:recommendation-refresh',
+    });
+
+    const [first, repeated, different] = runs.createOrGet.mock.calls.map(([command]) => command);
+    expect(first.inputManifestHash).toBe(repeated.inputManifestHash);
+    expect(first.inputManifestHash).not.toBe(different.inputManifestHash);
+    expect(first.inputManifest).toMatchObject({
+      refreshIdempotencyKey: 'wing-operation:run-1:recommendation-refresh',
+    });
+  });
+
   it('keeps Coupang demand on Home/Today and exact 1688 offers on Entry/Final', async () => {
     const { service, runs } = createService();
     runs.findLatest.mockResolvedValue({
@@ -162,6 +193,8 @@ describe('SourcingRecommendationService', () => {
           scoreComponents: {},
           sourceSnapshot: {
             productId: '123456',
+            itemId: '25745879681',
+            vendorItemId: '92734234062',
             productName: '쿠팡 유아 우산',
             salePriceKrw: 19900,
           },
@@ -179,6 +212,11 @@ describe('SourcingRecommendationService', () => {
 
     expect(home.data?.items.map((item) => item.sourcePlatform)).toEqual(['coupang']);
     expect(today.data?.items.map((item) => item.sourcePlatform)).toEqual(['coupang']);
+    expect(today.data?.items[0].coupang).toMatchObject({
+      productId: '123456',
+      itemId: '25745879681',
+      vendorItemId: '92734234062',
+    });
     expect(entry.data?.items.map((item) => item.sourcePlatform)).toEqual(['1688']);
     expect(final.data?.items.map((item) => item.sourcePlatform)).toEqual(['1688']);
   });

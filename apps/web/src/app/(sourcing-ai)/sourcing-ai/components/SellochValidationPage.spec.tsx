@@ -2,13 +2,27 @@ import { render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   useRefreshSourcingValidation,
+  useSourcingRecommendations,
   useSourcingValidation,
 } from '../hooks/use-sourcing-workspace';
 import { SellochValidationPage } from './SellochValidationPage';
 
 vi.mock('../hooks/use-sourcing-workspace', () => ({
   useRefreshSourcingValidation: vi.fn(),
+  useSourcingRecommendations: vi.fn(),
   useSourcingValidation: vi.fn(),
+}));
+
+vi.mock('../hooks/use-sourcing-operation-action', () => ({
+  useSourcingOperationAction: vi.fn(() => ({
+    run: null,
+    start: vi.fn(),
+    cancel: vi.fn(),
+    retryAttention: vi.fn(),
+    isStarting: false,
+    isCancelling: false,
+    isRetrying: false,
+  })),
 }));
 
 describe('SellochValidationPage', () => {
@@ -46,6 +60,11 @@ describe('SellochValidationPage', () => {
     vi.mocked(useRefreshSourcingValidation).mockReturnValue({
       mutate: vi.fn(),
       isPending: false,
+    } as never);
+    vi.mocked(useSourcingRecommendations).mockReturnValue({
+      data: { data: { items: [] } },
+      isLoading: false,
+      error: null,
     } as never);
   });
 

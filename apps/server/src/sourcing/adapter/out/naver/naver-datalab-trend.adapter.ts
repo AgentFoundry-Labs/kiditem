@@ -78,6 +78,7 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
         device: input.device,
         gender: input.gender,
         ages: input.ages,
+        signal: input.signal,
       });
       items.push(...(parsed.results ?? []).map(mapTrendResult));
     }
@@ -103,6 +104,7 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
       device?: string;
       gender?: string;
       ages?: string[];
+      signal?: AbortSignal;
     },
   ): Promise<NaverDatalabSearchTrendResponse> {
     const body = {
@@ -120,6 +122,7 @@ export class NaverDatalabTrendAdapter implements NaverDatalabTrendPort {
 
     const response = await fetch(`${config.baseUrl}${SEARCH_TREND_URI}`, {
       method: 'POST',
+      signal: input.signal,
       headers: {
         'Content-Type': 'application/json',
         'X-NCP-APIGW-API-KEY-ID': config.clientId,

@@ -18,6 +18,8 @@ const context = {
   scheduleId: null,
   parentRunId: null,
   attemptToken: '00000000-0000-4000-8000-000000000004',
+  signal: new AbortController().signal,
+  checkpoint: vi.fn().mockResolvedValue(undefined),
 };
 
 describe('product profitability operation handlers', () => {

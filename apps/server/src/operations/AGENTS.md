@@ -16,6 +16,21 @@ and browser-runtime leases.
 - Browser leases are fenced by `attemptToken`; stale heartbeat/report attempts
   are rejected.
 - Every mutation and every single-run read is organization-scoped.
+- Only the API application graph reaches OperationsModule. Production has
+  exactly one API lifecycle; no API replica or rolling overlap is supported.
+  Agent worker and MCP roots never import Operations or query/mutate
+  OperationRun.
+- The API gate progresses BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED.
+  Startup cleanup is fail-closed and bounded to 30s; graceful cancellation and
+  handler cleanup are bounded to 5s. Startup uses
+  operation_server_lifecycle_expired and graceful shutdown uses
+  operation_server_shutdown.
+- A lifecycle-cancelled row is immutable audit history. Never reclaim, requeue,
+  decrement attempts, or reactivate it; an explicit retry after ACCEPTING starts
+  a new row.
+- OPERATION_RESOURCE_CLASS_LIMITS, when set, is a complete strict positive JSON
+  map for default, naver_api, playwright_1688, snapshot_compute, and
+  extension_coupang. Invalid or partial configuration must fail API boot.
 
 ## Layout
 

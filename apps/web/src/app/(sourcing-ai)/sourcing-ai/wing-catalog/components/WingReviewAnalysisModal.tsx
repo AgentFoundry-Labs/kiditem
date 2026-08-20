@@ -7,7 +7,7 @@ import {
   formatWingCatalogRate,
   resolveCoupangCatalogImageUrl,
   type WingCatalogProduct,
-} from '../lib/wing-catalog-extension';
+} from '../lib/wing-catalog-presenter';
 import { buildCoupangProductUrl, buildCoupangReviewUrl } from '../lib/wing-catalog-delivery';
 
 interface WingReviewAnalysisModalProps {

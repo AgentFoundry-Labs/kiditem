@@ -1,5 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { AiDirectJobModels } from '../../domain/direct-job/ai-direct-job.schema';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
   DetailPageGenerateDirectInputSchema,
   type DetailPageGenerateDirectInput,
@@ -17,17 +16,23 @@ import {
   AI_DIRECT_JOB_RUNTIME_CONFIG,
   type AiDirectJobRuntimeConfig,
 } from './ai-direct-job.config';
+import type { AiDirectJobModels } from '../../domain/direct-job/ai-direct-job.schema';
 
 @Injectable()
 export class DetailPageDirectGenerationJobService {
   constructor(
     @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
     private readonly repository: AiDirectJobRepositoryPort,
+    @Optional()
     @Inject(AI_DIRECT_JOB_WAKE_PORT)
-    private readonly worker: AiDirectJobWakePort,
+    private worker: AiDirectJobWakePort | null,
     @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
     private readonly config: AiDirectJobRuntimeConfig,
   ) {}
+
+  attachWakePort(worker: AiDirectJobWakePort): void {
+    this.worker = worker;
+  }
 
   prepareGenerate(input: {
     payload: DetailPageGenerateDirectInput | Record<string, unknown>;
@@ -57,7 +62,7 @@ export class DetailPageDirectGenerationJobService {
     if (!released) {
       throw new Error(`Failed to release detail-page AI direct job ${input.jobId}.`);
     }
-    this.worker.wake();
+    this.worker?.wake();
   }
 
   async cancelHeld(input: { organizationId: string; jobId: string; reason: string }): Promise<void> {
