@@ -227,27 +227,61 @@ ProductScraper.alibaba1688 = (() => {
     return normalizeMonthlySales(card.textContent || "");
   }
 
+  function currentSearchCards() {
+    var cards = C.qAll(SEARCH_CARD);
+    var currentRoot = document.querySelector(".space-common-offerlist");
+    if (!currentRoot) return cards;
+
+    var offerLinks = currentRoot.querySelectorAll("a[href*='/offer/']");
+    for (var i = 0; i < offerLinks.length; i++) {
+      var link = offerLinks[i];
+      var card = link.closest(
+        "[data-offer-id], [data-offerid], [offer-id], article, li, " +
+        "[class*='offer-card'], [class*='offer-item'], [class*='card-wrap'], " +
+        "[class*='result-tile']"
+      );
+      if (!card || card === currentRoot) card = link;
+      if (cards.indexOf(card) === -1) cards.push(card);
+    }
+    return cards;
+  }
+
+  function offerLink(card) {
+    if (card.tagName === "A" && /\/offer\//i.test(card.getAttribute("href") || "")) {
+      return card;
+    }
+    return card.querySelector("a[href*='/offer/']");
+  }
+
+  function offerTitleElement(card, linkEl) {
+    var nested = card.querySelector(SEARCH_TITLE.join(","));
+    if (nested) return nested;
+    return linkEl;
+  }
+
   function extractTrendSearch(maxResults) {
     var requested = Number(maxResults);
     var limit = Number.isFinite(requested)
       ? Math.max(1, Math.min(20, Math.floor(requested)))
       : 20;
-    var cards = C.qAll(SEARCH_CARD);
+    var cards = currentSearchCards();
     var items = [];
+    var seenOfferIds = {};
 
     for (var i = 0; i < cards.length && items.length < limit; i++) {
       var card = cards[i];
-      var titleEl = card.querySelector(SEARCH_TITLE.join(","));
-      var linkEl = card.tagName === "A"
-        ? card
-        : titleEl && titleEl.tagName === "A"
-          ? titleEl
-          : card.querySelector("a[href*='/offer/']");
+      var linkEl = offerLink(card);
+      var titleEl = offerTitleElement(card, linkEl);
       var offerId = canonicalOfferId(card, linkEl);
-      if (!offerId) continue;
+      if (!offerId || seenOfferIds[offerId]) continue;
 
       var title = titleEl
-        ? (titleEl.getAttribute("title") || titleEl.textContent || "").trim()
+        ? (
+          titleEl.getAttribute("title") ||
+          titleEl.getAttribute("aria-label") ||
+          titleEl.textContent ||
+          ""
+        ).replace(/\s+/g, " ").trim()
         : "";
       if (!title) continue;
 
@@ -282,6 +316,7 @@ ProductScraper.alibaba1688 = (() => {
       }
       if (!imageUrl) continue;
 
+      seenOfferIds[offerId] = true;
       items.push({
         offerId: offerId,
         monthlySales: findMonthlySales(card),

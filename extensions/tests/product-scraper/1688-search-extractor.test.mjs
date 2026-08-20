@@ -68,6 +68,45 @@ test('extracts only canonical current 1688 offer cards with normalized trend fie
   assert.equal(items[1].imageUrl, 'https://cbu01.alicdn.com/k35.jpg');
 });
 
+// Regression: ISSUE-001 — the current 1688 search shell no longer uses the
+// historical i18n-card-wrap class, so a valid logged-in result page produced
+// zero cards and the browser Operation failed after both extraction attempts.
+// Found by /qa on 2026-08-20
+// Report: ~/.gstack/qa-reports/kiditem-1688-2026-08-20/qa-report-localhost-2026-08-20.md
+test('extracts canonical offer anchors from the current space-common offer list', () => {
+  const dom = loadExtractor(`
+    <section class="space-common-offerlist">
+      <div class="next-search-result-tile">
+        <a
+          class="next-search-result-link"
+          href="//detail.1688.com/offer/923456789012.html?spm=current"
+          title="儿童文具袋套装"
+        >
+          <img src="//cbu01.alicdn.com/current.jpg" />
+        </a>
+        <strong class="price-text">¥ 4.80</strong>
+        <span class="sale-count">近30天成交 320+ 笔</span>
+        <span class="company-name" title="义乌文具厂"></span>
+      </div>
+      <a href="https://dj.1688.com/ci_king?tracking=only">광고</a>
+    </section>
+  `);
+
+  const result = dom.window.ProductScraper.alibaba1688.extractTrendSearch(6);
+  const items = JSON.parse(JSON.stringify(result.items));
+
+  assert.deepEqual(items, [{
+    offerId: '923456789012',
+    monthlySales: 320,
+    rank: 1,
+    title: '儿童文具袋套装',
+    priceCny: 4.8,
+    supplierName: '义乌文具厂',
+    imageUrl: 'https://cbu01.alicdn.com/current.jpg',
+    sourceUrl: 'https://detail.1688.com/offer/923456789012.html',
+  }]);
+});
+
 test('normalizes Chinese and Korean displayed purchase counts to integer lower bounds', () => {
   const dom = loadExtractor('<main></main>');
   const normalize = dom.window.ProductScraper.alibaba1688.normalizeMonthlySales;
