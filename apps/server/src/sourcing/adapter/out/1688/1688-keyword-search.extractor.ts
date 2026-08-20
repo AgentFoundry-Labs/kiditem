@@ -216,6 +216,25 @@ export function inspect1688KeywordDomReadiness(maxResults: number): Search1688Ke
   if (roots.some((root) => queryAll(root, loadingSelectors).length > 0)) {
     return { kind: 'loading' };
   }
+  // The current 1688 empty surface is text-led rather than consistently
+  // data-attributed. Both attested phrases must be contained by a known offer
+  // result region; matching either phrase elsewhere on the page is not enough
+  // to authorize a durable zero result.
+  const currentEmptyResultRegionSelectors = [
+    '[data-search-result]',
+    '[class*="search-result"]',
+    '[class*="offer-list"]',
+    '[class*="result-list"]',
+    'div.wp-offerlist-windows',
+  ].join(', ');
+  const currentEmptyStateText = '哎呦喂，这里空空如也～';
+  const currentEmptySupportingText = '您还可以：写下您的采购需求，快速获得多个供应商报价';
+  const hasCurrentExplicitEmptyState = (root: unknown): boolean => queryAll(root, currentEmptyResultRegionSelectors)
+    .some((region) => {
+      const regionText = textContent(region);
+      return regionText.includes(currentEmptyStateText) && regionText.includes(currentEmptySupportingText);
+    });
+  if (roots.some(hasCurrentExplicitEmptyState)) return { kind: 'explicit_zero' };
   const emptySelectors = [
     '[data-search-result] [data-empty="true"]',
     '[data-search-result] [data-testid*="empty"]',

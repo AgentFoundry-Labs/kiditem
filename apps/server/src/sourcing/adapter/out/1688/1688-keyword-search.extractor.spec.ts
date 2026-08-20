@@ -173,7 +173,66 @@ describe('1688 keyword search extractor', () => {
     });
     expect(inspect1688KeywordDomReadiness(40)).toEqual({ kind: 'unready' });
   });
+
+  it('recognizes the attested current 1688 empty state only inside the offer-list result region', () => {
+    const emptyResultRegion = {
+      textContent: '哎呦喂，这里空空如也～ 您还可以：写下您的采购需求，快速获得多个供应商报价',
+      querySelectorAll: () => [],
+    };
+    vi.stubGlobal('document', {
+      querySelectorAll: (selector: string) => {
+        if (selector === '*') return [emptyResultRegion];
+        if (selector.includes('wp-offerlist-windows')) return [emptyResultRegion];
+        return [];
+      },
+    });
+
+    expect(inspect1688KeywordDomReadiness(40)).toEqual({ kind: 'explicit_zero' });
+  });
+
+  it.each([
+    {
+      name: 'same copy outside a trusted result region',
+      document: {
+        querySelectorAll: (selector: string) => selector === '*'
+          ? [{ textContent: '哎呦喂，这里空空如也～ 您还可以：写下您的采购需求，快速获得多个供应商报价' }]
+          : [],
+      },
+      expected: { kind: 'unready' },
+    },
+    {
+      name: 'active loading skeleton in the trusted result region',
+      document: currentEmptyStateDocument({ loading: true }),
+      expected: { kind: 'loading' },
+    },
+    {
+      name: 'offer item in the trusted result region',
+      document: currentEmptyStateDocument({ item: true }),
+      expected: { kind: 'items' },
+    },
+  ])('does not authorize the current empty copy with $name', ({ document, expected }) => {
+    vi.stubGlobal('document', document);
+
+    expect(inspect1688KeywordDomReadiness(40)).toMatchObject(expected);
+  });
 });
+
+function currentEmptyStateDocument(input: { loading?: boolean; item?: boolean } = {}) {
+  const emptyResultRegion = {
+    textContent: '哎呦喂，这里空空如也～ 您还可以：写下您的采购需求，快速获得多个供应商报价',
+    querySelectorAll: () => [],
+  };
+  const card = fakeCard();
+  return {
+    querySelectorAll: (selector: string) => {
+      if (selector === '*') return [emptyResultRegion];
+      if (selector === 'a[href]') return input.item ? [card.anchor] : [];
+      if (input.loading && selector.includes('loading')) return [{}];
+      if (selector.includes('wp-offerlist-windows')) return [emptyResultRegion];
+      return [];
+    },
+  };
+}
 
 function fakeCard(): {
   anchor: {
