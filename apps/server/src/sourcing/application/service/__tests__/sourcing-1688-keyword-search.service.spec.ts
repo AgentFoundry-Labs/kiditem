@@ -158,7 +158,15 @@ describe('Sourcing1688KeywordSearchService', () => {
       execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
     } as unknown as SourcingCollectionCoordinator;
     const searchResults = {
-      findLatest: vi.fn(async () => ({ generatedAt: new Date(), observations: [] })),
+      findLatest: vi.fn(async () => ({
+        generatedAt: new Date(),
+        observations: [{
+          keyword: '儿童餐盘',
+          targetId: null,
+          capturedAt: new Date(),
+          items: [],
+        }],
+      })),
     } as unknown as Sourcing1688SearchResultRepositoryPort;
     const service = new Sourcing1688KeywordSearchService(collection, searchResults);
 
@@ -180,6 +188,40 @@ describe('Sourcing1688KeywordSearchService', () => {
       duplicate: 0,
       failed: 0,
     });
+
+    expect(session.searchKeyword).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    'failed collection',
+    'collecting collection',
+    'corrupt result marker',
+    'missing result marker',
+  ])('fails closed when a %s cannot project a completed keyword marker', async () => {
+    const session: Search1688KeywordSession = {
+      searchKeyword: vi.fn(),
+      close: vi.fn(),
+    };
+    const collection = {
+      execute: vi.fn(async () => ({ kind: 'existing' as const, runId: 'collection-run' })),
+    } as unknown as SourcingCollectionCoordinator;
+    const searchResults = {
+      // The production adapter yields no observation and no generatedAt value
+      // for failed, collecting, corrupt, or missing result markers.
+      findLatest: vi.fn(async () => ({ generatedAt: null, observations: [] })),
+    } as unknown as Sourcing1688SearchResultRepositoryPort;
+    const service = new Sourcing1688KeywordSearchService(collection, searchResults);
+
+    await expect(service.searchForOperation({
+      organizationId,
+      operationRunId: 'operation-run',
+      actorUserId: null,
+      keyword: '儿童餐盘',
+      session,
+      signal: new AbortController().signal,
+      operationCheckpoint: vi.fn(),
+      commitWithinActiveOperationAttempt: vi.fn(),
+    })).rejects.toThrow('Completed keyword search result is unavailable.');
 
     expect(session.searchKeyword).not.toHaveBeenCalled();
   });

@@ -219,6 +219,78 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it.each([
+    {
+      name: 'security-themed product text',
+      keyword: 'Security camera wholesale products',
+      pageText: 'Security camera wholesale products',
+    },
+    {
+      name: 'security-verification product text',
+      keyword: 'Security verification equipment wholesale',
+      pageText: 'Security verification equipment wholesale',
+    },
+    {
+      name: 'login-themed product text',
+      keyword: 'login-themed product collection',
+      pageText: 'Login-themed product collection',
+    },
+    {
+      name: 'login-search product text',
+      keyword: 'login search wholesale product',
+      pageText: 'Login search wholesale product',
+    },
+    {
+      name: 'ordinary empty trusted page',
+      keyword: '儿童笔袋',
+      pageText: '',
+    },
+  ])('does not turn $name into operator attention', async ({ keyword, pageText }) => {
+    const fixture = browserFixture({ pageText });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword })).resolves.toEqual([]);
+
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    await session.close();
+  });
+
+  it('does not classify an ordinary trusted security category route as a challenge', async () => {
+    const fixture = browserFixture({
+      finalUrl: 'https://s.1688.com/security/wholesale-products.htm',
+    });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: 'Security camera wholesale products' })).resolves.toEqual([]);
+
+    expect(fixture.page.evaluate).toHaveBeenCalledOnce();
+    await session.close();
+  });
+
+  it.each([
+    '请完成安全验证',
+    'Security verification is required before continuing',
+    'Security check is required before continuing',
+    'Security challenge is required before continuing',
+  ])('maps a specific challenge phrase to typed operator attention', async (pageText) => {
+    const fixture = browserFixture({ pageText });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
   it('rejects an untrusted final page before forged DOM offers can be normalized', async () => {
     const fixture = browserFixture({ finalUrl: 'https://evil.example/search' });
     fixture.page.evaluate.mockResolvedValue([{
@@ -260,10 +332,43 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it('rejects an untrusted main-frame redirect hop even when the final 1688 URL is trusted', async () => {
+    const fixture = browserFixture({
+      finalUrl: 'https://s.1688.com/selloffer/offer_search.htm',
+      navigationResponseUrl: 'https://s.1688.com/selloffer/offer_search.htm',
+      navigationRedirectUrls: [
+        'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+        'https://evil.example/redirect',
+        'https://s.1688.com/selloffer/offer_search.htm',
+      ],
+    });
+    fixture.page.evaluate.mockResolvedValue([{
+      href: 'https://detail.1688.com/offer/123456.html',
+      title: 'forged redirect-hop offer',
+      salesText: '近30天成交 88 笔',
+    }]);
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      code: 'search_extraction_failed',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
   it('accepts an allowed HTTPS 1688 final page before extracting authenticated DOM offers', async () => {
     const fixture = browserFixture({
       finalUrl: 'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
       navigationResponseUrl: 'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+      navigationRedirectUrls: [
+        'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+        'https://www.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+        'https://s.1688.com/selloffer/offer_search.htm?keywords=%E5%84%BF%E7%AB%A5%E7%AC%94%E8%A2%8B',
+      ],
+      emitUntrustedSubresourceOnGoto: true,
     });
     fixture.page.evaluate.mockResolvedValue([{
       href: 'http://detail.m.1688.com/page/index.html?offerId=123456',
@@ -319,6 +424,21 @@ describe('Direct1688KeywordSearchAdapter', () => {
     await session.close();
   });
 
+  it('allows a source-policy-approved challenge host to produce typed attention', async () => {
+    const fixture = browserFixture({ finalUrl: 'https://captcha.1688.com/verify/' });
+    vi.mocked(chromium.connectOverCDP).mockResolvedValue(fixture.browser as never);
+    vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://kiditem-office:9444');
+    const session = await new Direct1688KeywordSearchAdapter().openSession();
+
+    await expect(session.searchKeyword({ keyword: '儿童笔袋' })).rejects.toMatchObject({
+      name: 'Sourcing1688KeywordAttentionError',
+      reason: 'security_challenge',
+    });
+
+    expect(fixture.page.evaluate).not.toHaveBeenCalled();
+    await session.close();
+  });
+
   it('returns a bounded unavailable error without exposing endpoint credentials', async () => {
     vi.stubEnv('SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'http://operator:secret@kiditem-office:9444');
     const adapter = new Direct1688KeywordSearchAdapter();
@@ -354,6 +474,8 @@ function browserFixture(input?: {
   finalUrl?: string;
   apiResponseUrl?: string;
   navigationResponseUrl?: string;
+  navigationRedirectUrls?: string[];
+  emitUntrustedSubresourceOnGoto?: boolean;
 }) {
   const events: string[] = [];
   let responseListener: ((response: unknown) => void) | undefined;
@@ -387,6 +509,13 @@ function browserFixture(input?: {
         responseListener?.(response);
         if (input.duplicateApiOnGoto) responseListener?.(response);
       }
+      if (input?.emitUntrustedSubresourceOnGoto) {
+        responseListener?.({
+          url: () => 'https://cdn.evil.example/assets/product.png',
+          headers: () => ({ 'content-type': 'image/png' }),
+          json: vi.fn(),
+        });
+      }
       if (input?.lateApiOnGoto) setTimeout(() => responseListener?.(response), 5);
       if (input?.lateDomOnGoto) {
         setTimeout(() => {
@@ -399,7 +528,12 @@ function browserFixture(input?: {
       }
       if (input?.blockGoto) return new Promise<void>((resolve) => { resolveGoto = resolve; });
       return Promise.resolve(input?.navigationResponseUrl
-        ? { url: () => input.navigationResponseUrl }
+        ? {
+          url: () => input.navigationResponseUrl,
+          request: () => redirectRequestChain(
+            input.navigationRedirectUrls ?? [input.navigationResponseUrl as string],
+          ),
+        }
         : null);
     }),
     waitForLoadState: vi.fn().mockResolvedValue(undefined),
@@ -420,6 +554,22 @@ function browserFixture(input?: {
     close: vi.fn().mockResolvedValue(undefined),
   };
   return { browser, context, events, page, resolveGoto, resolveRenderWait, unrelatedPage };
+}
+
+interface RedirectRequestFixture {
+  url: () => string;
+  redirectedFrom: () => RedirectRequestFixture | null;
+}
+
+function redirectRequestChain(urls: string[]): RedirectRequestFixture {
+  let previous: RedirectRequestFixture | null = null;
+  for (const url of urls) {
+    const redirectedFrom = previous;
+    const current = { url: () => url, redirectedFrom: () => redirectedFrom };
+    previous = current;
+  }
+  if (!previous) throw new Error('navigation redirect chain requires at least one URL');
+  return previous;
 }
 
 function waitForDelayedFixture(): Promise<void> {

@@ -139,20 +139,6 @@ export class Sourcing1688KeywordSearchService {
         && normalizeCollectionTarget(candidate.keyword) === normalizeCollectionTarget(keyword),
     );
     if (!observation) {
-      // A completed collection may legitimately have persisted zero offers.
-      // The empty snapshot is its durable idempotency marker; any non-empty
-      // snapshot that cannot account for this keyword remains fail-closed.
-      if (snapshot.observations.length === 0) {
-        return {
-          keyword,
-          targetId: null,
-          outcome: 'no_change',
-          discovered: 0,
-          accepted: 0,
-          duplicate: 0,
-          failed: 0,
-        };
-      }
       throw new BadRequestException('Completed keyword search result is unavailable.');
     }
     return {

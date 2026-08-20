@@ -141,6 +141,19 @@ describe('1688 keyword domain Operation publication fence (PG integration)', () 
       duplicate: 0,
       failed: 0,
     });
+    const snapshot = await new Sourcing1688SearchResultRepositoryAdapter(
+      primary as unknown as PrismaService,
+    ).findLatest({
+      organizationId: TEST_ORGANIZATION_ID,
+      keywords: ['儿童笔袋'],
+    });
+    expect(snapshot.generatedAt).toBeInstanceOf(Date);
+    expect(snapshot.observations).toEqual([expect.objectContaining({
+      keyword: '儿童笔袋',
+      targetId: null,
+      items: [],
+    })]);
+
     await expect(service.searchForOperation(input)).resolves.toMatchObject({
       outcome: 'no_change',
       discovered: 0,

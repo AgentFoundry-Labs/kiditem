@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
-import type { Page, Response } from 'playwright';
+import type { Page, Request, Response } from 'playwright';
 import {
   type Search1688KeywordItem,
   type Search1688KeywordSession,
@@ -24,6 +24,7 @@ const SEARCH_TIMEOUT_MS = 30_000;
 const SEARCH_RESULT_SETTLE_WAIT_MS = 500;
 const SEARCH_RESULT_LIMIT = 40;
 const SEARCH_URL = 'https://s.1688.com/selloffer/offer_search.htm';
+const MAX_NAVIGATION_REDIRECT_HOPS = 12;
 
 @Injectable()
 export class Direct1688KeywordSearchAdapter implements Sourcing1688KeywordSearchPort {
@@ -110,7 +111,7 @@ class Direct1688KeywordSearchSession implements Search1688KeywordSession {
         throw error;
       });
       assertTrusted1688Navigation(this.page.url());
-      if (navigationResponse) assertTrusted1688Navigation(navigationResponse.url());
+      if (navigationResponse) assertTrusted1688NavigationResponse(navigationResponse);
       extractionTrusted = true;
       for (const response of deferredResponses) extractResponse(response);
       // 1688 can finish document parsing before its search XHR and shadow-card
@@ -196,6 +197,20 @@ function assertTrusted1688Navigation(value: string): void {
   }
 }
 
+function assertTrusted1688NavigationResponse(response: Response): void {
+  assertTrusted1688Navigation(response.url());
+  let request: Request | null = response.request();
+  const visited = new Set<Request>();
+  for (let hop = 0; request; hop += 1) {
+    if (hop >= MAX_NAVIGATION_REDIRECT_HOPS || visited.has(request)) {
+      throw new Sourcing1688KeywordProviderError('search_extraction_failed');
+    }
+    visited.add(request);
+    assertTrusted1688Navigation(request.url());
+    request = request.redirectedFrom();
+  }
+}
+
 async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sourcing1688KeywordAttentionError | null> {
   if (isKnownSecurityChallengeUrl(page.url())) {
     return new Sourcing1688KeywordAttentionError('security_challenge');
@@ -209,10 +224,10 @@ async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sour
     return null;
   }
   if (!text) return null;
-  if (/(?:滑块|安全验证|security|punish|验证码|슬라이더\s*를?\s*드래그하여\s*인증을\s*완료하세요|정상\s*접속을\s*위해\s*인증이\s*필요합니다)/iu.test(text)) {
+  if (/(?:请(?:完成|进行)?安全验证|安全验证(?:失败|需要|已过期)|(?:拖动|滑动).{0,12}滑块|滑块.{0,12}(?:验证|认证)|(?:请输入|发送|短信).{0,12}验证码|验证码.{0,12}(?:错误|失效|验证)|security\s+(?:verification|check|challenge)(?:(?:\s+is)?\s+(?:required|needed|pending|failed)|(?=\s*(?:[.!?]|$)))|(?:please\s+)?(?:complete|perform)\s+(?:the\s+)?security\s+(?:verification|check|challenge)|슬라이더\s*를?\s*드래그하여\s*인증을\s*완료하세요|정상\s*접속을\s*위해\s*인증이\s*필요합니다)/iu.test(text)) {
     return new Sourcing1688KeywordAttentionError('security_challenge');
   }
-  if (/(?:请先登录|登录后|login)/iu.test(text)) {
+  if (/(?:请先登录|登录后(?:再)?(?:继续|搜索)|(?:please\s+)?(?:log\s+in|login)\s+to\s+(?:continue|search)|sign\s+in\s+to\s+(?:continue|search))/iu.test(text)) {
     return new Sourcing1688KeywordAttentionError('login');
   }
   return null;
@@ -221,8 +236,13 @@ async function attentionRequired(page: Page, signal?: AbortSignal): Promise<Sour
 function isKnownSecurityChallengeUrl(value: string): boolean {
   try {
     const allowed = parseAllowedSupplierUrl(value);
-    return allowed.platform === '1688'
-      && /(?:punish|captcha|verify|security|slider)/iu.test(new URL(allowed.normalizedUrl).pathname);
+    if (allowed.platform !== '1688') return false;
+    const url = new URL(allowed.normalizedUrl);
+    const pathname = url.pathname;
+    if (/(?:^|\/)punish(?:[/.]|$)/iu.test(pathname)) return true;
+    if (/(?:^|\/)captcha(?:[/.]|$)/iu.test(pathname)) return true;
+    return /(?:^|\/)(?:captcha|verify)(?:[/.]|$)/iu.test(pathname)
+      && /(?:^|\.)(?:captcha|verify)\.1688\.com$/iu.test(url.hostname);
   } catch {
     return false;
   }
