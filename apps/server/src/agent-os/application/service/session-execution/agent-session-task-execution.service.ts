@@ -686,6 +686,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       assertExecutionTransition(current.status, status);
       const terminalBase = {
         organizationId: operation.organizationId,
+        sessionId: input.sessionId,
         id: input.executionId,
         finishedAt: new Date(),
       };

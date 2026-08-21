@@ -209,6 +209,7 @@ export interface CurrentAgentExecution {
 
 interface AgentExecutionTerminalInputBase {
   organizationId: string;
+  sessionId: string;
   id: string;
   finishedAt: Date;
 }
@@ -225,7 +226,7 @@ export type MarkAgentExecutionTerminalInput =
 
 export type AppendExecutionTerminalInput = Omit<
   MarkAgentExecutionTerminalInput,
-  'organizationId' | 'id'
+  'organizationId' | 'sessionId' | 'id'
 >;
 
 interface AppendExecutionEventInputBase {
@@ -241,6 +242,7 @@ export type AppendExecutionEventInput = AppendExecutionEventInputBase &
 
 export interface RecordAgentExecutionUsageInput {
   organizationId: string;
+  sessionId: string;
   executionId: string;
   modelIdentity: string;
   provider: string;

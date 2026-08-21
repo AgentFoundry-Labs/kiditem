@@ -89,6 +89,7 @@ describe('AgentSessionOperationContinuationService', () => {
     });
     expect(controls.markApprovalContinuationInterruptDelivered).toHaveBeenCalledWith({
       organizationId: graph.organizationId,
+      sessionId: graph.sessionId,
       approvalId: '00000000-0000-4000-8000-000000000007',
       operationRunId: '00000000-0000-4000-8000-000000000006',
     });

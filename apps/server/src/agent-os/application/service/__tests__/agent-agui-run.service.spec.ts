@@ -266,6 +266,7 @@ describe("AgentAguiRunService", () => {
     });
     expect(repository.recordExecutionUsage).toHaveBeenCalledWith({
       organizationId: "org-1",
+      sessionId: "session-1",
       executionId: "execution-1",
       modelIdentity: "gpt-5.2",
       provider: "openai",

@@ -12,27 +12,15 @@ export class PrismaAgentExecutionUsageTransaction implements AgentExecutionUsage
   ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
-        const session = await tx.agentSession.findFirst({
-          where: {
-            organizationId: input.organizationId,
-            executions: { some: { id: input.executionId } },
-          },
-          select: { id: true },
-        });
-        if (!session)
-          throw new AgentOsBoundaryError(
-            "INTERACTION_USAGE_EXECUTION_NOT_FOUND",
-            "Interaction execution was not found in the requested organization.",
-          );
         await lockWritableAgentSession(tx, {
           organizationId: input.organizationId,
-          sessionId: session.id,
+          sessionId: input.sessionId,
         });
         const execution = await tx.agentExecution.findFirst({
           where: {
             id: input.executionId,
             organizationId: input.organizationId,
-            sessionId: session.id,
+            sessionId: input.sessionId,
           },
           select: { id: true, modelIdentity: true },
         });

@@ -6,6 +6,6 @@ export interface AgentApprovalContinuationTransactionPort {
   loadApproval(input: { organizationId: string; sessionId: string; approvalId: string }): Promise<SessionApprovalDetailRecord | null>;
   expireApproval(input: { organizationId: string; sessionId: string; approvalId: string; expectedState: 'pending' }): Promise<SessionApprovalRecord>;
   advanceApprovedContinuation(input: { signal: AbortSignal; organizationId: string; sessionId: string; approvalId: string }): Promise<AgentSessionApprovalContinuationRecord>;
-  markApprovalContinuationInterruptDelivered(input: { organizationId: string; approvalId: string; operationRunId: string }): Promise<void>;
+  markApprovalContinuationInterruptDelivered(input: { organizationId: string; sessionId: string; approvalId: string; operationRunId: string }): Promise<void>;
   listIncompleteApprovalContinuations(input: { organizationId?: string; limit: number }): Promise<IncompleteApprovalContinuationRecord[]>;
 }

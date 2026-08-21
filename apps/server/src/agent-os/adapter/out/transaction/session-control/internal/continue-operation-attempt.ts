@@ -33,52 +33,8 @@ export async function continueOperationAttemptInTransaction(
     input.attemptId,
     input.continuationKey,
   ]);
-  const existing = await tx.agentExecutionAttemptOperationBinding.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      executionAttemptId: input.attemptId,
-      continuationKey: input.continuationKey,
-    },
-    select: {
-      executionAttemptId: true,
-      operationRunId: true,
-      predecessorOperationRunId: true,
-    },
-  });
-  if (existing) {
-    if (
-      existing.predecessorOperationRunId !== input.predecessorOperationRunId
-    ) {
-      throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
-    }
-    return {
-      operationRunId: existing.operationRunId,
-      attemptId: existing.executionAttemptId,
-    };
-  }
-
-  const predecessor = await tx.agentExecutionAttemptOperationBinding.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      executionAttemptId: input.attemptId,
-      operationRunId: input.predecessorOperationRunId,
-    },
-    include: {
-      attempt: {
-        include: {
-          execution: {
-            select: {
-              id: true,
-              status: true,
-              sessionTaskId: true,
-              sessionTask: { select: { status: true } },
-            },
-          },
-        },
-      },
-      operationRun: true,
-    },
-  });
+  const existing = await findContinuation(tx, input);
+  const predecessor = await findPredecessor(tx, input);
   if (!predecessor) throw scope();
   if (
     predecessor.attempt.executionId !== input.executionId ||
@@ -116,6 +72,13 @@ export async function continueOperationAttemptInTransaction(
   if (!predecessorOwnership || predecessorOwnership.sessionId !== input.sessionId) {
     throw scope();
   }
+  if (existing) {
+    exactContinuationReplay(existing, predecessor, input);
+    return {
+      operationRunId: existing.operationRunId,
+      attemptId: existing.executionAttemptId,
+    };
+  }
 
   input.signal.throwIfAborted();
   const operationRun = await tx.operationRun.create({
@@ -135,6 +98,7 @@ export async function continueOperationAttemptInTransaction(
       idempotencyKey: `agent-session-continuation:${input.attemptId}:${input.continuationKey}`,
       input: predecessor.operationRun.input as Prisma.InputJsonValue,
       maxAttempts: predecessor.operationRun.maxAttempts,
+      scheduledFor: predecessor.operationRun.scheduledFor,
     },
     select: { id: true },
   });
@@ -175,6 +139,125 @@ export async function continueOperationAttemptInTransaction(
     },
   });
   return { operationRunId: operationRun.id, attemptId: predecessor.attempt.id };
+}
+
+function exactContinuationReplay(
+  existing: NonNullable<Awaited<ReturnType<typeof findContinuation>>>,
+  predecessor: NonNullable<Awaited<ReturnType<typeof findPredecessor>>>,
+  input: ContinueOperationAttemptInput,
+): void {
+  if (existing.organizationId !== input.organizationId ||
+    existing.executionAttemptId !== input.attemptId ||
+    existing.executionId !== input.executionId ||
+    existing.sessionId !== input.sessionId ||
+    existing.predecessorOperationRunId !== input.predecessorOperationRunId ||
+    existing.continuationKey !== input.continuationKey ||
+    existing.attempt.id !== input.attemptId ||
+    existing.attempt.organizationId !== input.organizationId ||
+    existing.attempt.executionId !== input.executionId ||
+    existing.attempt.sessionId !== input.sessionId ||
+    existing.attempt.execution.sessionTaskId !== input.taskId ||
+    existing.operationRun.agentSessionOperationRunOwnership?.organizationId !==
+      input.organizationId ||
+    existing.operationRun.agentSessionOperationRunOwnership?.sessionId !==
+      input.sessionId ||
+    existing.operationRun.organizationId !== input.organizationId ||
+    existing.operationRun.operationKey !== predecessor.operationRun.operationKey ||
+    existing.operationRun.definitionVersion !== predecessor.operationRun.definitionVersion ||
+    existing.operationRun.ownerDomain !== predecessor.operationRun.ownerDomain ||
+    existing.operationRun.title !== predecessor.operationRun.title ||
+    existing.operationRun.engineType !== predecessor.operationRun.engineType ||
+    existing.operationRun.resourceClass !== predecessor.operationRun.resourceClass ||
+    existing.operationRun.executionTimeoutMs !== predecessor.operationRun.executionTimeoutMs ||
+    existing.operationRun.triggerSource !== predecessor.operationRun.triggerSource ||
+    existing.operationRun.requestedByUserId !== predecessor.operationRun.requestedByUserId ||
+    existing.operationRun.parentRunId !== predecessor.operationRun.parentRunId ||
+    existing.operationRun.scheduleId !== predecessor.operationRun.scheduleId ||
+    existing.operationRun.maxAttempts !== predecessor.operationRun.maxAttempts ||
+    existing.operationRun.scheduledFor?.getTime() !== predecessor.operationRun.scheduledFor?.getTime() ||
+    existing.operationRun.idempotencyKey !==
+      `agent-session-continuation:${input.attemptId}:${input.continuationKey}` ||
+    !sameJson(existing.operationRun.input, predecessor.operationRun.input)
+  ) {
+    throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
+  }
+}
+
+function findContinuation(
+  tx: Prisma.TransactionClient,
+  input: Pick<
+    ContinueOperationAttemptInput,
+    "organizationId" | "attemptId" | "continuationKey"
+  >,
+) {
+  return tx.agentExecutionAttemptOperationBinding.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      executionAttemptId: input.attemptId,
+      continuationKey: input.continuationKey,
+    },
+    include: {
+      operationRun: {
+        include: { agentSessionOperationRunOwnership: true },
+      },
+      attempt: {
+        select: {
+          id: true,
+          organizationId: true,
+          executionId: true,
+          sessionId: true,
+          execution: { select: { sessionTaskId: true } },
+        },
+      },
+    },
+  });
+}
+
+function findPredecessor(
+  tx: Prisma.TransactionClient,
+  input: Pick<
+    ContinueOperationAttemptInput,
+    "organizationId" | "attemptId" | "predecessorOperationRunId"
+  >,
+) {
+  return tx.agentExecutionAttemptOperationBinding.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      executionAttemptId: input.attemptId,
+      operationRunId: input.predecessorOperationRunId,
+    },
+    include: {
+      attempt: {
+        include: {
+          execution: {
+            select: {
+              id: true,
+              status: true,
+              sessionTaskId: true,
+              sessionTask: { select: { status: true } },
+            },
+          },
+        },
+      },
+      operationRun: true,
+    },
+  });
+}
+
+function sameJson(left: Prisma.JsonValue, right: Prisma.JsonValue): boolean {
+  return canonicalJson(left) === canonicalJson(right);
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    return `{${Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+      .join(",")}}`;
+  }
+  return JSON.stringify(value);
 }
 
 async function lock(

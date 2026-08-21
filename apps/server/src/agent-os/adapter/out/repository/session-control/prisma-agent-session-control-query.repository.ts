@@ -212,7 +212,10 @@ export class PrismaAgentSessionControlQueryRepository implements AgentSessionCon
         id: input.taskId,
         sessionId: input.sessionId,
         organizationId: input.organizationId,
-        session: { createdByUserId: input.actorId },
+        session: {
+          createdByUserId: input.actorId,
+          lifecycle: { notIn: ['deleting', 'delete_failed'] },
+        },
       },
       select: {
         id: true,

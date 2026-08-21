@@ -107,7 +107,10 @@ export class PrismaAgentConversationEventTransaction implements AgentConversatio
     input: MarkAgentExecutionTerminalInput,
   ): Promise<void> {
     validateTerminal(input.status, input.errorCode);
-    await this.prisma.$transaction((tx) => terminal(tx, input), options);
+    await this.prisma.$transaction(async (tx) => {
+      await lockWritableAgentSession(tx, input);
+      await terminal(tx, input);
+    }, options);
   }
 }
 function findEvent(

@@ -14,7 +14,10 @@ import { PrismaService } from '../../../../../prisma/prisma.service';
 import type { ScopedDeletionActor } from '../../../../application/port/in/session-control/agent-session-deletion.port';
 import type { AgentSessionDeletionCommandTransactionPort } from '../../../../application/port/out/transaction/session-deletion/agent-session-deletion-command.transaction.port';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
-import { AgentSessionDeleteOperationInputSchema } from '../../../../domain/operation/agent-session-deletion.operations';
+import {
+  AGENT_SESSION_DELETE_MAX_ATTEMPTS,
+  AgentSessionDeleteOperationInputSchema,
+} from '../../../../domain/operation/agent-session-deletion.operations';
 import { lockAgentSessionForDeletion } from '../session-control/internal/lock-writable-agent-session';
 
 @Injectable()
@@ -119,17 +122,14 @@ export class PrismaAgentSessionDeletionCommandTransaction
           sessionId: scope.sessionId,
           retryGeneration: current.retryGeneration,
         },
-        select: { operationRun: { select: { attempts: true, maxAttempts: true } } },
+        select: { operationRun: { select: { attempts: true } } },
       });
       const attempts = generation.reduce(
         (total, binding) => total + binding.operationRun.attempts,
         0,
       );
-      const budget = generation.reduce(
-        (total, binding) => total + binding.operationRun.maxAttempts,
-        0,
-      );
-      if (!generation.length || attempts < budget) throw stateInvalid();
+      if (!generation.length || attempts < AGENT_SESSION_DELETE_MAX_ATTEMPTS)
+        throw stateInvalid();
 
       const retryGeneration = current.retryGeneration + 1;
       const parsedInput = AgentSessionDeleteOperationInputSchema.parse({
@@ -150,7 +150,7 @@ export class PrismaAgentSessionDeletionCommandTransaction
           requestedByUserId: scope.actorUserId,
           idempotencyKey: `agent-session-delete:${scope.sessionId}:generation:${retryGeneration}`,
           input: parsedInput as Prisma.InputJsonValue,
-          maxAttempts: input.definition.maxAttempts,
+          maxAttempts: AGENT_SESSION_DELETE_MAX_ATTEMPTS,
         },
         select: { id: true },
       });

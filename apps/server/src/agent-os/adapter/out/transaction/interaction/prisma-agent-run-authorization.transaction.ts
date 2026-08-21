@@ -28,6 +28,7 @@ import {
 import { lockWritableAgentSession } from "../session-control/internal/lock-writable-agent-session";
 const options = { maxWait: 10_000, timeout: 30_000 } as const;
 const ROOT_TASK_IDEMPOTENCY_KEY = "root";
+class SessionAppearedAfterAuthorizationLockError extends Error {}
 @Injectable()
 export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthorizationTransactionPort {
   constructor(private readonly prisma: PrismaService) {}
@@ -50,32 +51,35 @@ export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthoriza
         payload: parsed.data.payload,
       },
     };
-    try {
-      return await this.prisma.$transaction(async (tx) => {
+    for (let retry = 0; retry < 3; retry += 1) {
+      try {
+        return await this.prisma.$transaction(async (tx) => {
         let session = await sessionForThread(
           tx,
           input.organizationId,
           input.copilotThreadId,
         );
         if (session) {
+          const lockedSessionId = session.id;
           await lockWritableAgentSession(tx, {
             organizationId: input.organizationId,
-            sessionId: session.id,
+            sessionId: lockedSessionId,
           });
-        }
-        await lock(tx, input);
-        if (!session) {
+          await lock(tx, input);
           session = await sessionForThread(
             tx,
             input.organizationId,
             input.copilotThreadId,
           );
-          if (session) {
-            await lockWritableAgentSession(tx, {
-              organizationId: input.organizationId,
-              sessionId: session.id,
-            });
-          }
+          if (!session || session.id !== lockedSessionId) throw scopeInvalid();
+        } else {
+          await lock(tx, input);
+          session = await sessionForThread(
+            tx,
+            input.organizationId,
+            input.copilotThreadId,
+          );
+          if (session) throw new SessionAppearedAfterAuthorizationLockError();
         }
         await principal(tx, input);
         let createdSession = false;
@@ -185,12 +189,18 @@ export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthoriza
           execution,
           event,
         );
-      }, options);
-    } catch (error) {
-      if (known(error, "P2002")) throw runConflict();
-      if (known(error, "P2003")) throw scopeInvalid();
-      throw error;
+        }, options);
+      } catch (error) {
+        if (error instanceof SessionAppearedAfterAuthorizationLockError) {
+          if (retry < 2) continue;
+          throw runConflict();
+        }
+        if (known(error, "P2002")) throw runConflict();
+        if (known(error, "P2003")) throw scopeInvalid();
+        throw error;
+      }
     }
+    throw runConflict();
   }
 }
 async function lock(

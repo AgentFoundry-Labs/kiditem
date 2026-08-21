@@ -21,6 +21,34 @@ function deferred() {
   return { promise, resolve };
 }
 
+function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_resolve, reject) => {
+      setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+    }),
+  ]);
+}
+
+async function waitForAdvisoryLockWaiters(
+  client: PrismaClient,
+  minimum: number,
+): Promise<void> {
+  for (let attempt = 0; attempt < 300; attempt += 1) {
+    const [row] = await client.$queryRaw<Array<{ count: number }>>`
+      SELECT COUNT(*)::int AS "count"
+      FROM pg_stat_activity
+      WHERE datname = current_database()
+        AND pid <> pg_backend_pid()
+        AND wait_event_type = 'Lock'
+        AND wait_event = 'advisory'
+    `;
+    if ((row?.count ?? 0) >= minimum) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(`Timed out waiting for ${minimum} advisory-lock waiter(s)`);
+}
+
 describe('operation composite repository PostgreSQL fencing', () => {
   let locker: PrismaClient;
   let updater: PrismaClient;
@@ -185,6 +213,52 @@ describe('operation composite repository PostgreSQL fencing', () => {
     })).resolves.toEqual({ status: 'waiting_dependency', attemptToken: null });
   });
 
+  it('rejects a composite child replay when its immutable definition or input drifts', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const child = childInput(TEST_ORGANIZATION_ID, runId);
+    await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child,
+    })).resolves.not.toBeNull();
+    const replayAttemptToken = randomUUID();
+    await locker.operationRun.update({
+      where: { id: runId },
+      data: {
+        status: 'running',
+        attemptToken: replayAttemptToken,
+        claimedBy: 'operations:integration-test',
+        claimedAt: new Date(),
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+        deadlineAt: new Date(Date.now() + 60_000),
+      },
+    });
+
+    await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: replayAttemptToken,
+      child: {
+        ...child,
+        title: 'drifted composite child definition',
+        input: { drifted: true },
+      },
+    })).rejects.toThrow('operation_composite_child_scope_invalid');
+  });
+
   it('propagates an owned parent session edge to its child in the same transaction', async () => {
     const runId = randomUUID();
     const attemptToken = randomUUID();
@@ -323,6 +397,86 @@ describe('operation composite repository PostgreSQL fencing', () => {
     await expect(locker.operationRun.count({
       where: { parentRunId: runId },
     })).resolves.toBe(0);
+  });
+
+  it('takes the session lifecycle lock before the owned parent row under the deletion cycle barrier', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const sessionId = await createOwnedSession(locker);
+    await locker.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId,
+        operationRunId: runId,
+      },
+    });
+    const blocker = makeTestPrisma();
+    const deleter = makeTestPrisma();
+    await Promise.all([blocker.$connect(), deleter.$connect()]);
+    const releaseSession = deferred();
+    const sessionLocked = deferred();
+    const sessionBarrier = blocker.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`agent-session-lifecycle:${TEST_ORGANIZATION_ID}:${sessionId}`},
+          0
+        ))
+      `;
+      sessionLocked.resolve();
+      await releaseSession.promise;
+    });
+    await sessionLocked.promise;
+    const deletion = deleter.$transaction(async (tx) => {
+      await tx.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`agent-session-lifecycle:${TEST_ORGANIZATION_ID}:${sessionId}`},
+          0
+        ))
+      `;
+      await tx.$queryRaw`
+        SELECT id
+        FROM agent_sessions
+        WHERE id = ${sessionId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      await tx.$queryRaw`
+        SELECT id
+        FROM operation_runs
+        WHERE id = ${runId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+    });
+    await waitForAdvisoryLockWaiters(locker, 1);
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const child = repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child: childInput(TEST_ORGANIZATION_ID, runId),
+    });
+    try {
+      await waitForAdvisoryLockWaiters(locker, 2);
+      releaseSession.resolve();
+      await sessionBarrier;
+      await expect(
+        settlesWithin(Promise.all([deletion, child]), 5_000),
+      ).resolves.toHaveLength(2);
+    } finally {
+      releaseSession.resolve();
+      await Promise.allSettled([sessionBarrier, deletion, child]);
+      await Promise.all([blocker.$disconnect(), deleter.$disconnect()]);
+    }
   });
 
   it('atomically creates one exact set of plural children under concurrent duplicate requests', async () => {

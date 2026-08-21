@@ -176,6 +176,7 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
           }
           return this.usage.recordExecutionUsage({
             organizationId: runtimeContext.organizationId,
+            sessionId: runtimeContext.sessionId,
             executionId: runtimeContext.executionId,
             modelIdentity: runtimeContext.modelIdentity,
             provider: usage.provider,

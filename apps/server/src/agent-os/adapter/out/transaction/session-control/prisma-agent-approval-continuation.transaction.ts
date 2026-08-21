@@ -386,22 +386,21 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
   ): Promise<void> {
     await this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         const current = await tx.agentSessionApprovalContinuation.findFirst({
           where: {
             organizationId: input.organizationId,
             approvalId: input.approvalId,
+            approval: { sessionId: input.sessionId },
           },
-          select: { approval: { select: { sessionId: true } } },
+          select: { id: true },
         });
         if (!current) throw state();
-        await lockWritableAgentSession(tx, {
-          organizationId: input.organizationId,
-          sessionId: current.approval.sessionId,
-        });
         const updated = await tx.agentSessionApprovalContinuation.updateMany({
           where: {
             organizationId: input.organizationId,
             approvalId: input.approvalId,
+            approval: { sessionId: input.sessionId },
             successorOperationRunId: input.operationRunId,
             state: { in: ["successor_created", "interrupt_delivered"] },
           },
@@ -416,6 +415,7 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
               where: {
                 organizationId: input.organizationId,
                 approvalId: input.approvalId,
+                approval: { sessionId: input.sessionId },
               },
               select: { successorOperationRunId: true, state: true },
             });

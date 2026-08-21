@@ -560,6 +560,46 @@ describe("Prisma interaction persistence seams", () => {
     });
   });
 
+  it("never waits for the session lifecycle lock after acquiring authorization serialization", async () => {
+    if (!prisma) throw new Error("Prisma test client was not initialized");
+    const input = firstRunInput({
+      copilotThreadId: "thread-authorization-lock-order",
+      aguiRunId: "run-authorization-lock-order",
+    });
+    const lockClient = makeTestPrisma();
+    await lockClient.$connect();
+    const releaseAuthorization = deferred<void>();
+    const authorizationLocked = deferred<void>();
+    const authorizationBarrier = lockClient.$transaction(async (tx) => {
+      await tx.$queryRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${authorizationLockKey(input)},
+          0
+        ))::text AS "lock"
+      `;
+      authorizationLocked.resolve();
+      await releaseAuthorization.promise;
+    });
+    await authorizationLocked.promise;
+
+    const waiter = repository.authorizeExecution(input);
+    await waitForAdvisoryLockWaiters(prisma, 1);
+    await createAuthorizationSession(prisma, input);
+    const existing = repository.authorizeExecution(input);
+    try {
+      await waitForAdvisoryLockWaiters(prisma, 2);
+      releaseAuthorization.resolve();
+      await authorizationBarrier;
+      await expect(
+        settlesWithin(Promise.all([waiter, existing]), 5_000),
+      ).resolves.toHaveLength(2);
+    } finally {
+      releaseAuthorization.resolve();
+      await Promise.allSettled([authorizationBarrier, waiter, existing]);
+      await lockClient.$disconnect();
+    }
+  });
+
   it("snapshots the validated first user event before authorization awaits", async () => {
     if (!prisma) throw new Error("Prisma test client was not initialized");
     const input = firstRunInput({
@@ -956,6 +996,7 @@ describe("Prisma interaction persistence seams", () => {
     await expect(
       unsafeRepository.markExecutionTerminal({
         organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
         id: first.execution.id,
         status: "completed",
         errorCode: "invalid",
@@ -976,6 +1017,7 @@ describe("Prisma interaction persistence seams", () => {
     const finishedAt = new Date("2026-08-13T04:01:00.000Z");
     await repository.markExecutionTerminal({
       organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
       id: first.execution.id,
       status: "cancelled",
       errorCode: "user_cancelled",
@@ -984,6 +1026,7 @@ describe("Prisma interaction persistence seams", () => {
     await expect(
       repository.markExecutionTerminal({
         organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
         id: first.execution.id,
         status: "completed",
         errorCode: null,
@@ -1002,6 +1045,44 @@ describe("Prisma interaction persistence seams", () => {
     });
   });
 
+  it.each(["deleting", "delete_failed"] as const)(
+    "rejects a direct terminal write after the %s lifecycle fence",
+    async (lifecycle) => {
+      const first = await repository.authorizeExecution(
+        firstRunInput({
+          copilotThreadId: `thread-terminal-${lifecycle}`,
+          aguiRunId: `run-terminal-${lifecycle}`,
+        }),
+      );
+      await prisma!.agentSession.update({
+        where: { id: first.session.id },
+        data: { lifecycle },
+      });
+      const unsafeEvents = repository as unknown as {
+        markExecutionTerminal(input: Record<string, unknown>): Promise<void>;
+      };
+
+      await expect(unsafeEvents.markExecutionTerminal({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
+        id: first.execution.id,
+        status: "cancelled",
+        errorCode: "deletion_fenced",
+        finishedAt: new Date("2026-08-22T00:00:00.000Z"),
+      })).rejects.toMatchObject({
+        code: "AGENT_SESSION_CONTROL_STATE_CONFLICT",
+      });
+      await expect(prisma!.agentExecution.findUniqueOrThrow({
+        where: { id: first.execution.id },
+        select: { status: true, errorCode: true, finishedAt: true },
+      })).resolves.toEqual({
+        status: "running",
+        errorCode: null,
+        finishedAt: null,
+      });
+    },
+  );
+
   it("records usage with the canonical execution model and rejects caller model mismatch", async () => {
     if (!prisma) throw new Error("Prisma test client was not initialized");
     const first = await repository.authorizeExecution(
@@ -1014,6 +1095,7 @@ describe("Prisma interaction persistence seams", () => {
     await expect(
       repository.recordExecutionUsage({
         organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
         executionId: first.execution.id,
         modelIdentity: "different-model",
         provider: "openai",
@@ -1025,6 +1107,7 @@ describe("Prisma interaction persistence seams", () => {
     ).rejects.toMatchObject({ code: "INTERACTION_USAGE_MODEL_MISMATCH" });
     await repository.recordExecutionUsage({
       organizationId: TEST_ORGANIZATION_ID,
+      sessionId: first.session.id,
       executionId: first.execution.id,
       modelIdentity: "gpt-5.4",
       provider: "openai",
@@ -1096,6 +1179,7 @@ describe("Prisma interaction persistence seams", () => {
       await markDeleting(first.session.id);
       return repository.recordExecutionUsage({
         organizationId: TEST_ORGANIZATION_ID,
+        sessionId: first.session.id,
         executionId: first.execution.id,
         modelIdentity: "gpt-5.4",
         provider: "openai",
@@ -1823,6 +1907,43 @@ async function markDeleting(sessionId: string): Promise<void> {
     where: { id: sessionId },
     data: { lifecycle: "deleting" },
   });
+}
+
+async function createAuthorizationSession(
+  client: PrismaClient,
+  input: ReturnType<typeof firstRunInput>,
+): Promise<void> {
+  const session = await client.agentSession.create({
+    data: {
+      organizationId: input.organizationId,
+      createdByUserId: input.userId,
+      copilotThreadId: input.copilotThreadId,
+      primaryAgentVersionId: input.agentVersionId,
+      authorityProfileVersionId: input.authorityProfileVersionId,
+      contextEpoch: 1,
+      lifecycle: "active",
+    },
+  });
+  await client.$transaction([
+    client.agentSessionTask.create({
+      data: {
+        organizationId: input.organizationId,
+        sessionId: session.id,
+        assignedAgentVersionId: input.agentVersionId,
+        objective: null,
+        isRoot: true,
+        status: "interpreting",
+        idempotencyKey: "root",
+      },
+    }),
+    client.agentContextEpoch.create({
+      data: {
+        organizationId: input.organizationId,
+        sessionId: session.id,
+        epoch: 1,
+      },
+    }),
+  ]);
 }
 
 async function markDueArchived(sessionId: string): Promise<void> {

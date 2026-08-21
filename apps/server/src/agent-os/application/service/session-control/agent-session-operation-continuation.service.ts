@@ -78,6 +78,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
       });
       await this.approvals.markApprovalContinuationInterruptDelivered({
         organizationId: input.organizationId,
+        sessionId: input.sessionId,
         approvalId: continuation.approvalId,
         operationRunId: continuation.operationRunId,
       });
