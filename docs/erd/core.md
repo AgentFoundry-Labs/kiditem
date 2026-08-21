@@ -388,6 +388,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentSession |
 | Organization | organization | referenced by external | AgentOS | AgentSessionArtifactObject |
+| Organization | organization | referenced by external | AgentOS | AgentSessionDeletionOperationBinding |
 | Organization | organization | referenced by external | AgentOS | AgentSessionLegalAuditProjection |
 | Organization | organization | referenced by external | AgentOS | AgentSessionLifecycleRequest |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
@@ -533,6 +534,7 @@ erDiagram
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | decidedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | decidedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
+| User | deletionRequester | referenced by external | AgentOS | AgentSession |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
 | User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |

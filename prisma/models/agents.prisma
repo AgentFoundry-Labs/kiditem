@@ -83,11 +83,17 @@ model AgentSession {
   retentionDueAt            DateTime? @map("retention_due_at") @db.Timestamptz
   retentionDeleteClaimToken String?   @map("retention_delete_claim_token") @db.Uuid
   retentionDeleteClaimedAt  DateTime? @map("retention_delete_claimed_at") @db.Timestamptz
+  deletionRequestedAt       DateTime? @map("deletion_requested_at") @db.Timestamptz
+  deletionRequestedByUserId String?   @map("deletion_requested_by_user_id") @db.Uuid
+  deletionOperationRunId    String?   @map("deletion_operation_run_id") @db.Uuid
+  deletionFailureCode       String?   @map("deletion_failure_code")
   createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization            Organization                 @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
   creator                 User                         @relation("AgentSessionCreatedBy", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  deletionRequester       User?                               @relation("AgentSessionDeletionRequestedBy", fields: [deletionRequestedByUserId], references: [id], onDelete: Restrict)
+  deletionOperationRun    OperationRun?                       @relation("AgentSessionCurrentDeletionRun", fields: [deletionOperationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   primaryAgentVersion     AgentVersion                 @relation("AgentSessionPrimaryVersion", fields: [primaryAgentVersionId], references: [id], onDelete: Restrict)
   authorityProfileVersion AgentAuthorityProfileVersion @relation("AgentSessionAuthorityProfileVersion", fields: [authorityProfileVersionId, organizationId], references: [id, organizationId], onDelete: Restrict)
   tasks                   AgentSessionTask[]           @relation("AgentSessionTasks")
@@ -99,14 +105,57 @@ model AgentSession {
   approvals               AgentSessionApproval[]       @relation("AgentSessionApprovals")
   artifacts               AgentSessionArtifact[]       @relation("AgentSessionArtifacts")
   lifecycleRequests       AgentSessionLifecycleRequest[] @relation("AgentSessionLifecycleRequests")
+  operationRunOwnerships  AgentSessionOperationRunOwnership[] @relation("AgentSessionOperationRunOwnerships")
 
   @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
   @@unique([id, organizationId], map: "agent_sessions_id_org_key")
   @@index([organizationId, createdByUserId, lifecycle, updatedAt])
   @@index([retentionDueAt, lifecycle, legalHoldAt])
+  @@index([deletionOperationRunId, organizationId])
+  @@index([deletionRequestedByUserId])
   @@index([createdByUserId])
   @@index([primaryAgentVersionId])
   @@map("agent_sessions")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable deletion-operation identity which preserves session and requester coordinates without retaining their foreign-key graph.
+model AgentSessionDeletionOperationBinding {
+  id                        String   @id @default(uuid()) @db.Uuid
+  organizationId            String   @map("organization_id") @db.Uuid
+  sessionId                 String   @map("session_id") @db.Uuid
+  sessionCreatorUserId      String   @map("session_creator_user_id") @db.Uuid
+  deletionRequestedByUserId String   @map("deletion_requested_by_user_id") @db.Uuid
+  retryGeneration           Int      @default(1) @map("retry_generation")
+  operationRunId            String   @map("operation_run_id") @db.Uuid
+  predecessorOperationRunId String?  @map("predecessor_operation_run_id") @db.Uuid
+  createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization            Organization  @relation("AgentSessionDeletionBindingOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  operationRun            OperationRun  @relation("AgentSessionDeletionBindingRun", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  predecessorOperationRun OperationRun? @relation("AgentSessionDeletionBindingPredecessor", fields: [predecessorOperationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([operationRunId, organizationId], map: "agent_session_deletion_binding_run_org_key")
+  @@index([organizationId, sessionId, retryGeneration, createdAt])
+  @@index([predecessorOperationRunId, organizationId])
+  @@map("agent_session_deletion_operation_bindings")
+}
+
+/// @namespace AgentOS
+/// @describe Immutable organization-fenced ownership edge assigning one OperationRun to one canonical interaction session.
+model AgentSessionOperationRunOwnership {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  sessionId      String   @map("session_id") @db.Uuid
+  operationRunId String   @map("operation_run_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  session      AgentSession @relation("AgentSessionOperationRunOwnerships", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  operationRun OperationRun @relation("AgentSessionOperationRunOwnership", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([operationRunId, organizationId], map: "agent_session_operation_run_ownership_run_org_key")
+  @@index([sessionId, organizationId])
+  @@map("agent_session_operation_run_ownerships")
 }
 
 /// @namespace AgentOS
@@ -502,6 +551,8 @@ model AgentExecutionAttempt {
   externalRunId      String?   @map("external_run_id")
   encryptedHandleRef String?   @map("encrypted_handle_ref")
   runtimeGeneration  Int       @default(0) @map("runtime_generation")
+  runtimeStartIntentId String? @map("runtime_start_intent_id") @db.Uuid
+  runtimeCredentialGeneration Int @default(0) @map("runtime_credential_generation")
   state              String
   startedAt          DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt         DateTime? @map("finished_at") @db.Timestamptz

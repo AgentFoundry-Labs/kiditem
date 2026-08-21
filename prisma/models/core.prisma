@@ -80,6 +80,7 @@ model Organization {
   agentSessionLifecycleRequests   AgentSessionLifecycleRequest[]   @relation("AgentSessionLifecycleRequestOrganization")
   agentSessionLegalAuditProjections AgentSessionLegalAuditProjection[] @relation("AgentSessionLegalAuditProjectionOrganization")
   agentSessionArtifactObjects AgentSessionArtifactObject[] @relation("AgentSessionArtifactObjectOrganization")
+  agentSessionDeletionOperationBindings AgentSessionDeletionOperationBinding[] @relation("AgentSessionDeletionBindingOrganization")
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -268,6 +269,7 @@ model User {
   decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
   createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
   createdAgentSessions              AgentSession[]            @relation("AgentSessionCreatedBy")
+  requestedAgentSessionDeletions           AgentSession[]                    @relation("AgentSessionDeletionRequestedBy")
   updatedAgentInteractionRetentionPolicies AgentInteractionRetentionPolicy[] @relation("AgentInteractionRetentionPolicyUpdatedBy")
   requestedAgentSessionLifecycleRequests   AgentSessionLifecycleRequest[]    @relation("AgentSessionLifecycleRequestRequestedBy")
 

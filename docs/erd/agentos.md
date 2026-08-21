@@ -38,8 +38,10 @@
 | AgentSessionArtifactObject | `agent_session_artifact_objects` | One durable, organization-fenced owner for an immutable physical AgentOS artifact key. Raw storage text exists only while the object remains actionable. |
 | AgentSessionArtifactObjectRetentionHold | `agent_session_artifact_object_retention_holds` | Content-free independent-retention hold for one physical artifact object after canonical session rows are deleted. |
 | AgentSessionArtifactObjectTombstone | `agent_session_artifact_object_tombstones` | Hash-only terminal receipt which prevents immutable physical artifact-key reuse after successful erasure. |
+| AgentSessionDeletionOperationBinding | `agent_session_deletion_operation_bindings` | Immutable deletion-operation identity which preserves session and requester coordinates without retaining their foreign-key graph. |
 | AgentSessionLegalAuditProjection | `agent_session_legal_audit_projections` | Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session. |
 | AgentSessionLifecycleRequest | `agent_session_lifecycle_requests` | Scoped lifecycle idempotency record retained only while its canonical AgentSession exists. |
+| AgentSessionOperationRunOwnership | `agent_session_operation_run_ownerships` | Immutable organization-fenced ownership edge assigning one OperationRun to one canonical interaction session. |
 | AgentSessionTask | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
 | AgentSessionTaskDelegation | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
 | AgentSessionTombstone | `agent_session_tombstones` | Content-free, versioned-HMAC deletion receipt used only for terminal delete idempotency. |
@@ -216,6 +218,8 @@ erDiagram
     String externalRunId
     String encryptedHandleRef
     Int runtimeGeneration
+    String runtimeStartIntentId
+    Int runtimeCredentialGeneration
     String state
     DateTime startedAt
     DateTime finishedAt
@@ -439,6 +443,10 @@ erDiagram
     DateTime retentionDueAt
     String retentionDeleteClaimToken
     DateTime retentionDeleteClaimedAt
+    DateTime deletionRequestedAt
+    String deletionRequestedByUserId FK
+    String deletionOperationRunId FK
+    String deletionFailureCode
     DateTime createdAt
     DateTime updatedAt
   }
@@ -519,6 +527,17 @@ erDiagram
     DateTime erasedAt
     DateTime createdAt
   }
+  AgentSessionDeletionOperationBinding {
+    String id PK
+    String organizationId FK
+    String sessionId
+    String sessionCreatorUserId
+    String deletionRequestedByUserId
+    Int retryGeneration
+    String operationRunId FK
+    String predecessorOperationRunId FK
+    DateTime createdAt
+  }
   AgentSessionLegalAuditProjection {
     String id PK
     String organizationId FK
@@ -546,6 +565,13 @@ erDiagram
     String errorCode
     DateTime createdAt
     DateTime finishedAt
+  }
+  AgentSessionOperationRunOwnership {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String operationRunId FK
+    DateTime createdAt
   }
   AgentSessionTask {
     String id PK
@@ -748,6 +774,7 @@ erDiagram
   AgentSession ||--o{ AgentSessionApproval : "session"
   AgentSession ||--o{ AgentSessionArtifact : "session"
   AgentSession ||--o{ AgentSessionLifecycleRequest : "session"
+  AgentSession ||--o{ AgentSessionOperationRunOwnership : "session"
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
@@ -807,13 +834,19 @@ erDiagram
 | AgentRunRequest | requestedBy | references external | Core | User |
 | AgentRuntimeState | organization | references external | Core | Organization |
 | AgentSession | creator | references external | Core | User |
+| AgentSession | deletionOperationRun | references external | System | OperationRun |
+| AgentSession | deletionRequester | references external | Core | User |
 | AgentSession | organization | references external | Core | Organization |
 | AgentSessionApproval | predecessorOperationRun | references external | System | OperationRun |
 | AgentSessionApprovalContinuation | successorOperationRun | references external | System | OperationRun |
 | AgentSessionArtifactObject | organization | references external | Core | Organization |
+| AgentSessionDeletionOperationBinding | operationRun | references external | System | OperationRun |
+| AgentSessionDeletionOperationBinding | organization | references external | Core | Organization |
+| AgentSessionDeletionOperationBinding | predecessorOperationRun | references external | System | OperationRun |
 | AgentSessionLegalAuditProjection | organization | references external | Core | Organization |
 | AgentSessionLifecycleRequest | organization | references external | Core | Organization |
 | AgentSessionLifecycleRequest | requestedBy | references external | Core | User |
+| AgentSessionOperationRunOwnership | operationRun | references external | System | OperationRun |
 | AgentTaskSession | organization | references external | Core | Organization |
 | AgentToolInvocation | organization | references external | Core | Organization |
 | WorkflowRun | triggeredByUser | references external | Core | User |

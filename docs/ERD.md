@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 40 |
+| [AgentOS](erd/agentos.md) | 42 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
@@ -73,8 +73,10 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentSessionArtifactObject | AgentOS | `agent_session_artifact_objects` | One durable, organization-fenced owner for an immutable physical AgentOS artifact key. Raw storage text exists only while the object remains actionable. |
 | AgentSessionArtifactObjectRetentionHold | AgentOS | `agent_session_artifact_object_retention_holds` | Content-free independent-retention hold for one physical artifact object after canonical session rows are deleted. |
 | AgentSessionArtifactObjectTombstone | AgentOS | `agent_session_artifact_object_tombstones` | Hash-only terminal receipt which prevents immutable physical artifact-key reuse after successful erasure. |
+| AgentSessionDeletionOperationBinding | AgentOS | `agent_session_deletion_operation_bindings` | Immutable deletion-operation identity which preserves session and requester coordinates without retaining their foreign-key graph. |
 | AgentSessionLegalAuditProjection | AgentOS | `agent_session_legal_audit_projections` | Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session. |
 | AgentSessionLifecycleRequest | AgentOS | `agent_session_lifecycle_requests` | Scoped lifecycle idempotency record retained only while its canonical AgentSession exists. |
+| AgentSessionOperationRunOwnership | AgentOS | `agent_session_operation_run_ownerships` | Immutable organization-fenced ownership edge assigning one OperationRun to one canonical interaction session. |
 | AgentSessionTask | AgentOS | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
 | AgentSessionTaskDelegation | AgentOS | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
 | AgentSessionTombstone | AgentOS | `agent_session_tombstones` | Content-free, versioned-HMAC deletion receipt used only for terminal delete idempotency. |
@@ -438,6 +440,8 @@ erDiagram
     String externalRunId
     String encryptedHandleRef
     Int runtimeGeneration
+    String runtimeStartIntentId
+    Int runtimeCredentialGeneration
     String state
     DateTime startedAt
     DateTime finishedAt
@@ -661,6 +665,10 @@ erDiagram
     DateTime retentionDueAt
     String retentionDeleteClaimToken
     DateTime retentionDeleteClaimedAt
+    DateTime deletionRequestedAt
+    String deletionRequestedByUserId FK
+    String deletionOperationRunId FK
+    String deletionFailureCode
     DateTime createdAt
     DateTime updatedAt
   }
@@ -741,6 +749,17 @@ erDiagram
     DateTime erasedAt
     DateTime createdAt
   }
+  AgentSessionDeletionOperationBinding {
+    String id PK
+    String organizationId FK
+    String sessionId
+    String sessionCreatorUserId
+    String deletionRequestedByUserId
+    Int retryGeneration
+    String operationRunId FK
+    String predecessorOperationRunId FK
+    DateTime createdAt
+  }
   AgentSessionLegalAuditProjection {
     String id PK
     String organizationId FK
@@ -768,6 +787,13 @@ erDiagram
     String errorCode
     DateTime createdAt
     DateTime finishedAt
+  }
+  AgentSessionOperationRunOwnership {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String operationRunId FK
+    DateTime createdAt
   }
   AgentSessionTask {
     String id PK
@@ -3348,6 +3374,7 @@ erDiagram
   AgentSession ||--o{ AgentSessionApproval : "session"
   AgentSession ||--o{ AgentSessionArtifact : "session"
   AgentSession ||--o{ AgentSessionLifecycleRequest : "session"
+  AgentSession ||--o{ AgentSessionOperationRunOwnership : "session"
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
@@ -3459,8 +3486,12 @@ erDiagram
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   OperationRun ||--|| AgentExecutionAttemptOperationBinding : "operationRun"
   OperationRun o|--o{ AgentExecutionAttemptOperationBinding : "predecessorOperationRun"
+  OperationRun o|--o{ AgentSession : "deletionOperationRun"
   OperationRun ||--o{ AgentSessionApproval : "predecessorOperationRun"
   OperationRun o|--o| AgentSessionApprovalContinuation : "successorOperationRun"
+  OperationRun ||--|| AgentSessionDeletionOperationBinding : "operationRun"
+  OperationRun o|--o{ AgentSessionDeletionOperationBinding : "predecessorOperationRun"
+  OperationRun ||--|| AgentSessionOperationRunOwnership : "operationRun"
   OperationRun o|--o{ OperationRun : "parentRun"
   OperationRun ||--o{ OperationRunCheckpoint : "operationRun"
   OperationSchedule o|--o{ OperationRun : "schedule"
@@ -3490,6 +3521,7 @@ erDiagram
   Organization ||--o{ AgentRuntimeState : "organization"
   Organization ||--o{ AgentSession : "organization"
   Organization ||--o{ AgentSessionArtifactObject : "organization"
+  Organization ||--o{ AgentSessionDeletionOperationBinding : "organization"
   Organization ||--o{ AgentSessionLegalAuditProjection : "organization"
   Organization ||--o{ AgentSessionLifecycleRequest : "organization"
   Organization ||--o{ AgentTaskSession : "organization"
@@ -3709,6 +3741,7 @@ erDiagram
   User o|--o{ AgentInteractionRetentionPolicy : "updatedBy"
   User o|--o{ AgentRunRequest : "requestedBy"
   User ||--o{ AgentSession : "creator"
+  User o|--o{ AgentSession : "deletionRequester"
   User ||--o{ AgentSessionLifecycleRequest : "requestedBy"
   User o|--o{ Alert : "actorUser"
   User ||--o{ AuthSession : "user"

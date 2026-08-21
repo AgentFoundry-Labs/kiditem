@@ -248,6 +248,10 @@ model OperationRun {
   agentExecutionAttemptContinuationBindings AgentExecutionAttemptOperationBinding[] @relation("AgentExecutionAttemptOperationBindingPredecessorRun")
   agentSessionApprovalPredecessors         AgentSessionApproval[]                    @relation("AgentSessionApprovalPredecessorOperationRun")
   agentSessionApprovalContinuationSuccessor AgentSessionApprovalContinuation?        @relation("AgentSessionApprovalContinuationSuccessorRun")
+  agentSessionCurrentDeletionRuns                  AgentSession[]                          @relation("AgentSessionCurrentDeletionRun")
+  agentSessionDeletionOperationBindings            AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingRun")
+  agentSessionDeletionOperationBindingPredecessors AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingPredecessor")
+  agentSessionOperationRunOwnership                AgentSessionOperationRunOwnership?      @relation("AgentSessionOperationRunOwnership")
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))

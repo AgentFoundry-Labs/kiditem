@@ -241,10 +241,14 @@ erDiagram
 | Alert | organization | references external | Core | Organization |
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
+| OperationRun | deletionOperationRun | referenced by external | AgentOS | AgentSession |
 | OperationRun | operationRun | referenced by external | AgentOS | AgentExecutionAttemptOperationBinding |
+| OperationRun | operationRun | referenced by external | AgentOS | AgentSessionDeletionOperationBinding |
+| OperationRun | operationRun | referenced by external | AgentOS | AgentSessionOperationRunOwnership |
 | OperationRun | organization | references external | Core | Organization |
 | OperationRun | predecessorOperationRun | referenced by external | AgentOS | AgentExecutionAttemptOperationBinding |
 | OperationRun | predecessorOperationRun | referenced by external | AgentOS | AgentSessionApproval |
+| OperationRun | predecessorOperationRun | referenced by external | AgentOS | AgentSessionDeletionOperationBinding |
 | OperationRun | requestedBy | references external | Core | User |
 | OperationRun | successorOperationRun | referenced by external | AgentOS | AgentSessionApprovalContinuation |
 | OperationRunCheckpoint | organization | references external | Core | Organization |
