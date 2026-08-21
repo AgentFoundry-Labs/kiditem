@@ -16,6 +16,17 @@ import {
 } from '../../../../../../test-helpers/real-prisma';
 import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
 import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
+import { PrismaAgentSessionDeletionCommandTransaction } from '../../session-deletion/prisma-agent-session-deletion-command.transaction';
+import { PrismaAgentSessionDeletionQueryRepository } from '../../../repository/session-deletion/prisma-agent-session-deletion-query.repository';
+import {
+  AGENT_SESSION_DELETE_OPERATION,
+  AGENT_SESSION_DELETE_OPERATION_KEY,
+} from '../../../../../domain/operation/agent-session-deletion.operations';
+import {
+  AgentSessionIdSchema,
+  formatAgentSessionName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
 import { SessionControlAdapterSet } from './session-control-adapter-set';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
@@ -26,6 +37,8 @@ const OTHER_AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000004';
 let prisma: PrismaClient | null = null;
 let repository: SessionControlAdapterSet;
 let ownedOperations: PrismaAgentSessionOwnedOperationTransaction;
+let deletionCommands: PrismaAgentSessionDeletionCommandTransaction;
+let deletionQueries: PrismaAgentSessionDeletionQueryRepository;
 
 const sessionTaskDefinition = {
   key: 'agent-os.execute-session-task',
@@ -55,6 +68,8 @@ beforeEach(async () => {
   await seedBaseFixture(prisma);
   await seedControlFixture(prisma);
   ownedOperations = new PrismaAgentSessionOwnedOperationTransaction(prisma as never);
+  deletionCommands = new PrismaAgentSessionDeletionCommandTransaction(prisma as never);
+  deletionQueries = new PrismaAgentSessionDeletionQueryRepository(prisma as never);
 });
 
 describe('Prisma Agent session-control transaction seams', () => {
@@ -117,6 +132,188 @@ describe('Prisma Agent session-control transaction seams', () => {
     await expect(prisma!.agentExecutionAttempt.count({
       where: { executionId: fixture.executionId },
     })).resolves.toBe(0);
+  });
+
+  it('creates exactly one system-only deletion run and immutable binding under concurrent canonical requests', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'credential-generation');
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    const input = deletionInput(session);
+
+    const [first, second] = await Promise.all([
+      deletionCommands.begin(input),
+      deletionCommands.begin(input),
+    ]);
+
+    expect(first).toEqual({ state: 'deleting', failureCode: null });
+    expect(second).toEqual({ state: 'deleting', failureCode: null });
+    const run = await prisma!.operationRun.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: AGENT_SESSION_DELETE_OPERATION_KEY,
+      },
+      select: { id: true, triggerSource: true, requestedByUserId: true, input: true, maxAttempts: true },
+    });
+    expect(run).toMatchObject({
+      triggerSource: 'system',
+      requestedByUserId: TEST_USER_ID,
+      input: { session, retryGeneration: 1 },
+      maxAttempts: 5,
+    });
+    await expect(prisma!.agentSessionDeletionOperationBinding.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: run.id,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({
+      sessionId: fixture.sessionId,
+      sessionCreatorUserId: TEST_USER_ID,
+      deletionRequestedByUserId: TEST_USER_ID,
+      retryGeneration: 1,
+      predecessorOperationRunId: null,
+    });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: fixture.sessionId },
+      select: { lifecycle: true, deletionOperationRunId: true, deletionFailureCode: true },
+    })).resolves.toEqual({
+      lifecycle: 'deleting', deletionOperationRunId: run.id, deletionFailureCode: null,
+    });
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(1);
+    await expect(prisma!.agentExecutionAttempt.findUniqueOrThrow({
+      where: { id: owned.attemptId },
+      select: { runtimeCredentialGeneration: true },
+    })).resolves.toEqual({ runtimeCredentialGeneration: 1 });
+  });
+
+  it('rolls back the deletion lifecycle fence when immutable binding creation fails', async () => {
+    const fixture = await createRootGraph();
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    const failingPrisma = new Proxy(prisma!, {
+      get(target, key, receiver) {
+        if (key !== '$transaction') return Reflect.get(target, key, receiver);
+        return async (callback: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+          target.$transaction(async (transaction) => callback(new Proxy(transaction, {
+            get(transactionTarget, transactionKey, transactionReceiver) {
+              if (transactionKey !== 'agentSessionDeletionOperationBinding') {
+                return Reflect.get(transactionTarget, transactionKey, transactionReceiver);
+              }
+              return new Proxy(transactionTarget.agentSessionDeletionOperationBinding, {
+                get(bindingTarget, bindingKey, bindingReceiver) {
+                  if (bindingKey === 'create') return async () => { throw new Error('binding_fault'); };
+                  return Reflect.get(bindingTarget, bindingKey, bindingReceiver);
+                },
+              });
+            },
+          }) as Prisma.TransactionClient));
+      },
+    });
+    const commands = new PrismaAgentSessionDeletionCommandTransaction(failingPrisma as never);
+
+    await expect(commands.begin(deletionInput(session))).rejects.toThrow('binding_fault');
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: fixture.sessionId },
+      select: { lifecycle: true, deletionOperationRunId: true },
+    })).resolves.toEqual({ lifecycle: 'active', deletionOperationRunId: null });
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(0);
+  });
+
+  it('returns null without a typed scope leak for unknown and cross-organization begins and retries', async () => {
+    const fixture = await createRootGraph();
+    const unknown = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse('00000000-0000-4000-8000-000000000099'),
+    );
+    const foreign = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+
+    await expect(deletionCommands.begin(deletionInput(unknown))).resolves.toBeNull();
+    await expect(deletionCommands.retry(deletionRetryInput(unknown))).resolves.toBeNull();
+    await expect(deletionCommands.begin(deletionInput(foreign, OTHER_ORGANIZATION_ID, OTHER_USER_ID)))
+      .resolves.toBeNull();
+    await expect(deletionCommands.retry(deletionRetryInput(foreign, OTHER_ORGANIZATION_ID, OTHER_USER_ID)))
+      .resolves.toBeNull();
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(0);
+  });
+
+  it('does not expose retry lifecycle state to an active ordinary member', async () => {
+    const fixture = await createRootGraph();
+    const ordinaryUserId = 'c1234567-89ab-4cde-8f01-23456789abcd';
+    await prisma!.user.create({
+      data: {
+        id: ordinaryUserId,
+        email: 'ordinary-deletion-member@test.local',
+        name: 'Ordinary deletion member',
+        role: 'member',
+        type: 'human',
+      },
+    });
+    await prisma!.organizationMembership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: ordinaryUserId,
+        role: 'member',
+        status: 'active',
+      },
+    });
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+
+    await expect(deletionCommands.retry(
+      deletionRetryInput(session, TEST_ORGANIZATION_ID, ordinaryUserId),
+    )).resolves.toBeNull();
+  });
+
+  it('does not retain status access for a deletion requester demoted from administrator', async () => {
+    const fixture = await createRootGraph();
+    const adminUserId = 'd1234567-89ab-4cde-8f01-23456789abcd';
+    await prisma!.user.create({
+      data: {
+        id: adminUserId,
+        email: 'demoted-deletion-admin@test.local',
+        name: 'Demoted deletion admin',
+        role: 'admin',
+        type: 'human',
+      },
+    });
+    await prisma!.organizationMembership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: adminUserId,
+        role: 'admin',
+        status: 'active',
+      },
+    });
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    await deletionCommands.begin(deletionInput(session, TEST_ORGANIZATION_ID, adminUserId));
+    await prisma!.organizationMembership.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, userId: adminUserId },
+      data: { role: 'member' },
+    });
+
+    await expect(deletionQueries.findAuthorizedStatus({
+      organizationId: TEST_ORGANIZATION_ID,
+      actorUserId: adminUserId,
+      session,
+    })).resolves.toBeNull();
   });
 
   it('keeps a successor OperationRun owned by the same session', async () => {
@@ -2468,6 +2665,35 @@ async function createUnownedContinuationPredecessor(
     },
   });
   return { operationRunId: operation.id, attemptId: attempt.id };
+}
+
+function deletionInput(
+  session: string,
+  organizationId = TEST_ORGANIZATION_ID,
+  actorUserId = TEST_USER_ID,
+) {
+  return {
+    organizationId,
+    actorUserId,
+    session: session as never,
+    signal: new AbortController().signal,
+    definition: AGENT_SESSION_DELETE_OPERATION,
+    parsedInput: { session, retryGeneration: 1 },
+  };
+}
+
+function deletionRetryInput(
+  session: string,
+  organizationId = TEST_ORGANIZATION_ID,
+  actorUserId = TEST_USER_ID,
+) {
+  return {
+    organizationId,
+    actorUserId,
+    session: session as never,
+    signal: new AbortController().signal,
+    definition: AGENT_SESSION_DELETE_OPERATION,
+  };
 }
 
 function artifactStorageReference(organizationId: string, objectId: string): string {

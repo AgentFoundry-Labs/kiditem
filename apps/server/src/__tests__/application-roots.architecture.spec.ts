@@ -36,6 +36,10 @@ import { LinkfoxEchotikShadowAdapter } from '../sourcing/adapter/out/linkfox/lin
 import { MarketShadowSnapshotRepositoryAdapter } from '../sourcing/adapter/out/repository/market-shadow-snapshot.repository.adapter';
 import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
 import { AI_DIRECT_JOB_WAKE_PORT } from '../ai/application/port/out/runtime';
+import { AgentSessionDeletionController } from '../agent-os/adapter/in/http/session-control/agent-session-deletion.controller';
+import { AgentSessionDeletionService } from '../agent-os/application/service/session-control/agent-session-deletion.service';
+import { PrismaAgentSessionDeletionCommandTransaction } from '../agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction';
+import { PrismaAgentSessionDeletionQueryRepository } from '../agent-os/adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
 type ProviderLike = Function | { provide?: unknown };
@@ -140,6 +144,25 @@ describe('application root topology', () => {
     expect(controllers(AgentMcpApplicationModule)).toEqual([]);
     expect(hasGlobalGuard(AgentWorkerApplicationModule)).toBe(false);
     expect(hasGlobalGuard(AgentMcpApplicationModule)).toBe(false);
+  });
+
+  it('keeps the unbound AgentSession deletion-control surface out of API, worker, and MCP roots', () => {
+    const deletionSurface = [
+      AgentSessionDeletionController,
+      AgentSessionDeletionService,
+      PrismaAgentSessionDeletionCommandTransaction,
+      PrismaAgentSessionDeletionQueryRepository,
+    ];
+    for (const root of [
+      ApiApplicationModule,
+      AgentWorkerApplicationModule,
+      AgentMcpApplicationModule,
+    ]) {
+      expect(controllers(root)).not.toContain(AgentSessionDeletionController);
+      expect(providers(root)).not.toEqual(
+        expect.arrayContaining(deletionSurface),
+      );
+    }
   });
 
   it('binds every process entrypoint to its exact application root', () => {
