@@ -18,6 +18,7 @@ export interface OperationDispatchControls {
     progressCurrent?: number;
     progressTotal?: number;
   }): Promise<void>;
+  enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
 }
 
 @Injectable()
@@ -42,8 +43,19 @@ export class OperationDispatcherService {
 
     try {
       controls.signal.throwIfAborted();
+      const definition = this.registry.getDefinition(run.operationKey);
+      if (
+        definition.successPersistence === 'ephemeral_on_success' &&
+        (
+          run.triggerSource !== 'system' ||
+          run.parentRunId !== null ||
+          run.scheduleId !== null
+        )
+      ) {
+        throw new Error('operation_ephemeral_dispatch_invalid');
+      }
       const handler = this.registry.getHandler(run.operationKey);
-      const result = await handler.execute({
+      const context = {
         runId: run.id,
         organizationId: run.organizationId,
         operationKey: run.operationKey,
@@ -54,8 +66,12 @@ export class OperationDispatcherService {
         parentRunId: run.parentRunId,
         attemptToken,
         signal: controls.signal,
+        attempts: run.attempts,
+        maxAttempts: run.maxAttempts,
         checkpoint: controls.checkpoint,
-      });
+        enterEphemeralFinalization: controls.enterEphemeralFinalization,
+      };
+      const result = await handler.execute(context);
       controls.signal.throwIfAborted();
       await controls.checkpoint();
       controls.signal.throwIfAborted();
@@ -63,6 +79,27 @@ export class OperationDispatcherService {
       switch (result.kind) {
         case 'completed':
           controls.signal.throwIfAborted();
+          if (definition.successPersistence === 'ephemeral_on_success') {
+            if (!handler.finalizeEphemeralSuccess) {
+              throw new Error('operation_ephemeral_finalizer_missing');
+            }
+            const finalization = await controls.enterEphemeralFinalization();
+            while (!finalization.signal.aborted) {
+              try {
+                await handler.finalizeEphemeralSuccess(context, result.result);
+                return;
+              } catch {
+                if (finalization.signal.aborted) return;
+                await controls.checkpoint({ stage: 'ephemeral_finalizing' });
+                try {
+                  await abortableDelay(250, finalization.signal);
+                } catch {
+                  return;
+                }
+              }
+            }
+            return;
+          }
           await this.repository.transitionActiveAttempt({
             organizationId: run.organizationId,
             runId: run.id,
@@ -76,6 +113,27 @@ export class OperationDispatcherService {
             attemptToken: null,
             claimedAt: null,
             leaseExpiresAt: null,
+          });
+          return;
+        case 'retryable':
+          controls.signal.throwIfAborted();
+          if (run.attempts >= run.maxAttempts) {
+            if (!handler.exhaustRetry) {
+              throw new Error('operation_retry_exhaustion_handler_missing');
+            }
+            await handler.exhaustRetry(context, {
+              code: result.code,
+              message: result.message,
+            });
+            return;
+          }
+          await this.repository.requeueActiveAttemptAfter({
+            organizationId: run.organizationId,
+            runId: run.id,
+            expectedAttemptToken: attemptToken,
+            delayMs: result.retryAfterMs,
+            errorCode: result.code,
+            errorMessage: result.message,
           });
           return;
         case 'delegated':
@@ -206,4 +264,20 @@ export class OperationDispatcherService {
       leaseExpiresAt: null,
     });
   }
+}
+
+function abortableDelay(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal.reason);
+    };
+    const timeout = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    timeout.unref?.();
+    if (signal.aborted) return onAbort();
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }

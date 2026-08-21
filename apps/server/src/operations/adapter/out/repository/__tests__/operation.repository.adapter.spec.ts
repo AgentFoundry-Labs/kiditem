@@ -207,6 +207,43 @@ describe('OperationRepositoryAdapter creation boundaries', () => {
   });
 });
 
+describe('OperationRepositoryAdapter database-time retries', () => {
+  it('requeues only the exact active attempt with a PostgreSQL-clock delay', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ id: RUN_ID }]);
+    const findFirst = vi.fn().mockResolvedValue(makeRunRow({ status: 'queued' }));
+    const repository = new OperationRepositoryAdapter({
+      $queryRaw: queryRaw,
+      operationRun: { findFirst },
+    } as never) as unknown as {
+      requeueActiveAttemptAfter(input: {
+        organizationId: string;
+        runId: string;
+        expectedAttemptToken: string;
+        delayMs: number;
+        errorCode: string;
+        errorMessage: string;
+      }): Promise<unknown>;
+    };
+
+    await repository.requeueActiveAttemptAfter({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      expectedAttemptToken: ATTEMPT_TOKEN,
+      delayMs: 60_000,
+      errorCode: 'STORAGE_DELETE_UNKNOWN',
+      errorMessage: 'Deletion storage state is unknown',
+    });
+
+    const [statement] = queryRaw.mock.calls[0] ?? [];
+    expect(sqlText(statement)).toContain('clock_timestamp()');
+    expect(sqlText(statement)).toContain('scheduled_for');
+    expect(sqlText(statement)).toContain("interval '1 millisecond'");
+    expect(sqlText(statement)).toContain("status = 'running'");
+    expect(queryRaw.mock.calls[0]).toContain(ATTEMPT_TOKEN);
+    expect(queryRaw.mock.calls[0]).toContain(60_000);
+  });
+});
+
 describe('OperationRepositoryAdapter lifecycle-gated transition', () => {
   it('keeps a shutdown observed after mutation inside the transaction rollback boundary', async () => {
     const controller = new AbortController();
@@ -796,6 +833,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
         organization_id: ORG_ID,
         deadline_at: null,
         execution_timeout_ms: 900_000,
+        database_now: NOW,
       }]),
       operationRun: { update },
     };
@@ -837,6 +875,7 @@ describe('OperationRepositoryAdapter server claim fencing', () => {
         organization_id: ORG_ID,
         deadline_at: originalDeadline,
         execution_timeout_ms: 900_000,
+        database_now: NOW,
       }]),
       operationRun: { update },
     };

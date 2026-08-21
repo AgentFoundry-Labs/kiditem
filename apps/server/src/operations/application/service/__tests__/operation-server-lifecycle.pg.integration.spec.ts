@@ -24,6 +24,7 @@ import { OperationLifecycleGateService } from '../operation-lifecycle-gate.servi
 import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
 import { OperationRunWorkerService } from '../operation-run-worker.service';
 import { OperationSchedulerService } from '../operation-scheduler.service';
+import { OperationPostAcceptingHookRegistryService } from '../operation-post-accepting-hook-registry.service';
 import {
   OPERATION_LIFECYCLE_OPTIONS,
   OperationServerLifecycleService,
@@ -131,6 +132,7 @@ function lifecycle(
   return new OperationServerLifecycleService(
     repository,
     gate,
+    new OperationPostAcceptingHookRegistryService(),
     runtimes.scheduler as never,
     runtimes.worker as never,
     options,

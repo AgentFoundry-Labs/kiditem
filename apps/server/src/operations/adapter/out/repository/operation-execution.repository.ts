@@ -93,6 +93,14 @@ export async function claimNextServerRun(
   },
 ): Promise<ClaimedRunIdentity | null> {
   input.signal.throwIfAborted();
+  const leaseDurationMs = input.leaseExpiresAt.getTime() - input.now.getTime();
+  if (
+    !Number.isInteger(leaseDurationMs) ||
+    leaseDurationMs <= 0 ||
+    leaseDurationMs > MAX_OPERATION_PERSISTED_INT
+  ) {
+    throw new Error('operation_run_lease_duration_invalid');
+  }
   return prisma.$transaction(async (transaction) => {
     // This internal queue consumer intentionally spans organizations. The
     // selected organizationId is carried into the composite-scoped update and
@@ -103,15 +111,21 @@ export async function claimNextServerRun(
         organization_id: string;
         deadline_at: Date | null;
         execution_timeout_ms: number;
+        database_now: Date;
       }>
     >`
+      WITH operation_clock AS MATERIALIZED (
+        SELECT clock_timestamp() AS now
+      )
       SELECT id, organization_id, deadline_at, execution_timeout_ms
+           , operation_clock.now AS database_now
       FROM operation_runs
+      CROSS JOIN operation_clock
       WHERE resource_class = ${input.resourceClass}
         AND status = 'queued'
         AND attempts < max_attempts
-        AND (scheduled_for IS NULL OR scheduled_for <= ${input.now})
-        AND (deadline_at IS NULL OR deadline_at > ${input.now})
+        AND (scheduled_for IS NULL OR scheduled_for <= operation_clock.now)
+        AND (deadline_at IS NULL OR deadline_at > operation_clock.now)
       ORDER BY scheduled_for ASC NULLS FIRST, created_at ASC
       FOR UPDATE SKIP LOCKED
       LIMIT 1
@@ -126,6 +140,10 @@ export async function claimNextServerRun(
     const executionTimeoutMs = parseExecutionTimeoutMs(
       candidate.execution_timeout_ms,
     );
+    const databaseNow = parseDeadlineAt(candidate.database_now);
+    if (!databaseNow) {
+      throw new Error('operation_run_persisted_execution_metadata_invalid');
+    }
 
     // No awaited boundary exists between this check and issuing the mutation,
     // so shutdown observed after selection cannot claim the row.
@@ -142,12 +160,12 @@ export async function claimNextServerRun(
         attempts: { increment: 1 },
         claimedBy: input.workerId,
         attemptToken: randomUUID(),
-        claimedAt: input.now,
-        leaseExpiresAt: input.leaseExpiresAt,
+        claimedAt: databaseNow,
+        leaseExpiresAt: new Date(databaseNow.getTime() + leaseDurationMs),
         deadlineAt:
           deadlineAt ??
-          new Date(input.now.getTime() + executionTimeoutMs),
-        startedAt: input.now,
+          new Date(databaseNow.getTime() + executionTimeoutMs),
+        startedAt: databaseNow,
       },
     });
     // If cancellation arrived while PostgreSQL was applying the update,

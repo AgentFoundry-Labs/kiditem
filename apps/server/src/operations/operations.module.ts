@@ -7,9 +7,12 @@ import { OperationRepositoryAdapter } from './adapter/out/repository/operation.r
 import { OperationCheckpointRepositoryAdapter } from './adapter/out/repository/operation-checkpoint.repository.adapter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from './application/port/in/operation-handler-registry.port';
 import { OPERATION_RUNNER_PORT } from './application/port/in/operation-runner.port';
+import { OPERATION_EXACT_RUN_CONTROL_PORT } from './application/port/in/operation-exact-run-control.port';
+import { OPERATION_POST_ACCEPTING_HOOK_REGISTRY_PORT } from './application/port/in/operation-post-accepting-hook-registry.port';
 import { OPERATION_REPOSITORY_PORT } from './application/port/out/repository/operation.repository.port';
 import { OPERATION_CHECKPOINT_REPOSITORY_PORT } from './application/port/out/repository/operation-checkpoint.repository.port';
 import { OperationHandlerRegistryService } from './application/service/operation-handler-registry.service';
+import { OperationPostAcceptingHookRegistryService } from './application/service/operation-post-accepting-hook-registry.service';
 import { BrowserOperationRuntimeService } from './application/service/browser-operation-runtime.service';
 import { OperationDispatcherService } from './application/service/operation-dispatcher.service';
 import { OperationAttemptExecutorService } from './application/service/operation-attempt-executor.service';
@@ -39,6 +42,7 @@ import {
   ],
   providers: [
     OperationHandlerRegistryService,
+    OperationPostAcceptingHookRegistryService,
     OperationRepositoryAdapter,
     OperationCheckpointRepositoryAdapter,
     OperationRunService,
@@ -67,6 +71,14 @@ import {
     },
     { provide: OPERATION_RUNNER_PORT, useExisting: OperationRunService },
     {
+      provide: OPERATION_EXACT_RUN_CONTROL_PORT,
+      useExisting: OperationRunService,
+    },
+    {
+      provide: OPERATION_POST_ACCEPTING_HOOK_REGISTRY_PORT,
+      useExisting: OperationPostAcceptingHookRegistryService,
+    },
+    {
       provide: COMPOSITE_OPERATION_COORDINATOR_PORT,
       useExisting: CompositeOperationCoordinatorService,
     },
@@ -74,6 +86,8 @@ import {
   exports: [
     OPERATION_HANDLER_REGISTRY_PORT,
     OPERATION_RUNNER_PORT,
+    OPERATION_EXACT_RUN_CONTROL_PORT,
+    OPERATION_POST_ACCEPTING_HOOK_REGISTRY_PORT,
     OPERATION_REPOSITORY_PORT,
     OPERATION_CHECKPOINT_REPOSITORY_PORT,
     COMPOSITE_OPERATION_COORDINATOR_PORT,

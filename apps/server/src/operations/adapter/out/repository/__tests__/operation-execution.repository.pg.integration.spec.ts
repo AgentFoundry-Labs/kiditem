@@ -528,7 +528,7 @@ describe('operation execution repository PostgreSQL fencing', () => {
       finishedAt,
     })).resolves.toBe(true);
 
-    await expect(locker.operationRun.findUniqueOrThrow({
+    const cancelled = await locker.operationRun.findUniqueOrThrow({
       where: { id: runId },
       select: {
         status: true,
@@ -544,20 +544,22 @@ describe('operation execution repository PostgreSQL fencing', () => {
         errorMessage: true,
         finishedAt: true,
       },
-    })).resolves.toEqual({
+    });
+    expect(cancelled).toMatchObject({
       status: 'cancelled',
       attempts: 1,
       claimedBy: null,
       attemptToken: null,
       claimedAt: null,
       leaseExpiresAt: null,
-      startedAt: now,
       deadlineAt,
       scheduledFor,
       errorCode: 'operation_server_shutdown',
       errorMessage: 'Operation cancelled because the API server is shutting down',
       finishedAt,
     });
+    expect(cancelled.startedAt).toEqual(claimed?.startedAt);
+    expect(cancelled.startedAt?.getTime()).toBeGreaterThanOrEqual(now.getTime());
   });
 
   it('does not shutdown-cancel a different tenant, token, worker, or status', async () => {

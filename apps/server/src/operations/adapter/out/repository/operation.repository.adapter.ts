@@ -664,7 +664,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         id: input.runId,
         organizationId: input.organizationId,
         status: { in: [...input.expectedStatuses] },
-        ...(input.expectedAttemptToken
+        ...(input.expectedAttemptToken !== undefined
           ? { attemptToken: input.expectedAttemptToken }
           : {}),
       },
@@ -717,6 +717,46 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
         : { progressTotal: progressCounts.progressTotal as number | null }),
     });
     if (!updated) return null;
+    return this.findRunById({
+      organizationId: input.organizationId,
+      runId: input.runId,
+    });
+  }
+
+  async requeueActiveAttemptAfter(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    delayMs: number;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<OperationRunRecord | null> {
+    if (
+      !Number.isInteger(input.delayMs) ||
+      input.delayMs < 0 ||
+      input.delayMs > MAX_OPERATION_PERSISTED_INT
+    ) {
+      throw new Error('operation_retry_delay_invalid');
+    }
+    const rows = await this.prisma.$queryRaw<Array<{ id: string }>>`
+      UPDATE operation_runs
+      SET status = 'queued',
+          scheduled_for = clock_timestamp()
+            + (${input.delayMs}::bigint * interval '1 millisecond'),
+          error_code = ${input.errorCode},
+          error_message = ${input.errorMessage},
+          claimed_by = NULL,
+          attempt_token = NULL,
+          claimed_at = NULL,
+          lease_expires_at = NULL,
+          updated_at = clock_timestamp()
+      WHERE id = ${input.runId}::uuid
+        AND organization_id = ${input.organizationId}::uuid
+        AND status = 'running'
+        AND attempt_token = ${input.expectedAttemptToken}::uuid
+      RETURNING id
+    `;
+    if (rows.length === 0) return null;
     return this.findRunById({
       organizationId: input.organizationId,
       runId: input.runId,

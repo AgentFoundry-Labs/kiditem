@@ -14,6 +14,7 @@ import {
 import { OperationLifecycleGateService } from './operation-lifecycle-gate.service';
 import { OperationRunWorkerService } from './operation-run-worker.service';
 import { OperationSchedulerService } from './operation-scheduler.service';
+import { OperationPostAcceptingHookRegistryService } from './operation-post-accepting-hook-registry.service';
 
 export const OPERATION_LIFECYCLE_OPTIONS = Symbol(
   'OPERATION_LIFECYCLE_OPTIONS',
@@ -48,6 +49,7 @@ export class OperationServerLifecycleService
     @Inject(OPERATION_REPOSITORY_PORT)
     private readonly repository: OperationRunRepositoryPort,
     private readonly gate: OperationLifecycleGateService,
+    private readonly postAcceptingHooks: OperationPostAcceptingHookRegistryService,
     private readonly scheduler: OperationSchedulerService,
     private readonly worker: OperationRunWorkerService,
     @Inject(OPERATION_LIFECYCLE_OPTIONS)
@@ -55,29 +57,42 @@ export class OperationServerLifecycleService
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
-    const deadline = Date.now() + this.options.startupTimeoutMs;
-    const cutoff = await this.withinDeadline(
-      deadline,
-      this.repository.readLifecycleDatabaseTime(),
-    );
-    await this.drainBatches(deadline, (statementTimeoutMs) =>
-      this.repository.cancelRunsForLifecycle({
-        cutoff,
-        errorCode: 'operation_server_lifecycle_expired',
-        errorMessage: STARTUP_ERROR_MESSAGE,
-        finishedAt: cutoff,
-        limit: this.options.batchSize,
-        statementTimeoutMs,
-      }));
-    await this.drainBatches(deadline, (statementTimeoutMs) =>
-      this.repository.advanceSchedulesPastLifecycleCutoff({
-        cutoff,
-        limit: this.options.batchSize,
-        statementTimeoutMs,
-      }));
-    this.gate.open();
-    this.scheduler.start();
-    this.worker.start();
+    const startup = this.createStartupBudget();
+    try {
+      const cutoff = await this.withinStartupBudget(
+        startup.signal,
+        this.repository.readLifecycleDatabaseTime(),
+      );
+      await this.drainBatches(
+        startup.deadline,
+        (statementTimeoutMs) => this.repository.cancelRunsForLifecycle({
+          cutoff,
+          errorCode: 'operation_server_lifecycle_expired',
+          errorMessage: STARTUP_ERROR_MESSAGE,
+          finishedAt: cutoff,
+          limit: this.options.batchSize,
+          statementTimeoutMs,
+        }),
+        startup.signal,
+      );
+      await this.drainBatches(
+        startup.deadline,
+        (statementTimeoutMs) => this.repository.advanceSchedulesPastLifecycleCutoff({
+          cutoff,
+          limit: this.options.batchSize,
+          statementTimeoutMs,
+        }),
+        startup.signal,
+      );
+      startup.signal.throwIfAborted();
+      this.gate.open();
+      await this.postAcceptingHooks.runAll(startup.signal);
+      startup.signal.throwIfAborted();
+      this.scheduler.start();
+      this.worker.start();
+    } finally {
+      startup.dispose();
+    }
   }
 
   async onModuleDestroy(): Promise<void> {
@@ -145,16 +160,17 @@ export class OperationServerLifecycleService
   private async drainBatches(
     deadline: number,
     batch: (statementTimeoutMs: number) => Promise<OperationLifecycleBatchResult>,
+    signal?: AbortSignal,
   ): Promise<void> {
     while (true) {
+      signal?.throwIfAborted();
       const statementTimeoutMs = this.remainingMs(deadline);
-      const result = await this.withinDeadline(
-        deadline,
-        batch(statementTimeoutMs),
-      );
+      const result = signal
+        ? await this.withinStartupBudget(signal, batch(statementTimeoutMs))
+        : await this.withinDeadline(deadline, batch(statementTimeoutMs));
       if (!result.remaining) return;
       if (result.updated === 0) {
-        await this.yieldUntil(deadline);
+        await this.yieldUntil(deadline, signal);
       }
     }
   }
@@ -167,11 +183,68 @@ export class OperationServerLifecycleService
     return remaining;
   }
 
-  private async yieldUntil(deadline: number): Promise<void> {
+  private async yieldUntil(deadline: number, signal?: AbortSignal): Promise<void> {
     const remaining = this.remainingMs(deadline);
-    await new Promise<void>((resolve) => {
-      const handle = setTimeout(resolve, Math.min(10, remaining));
+    await new Promise<void>((resolve, reject) => {
+      const onAbort = () => {
+        clearTimeout(handle);
+        signal?.removeEventListener('abort', onAbort);
+        reject(signal?.reason);
+      };
+      const handle = setTimeout(() => {
+        signal?.removeEventListener('abort', onAbort);
+        resolve();
+      }, Math.min(10, remaining));
       handle.unref?.();
+      if (!signal) return;
+      if (signal.aborted) return onAbort();
+      signal.addEventListener('abort', onAbort, { once: true });
+    });
+  }
+
+  private createStartupBudget(): {
+    deadline: number;
+    signal: AbortSignal;
+    dispose(): void;
+  } {
+    const controller = new AbortController();
+    const deadline = Date.now() + this.options.startupTimeoutMs;
+    const lifecycleSignal = this.gate.signal();
+    const onLifecycleAbort = () => controller.abort(lifecycleSignal.reason);
+    if (lifecycleSignal.aborted) onLifecycleAbort();
+    else lifecycleSignal.addEventListener('abort', onLifecycleAbort, { once: true });
+    const timeout = setTimeout(() => {
+      controller.abort(new Error('operation_server_lifecycle_startup_timeout'));
+    }, this.options.startupTimeoutMs);
+    timeout.unref?.();
+    return {
+      deadline,
+      signal: controller.signal,
+      dispose: () => {
+        clearTimeout(timeout);
+        lifecycleSignal.removeEventListener('abort', onLifecycleAbort);
+      },
+    };
+  }
+
+  private async withinStartupBudget<T>(
+    signal: AbortSignal,
+    operation: Promise<T>,
+  ): Promise<T> {
+    signal.throwIfAborted();
+    return new Promise<T>((resolve, reject) => {
+      const onAbort = () => reject(signal.reason);
+      signal.addEventListener('abort', onAbort, { once: true });
+      operation.then(
+        (value) => {
+          signal.removeEventListener('abort', onAbort);
+          resolve(value);
+        },
+        (error: unknown) => {
+          signal.removeEventListener('abort', onAbort);
+          reject(error);
+        },
+      );
     });
   }
 

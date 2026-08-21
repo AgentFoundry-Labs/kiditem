@@ -264,6 +264,14 @@ export interface OperationRunRepositoryPort {
   transitionActiveAttempt(
     input: OperationActiveAttemptTransition,
   ): Promise<OperationRunRecord | null>;
+  requeueActiveAttemptAfter(input: {
+    organizationId: string;
+    runId: string;
+    expectedAttemptToken: string;
+    delayMs: number;
+    errorCode: string;
+    errorMessage: string;
+  }): Promise<OperationRunRecord | null>;
   claimNextRun(input: {
     resourceClass: OperationResourceClass;
     workerId: string;

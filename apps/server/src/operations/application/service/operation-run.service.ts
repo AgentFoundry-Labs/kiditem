@@ -13,6 +13,7 @@ import type {
   OperationRunnerPort,
   StartOperationCommand,
 } from '../port/in/operation-runner.port';
+import type { OperationExactRunControlPort } from '../port/in/operation-exact-run-control.port';
 import type {
   OperationRunRecord,
   OperationRunRepositoryPort,
@@ -29,9 +30,22 @@ const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
 const RECONNECTABLE_OPERATION_STATUSES = new Set<OperationStatus>(
   CANCELLABLE_OPERATION_STATUSES,
 );
+const EXACT_FENCEABLE_OPERATION_STATUSES = new Set<OperationStatus>([
+  'queued',
+  'waiting_runtime',
+  'waiting_dependency',
+  'running',
+]);
+const TERMINAL_OPERATION_STATUSES = new Set<OperationStatus>([
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
 @Injectable()
-export class OperationRunService implements OperationRunnerPort {
+export class OperationRunService
+  implements OperationRunnerPort, OperationExactRunControlPort
+{
   constructor(
     @Inject(OPERATION_HANDLER_REGISTRY_PORT)
     private readonly registry: OperationHandlerRegistryPort,
@@ -45,6 +59,9 @@ export class OperationRunService implements OperationRunnerPort {
   async start(command: StartOperationCommand): Promise<OperationRun> {
     this.lifecycleGate.assertAccepting();
     const definition = this.registry.getDefinition(command.operationKey);
+    if (definition.successPersistence === 'ephemeral_on_success') {
+      throw new NotFoundException('operation_not_found');
+    }
     if (!definition.allowedTriggers.includes(command.triggerSource)) {
       throw new Error(`trigger_not_allowed: ${command.triggerSource}`);
     }
@@ -91,7 +108,9 @@ export class OperationRunService implements OperationRunnerPort {
       status: query.status,
       limit: Math.min(Math.max(query.limit ?? 50, 1), 100),
     });
-    return records.map((record) => this.toWire(record));
+    return records
+      .filter((record) => !this.isEphemeral(record))
+      .map((record) => this.toWire(record));
   }
 
   async findReconnectable(input: {
@@ -100,6 +119,8 @@ export class OperationRunService implements OperationRunnerPort {
     operationKey: string;
     input?: Record<string, unknown>;
   }): Promise<OperationRun | null> {
+    const definition = this.registry.getDefinition(input.operationKey);
+    if (definition.successPersistence === 'ephemeral_on_success') return null;
     const normalizedInput = input.input === undefined
       ? undefined
       : this.registry.parseInput(input.operationKey, input.input);
@@ -122,7 +143,9 @@ export class OperationRunService implements OperationRunnerPort {
 
   async get(organizationId: string, runId: string): Promise<OperationRun> {
     const record = await this.repository.findRunById({ organizationId, runId });
-    if (!record) throw new NotFoundException('operation_run_not_found');
+    if (!record || this.isEphemeral(record)) {
+      throw new NotFoundException('operation_run_not_found');
+    }
     return this.toWire(record);
   }
 
@@ -131,7 +154,9 @@ export class OperationRunService implements OperationRunnerPort {
       organizationId: command.organizationId,
       runId: command.runId,
     });
-    if (!existing) throw new NotFoundException('operation_run_not_found');
+    if (!existing || this.isEphemeral(existing)) {
+      throw new NotFoundException('operation_run_not_found');
+    }
 
     if (!CANCELLABLE_OPERATION_STATUSES.includes(existing.status)) {
       return this.toWire(existing);
@@ -150,6 +175,137 @@ export class OperationRunService implements OperationRunnerPort {
       requestedByUserId: command.requestedByUserId,
     });
     return this.toWire(cancelled);
+  }
+
+  async fenceAndCancel(input: {
+    signal: AbortSignal;
+    organizationId: string;
+    runs: ReadonlyArray<{
+      runId: string;
+      operationKey: string;
+      expectedAttemptToken: string | null;
+    }>;
+    reason: string;
+  }): Promise<ReadonlyArray<{
+    runId: string;
+    state: 'terminal' | 'fenced' | 'unknown';
+    nativeRunType: string | null;
+    nativeRunId: string | null;
+  }>> {
+    const results = [];
+    for (const requested of input.runs) {
+      results.push(await this.fenceExactRun(input, requested));
+    }
+    return results;
+  }
+
+  private async fenceExactRun(
+    input: {
+      signal: AbortSignal;
+      organizationId: string;
+      reason: string;
+    },
+    requested: {
+      runId: string;
+      operationKey: string;
+      expectedAttemptToken: string | null;
+    },
+  ): Promise<{
+    runId: string;
+    state: 'terminal' | 'fenced' | 'unknown';
+    nativeRunType: string | null;
+    nativeRunId: string | null;
+  }> {
+    let snapshot: OperationRunRecord | null = null;
+    try {
+      input.signal.throwIfAborted();
+      snapshot = await this.repository.findRunById({
+        organizationId: input.organizationId,
+        runId: requested.runId,
+      });
+      const coordinates = {
+        nativeRunType: snapshot?.nativeRunType ?? null,
+        nativeRunId: snapshot?.nativeRunId ?? null,
+      };
+      if (
+        !snapshot ||
+        snapshot.operationKey !== requested.operationKey ||
+        snapshot.organizationId !== input.organizationId
+      ) {
+        return { runId: requested.runId, state: 'unknown', ...coordinates };
+      }
+      if (TERMINAL_OPERATION_STATUSES.has(snapshot.status)) {
+        return { runId: requested.runId, state: 'terminal', ...coordinates };
+      }
+      if (
+        !EXACT_FENCEABLE_OPERATION_STATUSES.has(snapshot.status) ||
+        snapshot.attemptToken !== requested.expectedAttemptToken
+      ) {
+        return { runId: requested.runId, state: 'unknown', ...coordinates };
+      }
+
+      const fenced = await this.repository.transition({
+        signal: input.signal,
+        organizationId: input.organizationId,
+        runId: requested.runId,
+        expectedStatuses: [snapshot.status],
+        expectedAttemptToken: requested.expectedAttemptToken,
+        status: 'cancelled',
+        errorCode: 'operation_exact_run_fenced',
+        errorMessage: input.reason,
+        finishedAt: new Date(),
+        claimedBy: null,
+        attemptToken: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+      });
+      if (
+        !fenced ||
+        fenced.operationKey !== snapshot.operationKey ||
+        fenced.nativeRunType !== snapshot.nativeRunType ||
+        fenced.nativeRunId !== snapshot.nativeRunId
+      ) {
+        return { runId: requested.runId, state: 'unknown', ...coordinates };
+      }
+
+      const handler = this.registry.getHandler(snapshot.operationKey);
+      await settleWithAbort(
+        handler.cancel?.({
+          runId: snapshot.id,
+          organizationId: snapshot.organizationId,
+          operationKey: snapshot.operationKey,
+          reason: input.reason,
+          requestedByUserId: null,
+        }),
+        input.signal,
+      );
+      if (snapshot.nativeRunType !== null || snapshot.nativeRunId !== null) {
+        if (!handler.fenceExternalAuthority) {
+          return { runId: requested.runId, state: 'unknown', ...coordinates };
+        }
+        const authority = await settleWithAbort(
+          handler.fenceExternalAuthority({
+            runId: snapshot.id,
+            organizationId: snapshot.organizationId,
+            operationKey: snapshot.operationKey,
+            reason: input.reason,
+            requestedByUserId: null,
+          }),
+          input.signal,
+        );
+        if (authority !== 'fenced') {
+          return { runId: requested.runId, state: 'unknown', ...coordinates };
+        }
+      }
+      return { runId: requested.runId, state: 'fenced', ...coordinates };
+    } catch {
+      return {
+        runId: requested.runId,
+        state: 'unknown',
+        nativeRunType: snapshot?.nativeRunType ?? null,
+        nativeRunId: snapshot?.nativeRunId ?? null,
+      };
+    }
   }
 
   private async require(
@@ -199,6 +355,33 @@ export class OperationRunService implements OperationRunnerPort {
       updatedAt: record.updatedAt,
     } satisfies OperationRun;
   }
+
+  private isEphemeral(record: OperationRunRecord): boolean {
+    return this.registry.getDefinition(record.operationKey).successPersistence
+      === 'ephemeral_on_success';
+  }
+}
+
+function settleWithAbort<T>(
+  work: Promise<T> | undefined,
+  signal: AbortSignal,
+): Promise<T | undefined> {
+  signal.throwIfAborted();
+  if (!work) return Promise.resolve(undefined);
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
 }
 
 function sameOperationInput(

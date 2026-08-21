@@ -64,6 +64,8 @@ const SESSION_MUTATION_TRANSACTION_ADAPTERS = Object.freeze([
 ]);
 
 const OWNED_OPERATION_CREATE_OWNER = /(?:owned-operation|session-deletion|continue-operation-attempt)/;
+const EPHEMERAL_SUCCESS_ASSIGNMENT = /\bsuccessPersistence\s*:\s*['"]ephemeral_on_success['"]/g;
+const AGENT_SESSION_DELETE_OPERATION_KEY = 'AGENT_SESSION_DELETE_OPERATION_KEY';
 
 function toRepoPath(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -129,8 +131,83 @@ function firstMatch(source, pattern) {
   return pattern.exec(source);
 }
 
+function allMatches(source, pattern) {
+  pattern.lastIndex = 0;
+  const matches = [];
+  let match = pattern.exec(source);
+  while (match) {
+    matches.push(match);
+    match = pattern.exec(source);
+  }
+  return matches;
+}
+
 function identifierPattern(identifier) {
   return new RegExp(`\\b${identifier}\\b`);
+}
+
+function forEachCodeCharacter(source, start, end, visit) {
+  let quote = null;
+  let lineComment = false;
+  let blockComment = false;
+  let escaped = false;
+  for (let cursor = start; cursor < end; cursor += 1) {
+    const character = source[cursor];
+    const next = source[cursor + 1];
+    if (lineComment) {
+      if (character === '\n') lineComment = false;
+      continue;
+    }
+    if (blockComment) {
+      if (character === '*' && next === '/') {
+        blockComment = false;
+        cursor += 1;
+      }
+      continue;
+    }
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (character === '\\') escaped = true;
+      else if (character === quote) quote = null;
+      continue;
+    }
+    if (character === '/' && next === '/') {
+      lineComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === '/' && next === '*') {
+      blockComment = true;
+      cursor += 1;
+      continue;
+    }
+    if (character === '\'' || character === '"' || character === '`') {
+      quote = character;
+      continue;
+    }
+    visit(cursor, character);
+  }
+}
+
+function objectLiteralContaining(source, index) {
+  const starts = [];
+  forEachCodeCharacter(source, 0, index, (cursor, character) => {
+    if (character === '{') starts.push(cursor);
+    if (character === '}') starts.pop();
+  });
+  const start = starts.at(-1);
+  if (start === undefined) return null;
+
+  let nestedObjects = 0;
+  let end = null;
+  forEachCodeCharacter(source, start, source.length, (cursor, character) => {
+    if (end !== null) return;
+    if (character === '{') nestedObjects += 1;
+    if (character !== '}') return;
+    nestedObjects -= 1;
+    if (nestedObjects === 0) end = cursor;
+  });
+  return end === null ? null : source.slice(start, end + 1);
 }
 
 function requireLifecycleLock(rootDir) {
@@ -182,6 +259,23 @@ function ownershipViolations(relativePath, source) {
   return violations;
 }
 
+function ephemeralSuccessViolations(relativePath, source) {
+  const violations = [];
+  for (const assignment of allMatches(source, EPHEMERAL_SUCCESS_ASSIGNMENT)) {
+    const containingObject = objectLiteralContaining(source, assignment.index);
+    const ownsDefinition = containingObject
+      && new RegExp(
+        `\\bkey\\s*:\\s*${AGENT_SESSION_DELETE_OPERATION_KEY}\\b`,
+      ).test(containingObject);
+    if (!ownsDefinition) {
+      violations.push(
+        `${relativePath}:${lineNumberAt(source, assignment.index)}: ephemeral success definitions must use ${AGENT_SESSION_DELETE_OPERATION_KEY}`,
+      );
+    }
+  }
+  return violations;
+}
+
 export function checkAgentSessionDeletion(rootDir) {
   const violations = [];
   for (const relativePath of productionSourcePaths(rootDir)) {
@@ -201,6 +295,7 @@ export function checkAgentSessionDeletion(rootDir) {
       );
     }
     violations.push(...ownershipViolations(relativePath, source));
+    violations.push(...ephemeralSuccessViolations(relativePath, source));
   }
 
   violations.push(...requireLifecycleLock(rootDir));

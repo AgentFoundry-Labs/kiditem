@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { z } from 'zod';
 import { describe, expect, it, vi } from 'vitest';
 import { OperationHandlerRegistryService } from '../operation-handler-registry.service';
@@ -115,6 +116,213 @@ function gateIn(state: 'BOOTSTRAPPING' | 'STOPPING' | 'STOPPED') {
 }
 
 describe('OperationRunService', () => {
+  it('makes an ephemeral run non-enumerating on every public runner surface', async () => {
+    const registry = new OperationHandlerRegistryService();
+    const ephemeralDefinition = {
+      ...definition,
+      key: 'agent-os.delete-session',
+      allowedTriggers: ['system'],
+      scheduleSupported: false,
+      successPersistence: 'ephemeral_on_success',
+    };
+    registry.register(ephemeralDefinition as never, {
+      ...handler,
+      finalizeEphemeralSuccess: vi.fn(),
+      exhaustRetry: vi.fn(),
+    } as never);
+    const ephemeralRun = makeRecord({
+      operationKey: ephemeralDefinition.key,
+      triggerSource: 'system',
+      status: 'queued',
+      idempotencyKey: 'session-delete',
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(ephemeralRun);
+    repository.listRuns = vi.fn().mockResolvedValue([ephemeralRun]);
+    repository.listReconnectableRuns = vi.fn().mockResolvedValue([ephemeralRun]);
+    const coordinator = {
+      ...compositeCoordinator,
+      cancelChildren: vi.fn().mockResolvedValue(ephemeralRun),
+    };
+    const service = new OperationRunService(
+      registry,
+      repository,
+      coordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.start({
+      organizationId: ORG_ID,
+      operationKey: ephemeralDefinition.key,
+      triggerSource: 'system',
+      input: { source: 'naver' },
+      requestedByUserId: USER_ID,
+      idempotencyKey: 'session-delete',
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.get(ORG_ID, RUN_ID)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.cancel({
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: USER_ID,
+    })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(service.findReconnectable({
+      organizationId: ORG_ID,
+      requestedByUserId: USER_ID,
+      operationKey: ephemeralDefinition.key,
+      input: { source: 'naver' },
+    })).resolves.toBeNull();
+    await expect(service.list({ organizationId: ORG_ID })).resolves.toEqual([]);
+    expect(await repository.findRunById({ organizationId: ORG_ID, runId: RUN_ID }))
+      .toMatchObject({ status: 'queued' });
+    expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
+    expect(repository.createRun).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when exact-run fencing sees missing, token-drifted, or unproven native authority', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, {
+      ...handler,
+      fenceExternalAuthority: vi.fn().mockResolvedValue('unknown'),
+    });
+    const terminalRun = makeRecord({
+      id: '11111111-1111-4111-8111-111111111111',
+      status: 'succeeded',
+      attemptToken: null,
+    });
+    const driftedRun = makeRecord({
+      id: '22222222-2222-4222-8222-222222222222',
+      attemptToken: 'd5c54820-ab09-4f4b-864c-2a3f873bb24d',
+    });
+    const nativeRun = makeRecord({
+      id: '33333333-3333-4333-8333-333333333333',
+      status: 'running',
+      attemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      nativeRunType: 'browser',
+      nativeRunId: 'native-run-1',
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn(async ({ runId }) => ({
+      [terminalRun.id]: terminalRun,
+      [driftedRun.id]: driftedRun,
+      [nativeRun.id]: nativeRun,
+    })[runId] ?? null);
+    repository.transition = vi.fn().mockResolvedValue({
+      ...nativeRun,
+      status: 'cancelled',
+      attemptToken: null,
+      claimedBy: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+    const exactControl = service as unknown as {
+      fenceAndCancel(input: {
+        signal: AbortSignal;
+        organizationId: string;
+        reason: string;
+        runs: Array<{
+          runId: string;
+          operationKey: string;
+          expectedAttemptToken: string | null;
+        }>;
+      }): Promise<unknown>;
+    };
+
+    await expect(exactControl.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [
+        { runId: terminalRun.id, operationKey: definition.key, expectedAttemptToken: null },
+        {
+          runId: driftedRun.id,
+          operationKey: definition.key,
+          expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        },
+        {
+          runId: nativeRun.id,
+          operationKey: definition.key,
+          expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        },
+        { runId: '44444444-4444-4444-8444-444444444444', operationKey: definition.key, expectedAttemptToken: null },
+      ],
+    })).resolves.toEqual([
+      {
+        runId: terminalRun.id,
+        state: 'terminal',
+        nativeRunType: null,
+        nativeRunId: null,
+      },
+      {
+        runId: driftedRun.id,
+        state: 'unknown',
+        nativeRunType: null,
+        nativeRunId: null,
+      },
+      {
+        runId: nativeRun.id,
+        state: 'unknown',
+        nativeRunType: 'browser',
+        nativeRunId: 'native-run-1',
+      },
+      {
+        runId: '44444444-4444-4444-8444-444444444444',
+        state: 'unknown',
+        nativeRunType: null,
+        nativeRunId: null,
+      },
+    ]);
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      runId: nativeRun.id,
+      expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      status: 'cancelled',
+    }));
+  });
+
+  it('terminal-fences a queued exact run only when its null attempt token still matches', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const queued = makeRecord({ status: 'queued', attemptToken: null });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(queued);
+    repository.transition = vi.fn().mockResolvedValue({
+      ...queued,
+      status: 'cancelled',
+      finishedAt: new Date('2026-08-01T01:00:00Z'),
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: queued.id,
+        operationKey: definition.key,
+        expectedAttemptToken: null,
+      }],
+    })).resolves.toEqual([{
+      runId: queued.id,
+      state: 'fenced',
+      nativeRunType: null,
+      nativeRunId: null,
+    }]);
+    expect(repository.transition).toHaveBeenCalledWith(expect.objectContaining({
+      expectedAttemptToken: null,
+      status: 'cancelled',
+    }));
+  });
+
   it('reconnects only the newest non-terminal run with the exact normalized operation input', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

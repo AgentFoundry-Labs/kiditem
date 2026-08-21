@@ -32,6 +32,7 @@ export interface CancelOperationRunCommand {
 }
 
 export interface OperationRunnerPort {
+  /** Generic runner access is restricted to retained operation definitions. */
   start(command: StartOperationCommand): Promise<OperationRun>;
   list(query: ListOperationRunsQuery): Promise<OperationRun[]>;
   findReconnectable(input: {
