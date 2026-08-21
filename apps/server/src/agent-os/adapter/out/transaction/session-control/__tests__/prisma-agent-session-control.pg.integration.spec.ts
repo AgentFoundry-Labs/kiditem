@@ -8,9 +8,9 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
-} from '../../../../../test-helpers/real-prisma';
-import { PrismaAgentSessionControlRepository } from '../prisma-agent-session-control.repository';
-import { PrismaAgentExecutionContextRepository } from '../prisma-agent-execution-context.repository';
+} from '../../../../../../test-helpers/real-prisma';
+import { SessionControlAdapterSet } from './session-control-adapter-set';
+import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
 const VERSION_TO = '20000000-0000-4000-8000-000000000002';
@@ -18,11 +18,11 @@ const AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000003';
 const OTHER_AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000004';
 
 let prisma: PrismaClient | null = null;
-let repository: PrismaAgentSessionControlRepository;
+let repository: SessionControlAdapterSet;
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
-  repository = new PrismaAgentSessionControlRepository(prisma as never);
+  repository = new SessionControlAdapterSet(prisma as never);
   await prisma.$connect();
 });
 
@@ -37,7 +37,7 @@ beforeEach(async () => {
   await seedControlFixture(prisma);
 });
 
-describe('PrismaAgentSessionControlRepository', () => {
+describe('Prisma Agent session-control transaction seams', () => {
   it('creates one idempotent delegated child and fences organization ownership', async () => {
     const fixture = await createRootGraph();
     const input = {

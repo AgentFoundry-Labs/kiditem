@@ -1,25 +1,23 @@
-import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
-import { AgentConversationEventContentSchema } from '@kiditem/shared/agent-interaction';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { createHash } from "node:crypto";
+import { Inject, Injectable } from "@nestjs/common";
+import { AgentConversationEventContentSchema } from "@kiditem/shared/agent-interaction";
+import { PrismaService } from "../../../../prisma/prisma.service";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentInteractionRepositoryPort,
-} from '../../../application/port/out/repository/agent-interaction-repository.port';
+  AGENT_CONVERSATION_EVENT_TRANSACTION,
+  type AgentConversationEventTransactionPort,
+} from "../../../application/port/out/transaction/interaction/agent-conversation-event.transaction.port";
 import type {
   AgentConversationModelViewRepositoryPort,
   CanonicalModelEventRecord,
-} from '../../../application/port/out/repository/agent-conversation-model-view.repository.port';
-import type { VersionedConversationSummary } from '../../../application/port/out/runtime/agent-durable-runtime.port';
+} from "../../../application/port/out/repository/agent-conversation-model-view.repository.port";
+import type { VersionedConversationSummary } from "../../../application/port/out/runtime/agent-durable-runtime.port";
 
 @Injectable()
-export class PrismaAgentConversationModelViewRepository
-  implements AgentConversationModelViewRepositoryPort
-{
+export class PrismaAgentConversationModelViewRepository implements AgentConversationModelViewRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly interaction: AgentInteractionRepositoryPort,
+    @Inject(AGENT_CONVERSATION_EVENT_TRANSACTION)
+    private readonly interaction: AgentConversationEventTransactionPort,
   ) {}
 
   async listCanonicalEvents(input: {
@@ -38,7 +36,7 @@ export class PrismaAgentConversationModelViewRepository
         schemaVersion: true,
         payload: true,
       },
-      orderBy: [{ sequence: 'asc' }, { id: 'asc' }],
+      orderBy: [{ sequence: "asc" }, { id: "asc" }],
     });
     return rows as CanonicalModelEventRecord[];
   }
@@ -56,27 +54,29 @@ export class PrismaAgentConversationModelViewRepository
       where: {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
-        eventType: 'state_snapshot',
+        eventType: "state_snapshot",
       },
       select: { eventType: true, schemaVersion: true, payload: true },
-      orderBy: [{ sequence: 'desc' }, { id: 'desc' }],
+      orderBy: [{ sequence: "desc" }, { id: "desc" }],
     });
     for (const row of rows) {
       const parsed = AgentConversationEventContentSchema.safeParse(row);
       if (
         !parsed.success ||
-        parsed.data.eventType !== 'state_snapshot' ||
-        parsed.data.payload.snapshotType !== 'conversation_summary'
-      ) continue;
+        parsed.data.eventType !== "state_snapshot" ||
+        parsed.data.payload.snapshotType !== "conversation_summary"
+      )
+        continue;
       const data = parsed.data.payload.data;
-      if (!('sourceFromSequence' in data)) continue;
+      if (!("sourceFromSequence" in data)) continue;
       if (
         data.sourceFromSequence === input.sourceFromSequence.toString() &&
         data.sourceThroughSequence === input.sourceThroughSequence.toString() &&
         data.sourceHash === input.sourceHash &&
         data.summarizerModelIdentity === input.summarizerModelIdentity &&
         data.summaryPromptHash === input.summaryPromptHash
-      ) return data;
+      )
+        return data;
     }
     return null;
   }
@@ -87,28 +87,29 @@ export class PrismaAgentConversationModelViewRepository
     executionId: string;
     summary: VersionedConversationSummary;
   }): Promise<VersionedConversationSummary> {
-    const identity = createHash('sha256')
+    const identity = createHash("sha256")
       .update(JSON.stringify(input.summary))
-      .digest('hex');
+      .digest("hex");
     const saved = await this.interaction.appendExecutionEvent({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       executionId: input.executionId,
       externalEventId: `conversation-summary:${identity}`,
-      eventType: 'state_snapshot',
+      eventType: "state_snapshot",
       schemaVersion: 1,
       payload: {
-        snapshotType: 'conversation_summary',
+        snapshotType: "conversation_summary",
         snapshotVersion: 1,
         data: input.summary,
       },
     });
     const parsed = AgentConversationEventContentSchema.parse(saved);
     if (
-      parsed.eventType !== 'state_snapshot' ||
-      parsed.payload.snapshotType !== 'conversation_summary' ||
-      !('sourceFromSequence' in parsed.payload.data)
-    ) throw new Error('AGENT_CONTEXT_SUMMARY_PERSISTENCE_INVALID');
+      parsed.eventType !== "state_snapshot" ||
+      parsed.payload.snapshotType !== "conversation_summary" ||
+      !("sourceFromSequence" in parsed.payload.data)
+    )
+      throw new Error("AGENT_CONTEXT_SUMMARY_PERSISTENCE_INVALID");
     return parsed.payload.data;
   }
 }

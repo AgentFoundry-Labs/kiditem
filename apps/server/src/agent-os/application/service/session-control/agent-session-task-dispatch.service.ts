@@ -13,9 +13,9 @@ import {
   type OperationRunnerPort,
 } from '../../../../operations/application/port/in/operation-runner.port';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_ATTEMPT_OPERATION_TRANSACTION,
+  type AgentAttemptOperationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-attempt-operation.transaction.port';
 import { AGENT_SESSION_TASK_OPERATION_KEY } from '../../../domain/operation/agent-os.operations';
 
 @Injectable()
@@ -23,8 +23,8 @@ export class AgentSessionTaskDispatchService {
   constructor(
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_ATTEMPT_OPERATION_TRANSACTION)
+    private readonly controls: AgentAttemptOperationTransactionPort,
   ) {}
 
   async dispatch(input: {

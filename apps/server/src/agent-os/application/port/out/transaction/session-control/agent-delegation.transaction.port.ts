@@ -1,0 +1,3 @@
+import type { DelegatedTaskRecord } from '../../repository/session-control/agent-session-control.persistence.types';
+export const AGENT_DELEGATION_TRANSACTION = Symbol('AGENT_DELEGATION_TRANSACTION');
+export interface AgentDelegationTransactionPort { createDelegatedTask(input: { organizationId: string; sessionId: string; parentTaskId: string; fromAgentVersionId: string; toAgentVersionId: string; objective: string; authoritySubset: string[]; depth: number; idempotencyKey: string; parentExecutionId?: string; targetAgentDefinitionKey?: string; maxDepth?: number; maxChildrenPerTask?: number }): Promise<DelegatedTaskRecord>; }

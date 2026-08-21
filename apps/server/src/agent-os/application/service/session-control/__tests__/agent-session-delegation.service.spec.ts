@@ -32,7 +32,11 @@ describe('AgentSessionDelegationService', () => {
       createDelegatedTask: vi.fn().mockResolvedValue({ delegationId: 'delegation-1', childTaskId: 'task-child', childExecutionId: 'execution-child', state: 'created' }),
     };
     const dispatch = { dispatch: vi.fn().mockResolvedValue({ operationsRunId: 'operation-1' }) };
-    const service = new AgentSessionDelegationService(repository as never, dispatch as never);
+    const service = new AgentSessionDelegationService(
+      repository as never,
+      repository as never,
+      dispatch as never,
+    );
 
     const result = await service.delegate(input());
 
@@ -55,7 +59,11 @@ describe('AgentSessionDelegationService', () => {
     ['inactive', { activeTarget: false }],
   ])('rejects out-of-policy delegation: %s', async (_case, override) => {
     const repository = { loadDelegationContext: vi.fn().mockResolvedValue({ ...context, ...override }), createDelegatedTask: vi.fn() };
-    const service = new AgentSessionDelegationService(repository as never, { dispatch: vi.fn() } as never);
+    const service = new AgentSessionDelegationService(
+      repository as never,
+      repository as never,
+      { dispatch: vi.fn() } as never,
+    );
     await expect(service.delegate(input())).rejects.toMatchObject({ code: 'AGENT_DELEGATION_NOT_ALLOWED' });
     expect(repository.createDelegatedTask).not.toHaveBeenCalled();
   });

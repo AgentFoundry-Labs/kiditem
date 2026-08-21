@@ -10,9 +10,9 @@ import {
   type OperationRunnerPort,
 } from '../../../../operations/application/port/in/operation-runner.port';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 
 interface CancelInput {
@@ -30,8 +30,8 @@ export class AgentSessionCancellationService {
   private readonly pending = new Map<string, Promise<{ status: string }>>();
 
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly controls: AgentSessionControlQueryRepositoryPort,
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
   ) {}

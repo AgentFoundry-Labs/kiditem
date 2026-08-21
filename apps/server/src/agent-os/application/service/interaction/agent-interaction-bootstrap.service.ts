@@ -1,6 +1,6 @@
-import { createHmac } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
-import { z } from 'zod';
+import { createHmac } from "node:crypto";
+import { Inject, Injectable } from "@nestjs/common";
+import { z } from "zod";
 import {
   AllowedAgentSchema,
   DashboardContextSchema,
@@ -9,7 +9,7 @@ import {
   type AguiRunIntent,
   type DashboardContext,
   type InteractionBootstrap,
-} from '@kiditem/shared/agent-interaction';
+} from "@kiditem/shared/agent-interaction";
 import {
   AgentDefinitionKeySchema,
   AgentVersionKeySchema,
@@ -23,25 +23,25 @@ import {
   formatAgentVersionName,
   formatOrganizationName,
   formatUserName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type ActiveAgentVersionRecord,
-  type AgentInteractionRepositoryPort,
-} from '../../port/out/repository/agent-interaction-repository.port';
+  AGENT_SESSION_QUERY_REPOSITORY,
+  type AgentSessionQueryRepositoryPort,
+} from "../../port/out/repository/interaction/agent-session-query.repository.port";
+import type { ActiveAgentVersionRecord } from "../../port/out/repository/interaction/agent-interaction.persistence.types";
 import type {
   AgentInteractionBootstrapPort,
   InteractionPrincipal,
   InteractionPrincipalInput,
   PrepareRunIntentInput,
-} from '../../port/in/interaction/agent-interaction-bootstrap.port';
-import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
+} from "../../port/in/interaction/agent-interaction-bootstrap.port";
+import { AgentOsBoundaryError } from "../../../domain/agent-os.errors";
 import {
   INTERACTION_CLOCK,
   INTERACTION_PRINCIPAL_HMAC_KEY,
   INTERACTION_RUN_INTENT_HMAC_KEY,
   type InteractionClock,
-} from '../agent-interaction.tokens';
+} from "../agent-interaction.tokens";
 import {
   InteractionTokenCodec,
   RUN_INTENT_DOMAIN,
@@ -49,15 +49,15 @@ import {
   RunIntentClaimsSchema,
   UserEventSchema,
   type RunIntentClaims,
-} from './interaction-token-codec';
-import { InteractionAllowedVersionResolver } from './interaction-allowed-version-resolver';
-import { foundationPolicyHash } from './interaction-authority-profile';
+} from "./interaction-token-codec";
+import { InteractionAllowedVersionResolver } from "./interaction-allowed-version-resolver";
+import { foundationPolicyHash } from "./interaction-authority-profile";
 
 @Injectable()
 export class AgentInteractionBootstrapService implements AgentInteractionBootstrapPort {
   constructor(
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly repository: AgentInteractionRepositoryPort,
+    @Inject(AGENT_SESSION_QUERY_REPOSITORY)
+    private readonly repository: AgentSessionQueryRepositoryPort,
     @Inject(INTERACTION_CLOCK) private readonly now: InteractionClock,
     @Inject(INTERACTION_PRINCIPAL_HMAC_KEY)
     private readonly principalHmacKey: Buffer,
@@ -70,17 +70,23 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
     const organizationId = parseInput(
       OrganizationIdSchema,
       input.organizationId,
-      'INTERACTION_PRINCIPAL_INVALID',
+      "INTERACTION_PRINCIPAL_INVALID",
     );
-    const userId = parseInput(UserIdSchema, input.userId, 'INTERACTION_PRINCIPAL_INVALID');
-    const digest = createHmac('sha256', this.principalHmacKey)
-      .update('kiditem.agent-os.principal.v1\0')
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      "INTERACTION_PRINCIPAL_INVALID",
+    );
+    const digest = createHmac("sha256", this.principalHmacKey)
+      .update("kiditem.agent-os.principal.v1\0")
       .update(InteractionTokenCodec.canonicalJson([organizationId, userId]))
-      .digest('base64url');
+      .digest("base64url");
     return { principalKey: `ei_${digest}` };
   }
 
-  async bootstrap(input: InteractionPrincipalInput): Promise<InteractionBootstrap> {
+  async bootstrap(
+    input: InteractionPrincipalInput,
+  ): Promise<InteractionBootstrap> {
     const versions = await this.resolveAllowedVersions();
     const sessions = await this.repository.listSessions({
       organizationId: input.organizationId,
@@ -88,7 +94,7 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
       limit: 50,
     });
     return parseShared(InteractionBootstrapSchema, {
-      defaultAgentDefinitionKey: AgentDefinitionKeySchema.parse('operator'),
+      defaultAgentDefinitionKey: AgentDefinitionKeySchema.parse("operator"),
       agents: versions.map((version) => this.allowedAgent(version)),
       sessions,
     });
@@ -98,34 +104,38 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
     const organizationId = parseInput(
       OrganizationIdSchema,
       input.organizationId,
-      'INTERACTION_PRINCIPAL_INVALID',
+      "INTERACTION_PRINCIPAL_INVALID",
     );
-    const userId = parseInput(UserIdSchema, input.userId, 'INTERACTION_PRINCIPAL_INVALID');
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      "INTERACTION_PRINCIPAL_INVALID",
+    );
     const definition = parseInput(
       AgentDefinitionKeySchema,
       input.agentDefinitionKey,
-      'AGENT_NOT_ALLOWED',
+      "AGENT_NOT_ALLOWED",
     );
     const copilotThreadId = parseInput(
       CopilotThreadIdSchema,
       input.copilotThreadId,
-      'INTERACTION_RUN_INTENT_MISMATCH',
+      "INTERACTION_RUN_INTENT_MISMATCH",
     );
     const aguiRunId = parseInput(
       AguiRunIdSchema,
       input.aguiRunId,
-      'INTERACTION_RUN_INTENT_MISMATCH',
+      "INTERACTION_RUN_INTENT_MISMATCH",
     );
     const version = await this.requireAllowedVersion(definition);
     const dashboardContext = parseInput(
       DashboardContextSchema,
       input.dashboardContext,
-      'INTERACTION_DASHBOARD_CONTEXT_INVALID',
+      "INTERACTION_DASHBOARD_CONTEXT_INVALID",
     );
     const userEvent = parseInput(
       UserEventSchema,
       input.userEvent,
-      'INTERACTION_USER_EVENT_INVALID',
+      "INTERACTION_USER_EVENT_INVALID",
     );
     const expiresAt = new Date(this.now().getTime() + RUN_INTENT_TTL_MS);
     const claims = this.createRunIntentClaims({
@@ -140,7 +150,11 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
     });
     return parseShared(AguiRunIntentSchema, {
       runIntent: OpaqueShortLivedTokenSchema.parse(
-        InteractionTokenCodec.sign(claims, this.runIntentHmacKey, RUN_INTENT_DOMAIN),
+        InteractionTokenCodec.sign(
+          claims,
+          this.runIntentHmacKey,
+          RUN_INTENT_DOMAIN,
+        ),
       ),
       expiresAt: expiresAt.toISOString(),
       copilotThreadId,
@@ -166,7 +180,9 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
   }
 
   private allowedAgent(version: ActiveAgentVersionRecord) {
-    const definition = AgentDefinitionKeySchema.parse(version.agentDefinitionKey);
+    const definition = AgentDefinitionKeySchema.parse(
+      version.agentDefinitionKey,
+    );
     return parseShared(AllowedAgentSchema, {
       agentDefinitionKey: definition,
       agentVersion: formatAgentVersionName(
@@ -175,7 +191,7 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
       ),
       displayName: version.displayName,
       description: version.description,
-      isDefault: version.agentDefinitionKey === 'operator',
+      isDefault: version.agentDefinitionKey === "operator",
     });
   }
 
@@ -189,20 +205,29 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
     userEvent: z.infer<typeof UserEventSchema>;
     expiresAtMs: number;
   }): RunIntentClaims {
-    const definition = AgentDefinitionKeySchema.parse(input.version.agentDefinitionKey);
+    const definition = AgentDefinitionKeySchema.parse(
+      input.version.agentDefinitionKey,
+    );
     return local(RunIntentClaimsSchema, {
       version: 1,
       organization: formatOrganizationName(input.organizationId),
       user: formatUserName(input.userId),
-      agentVersion: formatAgentVersionName(definition, AgentVersionKeySchema.parse(String(input.version.version))),
+      agentVersion: formatAgentVersionName(
+        definition,
+        AgentVersionKeySchema.parse(String(input.version.version)),
+      ),
       copilotThreadId: input.copilotThreadId,
       aguiRunId: input.aguiRunId,
-      dashboardContextHash: Sha256DigestSchema.parse(InteractionTokenCodec.hash(input.dashboardContext)),
+      dashboardContextHash: Sha256DigestSchema.parse(
+        InteractionTokenCodec.hash(input.dashboardContext),
+      ),
       policyHash: Sha256DigestSchema.parse(foundationPolicyHash(input.version)),
-      inputHash: Sha256DigestSchema.parse(InteractionTokenCodec.hash({
-        dashboardContext: input.dashboardContext,
-        userEvent: input.userEvent,
-      })),
+      inputHash: Sha256DigestSchema.parse(
+        InteractionTokenCodec.hash({
+          dashboardContext: input.dashboardContext,
+          userEvent: input.userEvent,
+        }),
+      ),
       expiresAtMs: input.expiresAtMs,
     });
   }
@@ -214,13 +239,20 @@ export class AgentInteractionBootstrapService implements AgentInteractionBootstr
       (version) => version.agentDefinitionKey === agentDefinitionKey,
     );
     if (!match) {
-      throw boundary('AGENT_NOT_ALLOWED', 'The requested interaction agent is not server-approved.');
+      throw boundary(
+        "AGENT_NOT_ALLOWED",
+        "The requested interaction agent is not server-approved.",
+      );
     }
     return match;
   }
 }
 
-function parseInput<T extends z.ZodTypeAny>(schema: T, value: unknown, code: string): z.infer<T> {
+function parseInput<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+  code: string,
+): z.infer<T> {
   return InteractionTokenCodec.parse(schema, value, code);
 }
 
@@ -228,7 +260,10 @@ function local<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
   return InteractionTokenCodec.local(schema, value);
 }
 
-function parseShared<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
+function parseShared<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+): z.infer<T> {
   return InteractionTokenCodec.response(schema, value);
 }
 

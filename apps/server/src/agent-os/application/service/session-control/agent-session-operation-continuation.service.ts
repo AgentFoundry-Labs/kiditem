@@ -1,11 +1,21 @@
 import { Inject, Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import { OperationLifecycleGateService } from '../../../../operations/application/service/operation-lifecycle-gate.service';
+import type {
+  AgentSessionLifecycleRecoveryRecord,
+  AgentSessionOperationContinuationRecord,
+} from '../../port/out/repository/session-control/agent-session-control.persistence.types';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-  type AgentSessionLifecycleRecoveryRecord,
-  type AgentSessionOperationContinuationRecord,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
+import {
+  AGENT_ATTEMPT_OPERATION_TRANSACTION,
+  type AgentAttemptOperationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-attempt-operation.transaction.port';
+import {
+  AGENT_APPROVAL_CONTINUATION_TRANSACTION,
+  type AgentApprovalContinuationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-approval-continuation.transaction.port';
 import { AgentRuntimeAdapterRegistry } from '../agent-runtime-adapter.registry';
 
 const durableRuntimeRequirements = {
@@ -21,8 +31,12 @@ const RECOVERY_BATCH_SIZE = 100;
 @Injectable()
 export class AgentSessionOperationContinuationService implements OnApplicationBootstrap {
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly queries: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_ATTEMPT_OPERATION_TRANSACTION)
+    private readonly attempts: AgentAttemptOperationTransactionPort,
+    @Inject(AGENT_APPROVAL_CONTINUATION_TRANSACTION)
+    private readonly approvals: AgentApprovalContinuationTransactionPort,
     private readonly lifecycleGate: OperationLifecycleGateService,
     private readonly runtimes: AgentRuntimeAdapterRegistry,
   ) {}
@@ -42,7 +56,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
     approvalId: string;
   }): Promise<AgentSessionOperationContinuationRecord> {
     this.lifecycleGate.assertAccepting();
-    const continuation = await this.controls.advanceApprovedContinuation({
+    const continuation = await this.approvals.advanceApprovedContinuation({
       ...input,
       signal: this.lifecycleGate.signal(),
     });
@@ -62,7 +76,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
         interruptId: continuation.approvalId,
         payload: { decision: 'approved' },
       });
-      await this.controls.markApprovalContinuationInterruptDelivered({
+      await this.approvals.markApprovalContinuationInterruptDelivered({
         organizationId: input.organizationId,
         approvalId: continuation.approvalId,
         operationRunId: continuation.operationRunId,
@@ -82,7 +96,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
     let examined = 0;
     let continued = 0;
     while (true) {
-      const candidates = await this.controls.listLifecycleRecoveryCandidates({
+      const candidates = await this.queries.listLifecycleRecoveryCandidates({
         limit: RECOVERY_BATCH_SIZE,
       });
       if (candidates.length === 0) break;
@@ -106,7 +120,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
     let examined = 0;
     let continued = 0;
     while (true) {
-      const approvals = await this.controls.listIncompleteApprovalContinuations({
+      const approvals = await this.approvals.listIncompleteApprovalContinuations({
         limit: RECOVERY_BATCH_SIZE,
       });
       if (approvals.length === 0) break;
@@ -123,7 +137,7 @@ export class AgentSessionOperationContinuationService implements OnApplicationBo
     continuationKey: string;
   }): Promise<AgentSessionOperationContinuationRecord> {
     this.lifecycleGate.assertAccepting();
-    return this.controls.continueOperationAttempt({
+    return this.attempts.continueOperationAttempt({
       ...input,
       signal: this.lifecycleGate.signal(),
     });

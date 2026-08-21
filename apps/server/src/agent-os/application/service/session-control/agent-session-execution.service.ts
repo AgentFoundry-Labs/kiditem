@@ -15,9 +15,13 @@ import {
   type AgentSessionTaskName,
 } from '@kiditem/shared/identifiers';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
+import {
+  AGENT_SESSION_TRANSITION_TRANSACTION,
+  type AgentSessionTransitionTransactionPort,
+} from '../../port/out/transaction/session-control/agent-session-transition.transaction.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import { AgentSessionTaskDispatchService } from './agent-session-task-dispatch.service';
 
@@ -33,8 +37,10 @@ interface TaskControlInput {
 @Injectable()
 export class AgentSessionExecutionService {
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly controls: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_SESSION_TRANSITION_TRANSACTION)
+    private readonly transitions: AgentSessionTransitionTransactionPort,
     private readonly dispatch: AgentSessionTaskDispatchService,
   ) {}
 
@@ -62,7 +68,7 @@ export class AgentSessionExecutionService {
 
   private async createAndDispatch(input: TaskMutationInput) {
     const graph = parseGraph(input);
-    const created = await this.controls.createRetryExecution({
+    const created = await this.transitions.createRetryExecution({
       organizationId: graph.organizationId,
       actorId: input.actorId,
       sessionId: graph.sessionId,

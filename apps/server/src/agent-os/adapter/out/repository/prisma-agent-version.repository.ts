@@ -1,11 +1,29 @@
-import { Injectable } from '@nestjs/common';
-import { Prisma, PrismaClient } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import { Injectable } from "@nestjs/common";
+import { Prisma, PrismaClient } from "@prisma/client";
+import { PrismaService } from "../../../../prisma/prisma.service";
 import type {
   AgentVersionRepositoryPort,
   PublishAgentVersionInput,
   PublishedAgentVersionRecord,
-} from '../../../application/port/out/repository/agent-version.repository.port';
+} from "../../../application/port/out/repository/agent-version.repository.port";
+import type {
+  ActiveAgentVersionRecord,
+  FindActiveAgentVersionInput,
+} from "../../../application/port/out/repository/interaction/agent-interaction.persistence.types";
+
+const activeInteractionVersionSelect = {
+  id: true,
+  agentDefinitionKey: true,
+  version: true,
+  displayName: true,
+  description: true,
+  runtimeType: true,
+  modelIdentity: true,
+  capabilityKeys: true,
+  policyDocument: true,
+  activatedAt: true,
+  retiredAt: true,
+} as const;
 
 @Injectable()
 export class PrismaAgentVersionRepository implements AgentVersionRepositoryPort {
@@ -27,11 +45,41 @@ export class PrismaAgentVersionRepository implements AgentVersionRepositoryPort 
       select: { manifestHash: true },
     });
   }
+
+  listActiveAgentVersions(): Promise<ActiveAgentVersionRecord[]> {
+    return this.prisma.agentVersion.findMany({
+      where: { activatedAt: { not: null }, retiredAt: null },
+      select: activeInteractionVersionSelect,
+      orderBy: [
+        { agentDefinitionKey: "asc" },
+        { version: "asc" },
+        { id: "asc" },
+      ],
+    }) as Promise<ActiveAgentVersionRecord[]>;
+  }
+
+  findActiveAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    return this.prisma.agentVersion.findFirst({
+      where: {
+        id: input.agentVersionId,
+        agentDefinitionKey: input.agentDefinitionKey,
+        activatedAt: { not: null },
+        retiredAt: null,
+      },
+      select: activeInteractionVersionSelect,
+    }) as Promise<ActiveAgentVersionRecord | null>;
+  }
+
+  async probeHealth(): Promise<void> {
+    await this.prisma.agentVersion.count({
+      where: { activatedAt: { not: null }, retiredAt: null },
+    });
+  }
 }
 
-export class PrismaClientAgentVersionRepository
-  implements AgentVersionRepositoryPort
-{
+export class PrismaClientAgentVersionRepository implements AgentVersionRepositoryPort {
   constructor(private readonly prisma: PrismaClient) {}
 
   publishAndActivate(
@@ -48,6 +96,36 @@ export class PrismaClientAgentVersionRepository
         retiredAt: null,
       },
       select: { manifestHash: true },
+    });
+  }
+
+  listActiveAgentVersions(): Promise<ActiveAgentVersionRecord[]> {
+    return this.prisma.agentVersion.findMany({
+      where: { activatedAt: { not: null }, retiredAt: null },
+      select: activeInteractionVersionSelect,
+      orderBy: [
+        { agentDefinitionKey: "asc" },
+        { version: "asc" },
+        { id: "asc" },
+      ],
+    }) as Promise<ActiveAgentVersionRecord[]>;
+  }
+  findActiveAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    return this.prisma.agentVersion.findFirst({
+      where: {
+        id: input.agentVersionId,
+        agentDefinitionKey: input.agentDefinitionKey,
+        activatedAt: { not: null },
+        retiredAt: null,
+      },
+      select: activeInteractionVersionSelect,
+    }) as Promise<ActiveAgentVersionRecord | null>;
+  }
+  async probeHealth(): Promise<void> {
+    await this.prisma.agentVersion.count({
+      where: { activatedAt: { not: null }, retiredAt: null },
     });
   }
 }
@@ -163,7 +241,8 @@ function toRecord(row: {
     capabilityKeys: row.capabilityKeys as string[],
     policyDocument: row.policyDocument as Record<string, unknown>,
     manifestHash: row.manifestHash,
-    runtimeManifest: row.runtimeManifest as PublishedAgentVersionRecord['runtimeManifest'],
+    runtimeManifest:
+      row.runtimeManifest as PublishedAgentVersionRecord["runtimeManifest"],
     activatedAt: row.activatedAt,
     retiredAt: row.retiredAt,
   };

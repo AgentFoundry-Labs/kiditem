@@ -13,9 +13,9 @@ import {
   type AgentOsRepositoryPort,
 } from '../port/out/repository/agent-os-repository.port';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../port/out/repository/session-control/agent-session-control-query.repository.port';
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 import { AgentPolicyService } from './agent-policy.service';
 
@@ -46,8 +46,8 @@ export class AgentToolRouter {
     private readonly repository: AgentOsRepositoryPort,
     private readonly policy: AgentPolicyService,
     @Optional()
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly sessionControl?: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly sessionControl?: AgentSessionControlQueryRepositoryPort,
   ) {}
 
   async invoke(input: InvokeAgentToolInput) {

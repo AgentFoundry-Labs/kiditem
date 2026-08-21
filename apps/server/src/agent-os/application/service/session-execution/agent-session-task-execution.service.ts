@@ -1,8 +1,6 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { z } from 'zod';
-import {
-  CanonicalResourceRefSchema,
-} from '@kiditem/shared/agent-interaction';
+import { Inject, Injectable } from "@nestjs/common";
+import { z } from "zod";
+import { CanonicalResourceRefSchema } from "@kiditem/shared/agent-interaction";
 import {
   AgentExecutionAttemptIdSchema,
   AgentExecutionIdSchema,
@@ -17,40 +15,50 @@ import {
   parseAgentExecutionName,
   parseAgentSessionName,
   parseAgentSessionTaskName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentInteractionRepositoryPort,
-} from '../../../application/port/out/repository/agent-interaction-repository.port';
+  AGENT_EXECUTION_QUERY_REPOSITORY,
+  type AgentExecutionQueryRepositoryPort,
+} from "../../../application/port/out/repository/interaction/agent-execution-query.repository.port";
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../../application/port/out/repository/agent-session-control.repository.port';
-import { AgentExecutionContextBuilder } from '../../../application/service/agent-execution-context-builder.service';
-import { AgentRuntimeAdapterRegistry } from '../../../application/service/agent-runtime-adapter.registry';
-import { AgentSessionApprovalService } from '../../../application/service/session-control/agent-session-approval.service';
-import { AgentSessionRuntimeControlService } from '../../../application/service/session-control/agent-session-runtime-control.service';
+  AGENT_CONVERSATION_EVENT_TRANSACTION,
+  type AgentConversationEventTransactionPort,
+} from "../../../application/port/out/transaction/interaction/agent-conversation-event.transaction.port";
 import {
-  AgentSessionTaskOperationInputSchema,
-} from '../../../domain/operation/agent-os.operations';
-import { assertExecutionTransition } from '../../../domain/execution/agent-execution-lifecycle.policy';
-import { assertSessionTaskTransition } from '../../../domain/session/agent-session-lifecycle.policy';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from "../../../application/port/out/repository/session-control/agent-session-control-query.repository.port";
+import {
+  AGENT_ATTEMPT_OPERATION_TRANSACTION,
+  type AgentAttemptOperationTransactionPort,
+} from "../../../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
+import {
+  AGENT_SESSION_TRANSITION_TRANSACTION,
+  type AgentSessionTransitionTransactionPort,
+} from "../../../application/port/out/transaction/session-control/agent-session-transition.transaction.port";
+import { AgentExecutionContextBuilder } from "../../../application/service/agent-execution-context-builder.service";
+import { AgentRuntimeAdapterRegistry } from "../../../application/service/agent-runtime-adapter.registry";
+import { AgentSessionApprovalService } from "../../../application/service/session-control/agent-session-approval.service";
+import { AgentSessionRuntimeControlService } from "../../../application/service/session-control/agent-session-runtime-control.service";
+import { AgentSessionTaskOperationInputSchema } from "../../../domain/operation/agent-os.operations";
+import { assertExecutionTransition } from "../../../domain/execution/agent-execution-lifecycle.policy";
+import { assertSessionTaskTransition } from "../../../domain/session/agent-session-lifecycle.policy";
 import {
   AGENT_SESSION_TASK_EXECUTION_PORT,
   type AgentSessionTaskExecutionPort,
   type AgentSessionTaskExecutionResult,
   type CancelAgentSessionTaskCommand,
   type ExecuteAgentSessionTaskCommand,
-} from '../../port/in/session-execution/agent-session-task-execution.port';
+} from "../../port/in/session-execution/agent-session-task-execution.port";
 import {
   OPERATIONS_SESSION_EXECUTION_PORT,
   type OperationsSessionExecutionPort,
-} from '../../port/out/cross-domain/operations-session-execution.port';
+} from "../../port/out/cross-domain/operations-session-execution.port";
 import type {
   AgentDurableRuntimeAdapter,
   NormalizedRuntimeEvent,
   RuntimeHandle,
-} from '../../../application/port/out/runtime/agent-durable-runtime.port';
+} from "../../../application/port/out/runtime/agent-durable-runtime.port";
 
 const durableRequirements = {
   detached: true,
@@ -73,7 +81,7 @@ const RuntimeHandleSchema = z
 const TerminalCheckpointStateSchema = z
   .object({
     runtimeHandle: RuntimeHandleSchema.nullable(),
-    status: z.enum(['completed', 'failed', 'cancelled']),
+    status: z.enum(["completed", "failed", "cancelled"]),
     errorCode: z.string().min(1).max(256).nullable(),
   })
   .strict();
@@ -109,7 +117,7 @@ interface SessionTaskOperationInput {
 interface SessionExecutionOperation {
   organizationId: string;
   runId: string;
-  operation: import('@kiditem/shared/identifiers').OperationRunName;
+  operation: import("@kiditem/shared/identifiers").OperationRunName;
   input: Record<string, unknown>;
   signal: AbortSignal;
 }
@@ -117,16 +125,20 @@ interface SessionExecutionOperation {
 interface SessionExecutionCancel {
   organizationId: string;
   runId: string;
-  operation: import('@kiditem/shared/identifiers').OperationRunName;
+  operation: import("@kiditem/shared/identifiers").OperationRunName;
   requestedByUserId: string | null;
   reason: string | null;
 }
 
 type SessionExecutionOperationResult =
-  | { kind: 'completed'; result: Record<string, unknown> }
-  | { kind: 'attention_required'; reason: string; result: Record<string, unknown> }
-  | { kind: 'cancelled'; result: Record<string, unknown> }
-  | { kind: 'failed'; code: string; message: string };
+  | { kind: "completed"; result: Record<string, unknown> }
+  | {
+      kind: "attention_required";
+      reason: string;
+      result: Record<string, unknown>;
+    }
+  | { kind: "cancelled"; result: Record<string, unknown> }
+  | { kind: "failed"; code: string; message: string };
 
 @Injectable()
 export class AgentSessionTaskExecutionService implements AgentSessionTaskExecutionPort {
@@ -135,12 +147,18 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     private readonly runtimes: AgentRuntimeAdapterRegistry,
     @Inject(OPERATIONS_SESSION_EXECUTION_PORT)
     private readonly operationExecution: OperationsSessionExecutionPort,
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly queries: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_ATTEMPT_OPERATION_TRANSACTION)
+    private readonly attempts: AgentAttemptOperationTransactionPort,
+    @Inject(AGENT_SESSION_TRANSITION_TRANSACTION)
+    private readonly transitions: AgentSessionTransitionTransactionPort,
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     private readonly approvals: AgentSessionApprovalService,
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly executions: AgentInteractionRepositoryPort,
+    @Inject(AGENT_EXECUTION_QUERY_REPOSITORY)
+    private readonly executions: AgentExecutionQueryRepositoryPort,
+    @Inject(AGENT_CONVERSATION_EVENT_TRANSACTION)
+    private readonly executionEvents: AgentConversationEventTransactionPort,
   ) {}
 
   async execute(
@@ -151,7 +169,11 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       organizationId: graph.organizationId,
       runId: graph.operationRunId,
       operation: command.operation,
-      input: { session: command.session, task: command.task, execution: command.execution },
+      input: {
+        session: command.session,
+        task: command.task,
+        execution: command.execution,
+      },
       signal: command.signal,
     });
     return mapExecutionResult(result);
@@ -172,26 +194,30 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       execution.sessionId !== input.sessionId ||
       execution.sessionTaskId !== input.taskId
     ) {
-      return failure('AGENT_EXECUTION_CONTEXT_INVALID');
+      return failure("AGENT_EXECUTION_CONTEXT_INVALID");
     }
     const latest = await this.operationExecution.findLatestCheckpoint({
       organizationId: operation.organizationId,
       operation: operation.operation,
     });
-    if (latest?.kind === 'terminal') {
+    if (latest?.kind === "terminal") {
       return terminalCheckpointResult(
         latest.state,
         input,
         execution.runtimeType,
       );
     }
-    const attempt = await this.controls.activateAttemptForOperation({
+    const attempt = await this.attempts.activateAttemptForOperation({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
       executionId: input.executionId,
       operationRunId: operation.runId,
     });
-    await this.ensureTaskRunning(operation.organizationId, input.sessionId, input.taskId);
+    await this.ensureTaskRunning(
+      operation.organizationId,
+      input.sessionId,
+      input.taskId,
+    );
     const context = await this.contextBuilder.build({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
@@ -207,7 +233,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     let handle: RuntimeHandle;
     if (checkpointHandle) {
       handle = assertHandleCorrelation(checkpointHandle, context);
-      await this.controls.persistAttemptHandle({
+      await this.attempts.persistAttemptHandle({
         organizationId: operation.organizationId,
         sessionId: input.sessionId,
         executionId: input.executionId,
@@ -218,32 +244,32 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         runtimeGeneration: handle.generation,
       });
       const inspection = await runtime.inspect(handle);
-      if (inspection.status === 'unknown') {
+      if (inspection.status === "unknown") {
         return this.finalize(
           operation,
           input,
           attempt.id,
           handle,
-          'failed',
-          'AGENT_RUNTIME_HANDLE_LOST',
+          "failed",
+          "AGENT_RUNTIME_HANDLE_LOST",
         );
       }
-      if (inspection.status === 'completed') {
-        return this.finalize(operation, input, attempt.id, handle, 'completed');
+      if (inspection.status === "completed") {
+        return this.finalize(operation, input, attempt.id, handle, "completed");
       }
-      if (inspection.status === 'cancelled') {
-        return this.finalize(operation, input, attempt.id, handle, 'cancelled');
+      if (inspection.status === "cancelled") {
+        return this.finalize(operation, input, attempt.id, handle, "cancelled");
       }
     } else {
-      await this.checkpoint(operation, 'runtime_starting', {
+      await this.checkpoint(operation, "runtime_starting", {
         attemptId: attempt.id,
         runtimeType: context.runtimeType,
       });
       handle = assertHandleCorrelation(await runtime.start(context), context);
-      await this.checkpoint(operation, 'runtime_started', {
+      await this.checkpoint(operation, "runtime_started", {
         runtimeHandle: checkpointRuntimeHandle(handle),
       });
-      await this.controls.persistAttemptHandle({
+      await this.attempts.persistAttemptHandle({
         organizationId: operation.organizationId,
         sessionId: input.sessionId,
         executionId: input.executionId,
@@ -253,7 +279,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         encryptedHandleRef: handle.encryptedHandleRef,
         runtimeGeneration: handle.generation,
       });
-      await this.checkpoint(operation, 'runtime_handle_persisted', {
+      await this.checkpoint(operation, "runtime_handle_persisted", {
         runtimeHandle: checkpointRuntimeHandle(handle),
       });
     }
@@ -267,7 +293,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       organizationId: graph.organizationId,
       operation: command.operation,
     });
-    if (!run) throw new Error('AGENT_SESSION_OPERATION_NOT_FOUND');
+    if (!run) throw new Error("AGENT_SESSION_OPERATION_NOT_FOUND");
     const input = parseOperationInput(run.input);
     const context: SessionExecutionCancel = {
       organizationId: graph.organizationId,
@@ -277,26 +303,27 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       reason: command.reason,
     };
     if (input.organizationId !== context.organizationId) {
-      throw new Error('AGENT_SESSION_OPERATION_SCOPE_INVALID');
+      throw new Error("AGENT_SESSION_OPERATION_SCOPE_INVALID");
     }
-    const attempt = await this.controls.findAttemptForOperation({
+    const attempt = await this.attempts.findAttemptForOperation({
       organizationId: context.organizationId,
       operationRunId: context.runId,
     });
     if (!attempt || attempt.executionId !== input.executionId) {
-      throw new Error('AGENT_SESSION_OPERATION_ATTEMPT_NOT_FOUND');
+      throw new Error("AGENT_SESSION_OPERATION_ATTEMPT_NOT_FOUND");
     }
     const latest = await this.operationExecution.findLatestCheckpoint({
       organizationId: context.organizationId,
       operation: context.operation,
     });
-    if (latest?.kind === 'terminal') return;
+    if (latest?.kind === "terminal") return;
     const handle = latest ? handleFromState(latest.state) : null;
     if (handle) {
       if (
         handle.executionId !== input.executionId ||
         handle.attemptId !== attempt.id
-      ) throw new Error('AGENT_RUNTIME_HANDLE_CORRELATION_INVALID');
+      )
+        throw new Error("AGENT_RUNTIME_HANDLE_CORRELATION_INVALID");
       const runtime = this.runtimes.requireCompatible(
         handle.runtimeType,
         durableRequirements,
@@ -306,25 +333,22 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     await this.operationExecution.appendCheckpoint({
       organizationId: context.organizationId,
       operation: context.operation,
-      kind: 'cancellation_requested',
+      kind: "cancellation_requested",
       state: {
         runtimeHandle: handle ? checkpointRuntimeHandle(handle) : null,
-        reason: context.reason ?? 'cancelled',
+        reason: context.reason ?? "cancelled",
       },
     });
-    await this.recordRuntimeEvent(
-      context,
-      input,
-      attempt.id,
-      0,
-      { kind: 'terminal', status: 'cancelled' },
-    );
+    await this.recordRuntimeEvent(context, input, attempt.id, 0, {
+      kind: "terminal",
+      status: "cancelled",
+    });
     await this.finalize(
       context,
       input,
       attempt.id,
       handle,
-      'cancelled',
+      "cancelled",
       undefined,
       attempt.state,
     );
@@ -350,18 +374,24 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
             input,
             attemptId,
             handle,
-            'failed',
-            'AGENT_RUNTIME_TERMINAL_MISSING',
+            "failed",
+            "AGENT_RUNTIME_TERMINAL_MISSING",
           );
         }
         const unsafeEvent = next.value;
         const event = normalizedEvent(unsafeEvent);
         eventCount += 1;
-        if (event.kind === 'interrupt') {
+        if (event.kind === "interrupt") {
           if (assistantOpen) {
-            await this.recordRuntimeEvent(operation, input, attemptId, eventCount, {
-              kind: 'text_end',
-            });
+            await this.recordRuntimeEvent(
+              operation,
+              input,
+              attemptId,
+              eventCount,
+              {
+                kind: "text_end",
+              },
+            );
             assistantOpen = false;
           }
           return this.persistApprovalBoundary(
@@ -373,37 +403,64 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
             event,
           );
         }
-        if (event.kind === 'text_start') {
-          if (assistantOpen) throw new Error('AGENT_RUNTIME_TEXT_SEQUENCE_INVALID');
-          await this.recordRuntimeEvent(operation, input, attemptId, eventCount, event);
+        if (event.kind === "text_start") {
+          if (assistantOpen)
+            throw new Error("AGENT_RUNTIME_TEXT_SEQUENCE_INVALID");
+          await this.recordRuntimeEvent(
+            operation,
+            input,
+            attemptId,
+            eventCount,
+            event,
+          );
           assistantOpen = true;
           continue;
         }
-        if (event.kind === 'text_end') {
-          if (!assistantOpen) throw new Error('AGENT_RUNTIME_TEXT_SEQUENCE_INVALID');
-          await this.recordRuntimeEvent(operation, input, attemptId, eventCount, event);
+        if (event.kind === "text_end") {
+          if (!assistantOpen)
+            throw new Error("AGENT_RUNTIME_TEXT_SEQUENCE_INVALID");
+          await this.recordRuntimeEvent(
+            operation,
+            input,
+            attemptId,
+            eventCount,
+            event,
+          );
           assistantOpen = false;
           continue;
         }
-        if (event.kind === 'text_delta' && !assistantOpen) {
-          await this.recordRuntimeEvent(operation, input, attemptId, eventCount, {
-            kind: 'text_start',
-          });
+        if (event.kind === "text_delta" && !assistantOpen) {
+          await this.recordRuntimeEvent(
+            operation,
+            input,
+            attemptId,
+            eventCount,
+            {
+              kind: "text_start",
+            },
+          );
           assistantOpen = true;
         }
-        if (event.kind === 'terminal' && assistantOpen) {
-          await this.recordRuntimeEvent(operation, input, attemptId, eventCount, {
-            kind: 'text_end',
-          });
+        if (event.kind === "terminal" && assistantOpen) {
+          await this.recordRuntimeEvent(
+            operation,
+            input,
+            attemptId,
+            eventCount,
+            {
+              kind: "text_end",
+            },
+          );
           assistantOpen = false;
         }
         const nonInterruptEvent = event as Exclude<
           NormalizedRuntimeEvent,
-          { kind: 'interrupt' }
+          { kind: "interrupt" }
         >;
-        const durableEvent = nonInterruptEvent.kind === 'artifact'
-          ? await this.persistArtifact(input, nonInterruptEvent)
-          : nonInterruptEvent;
+        const durableEvent =
+          nonInterruptEvent.kind === "artifact"
+            ? await this.persistArtifact(input, nonInterruptEvent)
+            : nonInterruptEvent;
         await this.recordRuntimeEvent(
           operation,
           input,
@@ -411,19 +468,19 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
           eventCount,
           durableEvent,
         );
-        if (event.kind === 'artifact') {
-          await this.checkpoint(operation, 'artifact_boundary', {
+        if (event.kind === "artifact") {
+          await this.checkpoint(operation, "artifact_boundary", {
             runtimeHandle: checkpointRuntimeHandle(handle),
             eventCount,
             artifactId: event.artifactId,
           });
         } else if (eventCount % 100 === 0) {
-          await this.checkpoint(operation, 'event_batch', {
+          await this.checkpoint(operation, "event_batch", {
             runtimeHandle: checkpointRuntimeHandle(handle),
             eventCount,
           });
         }
-        if (event.kind === 'terminal') {
+        if (event.kind === "terminal") {
           operation.signal.throwIfAborted();
           return this.finalize(
             operation,
@@ -431,8 +488,8 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
             attemptId,
             handle,
             event.status,
-            event.status === 'failed'
-              ? event.errorCode ?? 'AGENT_RUNTIME_FAILED'
+            event.status === "failed"
+              ? (event.errorCode ?? "AGENT_RUNTIME_FAILED")
               : undefined,
           );
         }
@@ -460,7 +517,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     handle: RuntimeHandle,
   ): Promise<void> {
     if (!isDeadlineAbort(operation.signal.reason)) return;
-    const errorCode = 'OPERATION_DEADLINE_EXCEEDED';
+    const errorCode = "OPERATION_DEADLINE_EXCEEDED";
     try {
       await cancelRuntimeWithinDeadline(runtime, handle);
     } catch {
@@ -468,8 +525,8 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       // not leave the canonical AgentOS graph nonterminal.
     } finally {
       await this.recordRuntimeEvent(operation, input, attemptId, 0, {
-        kind: 'terminal',
-        status: 'failed',
+        kind: "terminal",
+        status: "failed",
         errorCode,
       });
       await this.finalize(
@@ -477,21 +534,24 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         input,
         attemptId,
         handle,
-        'failed',
+        "failed",
         errorCode,
-        'running',
+        "running",
         true,
       );
     }
   }
 
   private async persistApprovalBoundary(
-    operation: Pick<SessionExecutionOperation, 'organizationId' | 'runId' | 'operation'>,
+    operation: Pick<
+      SessionExecutionOperation,
+      "organizationId" | "runId" | "operation"
+    >,
     input: SessionTaskOperationInput,
     attemptId: string,
     handle: RuntimeHandle,
     eventCount: number,
-    event: Extract<NormalizedRuntimeEvent, { kind: 'interrupt' }>,
+    event: Extract<NormalizedRuntimeEvent, { kind: "interrupt" }>,
   ): Promise<SessionExecutionOperationResult> {
     const payload = RuntimeApprovalPayloadSchema.parse(event.payload);
     const names = canonicalNames(input, attemptId);
@@ -509,25 +569,25 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       expiresAt: payload.expiresAt,
       idempotencyKey: `runtime:${attemptId}:interrupt:${event.interruptId}`,
     });
-    const task = await this.controls.findTask({
+    const task = await this.queries.findTask({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
       taskId: input.taskId,
     });
-    if (!task) return failure('AGENT_SESSION_TASK_NOT_FOUND');
-    if (task.status === 'running') {
-      assertSessionTaskTransition(task.status, 'waiting_approval');
-      await this.controls.transitionTask({
+    if (!task) return failure("AGENT_SESSION_TASK_NOT_FOUND");
+    if (task.status === "running") {
+      assertSessionTaskTransition(task.status, "waiting_approval");
+      await this.transitions.transitionTask({
         organizationId: operation.organizationId,
         sessionId: input.sessionId,
         taskId: input.taskId,
-        expectedState: 'running',
-        state: 'waiting_approval',
+        expectedState: "running",
+        state: "waiting_approval",
       });
-    } else if (task.status !== 'waiting_approval') {
-      return failure('AGENT_SESSION_TASK_NOT_RUNNABLE');
+    } else if (task.status !== "waiting_approval") {
+      return failure("AGENT_SESSION_TASK_NOT_RUNNABLE");
     }
-    await this.checkpoint(operation, 'interrupt_boundary', {
+    await this.checkpoint(operation, "interrupt_boundary", {
       runtimeHandle: checkpointRuntimeHandle(handle),
       eventCount,
       interruptId: event.interruptId,
@@ -537,18 +597,18 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       await this.runtimeControl.publish(persisted);
     }
     return {
-      kind: 'attention_required',
-      reason: 'agent_session_approval_required',
+      kind: "attention_required",
+      reason: "agent_session_approval_required",
       result: { approvalId: approval.approvalId },
     };
   }
 
   private async persistArtifact(
     input: SessionTaskOperationInput,
-    event: Extract<NormalizedRuntimeEvent, { kind: 'artifact' }>,
-  ): Promise<Extract<NormalizedRuntimeEvent, { kind: 'artifact' }>> {
+    event: Extract<NormalizedRuntimeEvent, { kind: "artifact" }>,
+  ): Promise<Extract<NormalizedRuntimeEvent, { kind: "artifact" }>> {
     const payload = RuntimeArtifactPayloadSchema.parse(event.payload);
-    const artifact = await this.controls.appendArtifact({
+    const artifact = await this.transitions.appendArtifact({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       taskId: input.taskId,
@@ -560,7 +620,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       idempotencyKey: `runtime-artifact:${event.artifactId}`,
     });
     return {
-      kind: 'artifact',
+      kind: "artifact",
       artifactId: artifact.id,
       payload: {
         artifactType: payload.artifactType,
@@ -572,11 +632,14 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
   }
 
   private recordRuntimeEvent(
-    operation: Pick<SessionExecutionOperation, 'organizationId' | 'runId' | 'operation'>,
+    operation: Pick<
+      SessionExecutionOperation,
+      "organizationId" | "runId" | "operation"
+    >,
     input: SessionTaskOperationInput,
     attemptId: string,
     ordinal: number,
-    event: Exclude<NormalizedRuntimeEvent, { kind: 'interrupt' }>,
+    event: Exclude<NormalizedRuntimeEvent, { kind: "interrupt" }>,
   ) {
     const names = canonicalNames(input, attemptId);
     return this.runtimeControl.record({
@@ -591,52 +654,55 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
   }
 
   private async finalize(
-    operation: Pick<SessionExecutionOperation, 'organizationId' | 'runId' | 'operation'> & {
+    operation: Pick<
+      SessionExecutionOperation,
+      "organizationId" | "runId" | "operation"
+    > & {
       signal?: AbortSignal;
     },
     input: SessionTaskOperationInput,
     attemptId: string,
     handle: RuntimeHandle | null,
-    status: 'completed' | 'failed' | 'cancelled',
+    status: "completed" | "failed" | "cancelled",
     errorCode?: string,
-    expectedAttemptState = 'running',
+    expectedAttemptState = "running",
     allowAborted = false,
   ): Promise<SessionExecutionOperationResult> {
     if (!allowAborted) operation.signal?.throwIfAborted();
-    await this.controls.finishAttempt({
+    await this.attempts.finishAttempt({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
       executionId: input.executionId,
       attemptId,
       expectedState: expectedAttemptState,
-      state: status === 'completed' ? 'succeeded' : status,
+      state: status === "completed" ? "succeeded" : status,
       errorCode: errorCode ?? null,
       errorMessage: errorCode ?? null,
     });
     const current = await this.executions.findCurrentExecution({
       executionId: input.executionId,
     });
-    if (current?.status === 'running') {
+    if (current?.status === "running") {
       assertExecutionTransition(current.status, status);
       const terminalBase = {
         organizationId: operation.organizationId,
         id: input.executionId,
         finishedAt: new Date(),
       };
-      await this.executions.markExecutionTerminal(
-        status === 'completed'
+      await this.executionEvents.markExecutionTerminal(
+        status === "completed"
           ? { ...terminalBase, status, errorCode: null }
           : { ...terminalBase, status, errorCode: errorCode ?? null },
       );
     }
-    const task = await this.controls.findTask({
+    const task = await this.queries.findTask({
       organizationId: operation.organizationId,
       sessionId: input.sessionId,
       taskId: input.taskId,
     });
-    if (task && !['completed', 'failed', 'cancelled'].includes(task.status)) {
+    if (task && !["completed", "failed", "cancelled"].includes(task.status)) {
       assertSessionTaskTransition(task.status, status);
-      await this.controls.transitionTask({
+      await this.transitions.transitionTask({
         organizationId: operation.organizationId,
         sessionId: input.sessionId,
         taskId: input.taskId,
@@ -644,7 +710,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         state: status,
       });
     }
-    await this.checkpoint(operation, 'terminal', {
+    await this.checkpoint(operation, "terminal", {
       runtimeHandle: handle ? checkpointRuntimeHandle(handle) : null,
       status,
       errorCode: errorCode ?? null,
@@ -654,9 +720,9 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       taskId: input.taskId,
       status,
     };
-    if (status === 'completed') return { kind: 'completed', result };
-    if (status === 'cancelled') return { kind: 'cancelled', result };
-    return failure(errorCode ?? 'AGENT_RUNTIME_FAILED');
+    if (status === "completed") return { kind: "completed", result };
+    if (status === "cancelled") return { kind: "cancelled", result };
+    return failure(errorCode ?? "AGENT_RUNTIME_FAILED");
   }
 
   private async ensureTaskRunning(
@@ -664,25 +730,33 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     sessionId: string,
     taskId: string,
   ): Promise<void> {
-    const task = await this.controls.findTask({ organizationId, sessionId, taskId });
-    if (!task) throw new Error('AGENT_SESSION_TASK_NOT_FOUND');
-    if (task.status === 'running') return;
-    if (['queued', 'paused', 'waiting_dependency', 'waiting_approval'].includes(task.status)) {
-      assertSessionTaskTransition(task.status, 'running');
-      await this.controls.transitionTask({
+    const task = await this.queries.findTask({
+      organizationId,
+      sessionId,
+      taskId,
+    });
+    if (!task) throw new Error("AGENT_SESSION_TASK_NOT_FOUND");
+    if (task.status === "running") return;
+    if (
+      ["queued", "paused", "waiting_dependency", "waiting_approval"].includes(
+        task.status,
+      )
+    ) {
+      assertSessionTaskTransition(task.status, "running");
+      await this.transitions.transitionTask({
         organizationId,
         sessionId,
         taskId,
         expectedState: task.status,
-        state: 'running',
+        state: "running",
       });
       return;
     }
-    throw new Error('AGENT_SESSION_TASK_NOT_RUNNABLE');
+    throw new Error("AGENT_SESSION_TASK_NOT_RUNNABLE");
   }
 
   private checkpoint(
-    operation: Pick<SessionExecutionOperation, 'organizationId' | 'operation'>,
+    operation: Pick<SessionExecutionOperation, "organizationId" | "operation">,
     kind: string,
     state: Record<string, unknown>,
   ) {
@@ -715,7 +789,11 @@ function canonicalNames(input: SessionTaskOperationInput, attemptId: string) {
   const executionId = AgentExecutionIdSchema.parse(input.executionId);
   const attempt = AgentExecutionAttemptIdSchema.parse(attemptId);
   const session = formatAgentSessionName(organization, sessionId);
-  const execution = formatAgentExecutionName(organization, sessionId, executionId);
+  const execution = formatAgentExecutionName(
+    organization,
+    sessionId,
+    executionId,
+  );
   return {
     session,
     task: formatAgentSessionTaskName(organization, sessionId, taskId),
@@ -758,13 +836,16 @@ function assertHandleCorrelation(
     parsed.runtimeType !== context.runtimeType ||
     parsed.executionId !== context.executionId ||
     parsed.attemptId !== context.attemptId
-  ) throw new Error('AGENT_RUNTIME_HANDLE_CORRELATION_INVALID');
+  )
+    throw new Error("AGENT_RUNTIME_HANDLE_CORRELATION_INVALID");
   return parsed;
 }
 
-function normalizedEvent(event: NormalizedRuntimeEvent): NormalizedRuntimeEvent {
-  if (!event || typeof event !== 'object' || !('kind' in event)) {
-    throw new Error('AGENT_RUNTIME_EVENT_INVALID');
+function normalizedEvent(
+  event: NormalizedRuntimeEvent,
+): NormalizedRuntimeEvent {
+  if (!event || typeof event !== "object" || !("kind" in event)) {
+    throw new Error("AGENT_RUNTIME_EVENT_INVALID");
   }
   return event;
 }
@@ -776,17 +857,17 @@ function nextRuntimeEvent(
   if (signal.aborted) return Promise.reject(abortReason(signal));
   return new Promise((resolve, reject) => {
     const onAbort = () => {
-      signal.removeEventListener('abort', onAbort);
+      signal.removeEventListener("abort", onAbort);
       reject(abortReason(signal));
     };
-    signal.addEventListener('abort', onAbort, { once: true });
+    signal.addEventListener("abort", onAbort, { once: true });
     void iterator.next().then(
       (result) => {
-        signal.removeEventListener('abort', onAbort);
+        signal.removeEventListener("abort", onAbort);
         resolve(result);
       },
       (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
+        signal.removeEventListener("abort", onAbort);
         reject(error);
       },
     );
@@ -796,11 +877,13 @@ function nextRuntimeEvent(
 function abortReason(signal: AbortSignal): Error {
   return signal.reason instanceof Error
     ? signal.reason
-    : new Error('operation_attempt_aborted');
+    : new Error("operation_attempt_aborted");
 }
 
 function isDeadlineAbort(reason: unknown): boolean {
-  return reason instanceof Error && reason.message === 'operation_deadline_exceeded';
+  return (
+    reason instanceof Error && reason.message === "operation_deadline_exceeded"
+  );
 }
 
 async function cancelRuntimeWithinDeadline(
@@ -810,7 +893,7 @@ async function cancelRuntimeWithinDeadline(
   let timeout: ReturnType<typeof setTimeout> | null = null;
   const deadline = new Promise<void>((_resolve, reject) => {
     timeout = setTimeout(() => {
-      reject(new Error('agent_runtime_cancel_timeout'));
+      reject(new Error("agent_runtime_cancel_timeout"));
     }, RUNTIME_CANCEL_TIMEOUT_MS);
     timeout.unref?.();
   });
@@ -822,7 +905,7 @@ async function cancelRuntimeWithinDeadline(
 }
 
 function failure(code: string): SessionExecutionOperationResult {
-  return { kind: 'failed', code, message: code };
+  return { kind: "failed", code, message: code };
 }
 
 function terminalCheckpointResult(
@@ -831,20 +914,21 @@ function terminalCheckpointResult(
   runtimeType: string,
 ): SessionExecutionOperationResult {
   const terminal = TerminalCheckpointStateSchema.parse(state);
-  if (terminal.runtimeHandle && (
-    terminal.runtimeHandle.runtimeType !== runtimeType ||
-    terminal.runtimeHandle.executionId !== input.executionId
-  )) {
-    return failure('AGENT_RUNTIME_HANDLE_CORRELATION_INVALID');
+  if (
+    terminal.runtimeHandle &&
+    (terminal.runtimeHandle.runtimeType !== runtimeType ||
+      terminal.runtimeHandle.executionId !== input.executionId)
+  ) {
+    return failure("AGENT_RUNTIME_HANDLE_CORRELATION_INVALID");
   }
   const result = {
     executionId: input.executionId,
     taskId: input.taskId,
     status: terminal.status,
   };
-  if (terminal.status === 'completed') return { kind: 'completed', result };
-  if (terminal.status === 'cancelled') return { kind: 'cancelled', result };
-  return failure(terminal.errorCode ?? 'AGENT_RUNTIME_FAILED');
+  if (terminal.status === "completed") return { kind: "completed", result };
+  if (terminal.status === "cancelled") return { kind: "cancelled", result };
+  return failure(terminal.errorCode ?? "AGENT_RUNTIME_FAILED");
 }
 
 function parseExecutionCommand(command: ExecuteAgentSessionTaskCommand): {
@@ -862,10 +946,14 @@ function parseExecutionCommand(command: ExecuteAgentSessionTaskCommand): {
       !command.operationAttemptToken ||
       input.organizationId !== command.organizationId ||
       operation.organization !== command.organizationId
-    ) throw new Error('invalid execution command');
-    return { organizationId: input.organizationId, operationRunId: operation.operation };
+    )
+      throw new Error("invalid execution command");
+    return {
+      organizationId: input.organizationId,
+      operationRunId: operation.operation,
+    };
   } catch {
-    throw new Error('AGENT_SESSION_OPERATION_SCOPE_INVALID');
+    throw new Error("AGENT_SESSION_OPERATION_SCOPE_INVALID");
   }
 }
 
@@ -876,11 +964,14 @@ function parseCancelCommand(command: CancelAgentSessionTaskCommand): {
   try {
     const operation = parseOperationRunName(command.operation);
     if (operation.organization !== command.organizationId) {
-      throw new Error('operation organization mismatch');
+      throw new Error("operation organization mismatch");
     }
-    return { organizationId: operation.organization, operationRunId: operation.operation };
+    return {
+      organizationId: operation.organization,
+      operationRunId: operation.operation,
+    };
   } catch {
-    throw new Error('AGENT_SESSION_OPERATION_SCOPE_INVALID');
+    throw new Error("AGENT_SESSION_OPERATION_SCOPE_INVALID");
   }
 }
 
@@ -888,11 +979,17 @@ function mapExecutionResult(
   result: SessionExecutionOperationResult,
 ): AgentSessionTaskExecutionResult {
   switch (result.kind) {
-    case 'completed': return { status: 'completed', output: result.result };
-    case 'attention_required': return {
-      status: 'attention_required', reason: result.reason, output: result.result,
-    };
-    case 'cancelled': return { status: 'cancelled', output: result.result };
-    case 'failed': return { status: 'failed', code: result.code, message: result.message };
+    case "completed":
+      return { status: "completed", output: result.result };
+    case "attention_required":
+      return {
+        status: "attention_required",
+        reason: result.reason,
+        output: result.result,
+      };
+    case "cancelled":
+      return { status: "cancelled", output: result.result };
+    case "failed":
+      return { status: "failed", code: result.code, message: result.message };
   }
 }

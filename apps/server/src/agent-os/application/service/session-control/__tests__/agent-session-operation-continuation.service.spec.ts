@@ -39,6 +39,8 @@ function harness() {
   const runtimes = { requireCompatible: vi.fn().mockReturnValue(runtime) };
   const service = new AgentSessionOperationContinuationService(
     controls as never,
+    controls as never,
+    controls as never,
     gate,
     runtimes as never,
   );

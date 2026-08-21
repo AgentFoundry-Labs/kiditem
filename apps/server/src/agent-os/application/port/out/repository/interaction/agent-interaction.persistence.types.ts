@@ -1,3 +1,4 @@
+// Shared records and inputs for the focused interaction persistence seams.
 import type {
   AgentConversationEventEnvelope,
   AgentConversationEventContent,
@@ -5,10 +6,6 @@ import type {
   AgentSessionSummary,
   MessageEventPayload,
 } from '@kiditem/shared/agent-interaction';
-
-export const AGENT_INTERACTION_REPOSITORY = Symbol(
-  'AGENT_INTERACTION_REPOSITORY',
-);
 
 export type AgentUserMessageEventPayload = MessageEventPayload;
 export type AgentConversationEventPayload =
@@ -251,53 +248,4 @@ export interface RecordAgentExecutionUsageInput {
   outputTokens: number;
   costMicros: bigint;
   currency: 'USD';
-}
-
-export interface AgentInteractionRepositoryPort {
-  listActiveAgentVersions(): Promise<ActiveAgentVersionRecord[]>;
-  findActiveAgentVersion(
-    input: FindActiveAgentVersionInput,
-  ): Promise<ActiveAgentVersionRecord | null>;
-  listSessions(
-    input: ListAgentSessionsInput,
-  ): Promise<AgentSessionSummaryRecord[]>;
-  findAccessibleSession(
-    input: FindAccessibleAgentSessionInput,
-  ): Promise<AgentSessionRecord | null>;
-  readConversationEvents(
-    input: ReadConversationEventsInput,
-  ): Promise<ConversationEventPage>;
-  authorizeExecution(
-    input: AuthorizeAgentExecutionInput,
-  ): Promise<AuthorizedExecutionRecord>;
-  loadExecutionRuntimeContext(input: {
-    executionId: string;
-  }): Promise<AgentExecutionRuntimeContext | null>;
-  readModelConversation(input: {
-    organizationId: string;
-    sessionId: string;
-    throughSequence: bigint;
-    limit: number;
-  }): Promise<ModelConversationPage>;
-  findCurrentExecution(input: {
-    executionId: string;
-  }): Promise<CurrentAgentExecution | null>;
-  findAccessibleCurrentExecution(input: {
-    organizationId: string;
-    userId: string;
-    sessionId: string;
-    copilotThreadId: string;
-  }): Promise<CurrentAgentExecution | null>;
-  findCurrentSessionExecution(input: {
-    sessionId: string;
-    copilotThreadId: string;
-  }): Promise<CurrentAgentExecution | null>;
-  appendExecutionEvent(
-    input: AppendExecutionEventInput,
-  ): Promise<AgentConversationEventRecord>;
-  markExecutionTerminal(
-    input: MarkAgentExecutionTerminalInput,
-  ): Promise<void>;
-  recordExecutionUsage(input: RecordAgentExecutionUsageInput): Promise<void>;
-  probeHealth(): Promise<void>;
 }

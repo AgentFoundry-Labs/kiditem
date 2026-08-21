@@ -51,7 +51,11 @@ function harness() {
   return {
     controls,
     dispatch,
-    service: new AgentSessionExecutionService(controls as never, dispatch as never),
+    service: new AgentSessionExecutionService(
+      controls as never,
+      controls as never,
+      dispatch as never,
+    ),
   };
 }
 

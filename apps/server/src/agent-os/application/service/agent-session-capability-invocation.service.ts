@@ -1,34 +1,32 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from "@nestjs/common";
 import {
   parseAgentExecutionName,
   parseAgentSessionName,
   parseAgentSessionTaskName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentInteractionRepositoryPort,
-} from '../port/out/repository/agent-interaction-repository.port';
+  AGENT_EXECUTION_QUERY_REPOSITORY,
+  type AgentExecutionQueryRepositoryPort,
+} from "../port/out/repository/interaction/agent-execution-query.repository.port";
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from "../port/out/repository/session-control/agent-session-control-query.repository.port";
 import type {
   AgentSessionCapabilityInvocationInput,
   AgentSessionCapabilityInvocationPort,
-} from '../port/in/agent-capability-invocation.port';
-import type { AgentCapabilityExecutionResult } from '../port/out/capability/agent-capability-handler.port';
-import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
-import { AgentCapabilityRegistry } from './agent-capability-registry.service';
+} from "../port/in/agent-capability-invocation.port";
+import type { AgentCapabilityExecutionResult } from "../port/out/capability/agent-capability-handler.port";
+import { AgentOsRuntimeError } from "../../domain/agent-os.errors";
+import { AgentCapabilityRegistry } from "./agent-capability-registry.service";
 
 @Injectable()
-export class AgentSessionCapabilityInvocationService
-  implements AgentSessionCapabilityInvocationPort
-{
+export class AgentSessionCapabilityInvocationService implements AgentSessionCapabilityInvocationPort {
   constructor(
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly interactions: AgentInteractionRepositoryPort,
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_EXECUTION_QUERY_REPOSITORY)
+    private readonly interactions: AgentExecutionQueryRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly controls: AgentSessionControlQueryRepositoryPort,
     private readonly capabilities: AgentCapabilityRegistry,
   ) {}
 
@@ -54,7 +52,7 @@ export class AgentSessionCapabilityInvocationService
       context.sessionId !== session.session ||
       context.sessionTaskId !== task.task ||
       context.executionId !== execution.execution ||
-      context.lifecycle !== 'active'
+      context.lifecycle !== "active"
     ) {
       throw denied();
     }
@@ -65,21 +63,21 @@ export class AgentSessionCapabilityInvocationService
     const handler = this.capabilities.resolve(input.capabilityKey);
     if (!handler) throw denied();
     if (
-      handler.approvalRisk !== 'none' ||
+      handler.approvalRisk !== "none" ||
       handler.sideEffects.length !== 1 ||
-      handler.sideEffects[0] !== 'read'
+      handler.sideEffects[0] !== "read"
     ) {
       throw new AgentOsRuntimeError(
-        'AGENT_CAPABILITY_APPROVAL_REQUIRED',
-        'A non-read or approval-gated capability requires an explicit session approval.',
+        "AGENT_CAPABILITY_APPROVAL_REQUIRED",
+        "A non-read or approval-gated capability requires an explicit session approval.",
       );
     }
 
     const parsedInput = handler.inputSchema.safeParse(input.input);
     if (!parsedInput.success) {
       throw new AgentOsRuntimeError(
-        'AGENT_EXECUTION_CAPABILITY_INPUT_INVALID',
-        parsedInput.error.issues.map((issue) => issue.message).join('; '),
+        "AGENT_EXECUTION_CAPABILITY_INPUT_INVALID",
+        parsedInput.error.issues.map((issue) => issue.message).join("; "),
       );
     }
 
@@ -119,7 +117,7 @@ export class AgentSessionCapabilityInvocationService
 
 function denied(): AgentOsRuntimeError {
   return new AgentOsRuntimeError(
-    'AGENT_EXECUTION_CAPABILITY_DENIED',
-    'Capability is outside the exact active Agent session execution policy.',
+    "AGENT_EXECUTION_CAPABILITY_DENIED",
+    "Capability is outside the exact active Agent session execution policy.",
   );
 }

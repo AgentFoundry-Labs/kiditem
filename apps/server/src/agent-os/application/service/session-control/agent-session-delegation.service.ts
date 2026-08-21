@@ -1,9 +1,13 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { z } from 'zod';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
+import {
+  AGENT_DELEGATION_TRANSACTION,
+  type AgentDelegationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-delegation.transaction.port';
 import { AgentRuntimeManifestSchema } from '../../../domain/agent-runtime-manifest';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import { AgentSessionTaskDispatchService } from './agent-session-task-dispatch.service';
@@ -15,8 +19,10 @@ const capabilityKeysSchema = z
 @Injectable()
 export class AgentSessionDelegationService {
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly repository: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly queries: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_DELEGATION_TRANSACTION)
+    private readonly delegation: AgentDelegationTransactionPort,
     private readonly dispatch: AgentSessionTaskDispatchService,
   ) {}
 
@@ -39,7 +45,7 @@ export class AgentSessionDelegationService {
     const objective = input.objective.replace(/\s+/g, ' ').trim();
     if (!objective || objective.length > 2_000) throw denied();
     const requestedAuthority = capabilityKeysSchema.parse(input.authoritySubset);
-    const context = await this.repository.loadDelegationContext(input);
+    const context = await this.queries.loadDelegationContext(input);
     if (!context) throw denied();
     const manifest = AgentRuntimeManifestSchema.parse(context.parentManifest);
     const policy = new Set(capabilityKeysSchema.parse(context.parentPolicyCapabilityKeys));
@@ -59,7 +65,7 @@ export class AgentSessionDelegationService {
       requestedAuthority.some((key) => !policy.has(key) || !targetCapabilities.has(key))
     ) throw denied();
 
-    const delegated = await this.repository.createDelegatedTask({
+    const delegated = await this.delegation.createDelegatedTask({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       parentTaskId: input.parentTaskId,

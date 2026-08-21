@@ -82,6 +82,7 @@ function harness(overrides: { storedApproval?: Record<string, unknown>; current?
   };
   const service = new AgentSessionApprovalService(
     controls as never,
+    controls as never,
     runtimeControl as never,
     resources as never,
     operations as never,

@@ -1,20 +1,20 @@
-import { Inject, Injectable } from '@nestjs/common';
-import type { BaseEvent } from '@ag-ui/core';
+import { Inject, Injectable } from "@nestjs/common";
+import type { BaseEvent } from "@ag-ui/core";
 import {
   AGENT_INTERACTION_AUTHORIZATION_PORT,
   type AgentInteractionAuthorizationPort,
-} from '../../port/in/interaction/agent-interaction-authorization.port';
-import type { AgentInteractionLiveEventsPort } from '../../port/in/interaction/agent-interaction-live-events.port';
+} from "../../port/in/interaction/agent-interaction-authorization.port";
+import type { AgentInteractionLiveEventsPort } from "../../port/in/interaction/agent-interaction-live-events.port";
 import {
   AGENT_CONVERSATION_LIVE_PUBLISHER,
   type AgentConversationLivePointer,
   type AgentConversationLivePublisherPort,
-} from '../../port/out/event/agent-conversation-live-publisher.port';
+} from "../../port/out/event/agent-conversation-live-publisher.port";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentInteractionRepositoryPort,
-} from '../../port/out/repository/agent-interaction-repository.port';
-import { projectReplayEvent } from './interaction-replay-projector';
+  AGENT_CONVERSATION_QUERY_REPOSITORY,
+  type AgentConversationQueryRepositoryPort,
+} from "../../port/out/repository/interaction/agent-conversation-query.repository.port";
+import { projectReplayEvent } from "./interaction-replay-projector";
 
 const CATCH_UP_LIMIT = 500;
 const CATCH_UP_INTERVAL_MS = 1_000;
@@ -24,8 +24,8 @@ export class AgentInteractionLiveEventsService implements AgentInteractionLiveEv
   constructor(
     @Inject(AGENT_INTERACTION_AUTHORIZATION_PORT)
     private readonly authorization: AgentInteractionAuthorizationPort,
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly repository: AgentInteractionRepositoryPort,
+    @Inject(AGENT_CONVERSATION_QUERY_REPOSITORY)
+    private readonly repository: AgentConversationQueryRepositoryPort,
     @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
     private readonly publisher: AgentConversationLivePublisherPort,
   ) {}
@@ -47,7 +47,9 @@ export class AgentInteractionLiveEventsService implements AgentInteractionLiveEv
   }
 
   private async *liveEvents(
-    authorization: Awaited<ReturnType<AgentInteractionAuthorizationPort['authorizeLiveJoin']>>,
+    authorization: Awaited<
+      ReturnType<AgentInteractionAuthorizationPort["authorizeLiveJoin"]>
+    >,
     signal: AbortSignal,
   ): AsyncIterable<BaseEvent> {
     let afterSequence = authorization.afterSequence;
@@ -58,7 +60,7 @@ export class AgentInteractionLiveEventsService implements AgentInteractionLiveEv
       wake?.();
     });
     const stop = () => wake?.();
-    signal.addEventListener('abort', stop, { once: true });
+    signal.addEventListener("abort", stop, { once: true });
     try {
       while (!signal.aborted) {
         const page = await this.repository.readConversationEvents({
@@ -70,7 +72,7 @@ export class AgentInteractionLiveEventsService implements AgentInteractionLiveEv
         });
         for (const event of page.events) {
           yield projectReplayEvent(event, authorization.copilotThreadId);
-          if (event.eventType === 'run_terminal') return;
+          if (event.eventType === "run_terminal") return;
         }
         afterSequence = page.lastSequence;
         if (page.hasMore) continue;
@@ -83,7 +85,7 @@ export class AgentInteractionLiveEventsService implements AgentInteractionLiveEv
         wake = null;
       }
     } finally {
-      signal.removeEventListener('abort', stop);
+      signal.removeEventListener("abort", stop);
       unsubscribe();
     }
   }

@@ -1,6 +1,4 @@
-import type {
-  AgentConversationEventPayload,
-} from '../repository/agent-interaction-repository.port';
+import type { AgentConversationEventPayload } from './interaction/agent-interaction.persistence.types';
 import type { AgentConversationEventType } from '@kiditem/shared/agent-interaction';
 import type { VersionedConversationSummary } from '../runtime/agent-durable-runtime.port';
 

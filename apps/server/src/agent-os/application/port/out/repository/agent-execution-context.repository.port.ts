@@ -1,4 +1,4 @@
-import type { AgentConversationEventPayload } from './agent-interaction-repository.port';
+import type { AgentConversationEventPayload } from './interaction/agent-interaction.persistence.types';
 
 export const AGENT_EXECUTION_CONTEXT_REPOSITORY = Symbol(
   'AGENT_EXECUTION_CONTEXT_REPOSITORY',

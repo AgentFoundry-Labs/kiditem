@@ -27,9 +27,13 @@ import {
   type AgentSessionResourceVersionValidatorPort,
 } from '../../port/out/resource/agent-session-resource-version-validator.port';
 import {
-  AGENT_SESSION_CONTROL_REPOSITORY,
-  type AgentSessionControlRepositoryPort,
-} from '../../port/out/repository/agent-session-control.repository.port';
+  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+  type AgentSessionControlQueryRepositoryPort,
+} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
+import {
+  AGENT_APPROVAL_CONTINUATION_TRANSACTION,
+  type AgentApprovalContinuationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-approval-continuation.transaction.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
   assertApprovalDecision,
@@ -72,8 +76,10 @@ interface DecideInput {
 @Injectable()
 export class AgentSessionApprovalService {
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_REPOSITORY)
-    private readonly controls: AgentSessionControlRepositoryPort,
+    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
+    private readonly queries: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_APPROVAL_CONTINUATION_TRANSACTION)
+    private readonly approvals: AgentApprovalContinuationTransactionPort,
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     @Inject(AGENT_SESSION_RESOURCE_VERSION_VALIDATOR)
     private readonly resources: AgentSessionResourceVersionValidatorPort,
@@ -91,7 +97,7 @@ export class AgentSessionApprovalService {
   }> {
     const graph = parseRequestGraph(input);
     const capabilityKey = boundedCapabilityKey(input.capabilityKey);
-    const capabilityAllowed = await this.controls.isExecutionCapabilityAllowed({
+    const capabilityAllowed = await this.queries.isExecutionCapabilityAllowed({
       organizationId: graph.organizationId,
       sessionId: graph.sessionId,
       sessionTaskId: graph.taskId,
@@ -105,7 +111,7 @@ export class AgentSessionApprovalService {
       throw invalid('APPROVAL_EXPIRED');
     }
     const argumentsHash = sha256(input.arguments);
-    const approval = await this.controls.requestApproval({
+    const approval = await this.approvals.requestApproval({
       organizationId: graph.organizationId,
       sessionId: graph.sessionId,
       taskId: graph.taskId,
@@ -168,7 +174,7 @@ export class AgentSessionApprovalService {
   async decide(input: DecideInput): Promise<{ state: string }> {
     const session = parseDecisionSession(input);
     const idempotencyKey = boundedKey(input.idempotencyKey);
-    const approval = await this.controls.loadApproval({
+    const approval = await this.approvals.loadApproval({
       organizationId: session.organization,
       sessionId: session.session,
       approvalId: input.approvalId,
@@ -186,7 +192,7 @@ export class AgentSessionApprovalService {
       throw invalid('APPROVAL_CONTEXT_CHANGED');
     }
     if (!replayingDecision && isApprovalExpired(approval.expiresAt, this.now())) {
-      await this.controls.expireApproval({
+      await this.approvals.expireApproval({
         organizationId: session.organization,
         sessionId: session.session,
         approvalId: approval.id,
@@ -203,7 +209,7 @@ export class AgentSessionApprovalService {
     }
     if (input.decision === 'approved') {
       this.continuations.assertAccepting();
-      const capabilityAllowed = await this.controls.isExecutionCapabilityAllowed({
+      const capabilityAllowed = await this.queries.isExecutionCapabilityAllowed({
         organizationId: session.organization,
         sessionId: session.session,
         sessionTaskId: approval.taskId,
@@ -222,7 +228,7 @@ export class AgentSessionApprovalService {
     if (!replayingDecision) assertApprovalDecision(approval.state, input.decision);
     const decision = replayingDecision
       ? { state: approval.state, changed: false }
-      : await this.controls.decideApproval({
+      : await this.approvals.decideApproval({
           organizationId: session.organization,
           sessionId: session.session,
           approvalId: approval.id,

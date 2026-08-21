@@ -13,9 +13,9 @@ import { CompositeOperationCoordinatorService } from '../../operations/applicati
 import { OperationHandlerRegistryService } from '../../operations/application/service/operation-handler-registry.service';
 import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
 import { OperationRunService } from '../../operations/application/service/operation-run.service';
-import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
-import { AgentSessionDelegationService } from '../application/service/agent-session-delegation.service';
-import { AgentSessionTaskDispatchService } from '../application/service/agent-session-task-dispatch.service';
+import { SessionControlAdapterSet } from '../adapter/out/transaction/session-control/__tests__/session-control-adapter-set';
+import { AgentSessionDelegationService } from '../application/service/session-control/agent-session-delegation.service';
+import { AgentSessionTaskDispatchService } from '../application/service/session-control/agent-session-task-dispatch.service';
 import { AGENT_OS_OPERATIONS } from '../domain/operation/agent-os.operations';
 import type { PrismaClient } from '@prisma/client';
 
@@ -25,12 +25,12 @@ const AUTHORITY_PROFILE_ID = 'foundation_read_only_probe:v1';
 const CAPABILITY = 'sourcing.retrieveWorkspaceEvidence';
 
 let prisma: PrismaClient | null = null;
-let controls: PrismaAgentSessionControlRepository;
+let controls: SessionControlAdapterSet;
 let delegations: AgentSessionDelegationService;
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
-  controls = new PrismaAgentSessionControlRepository(prisma as never);
+  controls = new SessionControlAdapterSet(prisma as never);
   const operationsRepository = new OperationRepositoryAdapter(prisma as never);
   const registry = new OperationHandlerRegistryService();
   registry.register(AGENT_OS_OPERATIONS[0], {} as never);
@@ -47,8 +47,9 @@ beforeAll(async () => {
     lifecycleGate,
   );
   delegations = new AgentSessionDelegationService(
-    controls,
-    new AgentSessionTaskDispatchService(operations, controls),
+    controls as never,
+    controls as never,
+    new AgentSessionTaskDispatchService(operations, controls as never),
   );
   await prisma.$connect();
 });

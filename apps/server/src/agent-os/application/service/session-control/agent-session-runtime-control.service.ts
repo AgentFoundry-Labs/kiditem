@@ -1,9 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from "@nestjs/common";
 import {
   AgentArtifactCardSchema,
   AgentDelegationEventSchema,
   AgentProgressEventSchema,
-} from '@kiditem/shared/agent-interaction';
+} from "@kiditem/shared/agent-interaction";
 import {
   AgentExecutionAttemptIdSchema,
   parseAgentExecutionName,
@@ -12,24 +12,26 @@ import {
   type AgentExecutionName,
   type AgentSessionName,
   type AgentSessionTaskName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 import {
   AGENT_CONVERSATION_LIVE_PUBLISHER,
   type AgentConversationLivePointer,
   type AgentConversationLivePublisherPort,
-} from '../../port/out/event/agent-conversation-live-publisher.port';
+} from "../../port/out/event/agent-conversation-live-publisher.port";
+import type {
+  AgentConversationEventRecord,
+  AppendExecutionEventInput,
+} from "../../port/out/repository/interaction/agent-interaction.persistence.types";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentConversationEventRecord,
-  type AgentInteractionRepositoryPort,
-  type AppendExecutionEventInput,
-} from '../../port/out/repository/agent-interaction-repository.port';
-import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
+  AGENT_CONVERSATION_EVENT_TRANSACTION,
+  type AgentConversationEventTransactionPort,
+} from "../../port/out/transaction/interaction/agent-conversation-event.transaction.port";
+import { AgentOsRuntimeError } from "../../../domain/agent-os.errors";
 import {
   INTERACTION_CLOCK,
   type InteractionClock,
-} from '../agent-interaction.tokens';
-import type { NormalizedRuntimeEvent } from '../../port/out/runtime/agent-durable-runtime.port';
+} from "../agent-interaction.tokens";
+import type { NormalizedRuntimeEvent } from "../../port/out/runtime/agent-durable-runtime.port";
 
 export interface PersistedAgentSessionRuntimeEvent {
   readonly event: AgentConversationEventRecord;
@@ -49,31 +51,38 @@ interface RuntimeEventInput {
 @Injectable()
 export class AgentSessionRuntimeControlService {
   constructor(
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly interactions: AgentInteractionRepositoryPort,
+    @Inject(AGENT_CONVERSATION_EVENT_TRANSACTION)
+    private readonly interactions: AgentConversationEventTransactionPort,
     @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
     private readonly publisher: AgentConversationLivePublisherPort,
     @Inject(INTERACTION_CLOCK)
     private readonly now: InteractionClock,
   ) {}
 
-  async record(input: RuntimeEventInput): Promise<PersistedAgentSessionRuntimeEvent> {
+  async record(
+    input: RuntimeEventInput,
+  ): Promise<PersistedAgentSessionRuntimeEvent> {
     const graph = parseGraph(input);
     const timestamp = this.now();
-    const externalEventId = input.event.kind === 'terminal'
-      ? `${graph.attemptId}:runtime:terminal`
-      : `${graph.attemptId}:runtime:${input.ordinal}:${input.event.kind}`;
-    return this.persistAndPublish(this.persist(eventContent(input.event, {
-      organizationId: graph.organizationId,
-      sessionId: graph.sessionId,
-      executionId: graph.executionId,
-      externalEventId,
-      session: input.session,
-      task: input.task,
-      execution: input.execution,
-      timestamp,
-      attemptId: graph.attemptId,
-    })));
+    const externalEventId =
+      input.event.kind === "terminal"
+        ? `${graph.attemptId}:runtime:terminal`
+        : `${graph.attemptId}:runtime:${input.ordinal}:${input.event.kind}`;
+    return this.persistAndPublish(
+      this.persist(
+        eventContent(input.event, {
+          organizationId: graph.organizationId,
+          sessionId: graph.sessionId,
+          executionId: graph.executionId,
+          externalEventId,
+          session: input.session,
+          task: input.task,
+          execution: input.execution,
+          timestamp,
+          attemptId: graph.attemptId,
+        }),
+      ),
+    );
   }
 
   async persist(
@@ -91,9 +100,7 @@ export class AgentSessionRuntimeControlService {
     };
   }
 
-  async publish(
-    persisted: PersistedAgentSessionRuntimeEvent,
-  ): Promise<void> {
+  async publish(persisted: PersistedAgentSessionRuntimeEvent): Promise<void> {
     await this.publisher.publish(persisted.pointer);
   }
 
@@ -122,7 +129,8 @@ function parseGraph(input: RuntimeEventInput): {
       session.organization !== input.organizationId ||
       !Number.isSafeInteger(input.ordinal) ||
       input.ordinal < 0
-    ) throw new Error('invalid graph');
+    )
+      throw new Error("invalid graph");
     return {
       organizationId: session.organization,
       sessionId: session.session,
@@ -132,8 +140,8 @@ function parseGraph(input: RuntimeEventInput): {
     };
   } catch {
     throw new AgentOsRuntimeError(
-      'AGENT_SESSION_RUNTIME_EVENT_INVALID',
-      'Runtime event correlation must match one canonical session graph.',
+      "AGENT_SESSION_RUNTIME_EVENT_INVALID",
+      "Runtime event correlation must match one canonical session graph.",
     );
   }
 }
@@ -160,67 +168,67 @@ function eventContent(
     externalEventId: input.externalEventId,
   };
   switch (event.kind) {
-    case 'text_start':
+    case "text_start":
       return {
         ...base,
-        eventType: 'assistant_message',
+        eventType: "assistant_message",
         schemaVersion: 1,
         payload: {
-          phase: 'start',
+          phase: "start",
           messageId: `${input.attemptId}:assistant`,
         },
       };
-    case 'text_delta':
+    case "text_delta":
       return {
         ...base,
-        eventType: 'assistant_message',
+        eventType: "assistant_message",
         schemaVersion: 1,
         payload: {
-          phase: 'delta',
+          phase: "delta",
           messageId: `${input.attemptId}:assistant`,
           content: event.content,
         },
       };
-    case 'text_end':
+    case "text_end":
       return {
         ...base,
-        eventType: 'assistant_message',
+        eventType: "assistant_message",
         schemaVersion: 1,
         payload: {
-          phase: 'end',
+          phase: "end",
           messageId: `${input.attemptId}:assistant`,
         },
       };
-    case 'progress':
+    case "progress":
       return {
         ...base,
-        eventType: 'state_snapshot',
+        eventType: "state_snapshot",
         schemaVersion: 1,
         payload: {
-          snapshotType: 'agent_progress',
+          snapshotType: "agent_progress",
           snapshotVersion: 1,
           data: AgentProgressEventSchema.parse({
-            name: 'kiditem.ui.agent_progress.v1',
+            name: "kiditem.ui.agent_progress.v1",
             session: input.session,
             task: input.task,
             execution: input.execution,
-            status: 'running',
+            status: "running",
             progress: event.progress,
             label: event.label,
             updatedAt: timestamp,
           }),
         },
       };
-    case 'artifact':
+    case "artifact":
       return {
         ...base,
-        eventType: 'state_snapshot',
+        eventType: "state_snapshot",
         schemaVersion: 1,
         payload: {
-          snapshotType: 'agent_artifact',
+          snapshotType: "agent_artifact",
           snapshotVersion: 1,
           data: AgentArtifactCardSchema.parse({
-            name: 'kiditem.ui.agent_artifact.v1',
+            name: "kiditem.ui.agent_artifact.v1",
             artifactId: event.artifactId,
             session: input.session,
             task: input.task,
@@ -233,13 +241,13 @@ function eventContent(
           }),
         },
       };
-    case 'delegation':
+    case "delegation":
       return {
         ...base,
-        eventType: 'state_snapshot',
+        eventType: "state_snapshot",
         schemaVersion: 1,
         payload: {
-          snapshotType: 'agent_delegation',
+          snapshotType: "agent_delegation",
           snapshotVersion: 1,
           data: AgentDelegationEventSchema.parse({
             ...event.payload,
@@ -248,22 +256,23 @@ function eventContent(
           }),
         },
       };
-    case 'terminal':
+    case "terminal":
       return {
         ...base,
-        eventType: 'run_terminal',
+        eventType: "run_terminal",
         schemaVersion: 1,
         payload: { status: event.status, errorCode: event.errorCode ?? null },
         terminal: {
           status: event.status,
-          errorCode: event.status === 'completed' ? null : event.errorCode ?? null,
+          errorCode:
+            event.status === "completed" ? null : (event.errorCode ?? null),
           finishedAt: input.timestamp,
         },
       };
-    case 'interrupt':
+    case "interrupt":
       throw new AgentOsRuntimeError(
-        'AGENT_RUNTIME_INTERRUPT_REQUIRES_APPROVAL',
-        'Runtime interrupts must be persisted through the explicit approval boundary.',
+        "AGENT_RUNTIME_INTERRUPT_REQUIRES_APPROVAL",
+        "Runtime interrupts must be persisted through the explicit approval boundary.",
       );
   }
 }

@@ -1,5 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
-import { z } from 'zod';
+import { Inject, Injectable } from "@nestjs/common";
+import { z } from "zod";
 import {
   AguiConnectionAuthorizationSchema,
   AguiRunAuthorizationSchema,
@@ -7,7 +7,7 @@ import {
   type AguiConnectionAuthorization,
   type AguiRunAuthorization,
   type DashboardContext,
-} from '@kiditem/shared/agent-interaction';
+} from "@kiditem/shared/agent-interaction";
 import {
   AgentDefinitionKeySchema,
   AgentExecutionIdSchema,
@@ -29,7 +29,7 @@ import {
   parseAgentSessionName,
   parseOrganizationName,
   parseUserName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 import type {
   AgentInteractionAuthorizationPort,
   AgentInteractionConnectionAuthorization,
@@ -39,21 +39,39 @@ import type {
   AuthorizeRunInput,
   AuthorizedCurrentRun,
   AuthorizedLiveJoin,
-} from '../../port/in/interaction/agent-interaction-authorization.port';
+} from "../../port/in/interaction/agent-interaction-authorization.port";
+import type {
+  ActiveAgentVersionRecord,
+  AgentSessionRecord,
+  AuthorizedExecutionRecord,
+} from "../../port/out/repository/interaction/agent-interaction.persistence.types";
 import {
-  AGENT_INTERACTION_REPOSITORY,
-  type ActiveAgentVersionRecord,
-  type AgentInteractionRepositoryPort,
-  type AgentSessionRecord,
-  type AuthorizedExecutionRecord,
-} from '../../port/out/repository/agent-interaction-repository.port';
-import { AgentOsBoundaryError } from '../../../domain/agent-os.errors';
+  AGENT_SESSION_QUERY_REPOSITORY,
+  type AgentSessionQueryRepositoryPort,
+} from "../../port/out/repository/interaction/agent-session-query.repository.port";
+import {
+  AGENT_CONVERSATION_QUERY_REPOSITORY,
+  type AgentConversationQueryRepositoryPort,
+} from "../../port/out/repository/interaction/agent-conversation-query.repository.port";
+import {
+  AGENT_EXECUTION_QUERY_REPOSITORY,
+  type AgentExecutionQueryRepositoryPort,
+} from "../../port/out/repository/interaction/agent-execution-query.repository.port";
+import {
+  AGENT_RUN_AUTHORIZATION_TRANSACTION,
+  type AgentRunAuthorizationTransactionPort,
+} from "../../port/out/transaction/interaction/agent-run-authorization.transaction.port";
+import {
+  AGENT_VERSION_REPOSITORY,
+  type AgentVersionRepositoryPort,
+} from "../../port/out/repository/agent-version.repository.port";
+import { AgentOsBoundaryError } from "../../../domain/agent-os.errors";
 import {
   INTERACTION_CLOCK,
   INTERACTION_REPLAY_CURSOR_HMAC_KEY,
   INTERACTION_RUN_INTENT_HMAC_KEY,
   type InteractionClock,
-} from '../agent-interaction.tokens';
+} from "../agent-interaction.tokens";
 import {
   LIVE_JOIN_DOMAIN,
   LIVE_JOIN_TTL_MS,
@@ -66,16 +84,16 @@ import {
   UserEventSchema,
   InteractionTokenCodec,
   type RunIntentClaims,
-} from './interaction-token-codec';
+} from "./interaction-token-codec";
 import {
   AUTHORITY_PROFILE_VERSION_ID,
   FOUNDATION_CAPABILITY_KEYS,
   foundationAuthorityProfilePolicyDocument,
   foundationAuthorityProfilePolicyHash,
   foundationPolicyHash,
-} from './interaction-authority-profile';
-import { InteractionAllowedVersionResolver } from './interaction-allowed-version-resolver';
-import { InteractionReplayProjector } from './interaction-replay-projector';
+} from "./interaction-authority-profile";
+import { InteractionAllowedVersionResolver } from "./interaction-allowed-version-resolver";
+import { InteractionReplayProjector } from "./interaction-replay-projector";
 
 const REPLAY_LIMIT = 500;
 
@@ -84,8 +102,16 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
   private readonly replayProjector = new InteractionReplayProjector();
 
   constructor(
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly repository: AgentInteractionRepositoryPort,
+    @Inject(AGENT_SESSION_QUERY_REPOSITORY)
+    private readonly sessions: AgentSessionQueryRepositoryPort,
+    @Inject(AGENT_CONVERSATION_QUERY_REPOSITORY)
+    private readonly conversations: AgentConversationQueryRepositoryPort,
+    @Inject(AGENT_EXECUTION_QUERY_REPOSITORY)
+    private readonly executions: AgentExecutionQueryRepositoryPort,
+    @Inject(AGENT_RUN_AUTHORIZATION_TRANSACTION)
+    private readonly runAuthorization: AgentRunAuthorizationTransactionPort,
+    @Inject(AGENT_VERSION_REPOSITORY)
+    private readonly versionsRepository: AgentVersionRepositoryPort,
     @Inject(INTERACTION_CLOCK) private readonly now: InteractionClock,
     @Inject(INTERACTION_RUN_INTENT_HMAC_KEY)
     private readonly runIntentHmacKey: Buffer,
@@ -100,37 +126,56 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       this.runIntentHmacKey,
       RUN_INTENT_DOMAIN,
       RunIntentClaimsSchema,
-      'INTERACTION_RUN_INTENT_INVALID',
+      "INTERACTION_RUN_INTENT_INVALID",
     );
     if (claims.expiresAtMs <= this.now().getTime()) {
-      throw boundary('INTERACTION_RUN_INTENT_EXPIRED', 'The interaction run intent has expired.');
+      throw boundary(
+        "INTERACTION_RUN_INTENT_EXPIRED",
+        "The interaction run intent has expired.",
+      );
     }
     const dashboardContext = parseInput(
       DashboardContextSchema,
       input.dashboardContext,
-      'INTERACTION_DASHBOARD_CONTEXT_INVALID',
+      "INTERACTION_DASHBOARD_CONTEXT_INVALID",
     );
-    const userEvent = parseInput(UserEventSchema, input.userEvent, 'INTERACTION_USER_EVENT_INVALID');
+    const userEvent = parseInput(
+      UserEventSchema,
+      input.userEvent,
+      "INTERACTION_USER_EVENT_INVALID",
+    );
     const copilotThreadId = parseInput(
       CopilotThreadIdSchema,
       input.copilotThreadId,
-      'INTERACTION_RUN_INTENT_MISMATCH',
+      "INTERACTION_RUN_INTENT_MISMATCH",
     );
-    const aguiRunId = parseInput(AguiRunIdSchema, input.aguiRunId, 'INTERACTION_RUN_INTENT_MISMATCH');
-    this.assertRunIntentRequest(claims, copilotThreadId, aguiRunId, dashboardContext, userEvent);
+    const aguiRunId = parseInput(
+      AguiRunIdSchema,
+      input.aguiRunId,
+      "INTERACTION_RUN_INTENT_MISMATCH",
+    );
+    this.assertRunIntentRequest(
+      claims,
+      copilotThreadId,
+      aguiRunId,
+      dashboardContext,
+      userEvent,
+    );
 
-    const organizationId = parseOrganizationName(claims.organization).organization;
+    const organizationId = parseOrganizationName(
+      claims.organization,
+    ).organization;
     const userId = parseUserName(claims.user).user;
     const version = await this.versions.resolveFromName(claims.agentVersion);
     if (!version) {
       throw boundary(
-        'INTERACTION_RUN_INTENT_STATE_MISMATCH',
-        'The approved agent version is no longer active.',
+        "INTERACTION_RUN_INTENT_STATE_MISMATCH",
+        "The approved agent version is no longer active.",
       );
     }
     this.assertCurrentVersion(claims, version);
 
-    const authorized = await this.repository.authorizeExecution({
+    const authorized = await this.runAuthorization.authorizeExecution({
       organizationId,
       userId,
       copilotThreadId,
@@ -139,7 +184,8 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       runtimeType: version.runtimeType,
       modelIdentity: version.modelIdentity,
       authorityProfileVersionId: AUTHORITY_PROFILE_VERSION_ID,
-      authorityProfilePolicyDocument: foundationAuthorityProfilePolicyDocument(),
+      authorityProfilePolicyDocument:
+        foundationAuthorityProfilePolicyDocument(),
       authorityProfilePolicyHash: foundationAuthorityProfilePolicyHash(),
       capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
       policyHash: claims.policyHash,
@@ -157,7 +203,10 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     });
 
     return parseShared(AguiRunAuthorizationSchema, {
-      session: formatAgentSessionName(organizationId, AgentSessionIdSchema.parse(authorized.session.id)),
+      session: formatAgentSessionName(
+        organizationId,
+        AgentSessionIdSchema.parse(authorized.session.id),
+      ),
       task: formatAgentSessionTaskName(
         organizationId,
         AgentSessionIdSchema.parse(authorized.session.id),
@@ -182,62 +231,90 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     const organizationId = parseInput(
       OrganizationIdSchema,
       input.organizationId,
-      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
     );
-    const userId = parseInput(UserIdSchema, input.userId, 'INTERACTION_CONNECTION_NOT_AUTHORIZED');
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
+    );
     const copilotThreadId = parseInput(
       CopilotThreadIdSchema,
       input.copilotThreadId,
-      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
     );
-    const session = await this.requireAccessibleSession(organizationId, userId, copilotThreadId);
+    const session = await this.requireAccessibleSession(
+      organizationId,
+      userId,
+      copilotThreadId,
+    );
     const version = await this.versions.resolveById(
-      'operator',
+      "operator",
       session.primaryAgentVersionId,
     );
     if (!version) {
       throw boundary(
-        'INTERACTION_CONNECTION_NOT_AUTHORIZED',
-        'The requested Agent OS session has no active agent version.',
+        "INTERACTION_CONNECTION_NOT_AUTHORIZED",
+        "The requested Agent OS session has no active agent version.",
       );
     }
-    const sessionName = formatAgentSessionName(organizationId, AgentSessionIdSchema.parse(session.id));
+    const sessionName = formatAgentSessionName(
+      organizationId,
+      AgentSessionIdSchema.parse(session.id),
+    );
     const afterSequence = input.cursor
-      ? this.verifyReplayCursor(input.cursor, { organizationId, userId, copilotThreadId, session, sessionName })
+      ? this.verifyReplayCursor(input.cursor, {
+          organizationId,
+          userId,
+          copilotThreadId,
+          session,
+          sessionName,
+        })
       : 0n;
-    const page = await this.repository.readConversationEvents({
+    const page = await this.conversations.readConversationEvents({
       organizationId,
       userId,
       sessionId: session.id,
       afterSequence,
       limit: REPLAY_LIMIT,
     });
-    const nextCursor = page.hasMore ? this.createReplayCursor({
-      organizationId,
-      userId,
-      copilotThreadId,
-      sessionName,
-      afterSequence: page.lastSequence,
-    }) : null;
-    const liveJoinExpiresAt = page.hasMore ? null : new Date(this.now().getTime() + LIVE_JOIN_TTL_MS);
+    const nextCursor = page.hasMore
+      ? this.createReplayCursor({
+          organizationId,
+          userId,
+          copilotThreadId,
+          sessionName,
+          afterSequence: page.lastSequence,
+        })
+      : null;
+    const liveJoinExpiresAt = page.hasMore
+      ? null
+      : new Date(this.now().getTime() + LIVE_JOIN_TTL_MS);
     const liveJoinToken = liveJoinExpiresAt
       ? this.createLiveJoinToken({
-        organizationId,
-        userId,
-        sessionName,
-        copilotThreadId,
-        contextEpoch: session.contextEpoch,
-        afterSequence: page.lastSequence,
-        expiresAtMs: liveJoinExpiresAt.getTime(),
-      })
+          organizationId,
+          userId,
+          sessionName,
+          copilotThreadId,
+          contextEpoch: session.contextEpoch,
+          afterSequence: page.lastSequence,
+          expiresAtMs: liveJoinExpiresAt.getTime(),
+        })
       : null;
-    const replay = this.replayProjector.project(organizationId, session, page, nextCursor);
+    const replay = this.replayProjector.project(
+      organizationId,
+      session,
+      page,
+      nextCursor,
+    );
     const authorization = parseShared(AguiConnectionAuthorizationSchema, {
       session: sessionName,
       contextEpoch: session.contextEpoch,
       replay: {
         nextCursor,
-        lastSequence: NonNegativeDecimalSequenceSchema.parse(page.lastSequence.toString()),
+        lastSequence: NonNegativeDecimalSequenceSchema.parse(
+          page.lastSequence.toString(),
+        ),
       },
     });
     return {
@@ -248,25 +325,35 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     };
   }
 
-  async authorizeCurrentRun(input: AuthorizeCurrentRunInput): Promise<AuthorizedCurrentRun | null> {
+  async authorizeCurrentRun(
+    input: AuthorizeCurrentRunInput,
+  ): Promise<AuthorizedCurrentRun | null> {
     const organizationId = parseInput(
       OrganizationIdSchema,
       input.organizationId,
-      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
     );
-    const userId = parseInput(UserIdSchema, input.userId, 'INTERACTION_CONNECTION_NOT_AUTHORIZED');
+    const userId = parseInput(
+      UserIdSchema,
+      input.userId,
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
+    );
     const agentDefinitionKey = parseInput(
       AgentDefinitionKeySchema,
       input.agentDefinitionKey,
-      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
     );
     const copilotThreadId = parseInput(
       CopilotThreadIdSchema,
       input.copilotThreadId,
-      'INTERACTION_CONNECTION_NOT_AUTHORIZED',
+      "INTERACTION_CONNECTION_NOT_AUTHORIZED",
     );
-    const session = await this.requireAccessibleSession(organizationId, userId, copilotThreadId);
-    const execution = await this.repository.findAccessibleCurrentExecution({
+    const session = await this.requireAccessibleSession(
+      organizationId,
+      userId,
+      copilotThreadId,
+    );
+    const execution = await this.executions.findAccessibleCurrentExecution({
       organizationId,
       userId,
       sessionId: session.id,
@@ -274,7 +361,7 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     });
     if (
       !execution ||
-      execution.status !== 'running' ||
+      execution.status !== "running" ||
       execution.organizationId !== organizationId ||
       execution.sessionId !== session.id ||
       execution.copilotThreadId !== copilotThreadId ||
@@ -283,7 +370,10 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       return null;
     }
     return {
-      session: formatAgentSessionName(organizationId, AgentSessionIdSchema.parse(session.id)),
+      session: formatAgentSessionName(
+        organizationId,
+        AgentSessionIdSchema.parse(session.id),
+      ),
       execution: formatAgentExecutionName(
         organizationId,
         AgentSessionIdSchema.parse(session.id),
@@ -293,51 +383,74 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     };
   }
 
-  async authorizeLiveJoin(input: AuthorizeLiveJoinInput): Promise<AuthorizedLiveJoin> {
+  async authorizeLiveJoin(
+    input: AuthorizeLiveJoinInput,
+  ): Promise<AuthorizedLiveJoin> {
     const claims = InteractionTokenCodec.verify(
       input.liveJoinToken,
       this.replayCursorHmacKey,
       LIVE_JOIN_DOMAIN,
       LiveJoinClaimsSchema,
-      'INTERACTION_LIVE_JOIN_INVALID',
+      "INTERACTION_LIVE_JOIN_INVALID",
     );
     if (claims.expiresAtMs <= this.now().getTime()) {
-      throw boundary('INTERACTION_LIVE_JOIN_EXPIRED', 'The live join authorization has expired.');
+      throw boundary(
+        "INTERACTION_LIVE_JOIN_EXPIRED",
+        "The live join authorization has expired.",
+      );
     }
     const copilotThreadId = parseInput(
       CopilotThreadIdSchema,
       input.copilotThreadId,
-      'INTERACTION_LIVE_JOIN_MISMATCH',
+      "INTERACTION_LIVE_JOIN_MISMATCH",
     );
-    if (claims.copilotThreadId !== copilotThreadId || claims.afterSequence !== input.afterSequence.toString()) {
+    if (
+      claims.copilotThreadId !== copilotThreadId ||
+      claims.afterSequence !== input.afterSequence.toString()
+    ) {
       throw boundary(
-        'INTERACTION_LIVE_JOIN_MISMATCH',
-        'The live join authorization does not match the requested cursor.',
+        "INTERACTION_LIVE_JOIN_MISMATCH",
+        "The live join authorization does not match the requested cursor.",
       );
     }
-    const organizationId = parseOrganizationName(claims.organization).organization;
+    const organizationId = parseOrganizationName(
+      claims.organization,
+    ).organization;
     const userId = parseUserName(claims.user).user;
-    const parsedSession = parseAgentSessionName(claims.session, claims.organization);
-    const session = await this.repository.findAccessibleSession({ organizationId, userId, copilotThreadId });
+    const parsedSession = parseAgentSessionName(
+      claims.session,
+      claims.organization,
+    );
+    const session = await this.sessions.findAccessibleSession({
+      organizationId,
+      userId,
+      copilotThreadId,
+    });
     if (
       !session ||
       session.id !== parsedSession.session ||
-      session.lifecycle !== 'active' ||
+      session.lifecycle !== "active" ||
       session.contextEpoch !== claims.contextEpoch
     ) {
-      throw boundary('INTERACTION_LIVE_JOIN_MISMATCH', 'The live join session is no longer current.');
+      throw boundary(
+        "INTERACTION_LIVE_JOIN_MISMATCH",
+        "The live join session is no longer current.",
+      );
     }
     const definition = parseInput(
       AgentDefinitionKeySchema,
       input.agentDefinitionKey,
-      'INTERACTION_LIVE_JOIN_MISMATCH',
+      "INTERACTION_LIVE_JOIN_MISMATCH",
     );
     const version = await this.versions.resolveById(
       definition,
       session.primaryAgentVersionId,
     );
     if (!version) {
-      throw boundary('INTERACTION_LIVE_JOIN_MISMATCH', 'The live join agent version is not active.');
+      throw boundary(
+        "INTERACTION_LIVE_JOIN_MISMATCH",
+        "The live join agent version is not active.",
+      );
     }
     return {
       organizationId,
@@ -349,10 +462,10 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     };
   }
 
-  async health(): Promise<{ status: 'ok' }> {
+  async health(): Promise<{ status: "ok" }> {
     await this.versions.resolveAll();
-    await this.repository.probeHealth();
-    return { status: 'ok' };
+    await this.versionsRepository.probeHealth();
+    return { status: "ok" };
   }
 
   private async requireAccessibleSession(
@@ -360,17 +473,21 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     userId: z.infer<typeof UserIdSchema>,
     copilotThreadId: z.infer<typeof CopilotThreadIdSchema>,
   ): Promise<AgentSessionRecord> {
-    const session = await this.repository.findAccessibleSession({ organizationId, userId, copilotThreadId });
+    const session = await this.sessions.findAccessibleSession({
+      organizationId,
+      userId,
+      copilotThreadId,
+    });
     if (
       !session ||
-      session.lifecycle !== 'active' ||
+      session.lifecycle !== "active" ||
       session.organizationId !== organizationId ||
       session.createdByUserId !== userId ||
       session.copilotThreadId !== copilotThreadId
     ) {
       throw boundary(
-        'INTERACTION_CONNECTION_NOT_AUTHORIZED',
-        'The requested Agent OS session is not active and accessible.',
+        "INTERACTION_CONNECTION_NOT_AUTHORIZED",
+        "The requested Agent OS session is not active and accessible.",
       );
     }
     return session;
@@ -386,18 +503,26 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     if (
       claims.copilotThreadId !== copilotThreadId ||
       claims.aguiRunId !== aguiRunId ||
-      claims.dashboardContextHash !== InteractionTokenCodec.hash(dashboardContext) ||
-      claims.inputHash !== InteractionTokenCodec.hash({ dashboardContext, userEvent })
+      claims.dashboardContextHash !==
+        InteractionTokenCodec.hash(dashboardContext) ||
+      claims.inputHash !==
+        InteractionTokenCodec.hash({ dashboardContext, userEvent })
     ) {
-      throw boundary('INTERACTION_RUN_INTENT_MISMATCH', 'The request does not match its signed run intent.');
+      throw boundary(
+        "INTERACTION_RUN_INTENT_MISMATCH",
+        "The request does not match its signed run intent.",
+      );
     }
   }
 
-  private assertCurrentVersion(claims: RunIntentClaims, current: ActiveAgentVersionRecord): void {
+  private assertCurrentVersion(
+    claims: RunIntentClaims,
+    current: ActiveAgentVersionRecord,
+  ): void {
     if (claims.policyHash !== foundationPolicyHash(current)) {
       throw boundary(
-        'INTERACTION_RUN_INTENT_STATE_MISMATCH',
-        'The agent version or policy changed after intent preparation.',
+        "INTERACTION_RUN_INTENT_STATE_MISMATCH",
+        "The agent version or policy changed after intent preparation.",
       );
     }
   }
@@ -417,7 +542,8 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       record.session.createdByUserId !== expected.userId ||
       record.session.copilotThreadId !== expected.copilotThreadId ||
       record.session.primaryAgentVersionId !== expected.version.id ||
-      record.session.authorityProfileVersionId !== AUTHORITY_PROFILE_VERSION_ID ||
+      record.session.authorityProfileVersionId !==
+        AUTHORITY_PROFILE_VERSION_ID ||
       record.rootTask.sessionId !== record.session.id ||
       record.execution.sessionId !== record.session.id ||
       record.execution.sessionTaskId !== record.rootTask.id ||
@@ -432,8 +558,8 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       record.policy.authorityProfileVersionId !== AUTHORITY_PROFILE_VERSION_ID
     ) {
       throw boundary(
-        'INTERACTION_AUTHORIZATION_STATE_INVALID',
-        'The authorization repository returned an inconsistent control graph.',
+        "INTERACTION_AUTHORIZATION_STATE_INVALID",
+        "The authorization repository returned an inconsistent control graph.",
       );
     }
   }
@@ -453,12 +579,17 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       this.replayCursorHmacKey,
       REPLAY_CURSOR_DOMAIN,
       ReplayCursorClaimsSchema,
-      'INTERACTION_REPLAY_CURSOR_INVALID',
+      "INTERACTION_REPLAY_CURSOR_INVALID",
     );
     if (claims.expiresAtMs <= this.now().getTime()) {
-      throw boundary('INTERACTION_REPLAY_CURSOR_EXPIRED', 'The replay cursor has expired.');
+      throw boundary(
+        "INTERACTION_REPLAY_CURSOR_EXPIRED",
+        "The replay cursor has expired.",
+      );
     }
-    const organization = parseOrganizationName(claims.organization).organization;
+    const organization = parseOrganizationName(
+      claims.organization,
+    ).organization;
     const user = parseUserName(claims.user).user;
     const session = parseAgentSessionName(claims.session, claims.organization);
     if (
@@ -469,14 +600,17 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
       claims.copilotThreadId !== input.copilotThreadId
     ) {
       throw boundary(
-        'INTERACTION_REPLAY_CURSOR_MISMATCH',
-        'The replay cursor does not belong to the requested session.',
+        "INTERACTION_REPLAY_CURSOR_MISMATCH",
+        "The replay cursor does not belong to the requested session.",
       );
     }
     try {
       return BigInt(claims.afterSequence);
     } catch {
-      throw boundary('INTERACTION_REPLAY_CURSOR_INVALID', 'The replay cursor is invalid.');
+      throw boundary(
+        "INTERACTION_REPLAY_CURSOR_INVALID",
+        "The replay cursor is invalid.",
+      );
     }
   }
 
@@ -487,15 +621,23 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     sessionName: string;
     afterSequence: bigint;
   }): string {
-    return OpaqueReplayCursorSchema.parse(InteractionTokenCodec.sign({
-      version: 1 as const,
-      organization: formatOrganizationName(input.organizationId),
-      user: formatUserName(input.userId),
-      session: input.sessionName,
-      copilotThreadId: input.copilotThreadId,
-      afterSequence: NonNegativeDecimalSequenceSchema.parse(input.afterSequence.toString()),
-      expiresAtMs: this.now().getTime() + REPLAY_CURSOR_TTL_MS,
-    }, this.replayCursorHmacKey, REPLAY_CURSOR_DOMAIN));
+    return OpaqueReplayCursorSchema.parse(
+      InteractionTokenCodec.sign(
+        {
+          version: 1 as const,
+          organization: formatOrganizationName(input.organizationId),
+          user: formatUserName(input.userId),
+          session: input.sessionName,
+          copilotThreadId: input.copilotThreadId,
+          afterSequence: NonNegativeDecimalSequenceSchema.parse(
+            input.afterSequence.toString(),
+          ),
+          expiresAtMs: this.now().getTime() + REPLAY_CURSOR_TTL_MS,
+        },
+        this.replayCursorHmacKey,
+        REPLAY_CURSOR_DOMAIN,
+      ),
+    );
   }
 
   private createLiveJoinToken(input: {
@@ -507,24 +649,39 @@ export class AgentInteractionAuthorizationService implements AgentInteractionAut
     afterSequence: bigint;
     expiresAtMs: number;
   }): string {
-    return OpaqueShortLivedTokenSchema.parse(InteractionTokenCodec.sign({
-      version: 1 as const,
-      organization: formatOrganizationName(input.organizationId),
-      user: formatUserName(input.userId),
-      session: input.sessionName,
-      copilotThreadId: input.copilotThreadId,
-      contextEpoch: input.contextEpoch,
-      afterSequence: NonNegativeDecimalSequenceSchema.parse(input.afterSequence.toString()),
-      expiresAtMs: input.expiresAtMs,
-    }, this.replayCursorHmacKey, LIVE_JOIN_DOMAIN));
+    return OpaqueShortLivedTokenSchema.parse(
+      InteractionTokenCodec.sign(
+        {
+          version: 1 as const,
+          organization: formatOrganizationName(input.organizationId),
+          user: formatUserName(input.userId),
+          session: input.sessionName,
+          copilotThreadId: input.copilotThreadId,
+          contextEpoch: input.contextEpoch,
+          afterSequence: NonNegativeDecimalSequenceSchema.parse(
+            input.afterSequence.toString(),
+          ),
+          expiresAtMs: input.expiresAtMs,
+        },
+        this.replayCursorHmacKey,
+        LIVE_JOIN_DOMAIN,
+      ),
+    );
   }
 }
 
-function parseInput<T extends z.ZodTypeAny>(schema: T, value: unknown, code: string): z.infer<T> {
+function parseInput<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+  code: string,
+): z.infer<T> {
   return InteractionTokenCodec.parse(schema, value, code);
 }
 
-function parseShared<T extends z.ZodTypeAny>(schema: T, value: unknown): z.infer<T> {
+function parseShared<T extends z.ZodTypeAny>(
+  schema: T,
+  value: unknown,
+): z.infer<T> {
   return InteractionTokenCodec.response(schema, value);
 }
 
