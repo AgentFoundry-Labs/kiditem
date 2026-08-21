@@ -80,7 +80,10 @@ import { AgentOsModule } from './agent-os.module';
     AgentAguiProducerCoordinator,
     AgentAguiRuntimeRegistry,
     OpenAiResponsesAguiRuntimeAdapter,
-    AgentInteractionPresentationService,
+    {
+      provide: AgentInteractionPresentationService,
+      useFactory: () => new AgentInteractionPresentationService(),
+    },
     AgentSessionRuntimeControlService,
     AgentSessionOperationContinuationService,
     AgentSessionApprovalService,

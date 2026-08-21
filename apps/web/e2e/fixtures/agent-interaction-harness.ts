@@ -11,35 +11,56 @@ import { z } from 'zod';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import type { Page } from 'playwright/test';
-import { AgentAguiController } from '../../../server/dist/agent-os/adapter/in/http/agent-agui.controller.js';
-import { AgentInteractionBootstrapController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-bootstrap.controller.js';
-import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-control.controller.js';
-import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/agent-interaction-actions.controller.js';
-import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/agent-session.controller.js';
-import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction-gateway.guard.js';
+import { AgentAguiController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-agui.controller.js';
+import { AgentInteractionBootstrapController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-bootstrap.controller.js';
+import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-control.controller.js';
+import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-actions.controller.js';
+import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session.controller.js';
+import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction/interaction-gateway.guard.js';
 import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
-import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/agent-capability-invocation.port.js';
+import { AGENT_INTERACTION_AUTHORIZATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-authorization.port.js';
+import { AGENT_INTERACTION_BOOTSTRAP_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-bootstrap.port.js';
+import { AGENT_AGUI_PRODUCER_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-agui-producer.port.js';
+import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-live-events.port.js';
+import { AGENT_INTERACTION_PRESENTATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-presentation.port.js';
+import { AGENT_SESSION_APPROVAL_DECISION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-approval-decision.port.js';
+import { AGENT_SESSION_TASK_CONTROL_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-task-control.port.js';
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/session-capability/agent-capability-invocation.port.js';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os/application/port/out/event/agent-conversation-live-publisher.port.js';
-import { AGENT_INTERACTION_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-interaction-repository.port.js';
-import { AGENT_SESSION_CONTROL_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-session-control.repository.port.js';
+import { AGENT_SESSION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-session-query.repository.port.js';
+import { AGENT_CONVERSATION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-conversation-query.repository.port.js';
+import { AGENT_EXECUTION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-execution-query.repository.port.js';
+import { AGENT_RUN_AUTHORIZATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-run-authorization.transaction.port.js';
+import { AGENT_CONVERSATION_EVENT_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-conversation-event.transaction.port.js';
+import { AGENT_EXECUTION_USAGE_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-execution-usage.transaction.port.js';
+import { AGENT_VERSION_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-version.repository.port.js';
+import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/session-control/agent-session-control-query.repository.port.js';
+import { AGENT_DELEGATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-delegation.transaction.port.js';
+import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-attempt-operation.transaction.port.js';
+import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-approval-continuation.transaction.port.js';
+import { AGENT_SESSION_TRANSITION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-session-transition.transaction.port.js';
 import { AgentCapabilityRegistry } from '../../../server/dist/agent-os/application/service/agent-capability-registry.service.js';
 import { AgentAguiRunService } from '../../../server/dist/agent-os/application/service/agent-agui-run.service.js';
 import { AgentAguiProducerCoordinator } from '../../../server/dist/agent-os/application/service/agent-agui-producer-coordinator.service.js';
 import { AgentAguiRuntimeRegistry } from '../../../server/dist/agent-os/application/service/agent-agui-runtime-registry.service.js';
 import {
-  AgentInteractionIdentityService,
   AUTHORITY_PROFILE_VERSION_ID,
   FOUNDATION_CAPABILITY_KEYS,
-} from '../../../server/dist/agent-os/application/service/agent-interaction-identity.service.js';
+} from '../../../server/dist/agent-os/application/service/interaction/interaction-authority-profile.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
+import { AgentInteractionAuthorizationService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-authorization.service.js';
+import { AgentInteractionBootstrapService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-bootstrap.service.js';
+import { AgentInteractionLiveEventsService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-live-events.service.js';
+import { InteractionAllowedVersionResolver } from '../../../server/dist/agent-os/application/service/interaction/interaction-allowed-version-resolver.js';
 import { AgentSessionCapabilityInvocationService } from '../../../server/dist/agent-os/application/service/agent-session-capability-invocation.service.js';
-import { AgentSessionApprovalService } from '../../../server/dist/agent-os/application/service/agent-session-approval.service.js';
-import { AgentSessionOperationContinuationService } from '../../../server/dist/agent-os/application/service/agent-session-operation-continuation.service.js';
-import { AgentSessionCancellationService } from '../../../server/dist/agent-os/application/service/agent-session-cancellation.service.js';
-import { AgentSessionDelegationService } from '../../../server/dist/agent-os/application/service/agent-session-delegation.service.js';
-import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/agent-session-execution.service.js';
-import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os/application/service/agent-session-runtime-control.service.js';
-import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/agent-session-task-dispatch.service.js';
+import { AgentSessionApprovalService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-approval.service.js';
+import { AgentSessionOperationContinuationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-operation-continuation.service.js';
+import { AgentSessionCancellationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-cancellation.service.js';
+import { AgentSessionDelegationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-delegation.service.js';
+import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-execution.service.js';
+import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-runtime-control.service.js';
+import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-dispatch.service.js';
+import { AgentSessionTaskControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-control.service.js';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -48,8 +69,14 @@ import {
   INTERACTION_RUN_INTENT_HMAC_KEY,
 } from '../../../server/dist/agent-os/application/service/agent-interaction.tokens.js';
 import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
-import { PrismaAgentInteractionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-interaction.repository.js';
-import { PrismaAgentSessionControlRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-session-control.repository.js';
+import { PrismaAgentSessionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-session-query.repository.js';
+import { PrismaAgentConversationQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-conversation-query.repository.js';
+import { PrismaAgentExecutionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-execution-query.repository.js';
+import { PrismaAgentVersionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-version.repository.js';
+import { PrismaAgentRunAuthorizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction.js';
+import { PrismaAgentConversationEventTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction.js';
+import { PrismaAgentExecutionUsageTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction.js';
+import { SessionControlAdapterSet } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/__tests__/session-control-adapter-set.js';
 import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
 import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
 import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
@@ -73,6 +100,9 @@ import type {
   AgentAguiRuntimeInput,
   AgentAguiRuntimeStopInput,
 } from '../../../server/src/agent-os/application/port/out/runtime/agent-agui-runtime.port';
+import type { AgentApprovalContinuationTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-approval-continuation.transaction.port';
+import type { AgentAttemptOperationTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-attempt-operation.transaction.port';
+import type { AgentSessionTransitionTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-session-transition.transaction.port';
 import { stopTrackedChild } from './tracked-child';
 
 const repoRoot = path.resolve(__dirname, '../../../..');
@@ -105,6 +135,11 @@ interface ActiveStopGraph {
   readonly aguiRunId: string;
 }
 
+type AcceptanceSessionControls =
+  AgentApprovalContinuationTransactionPort &
+  AgentAttemptOperationTransactionPort &
+  AgentSessionTransitionTransactionPort;
+
 class AcceptanceDurableControlPlane {
   private graph: DurableControlGraph | null = null;
   private beginStarted = false;
@@ -136,7 +171,7 @@ class AcceptanceDurableControlPlane {
   });
 
   constructor(
-    private readonly controls: PrismaAgentSessionControlRepository,
+    private readonly controls: AcceptanceSessionControls,
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     private readonly delegations: AgentSessionDelegationService,
     private readonly approvals: AgentSessionApprovalService,
@@ -971,8 +1006,15 @@ async function startNest(
   prisma: PrismaClient,
   analyticsEvents: unknown[],
 ): Promise<{ app: INestApplication; durableControls: AcceptanceDurableControlPlane }> {
-  const repository = new PrismaAgentInteractionRepository(prisma as never);
-  const controls = new PrismaAgentSessionControlRepository(prisma as never);
+  const sessions = new PrismaAgentSessionQueryRepository(prisma as never);
+  const conversations = new PrismaAgentConversationQueryRepository(prisma as never);
+  const executionsQuery = new PrismaAgentExecutionQueryRepository(prisma as never);
+  const authorization = new PrismaAgentRunAuthorizationTransaction(prisma as never);
+  const events = new PrismaAgentConversationEventTransaction(prisma as never);
+  const usage = new PrismaAgentExecutionUsageTransaction(prisma as never);
+  const controls = new SessionControlAdapterSet(prisma as never);
+  const versions = new PrismaAgentVersionRepository(prisma as never);
+  const allowedVersions = new InteractionAllowedVersionResolver(versions);
   const publisher = new InProcessAgentConversationLivePublisher();
   const presentation = new AgentInteractionPresentationService();
   const operationRepository = new OperationRepositoryAdapter(prisma as never);
@@ -994,9 +1036,9 @@ async function startNest(
     operationCoordinator,
     operationLifecycle,
   );
-  const dispatch = new AgentSessionTaskDispatchService(operations, controls);
+  const dispatch = new AgentSessionTaskDispatchService(operations, controls as never);
   const runtimeControl = new AgentSessionRuntimeControlService(
-    repository,
+    events,
     publisher,
     () => new Date(),
   );
@@ -1013,23 +1055,50 @@ async function startNest(
     cancel: async () => undefined,
   };
   const continuations = new AgentSessionOperationContinuationService(
-    controls,
+    controls as never,
+    controls as never,
+    controls as never,
     operationLifecycle,
     { requireCompatible: () => approvalRuntime } as never,
   );
   const approvals = new AgentSessionApprovalService(
-    controls,
+    controls as never,
+    controls as never,
     runtimeControl,
     { areCurrent: async () => true } as never,
     operations,
     continuations,
     () => new Date(),
   );
-  const cancellations = new AgentSessionCancellationService(controls, operations);
-  const executions = new AgentSessionExecutionService(controls, dispatch);
-  const delegations = new AgentSessionDelegationService(controls, dispatch);
+  const cancellations = new AgentSessionCancellationService(controls as never, operations);
+  const executions = new AgentSessionExecutionService(controls as never, controls as never, dispatch);
+  const delegations = new AgentSessionDelegationService(controls as never, controls as never, dispatch);
+  const taskControls = new AgentSessionTaskControlService(executions, cancellations);
+  const bootstrap = new AgentInteractionBootstrapService(
+    sessions,
+    () => new Date(),
+    HMAC,
+    HMAC,
+    allowedVersions,
+  );
+  const interactionAuthorization = new AgentInteractionAuthorizationService(
+    sessions,
+    conversations,
+    executionsQuery,
+    authorization,
+    versions,
+    () => new Date(),
+    HMAC,
+    HMAC,
+    allowedVersions,
+  );
+  const liveEvents = new AgentInteractionLiveEventsService(
+    interactionAuthorization,
+    conversations,
+    publisher,
+  );
   const createdDurableControls = new AcceptanceDurableControlPlane(
-    controls,
+    controls as never,
     runtimeControl,
     delegations,
     approvals,
@@ -1066,8 +1135,25 @@ async function startNest(
       AgentSessionController,
     ],
     providers: [
-      { provide: AGENT_INTERACTION_REPOSITORY, useValue: repository },
-      { provide: AGENT_SESSION_CONTROL_REPOSITORY, useValue: controls },
+      { provide: AGENT_SESSION_QUERY_REPOSITORY, useValue: sessions },
+      { provide: AGENT_CONVERSATION_QUERY_REPOSITORY, useValue: conversations },
+      { provide: AGENT_EXECUTION_QUERY_REPOSITORY, useValue: executionsQuery },
+      { provide: AGENT_RUN_AUTHORIZATION_TRANSACTION, useValue: authorization },
+      { provide: AGENT_CONVERSATION_EVENT_TRANSACTION, useValue: events },
+      { provide: AGENT_EXECUTION_USAGE_TRANSACTION, useValue: usage },
+      { provide: AGENT_VERSION_REPOSITORY, useValue: versions },
+      { provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY, useValue: controls },
+      { provide: AGENT_DELEGATION_TRANSACTION, useValue: controls },
+      { provide: AGENT_ATTEMPT_OPERATION_TRANSACTION, useValue: controls },
+      { provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION, useValue: controls },
+      { provide: AGENT_SESSION_TRANSITION_TRANSACTION, useValue: controls },
+      { provide: AGENT_INTERACTION_BOOTSTRAP_PORT, useValue: bootstrap },
+      { provide: AGENT_INTERACTION_AUTHORIZATION_PORT, useValue: interactionAuthorization },
+      { provide: AGENT_INTERACTION_LIVE_EVENTS_PORT, useValue: liveEvents },
+      { provide: AGENT_INTERACTION_PRESENTATION_PORT, useValue: presentation },
+      { provide: AGENT_AGUI_PRODUCER_PORT, useExisting: AgentAguiProducerCoordinator },
+      { provide: AGENT_SESSION_TASK_CONTROL_PORT, useValue: taskControls },
+      { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useValue: approvals },
       { provide: AGENT_CONVERSATION_LIVE_PUBLISHER, useValue: publisher },
       { provide: INTERACTION_CLOCK, useValue: () => new Date() },
       { provide: INTERACTION_GATEWAY_SHARED_SECRET, useValue: Buffer.from(SERVICE_SECRET) },
@@ -1090,7 +1176,6 @@ async function startNest(
         provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
         useExisting: AgentSessionCapabilityInvocationService,
       },
-      AgentInteractionIdentityService,
       { provide: AgentSessionApprovalService, useValue: approvals },
       { provide: AgentSessionCancellationService, useValue: cancellations },
       { provide: AgentSessionExecutionService, useValue: executions },

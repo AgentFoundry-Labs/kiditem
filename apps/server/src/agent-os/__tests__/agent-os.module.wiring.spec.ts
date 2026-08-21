@@ -1,10 +1,13 @@
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
+import { Test } from "@nestjs/testing";
+import { EventEmitterModule } from "@nestjs/event-emitter";
 import { MODULE_METADATA } from "@nestjs/common/constants";
 import { DashboardCapabilityModule } from "../../analytics/dashboard/dashboard-capability.module";
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from "../../analytics/dashboard/application/port/in/analytics-overview-capability.port";
 import { OperationAlertRuntimeModule } from "../../automation/operation-alert-runtime.module";
 import { OperationsModule } from "../../operations/operations.module";
+import { OperationServerLifecycleService } from "../../operations/application/service/operation-server-lifecycle.service";
 import { PrismaModule } from "../../prisma/prisma.module";
 import { ReadinessStateModule } from "../../readiness/readiness-state.module";
 import { AgentOsPlatformProbeCapabilityAdapter } from "../adapter/in/agent/agent-os-platform-probe-capability.adapter";
@@ -144,6 +147,26 @@ const HTTP_CONTROLLERS = [
 ];
 
 describe("Agent OS process-root wiring", () => {
+  it("resolves the HTTP bootstrap controller through its declared input port", async () => {
+    process.env.INTERACTION_GATEWAY_SHARED_SECRET = "a".repeat(32);
+    process.env.INTERACTION_ANALYTICS_HMAC_KEY = "b".repeat(32);
+    process.env.INTERACTION_PRINCIPAL_HMAC_KEY = "c".repeat(32);
+    process.env.INTERACTION_RUN_INTENT_HMAC_KEY = "d".repeat(32);
+    process.env.INTERACTION_REPLAY_CURSOR_HMAC_KEY = "e".repeat(32);
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [EventEmitterModule.forRoot(), AgentOsHttpModule],
+    })
+      .overrideProvider(OperationServerLifecycleService)
+      .useValue({})
+      .compile();
+
+    expect(moduleRef.get(AgentInteractionBootstrapController)).toBeDefined();
+    expect(moduleRef.get(AGENT_INTERACTION_BOOTSTRAP_PORT)).toBeDefined();
+    await moduleRef.close();
+  });
+
   it("composes the controller-free facade from focused modules", () => {
     expect(Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? []).toEqual([
       AgentOsCatalogModule,
@@ -209,7 +232,10 @@ describe("Agent OS process-root wiring", () => {
     ]) {
       expect(providers).toContain(provider);
     }
-    expect(providers).toContain(AgentInteractionPresentationService);
+    expect(providers).toContainEqual({
+      provide: AgentInteractionPresentationService,
+      useFactory: expect.any(Function),
+    });
     expect(providers).toContainEqual({
       provide: AGENT_AGUI_RUNNER_PORT,
       useExisting: AgentAguiRunService,
@@ -398,7 +424,6 @@ describe("Agent OS process-root wiring", () => {
       AGENT_SESSION_TRANSITION_TRANSACTION,
       AGENT_CONVERSATION_LIVE_PUBLISHER,
       AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
-      AgentCapabilityRegistry,
       AgentRuntimeAdapterRegistry,
       OpenAiResponsesOperatorRuntimeAdapter,
       OperatorContextBuilder,

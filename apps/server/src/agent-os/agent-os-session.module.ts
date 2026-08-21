@@ -6,7 +6,6 @@ import { AgentOsCapabilityModule } from './agent-os-capability.module';
 import { AgentOsCatalogModule } from './agent-os-catalog.module';
 import { AgentOsPlatformProbeCapabilityAdapter } from "./adapter/in/agent/agent-os-platform-probe-capability.adapter";
 import { AnalyticsOverviewAgentCapabilityAdapter } from "./adapter/in/agent/analytics-overview-agent-capability.adapter";
-import { AgentOsRepositoryAdapter } from "./adapter/out/repository/agent-os.repository.adapter";
 import { PrismaAgentSessionQueryRepository } from "./adapter/out/repository/interaction/prisma-agent-session-query.repository";
 import { PrismaAgentConversationQueryRepository } from "./adapter/out/repository/interaction/prisma-agent-conversation-query.repository";
 import { PrismaAgentExecutionQueryRepository } from "./adapter/out/repository/interaction/prisma-agent-execution-query.repository";
@@ -38,7 +37,6 @@ import { FilesystemAgentDurableRuntimeAssetsAdapter } from "./adapter/out/runtim
 import { OpenAiConversationSummarizerAdapter } from "./adapter/out/runtime/openai-conversation-summarizer.adapter";
 import { AGENT_LOG_STORE_PORT } from "./application/port/out/storage/agent-log-store.port";
 import { AGENT_OS_LIVE_READINESS_PORT } from "./application/port/out/cross-domain/agent-os-live-readiness.port";
-import { AGENT_OS_REPOSITORY_PORT } from "./application/port/out/repository/agent-os-repository.port";
 import { AGENT_SESSION_QUERY_REPOSITORY } from "./application/port/out/repository/interaction/agent-session-query.repository.port";
 import { AGENT_CONVERSATION_QUERY_REPOSITORY } from "./application/port/out/repository/interaction/agent-conversation-query.repository.port";
 import { AGENT_EXECUTION_QUERY_REPOSITORY } from "./application/port/out/repository/interaction/agent-execution-query.repository.port";
@@ -66,9 +64,6 @@ import {
   AGENT_API_CAPABILITY_GRANT_PORT,
 } from "./application/port/in/capability/agent-api-capability-grant.port";
 import {
-  AGENT_CAPABILITY_REGISTRY_PORT,
-} from "./application/port/in/capability/agent-capability-registry.port";
-import {
   AGENT_OS_MCP_TOOL_EXECUTION_PORT,
 } from "./application/port/in/capability/agent-os-mcp-tool-execution.port";
 import {
@@ -84,7 +79,6 @@ import { AgentCatalogService } from "./application/service/agent-catalog.service
 import { AgentConversationService } from "./application/service/agent-conversation.service";
 import { AgentObservabilityService } from "./application/service/agent-observability.service";
 import { AgentPlanValidator } from "./application/service/agent-plan-validator.service";
-import { AgentPolicyService } from "./application/service/agent-policy.service";
 import { OperatorContextBuilder } from "./application/service/operator-context-builder.service";
 import { AgentRunCoordinator } from "./application/service/agent-run-coordinator.service";
 import { AgentRunExecutor } from "./application/service/agent-run-executor.service";
@@ -135,7 +129,6 @@ const agentInteractionProviders = [
     AgentConversationService,
     AgentObservabilityService,
     AgentPlanValidator,
-    AgentPolicyService,
     OperatorContextBuilder,
     AgentRunCoordinator,
     AgentRunExecutor,
@@ -187,7 +180,6 @@ const agentInteractionProviders = [
       provide: AGENT_OS_LIVE_READINESS_PORT,
       useExisting: AgentOsLiveReadinessAdapter,
     },
-    { provide: AGENT_OS_REPOSITORY_PORT, useClass: AgentOsRepositoryAdapter },
     {
       provide: AGENT_SESSION_QUERY_REPOSITORY,
       useClass: PrismaAgentSessionQueryRepository,
@@ -262,17 +254,20 @@ const agentInteractionProviders = [
   exports: [
     AGENT_INTERACTION_PORT,
     AGENT_RUNNER_PORT,
-    AGENT_OS_REPOSITORY_PORT,
+    AGENT_SESSION_QUERY_REPOSITORY,
+    AGENT_CONVERSATION_QUERY_REPOSITORY,
+    AGENT_EXECUTION_QUERY_REPOSITORY,
+    AGENT_RUN_AUTHORIZATION_TRANSACTION,
+    AGENT_CONVERSATION_EVENT_TRANSACTION,
+    AGENT_EXECUTION_USAGE_TRANSACTION,
     AgentApiCapabilityGrantService,
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
     AgentApprovalService,
-    AgentCapabilityRegistry,
     AgentConversationService,
     AgentObservabilityService,
     AgentPlanValidator,
-    AgentPolicyService,
     OperatorContextBuilder,
     AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
@@ -291,7 +286,6 @@ const agentInteractionProviders = [
     AgentOsMcpToolExecutor,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
-    AGENT_CAPABILITY_REGISTRY_PORT,
     AGENT_API_CAPABILITY_GRANT_PORT,
     AGENT_OS_MCP_TOOL_EXECUTION_PORT,
     LEGACY_AGENT_APPROVAL_PORT,

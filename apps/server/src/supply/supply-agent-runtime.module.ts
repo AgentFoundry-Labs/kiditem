@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { InventoryFreshnessRuntimeModule } from '../inventory/inventory-freshness-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -17,7 +18,12 @@ import { PurchaseOrderDraftService } from './application/service/purchase-order-
 import { PurchaseOrderSubmissionService } from './application/service/purchase-order-submission.service';
 
 @Module({
-  imports: [PrismaModule, AgentOsSessionModule, InventoryFreshnessRuntimeModule],
+  imports: [
+    PrismaModule,
+    AgentOsCapabilityModule,
+    AgentOsSessionModule,
+    InventoryFreshnessRuntimeModule,
+  ],
   providers: [
     ProcurementService,
     PurchaseOrderDraftService,
