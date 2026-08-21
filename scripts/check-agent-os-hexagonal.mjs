@@ -64,55 +64,85 @@ export function analyzeAgentOsHexagonalSources(files) {
 
 function reachesConcreteApplicationService(entryPath, sources) {
   const visited = new Set();
-  const pending = [{ path: entryPath, crossesExternalComposition: false }];
+  const pending = [{ path: entryPath, binding: null }];
 
   while (pending.length > 0) {
     const current = pending.pop();
     if (!current) continue;
-    const { path: currentPath, crossesExternalComposition } = current;
-    const visitKey = `${currentPath}:${crossesExternalComposition}`;
+    const { path: currentPath, binding } = current;
+    const visitKey = `${currentPath}:${binding ?? "*"}`;
     if (visited.has(visitKey)) continue;
     visited.add(visitKey);
 
-    if (
-      !crossesExternalComposition &&
-      currentPath.includes("/agent-os/application/service/")
-    ) {
-      return true;
-    }
+    if (currentPath.includes("/agent-os/application/service/")) return true;
     const currentFile = sources.get(currentPath);
     if (!currentFile) continue;
-    const crossesComposition =
-      crossesExternalComposition || isExternalNestCompositionModule(currentFile);
+    if (binding && isExportedNestModuleBinding(currentFile, binding)) continue;
     for (const dependency of staticLocalDependencies(currentFile, sources)) {
-      pending.push({
-        path: dependency,
-        crossesExternalComposition: crossesComposition,
-      });
+      pending.push(dependency);
     }
   }
   return false;
 }
 
-function isExternalNestCompositionModule(file) {
-  if (normalizePath(file.path).includes(AGENT_OS_ROOT)) return false;
+function isExportedNestModuleBinding(file, binding) {
   const sourceFile = ts.createSourceFile(
     file.path,
     file.source,
     ts.ScriptTarget.Latest,
     true,
   );
+  const { moduleBindings, namespaceBindings } = nestModuleDecoratorBindings(
+    sourceFile,
+  );
   return sourceFile.statements.some(
     (statement) =>
       ts.isClassDeclaration(statement) &&
+      isExported(statement) &&
+      statement.name?.text === binding &&
       (ts.getDecorators(statement) ?? []).some((decorator) => {
         const expression = decorator.expression;
+        if (!ts.isCallExpression(expression)) return false;
+        const target = expression.expression;
         return (
-          ts.isCallExpression(expression) &&
-          ts.isIdentifier(expression.expression) &&
-          expression.expression.text === "Module"
+          (ts.isIdentifier(target) && moduleBindings.has(target.text)) ||
+          (ts.isPropertyAccessExpression(target) &&
+            target.name.text === "Module" &&
+            ts.isIdentifier(target.expression) &&
+            namespaceBindings.has(target.expression.text))
         );
       }),
+  );
+}
+
+function nestModuleDecoratorBindings(sourceFile) {
+  const moduleBindings = new Set();
+  const namespaceBindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (
+      !ts.isImportDeclaration(statement) ||
+      !ts.isStringLiteral(statement.moduleSpecifier) ||
+      statement.moduleSpecifier.text !== "@nestjs/common"
+    ) {
+      continue;
+    }
+    const bindings = statement.importClause?.namedBindings;
+    if (bindings && ts.isNamedImports(bindings)) {
+      for (const element of bindings.elements) {
+        const importedName = element.propertyName?.text ?? element.name.text;
+        if (importedName === "Module") moduleBindings.add(element.name.text);
+      }
+    }
+    if (bindings && ts.isNamespaceImport(bindings)) {
+      namespaceBindings.add(bindings.name.text);
+    }
+  }
+  return { moduleBindings, namespaceBindings };
+}
+
+function isExported(statement) {
+  return !!statement.modifiers?.some(
+    (modifier) => modifier.kind === ts.SyntaxKind.ExportKeyword,
   );
 }
 
@@ -132,9 +162,40 @@ function staticLocalDependencies(file, sources) {
       specifier,
       sources,
     );
-    if (resolved) dependencies.push(resolved);
+    if (!resolved) continue;
+    for (const binding of dependencyBindings(statement)) {
+      dependencies.push({ path: resolved, binding });
+    }
   }
   return dependencies;
+}
+
+function dependencyBindings(statement) {
+  if (ts.isImportDeclaration(statement)) {
+    const clause = statement.importClause;
+    if (!clause) return [null];
+    const bindings = clauseBindings(clause.name, clause.namedBindings);
+    return bindings.length > 0 ? bindings : [null];
+  }
+  if (ts.isExportDeclaration(statement)) {
+    const clause = statement.exportClause;
+    if (!clause || !ts.isNamedExports(clause)) return [null];
+    const bindings = clause.elements
+      .filter((element) => !element.isTypeOnly)
+      .map((element) => element.propertyName?.text ?? element.name.text);
+    return bindings.length > 0 ? bindings : [null];
+  }
+  return [null];
+}
+
+function clauseBindings(defaultBinding, namedBindings) {
+  if (defaultBinding || !namedBindings || ts.isNamespaceImport(namedBindings)) {
+    return [null];
+  }
+  if (!ts.isNamedImports(namedBindings)) return [null];
+  return namedBindings.elements
+    .filter((element) => !element.isTypeOnly)
+    .map((element) => element.propertyName?.text ?? element.name.text);
 }
 
 function moduleSpecifierOf(statement) {

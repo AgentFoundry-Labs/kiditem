@@ -222,6 +222,167 @@ test("treats a default import as a runtime dependency even with type-only named 
   expectViolationsFor(violations, ["default-import.controller.ts"]);
 });
 
+test("rejects a fake local Module decorator barrel that forwards a concrete service", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/entry.controller.ts",
+      source: "import { ConcreteService } from '@/shared/fake-module-barrel';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/fake-module-barrel.ts",
+      source: [
+        "const Module = (): ClassDecorator => () => undefined;",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Module()",
+        "export class FakeModule {}",
+        "export { ConcreteService };",
+      ].join("\n"),
+      lines: 5,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, ["entry.controller.ts"]);
+});
+
+test("rejects a concrete service re-export from a genuine Nest module", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/entry.controller.ts",
+      source: "import { ConcreteService } from '@/shared/genuine-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/genuine-module.ts",
+      source: [
+        "import { Module } from '@nestjs/common';",
+        "export { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Module({})",
+        "export class FooModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, ["entry.controller.ts"]);
+});
+
+test("allows only provenance-verified decorated Nest module bindings", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/cli/operator.cli.ts",
+      source: "import { FooModule } from '@/shared/direct-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/mcp/operator.mcp.ts",
+      source: "import { AliasedModule } from '@/shared/aliased-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/operator.controller.ts",
+      source: "import { NamespacedModule } from '@/shared/namespaced-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/direct-module.ts",
+      source: [
+        "import { Module } from '@nestjs/common';",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Module({ providers: [ConcreteService] })",
+        "export class FooModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/shared/aliased-module.ts",
+      source: [
+        "import { Module as NestModule } from '@nestjs/common';",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@NestModule({ providers: [ConcreteService] })",
+        "export class AliasedModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/shared/namespaced-module.ts",
+      source: [
+        "import * as Nest from '@nestjs/common';",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Nest.Module({ providers: [ConcreteService] })",
+        "export class NamespacedModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  assert.deepEqual(violations, []);
+});
+
+test("traverses default, namespace, side-effect, and non-module bindings from a Nest module", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/cli/default.cli.ts",
+      source: "import RootModule from '@/shared/root-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/mcp/namespace.mcp.ts",
+      source: "import * as Root from '@/shared/root-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/side-effect.controller.ts",
+      source: "import '@/shared/root-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/other.controller.ts",
+      source: "import { Other } from '@/shared/root-module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/root-module.ts",
+      source: [
+        "import { Module } from '@nestjs/common';",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Module({ providers: [ConcreteService] })",
+        "export class RootModule {}",
+        "export default RootModule;",
+        "export const Other = true;",
+      ].join("\n"),
+      lines: 6,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, [
+    "default.cli.ts",
+    "namespace.mcp.ts",
+    "side-effect.controller.ts",
+    "other.controller.ts",
+  ]);
+});
+
 test("does not mistake a Nest composition root for an adapter-to-service bypass", () => {
   const violations = analyzeAgentOsHexagonalSources([
     {
