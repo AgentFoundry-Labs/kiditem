@@ -13,6 +13,7 @@ import {
   formatAgentSessionName,
   formatAgentSessionTaskName,
   formatOperationRunName,
+  parseOperationRunName,
 } from '@kiditem/shared/identifiers';
 import {
   makeTestPrisma,
@@ -31,16 +32,17 @@ import { OperationLifecycleGateService } from '../../operations/application/serv
 import { OperationRunService } from '../../operations/application/service/operation-run.service';
 import { OperationRunWorkerService } from '../../operations/application/service/operation-run-worker.service';
 import { OperationServerLifecycleService } from '../../operations/application/service/operation-server-lifecycle.service';
-import { AgentSessionTaskOperationHandler } from '../adapter/in/operation/agent-session-task.operation-handler';
+import { AgentSessionTaskOperationAdapter } from '../adapter/in/operation/session-execution/agent-session-task.operation-adapter';
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
 import { PrismaAgentInteractionRepository } from '../adapter/out/repository/prisma-agent-interaction.repository';
 import { PrismaAgentSessionControlRepository } from '../adapter/out/repository/prisma-agent-session-control.repository';
-import { AgentSessionApprovalService } from '../application/service/agent-session-approval.service';
-import { AgentSessionOperationContinuationService } from '../application/service/agent-session-operation-continuation.service';
+import { AgentSessionApprovalService } from '../application/service/session-control/agent-session-approval.service';
+import { AgentSessionOperationContinuationService } from '../application/service/session-control/agent-session-operation-continuation.service';
 import { AgentSessionCapabilityInvocationService } from '../application/service/agent-session-capability-invocation.service';
 import { AgentCapabilityRegistry } from '../application/service/agent-capability-registry.service';
-import { AgentSessionRuntimeControlService } from '../application/service/agent-session-runtime-control.service';
+import { AgentSessionRuntimeControlService } from '../application/service/session-control/agent-session-runtime-control.service';
 import { AgentSessionTaskOperationInputSchema } from '../domain/operation/agent-os.operations';
+import { AgentSessionTaskExecutionService } from '../application/service/session-execution/agent-session-task-execution.service';
 import type { PrismaClient } from '@prisma/client';
 
 const VERSION_ID = '50000000-0000-4000-8000-000000000001';
@@ -837,16 +839,41 @@ function makeHandler(input: {
   };
   const approvals = input.approvals ?? { request: vi.fn() };
   const operations = input.operations ?? { heartbeatRun: vi.fn().mockResolvedValue(true) };
-  const handler = new AgentSessionTaskOperationHandler(
-    input.registry ?? { register: vi.fn() } as never,
+  const operationExecution = {
+    findOperation: vi.fn(async ({ organizationId, operation: operationName }) => {
+      const run = await input.operations?.findRunById?.({
+        organizationId,
+        runId: parseOperationRunName(operationName).operation,
+      });
+      return run ? { input: run.input } : null;
+    }),
+    findLatestCheckpoint: vi.fn(async ({ organizationId, operation: operationName }) => (
+      input.checkpoints.findLatest({
+        organizationId,
+        operationRunId: parseOperationRunName(operationName).operation,
+      })
+    )),
+    appendCheckpoint: vi.fn(async ({ organizationId, operation: operationName, kind, state }) => {
+      await input.checkpoints.append({
+        organizationId,
+        operationRunId: parseOperationRunName(operationName).operation,
+        kind,
+        state,
+      });
+    }),
+  };
+  const executionService = new AgentSessionTaskExecutionService(
     contextBuilder as never,
     { requireCompatible: vi.fn(() => input.runtime) } as never,
-    input.checkpoints as never,
+    operationExecution as never,
     input.controls as never,
     runtimeControl as never,
     approvals as never,
     executions as never,
-    operations as never,
+  );
+  const handler = new AgentSessionTaskOperationAdapter(
+    input.registry ?? { register: vi.fn() } as never,
+    executionService,
   );
   return { handler, executions, runtimeControl, approvals, operations };
 }

@@ -32,6 +32,10 @@ import {
 } from '../../port/out/repository/agent-session-control.repository.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
+  assertApprovalDecision,
+  isApprovalExpired,
+} from '../../../domain/approval/agent-approval.policy';
+import {
   AgentSessionRuntimeControlService,
   type PersistedAgentSessionRuntimeEvent,
 } from './agent-session-runtime-control.service';
@@ -181,7 +185,7 @@ export class AgentSessionApprovalService {
     if (input.argumentsHash !== undefined && approval.argumentsHash !== input.argumentsHash) {
       throw invalid('APPROVAL_CONTEXT_CHANGED');
     }
-    if (!replayingDecision && approval.expiresAt <= this.now()) {
+    if (!replayingDecision && isApprovalExpired(approval.expiresAt, this.now())) {
       await this.controls.expireApproval({
         organizationId: session.organization,
         sessionId: session.session,
@@ -215,6 +219,7 @@ export class AgentSessionApprovalService {
       })) throw invalid('APPROVAL_RESOURCE_VERSION_CHANGED');
     }
 
+    if (!replayingDecision) assertApprovalDecision(approval.state, input.decision);
     const decision = replayingDecision
       ? { state: approval.state, changed: false }
       : await this.controls.decideApproval({

@@ -14,7 +14,8 @@ import { AgentRunRequestsController } from './adapter/in/http/legacy-run/agent-r
 import { AgentRunsQueryController } from './adapter/in/http/legacy-run/agent-runs-query.controller';
 import { AgentSessionController } from './adapter/in/http/session-control/agent-session.controller';
 import { InteractionGatewayGuard } from './adapter/in/http/interaction/interaction-gateway.guard';
-import { AgentSessionTaskOperationHandler } from './adapter/in/operation/agent-session-task.operation-handler';
+import { AgentSessionTaskOperationAdapter } from './adapter/in/operation/session-execution/agent-session-task.operation-adapter';
+import { OperationsSessionExecutionAdapter } from './adapter/out/cross-domain/operations-session-execution.adapter';
 import { InteractionProductAnalyticsAdapter } from './adapter/out/event/interaction-product-analytics.adapter';
 import { OpenAiResponsesAguiRuntimeAdapter } from './adapter/out/runtime/openai-responses-agui-runtime.adapter';
 import { AGENT_AGUI_RUNNER_PORT } from './application/port/in/agent-agui-runner.port';
@@ -26,6 +27,8 @@ import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from './application/port/in/intera
 import { AGENT_INTERACTION_PRESENTATION_PORT } from './application/port/in/interaction/agent-interaction-presentation.port';
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from './application/port/in/session-control/agent-session-approval-decision.port';
 import { AGENT_SESSION_TASK_CONTROL_PORT } from './application/port/in/session-control/agent-session-task-control.port';
+import { AGENT_SESSION_TASK_EXECUTION_PORT } from './application/port/in/session-execution/agent-session-task-execution.port';
+import { OPERATIONS_SESSION_EXECUTION_PORT } from './application/port/out/cross-domain/operations-session-execution.port';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from './application/port/out/event/interaction-product-analytics.port';
 import { AgentAguiProducerCoordinator } from './application/service/agent-agui-producer-coordinator.service';
 import { AgentAguiRunService } from './application/service/agent-agui-run.service';
@@ -46,6 +49,7 @@ import { AgentSessionOperationContinuationService } from './application/service/
 import { AgentSessionRuntimeControlService } from './application/service/session-control/agent-session-runtime-control.service';
 import { AgentSessionTaskControlService } from './application/service/session-control/agent-session-task-control.service';
 import { AgentSessionTaskDispatchService } from './application/service/session-control/agent-session-task-dispatch.service';
+import { AgentSessionTaskExecutionService } from './application/service/session-execution/agent-session-task-execution.service';
 import { AgentOsModule } from './agent-os.module';
 
 @Module({
@@ -85,7 +89,9 @@ import { AgentOsModule } from './agent-os.module';
     AgentSessionTaskControlService,
     AgentSessionTaskDispatchService,
     AgentSessionDelegationService,
-    AgentSessionTaskOperationHandler,
+    OperationsSessionExecutionAdapter,
+    AgentSessionTaskExecutionService,
+    AgentSessionTaskOperationAdapter,
     {
       provide: InteractionProductAnalyticsAdapter,
       inject: [EventEmitter2],
@@ -116,6 +122,8 @@ import { AgentOsModule } from './agent-os.module';
     { provide: AGENT_INTERACTION_PRESENTATION_PORT, useExisting: AgentInteractionPresentationService },
     { provide: AGENT_SESSION_TASK_CONTROL_PORT, useExisting: AgentSessionTaskControlService },
     { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useExisting: AgentSessionApprovalService },
+    { provide: OPERATIONS_SESSION_EXECUTION_PORT, useExisting: OperationsSessionExecutionAdapter },
+    { provide: AGENT_SESSION_TASK_EXECUTION_PORT, useExisting: AgentSessionTaskExecutionService },
   ],
 })
 export class AgentOsHttpModule {}

@@ -22,7 +22,8 @@ import { AgentRunRequestsController } from '../adapter/in/http/legacy-run/agent-
 import { AgentRunsQueryController } from '../adapter/in/http/legacy-run/agent-runs-query.controller';
 import { AgentSessionController } from '../adapter/in/http/session-control/agent-session.controller';
 import { InteractionGatewayGuard } from '../adapter/in/http/interaction/interaction-gateway.guard';
-import { AgentSessionTaskOperationHandler } from '../adapter/in/operation/agent-session-task.operation-handler';
+import { AgentSessionTaskOperationAdapter } from '../adapter/in/operation/session-execution/agent-session-task.operation-adapter';
+import { OperationsSessionExecutionAdapter } from '../adapter/out/cross-domain/operations-session-execution.adapter';
 import { AgentRunOperationAlertBridge } from '../adapter/out/automation/agent-run-operation-alert.bridge';
 import { AgentOsLiveReadinessAdapter } from '../adapter/out/cross-domain/agent-os-live-readiness.adapter';
 import { InProcessAgentConversationLivePublisher } from '../adapter/out/event/in-process-agent-conversation-live-publisher.adapter';
@@ -44,6 +45,7 @@ import { AGENT_INTERACTION_BOOTSTRAP_PORT } from '../application/port/in/interac
 import { AGENT_INTERACTION_PRESENTATION_PORT } from '../application/port/in/interaction/agent-interaction-presentation.port';
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from '../application/port/in/session-control/agent-session-approval-decision.port';
 import { AGENT_SESSION_TASK_CONTROL_PORT } from '../application/port/in/session-control/agent-session-task-control.port';
+import { AGENT_SESSION_TASK_EXECUTION_PORT } from '../application/port/in/session-execution/agent-session-task-execution.port';
 import { AGENT_INTERACTION_PORT } from '../application/port/in/agent-interaction.port';
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../application/port/in/agent-capability-invocation.port';
 import { AGENT_OS_LIVE_READINESS_PORT } from '../application/port/out/cross-domain/agent-os-live-readiness.port';
@@ -51,6 +53,7 @@ import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../application/port/out/event/interaction-product-analytics.port';
 import { AGENT_INTERACTION_REPOSITORY } from '../application/port/out/repository/agent-interaction-repository.port';
 import { AGENT_SESSION_CONTROL_REPOSITORY } from '../application/port/out/repository/agent-session-control.repository.port';
+import { OPERATIONS_SESSION_EXECUTION_PORT } from '../application/port/out/cross-domain/operations-session-execution.port';
 import { AGENT_VERSION_REPOSITORY } from '../application/port/out/repository/agent-version.repository.port';
 import { AGENT_MCP_SESSION_PORT } from '../application/port/out/runtime/agent-mcp-session.port';
 import { AgentAguiProducerCoordinator } from '../application/service/agent-agui-producer-coordinator.service';
@@ -85,6 +88,7 @@ import { AgentSessionOperationContinuationService } from '../application/service
 import { AgentSessionRuntimeControlService } from '../application/service/session-control/agent-session-runtime-control.service';
 import { AgentSessionTaskControlService } from '../application/service/session-control/agent-session-task-control.service';
 import { AgentSessionTaskDispatchService } from '../application/service/session-control/agent-session-task-dispatch.service';
+import { AgentSessionTaskExecutionService } from '../application/service/session-execution/agent-session-task-execution.service';
 import { AgentTaskDelegationService } from '../application/service/agent-task-delegation.service';
 import { AgentVersionPublisher } from '../application/service/agent-version-publisher.service';
 import { KidItemMcpToolRegistry } from '../application/service/kiditem-mcp-tool-registry.service';
@@ -160,7 +164,9 @@ describe('Agent OS process-root wiring', () => {
       AgentSessionExecutionService,
       AgentSessionTaskDispatchService,
       AgentSessionDelegationService,
-      AgentSessionTaskOperationHandler,
+      OperationsSessionExecutionAdapter,
+      AgentSessionTaskExecutionService,
+      AgentSessionTaskOperationAdapter,
     ]) {
       expect(providers).toContain(provider);
     }
@@ -176,6 +182,8 @@ describe('Agent OS process-root wiring', () => {
       [AGENT_INTERACTION_PRESENTATION_PORT, AgentInteractionPresentationService],
       [AGENT_SESSION_TASK_CONTROL_PORT, AgentSessionTaskControlService],
       [AGENT_SESSION_APPROVAL_DECISION_PORT, AgentSessionApprovalService],
+      [OPERATIONS_SESSION_EXECUTION_PORT, OperationsSessionExecutionAdapter],
+      [AGENT_SESSION_TASK_EXECUTION_PORT, AgentSessionTaskExecutionService],
     ]) {
       expect(providers).toContainEqual({ provide: token, useExisting: implementation });
     }
@@ -208,7 +216,7 @@ describe('Agent OS process-root wiring', () => {
       AgentSessionExecutionService,
       AgentSessionTaskDispatchService,
       AgentSessionDelegationService,
-      AgentSessionTaskOperationHandler,
+      AgentSessionTaskOperationAdapter,
     ]) {
       expect(providers).not.toContain(provider);
     }

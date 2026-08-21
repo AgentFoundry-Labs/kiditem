@@ -6,13 +6,15 @@ import {
   formatAgentExecutionName,
   formatAgentSessionName,
   formatAgentSessionTaskName,
+  formatOperationRunName,
+  OperationRunIdSchema,
   OrganizationIdSchema,
 } from '@kiditem/shared/identifiers';
 import {
   AGENT_OS_OPERATIONS,
   AgentSessionTaskOperationInputSchema,
 } from '../../../../domain/operation/agent-os.operations';
-import { AgentSessionTaskOperationHandler } from '../agent-session-task.operation-handler';
+import { AgentSessionTaskExecutionService } from '../agent-session-task-execution.service';
 
 const SESSION_ID = '00000000-0000-4000-8000-000000000001';
 const TASK_ID = '00000000-0000-4000-8000-000000000002';
@@ -139,21 +141,54 @@ function harness(options: {
   const operations = {
     findRunById: vi.fn().mockResolvedValue({ input: operation.input }),
   };
-  const handler = new AgentSessionTaskOperationHandler(
-    { register: vi.fn() } as never,
+  const operationExecution = {
+    findOperation: vi.fn().mockResolvedValue({ input: operation.input }),
+    findLatestCheckpoint: checkpoints.findLatest,
+    appendCheckpoint: checkpoints.append,
+  };
+  const executionService = new AgentSessionTaskExecutionService(
     { build: vi.fn().mockResolvedValue(executionContext) } as never,
     { requireCompatible: vi.fn().mockReturnValue(runtime) } as never,
-    checkpoints as never,
+    operationExecution as never,
     controls as never,
     runtimeControl as never,
     approvals as never,
     executions as never,
-    operations as never,
   );
+  const handler = {
+    execute: async (context = operation) => {
+      const result = await executionService.execute({
+        organizationId: context.organizationId,
+        session: context.input.session,
+        task: context.input.task,
+        execution: context.input.execution,
+        operation: formatOperationRunName(
+          OrganizationIdSchema.parse(context.organizationId),
+          OperationRunIdSchema.parse(context.runId),
+        ),
+        operationAttemptToken: context.attemptToken,
+        requestedByUserId: context.requestedByUserId,
+        signal: context.signal,
+      });
+      if (result.status === 'completed') return { kind: 'completed', result: result.output };
+      if (result.status === 'attention_required') return { kind: 'attention_required', reason: result.reason, result: result.output };
+      if (result.status === 'cancelled') return { kind: 'cancelled', result: result.output };
+      return { kind: 'failed', code: result.code, message: result.message };
+    },
+    cancel: (context: typeof operation & { reason: string | null }) => executionService.cancel({
+      organizationId: context.organizationId,
+      operation: formatOperationRunName(
+        OrganizationIdSchema.parse(context.organizationId),
+        OperationRunIdSchema.parse(context.runId),
+      ),
+      requestedByUserId: context.requestedByUserId,
+      reason: context.reason,
+    }),
+  };
   return { handler, runtime, checkpoints, controls, runtimeControl, approvals, executions, operations, order };
 }
 
-describe('AgentSessionTaskOperationHandler', () => {
+describe('AgentSessionTaskExecutionService', () => {
   it('registers a finite API-owned Operations resource policy', () => {
     expect(AGENT_OS_OPERATIONS[0]).toMatchObject({
       resourceClass: 'default',
