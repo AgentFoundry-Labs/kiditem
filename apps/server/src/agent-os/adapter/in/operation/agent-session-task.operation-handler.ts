@@ -39,8 +39,8 @@ import {
 } from '../../../application/port/out/repository/agent-session-control.repository.port';
 import { AgentExecutionContextBuilder } from '../../../application/service/agent-execution-context-builder.service';
 import { AgentRuntimeAdapterRegistry } from '../../../application/service/agent-runtime-adapter.registry';
-import { AgentSessionApprovalService } from '../../../application/service/agent-session-approval.service';
-import { AgentSessionRuntimeControlService } from '../../../application/service/agent-session-runtime-control.service';
+import { AgentSessionApprovalService } from '../../../application/service/session-control/agent-session-approval.service';
+import { AgentSessionRuntimeControlService } from '../../../application/service/session-control/agent-session-runtime-control.service';
 import {
   AGENT_OS_OPERATIONS,
   AgentSessionTaskOperationInputSchema,
