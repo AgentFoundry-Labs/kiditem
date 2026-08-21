@@ -34,7 +34,9 @@ import type {
   ConversationEventPage,
 } from '../../../port/out/repository/agent-interaction-repository.port';
 import * as interactionTokens from '../../agent-interaction.tokens';
+import { AgentInteractionBootstrapService } from '../agent-interaction-bootstrap.service';
 import { AgentInteractionAuthorizationService } from '../agent-interaction-authorization.service';
+import { InteractionAllowedVersionResolver } from '../interaction-allowed-version-resolver';
 
 const NOW = new Date('2026-08-13T00:00:00.000Z');
 const ORGANIZATION_ID = 'organization-1';
@@ -248,17 +250,28 @@ function buildService(options: BuildOptions = {}) {
     probeHealth: vi.fn(async () => undefined),
   } satisfies Partial<AgentInteractionRepositoryPort>;
 
+  const versionsResolver = new InteractionAllowedVersionResolver(
+    repository as unknown as AgentInteractionRepositoryPort,
+  );
+  const bootstrap = new AgentInteractionBootstrapService(
+    repository as unknown as AgentInteractionRepositoryPort,
+    () => clock,
+    PRINCIPAL_KEY,
+    RUN_INTENT_KEY,
+    versionsResolver,
+  );
   return {
     repository,
+    bootstrap,
     setNow(value: Date) {
       clock = value;
     },
     service: new AgentInteractionAuthorizationService(
       repository as unknown as AgentInteractionRepositoryPort,
       () => clock,
-      PRINCIPAL_KEY,
       RUN_INTENT_KEY,
       REPLAY_CURSOR_KEY,
+      versionsResolver,
     ),
   };
 }
@@ -322,22 +335,22 @@ function expectNoWrites(repository: ReturnType<typeof buildService>['repository'
   expect(repository.recordExecutionUsage).not.toHaveBeenCalled();
 }
 
-describe('AgentInteractionAuthorizationService canonical session authorization', () => {
+describe('AgentInteraction authorization and bootstrap capabilities', () => {
   it('derives a stable opaque principal without leaking private owner IDs', () => {
-    const { service } = buildService();
-    const first = service.resolvePrincipal(identity);
+    const { bootstrap } = buildService();
+    const first = bootstrap.resolvePrincipal(identity);
 
-    expect(service.resolvePrincipal(identity)).toEqual(first);
-    expect(service.resolvePrincipal({ ...identity, userId: 'user-2' }).principalKey)
+    expect(bootstrap.resolvePrincipal(identity)).toEqual(first);
+    expect(bootstrap.resolvePrincipal({ ...identity, userId: 'user-2' }).principalKey)
       .not.toBe(first.principalKey);
     expect(first.principalKey).not.toContain(ORGANIZATION_ID);
     expect(first.principalKey).not.toContain(USER_ID);
   });
 
   it('bootstraps canonical agents and read-only session summaries', async () => {
-    const { repository, service } = buildService({ sessions: [listedSession] });
+    const { repository, bootstrap } = buildService({ sessions: [listedSession] });
 
-    await expect(service.bootstrap(identity)).resolves.toEqual({
+    await expect(bootstrap.bootstrap(identity)).resolves.toEqual({
       defaultAgentDefinitionKey: agentDefinitionKey,
       agents: [{
         agentDefinitionKey,
@@ -358,16 +371,16 @@ describe('AgentInteractionAuthorizationService canonical session authorization',
     ['missing runtime', [{ ...activeVersion, runtimeType: '' }], 'AGENT_RUNTIME_NOT_CONFIGURED'],
     ['missing exact profile', [{ ...activeVersion, capabilityKeys: [] }], 'AGENT_POLICY_NOT_CONFIGURED'],
   ] as const)('fails %s before reading sessions', async (_label, versions, code) => {
-    const { repository, service } = buildService({ versions: [...versions] });
+    const { repository, bootstrap } = buildService({ versions: [...versions] });
 
-    await expect(service.bootstrap(identity)).rejects.toMatchObject({ code });
+    await expect(bootstrap.bootstrap(identity)).rejects.toMatchObject({ code });
     expect(repository.listSessions).not.toHaveBeenCalled();
     expectNoWrites(repository);
   });
 
   it('signs a 30-second intent with canonical resource claims without writes', async () => {
-    const { repository, service } = buildService();
-    const intent = await service.prepareRunIntent(prepareInput());
+    const { repository, bootstrap } = buildService();
+    const intent = await bootstrap.prepareRunIntent(prepareInput());
 
     expect(intent).toEqual({
       runIntent: expect.any(String),
@@ -391,15 +404,15 @@ describe('AgentInteractionAuthorizationService canonical session authorization',
     ['invalid dashboard context', { dashboardContext: { ...dashboardContext, routeKey: '' } }, 'INTERACTION_DASHBOARD_CONTEXT_INVALID'],
     ['invalid user event', { userEvent: { ...userEvent, payload: { ...userEvent.payload, content: '' } } }, 'INTERACTION_USER_EVENT_INVALID'],
   ])('rejects %s before signing', async (_label, override, code) => {
-    const { repository, service } = buildService();
-    await expect(service.prepareRunIntent({ ...prepareInput(), ...override }))
+    const { repository, bootstrap } = buildService();
+    await expect(bootstrap.prepareRunIntent({ ...prepareInput(), ...override }))
       .rejects.toMatchObject({ code });
     expectNoWrites(repository);
   });
 
   it('rejects malformed, tampered, expired, and mismatched intents before persistence', async () => {
     const built = buildService();
-    const intent = await built.service.prepareRunIntent(prepareInput());
+    const intent = await built.bootstrap.prepareRunIntent(prepareInput());
     const [body, signature] = intent.runIntent.split('.');
     const claims = decodeClaims(intent.runIntent);
     const invalidIntents = [
@@ -422,8 +435,8 @@ describe('AgentInteractionAuthorizationService canonical session authorization',
   });
 
   it('rechecks the current agent then returns only canonical session/task/execution names', async () => {
-    const { repository, service } = buildService();
-    const intent = await service.prepareRunIntent(prepareInput());
+    const { repository, bootstrap, service } = buildService();
+    const intent = await bootstrap.prepareRunIntent(prepareInput());
     const result = await service.authorizeRun(authorizeInput(intent.runIntent));
 
     expect(result).toEqual({
@@ -454,8 +467,8 @@ describe('AgentInteractionAuthorizationService canonical session authorization',
     ['profile', { capabilityKeys: ['agent_os.platform_probe'] }],
     ['retirement', { retiredAt: NOW }],
   ])('rejects current %s drift before persistence', async (_label, change) => {
-    const { repository, service } = buildService();
-    const intent = await service.prepareRunIntent(prepareInput());
+    const { repository, bootstrap, service } = buildService();
+    const intent = await bootstrap.prepareRunIntent(prepareInput());
     repository.findActiveAgentVersion.mockResolvedValue({ ...activeVersion, ...change });
 
     await expect(service.authorizeRun(authorizeInput(intent.runIntent)))

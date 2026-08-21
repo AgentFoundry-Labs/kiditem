@@ -7,7 +7,6 @@ import type { AgentExecutionName, AgentSessionName } from '@kiditem/shared/ident
 import type { InteractionPrincipalInput } from './agent-interaction-bootstrap.port';
 
 export type { InteractionPrincipalInput } from './agent-interaction-bootstrap.port';
-export interface InteractionPrincipal { principalKey: string }
 export interface AuthorizeRunInput { runIntent: string; copilotThreadId: string; aguiRunId: string; dashboardContext: unknown; userEvent: unknown }
 export interface AuthorizeConnectionInput extends InteractionPrincipalInput { copilotThreadId: string; cursor?: string | null }
 export interface AuthorizeCurrentRunInput extends InteractionPrincipalInput { agentDefinitionKey: string; copilotThreadId: string }
@@ -17,7 +16,6 @@ export interface AuthorizedLiveJoin { organizationId: string; userId: string; se
 export interface AgentInteractionConnectionAuthorization { authorization: AguiConnectionAuthorization; replay: AgentConversationReplay; liveJoinToken: string | null; liveJoinExpiresAt: string | null }
 export const AGENT_INTERACTION_AUTHORIZATION_PORT = Symbol('AGENT_INTERACTION_AUTHORIZATION_PORT');
 export interface AgentInteractionAuthorizationPort {
-  resolvePrincipal(input: InteractionPrincipalInput): InteractionPrincipal;
   authorizeRun(input: AuthorizeRunInput): Promise<AguiRunAuthorization>;
   authorizeConnection(input: AuthorizeConnectionInput): Promise<AgentInteractionConnectionAuthorization>;
   authorizeCurrentRun(input: AuthorizeCurrentRunInput): Promise<AuthorizedCurrentRun | null>;

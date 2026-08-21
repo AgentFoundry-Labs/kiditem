@@ -9,8 +9,7 @@ import {
   Res,
   UseGuards,
 } from '@nestjs/common';
-import { EventType, RunAgentInputSchema, type BaseEvent } from '@ag-ui/core';
-import { AgentConversationEventContentSchema } from '@kiditem/shared/agent-interaction';
+import { RunAgentInputSchema, type BaseEvent } from '@ag-ui/core';
 import {
   AgentExecutionNameSchema,
   AgentSessionNameSchema,
@@ -28,20 +27,10 @@ import {
   type AgentAguiProducerPort,
 } from '../../../../application/port/in/interaction/agent-agui-producer.port';
 import {
-  AGENT_INTERACTION_AUTHORIZATION_PORT,
-  type AgentInteractionAuthorizationPort,
-} from '../../../../application/port/in/interaction/agent-interaction-authorization.port';
+  AGENT_INTERACTION_LIVE_EVENTS_PORT,
+  type AgentInteractionLiveEventsPort,
+} from '../../../../application/port/in/interaction/agent-interaction-live-events.port';
 import { LocalAguiProducerCoordinator } from './agui-producer-coordinator';
-import {
-  AGENT_CONVERSATION_LIVE_PUBLISHER,
-  type AgentConversationLivePointer,
-  type AgentConversationLivePublisherPort,
-} from '../../../../application/port/out/event/agent-conversation-live-publisher.port';
-import {
-  AGENT_INTERACTION_REPOSITORY,
-  type AgentConversationEventRecord,
-  type AgentInteractionRepositoryPort,
-} from '../../../../application/port/out/repository/agent-interaction-repository.port';
 import { interactionHttpCall } from './interaction-http-error';
 import { InteractionGatewayGuard } from './interaction-gateway.guard';
 import type { Request, Response } from 'express';
@@ -71,8 +60,6 @@ const RUN_KEYS = new Set([
   'threadId', 'runId', 'parentRunId', 'state', 'messages', 'tools', 'context',
   'forwardedProps', 'resume',
 ]);
-const CATCH_UP_LIMIT = 500;
-const CATCH_UP_INTERVAL_MS = 1_000;
 
 @Controller('agent-os/ag-ui')
 @UseGuards(InteractionGatewayGuard)
@@ -80,12 +67,8 @@ export class AgentAguiController {
   constructor(
     @Inject(AGENT_AGUI_RUNNER_PORT)
     private readonly runner: AgentAguiRunnerPort,
-    @Inject(AGENT_INTERACTION_AUTHORIZATION_PORT)
-    private readonly identity: AgentInteractionAuthorizationPort,
-    @Inject(AGENT_INTERACTION_REPOSITORY)
-    private readonly repository: AgentInteractionRepositoryPort,
-    @Inject(AGENT_CONVERSATION_LIVE_PUBLISHER)
-    private readonly publisher: AgentConversationLivePublisherPort | undefined,
+    @Inject(AGENT_INTERACTION_LIVE_EVENTS_PORT)
+    private readonly liveEvents: AgentInteractionLiveEventsPort,
     @Inject(AGENT_AGUI_PRODUCER_PORT)
     private readonly producers: AgentAguiProducerPort = new LocalAguiProducerCoordinator(),
   ) {}
@@ -124,16 +107,19 @@ export class AgentAguiController {
     @Res() response: Response,
   ): Promise<void> {
     const input = ConnectSchema.parse(body);
-    const authorization = await interactionHttpCall(() =>
-      this.identity.authorizeLiveJoin({
+    const closed = new AbortController();
+    request.once('close', () => closed.abort());
+    const events = await interactionHttpCall(() =>
+      this.liveEvents.open({
         agentDefinitionKey,
         copilotThreadId: input.copilotThreadId,
         afterSequence: BigInt(input.afterSequence),
         liveJoinToken: input.liveJoinToken,
+        signal: closed.signal,
       }),
     );
     await this.stream(
-      this.liveEvents(authorization, request),
+      events,
       request,
       response,
     );
@@ -189,52 +175,6 @@ export class AgentAguiController {
     }
   }
 
-  private async *liveEvents(
-    authorization: {
-      organizationId: string;
-      userId: string;
-      sessionId: string;
-      copilotThreadId: string;
-      afterSequence: bigint;
-    },
-    request: Request,
-  ): AsyncIterable<BaseEvent> {
-    let afterSequence = authorization.afterSequence;
-    const queue: AgentConversationLivePointer[] = [];
-    let wake: (() => void) | null = null;
-    const unsubscribe = this.publisher?.subscribe(authorization, (pointer) => {
-      queue.push(pointer);
-      wake?.();
-    }) ?? (() => undefined);
-    let closed = false;
-    request.once('close', () => { closed = true; wake?.(); });
-    try {
-      while (!closed) {
-        const page = await this.repository.readConversationEvents({
-          organizationId: authorization.organizationId,
-          userId: authorization.userId,
-          sessionId: authorization.sessionId,
-          afterSequence,
-          limit: CATCH_UP_LIMIT,
-        });
-        for (const event of page.events) {
-          yield replayEvent(event, authorization.copilotThreadId);
-          if (event.eventType === 'run_terminal') return;
-        }
-        afterSequence = page.lastSequence;
-        if (page.hasMore) continue;
-        queue.splice(0, queue.length);
-        await new Promise<void>((resolve) => {
-          wake = resolve;
-          const timer = setTimeout(resolve, CATCH_UP_INTERVAL_MS);
-          timer.unref?.();
-        });
-        wake = null;
-      }
-    } finally {
-      unsubscribe();
-    }
-  }
 }
 
 function parseOfficialRunInput(value: unknown) {
@@ -256,87 +196,6 @@ function parseOfficialRunInput(value: unknown) {
     }]);
   }
   return input;
-}
-
-function replayEvent(
-  event: AgentConversationEventRecord,
-  threadId: string,
-): BaseEvent {
-  switch (event.eventType) {
-    case 'user_message':
-    case 'assistant_message': {
-      const content = canonicalContent(event);
-      if (content.eventType !== 'user_message' && content.eventType !== 'assistant_message') {
-        throw new Error('Invalid canonical message event.');
-      }
-      const phase = 'phase' in content.payload ? content.payload.phase : 'complete';
-      if (phase === 'start') {
-        return {
-          type: EventType.TEXT_MESSAGE_START,
-          messageId: content.payload.messageId,
-          role: event.eventType === 'user_message' ? 'user' : 'assistant',
-        };
-      }
-      if (phase === 'delta') {
-        if (!('content' in content.payload)) throw new Error('Invalid canonical message delta.');
-        return {
-          type: EventType.TEXT_MESSAGE_CONTENT,
-          messageId: content.payload.messageId,
-          delta: content.payload.content,
-        };
-      }
-      if (phase === 'end') {
-        return { type: EventType.TEXT_MESSAGE_END, messageId: content.payload.messageId };
-      }
-      if (!('content' in content.payload)) throw new Error('Invalid canonical complete message.');
-      return {
-        type: EventType.TEXT_MESSAGE_CHUNK,
-        messageId: content.payload.messageId,
-        role: event.eventType === 'user_message' ? 'user' : 'assistant',
-        delta: content.payload.content,
-      };
-    }
-    case 'run_terminal': {
-      const content = canonicalContent(event);
-      if (content.eventType !== 'run_terminal') {
-        throw new Error('Invalid canonical terminal event.');
-      }
-      if (!event.aguiRunId) {
-        throw new Error('Canonical terminal event has no AG-UI run correlation.');
-      }
-      return content.payload.status === 'completed'
-        ? {
-            type: EventType.RUN_FINISHED,
-            threadId,
-            runId: event.aguiRunId,
-          }
-        : {
-            type: EventType.RUN_ERROR,
-            code: content.payload.errorCode ?? 'INTERACTION_RUNTIME_FAILED',
-            message: 'The Agent OS runtime failed.',
-            threadId,
-            runId: event.aguiRunId,
-          } as BaseEvent;
-    }
-    default:
-      return {
-        type: EventType.STATE_SNAPSHOT,
-        snapshot: {
-          eventId: event.id,
-          sequence: event.sequence.toString(),
-          eventType: event.eventType,
-          payload: event.payload,
-        },
-      };
-  }
-}
-
-function canonicalContent(event: AgentConversationEventRecord) {
-  return AgentConversationEventContentSchema.parse({
-    eventType: event.eventType,
-    schemaVersion: event.schemaVersion,
-    payload: event.payload,
-  });
 }
 
 function record(value: unknown): Record<string, unknown> {

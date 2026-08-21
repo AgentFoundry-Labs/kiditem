@@ -5,6 +5,10 @@ export interface InteractionPrincipalInput {
   userId: string;
 }
 
+export interface InteractionPrincipal {
+  principalKey: string;
+}
+
 export interface PrepareRunIntentInput extends InteractionPrincipalInput {
   agentDefinitionKey: string;
   copilotThreadId: string;
@@ -18,6 +22,7 @@ export const AGENT_INTERACTION_BOOTSTRAP_PORT = Symbol(
 );
 
 export interface AgentInteractionBootstrapPort {
+  resolvePrincipal(input: InteractionPrincipalInput): InteractionPrincipal;
   bootstrap(input: InteractionPrincipalInput): Promise<InteractionBootstrap>;
   prepareRunIntent(input: PrepareRunIntentInput): Promise<AguiRunIntent>;
 }

@@ -22,6 +22,7 @@ import { AGENT_CATALOG_PORT } from './application/port/in/catalog/agent-catalog.
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from './application/port/in/interaction/agent-interaction-authorization.port';
 import { AGENT_INTERACTION_BOOTSTRAP_PORT } from './application/port/in/interaction/agent-interaction-bootstrap.port';
 import { AGENT_AGUI_PRODUCER_PORT } from './application/port/in/interaction/agent-agui-producer.port';
+import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from './application/port/in/interaction/agent-interaction-live-events.port';
 import { AGENT_INTERACTION_PRESENTATION_PORT } from './application/port/in/interaction/agent-interaction-presentation.port';
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from './application/port/in/session-control/agent-session-approval-decision.port';
 import { AGENT_SESSION_TASK_CONTROL_PORT } from './application/port/in/session-control/agent-session-task-control.port';
@@ -35,6 +36,8 @@ import { AgentInteractionPresentationService } from './application/service/agent
 import { interactionEnvironmentProviders } from './application/service/agent-interaction.tokens';
 import { AgentInteractionAuthorizationService } from './application/service/interaction/agent-interaction-authorization.service';
 import { AgentInteractionBootstrapService } from './application/service/interaction/agent-interaction-bootstrap.service';
+import { AgentInteractionLiveEventsService } from './application/service/interaction/agent-interaction-live-events.service';
+import { InteractionAllowedVersionResolver } from './application/service/interaction/interaction-allowed-version-resolver';
 import { AgentSessionApprovalService } from './application/service/session-control/agent-session-approval.service';
 import { AgentSessionCancellationService } from './application/service/session-control/agent-session-cancellation.service';
 import { AgentSessionDelegationService } from './application/service/session-control/agent-session-delegation.service';
@@ -66,6 +69,8 @@ import { AgentOsModule } from './agent-os.module';
     ...interactionEnvironmentProviders,
     AgentInteractionAuthorizationService,
     AgentInteractionBootstrapService,
+    InteractionAllowedVersionResolver,
+    AgentInteractionLiveEventsService,
     InteractionGatewayGuard,
     AgentAguiRunService,
     AgentAguiProducerCoordinator,
@@ -107,6 +112,7 @@ import { AgentOsModule } from './agent-os.module';
     { provide: AGENT_INTERACTION_BOOTSTRAP_PORT, useExisting: AgentInteractionBootstrapService },
     { provide: AGENT_AGUI_PRODUCER_PORT, useExisting: AgentAguiProducerCoordinator },
     { provide: AGENT_INTERACTION_AUTHORIZATION_PORT, useExisting: AgentInteractionAuthorizationService },
+    { provide: AGENT_INTERACTION_LIVE_EVENTS_PORT, useExisting: AgentInteractionLiveEventsService },
     { provide: AGENT_INTERACTION_PRESENTATION_PORT, useExisting: AgentInteractionPresentationService },
     { provide: AGENT_SESSION_TASK_CONTROL_PORT, useExisting: AgentSessionTaskControlService },
     { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useExisting: AgentSessionApprovalService },

@@ -62,6 +62,7 @@ import { AgentCapabilityRegistry } from '../application/service/agent-capability
 import { AgentInlineRunReconciler } from '../application/service/agent-inline-run-reconciler.service';
 import { AgentInteractionAuthorizationService } from '../application/service/interaction/agent-interaction-authorization.service';
 import { AgentInteractionBootstrapService } from '../application/service/interaction/agent-interaction-bootstrap.service';
+import { InteractionAllowedVersionResolver } from '../application/service/interaction/interaction-allowed-version-resolver';
 import { AgentInteractionPresentationService } from '../application/service/agent-interaction-presentation.service';
 import { AgentInteractionService } from '../application/service/agent-interaction.service';
 import {
@@ -146,6 +147,7 @@ describe('Agent OS process-root wiring', () => {
       AgentInlineRunReconciler,
       AgentInteractionAuthorizationService,
       AgentInteractionBootstrapService,
+      InteractionAllowedVersionResolver,
       InteractionGatewayGuard,
       AgentAguiRunService,
       AgentAguiProducerCoordinator,

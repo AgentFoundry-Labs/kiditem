@@ -1,6 +1,7 @@
 import 'reflect-metadata';
 import { EventType, type BaseEvent } from '@ag-ui/core';
 import { describe, expect, it, vi } from 'vitest';
+import { AgentInteractionLiveEventsService } from '../../../../../application/service/interaction/agent-interaction-live-events.service';
 import { AgentAguiController } from '../agent-agui.controller';
 import { InteractionGatewayGuard } from '../interaction-gateway.guard';
 
@@ -11,7 +12,7 @@ describe('AgentAguiController', () => {
   });
 
   it('exposes a private readiness probe used by the real interaction gateway', () => {
-    const controller = new AgentAguiController({} as never, {} as never, {} as never);
+    const controller = new AgentAguiController({} as never, {} as never);
     expect(controller.health()).toEqual({ status: 'ok' });
   });
 
@@ -19,7 +20,6 @@ describe('AgentAguiController', () => {
     const runner = { stop: vi.fn().mockResolvedValue(true) };
     const controller = new AgentAguiController(
       runner as never,
-      {} as never,
       {} as never,
     );
 
@@ -59,7 +59,7 @@ describe('AgentAguiController', () => {
       })),
       stop: vi.fn(),
     };
-    const controller = new AgentAguiController(runner as never, {} as never, {} as never);
+    const controller = new AgentAguiController(runner as never, {} as never);
     let close: (() => void) | undefined;
     const request = { once: vi.fn((name, callback) => { if (name === 'close') close = callback; }) };
     const response = {
@@ -100,7 +100,7 @@ describe('AgentAguiController', () => {
       })),
       stop: vi.fn(),
     };
-    const controller = new AgentAguiController(runner as never, {} as never, {} as never);
+    const controller = new AgentAguiController(runner as never, {} as never);
     const request = { once: vi.fn((name, callback) => { if (name === 'close') close = callback; }) };
     const response = { setHeader: vi.fn(), write: vi.fn(), end: vi.fn(), writableEnded: false };
     const run = controller.run('operator', {
@@ -149,27 +149,21 @@ describe('AgentAguiController', () => {
         return vi.fn();
       }),
     };
-    let close: (() => void) | undefined;
-    const request = { once: vi.fn((name, callback) => { if (name === 'close') close = callback; }) };
-    const controller = new AgentAguiController(
-      {} as never,
-      {} as never,
-      repository as never,
-      publisher as never,
-    );
-    const events = (controller as never as {
-      liveEvents(authorization: unknown, request: unknown): AsyncIterable<unknown>;
+    const abort = new AbortController();
+    const service = new AgentInteractionLiveEventsService({} as never, repository as never, publisher as never);
+    const events = (service as never as {
+      liveEvents(authorization: unknown, signal: AbortSignal): AsyncIterable<unknown>;
     }).liveEvents({
       organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1',
       copilotThreadId: 'thread-1', afterSequence: 1n,
-    }, request);
+    }, abort.signal);
     const iterator = events[Symbol.asyncIterator]();
 
     await expect(iterator.next()).resolves.toMatchObject({
       value: { type: EventType.TEXT_MESSAGE_CHUNK, delta: 'durable answer' },
     });
     expect(calls.slice(0, 2)).toEqual(['subscribe', 'read']);
-    close?.();
+    abort.abort();
     await iterator.return?.();
   });
 
@@ -196,16 +190,14 @@ describe('AgentAguiController', () => {
       }),
     };
     const publisher = { subscribe: vi.fn(() => unsubscribe) };
-    const request = { once: vi.fn() };
-    const controller = new AgentAguiController(
-      {} as never, {} as never, repository as never, publisher as never,
-    );
-    const iterator = (controller as never as {
-      liveEvents(authorization: unknown, request: unknown): AsyncIterable<BaseEvent>;
+    const abort = new AbortController();
+    const service = new AgentInteractionLiveEventsService({} as never, repository as never, publisher as never);
+    const iterator = (service as never as {
+      liveEvents(authorization: unknown, signal: AbortSignal): AsyncIterable<BaseEvent>;
     }).liveEvents({
       organizationId: 'org-1', userId: 'user-1', sessionId: 'session-1',
       copilotThreadId: 'thread-1', afterSequence: 8n,
-    }, request)[Symbol.asyncIterator]();
+    }, abort.signal)[Symbol.asyncIterator]();
 
     await expect(iterator.next()).resolves.toMatchObject({
       value: {
