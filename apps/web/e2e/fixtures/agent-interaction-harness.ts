@@ -67,7 +67,7 @@ import {
   INTERACTION_PRINCIPAL_HMAC_KEY,
   INTERACTION_REPLAY_CURSOR_HMAC_KEY,
   INTERACTION_RUN_INTENT_HMAC_KEY,
-} from '../../../server/dist/agent-os/application/service/agent-interaction.tokens.js';
+} from '../../../server/dist/agent-os/application/port/in/interaction/interaction-gateway-config.port.js';
 import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
 import { PrismaAgentSessionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-session-query.repository.js';
 import { PrismaAgentConversationQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-conversation-query.repository.js';
