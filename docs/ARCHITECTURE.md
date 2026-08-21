@@ -1006,12 +1006,15 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
   attempt binding, and lifecycle transitions cross transaction-port seams and
   execute through outgoing Prisma transaction adapters as one lifecycle
   transaction. They are not decomposed into table-shaped CRUD calls.
-- Official Agent OS production modules stay at or below 700 lines. Tests and
-  temporary `legacy-run` files are exempt only from this size limit, never from
-  the incoming-adapter dependency direction. `check:agent-os-hexagonal` stays a
-  standalone live migration baseline until Tasks 12–14 remove existing concrete
-  imports and oversized surfaces; it joins `check:conventions` only after that
-  cleanup.
+- An Agent OS production application or adapter file over 700 lines is a
+  non-blocking responsibility/cohesion review smell, not a gate violation.
+  Splitting follows real capability, transaction, and adapter seams rather than
+  line count; large files must not accumulate behavior without an explicit
+  review. Tests, generated code, and temporary `legacy-run` files are omitted
+  from smell reporting but never from incoming-adapter dependency direction.
+  `check:agent-os-hexagonal` stays a standalone live migration baseline until
+  Tasks 12–14 remove existing concrete imports and flat official ports; it joins
+  `check:conventions` only after that hard-violation cleanup.
 - Automation workflows are deterministic and must not create Agent OS runs. If
   LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
   deterministic workflows through automation-owned incoming ports or registered

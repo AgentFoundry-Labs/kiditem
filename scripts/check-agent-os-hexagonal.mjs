@@ -17,11 +17,12 @@ function normalizePath(filePath) {
   return `/${filePath.replaceAll('\\', '/').replace(/^\/+/, '')}`;
 }
 
-function isSizeExempt(normalizedPath) {
+function isArchitectureSmellExempt(normalizedPath) {
   return (
     normalizedPath.includes('/__tests__/') ||
     /\.(?:spec|test)\.ts$/.test(normalizedPath) ||
-    normalizedPath.includes('/legacy-run/')
+    normalizedPath.includes('/legacy-run/') ||
+    normalizedPath.includes('/generated/')
   );
 }
 
@@ -55,14 +56,29 @@ export function analyzeAgentOsHexagonalSources(files) {
       }
     }
 
-    if (file.lines > 700 && !isSizeExempt(normalizedPath)) {
-      violations.push(
-        `${normalizedPath.slice(1)}: official AgentOS module exceeds 700 lines`,
-      );
-    }
   }
 
   return violations;
+}
+
+export function collectAgentOsArchitectureSmells(files) {
+  const smells = [];
+
+  for (const file of files) {
+    const normalizedPath = normalizePath(file.path);
+    if (
+      !normalizedPath.includes(AGENT_OS_ROOT) ||
+      file.lines <= 700 ||
+      isArchitectureSmellExempt(normalizedPath)
+    ) {
+      continue;
+    }
+    smells.push(
+      `${normalizedPath.slice(1)}: architecture smell (non-blocking): review responsibility and cohesion (${file.lines} lines)`,
+    );
+  }
+
+  return smells;
 }
 
 function repoRoot() {
@@ -106,17 +122,23 @@ export function collectAgentOsProductionSources(root = repoRoot()) {
 }
 
 function main() {
-  const violations = analyzeAgentOsHexagonalSources(
-    collectAgentOsProductionSources(),
-  );
+  const files = collectAgentOsProductionSources();
+  const violations = analyzeAgentOsHexagonalSources(files);
+  const smells = collectAgentOsArchitectureSmells(files);
   if (violations.length === 0) {
     console.log('check:agent-os-hexagonal PASS');
+    for (const smell of smells) {
+      console.warn(`- ${smell}`);
+    }
     return;
   }
 
   console.error('check:agent-os-hexagonal FAIL');
   for (const violation of violations) {
     console.error(`- ${violation}`);
+  }
+  for (const smell of smells) {
+    console.warn(`- ${smell}`);
   }
   process.exitCode = 1;
 }

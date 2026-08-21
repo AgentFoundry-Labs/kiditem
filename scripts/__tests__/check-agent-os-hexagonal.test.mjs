@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeAgentOsHexagonalSources } from '../check-agent-os-hexagonal.mjs';
+import {
+  analyzeAgentOsHexagonalSources,
+  collectAgentOsArchitectureSmells,
+} from '../check-agent-os-hexagonal.mjs';
 
 test('rejects concrete application imports from incoming adapters', () => {
   const violations = analyzeAgentOsHexagonalSources([
@@ -15,26 +18,50 @@ test('rejects concrete application imports from incoming adapters', () => {
   assert.match(violations.join('\n'), /incoming adapter must depend on port\/in/);
 });
 
-test('rejects flat official input ports and oversized official modules', () => {
+test('rejects flat official input ports', () => {
   const violations = analyzeAgentOsHexagonalSources([
     {
       path: 'apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts',
       source: 'export interface AgentSessionExecutionPort {}',
       lines: 10,
     },
+  ]);
+
+  assert.equal(violations.length, 1);
+  assert.match(violations.join('\n'), /official input port requires capability folder/);
+});
+
+test('reports large official modules as non-blocking responsibility review smells', () => {
+  const files = [
     {
       path: 'apps/server/src/agent-os/application/service/session-execution/huge.ts',
       source: 'export class Huge {}',
       lines: 701,
     },
-  ]);
+    {
+      path: 'apps/server/src/agent-os/application/service/legacy-run/huge.ts',
+      source: 'export class LegacyHuge {}',
+      lines: 701,
+    },
+    {
+      path: 'apps/server/src/agent-os/application/service/__tests__/huge.spec.ts',
+      source: 'export class TestHuge {}',
+      lines: 701,
+    },
+    {
+      path: 'apps/server/src/agent-os/generated/huge.ts',
+      source: 'export class GeneratedHuge {}',
+      lines: 701,
+    },
+  ];
 
-  assert.equal(violations.length, 2);
-  assert.match(violations.join('\n'), /official input port requires capability folder/);
-  assert.match(violations.join('\n'), /official AgentOS module exceeds 700 lines/);
+  assert.deepEqual(analyzeAgentOsHexagonalSources(files), []);
+  assert.deepEqual(collectAgentOsArchitectureSmells(files), [
+    'apps/server/src/agent-os/application/service/session-execution/huge.ts: architecture smell (non-blocking): review responsibility and cohesion (701 lines)',
+  ]);
 });
 
-test('normalizes Windows paths and keeps size exclusions narrow', () => {
+test('normalizes Windows paths while keeping dependency direction strict', () => {
   const violations = analyzeAgentOsHexagonalSources([
     {
       path: 'apps\\server\\src\\agent-os\\adapter\\in\\http\\legacy-run\\run.controller.ts',

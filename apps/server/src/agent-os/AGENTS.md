@@ -151,11 +151,15 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Interaction analytics is metadata-only and non-authoritative. Never emit
   messages/model output, resource names, dashboard payloads, credentials,
   cookies, tokens, or raw organization/user identifiers.
-- Official production modules stay at or below 700 lines. Tests and temporary
-  `legacy-run` files are size-exempt but still obey incoming-adapter dependency
-  direction. `npm run check:agent-os-hexagonal` is intentionally a standalone
-  failing migration baseline until Tasks 12–14 remove its violations; only then
-  may it join `check:conventions`.
+- A production application or adapter file over 700 lines is a non-blocking
+  responsibility/cohesion review smell, not an architecture violation. Split
+  only at a real capability, transaction, or adapter seam; do not accumulate
+  behavior without that review merely because the scanner does not fail. Tests,
+  generated code, and temporary `legacy-run` files are omitted from smell
+  reporting but still obey incoming-adapter dependency direction.
+  `npm run check:agent-os-hexagonal` is intentionally a standalone failing
+  migration baseline until Tasks 12–14 remove its hard dependency and input-port
+  violations; only then may it join `check:conventions`.
 
 ## Bootstrap
 

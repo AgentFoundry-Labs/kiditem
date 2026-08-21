@@ -1151,10 +1151,11 @@ agent-os/
 - [ ] **Step 1: Write scanner tests before moving production files**
 
 The fixture contract rejects an incoming adapter that imports a concrete
-application implementation, direct official-session input-port files, and
-oversized official-session production files. Tests and temporary
-`legacy-run` files are excluded from the size rule, but not from forbidden
-dependency-direction imports.
+application implementation and direct official-session input-port files. It
+reports an official application or adapter production file over 700 lines as a
+non-blocking responsibility/cohesion review smell. Tests, generated code, and
+temporary `legacy-run` files are omitted from smell reporting, but not from
+forbidden dependency-direction imports.
 
 ```javascript
 test('rejects concrete application imports from incoming adapters', () => {
@@ -1168,20 +1169,28 @@ test('rejects concrete application imports from incoming adapters', () => {
   assert.match(violations.join('\n'), /incoming adapter must depend on port\/in/);
 });
 
-test('rejects flat official input ports and oversized official modules', () => {
+test('rejects flat official input ports', () => {
   const violations = analyzeAgentOsHexagonalSources([
     {
       path: 'apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts',
       source: 'export interface AgentSessionExecutionPort {}',
       lines: 10,
     },
-    {
-      path: 'apps/server/src/agent-os/application/service/session-execution/huge.ts',
-      source: 'export class Huge {}',
-      lines: 701,
-    },
   ]);
-  assert.equal(violations.length, 2);
+  assert.equal(violations.length, 1);
+});
+
+test('reports oversized modules without making them violations', () => {
+  const files = [{
+    path: 'apps/server/src/agent-os/application/service/session-execution/huge.ts',
+    source: 'export class Huge {}',
+    lines: 701,
+  }];
+  assert.deepEqual(analyzeAgentOsHexagonalSources(files), []);
+  assert.match(
+    collectAgentOsArchitectureSmells(files).join('\n'),
+    /architecture smell \(non-blocking\)/,
+  );
 });
 ```
 
@@ -1217,21 +1226,33 @@ export function analyzeAgentOsHexagonalSources(files) {
         violations.push(`${file.path}: official input port requires capability folder`);
       }
     }
-    if (
-      file.lines > 700 &&
-      !normalized.includes('/__tests__/') &&
-      !normalized.includes('/legacy-run/')
-    ) {
-      violations.push(`${file.path}: official AgentOS module exceeds 700 lines`);
-    }
   }
   return violations;
+}
+
+export function collectAgentOsArchitectureSmells(files) {
+  return files
+    .filter((file) => {
+      const normalized = `/${file.path.replaceAll('\\\\', '/')}`;
+      return (
+        normalized.includes('/agent-os/') &&
+        file.lines > 700 &&
+        !normalized.includes('/__tests__/') &&
+        !normalized.includes('/generated/') &&
+        !normalized.includes('/legacy-run/')
+      );
+    })
+    .map(
+      (file) =>
+        `${file.path}: architecture smell (non-blocking): review responsibility and cohesion (${file.lines} lines)`,
+    );
 }
 ```
 
 Expose `npm run check:agent-os-hexagonal`, but do not yet add it to
 `check:conventions`; the live tree is expected to remain RED until Tasks 12–14
-remove the violations.
+remove its hard dependency and input-port violations. Size smells remain
+advisory and never set the scanner exit code.
 
 - [ ] **Step 4: Run the fixture suite and confirm the live baseline**
 
@@ -1240,8 +1261,9 @@ node --test scripts/__tests__/check-agent-os-hexagonal.test.mjs
 npm run check:agent-os-hexagonal
 ```
 
-Expected: fixture suite PASS; live command FAIL and list the current concrete
-controller imports plus the 815/1,178/1,329/1,635-line official files.
+Expected: fixture suite PASS; live command FAIL for current concrete controller
+imports and flat official ports, while printing the 700-line responsibility/
+cohesion candidates as non-blocking smells.
 
 - [ ] **Step 5: Commit the contract before implementation**
 
@@ -1803,8 +1825,9 @@ cutover task and receives no new dependencies or behavior.
 - [ ] **Step 3: Enable the live architecture gate**
 
 Add `check:agent-os-hexagonal` to `check:conventions`. The live scanner must now
-find no incoming concrete implementation import, flat official input port,
-or official production file over 700 lines.
+find no incoming concrete implementation import or flat official input port.
+It may report 700-line responsibility/cohesion smells, but they do not fail the
+gate.
 
 ```bash
 npm run check:agent-os-hexagonal
@@ -1882,9 +1905,11 @@ git commit -m "refactor: deepen AgentOS hexagonal modules"
   `AgentOsSessionModule` are controller-free; `AgentOsHttpModule` alone owns
   HTTP/Operations composition, and worker/MCP roots do not receive interaction
   secrets or HTTP providers.
-- [ ] No official AgentOS production module exceeds 700 lines, while generic
+- [ ] Every official AgentOS application or adapter production file over 700
+  lines receives an explicit responsibility/cohesion review. Splitting follows
+  real capability, transaction, or adapter seams rather than line count; generic
   non-session AgentRun code is either quarantined for the existing cutover task
-  or deleted; no new behavior enters the compatibility lane.
+  or deleted, and no new behavior enters the compatibility lane.
 - [ ] Production Agent definitions come only from the code-owned registry and
   immutable active `AgentVersion`; user/project/plugin markdown cannot alter
   authority.
