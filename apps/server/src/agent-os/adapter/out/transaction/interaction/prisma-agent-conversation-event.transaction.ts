@@ -60,6 +60,7 @@ export class PrismaAgentConversationEventTransaction implements AgentConversatio
         if (input.terminal && execution)
           await terminal(tx, {
             organizationId: input.organizationId,
+            sessionId: input.sessionId,
             id: execution.id,
             ...input.terminal,
           });
@@ -189,6 +190,7 @@ async function terminal(
   tx: Pick<Prisma.TransactionClient, "agentExecution">,
   input: {
     organizationId: string;
+    sessionId: string;
     id: string;
     status: "completed" | "failed" | "cancelled";
     errorCode: string | null;
@@ -200,6 +202,7 @@ async function terminal(
     where: {
       id: input.id,
       organizationId: input.organizationId,
+      sessionId: input.sessionId,
       status: "running",
     },
     data: {

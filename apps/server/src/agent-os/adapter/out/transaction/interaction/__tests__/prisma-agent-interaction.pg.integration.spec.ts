@@ -1045,6 +1045,68 @@ describe("Prisma interaction persistence seams", () => {
     });
   });
 
+  it("binds direct terminalization to the supplied active session", async () => {
+    const active = await repository.authorizeExecution(
+      firstRunInput({
+        copilotThreadId: "thread-terminal-active-session",
+        aguiRunId: "run-terminal-active-session",
+      }),
+    );
+    const deleting = await repository.authorizeExecution(
+      firstRunInput({
+        copilotThreadId: "thread-terminal-deleting-session",
+        aguiRunId: "run-terminal-deleting-session",
+      }),
+    );
+    await prisma!.agentSession.update({
+      where: { id: deleting.session.id },
+      data: { lifecycle: "deleting" },
+    });
+
+    await expect(
+      repository.markExecutionTerminal({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: active.session.id,
+        id: deleting.execution.id,
+        status: "cancelled",
+        errorCode: "session_mismatch",
+        finishedAt: new Date("2026-08-22T00:00:00.000Z"),
+      }),
+    ).rejects.toMatchObject({ code: "INTERACTION_EXECUTION_NOT_RUNNING" });
+    await expect(
+      prisma!.agentExecution.findUniqueOrThrow({
+        where: { id: deleting.execution.id },
+        select: { status: true, errorCode: true, finishedAt: true },
+      }),
+    ).resolves.toEqual({
+      status: "running",
+      errorCode: null,
+      finishedAt: null,
+    });
+
+    const finishedAt = new Date("2026-08-22T00:01:00.000Z");
+    await expect(
+      repository.markExecutionTerminal({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: active.session.id,
+        id: active.execution.id,
+        status: "cancelled",
+        errorCode: "user_cancelled",
+        finishedAt,
+      }),
+    ).resolves.toBeUndefined();
+    await expect(
+      prisma!.agentExecution.findUniqueOrThrow({
+        where: { id: active.execution.id },
+        select: { status: true, errorCode: true, finishedAt: true },
+      }),
+    ).resolves.toEqual({
+      status: "cancelled",
+      errorCode: "user_cancelled",
+      finishedAt,
+    });
+  });
+
   it.each(["deleting", "delete_failed"] as const)(
     "rejects a direct terminal write after the %s lifecycle fence",
     async (lifecycle) => {
