@@ -45,6 +45,7 @@ import { InProcessAgentConversationLivePublisher } from "../adapter/out/event/in
 import { PrismaAgentExecutionQueryRepository } from "../adapter/out/repository/interaction/prisma-agent-execution-query.repository";
 import { PrismaAgentConversationEventTransaction } from "../adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction";
 import { SessionControlAdapterSet } from "../adapter/out/transaction/session-control/__tests__/session-control-adapter-set";
+import { PrismaAgentSessionOwnedOperationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction";
 import { AgentSessionApprovalService } from "../application/service/session-control/agent-session-approval.service";
 import { AgentSessionOperationContinuationService } from "../application/service/session-control/agent-session-operation-continuation.service";
 import { AgentSessionCapabilityInvocationService } from "../application/service/agent-session-capability-invocation.service";
@@ -58,6 +59,17 @@ const VERSION_ID = "50000000-0000-4000-8000-000000000001";
 const AUTHORITY_PROFILE_ID = "foundation_read_only_probe:v1";
 const APPROVAL_CAPABILITY = "inventory.adjust";
 const RECOVERY_CAPABILITY = "inventory.readForRecovery";
+const SESSION_TASK_DEFINITION = {
+  key: "agent-os.execute-session-task",
+  version: 1,
+  title: "Execute agent task",
+  ownerDomain: "agent-os",
+  engineType: "agent_os" as const,
+  resourceClass: "default" as const,
+  executionTimeoutMs: 60 * 60_000,
+  maxAttempts: 5,
+  successPersistence: "retained" as const,
+};
 
 let prisma: PrismaClient | null = null;
 
@@ -79,14 +91,7 @@ describe("official durable runtime recovery", () => {
     const graph = await createRunningGraph();
     const operation = await createOperation(graph);
     const controls = new SessionControlAdapterSet(prisma as never);
-    const attempt = await controls.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: graph.sessionId,
-      taskId: graph.taskId,
-      executionId: graph.executionId,
-      operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
-    });
+    const attempt = { id: operation.attemptId };
     await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
@@ -109,6 +114,7 @@ describe("official durable runtime recovery", () => {
     const lifecycle = new OperationServerLifecycleService(
       repository,
       lifecycleGate,
+      { runAll: vi.fn().mockResolvedValue(undefined) } as never,
       { start: vi.fn(), stopIntake: vi.fn(), drainUntil: vi.fn() } as never,
       {
         start: vi.fn(),
@@ -221,14 +227,7 @@ describe("official durable runtime recovery", () => {
     const graph = await createRunningGraph();
     const operation = await createOperation(graph);
     const controls = new SessionControlAdapterSet(prisma as never);
-    const attempt = await controls.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: graph.sessionId,
-      taskId: graph.taskId,
-      executionId: graph.executionId,
-      operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
-    });
+    const attempt = { id: operation.attemptId };
     await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
@@ -314,14 +313,7 @@ describe("official durable runtime recovery", () => {
     const graph = await createRunningGraph();
     const operation = await createOperation(graph);
     const controls = new SessionControlAdapterSet(prisma as never);
-    const attempt = await controls.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: graph.sessionId,
-      taskId: graph.taskId,
-      executionId: graph.executionId,
-      operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
-    });
+    const attempt = { id: operation.attemptId };
     const organization = OrganizationIdSchema.parse(TEST_ORGANIZATION_ID);
     const session = formatAgentSessionName(
       organization,
@@ -390,7 +382,6 @@ describe("official durable runtime recovery", () => {
       prisma as never,
     );
     const controls = new SessionControlAdapterSet(prisma as never);
-    await reserveOperationAttempt(controls, graph, operation);
     const backend = new DurableFakeRuntimeBackend(graph, "crash");
     const first = makeWorker({
       graph,
@@ -488,7 +479,6 @@ describe("official durable runtime recovery", () => {
       prisma as never,
     );
     const controls = new SessionControlAdapterSet(prisma as never);
-    await reserveOperationAttempt(controls, graph, operation);
     const invocation = recoveryCapabilityInvocation(controls);
     const backend = new DurableFakeRuntimeBackend(
       graph,
@@ -835,14 +825,7 @@ describe("official durable runtime recovery", () => {
     );
     const controls = new SessionControlAdapterSet(prisma as never);
     const runtime = runtimeFor(new DurableFakeRuntimeBackend(graph, "unknown"));
-    const attempt = await controls.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: graph.sessionId,
-      taskId: graph.taskId,
-      executionId: graph.executionId,
-      operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
-    });
+    const attempt = { id: operation.attemptId };
     await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
@@ -910,14 +893,7 @@ describe("official durable runtime recovery", () => {
     const runtime = runtimeFor(
       new DurableFakeRuntimeBackend(graph, "complete"),
     );
-    const attempt = await controls.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: graph.sessionId,
-      taskId: graph.taskId,
-      executionId: graph.executionId,
-      operationRunId: operation.runId,
-      idempotencyKey: `operation:${operation.runId}`,
-    });
+    const attempt = { id: operation.attemptId };
     await controls.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
@@ -1115,7 +1091,6 @@ async function createApprovalBoundary(): Promise<{
   const operation = await createOperation(graph);
   const controls = new SessionControlAdapterSet(prisma as never);
   const checkpoints = new OperationCheckpointRepositoryAdapter(prisma as never);
-  await reserveOperationAttempt(controls, graph, operation);
   const backend = new DurableFakeRuntimeBackend(graph, "approval");
   const worker = makeWorker({
     graph,
@@ -1519,24 +1494,24 @@ async function createOperation(graph: DurableGraph) {
     AgentSessionIdSchema.parse(graph.sessionId),
     AgentExecutionIdSchema.parse(graph.executionId),
   );
-  const row = await prisma!.operationRun.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      operationKey: "agent-os.execute-session-task",
-      definitionVersion: 1,
-      ownerDomain: "agent-os",
-      title: "Durable recovery",
-      engineType: "agent_os",
-      resourceClass: "default",
-      executionTimeoutMs: 60 * 60_000,
-      triggerSource: "agent",
-      input: { session, task, execution },
-    },
+  const created = await new PrismaAgentSessionOwnedOperationTransaction(
+    prisma as never,
+  ).createExecutionRun({
+    signal: new AbortController().signal,
+    organizationId: TEST_ORGANIZATION_ID,
+    sessionId: graph.sessionId,
+    taskId: graph.taskId,
+    executionId: graph.executionId,
+    requestedByUserId: null,
+    idempotencyKey: `recovery:${graph.executionId}`,
+    definition: SESSION_TASK_DEFINITION,
+    parsedInput: { session, task, execution },
   });
   return {
-    runId: row.id,
+    runId: created.operationRunId,
+    attemptId: created.attemptId,
     organizationId: TEST_ORGANIZATION_ID,
-    operationKey: row.operationKey,
+    operationKey: SESSION_TASK_DEFINITION.key,
     input: { session, task, execution },
     requestedByUserId: null,
     scheduleId: null,
@@ -1545,19 +1520,4 @@ async function createOperation(graph: DurableGraph) {
     signal: new AbortController().signal,
     checkpoint: async () => undefined,
   };
-}
-
-async function reserveOperationAttempt(
-  controls: SessionControlAdapterSet,
-  graph: DurableGraph,
-  operation: { runId: string },
-) {
-  await controls.reserveAttemptForOperation({
-    organizationId: TEST_ORGANIZATION_ID,
-    sessionId: graph.sessionId,
-    taskId: graph.taskId,
-    executionId: graph.executionId,
-    operationRunId: operation.runId,
-    idempotencyKey: `operation:${operation.runId}`,
-  });
 }

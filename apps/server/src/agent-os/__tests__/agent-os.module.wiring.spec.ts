@@ -2,6 +2,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import "reflect-metadata";
 import { describe, expect, it, vi } from "vitest";
+import { Inject, Injectable, Module, type Type } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 import { MODULE_METADATA } from "@nestjs/common/constants";
@@ -51,6 +52,7 @@ import { PrismaAgentSessionLifecycleMaintenanceTransaction } from "../adapter/ou
 import { PrismaAgentSessionControlQueryRepository } from "../adapter/out/repository/session-control/prisma-agent-session-control-query.repository";
 import { PrismaAgentDelegationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-delegation.transaction";
 import { PrismaAgentAttemptOperationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction";
+import { PrismaAgentSessionOwnedOperationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction";
 import { PrismaAgentApprovalContinuationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction";
 import { PrismaAgentSessionTransitionTransaction } from "../adapter/out/transaction/session-control/prisma-agent-session-transition.transaction";
 import { PrismaAgentVersionRepository } from "../adapter/out/repository/prisma-agent-version.repository";
@@ -98,6 +100,7 @@ import { AGENT_SESSION_TOMBSTONE_HASHER } from "../application/port/out/crypto/a
 import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from "../application/port/out/repository/session-control/agent-session-control-query.repository.port";
 import { AGENT_DELEGATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-delegation.transaction.port";
 import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
+import { AGENT_SESSION_OWNED_OPERATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-session-owned-operation.transaction.port";
 import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
 import { AGENT_SESSION_TRANSITION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-session-transition.transaction.port";
 import { OPERATIONS_SESSION_EXECUTION_PORT } from "../application/port/out/cross-domain/operations-session-execution.port";
@@ -153,6 +156,7 @@ import { OperatorContextBuilder } from "../application/service/operator-context-
 import { OperatorDecisionExecutor } from "../application/service/operator-decision-executor.service";
 import { OperatorDecisionParser } from "../application/service/operator-decision-parser.service";
 import { AgentOsHttpModule } from "../agent-os-http.module";
+import { AgentOsApiExecutionModule } from "../agent-os-api-execution.module";
 import { AgentOsCatalogModule } from "../agent-os-catalog.module";
 import { AgentOsCapabilityModule } from "../agent-os-capability.module";
 import { AgentOsLegacyRunModule } from "../agent-os-legacy-run.module";
@@ -160,6 +164,13 @@ import { AgentOsSessionModule } from "../agent-os-session.module";
 import { AgentOsRuntimeSupportModule } from "../agent-os-runtime-support.module";
 import { AgentOsWorkerModule } from "../agent-os-worker.module";
 import { AgentOsModule } from "../agent-os.module";
+import {
+  AGENT_SESSION_OWNED_OPERATION_PORT,
+  type AgentSessionOwnedOperationPort,
+} from "../application/port/in/session-control/agent-session-owned-operation.port";
+import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from "../application/port/out/operation/agent-session-operation-platform.port";
+import { AgentSessionOwnedOperationService } from "../application/service/session-control/agent-session-owned-operation.service";
+import { OperationDefinitionSnapshotAdapter } from "../adapter/out/operation/operation-definition-snapshot.adapter";
 
 const IMPORTS_KEY = MODULE_METADATA.IMPORTS;
 const CONTROLLERS_KEY = MODULE_METADATA.CONTROLLERS;
@@ -183,7 +194,70 @@ const HTTP_CONTROLLERS = [
   AgentSessionController,
 ];
 
+@Injectable()
+class OwnedOperationPortConsumer {
+  constructor(
+    @Inject(AGENT_SESSION_OWNED_OPERATION_PORT)
+    readonly owned: AgentSessionOwnedOperationPort,
+  ) {}
+}
+
+@Module({
+  imports: [AgentOsApiExecutionModule],
+  providers: [OwnedOperationPortConsumer],
+})
+class OwnedOperationPortConsumerModule {}
+
+@Injectable()
+class PlatformPortConsumer {
+  constructor(
+    @Inject(AGENT_SESSION_OPERATION_PLATFORM_PORT)
+    readonly platform: unknown,
+  ) {}
+}
+
+@Module({
+  imports: [AgentOsApiExecutionModule],
+  providers: [PlatformPortConsumer],
+})
+class PlatformPortConsumerModule {}
+
+async function compile(module: Type<unknown>) {
+  return Test.createTestingModule({ imports: [module] })
+    .overrideProvider(OperationServerLifecycleService)
+    .useValue({})
+    .compile();
+}
+
+async function expectNotReachable(
+  root: Type<unknown>,
+  provider: Type<unknown>,
+): Promise<void> {
+  const moduleRef = await compile(root);
+  expect(() => moduleRef.get(provider, { strict: true })).toThrow();
+  await moduleRef.close();
+}
+
 describe("Agent OS process-root wiring", () => {
+  it('composes Operations-dependent session dispatch only in the API root', async () => {
+    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
+    const allowedConsumer = await compile(OwnedOperationPortConsumerModule);
+    const owned = allowedConsumer.get(OwnedOperationPortConsumer).owned;
+    expect(owned.startExecution).toBeTypeOf('function');
+    expect(owned.startCapability).toBeTypeOf('function');
+    await allowedConsumer.close();
+    await expect(compile(PlatformPortConsumerModule)).rejects.toThrow(
+      /AGENT_SESSION_OPERATION_PLATFORM_PORT/,
+    );
+    await expectNotReachable(
+      AgentRuntimeApplicationModule,
+      AgentSessionOwnedOperationService,
+    );
+    await expectNotReachable(
+      AgentMcpApplicationModule,
+      OperationDefinitionSnapshotAdapter,
+    );
+  });
   it("resolves the HTTP bootstrap controller through its declared input port", async () => {
     process.env.INTERACTION_GATEWAY_SHARED_SECRET = "a".repeat(32);
     process.env.INTERACTION_ANALYTICS_HMAC_KEY = "b".repeat(32);
@@ -306,6 +380,7 @@ describe("Agent OS process-root wiring", () => {
       AgentOsLegacyRunModule,
       AgentOsRuntimeSupportModule,
       OperationsModule,
+      AgentOsApiExecutionModule,
       StorageModule,
     ]);
     expect(
@@ -524,6 +599,10 @@ describe("Agent OS process-root wiring", () => {
       useClass: PrismaAgentAttemptOperationTransaction,
     });
     expect(providers).toContainEqual({
+      provide: AGENT_SESSION_OWNED_OPERATION_TRANSACTION,
+      useClass: PrismaAgentSessionOwnedOperationTransaction,
+    });
+    expect(providers).toContainEqual({
       provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION,
       useClass: PrismaAgentApprovalContinuationTransaction,
     });
@@ -574,6 +653,7 @@ describe("Agent OS process-root wiring", () => {
       AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
       AGENT_DELEGATION_TRANSACTION,
       AGENT_ATTEMPT_OPERATION_TRANSACTION,
+      AGENT_SESSION_OWNED_OPERATION_TRANSACTION,
       AGENT_APPROVAL_CONTINUATION_TRANSACTION,
       AGENT_SESSION_TRANSITION_TRANSACTION,
       AGENT_SESSION_LIFECYCLE_TRANSACTION,

@@ -8,14 +8,14 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { OperationRepositoryAdapter } from '../../operations/adapter/out/repository/operation.repository.adapter';
-import { CompositeOperationCoordinatorService } from '../../operations/application/service/composite-operation-coordinator.service';
 import { OperationHandlerRegistryService } from '../../operations/application/service/operation-handler-registry.service';
 import { OperationLifecycleGateService } from '../../operations/application/service/operation-lifecycle-gate.service';
-import { OperationRunService } from '../../operations/application/service/operation-run.service';
 import { SessionControlAdapterSet } from '../adapter/out/transaction/session-control/__tests__/session-control-adapter-set';
+import { OperationDefinitionSnapshotAdapter } from '../adapter/out/operation/operation-definition-snapshot.adapter';
+import { PrismaAgentSessionOwnedOperationTransaction } from '../adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction';
 import { AgentSessionDelegationService } from '../application/service/session-control/agent-session-delegation.service';
 import { AgentSessionTaskDispatchService } from '../application/service/session-control/agent-session-task-dispatch.service';
+import { AgentSessionOwnedOperationService } from '../application/service/session-control/agent-session-owned-operation.service';
 import { AGENT_OS_OPERATIONS } from '../domain/operation/agent-os.operations';
 import type { PrismaClient } from '@prisma/client';
 
@@ -31,25 +31,18 @@ let delegations: AgentSessionDelegationService;
 beforeAll(async () => {
   prisma = makeTestPrisma();
   controls = new SessionControlAdapterSet(prisma as never);
-  const operationsRepository = new OperationRepositoryAdapter(prisma as never);
   const registry = new OperationHandlerRegistryService();
   registry.register(AGENT_OS_OPERATIONS[0], {} as never);
   const lifecycleGate = new OperationLifecycleGateService();
   lifecycleGate.open();
-  const operations = new OperationRunService(
-    registry,
-    operationsRepository,
-    new CompositeOperationCoordinatorService(
-      registry,
-      operationsRepository,
-      lifecycleGate,
-    ),
-    lifecycleGate,
+  const ownedOperations = new AgentSessionOwnedOperationService(
+    new OperationDefinitionSnapshotAdapter(registry, lifecycleGate),
+    new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
   );
   delegations = new AgentSessionDelegationService(
     controls as never,
     controls as never,
-    new AgentSessionTaskDispatchService(operations, controls as never),
+    new AgentSessionTaskDispatchService(ownedOperations),
   );
   await prisma.$connect();
 });

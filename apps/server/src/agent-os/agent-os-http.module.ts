@@ -61,6 +61,7 @@ import { AgentSessionTaskControlService } from "./application/service/session-co
 import { AgentSessionTaskDispatchService } from "./application/service/session-control/agent-session-task-dispatch.service";
 import { AgentSessionTaskExecutionService } from "./application/service/session-execution/agent-session-task-execution.service";
 import { AgentOsModule } from "./agent-os.module";
+import { AgentOsApiExecutionModule } from "./agent-os-api-execution.module";
 import { AgentOsLegacyRunModule } from "./agent-os-legacy-run.module";
 import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
 
@@ -70,6 +71,7 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentOsLegacyRunModule,
     AgentOsRuntimeSupportModule,
     OperationsModule,
+    AgentOsApiExecutionModule,
     StorageModule,
   ],
   controllers: [

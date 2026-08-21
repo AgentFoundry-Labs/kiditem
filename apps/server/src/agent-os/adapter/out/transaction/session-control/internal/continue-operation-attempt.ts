@@ -103,6 +103,18 @@ export async function continueOperationAttemptInTransaction(
   )
     throw state();
 
+  const predecessorOwnership =
+    await tx.agentSessionOperationRunOwnership.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        operationRunId: input.predecessorOperationRunId,
+      },
+      select: { sessionId: true },
+    });
+  if (predecessorOwnership && predecessorOwnership.sessionId !== input.sessionId) {
+    throw scope();
+  }
+
   input.signal.throwIfAborted();
   const operationRun = await tx.operationRun.create({
     data: {
@@ -124,6 +136,15 @@ export async function continueOperationAttemptInTransaction(
     },
     select: { id: true },
   });
+  if (predecessorOwnership) {
+    await tx.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: input.organizationId,
+        sessionId: predecessorOwnership.sessionId,
+        operationRunId: operationRun.id,
+      },
+    });
+  }
   await tx.agentExecutionAttemptOperationBinding.create({
     data: {
       organizationId: input.organizationId,

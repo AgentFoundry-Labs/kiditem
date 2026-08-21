@@ -1,7 +1,6 @@
 import type { AgentSessionOperationContinuationRecord, ExecutionAttemptRecord } from '../../repository/session-control/agent-session-control.persistence.types';
 export const AGENT_ATTEMPT_OPERATION_TRANSACTION = Symbol('AGENT_ATTEMPT_OPERATION_TRANSACTION');
 export interface AgentAttemptOperationTransactionPort {
-  reserveAttemptForOperation(input: { organizationId: string; sessionId: string; taskId: string; executionId: string; operationRunId: string; idempotencyKey: string }): Promise<ExecutionAttemptRecord>;
   findAttemptForOperation(input: { organizationId: string; operationRunId: string }): Promise<ExecutionAttemptRecord | null>;
   activateAttemptForOperation(input: { organizationId: string; sessionId: string; executionId: string; operationRunId: string }): Promise<ExecutionAttemptRecord>;
   startAttempt(input: { organizationId: string; sessionId: string; executionId: string; runtimeType: string; externalRunId?: string | null; encryptedHandleRef?: string | null; idempotencyKey: string }): Promise<ExecutionAttemptRecord>;

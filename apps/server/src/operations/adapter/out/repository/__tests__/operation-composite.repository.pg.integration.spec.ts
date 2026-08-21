@@ -6,6 +6,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
+  TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { OperationRepositoryAdapter } from '../operation.repository.adapter';
 import type { PrismaClient } from '@prisma/client';
@@ -175,10 +176,153 @@ describe('operation composite repository PostgreSQL fencing', () => {
     await expect(locker.operationRun.count({
       where: { parentRunId: runId },
     })).resolves.toBe(1);
+    await expect(locker.agentSessionOperationRunOwnership.count({
+      where: { operationRun: { parentRunId: runId } },
+    })).resolves.toBe(0);
     await expect(locker.operationRun.findUniqueOrThrow({
       where: { id: runId },
       select: { status: true, attemptToken: true },
     })).resolves.toEqual({ status: 'waiting_dependency', attemptToken: null });
+  });
+
+  it('propagates an owned parent session edge to its child in the same transaction', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const sessionId = await createOwnedSession(locker);
+    await locker.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId,
+        operationRunId: runId,
+      },
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+
+    const child = await repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child: childInput(TEST_ORGANIZATION_ID, runId),
+    });
+
+    await expect(locker.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: child!.id,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId });
+  });
+
+  it('rejects a preexisting child owned by a different session without changing the parent', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const parentSessionId = await createOwnedSession(locker);
+    const childSessionId = await createOwnedSession(locker);
+    await locker.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: parentSessionId,
+        operationRunId: runId,
+      },
+    });
+    const child = await locker.operationRun.create({ data: childInput(TEST_ORGANIZATION_ID, runId) });
+    await locker.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: childSessionId,
+        operationRunId: child.id,
+      },
+    });
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+
+    await expect(repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child: childInput(TEST_ORGANIZATION_ID, runId),
+    })).rejects.toThrow('operation_composite_child_scope_invalid');
+    await expect(locker.operationRun.findUniqueOrThrow({
+      where: { id: runId },
+      select: { status: true, attemptToken: true },
+    })).resolves.toEqual({ status: 'running', attemptToken });
+  });
+
+  it('rejects an owned child after the session deletion lifecycle fence and leaves no unowned child', async () => {
+    const runId = randomUUID();
+    const attemptToken = randomUUID();
+    await createRunningParent(locker, {
+      runId,
+      attemptToken,
+      leaseExpiresAt: new Date(Date.now() + 60_000),
+      deadlineAt: new Date(Date.now() + 60_000),
+    });
+    const sessionId = await createOwnedSession(locker);
+    await locker.agentSessionOperationRunOwnership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId,
+        operationRunId: runId,
+      },
+    });
+    const fenceLocked = deferred();
+    const childStarted = deferred();
+    const deletionFence = locker.$transaction(async (transaction) => {
+      await transaction.$executeRaw`
+        SELECT pg_advisory_xact_lock(hashtextextended(
+          ${`agent-session-lifecycle:${TEST_ORGANIZATION_ID}:${sessionId}`},
+          0
+        ))
+      `;
+      await transaction.$queryRaw`
+        SELECT id
+        FROM agent_sessions
+        WHERE id = ${sessionId}::uuid
+          AND organization_id = ${TEST_ORGANIZATION_ID}::uuid
+        FOR UPDATE
+      `;
+      fenceLocked.resolve();
+      await childStarted.promise;
+      await transaction.agentSession.update({
+        where: { id: sessionId },
+        data: { lifecycle: 'archived' },
+      });
+    });
+    await fenceLocked.promise;
+    const repository = new OperationRepositoryAdapter(
+      updater as unknown as PrismaService,
+    );
+    const child = repository.createChildAndWaitForDependency({
+      signal: new AbortController().signal,
+      parentOrganizationId: TEST_ORGANIZATION_ID,
+      parentRunId: runId,
+      expectedAttemptToken: attemptToken,
+      child: childInput(TEST_ORGANIZATION_ID, runId),
+    });
+    childStarted.resolve();
+
+    await deletionFence;
+    await expect(child).resolves.toBeNull();
+    await expect(locker.operationRun.count({
+      where: { parentRunId: runId },
+    })).resolves.toBe(0);
   });
 
   it('atomically creates one exact set of plural children under concurrent duplicate requests', async () => {
@@ -352,6 +496,49 @@ async function createRunningParent(
       startedAt: new Date(),
     },
   });
+}
+
+async function createOwnedSession(prisma: PrismaClient): Promise<string> {
+  const versionId = randomUUID();
+  const authorityProfileVersionId = randomUUID();
+  await prisma.agentVersion.create({
+    data: {
+      id: versionId,
+      agentDefinitionKey: `composite-owner-${versionId}`,
+      version: 1,
+      displayName: 'Composite owner',
+      description: 'Composite owner',
+      runtimeType: 'codex_cli',
+      modelIdentity: 'test-model',
+      capabilityKeys: [],
+      policyDocument: {},
+      manifestHash: randomUUID().replaceAll('-', ''),
+      runtimeManifest: {},
+      activatedAt: new Date(),
+    },
+  });
+  await prisma.agentAuthorityProfileVersion.create({
+    data: {
+      id: authorityProfileVersionId,
+      organizationId: TEST_ORGANIZATION_ID,
+      profileKey: `composite-owner-${authorityProfileVersionId}`,
+      version: 1,
+      capabilityKeys: [],
+      policyDocument: {},
+      policyHash: randomUUID().replaceAll('-', ''),
+    },
+  });
+  const session = await prisma.agentSession.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      createdByUserId: TEST_USER_ID,
+      copilotThreadId: `composite-owner-${randomUUID()}`,
+      primaryAgentVersionId: versionId,
+      authorityProfileVersionId,
+      lifecycle: 'active',
+    },
+  });
+  return session.id;
 }
 
 function childInput(

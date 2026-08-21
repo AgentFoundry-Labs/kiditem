@@ -94,7 +94,7 @@ describe('AgentSessionOperationContinuationService', () => {
     });
   });
 
-  it('replays lifecycle-cancelled graphs through one idempotent successor boundary after acceptance', async () => {
+  it('replays lifecycle-cancelled graphs through the ownership-preserving successor transaction after acceptance', async () => {
     const { service, controls, gate } = harness();
     gate.open();
 

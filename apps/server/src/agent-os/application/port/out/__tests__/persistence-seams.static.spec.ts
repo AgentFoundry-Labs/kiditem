@@ -56,7 +56,6 @@ const transactionPorts = [
   [
     "transaction/session-control/agent-attempt-operation.transaction.port.ts",
     [
-      "reserveAttemptForOperation",
       "findAttemptForOperation",
       "activateAttemptForOperation",
       "startAttempt",
@@ -64,6 +63,10 @@ const transactionPorts = [
       "finishAttempt",
       "continueOperationAttempt",
     ],
+  ],
+  [
+    "transaction/session-control/agent-session-owned-operation.transaction.port.ts",
+    ["createExecutionRun", "createCapabilityRun"],
   ],
   [
     "transaction/session-control/agent-approval-continuation.transaction.port.ts",
@@ -107,6 +110,7 @@ const sessionControlAdapters = [
   "adapter/out/repository/session-control/prisma-agent-session-control-query.repository.ts",
   "adapter/out/transaction/session-control/prisma-agent-delegation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts",
+  "adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
 ] as const;
@@ -138,7 +142,6 @@ const sessionControlAdapterSeams = [
     "adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts",
     "AgentAttemptOperationTransactionPort",
     [
-      "reserveAttemptForOperation",
       "findAttemptForOperation",
       "activateAttemptForOperation",
       "startAttempt",
@@ -146,6 +149,11 @@ const sessionControlAdapterSeams = [
       "finishAttempt",
       "continueOperationAttempt",
     ],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.ts",
+    "AgentSessionOwnedOperationTransactionPort",
+    ["createExecutionRun", "createCapabilityRun"],
   ],
   [
     "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",

@@ -15,6 +15,7 @@ import {
   TEST_USER_ID,
 } from '../../../../../../test-helpers/real-prisma';
 import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
+import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
 import { SessionControlAdapterSet } from './session-control-adapter-set';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
@@ -24,6 +25,19 @@ const OTHER_AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000004';
 
 let prisma: PrismaClient | null = null;
 let repository: SessionControlAdapterSet;
+let ownedOperations: PrismaAgentSessionOwnedOperationTransaction;
+
+const sessionTaskDefinition = {
+  key: 'agent-os.execute-session-task',
+  version: 1,
+  title: 'Execute session task',
+  ownerDomain: 'agent-os',
+  engineType: 'agent_os' as const,
+  resourceClass: 'default' as const,
+  executionTimeoutMs: 900_000,
+  maxAttempts: 3,
+  successPersistence: 'retained' as const,
+};
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
@@ -40,9 +54,134 @@ beforeEach(async () => {
   await resetDb(prisma);
   await seedBaseFixture(prisma);
   await seedControlFixture(prisma);
+  ownedOperations = new PrismaAgentSessionOwnedOperationTransaction(prisma as never);
 });
 
 describe('Prisma Agent session-control transaction seams', () => {
+  it('creates the run, ownership, attempt, and attempt binding in one transaction', async () => {
+    const fixture = await createRootGraph();
+    const idempotencyKey = `session-execution:${fixture.executionId}`;
+    const input = {
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    };
+
+    const result = await ownedOperations.createExecutionRun(input);
+    const replay = await ownedOperations.createExecutionRun(input);
+
+    expect(replay).toEqual(result);
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: result.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+    await expect(prisma!.agentExecutionAttemptOperationBinding.count({
+      where: { operationRunId: result.operationRunId },
+    })).resolves.toBe(1);
+    await expect(prisma!.operationRun.count({ where: { idempotencyKey } })).resolves.toBe(1);
+  });
+
+  it('rolls back every row when ownership cannot use the scoped session', async () => {
+    const fixture = await createRootGraph();
+    const foreignSession = await createRootGraph({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      authorityProfileVersionId: OTHER_AUTHORITY_VERSION,
+    });
+    const idempotencyKey = `session-execution:foreign:${fixture.executionId}`;
+
+    await expect(ownedOperations.createExecutionRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: foreignSession.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+
+    await expect(prisma!.operationRun.count({ where: { idempotencyKey } })).resolves.toBe(0);
+    await expect(prisma!.agentSessionOperationRunOwnership.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentExecutionAttempt.count({
+      where: { executionId: fixture.executionId },
+    })).resolves.toBe(0);
+  });
+
+  it('keeps a successor OperationRun owned by the same session', async () => {
+    const fixture = await createRootGraph();
+    const initial = await ownedOperations.createExecutionRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey: `session-execution:${fixture.executionId}`,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: initial.operationRunId,
+    });
+    await repository.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: initial.attemptId,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'owned-continuation-runtime',
+      encryptedHandleRef: 'vault://owned-continuation-runtime',
+      runtimeGeneration: 1,
+    });
+    await prisma!.operationRun.update({
+      where: { id: initial.operationRunId },
+      data: {
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+        finishedAt: new Date(),
+      },
+    });
+
+    const successor = await repository.continueOperationAttempt({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: initial.attemptId,
+      predecessorOperationRunId: initial.operationRunId,
+      continuationKey: `lifecycle:${initial.operationRunId}`,
+    });
+
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: successor.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: initial.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+  });
+
   it('creates one idempotent delegated child and fences organization ownership', async () => {
     const fixture = await createRootGraph();
     const input = {
@@ -275,26 +414,9 @@ describe('Prisma Agent session-control transaction seams', () => {
 
   it('links one active execution attempt to its exact organization-scoped Operation run for cancellation', async () => {
     const fixture = await createRootGraph();
-    const operation = await prisma!.operationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationKey: 'agent-os.execute-session-task',
-        definitionVersion: 1,
-        ownerDomain: 'agent-os',
-        title: 'Execute agent task',
-        engineType: 'agent_os',
-        triggerSource: 'agent',
-        input: {},
-      },
-    });
-    const reserved = await repository.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: fixture.sessionId,
-      taskId: fixture.taskId,
-      executionId: fixture.executionId,
-      operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
-    });
+    const owned = await createOwnedExecutionOperation(fixture, 'cancel-link');
+    const operation = { id: owned.operationRunId };
+    const reserved = { id: owned.attemptId };
     await expect(repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
@@ -320,31 +442,13 @@ describe('Prisma Agent session-control transaction seams', () => {
 
   it('recovers the true latest lifecycle envelope after more than one bounded batch of historical bindings', async () => {
     const fixture = await createRootGraph();
-    const initial = await prisma!.operationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationKey: 'agent-os.execute-session-task',
-        definitionVersion: 1,
-        ownerDomain: 'agent-os',
-        title: 'Recover latest immutable envelope',
-        engineType: 'agent_os',
-        triggerSource: 'agent',
-        input: {},
-      },
-    });
-    const attempt = await repository.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: fixture.sessionId,
-      taskId: fixture.taskId,
-      executionId: fixture.executionId,
-      operationRunId: initial.id,
-      idempotencyKey: `operation:${initial.id}`,
-    });
+    const initial = await createOwnedExecutionOperation(fixture, 'latest-envelope');
+    const attempt = { id: initial.attemptId };
     await repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
       executionId: fixture.executionId,
-      operationRunId: initial.id,
+      operationRunId: initial.operationRunId,
     });
     await repository.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
@@ -357,7 +461,7 @@ describe('Prisma Agent session-control transaction seams', () => {
       runtimeGeneration: 1,
     });
 
-    let predecessorOperationRunId = initial.id;
+    let predecessorOperationRunId = initial.operationRunId;
     for (let index = 0; index <= 100; index += 1) {
       await prisma!.operationRun.update({
         where: { id: predecessorOperationRunId },
@@ -400,33 +504,15 @@ describe('Prisma Agent session-control transaction seams', () => {
     ]);
   });
 
-  it('reserves a queued attempt before worker claim so explicit queued cancellation has an exact Operation run', async () => {
+  it('creates a queued owned attempt before worker claim so explicit cancellation has an exact Operation run', async () => {
     const fixture = await createRootGraph();
     await prisma!.agentSessionTask.update({
       where: { id: fixture.taskId },
       data: { status: 'queued' },
     });
-    const operation = await prisma!.operationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationKey: 'agent-os.execute-session-task',
-        definitionVersion: 1,
-        ownerDomain: 'agent-os',
-        title: 'Execute queued agent task',
-        engineType: 'agent_os',
-        triggerSource: 'agent',
-        input: {},
-      },
-    });
-
-    const reserved = await repository.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: fixture.sessionId,
-      taskId: fixture.taskId,
-      executionId: fixture.executionId,
-      operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
-    });
+    const created = await createOwnedExecutionOperation(fixture, 'queued-cancellation');
+    const operation = { id: created.operationRunId };
+    const reserved = { id: created.attemptId, state: 'queued' };
 
     expect(reserved.state).toBe('queued');
     await expect(repository.loadCancelableTask({
@@ -446,26 +532,9 @@ describe('Prisma Agent session-control transaction seams', () => {
 
   it('binds an approval to one invocation attempt and decides it idempotently', async () => {
     const fixture = await createRootGraph();
-    const operation = await prisma!.operationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationKey: 'agent-os.execute-session-task',
-        definitionVersion: 1,
-        ownerDomain: 'agent-os',
-        title: 'Execute approved agent task',
-        engineType: 'agent_os',
-        triggerSource: 'agent',
-        input: {},
-      },
-    });
-    const attempt = await repository.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: fixture.sessionId,
-      taskId: fixture.taskId,
-      executionId: fixture.executionId,
-      operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
-    });
+    const created = await createOwnedExecutionOperation(fixture, 'approval');
+    const operation = { id: created.operationRunId };
+    const attempt = { id: created.attemptId };
     await repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
@@ -1962,29 +2031,12 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.toBe(0);
   });
 
-  it('removes session control rows while retaining the external operation envelope', async () => {
+  it('rejects deletion while an owned operation envelope is fenced to the session', async () => {
     const fixture = await createRootGraph();
     const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
-    const operation = await prisma!.operationRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        operationKey: 'agent-os.execute-session-task',
-        definitionVersion: 1,
-        ownerDomain: 'agent-os',
-        title: 'Delete retained operation envelope',
-        engineType: 'agent_os',
-        triggerSource: 'agent',
-        input: {},
-      },
-    });
-    const attempt = await repository.reserveAttemptForOperation({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: fixture.sessionId,
-      taskId: fixture.taskId,
-      executionId: fixture.executionId,
-      operationRunId: operation.id,
-      idempotencyKey: `operation:${operation.id}`,
-    });
+    const created = await createOwnedExecutionOperation(fixture, 'delete-retained-envelope');
+    const operation = { id: created.operationRunId };
+    const attempt = { id: created.attemptId };
     await repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,
@@ -2022,18 +2074,24 @@ describe('Prisma Agent session-control transaction seams', () => {
       },
     });
 
-    await lifecycle.deleteSession(lifecycleDeleteInput(fixture.sessionId));
+    await expect(lifecycle.deleteSession(lifecycleDeleteInput(fixture.sessionId)))
+      .rejects.toThrow();
 
     await expect(prisma!.agentSessionApproval.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
-    })).resolves.toBe(0);
+    })).resolves.toBe(1);
     await expect(prisma!.agentSessionApprovalContinuation.count({
       where: { organizationId: TEST_ORGANIZATION_ID, approvalId: approval.id },
-    })).resolves.toBe(0);
+    })).resolves.toBe(1);
     await expect(prisma!.agentExecutionAttemptOperationBinding.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
-    })).resolves.toBe(0);
-    await expect(prisma!.operationRun.findUnique({ where: { id: operation.id } })).resolves.not.toBeNull();
+    })).resolves.toBe(1);
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: operation.id,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
   });
 });
 
@@ -2204,6 +2262,23 @@ async function createRootGraph(input: {
     data: { lastEventSequence: 1n },
   });
   return { sessionId: session.id, taskId: task.id, policyId: policy.id, executionId: execution.id };
+}
+
+async function createOwnedExecutionOperation(
+  fixture: { sessionId: string; taskId: string; executionId: string },
+  suffix: string,
+): Promise<{ operationRunId: string; attemptId: string }> {
+  return ownedOperations.createExecutionRun({
+    signal: new AbortController().signal,
+    organizationId: TEST_ORGANIZATION_ID,
+    sessionId: fixture.sessionId,
+    taskId: fixture.taskId,
+    executionId: fixture.executionId,
+    requestedByUserId: TEST_USER_ID,
+    idempotencyKey: `session-execution:${suffix}:${fixture.executionId}`,
+    definition: sessionTaskDefinition,
+    parsedInput: { execution: fixture.executionId },
+  });
 }
 
 function artifactStorageReference(organizationId: string, objectId: string): string {
