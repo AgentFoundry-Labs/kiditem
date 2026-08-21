@@ -72,6 +72,17 @@ export type {
   AgentSessionLifecycleCommandKind,
 } from "./lifecycle";
 
+export {
+  AgentSessionDeletionFailureCodeSchema,
+  AgentSessionDeletionStateSchema,
+  AgentSessionDeletionStatusSchema,
+} from "./deletion";
+export type {
+  AgentSessionDeletionFailureCode,
+  AgentSessionDeletionState,
+  AgentSessionDeletionStatus,
+} from "./deletion";
+
 const boundedIdentifierSchema = z.string().min(1).max(128);
 const stableCodeSchema = boundedIdentifierSchema.regex(
   /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/,

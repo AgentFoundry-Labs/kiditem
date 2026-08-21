@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agent-os-hexagonal.mjs',
+  'check-agent-session-deletion.mjs',
   'check-agent-interaction-lifecycle.mjs',
   'check-agents-hygiene.mjs',
   'check-copilotkit-train.mjs',
@@ -79,6 +80,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     'node scripts/check-agent-os-hexagonal.mjs'
   ) {
     missingPackageHooks.push('check:agent-os-hexagonal');
+  }
+  if (
+    packageScripts['check:agent-session-deletion'] !==
+    'node scripts/check-agent-session-deletion.mjs'
+  ) {
+    missingPackageHooks.push('check:agent-session-deletion');
   }
   if (!packageScripts['check:scripts-inventory']) {
     missingPackageHooks.push('check:scripts-inventory');
