@@ -6,7 +6,7 @@ import {
   type AgentInteractionPort,
   type AgentInteractionResult,
   type RecordAgentAssistantMessageInput,
-} from '../port/in/agent-interaction.port';
+} from '../port/in/legacy-run/agent-interaction.port';
 import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,

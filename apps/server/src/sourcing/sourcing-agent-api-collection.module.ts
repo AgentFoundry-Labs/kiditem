@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { OperationsModule } from '../operations/operations.module';
 import { AgentApiCapabilityGrantGuard } from '../agent-os/adapter/in/http/agent-api-capability-grant.guard';
 import { SourcingCollectionCapabilityAdapter } from './adapter/in/agent/sourcing-collection-capability.adapter';
@@ -8,7 +8,7 @@ import { SourcingCollectionOperationAdapter } from './adapter/out/operations/sou
 import { SOURCING_COLLECTION_OPERATION_PORT } from './application/port/out/cross-domain/sourcing-collection-operation.port';
 
 @Module({
-  imports: [AgentOsModule, OperationsModule],
+  imports: [AgentOsSessionModule, OperationsModule],
   controllers: [InternalSourcingCollectionController],
   providers: [
     AgentApiCapabilityGrantGuard,

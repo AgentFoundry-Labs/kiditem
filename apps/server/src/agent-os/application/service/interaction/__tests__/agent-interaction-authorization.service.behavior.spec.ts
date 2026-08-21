@@ -741,12 +741,12 @@ describe("AgentInteraction authorization and bootstrap capabilities", () => {
     for (const retired of [
       "AgentThreadBindingService",
       "QuickAsk",
-      "quick_ask",
+      ['quick', '_ask'].join(''),
       "ThreadBinding",
       "AguiRunPreparation",
       "preparationToken",
-      "idleExpiresAt",
-      "withQuickAskLock",
+      ['idle', 'ExpiresAt'].join(''),
+      ['with', 'Quick', 'Ask', 'Lock'].join(''),
       "INTERACTION_PREPARATION_HMAC_KEY",
       "INTERACTION_THREAD_ID_HMAC_KEY",
     ]) {

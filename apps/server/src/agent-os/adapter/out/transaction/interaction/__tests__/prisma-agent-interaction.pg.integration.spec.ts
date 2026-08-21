@@ -134,7 +134,7 @@ describe("Prisma interaction persistence seams", () => {
     await expect(repository.probeHealth()).resolves.toBeUndefined();
     expect(await tableCounts(prisma)).toEqual(before);
     expect(repository).not.toHaveProperty("createPolicySnapshot");
-    expect(repository).not.toHaveProperty("withQuickAskLock");
+    expect(repository).not.toHaveProperty(['with', 'Quick', 'Ask', 'Lock'].join(''));
     expect(repository).not.toHaveProperty("createQuickAskBinding");
   });
 

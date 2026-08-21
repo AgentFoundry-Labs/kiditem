@@ -7,6 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { ApiApplicationModule } from '../api-application.module';
 import { AgentWorkerApplicationModule } from '../agent-worker-application.module';
 import { AgentMcpApplicationModule } from '../agent-mcp-application.module';
+import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
+import { AgentOsWorkerModule } from '../agent-os/agent-os-worker.module';
 import { OperationsModule } from '../operations/operations.module';
 import { OperationRunWorkerService } from '../operations/application/service/operation-run-worker.service';
 import { OperationSchedulerService } from '../operations/application/service/operation-scheduler.service';
@@ -115,6 +117,16 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('application root topology', () => {
+  it('does not give the worker wrapper HTTP or Operations dependencies', () => {
+    const workerImports: ModuleLike[] =
+      Reflect.getMetadata(MODULE_METADATA.IMPORTS, AgentOsWorkerModule) ?? [];
+
+    expect(workerImports).not.toContain(AgentOsHttpModule);
+    expect([...graph(AgentOsWorkerModule)].map(moduleClass)).not.toContain(
+      OperationsModule,
+    );
+  });
+
   it('gives Operations ownership only to the API root', () => {
     const hasOperations = (root: ModuleLike): boolean =>
       [...graph(root)].some(

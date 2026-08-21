@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsModule } from "../agent-os/agent-os.module";
+import { AgentOsLegacyRunModule } from "../agent-os/agent-os-legacy-run.module";
 import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -183,7 +183,7 @@ const REPOSITORY_PORT_BINDINGS = [
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
+    AgentOsLegacyRunModule,
     AiModule,
     AutomationModule,
     ChannelsModule,

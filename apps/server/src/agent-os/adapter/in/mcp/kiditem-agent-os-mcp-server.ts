@@ -8,9 +8,10 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { z } from 'zod/v3';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
-  AgentOsMcpToolExecutor,
-  type AgentOsMcpExecutionContext,
-} from '../../../application/service/agent-os-mcp-tool-executor.service';
+  AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+  type AgentOsMcpExecutionContextPort,
+  type AgentOsMcpToolExecutionPort,
+} from '../../../application/port/in/capability/agent-os-mcp-tool-execution.port';
 
 export interface KidItemAgentOsMcpEnvContext {
   organizationId: string;
@@ -101,14 +102,14 @@ function readRequiredEnv(
 
 export function readKidItemAgentOsMcpContext(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
-): AgentOsMcpExecutionContext {
+): AgentOsMcpExecutionContextPort {
   const context = Object.fromEntries(
     REQUIRED_ENV.map(([envKey, contextKey]) => [
       contextKey,
       readRequiredEnv(env, envKey),
     ]),
   ) as Omit<
-    AgentOsMcpExecutionContext,
+    AgentOsMcpExecutionContextPort,
     'agentType' | 'playbookKey' | 'planStepKey' | 'requestedByUserId'
   >;
 
@@ -182,8 +183,8 @@ function toMcpToolError(error: unknown) {
 }
 
 async function executeMcpTool(input: {
-  context: AgentOsMcpExecutionContext;
-  executor: AgentOsMcpToolExecutor;
+  context: AgentOsMcpExecutionContextPort;
+  executor: AgentOsMcpToolExecutionPort;
   toolName: string;
   arguments: Record<string, unknown>;
 }) {
@@ -269,8 +270,8 @@ function toolRegistrationConfig(name: string): McpToolRegistrationConfig {
 
 function registerExecutorTool(input: {
   server: McpServer;
-  context: AgentOsMcpExecutionContext;
-  executor: AgentOsMcpToolExecutor;
+  context: AgentOsMcpExecutionContextPort;
+  executor: AgentOsMcpToolExecutionPort;
   toolName: string;
 }): void {
   input.server.registerTool(
@@ -287,8 +288,8 @@ function registerExecutorTool(input: {
 }
 
 export function createKidItemAgentOsMcpServer(input: {
-  context: AgentOsMcpExecutionContext;
-  executor: AgentOsMcpToolExecutor;
+  context: AgentOsMcpExecutionContextPort;
+  executor: AgentOsMcpToolExecutionPort;
 }): McpServer {
   const server = new McpServer({
     name: 'kiditem-agent-os-mcp',
@@ -347,7 +348,9 @@ export async function runKidItemAgentOsMcpServer(): Promise<void> {
     repositoryRoot,
   });
   const context = readKidItemAgentOsMcpContext();
-  const executor = app.get(AgentOsMcpToolExecutor);
+  const executor: AgentOsMcpToolExecutionPort = app.get(
+    AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+  );
   const server = createKidItemAgentOsMcpServer({ context, executor });
   let closed = false;
 

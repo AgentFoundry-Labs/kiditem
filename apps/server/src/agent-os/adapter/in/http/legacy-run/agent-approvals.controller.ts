@@ -1,9 +1,9 @@
-import { Body, Controller, Get, Param, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post, Query } from '@nestjs/common';
 import type { AuthUser } from '../../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
 import { Roles } from '../../../../../auth/decorators/roles.decorator';
-import { AgentApprovalService } from '../../../../application/service/agent-approval.service';
+import { LEGACY_AGENT_APPROVAL_PORT, type LegacyAgentApprovalPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import type { AgentApprovalStatus } from '../../../../domain/agent-os.types';
 import {
   ListAgentApprovalsQueryDto,
@@ -12,7 +12,7 @@ import {
 
 @Controller('agent-os/approvals')
 export class AgentApprovalsController {
-  constructor(private readonly approvals: AgentApprovalService) {}
+  constructor(@Inject(LEGACY_AGENT_APPROVAL_PORT) private readonly approvals: LegacyAgentApprovalPort) {}
 
   @Get()
   async list(

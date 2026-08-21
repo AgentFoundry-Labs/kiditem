@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
 import { StorageService } from '../common/storage/storage.service';
 import { StorageModule } from '../common/storage/storage.module';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
+import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 // adapter/in/http
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../channels/application/port/out/cross-domain/catalog-media-publication.port';
@@ -173,7 +174,7 @@ import {
 import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
 
 @Module({
-  imports: [OperationAlertRuntimeModule, AgentOsModule, StorageModule],
+  imports: [OperationAlertRuntimeModule, AgentOsSessionModule, AgentOsCapabilityModule, StorageModule],
   providers: [
     DetailPageGenerationService,
     ContentWorkspaceService,

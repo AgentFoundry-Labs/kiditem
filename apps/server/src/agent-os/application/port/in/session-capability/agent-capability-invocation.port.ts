@@ -3,7 +3,7 @@ import type {
   AgentSessionName,
   AgentSessionTaskName,
 } from '@kiditem/shared/identifiers';
-import type { AgentCapabilityExecutionResult } from '../out/capability/agent-capability-handler.port';
+import type { AgentCapabilityExecutionResult } from '../../out/capability/agent-capability-handler.port';
 
 export const AGENT_SESSION_CAPABILITY_INVOCATION_PORT = Symbol(
   'AGENT_SESSION_CAPABILITY_INVOCATION_PORT',

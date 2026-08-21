@@ -33,7 +33,7 @@ import {
 import {
   AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
   type AgentSessionCapabilityInvocationPort,
-} from "../port/in/agent-capability-invocation.port";
+} from "../port/in/session-capability/agent-capability-invocation.port";
 import {
   AGENT_CONVERSATION_LIVE_PUBLISHER,
   type AgentConversationLivePublisherPort,

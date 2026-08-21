@@ -1,6 +1,6 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsModule } from "../agent-os/agent-os.module";
+import { AgentOsLegacyRunModule } from "../agent-os/agent-os-legacy-run.module";
 import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -139,7 +139,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
+    AgentOsLegacyRunModule,
     SourcingAgentRuntimeModule,
     SourcingAgentApiCollectionModule,
     SourcingShadowOperationModule,

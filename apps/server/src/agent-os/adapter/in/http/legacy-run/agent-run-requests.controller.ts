@@ -16,7 +16,7 @@ import {
   AGENT_RUNNER_PORT,
   type AgentRunnerPort,
 } from '../../../../application/port/in/agent-runner.port';
-import { AgentObservabilityService } from '../../../../application/service/agent-observability.service';
+import { LEGACY_AGENT_OBSERVABILITY_PORT, type LegacyAgentObservabilityPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import type { AgentRunRequestStatus } from '../../../../domain/agent-os.types';
 import {
   CreateAgentRunRequestDto,
@@ -30,7 +30,8 @@ export class AgentRunRequestsController {
   constructor(
     @Inject(AGENT_RUNNER_PORT)
     private readonly runner: AgentRunnerPort,
-    private readonly observability: AgentObservabilityService,
+    @Inject(LEGACY_AGENT_OBSERVABILITY_PORT)
+    private readonly observability: LegacyAgentObservabilityPort,
   ) {}
 
   @Post('runs')

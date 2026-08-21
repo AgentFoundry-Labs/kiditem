@@ -3,7 +3,7 @@ import { RuleEvaluationController } from './controllers/rule-evaluation.controll
 import { RuleSuggestionsController } from './controllers/rule-suggestions.controller';
 import { RulesManagementController } from './controllers/rules-management.controller';
 import { RulesService } from './services/rules.service';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
 import { AutomationModule } from '../automation/automation.module';
 import { RulesOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { RULES_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
@@ -21,7 +21,7 @@ import { RULES_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/
 // `automation/` owner domain in Wave H3 AO-2 — they are no longer registered
 // here. Rules now owns only `/api/rules/*` evaluation + rule CRUD.
 @Module({
-  imports: [AgentOsModule, AutomationModule],
+  imports: [AgentOsLegacyRunModule, AutomationModule],
   controllers: [
     RuleEvaluationController,
     RulesManagementController,

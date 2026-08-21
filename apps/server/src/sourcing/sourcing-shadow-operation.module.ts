@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { AgentApiShadowCapabilityGrantGuard } from '../agent-os/adapter/in/http/agent-api-shadow-capability-grant.guard';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -24,7 +24,7 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
+    AgentOsSessionModule,
     OperationsModule,
     SourcingAgentRuntimeModule,
   ],

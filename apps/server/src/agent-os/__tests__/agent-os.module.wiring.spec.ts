@@ -55,8 +55,8 @@ import { AGENT_INTERACTION_PRESENTATION_PORT } from "../application/port/in/inte
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from "../application/port/in/session-control/agent-session-approval-decision.port";
 import { AGENT_SESSION_TASK_CONTROL_PORT } from "../application/port/in/session-control/agent-session-task-control.port";
 import { AGENT_SESSION_TASK_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-task-execution.port";
-import { AGENT_INTERACTION_PORT } from "../application/port/in/agent-interaction.port";
-import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from "../application/port/in/agent-capability-invocation.port";
+import { AGENT_INTERACTION_PORT } from "../application/port/in/legacy-run/agent-interaction.port";
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from "../application/port/in/session-capability/agent-capability-invocation.port";
 import { AGENT_OS_LIVE_READINESS_PORT } from "../application/port/out/cross-domain/agent-os-live-readiness.port";
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from "../application/port/out/event/agent-conversation-live-publisher.port";
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from "../application/port/out/event/interaction-product-analytics.port";
@@ -109,11 +109,16 @@ import { AgentSessionTaskDispatchService } from "../application/service/session-
 import { AgentSessionTaskExecutionService } from "../application/service/session-execution/agent-session-task-execution.service";
 import { AgentTaskDelegationService } from "../application/service/agent-task-delegation.service";
 import { AgentVersionPublisher } from "../application/service/agent-version-publisher.service";
+import { AgentRuntimeCatalogStartupValidator } from "../application/service/agent-runtime-catalog-startup-validator.service";
 import { KidItemMcpToolRegistry } from "../application/service/kiditem-mcp-tool-registry.service";
 import { OperatorContextBuilder } from "../application/service/operator-context-builder.service";
 import { OperatorDecisionExecutor } from "../application/service/operator-decision-executor.service";
 import { OperatorDecisionParser } from "../application/service/operator-decision-parser.service";
 import { AgentOsHttpModule } from "../agent-os-http.module";
+import { AgentOsCatalogModule } from "../agent-os-catalog.module";
+import { AgentOsCapabilityModule } from "../agent-os-capability.module";
+import { AgentOsLegacyRunModule } from "../agent-os-legacy-run.module";
+import { AgentOsSessionModule } from "../agent-os-session.module";
 import { AgentOsWorkerModule } from "../agent-os-worker.module";
 import { AgentOsModule } from "../agent-os.module";
 
@@ -139,22 +144,32 @@ const HTTP_CONTROLLERS = [
 ];
 
 describe("Agent OS process-root wiring", () => {
+  it("composes the controller-free facade from focused modules", () => {
+    expect(Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? []).toEqual([
+      AgentOsCatalogModule,
+      AgentOsCapabilityModule,
+      AgentOsSessionModule,
+    ]);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsModule) ?? []).toEqual(
+      [],
+    );
+  });
+
   it("keeps the core controller-free and imports only controller-free owner modules", () => {
     const imports: unknown[] =
-      Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? [];
+      Reflect.getMetadata(IMPORTS_KEY, AgentOsSessionModule) ?? [];
     expect(imports).toEqual([
       PrismaModule,
       OperationAlertRuntimeModule,
       ReadinessStateModule,
-      DashboardCapabilityModule,
+      AgentOsCatalogModule,
+      AgentOsCapabilityModule,
     ]);
     expect(imports).not.toContain(OperationsModule);
-    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsModule) ?? []).toEqual(
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsSessionModule) ?? []).toEqual(
       [],
     );
-    expect(
-      Reflect.getMetadata(CONTROLLERS_KEY, DashboardCapabilityModule) ?? [],
-    ).toEqual([]);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsCapabilityModule) ?? []).toEqual([]);
     expect(
       Reflect.getMetadata(EXPORTS_KEY, DashboardCapabilityModule) ?? [],
     ).toContain(ANALYTICS_OVERVIEW_CAPABILITY_PORT);
@@ -270,14 +285,17 @@ describe("Agent OS process-root wiring", () => {
   });
 
   it("gives only AgentRunWorker to the worker wrapper", () => {
-    expect(
-      Reflect.getMetadata(PROVIDERS_KEY, AgentOsWorkerModule) ?? [],
-    ).toEqual([AgentRunWorker]);
+    expect(Reflect.getMetadata(IMPORTS_KEY, AgentOsWorkerModule) ?? []).toEqual([
+      AgentOsLegacyRunModule,
+    ]);
+    expect(Reflect.getMetadata(PROVIDERS_KEY, AgentOsWorkerModule) ?? []).toEqual(
+      [],
+    );
   });
 
   it("retains controller-free runtime, capability, and persistence providers in core", () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsSessionModule) ?? [];
     for (const provider of [
       AgentApprovalService,
       AgentPlanValidator,
@@ -290,8 +308,6 @@ describe("Agent OS process-root wiring", () => {
       KidItemMcpToolRegistry,
       OperatorRuntimeHandler,
       AgentOsLiveReadinessAdapter,
-      AgentOsPlatformProbeCapabilityAdapter,
-      AnalyticsOverviewAgentCapabilityAdapter,
       AgentSessionCapabilityInvocationService,
       AgentRuntimeAdapterRegistry,
       InProcessAgentConversationLivePublisher,
@@ -331,20 +347,11 @@ describe("Agent OS process-root wiring", () => {
       provide: AGENT_EXECUTION_USAGE_TRANSACTION,
       useClass: PrismaAgentExecutionUsageTransaction,
     });
-    expect(providers).toContainEqual({
-      provide: AGENT_VERSION_REPOSITORY,
-      useClass: PrismaAgentVersionRepository,
-    });
     expect(providers).toContainEqual({ provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY, useClass: PrismaAgentSessionControlQueryRepository });
     expect(providers).toContainEqual({ provide: AGENT_DELEGATION_TRANSACTION, useClass: PrismaAgentDelegationTransaction });
     expect(providers).toContainEqual({ provide: AGENT_ATTEMPT_OPERATION_TRANSACTION, useClass: PrismaAgentAttemptOperationTransaction });
     expect(providers).toContainEqual({ provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION, useClass: PrismaAgentApprovalContinuationTransaction });
     expect(providers).toContainEqual({ provide: AGENT_SESSION_TRANSITION_TRANSACTION, useClass: PrismaAgentSessionTransitionTransaction });
-    expect(providers).toContainEqual({
-      provide: AgentVersionPublisher,
-      inject: [AGENT_VERSION_REPOSITORY],
-      useFactory: expect.any(Function),
-    });
     expect(providers).toContainEqual({
       provide: AGENT_CONVERSATION_LIVE_PUBLISHER,
       useExisting: InProcessAgentConversationLivePublisher,
@@ -355,9 +362,33 @@ describe("Agent OS process-root wiring", () => {
     });
   });
 
+  it("keeps capability registration and owner adapters in the capability module", () => {
+    const providers: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsCapabilityModule) ?? [];
+    expect(providers).toContain(AgentOsPlatformProbeCapabilityAdapter);
+    expect(providers).toContain(AnalyticsOverviewAgentCapabilityAdapter);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, AgentOsCapabilityModule) ?? []).toEqual([]);
+  });
+
+  it("keeps code-owned catalog validation and immutable version publication in the catalog module", () => {
+    const providers: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsCatalogModule) ?? [];
+    expect(providers).toContain(AgentCatalogService);
+    expect(providers).toContain(AgentRuntimeCatalogStartupValidator);
+    expect(providers).toContainEqual({
+      provide: AGENT_VERSION_REPOSITORY,
+      useClass: PrismaAgentVersionRepository,
+    });
+    expect(providers).toContainEqual({
+      provide: AgentVersionPublisher,
+      inject: [AGENT_VERSION_REPOSITORY],
+      useFactory: expect.any(Function),
+    });
+  });
+
   it("exports the narrow core surface required by API and Agent runtime graphs", () => {
     const exports: unknown[] =
-      Reflect.getMetadata(EXPORTS_KEY, AgentOsModule) ?? [];
+      Reflect.getMetadata(EXPORTS_KEY, AgentOsSessionModule) ?? [];
     for (const exported of [
       AGENT_INTERACTION_PORT,
       AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
@@ -381,7 +412,7 @@ describe("Agent OS process-root wiring", () => {
 
   it("keeps the local CLI boundary and explicit clocks intact", () => {
     const providers: unknown[] =
-      Reflect.getMetadata(PROVIDERS_KEY, AgentOsModule) ?? [];
+      Reflect.getMetadata(PROVIDERS_KEY, AgentOsSessionModule) ?? [];
     expect(providers).toContain(AgentInteractionService);
     expect(providers).toContain(AgentLocalCliRuntimeAdapter);
     expect(providers).toContain(AgentLocalProcessRegistry);

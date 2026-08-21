@@ -1,11 +1,11 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Inject, Post } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import { AgentRunExecutor } from '../../../../application/service/agent-run-executor.service';
+import { LEGACY_AGENT_RUN_EXECUTION_PORT, type LegacyAgentRunExecutionPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import { ClaimAndRunDto } from './dto/agent-runs.dto';
 
 @Controller('agent-os')
 export class AgentExecutorController {
-  constructor(private readonly executor: AgentRunExecutor) {}
+  constructor(@Inject(LEGACY_AGENT_RUN_EXECUTION_PORT) private readonly executor: LegacyAgentRunExecutionPort) {}
 
   @Post('executor/claim-and-run')
   async claimAndRun(

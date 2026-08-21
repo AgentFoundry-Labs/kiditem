@@ -3,7 +3,10 @@ import { config } from 'dotenv';
 import { resolve } from 'node:path';
 import { NestFactory } from '@nestjs/core';
 import { AgentMcpApplicationModule } from '../../../../agent-mcp-application.module';
-import { AgentRunCoordinator } from '../../../application/service/agent-run-coordinator.service';
+import {
+  AGENT_RUNNER_PORT,
+  type AgentRunnerPort,
+} from '../../../application/port/in/agent-runner.port';
 import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
@@ -141,7 +144,10 @@ export async function runOpenAiOperatorCli(
       requestId: args.requestId,
     });
 
-    const runner = app.get(AgentRunCoordinator);
+    const runner = app.get<AgentRunnerPort>(AGENT_RUNNER_PORT);
+    if (!runner.executeRequest) {
+      throw new Error('Agent OS runner does not support request execution.');
+    }
     const result = await runner.executeRequest({
       organizationId: args.organizationId,
       requestId: args.requestId,

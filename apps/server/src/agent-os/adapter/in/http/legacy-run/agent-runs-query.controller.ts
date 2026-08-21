@@ -1,12 +1,12 @@
-import { Controller, Get, NotFoundException, Param, Query } from '@nestjs/common';
+import { Controller, Get, Inject, NotFoundException, Param, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import { AgentObservabilityService } from '../../../../application/service/agent-observability.service';
+import { LEGACY_AGENT_OBSERVABILITY_PORT, type LegacyAgentObservabilityPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import type { AgentRunStatus } from '../../../../domain/agent-os.types';
 import { ListRunsQueryDto } from './dto/agent-runs.dto';
 
 @Controller('agent-os')
 export class AgentRunsQueryController {
-  constructor(private readonly observability: AgentObservabilityService) {}
+  constructor(@Inject(LEGACY_AGENT_OBSERVABILITY_PORT) private readonly observability: LegacyAgentObservabilityPort) {}
 
   @Get('runs')
   async listRuns(

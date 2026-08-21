@@ -15,7 +15,7 @@ import {
 import type {
   AgentSessionCapabilityInvocationInput,
   AgentSessionCapabilityInvocationPort,
-} from "../port/in/agent-capability-invocation.port";
+} from "../port/in/session-capability/agent-capability-invocation.port";
 import type { AgentCapabilityExecutionResult } from "../port/out/capability/agent-capability-handler.port";
 import { AgentOsRuntimeError } from "../../domain/agent-os.errors";
 import { AgentCapabilityRegistry } from "./agent-capability-registry.service";

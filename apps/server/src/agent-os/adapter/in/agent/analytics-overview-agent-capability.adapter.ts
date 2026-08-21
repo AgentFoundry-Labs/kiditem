@@ -4,7 +4,7 @@ import {
   ANALYTICS_OVERVIEW_CAPABILITY_PORT,
   type AnalyticsOverviewCapabilityPort,
 } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
-import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
+import { AGENT_CAPABILITY_REGISTRY_PORT, type AgentCapabilityRegistryPort } from '../../../application/port/in/capability/agent-capability-registry.port';
 import type { AgentCapabilityHandler } from '../../../application/port/out/capability/agent-capability-handler.port';
 
 const InputSchema = z.object({ period: z.enum(['today', 'month']).optional() }).strict();
@@ -23,7 +23,8 @@ const OutputSchema = z.object({
 @Injectable()
 export class AnalyticsOverviewAgentCapabilityAdapter implements OnModuleInit {
   constructor(
-    private readonly registry: AgentCapabilityRegistry,
+    @Inject(AGENT_CAPABILITY_REGISTRY_PORT)
+    private readonly registry: AgentCapabilityRegistryPort,
     @Inject(ANALYTICS_OVERVIEW_CAPABILITY_PORT)
     private readonly analytics: AnalyticsOverviewCapabilityPort,
   ) {}

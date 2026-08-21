@@ -1,11 +1,11 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
-import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
+import { AGENT_CAPABILITY_REGISTRY_PORT, type AgentCapabilityRegistryPort } from '../../../application/port/in/capability/agent-capability-registry.port';
 import type { AgentCapabilityHandler } from '../../../application/port/out/capability/agent-capability-handler.port';
 
 @Injectable()
 export class AgentOsPlatformProbeCapabilityAdapter implements OnModuleInit {
-  constructor(private readonly registry: AgentCapabilityRegistry) {}
+  constructor(@Inject(AGENT_CAPABILITY_REGISTRY_PORT) private readonly registry: AgentCapabilityRegistryPort) {}
 
   onModuleInit(): void {
     this.registry.register(this.handler());

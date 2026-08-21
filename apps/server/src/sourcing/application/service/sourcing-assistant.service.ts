@@ -3,7 +3,7 @@ import {
   AGENT_INTERACTION_PORT,
   type AgentInteractionPort,
   type AgentInteractionResult,
-} from '../../../agent-os/application/port/in/agent-interaction.port';
+} from '../../../agent-os/application/port/in/legacy-run/agent-interaction.port';
 import { SourcingAgentRagService } from './sourcing-agent-rag.service';
 import type { SourcingWorkspaceEvidenceResult } from '../port/in/capability/sourcing-agent-workspace-capability.port';
 

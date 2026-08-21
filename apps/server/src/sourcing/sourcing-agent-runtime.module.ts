@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
-import { AgentOsModule } from '../agent-os/agent-os.module';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
+import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { OperationAlertRuntimeModule } from '../automation/operation-alert-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -41,7 +42,8 @@ import { SourcingValidationService } from './application/service/sourcing-valida
 @Module({
   imports: [
     PrismaModule,
-    AgentOsModule,
+    AgentOsSessionModule,
+    AgentOsCapabilityModule,
     AiAgentRuntimeModule,
     OperationAlertRuntimeModule,
   ],

@@ -35,9 +35,12 @@ MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
 ```
 
 `AgentRuntimeApplicationModule` is the shared controller-free runtime beneath
-the worker and MCP roots. `AgentOsHttpModule` owns all Agent OS HTTP
-controllers and the API-only Operations-backed interaction services, while
-`AgentOsWorkerModule` owns only `AgentRunWorker`. Sourcing,
+the worker and MCP roots. Agent OS composes controller-free catalog,
+capability, and session modules behind its small facade; its temporary
+`AgentOsLegacyRunModule` quarantines the retained generic AgentRun lane.
+`AgentOsHttpModule` is the only Agent OS HTTP/controller, gateway-secret, and
+Operations-backed interaction wrapper, while `AgentOsWorkerModule` owns only
+the legacy worker wrapper. Sourcing,
 Supply, and AI publish controller-free Agent runtime modules; only the API-side
 Sourcing collection binding imports Operations. The MCP-side binding sends a
 strict bounded command back to the API with a two-minute HMAC grant.

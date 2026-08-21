@@ -1,6 +1,6 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Param, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import { AgentObservabilityService } from '../../../../application/service/agent-observability.service';
+import { LEGACY_AGENT_OBSERVABILITY_PORT, type LegacyAgentObservabilityPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import type { AgentAuthorizationDecision } from '../../../../domain/agent-os.types';
 import {
   ListAuthorizationEventsQueryDto,
@@ -10,7 +10,7 @@ import {
 
 @Controller('agent-os')
 export class AgentRunObservabilityController {
-  constructor(private readonly observability: AgentObservabilityService) {}
+  constructor(@Inject(LEGACY_AGENT_OBSERVABILITY_PORT) private readonly observability: LegacyAgentObservabilityPort) {}
 
   @Get('runs/:id/events')
   async listRunEvents(

@@ -106,7 +106,7 @@ describe('sourcing architecture contract', () => {
       'utf8',
     );
     expect(assistantSource).toContain(
-      'agent-os/application/port/in/agent-interaction.port',
+      'agent-os/application/port/in/legacy-run/agent-interaction.port',
     );
     expect(assistantSource).not.toContain('agent-os/application/service/');
   });

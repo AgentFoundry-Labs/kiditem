@@ -1,16 +1,15 @@
-import { Body, Controller, Get, Param, Post } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Post } from '@nestjs/common';
 import type { AuthUser } from '../../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
-import { AgentConversationService } from '../../../../application/service/agent-conversation.service';
-import { AgentRunGraphService } from '../../../../application/service/agent-run-graph.service';
+import { LEGACY_AGENT_CONVERSATION_PORT, LEGACY_AGENT_RUN_GRAPH_PORT, type LegacyAgentConversationPort, type LegacyAgentRunGraphPort } from '../../../../application/port/in/legacy-run/legacy-agent-run.port';
 import { SendAgentMessageDto } from './dto/agent-conversations.dto';
 
 @Controller('agent-os/conversations')
 export class AgentConversationsController {
   constructor(
-    private readonly conversations: AgentConversationService,
-    private readonly graph: AgentRunGraphService,
+    @Inject(LEGACY_AGENT_CONVERSATION_PORT) private readonly conversations: LegacyAgentConversationPort,
+    @Inject(LEGACY_AGENT_RUN_GRAPH_PORT) private readonly graph: LegacyAgentRunGraphPort,
   ) {}
 
   @Get()

@@ -1,6 +1,7 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   Optional,
   UnauthorizedException,
@@ -8,10 +9,11 @@ import {
 import type { Request } from 'express';
 import {
   AGENT_API_CAPABILITY,
-  AgentApiCapabilityGrantService,
+  AGENT_API_CAPABILITY_GRANT_PORT,
   type AgentApiCapability,
+  type AgentApiCapabilityGrantPort,
   type AgentApiCapabilityPrincipal,
-} from '../../../application/service/agent-api-capability-grant.service';
+} from '../../../application/port/in/capability/agent-api-capability-grant.port';
 
 export interface AgentApiCapabilityRequest extends Request {
   agentApiCapabilityPrincipal?: AgentApiCapabilityPrincipal;
@@ -20,7 +22,8 @@ export interface AgentApiCapabilityRequest extends Request {
 @Injectable()
 export class AgentApiCapabilityGrantGuard implements CanActivate {
   constructor(
-    private readonly grants: AgentApiCapabilityGrantService,
+    @Inject(AGENT_API_CAPABILITY_GRANT_PORT)
+    private readonly grants: AgentApiCapabilityGrantPort,
     @Optional()
     private readonly capability: AgentApiCapability = AGENT_API_CAPABILITY,
   ) {}

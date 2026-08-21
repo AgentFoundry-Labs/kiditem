@@ -11,21 +11,27 @@ import {
 } from 'node:crypto';
 import { z } from 'zod';
 import {
+  AGENT_API_CAPABILITIES,
+  AGENT_API_CAPABILITY,
+  AGENT_API_COLLECTION_CAPABILITY,
+  AGENT_API_SHADOW_COLLECTION_CAPABILITY,
+  type AgentApiCapability,
+  type AgentApiCapabilityPrincipal,
+} from '../port/in/capability/agent-api-capability-grant.port';
+import {
   AGENT_OS_REPOSITORY_PORT,
   type AgentOsRepositoryPort,
 } from '../port/out/repository/agent-os-repository.port';
 
 export const AGENT_API_CAPABILITY_GRANT_TTL_MS = 120_000;
-export const AGENT_API_COLLECTION_CAPABILITY = 'sourcing.refreshCollection' as const;
-export const AGENT_API_SHADOW_COLLECTION_CAPABILITY =
-  'sourcing.collect_shadow_signals' as const;
-/** Backward-compatible name for the original collection-only internal route. */
-export const AGENT_API_CAPABILITY = AGENT_API_COLLECTION_CAPABILITY;
-export const AGENT_API_CAPABILITIES = [
+export {
+  AGENT_API_CAPABILITIES,
+  AGENT_API_CAPABILITY,
   AGENT_API_COLLECTION_CAPABILITY,
   AGENT_API_SHADOW_COLLECTION_CAPABILITY,
-] as const;
-export type AgentApiCapability = (typeof AGENT_API_CAPABILITIES)[number];
+  type AgentApiCapability,
+  type AgentApiCapabilityPrincipal,
+} from '../port/in/capability/agent-api-capability-grant.port';
 
 const MAX_TOKEN_LENGTH = 4_096;
 const MAX_PAYLOAD_LENGTH = 2_048;
@@ -68,14 +74,6 @@ const AgentApiCapabilityGrantClaimsSchema = z
 export type AgentApiCapabilityGrantClaims = z.infer<
   typeof AgentApiCapabilityGrantClaimsSchema
 >;
-
-export interface AgentApiCapabilityPrincipal {
-  organizationId: string;
-  requestId: string;
-  runId: string;
-  agentInstanceId: string;
-  requestedByUserId: string | null;
-}
 
 @Injectable()
 export class AgentApiCapabilityGrantService {
