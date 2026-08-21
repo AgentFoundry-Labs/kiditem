@@ -4,8 +4,9 @@ import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import { EventEmitterModule } from "@nestjs/event-emitter";
-import { AgentRuntimeApplicationModule } from "../../agent-runtime-application.module";
 import { MODULE_METADATA } from "@nestjs/common/constants";
+import { AgentRuntimeApplicationModule } from "../../agent-runtime-application.module";
+import { AgentMcpApplicationModule } from "../../agent-mcp-application.module";
 import { DashboardCapabilityModule } from "../../analytics/dashboard/dashboard-capability.module";
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from "../../analytics/dashboard/application/port/in/analytics-overview-capability.port";
 import { OperationAlertRuntimeModule } from "../../automation/operation-alert-runtime.module";
@@ -23,6 +24,7 @@ import { AgentExecutorController } from "../adapter/in/http/legacy-run/agent-exe
 import { AgentInteractionActionsController } from "../adapter/in/http/interaction/agent-interaction-actions.controller";
 import { AgentInteractionBootstrapController } from "../adapter/in/http/interaction/agent-interaction-bootstrap.controller";
 import { AgentInteractionControlController } from "../adapter/in/http/interaction/agent-interaction-control.controller";
+import { AgentInteractionSessionLifecycleController } from "../adapter/in/http/interaction/agent-interaction-session-lifecycle.controller";
 import { AgentRunObservabilityController } from "../adapter/in/http/legacy-run/agent-run-observability.controller";
 import { AgentRunRequestsController } from "../adapter/in/http/legacy-run/agent-run-requests.controller";
 import { AgentRunsQueryController } from "../adapter/in/http/legacy-run/agent-runs-query.controller";
@@ -40,6 +42,7 @@ import { PrismaAgentExecutionQueryRepository } from "../adapter/out/repository/i
 import { PrismaAgentRunAuthorizationTransaction } from "../adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction";
 import { PrismaAgentConversationEventTransaction } from "../adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction";
 import { PrismaAgentExecutionUsageTransaction } from "../adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction";
+import { PrismaAgentSessionLifecycleTransaction } from "../adapter/out/transaction/interaction/prisma-agent-session-lifecycle.transaction";
 import { PrismaAgentSessionControlQueryRepository } from "../adapter/out/repository/session-control/prisma-agent-session-control-query.repository";
 import { PrismaAgentDelegationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-delegation.transaction";
 import { PrismaAgentAttemptOperationTransaction } from "../adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction";
@@ -60,6 +63,7 @@ import { AGENT_CATALOG_PORT } from "../application/port/in/catalog/agent-catalog
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from "../application/port/in/interaction/agent-interaction-authorization.port";
 import { AGENT_INTERACTION_BOOTSTRAP_PORT } from "../application/port/in/interaction/agent-interaction-bootstrap.port";
 import { AGENT_INTERACTION_PRESENTATION_PORT } from "../application/port/in/interaction/agent-interaction-presentation.port";
+import { AGENT_INTERACTION_SESSION_LIFECYCLE_PORT } from "../application/port/in/interaction/agent-interaction-session-lifecycle.port";
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from "../application/port/in/session-control/agent-session-approval-decision.port";
 import { AGENT_SESSION_TASK_CONTROL_PORT } from "../application/port/in/session-control/agent-session-task-control.port";
 import { AGENT_SESSION_TASK_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-task-execution.port";
@@ -81,6 +85,8 @@ import { AGENT_EXECUTION_QUERY_REPOSITORY } from "../application/port/out/reposi
 import { AGENT_RUN_AUTHORIZATION_TRANSACTION } from "../application/port/out/transaction/interaction/agent-run-authorization.transaction.port";
 import { AGENT_CONVERSATION_EVENT_TRANSACTION } from "../application/port/out/transaction/interaction/agent-conversation-event.transaction.port";
 import { AGENT_EXECUTION_USAGE_TRANSACTION } from "../application/port/out/transaction/interaction/agent-execution-usage.transaction.port";
+import { AGENT_SESSION_LIFECYCLE_TRANSACTION } from "../application/port/out/transaction/interaction/agent-session-lifecycle.transaction.port";
+import { AGENT_SESSION_TOMBSTONE_HASHER } from "../application/port/out/crypto/agent-session-tombstone-hasher.port";
 import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from "../application/port/out/repository/session-control/agent-session-control-query.repository.port";
 import { AGENT_DELEGATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-delegation.transaction.port";
 import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
@@ -99,6 +105,7 @@ import { AgentCapabilityRegistry } from "../application/service/agent-capability
 import { AgentInlineRunReconciler } from "../application/service/agent-inline-run-reconciler.service";
 import { AgentInteractionAuthorizationService } from "../application/service/interaction/agent-interaction-authorization.service";
 import { AgentInteractionBootstrapService } from "../application/service/interaction/agent-interaction-bootstrap.service";
+import { AgentInteractionSessionLifecycleService } from "../application/service/interaction/agent-interaction-session-lifecycle.service";
 import { InteractionAllowedVersionResolver } from "../application/service/interaction/interaction-allowed-version-resolver";
 import { AgentInteractionPresentationService } from "../application/service/agent-interaction-presentation.service";
 import { AgentInteractionService } from "../application/service/agent-interaction.service";
@@ -163,6 +170,7 @@ const HTTP_CONTROLLERS = [
   AgentInteractionControlController,
   AgentAguiController,
   AgentInteractionActionsController,
+  AgentInteractionSessionLifecycleController,
   AgentSessionController,
 ];
 
@@ -173,6 +181,7 @@ describe("Agent OS process-root wiring", () => {
     process.env.INTERACTION_PRINCIPAL_HMAC_KEY = "c".repeat(32);
     process.env.INTERACTION_RUN_INTENT_HMAC_KEY = "d".repeat(32);
     process.env.INTERACTION_REPLAY_CURSOR_HMAC_KEY = "e".repeat(32);
+    process.env.INTERACTION_LIFECYCLE_HMAC_KEY = "f".repeat(32);
     process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
 
     const moduleRef = await Test.createTestingModule({
@@ -185,6 +194,8 @@ describe("Agent OS process-root wiring", () => {
     expect(moduleRef.get(AgentInteractionBootstrapController)).toBeDefined();
     expect(moduleRef.get(AGENT_INTERACTION_BOOTSTRAP_PORT)).toBeDefined();
     expect(moduleRef.get(AgentAguiController)).toBeDefined();
+    expect(moduleRef.get(AgentInteractionSessionLifecycleController)).toBeDefined();
+    expect(moduleRef.get(AGENT_INTERACTION_SESSION_LIFECYCLE_PORT)).toBeDefined();
     expect(moduleRef.get(AGENT_AGUI_PRODUCER_PORT)).toBe(
       moduleRef.get(AgentAguiProducerCoordinator),
     );
@@ -193,6 +204,8 @@ describe("Agent OS process-root wiring", () => {
 
   it("compiles the fresh controller-free runtime root with shared generic-run contracts", async () => {
     process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+    const lifecycleKey = process.env.INTERACTION_LIFECYCLE_HMAC_KEY;
+    delete process.env.INTERACTION_LIFECYCLE_HMAC_KEY;
 
     const moduleRef = await Test.createTestingModule({
       imports: [AgentRuntimeApplicationModule],
@@ -202,6 +215,23 @@ describe("Agent OS process-root wiring", () => {
     expect(moduleRef.get(AgentRuntimeHandlerRegistry)).toBeDefined();
     expect(moduleRef.get(AgentToolRouter)).toBeDefined();
     await moduleRef.close();
+    if (lifecycleKey) process.env.INTERACTION_LIFECYCLE_HMAC_KEY = lifecycleKey;
+  });
+
+  it("fails the API wrapper fast when the dedicated lifecycle key is absent", async () => {
+    const lifecycleKey = process.env.INTERACTION_LIFECYCLE_HMAC_KEY;
+    delete process.env.INTERACTION_LIFECYCLE_HMAC_KEY;
+
+    await expect(
+      Test.createTestingModule({
+        imports: [EventEmitterModule.forRoot(), AgentOsHttpModule],
+      })
+        .overrideProvider(OperationServerLifecycleService)
+        .useValue({})
+        .compile(),
+    ).rejects.toThrow("INTERACTION_LIFECYCLE_HMAC_KEY");
+
+    if (lifecycleKey) process.env.INTERACTION_LIFECYCLE_HMAC_KEY = lifecycleKey;
   });
 
   it("composes the controller-free facade from focused modules", () => {
@@ -253,6 +283,7 @@ describe("Agent OS process-root wiring", () => {
       AgentInlineRunReconciler,
       AgentInteractionAuthorizationService,
       AgentInteractionBootstrapService,
+      AgentInteractionSessionLifecycleService,
       InteractionAllowedVersionResolver,
       InteractionGatewayGuard,
       AgentAguiRunService,
@@ -283,6 +314,7 @@ describe("Agent OS process-root wiring", () => {
     for (const [token, implementation] of [
       [AGENT_CATALOG_PORT, AgentCatalogService],
       [AGENT_INTERACTION_BOOTSTRAP_PORT, AgentInteractionBootstrapService],
+      [AGENT_INTERACTION_SESSION_LIFECYCLE_PORT, AgentInteractionSessionLifecycleService],
       [
         AGENT_INTERACTION_AUTHORIZATION_PORT,
         AgentInteractionAuthorizationService,
@@ -311,6 +343,7 @@ describe("Agent OS process-root wiring", () => {
       INTERACTION_PRINCIPAL_HMAC_KEY,
       INTERACTION_RUN_INTENT_HMAC_KEY,
       INTERACTION_REPLAY_CURSOR_HMAC_KEY,
+      AGENT_SESSION_TOMBSTONE_HASHER,
     ]) {
       expect(providers).toContainEqual(
         expect.objectContaining({ provide: token }),
@@ -343,6 +376,7 @@ describe("Agent OS process-root wiring", () => {
       INTERACTION_PRINCIPAL_HMAC_KEY,
       INTERACTION_RUN_INTENT_HMAC_KEY,
       INTERACTION_REPLAY_CURSOR_HMAC_KEY,
+      AGENT_SESSION_TOMBSTONE_HASHER,
     ]) {
       expect(providers).not.toContainEqual(
         expect.objectContaining({ provide: token }),
@@ -357,6 +391,15 @@ describe("Agent OS process-root wiring", () => {
     expect(
       Reflect.getMetadata(PROVIDERS_KEY, AgentOsWorkerModule) ?? [],
     ).toEqual([]);
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, AgentMcpApplicationModule) ?? [],
+    ).toEqual([
+      AgentRuntimeApplicationModule,
+      expect.any(Function),
+    ]);
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, AgentMcpApplicationModule) ?? [],
+    ).not.toContain(AgentOsHttpModule);
   });
 
   it("keeps official session persistence and durable runtime providers in core", () => {
@@ -398,6 +441,13 @@ describe("Agent OS process-root wiring", () => {
       provide: AGENT_EXECUTION_USAGE_TRANSACTION,
       useClass: PrismaAgentExecutionUsageTransaction,
     });
+    expect(providers).toContainEqual({
+      provide: AGENT_SESSION_LIFECYCLE_TRANSACTION,
+      useClass: PrismaAgentSessionLifecycleTransaction,
+    });
+    expect(providers).not.toContainEqual(
+      expect.objectContaining({ provide: AGENT_SESSION_TOMBSTONE_HASHER }),
+    );
     expect(providers).toContainEqual({
       provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
       useClass: PrismaAgentSessionControlQueryRepository,
@@ -463,6 +513,7 @@ describe("Agent OS process-root wiring", () => {
       AGENT_ATTEMPT_OPERATION_TRANSACTION,
       AGENT_APPROVAL_CONTINUATION_TRANSACTION,
       AGENT_SESSION_TRANSITION_TRANSACTION,
+      AGENT_SESSION_LIFECYCLE_TRANSACTION,
       AGENT_CONVERSATION_LIVE_PUBLISHER,
       AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
       AgentRuntimeAdapterRegistry,

@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import { createHash } from 'node:crypto';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { PrismaAgentSessionLifecycleTransaction } from '../../interaction/prisma-agent-session-lifecycle.transaction';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -9,8 +9,9 @@ import {
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../../../../../test-helpers/real-prisma';
-import { SessionControlAdapterSet } from './session-control-adapter-set';
 import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
+import { SessionControlAdapterSet } from './session-control-adapter-set';
+import type { PrismaClient } from '@prisma/client';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
 const VERSION_TO = '20000000-0000-4000-8000-000000000002';
@@ -716,6 +717,272 @@ describe('Prisma Agent session-control transaction seams', () => {
       sessionId: fixture.sessionId,
     })).resolves.toBeNull();
   });
+
+  it('returns the archive result for an exact retry after the session becomes archived', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      actorId: TEST_USER_ID,
+      reason: 'Archive the completed interaction',
+      idempotencyKey: 'archive-session-key-01',
+      terminalAt: new Date('2026-08-13T00:00:00.000Z'),
+    };
+
+    const first = await lifecycle.archiveSession(input);
+    const retry = await lifecycle.archiveSession(input);
+
+    expect(retry).toEqual(first);
+    expect(first.retentionDueAt.toISOString()).toBe('2027-08-13T00:00:00.000Z');
+  });
+
+  it('sets retention due at in the same terminal session transition', async () => {
+    const fixture = await createRootGraph();
+    await repository.transitionSession({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      expectedState: 'active',
+      state: 'completed',
+    });
+
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: fixture.sessionId },
+      select: { completedAt: true, retentionDueAt: true },
+    })).resolves.toMatchObject({
+      completedAt: expect.any(Date),
+      retentionDueAt: expect.any(Date),
+    });
+  });
+
+  it('deletes a due archived session atomically, leaves a content-free tombstone, and accepts the exact retry', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: 'archived',
+        archivedAt: new Date('2026-08-13T00:00:00.000Z'),
+        retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
+      },
+    });
+    const input = lifecycleDeleteInput(fixture.sessionId);
+
+    const first = await lifecycle.deleteSession(input);
+    const retry = await lifecycle.deleteSession(input);
+
+    expect(retry).toEqual(first);
+    await expect(prisma!.agentSession.findUnique({ where: { id: fixture.sessionId } })).resolves.toBeNull();
+    await expect(prisma!.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentConversationOutbox.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentSessionTombstone.findFirstOrThrow({
+      where: { idempotencyKeyHash: input.tombstone.idempotencyKeyHash.hash },
+    })).resolves.toMatchObject({
+      organizationIdHash: input.tombstone.organizationIdHash.hash,
+      copilotThreadIdHash: input.tombstone.copilotThreadIdHash.hash,
+      terminalLifecycle: 'deleted',
+      deletionReasonCode: 'user_requested',
+    });
+    const tombstone = await prisma!.agentSessionTombstone.findFirstOrThrow({
+      where: { idempotencyKeyHash: input.tombstone.idempotencyKeyHash.hash },
+    });
+    expect(Object.keys(tombstone).sort()).toEqual([
+      'copilotThreadIdHash',
+      'deletedAt',
+      'deletionReasonCode',
+      'hashKeyVersion',
+      'id',
+      'idempotencyKeyHash',
+      'legalPolicyVersion',
+      'organizationIdHash',
+      'requestFingerprintHash',
+      'terminalLifecycle',
+    ]);
+    await expect(prisma!.agentSessionLifecycleRequest.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+    await expect(lifecycle.deleteSession({
+      ...input,
+      tombstone: {
+        ...input.tombstone,
+        requestFingerprintHash: { hash: `e${'0'.repeat(63)}`, hashKeyVersion: 'v1' },
+      },
+    })).rejects.toMatchObject({ code: 'THREAD_LIFECYCLE_IDEMPOTENCY_CONFLICT' });
+  });
+
+  it('rejects a held session without removing canonical rows and fences the organization', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: 'archived',
+        legalHoldAt: new Date('2026-08-13T00:00:00.000Z'),
+        legalHoldReason: 'preserve for legal inquiry',
+        retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
+      },
+    });
+
+    await expect(lifecycle.deleteSession(lifecycleDeleteInput(fixture.sessionId))).rejects.toMatchObject({
+      code: 'THREAD_LEGAL_HOLD',
+    });
+    await expect(lifecycle.readSession({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+    })).resolves.toBeNull();
+    await expect(lifecycle.deleteSession({
+      ...lifecycleDeleteInput(fixture.sessionId),
+      organizationId: OTHER_ORGANIZATION_ID,
+    })).rejects.toMatchObject({ code: 'THREAD_LIFECYCLE_SCOPE_INVALID' });
+    await expect(prisma!.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(1);
+  });
+
+  it('rolls back canonical deletion when a tombstone uniqueness conflict occurs', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const input = lifecycleDeleteInput(fixture.sessionId);
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: 'archived',
+        retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
+      },
+    });
+    await prisma!.agentSessionTombstone.create({
+      data: {
+        organizationIdHash: `f${'0'.repeat(63)}`,
+        copilotThreadIdHash: input.tombstone.copilotThreadIdHash.hash,
+        idempotencyKeyHash: `g${'0'.repeat(63)}`,
+        requestFingerprintHash: `h${'0'.repeat(63)}`,
+        hashKeyVersion: 'v1',
+        terminalLifecycle: 'deleted',
+        deletionReasonCode: 'user_requested',
+        deletedAt: new Date('2026-08-13T00:00:00.000Z'),
+        legalPolicyVersion: 'kr-default-365-v1',
+      },
+    });
+
+    await expect(lifecycle.deleteSession(input)).rejects.toMatchObject({
+      code: 'THREAD_LIFECYCLE_IDEMPOTENCY_CONFLICT',
+    });
+    await expect(prisma!.agentSession.findUnique({ where: { id: fixture.sessionId } })).resolves.not.toBeNull();
+    await expect(prisma!.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(1);
+    await expect(prisma!.agentSessionLifecycleRequest.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(0);
+  });
+
+  it('serializes same-key delete attempts and rejects a mismatched fingerprint', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: 'archived',
+        retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
+      },
+    });
+    const input = lifecycleDeleteInput(fixture.sessionId);
+    const outcomes = await Promise.allSettled([
+      lifecycle.deleteSession(input),
+      lifecycle.deleteSession({
+        ...input,
+        tombstone: {
+          ...input.tombstone,
+          requestFingerprintHash: { hash: `e${'0'.repeat(63)}`, hashKeyVersion: 'v1' },
+        },
+      }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    expect(outcomes.find((outcome) => outcome.status === 'rejected')).toMatchObject({
+      reason: { code: 'THREAD_LIFECYCLE_IDEMPOTENCY_CONFLICT' },
+    });
+    await expect(prisma!.agentSessionTombstone.count()).resolves.toBe(1);
+  });
+
+  it('removes session control rows while retaining the external operation envelope', async () => {
+    const fixture = await createRootGraph();
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const operation = await prisma!.operationRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'agent-os.execute-session-task',
+        definitionVersion: 1,
+        ownerDomain: 'agent-os',
+        title: 'Delete retained operation envelope',
+        engineType: 'agent_os',
+        triggerSource: 'agent',
+        input: {},
+      },
+    });
+    const attempt = await repository.reserveAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+      idempotencyKey: `operation:${operation.id}`,
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+    });
+    const approval = await repository.requestApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      operationRunId: operation.id,
+      capabilityKey: 'supply.submit_purchase_order',
+      argumentsHash: 'a'.repeat(64),
+      resourceSnapshot: [],
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      idempotencyKey: 'approval:delete:1',
+    });
+    await repository.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      approvalId: approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'user',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval-delete-decision:1',
+    });
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: 'archived',
+        retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
+      },
+    });
+
+    await lifecycle.deleteSession(lifecycleDeleteInput(fixture.sessionId));
+
+    await expect(prisma!.agentSessionApproval.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentSessionApprovalContinuation.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, approvalId: approval.id },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentExecutionAttemptOperationBinding.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(0);
+    await expect(prisma!.operationRun.findUnique({ where: { id: operation.id } })).resolves.not.toBeNull();
+  });
 });
 
 async function seedControlFixture(client: PrismaClient): Promise<void> {
@@ -892,4 +1159,21 @@ function canonicalJson(value: unknown): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
     .join(',')}}`;
+}
+
+function lifecycleDeleteInput(sessionId: string) {
+  return {
+    organizationId: TEST_ORGANIZATION_ID,
+    sessionId,
+    actorId: TEST_USER_ID,
+    reason: 'Delete the due interaction',
+    idempotencyKey: 'delete-session-key-01',
+    tombstone: {
+      organizationIdHash: { hash: 'a'.repeat(64), hashKeyVersion: 'v1' },
+      copilotThreadIdHash: { hash: `b${'0'.repeat(63)}`, hashKeyVersion: 'v1' },
+      idempotencyKeyHash: { hash: `c${'0'.repeat(63)}`, hashKeyVersion: 'v1' },
+      requestFingerprintHash: { hash: `d${'0'.repeat(63)}`, hashKeyVersion: 'v1' },
+      legalPolicyVersion: 'kr-default-365-v1',
+    },
+  };
 }

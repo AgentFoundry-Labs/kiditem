@@ -9,6 +9,7 @@ import { AgentExecutorController } from "./adapter/in/http/legacy-run/agent-exec
 import { AgentInteractionActionsController } from "./adapter/in/http/interaction/agent-interaction-actions.controller";
 import { AgentInteractionBootstrapController } from "./adapter/in/http/interaction/agent-interaction-bootstrap.controller";
 import { AgentInteractionControlController } from "./adapter/in/http/interaction/agent-interaction-control.controller";
+import { AgentInteractionSessionLifecycleController } from "./adapter/in/http/interaction/agent-interaction-session-lifecycle.controller";
 import { AgentRunObservabilityController } from "./adapter/in/http/legacy-run/agent-run-observability.controller";
 import { AgentRunRequestsController } from "./adapter/in/http/legacy-run/agent-run-requests.controller";
 import { AgentRunsQueryController } from "./adapter/in/http/legacy-run/agent-runs-query.controller";
@@ -25,6 +26,7 @@ import { AGENT_INTERACTION_BOOTSTRAP_PORT } from "./application/port/in/interact
 import { AGENT_AGUI_PRODUCER_PORT } from "./application/port/in/interaction/agent-agui-producer.port";
 import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from "./application/port/in/interaction/agent-interaction-live-events.port";
 import { AGENT_INTERACTION_PRESENTATION_PORT } from "./application/port/in/interaction/agent-interaction-presentation.port";
+import { AGENT_INTERACTION_SESSION_LIFECYCLE_PORT } from "./application/port/in/interaction/agent-interaction-session-lifecycle.port";
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from "./application/port/in/session-control/agent-session-approval-decision.port";
 import { AGENT_SESSION_TASK_CONTROL_PORT } from "./application/port/in/session-control/agent-session-task-control.port";
 import { AGENT_SESSION_TASK_EXECUTION_PORT } from "./application/port/in/session-execution/agent-session-task-execution.port";
@@ -40,7 +42,9 @@ import { interactionEnvironmentProviders } from "./adapter/in/http/interaction/i
 import { AgentInteractionAuthorizationService } from "./application/service/interaction/agent-interaction-authorization.service";
 import { AgentInteractionBootstrapService } from "./application/service/interaction/agent-interaction-bootstrap.service";
 import { AgentInteractionLiveEventsService } from "./application/service/interaction/agent-interaction-live-events.service";
+import { AgentInteractionSessionLifecycleService } from "./application/service/interaction/agent-interaction-session-lifecycle.service";
 import { InteractionAllowedVersionResolver } from "./application/service/interaction/interaction-allowed-version-resolver";
+import { interactionLifecycleEnvironmentProviders } from "./adapter/in/http/interaction/interaction-lifecycle.config";
 import { AgentSessionApprovalService } from "./application/service/session-control/agent-session-approval.service";
 import { AgentSessionCancellationService } from "./application/service/session-control/agent-session-cancellation.service";
 import { AgentSessionDelegationService } from "./application/service/session-control/agent-session-delegation.service";
@@ -73,15 +77,18 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentInteractionControlController,
     AgentAguiController,
     AgentInteractionActionsController,
+    AgentInteractionSessionLifecycleController,
     AgentSessionController,
   ],
   providers: [
     AgentInlineRunReconciler,
     ...interactionEnvironmentProviders,
+    ...interactionLifecycleEnvironmentProviders,
     AgentInteractionAuthorizationService,
     AgentInteractionBootstrapService,
     InteractionAllowedVersionResolver,
     AgentInteractionLiveEventsService,
+    AgentInteractionSessionLifecycleService,
     InteractionGatewayGuard,
     AgentAguiRunService,
     AgentAguiProducerCoordinator,
@@ -141,6 +148,10 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     {
       provide: AGENT_INTERACTION_PRESENTATION_PORT,
       useExisting: AgentInteractionPresentationService,
+    },
+    {
+      provide: AGENT_INTERACTION_SESSION_LIFECYCLE_PORT,
+      useExisting: AgentInteractionSessionLifecycleService,
     },
     {
       provide: AGENT_SESSION_TASK_CONTROL_PORT,

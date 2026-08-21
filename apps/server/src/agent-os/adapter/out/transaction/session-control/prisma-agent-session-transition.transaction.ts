@@ -3,6 +3,10 @@ import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import {
+  projectAgentSessionRetentionDueAt,
+  projectAgentSessionRetentionPolicy,
+} from "../../../../domain/session/agent-session-retention.policy";
+import {
   AgentSessionControlRepositoryError,
   type SessionArtifactRecord,
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
@@ -111,25 +115,50 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
       input.expectedState !== input.state
     )
       throw state();
-    const terminalAt = TERMINAL_STATES.has(input.state) ? new Date() : null;
-    const result = await this.prisma.agentSession.updateMany({
-      where: {
-        id: input.sessionId,
-        organizationId: input.organizationId,
-        lifecycle: input.expectedState,
-      },
-      data: {
-        lifecycle: input.state,
-        completedAt: input.state === "completed" ? terminalAt : undefined,
-        cancelledAt: input.state === "cancelled" ? terminalAt : undefined,
-        archivedAt: input.state === "archived" ? terminalAt : undefined,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      const terminalAt = TERMINAL_STATES.has(input.state) ? new Date() : null;
+      const policy = terminalAt
+        ? projectAgentSessionRetentionPolicy(
+            await tx.agentInteractionRetentionPolicy.findUnique({
+              where: { organizationId: input.organizationId },
+              select: {
+                sessionRetentionDays: true,
+                residency: true,
+                legalPolicyVersion: true,
+              },
+            }),
+          )
+        : null;
+      const result = await tx.agentSession.updateMany({
+        where: {
+          id: input.sessionId,
+          organizationId: input.organizationId,
+          lifecycle: input.expectedState,
+        },
+        data: {
+          lifecycle: input.state,
+          completedAt: input.state === "completed" ? terminalAt : undefined,
+          cancelledAt: input.state === "cancelled" ? terminalAt : undefined,
+          archivedAt: input.state === "archived" ? terminalAt : undefined,
+          retentionDueAt:
+            terminalAt && policy
+              ? projectAgentSessionRetentionDueAt(terminalAt, policy)
+              : undefined,
+        },
+      });
+      if (result.count !== 1) {
+        const existing = await tx.agentSession.findFirst({
+          where: { id: input.sessionId, organizationId: input.organizationId },
+          select: { id: true },
+        });
+        if (!existing) throw scope();
+        throw state();
+      }
+      return (await tx.agentSession.findFirst({
+        where: { id: input.sessionId, organizationId: input.organizationId },
+        select: { id: true, lifecycle: true },
+      }))!;
     });
-    if (result.count !== 1) {
-      if (!(await this.findSession(input))) throw scope();
-      throw state();
-    }
-    return (await this.findSession(input))!;
   }
 
   async createRetryExecution(

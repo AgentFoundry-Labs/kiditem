@@ -61,6 +61,17 @@ export type {
 export { CanonicalResourceRefSchema } from "./resource-ref";
 export type { CanonicalResourceRef } from "./resource-ref";
 
+export {
+  AgentInteractionRetentionPolicySchema,
+  AgentSessionLifecycleCommandSchema,
+  AgentSessionLifecycleCommandKindSchema,
+} from "./lifecycle";
+export type {
+  AgentInteractionRetentionPolicy,
+  AgentSessionLifecycleCommand,
+  AgentSessionLifecycleCommandKind,
+} from "./lifecycle";
+
 const boundedIdentifierSchema = z.string().min(1).max(128);
 const stableCodeSchema = boundedIdentifierSchema.regex(
   /^[a-z][a-z0-9]*(?:[._-][a-z0-9]+)*$/,

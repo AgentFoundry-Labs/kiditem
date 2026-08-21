@@ -379,6 +379,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentExecutionUsage |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |
+| Organization | organization | referenced by external | AgentOS | AgentInteractionRetentionPolicy |
 | Organization | organization | referenced by external | AgentOS | AgentMessage |
 | Organization | organization | referenced by external | AgentOS | AgentPolicySnapshot |
 | Organization | organization | referenced by external | AgentOS | AgentRun |
@@ -386,6 +387,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentSession |
+| Organization | organization | referenced by external | AgentOS | AgentSessionLifecycleRequest |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |
 | Organization | organization | referenced by external | AgentOS | AgentToolInvocation |
 | Organization | organization | referenced by external | AgentOS | WorkflowTemplate |
@@ -536,6 +538,7 @@ erDiagram
 | User | requestedBy | referenced by external | AgentOS | AgentApprovalRequest |
 | User | requestedBy | referenced by external | AgentOS | AgentAuthorizationEvent |
 | User | requestedBy | referenced by external | AgentOS | AgentRunRequest |
+| User | requestedBy | referenced by external | AgentOS | AgentSessionLifecycleRequest |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
 | User | requestedBy | referenced by external | System | OperationRun |
@@ -549,3 +552,4 @@ erDiagram
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |
+| User | updatedBy | referenced by external | AgentOS | AgentInteractionRetentionPolicy |

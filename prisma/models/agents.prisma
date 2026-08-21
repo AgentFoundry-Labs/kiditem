@@ -78,6 +78,9 @@ model AgentSession {
   completedAt               DateTime? @map("completed_at") @db.Timestamptz
   cancelledAt               DateTime? @map("cancelled_at") @db.Timestamptz
   archivedAt                DateTime? @map("archived_at") @db.Timestamptz
+  legalHoldAt               DateTime? @map("legal_hold_at") @db.Timestamptz
+  legalHoldReason           String?   @map("legal_hold_reason") @db.Text
+  retentionDueAt            DateTime? @map("retention_due_at") @db.Timestamptz
   createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -93,6 +96,7 @@ model AgentSession {
   delegations             AgentSessionTaskDelegation[] @relation("AgentSessionTaskDelegations")
   approvals               AgentSessionApproval[]       @relation("AgentSessionApprovals")
   artifacts               AgentSessionArtifact[]       @relation("AgentSessionArtifacts")
+  lifecycleRequests       AgentSessionLifecycleRequest[] @relation("AgentSessionLifecycleRequests")
 
   @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
   @@unique([id, organizationId], map: "agent_sessions_id_org_key")
@@ -100,6 +104,69 @@ model AgentSession {
   @@index([createdByUserId])
   @@index([primaryAgentVersionId])
   @@map("agent_sessions")
+}
+
+/// @namespace AgentOS
+/// @describe Organization-level immutable-minimum interaction retention policy with an auditable legal policy version.
+model AgentInteractionRetentionPolicy {
+  organizationId       String   @id @map("organization_id") @db.Uuid
+  sessionRetentionDays Int      @default(365) @map("session_retention_days")
+  residency            String   @default("KR")
+  legalPolicyVersion   String   @map("legal_policy_version")
+  updatedByUserId      String?  @map("updated_by_user_id") @db.Uuid
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation("AgentInteractionRetentionPolicyOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy    User?        @relation("AgentInteractionRetentionPolicyUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([updatedByUserId])
+  @@map("agent_interaction_retention_policies")
+}
+
+/// @namespace AgentOS
+/// @describe Scoped lifecycle idempotency record retained only while its canonical AgentSession exists.
+model AgentSessionLifecycleRequest {
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  sessionId         String    @map("session_id") @db.Uuid
+  command           String
+  reason            String    @db.Text
+  idempotencyKey    String    @map("idempotency_key")
+  status            String
+  requestedByUserId String    @map("requested_by_user_id") @db.Uuid
+  deletionDueAt     DateTime? @map("deletion_due_at") @db.Timestamptz
+  errorCode         String?   @map("error_code")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  finishedAt        DateTime? @map("finished_at") @db.Timestamptz
+
+  organization Organization @relation("AgentSessionLifecycleRequestOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  session      AgentSession @relation("AgentSessionLifecycleRequests", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  requestedBy  User         @relation("AgentSessionLifecycleRequestRequestedBy", fields: [requestedByUserId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, idempotencyKey], map: "agent_session_lifecycle_requests_org_idempotency_key")
+  @@unique([id, organizationId], map: "agent_session_lifecycle_requests_id_org_key")
+  @@index([organizationId, status, deletionDueAt])
+  @@index([sessionId, organizationId])
+  @@index([requestedByUserId])
+  @@map("agent_session_lifecycle_requests")
+}
+
+/// @namespace AgentOS
+/// @describe Content-free, versioned-HMAC deletion receipt used only for terminal delete idempotency.
+model AgentSessionTombstone {
+  id                     String   @id @default(uuid()) @db.Uuid
+  organizationIdHash     String   @map("organization_id_hash")
+  copilotThreadIdHash    String   @unique(map: "agent_session_tombstones_copilot_thread_hash_key") @map("copilot_thread_id_hash")
+  idempotencyKeyHash     String   @unique(map: "agent_session_tombstones_idempotency_hash_key") @map("idempotency_key_hash")
+  requestFingerprintHash String   @map("request_fingerprint_hash")
+  hashKeyVersion         String   @map("hash_key_version")
+  terminalLifecycle      String   @map("terminal_lifecycle")
+  deletionReasonCode     String   @map("deletion_reason_code")
+  deletedAt              DateTime @map("deleted_at") @db.Timestamptz
+  legalPolicyVersion     String   @map("legal_policy_version")
+
+  @@index([organizationIdHash, deletedAt])
+  @@map("agent_session_tombstones")
 }
 
 /// @namespace AgentOS

@@ -235,6 +235,11 @@ model AgentSessionTombstone {
 Tombstones contain versioned HMAC-SHA-256 values from a dedicated lifecycle
 key and policy metadata only: no raw org/user/thread ID, unhashed identifier,
 title, message, goal, resource, action, or model output.
+While a session exists, its lifecycle request remains composite FK-fenced and
+is removed by the physical-delete transaction (explicitly or by cascade). After
+that deletion, only the tombstone's versioned `idempotencyKeyHash` and
+`requestFingerprintHash` authorize an exact retry; neither hash preserves a raw
+identifier or request payload.
 `AgentOsHttpModule` fails fast without `INTERACTION_LIFECYCLE_HMAC_KEY`; the key
 and hasher are not imported by MCP or any non-API process root.
 Archive/terminal lifecycle and legal hold are orthogonal: archive or terminal
