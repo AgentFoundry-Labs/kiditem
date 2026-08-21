@@ -1,21 +1,14 @@
-import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import {
-  CanonicalResourceRefSchema,
-  UserMessageEventPayloadSchema,
-} from "@kiditem/shared/agent-interaction";
+import { CanonicalResourceRefSchema } from "@kiditem/shared/agent-interaction";
 import { z } from "zod";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import {
   AgentSessionControlRepositoryError,
-  type DelegatedTaskRecord,
-  type DelegationContextRecord,
-  type ExecutionAttemptRecord,
   type SessionApprovalRecord,
-  type SessionArtifactRecord,
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentApprovalContinuationTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
+import { continueOperationAttemptInTransaction } from "./internal/continue-operation-attempt";
 
 const TERMINAL_STATES = new Set([
   "archived",
@@ -24,17 +17,6 @@ const TERMINAL_STATES = new Set([
   "failed",
   "cancelled",
 ]);
-
-type ApprovalContinuationAttemptInput = {
-  signal: AbortSignal;
-  organizationId: string;
-  sessionId: string;
-  taskId: string;
-  executionId: string;
-  attemptId: string;
-  predecessorOperationRunId: string;
-  continuationKey: string;
-};
 
 @Injectable()
 export class PrismaAgentApprovalContinuationTransaction implements AgentApprovalContinuationTransactionPort {
@@ -298,204 +280,64 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
       .catch(rethrowStable);
   }
 
-  private async createApprovedContinuationOperation(
-    input: ApprovalContinuationAttemptInput,
-  ) {
-    return this.prisma
-      .$transaction(async (tx: Prisma.TransactionClient) => {
-        input.signal.throwIfAborted();
-        await lock(tx, [
-          "attempt-operation-continuation",
-          input.organizationId,
-          input.attemptId,
-          input.continuationKey,
-        ]);
-        const existing =
-          await tx.agentExecutionAttemptOperationBinding.findFirst({
-            where: {
-              organizationId: input.organizationId,
-              executionAttemptId: input.attemptId,
-              continuationKey: input.continuationKey,
-            },
-            select: {
-              executionAttemptId: true,
-              operationRunId: true,
-              predecessorOperationRunId: true,
-            },
-          });
-        if (existing) {
-          if (
-            existing.predecessorOperationRunId !==
-            input.predecessorOperationRunId
-          ) {
-            throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
-          }
-          return {
-            operationRunId: existing.operationRunId,
-            attemptId: existing.executionAttemptId,
-          };
-        }
-        const predecessor =
-          await tx.agentExecutionAttemptOperationBinding.findFirst({
-            where: {
-              organizationId: input.organizationId,
-              executionAttemptId: input.attemptId,
-              operationRunId: input.predecessorOperationRunId,
-            },
-            include: {
-              attempt: {
-                include: {
-                  execution: {
-                    select: {
-                      id: true,
-                      status: true,
-                      sessionTaskId: true,
-                      sessionTask: { select: { status: true } },
-                    },
-                  },
-                },
-              },
-              operationRun: true,
-            },
-          });
-        if (!predecessor) throw scope();
-        if (
-          predecessor.attempt.executionId !== input.executionId ||
-          predecessor.attempt.sessionId !== input.sessionId ||
-          predecessor.attempt.execution.sessionTaskId !== input.taskId ||
-          predecessor.attempt.state !== "running" ||
-          predecessor.attempt.execution.status !== "running" ||
-          !["running", "waiting_approval"].includes(
-            predecessor.attempt.execution.sessionTask.status,
-          ) ||
-          !predecessor.attempt.externalRunId ||
-          !predecessor.attempt.encryptedHandleRef
-        )
-          throw state();
-        const lifecycleCancelled =
-          predecessor.operationRun.status === "cancelled" &&
-          [
-            "operation_server_shutdown",
-            "operation_server_lifecycle_expired",
-          ].includes(predecessor.operationRun.errorCode ?? "");
-        const approvalBoundary =
-          predecessor.operationRun.status === "attention_required";
-        if (!lifecycleCancelled && !approvalBoundary) throw state();
-        input.signal.throwIfAborted();
-        const operationRun = await tx.operationRun.create({
-          data: {
-            organizationId: input.organizationId,
-            operationKey: predecessor.operationRun.operationKey,
-            definitionVersion: predecessor.operationRun.definitionVersion,
-            ownerDomain: predecessor.operationRun.ownerDomain,
-            title: predecessor.operationRun.title,
-            engineType: predecessor.operationRun.engineType,
-            resourceClass: predecessor.operationRun.resourceClass,
-            executionTimeoutMs: predecessor.operationRun.executionTimeoutMs,
-            triggerSource: predecessor.operationRun.triggerSource,
-            requestedByUserId: predecessor.operationRun.requestedByUserId,
-            parentRunId: predecessor.operationRun.parentRunId,
-            scheduleId: predecessor.operationRun.scheduleId,
-            idempotencyKey: `agent-session-continuation:${input.attemptId}:${input.continuationKey}`,
-            input: predecessor.operationRun.input as Prisma.InputJsonValue,
-            maxAttempts: predecessor.operationRun.maxAttempts,
-          },
-          select: { id: true },
-        });
-        await tx.agentExecutionAttemptOperationBinding.create({
-          data: {
-            organizationId: input.organizationId,
-            executionAttemptId: predecessor.attempt.id,
-            executionId: predecessor.attempt.executionId,
-            sessionId: predecessor.attempt.sessionId,
-            operationRunId: operationRun.id,
-            predecessorOperationRunId: predecessor.operationRunId,
-            continuationKey: input.continuationKey,
-          },
-        });
-        await tx.operationRunCheckpoint.create({
-          data: {
-            organizationId: input.organizationId,
-            operationRunId: operationRun.id,
-            sequence: 1n,
-            kind: "runtime_handle_continuation",
-            state: {
-              runtimeHandle: {
-                runtimeType: predecessor.attempt.runtimeType,
-                executionId: predecessor.attempt.executionId,
-                attemptId: predecessor.attempt.id,
-                externalRunId: predecessor.attempt.externalRunId,
-                encryptedHandleRef: predecessor.attempt.encryptedHandleRef,
-                generation: predecessor.attempt.runtimeGeneration,
-              },
-            } as Prisma.InputJsonValue,
-          },
-        });
-        return {
-          operationRunId: operationRun.id,
-          attemptId: predecessor.attempt.id,
-        };
-      })
-      .catch(rethrowStable);
-  }
-
   async advanceApprovedContinuation(
     input: Parameters<
       AgentApprovalContinuationTransactionPort["advanceApprovedContinuation"]
     >[0],
   ) {
     input.signal.throwIfAborted();
-    const approval = await this.prisma.agentSessionApproval.findFirst({
-      where: {
-        id: input.approvalId,
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-      },
-      include: {
-        continuation: true,
-        operationBinding: {
-          select: { id: true, operationRunId: true },
-        },
-        attempt: {
-          select: {
-            runtimeType: true,
-            externalRunId: true,
-            encryptedHandleRef: true,
-            runtimeGeneration: true,
-          },
-        },
-      },
-    });
-    if (!approval) throw scope();
-    if (approval.state !== "approved" || !approval.continuation) throw state();
-    if (
-      approval.operationBinding.id !== approval.operationBindingId ||
-      approval.operationBinding.operationRunId !==
-        approval.predecessorOperationRunId ||
-      !approval.attempt.externalRunId ||
-      !approval.attempt.encryptedHandleRef
-    )
-      throw scope();
-    if (approval.continuation.state === "interrupt_delivered") {
-      if (!approval.continuation.successorOperationRunId) throw state();
-      return mapApprovalContinuation(
-        approval,
-        approval.continuation.successorOperationRunId,
-        "interrupt_delivered",
-      );
-    }
-    const successor = await this.createApprovedContinuationOperation({
-      signal: input.signal,
-      organizationId: input.organizationId,
-      sessionId: approval.sessionId,
-      taskId: approval.taskId,
-      executionId: approval.executionId,
-      attemptId: approval.attemptId,
-      predecessorOperationRunId: approval.predecessorOperationRunId,
-      continuationKey: `approval:${approval.id}`,
-    });
-    await this.prisma
+    return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        const approval = await tx.agentSessionApproval.findFirst({
+          where: {
+            id: input.approvalId,
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+          },
+          include: {
+            continuation: true,
+            operationBinding: {
+              select: { id: true, operationRunId: true },
+            },
+            attempt: {
+              select: {
+                runtimeType: true,
+                externalRunId: true,
+                encryptedHandleRef: true,
+                runtimeGeneration: true,
+              },
+            },
+          },
+        });
+        if (!approval) throw scope();
+        if (approval.state !== "approved" || !approval.continuation)
+          throw state();
+        if (
+          approval.operationBinding.id !== approval.operationBindingId ||
+          approval.operationBinding.operationRunId !==
+            approval.predecessorOperationRunId ||
+          !approval.attempt.externalRunId ||
+          !approval.attempt.encryptedHandleRef
+        )
+          throw scope();
+        if (approval.continuation.state === "interrupt_delivered") {
+          if (!approval.continuation.successorOperationRunId) throw state();
+          return mapApprovalContinuation(
+            approval,
+            approval.continuation.successorOperationRunId,
+            "interrupt_delivered",
+          );
+        }
+        const successor = await continueOperationAttemptInTransaction(tx, {
+          signal: input.signal,
+          organizationId: input.organizationId,
+          sessionId: approval.sessionId,
+          taskId: approval.taskId,
+          executionId: approval.executionId,
+          attemptId: approval.attemptId,
+          predecessorOperationRunId: approval.predecessorOperationRunId,
+          continuationKey: `approval:${approval.id}`,
+        });
         await lock(tx, [
           "approval-continuation",
           input.organizationId,
@@ -514,21 +356,22 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
           continuation.successorOperationRunId !== successor.operationRunId
         )
           throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
-        if (continuation.state === "interrupt_delivered") return;
-        await tx.agentSessionApprovalContinuation.update({
-          where: { id: continuation.id },
-          data: {
-            successorOperationRunId: successor.operationRunId,
-            state: "successor_created",
-          },
-        });
+        if (continuation.state !== "interrupt_delivered") {
+          await tx.agentSessionApprovalContinuation.update({
+            where: { id: continuation.id },
+            data: {
+              successorOperationRunId: successor.operationRunId,
+              state: "successor_created",
+            },
+          });
+        }
+        return mapApprovalContinuation(
+          approval,
+          successor.operationRunId,
+          "successor_created",
+        );
       })
       .catch(rethrowStable);
-    return mapApprovalContinuation(
-      approval,
-      successor.operationRunId,
-      "successor_created",
-    );
   }
 
   async markApprovalContinuationInterruptDelivered(
@@ -597,59 +440,6 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
   }
 }
 
-function parseCanonicalUserEvent(
-  value: Prisma.JsonValue,
-): Record<string, unknown> {
-  if (!value || typeof value !== "object" || Array.isArray(value))
-    throw state();
-  const userEvent = value.userEvent;
-  if (!userEvent || typeof userEvent !== "object" || Array.isArray(userEvent)) {
-    throw state();
-  }
-  if (
-    typeof userEvent.externalEventId !== "string" ||
-    userEvent.schemaVersion !== 1
-  )
-    throw state();
-  return {
-    externalEventId: userEvent.externalEventId,
-    schemaVersion: 1,
-    payload: UserMessageEventPayloadSchema.parse(userEvent.payload),
-  };
-}
-
-function mapDelegation(
-  row: { id: string; childTaskId: string; state: string },
-  childExecutionId: string,
-): DelegatedTaskRecord {
-  return {
-    delegationId: row.id,
-    childTaskId: row.childTaskId,
-    childExecutionId,
-    state: row.state,
-  };
-}
-function mapAttempt(row: {
-  id: string;
-  executionId: string;
-  attemptNumber: number;
-  runtimeType: string;
-  externalRunId: string | null;
-  encryptedHandleRef: string | null;
-  runtimeGeneration: number;
-  state: string;
-}): ExecutionAttemptRecord {
-  return {
-    id: row.id,
-    executionId: row.executionId,
-    attemptNumber: row.attemptNumber,
-    runtimeType: row.runtimeType,
-    externalRunId: row.externalRunId,
-    encryptedHandleRef: row.encryptedHandleRef,
-    runtimeGeneration: row.runtimeGeneration,
-    state: row.state,
-  };
-}
 function mapApproval(
   row: { id: string; state: string; decisionIdempotencyKey: string | null },
   changed: boolean,
@@ -708,14 +498,6 @@ function mapApprovalContinuation(
     state: continuationState,
   };
 }
-function mapArtifact(row: {
-  id: string;
-  sha256: string;
-  lifecycle: string;
-}): SessionArtifactRecord {
-  return { id: row.id, sha256: row.sha256, lifecycle: row.lifecycle };
-}
-
 async function lock(
   tx: Prisma.TransactionClient,
   parts: string[],
@@ -745,25 +527,6 @@ function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
-}
-function retryRunId(taskId: string, idempotencyKey: string): string {
-  return `retry-${createHash("sha256")
-    .update(canonicalJson([taskId, idempotencyKey]))
-    .digest("hex")}`;
-}
-function toInputJson(
-  value: Prisma.JsonValue,
-): Prisma.InputJsonValue | Prisma.JsonNullValueInput {
-  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
-}
-function stringArray(value: unknown): string[] {
-  if (
-    !Array.isArray(value) ||
-    value.some((item) => typeof item !== "string" || !item.trim()) ||
-    new Set(value).size !== value.length
-  )
-    throw state();
-  return value as string[];
 }
 function scope(): AgentSessionControlRepositoryError {
   return conflict("AGENT_SESSION_CONTROL_SCOPE_INVALID");

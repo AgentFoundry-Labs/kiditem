@@ -250,7 +250,7 @@ describe("AgentOS persistence seam contracts", () => {
       expect(source).not.toMatch(
         /SessionControlPersistenceStore|from\s+["'][^"']*adapter\/out\/internal\//,
       );
-      expect(source).toMatch(/this\.prisma\./);
+      expect(source).toMatch(/this\.prisma\s*\./);
     },
   );
 
@@ -306,4 +306,44 @@ describe("AgentOS persistence seam contracts", () => {
       }
     },
   );
+
+  it("centralizes continuation locking and binding in one transaction helper", () => {
+    const agentOsRoot = resolve(outRoot, "..", "..", "..");
+    const helper = readFileSync(
+      resolve(
+        agentOsRoot,
+        "adapter/out/transaction/session-control/internal/continue-operation-attempt.ts",
+      ),
+      "utf8",
+    );
+    const attempt = readFileSync(
+      resolve(
+        agentOsRoot,
+        "adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts",
+      ),
+      "utf8",
+    );
+    const approval = readFileSync(
+      resolve(
+        agentOsRoot,
+        "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
+      ),
+      "utf8",
+    );
+    expect(helper).toContain("attempt-operation-continuation");
+    expect(helper).toContain("agentExecutionAttemptOperationBinding.create");
+    expect(
+      helper.match(
+        /async function continueOperationAttemptInTransaction\s*\(/g,
+      ),
+    ).toHaveLength(1);
+    expect(attempt).toContain("continueOperationAttemptInTransaction");
+    expect(approval).toContain("continueOperationAttemptInTransaction");
+    expect(approval).not.toContain("attempt-operation-continuation");
+    expect(approval).not.toContain(
+      "agentExecutionAttemptOperationBinding.create",
+    );
+    expect(approval).not.toContain("operationRun.create");
+    expect(approval).not.toContain("operationRunCheckpoint.create");
+  });
 });
