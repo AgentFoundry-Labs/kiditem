@@ -24,6 +24,7 @@
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
     "check:agent-interaction-lifecycle": "node scripts/check-agent-interaction-lifecycle.mjs",
+    "check:agent-os-hexagonal": "node scripts/check-agent-os-hexagonal.mjs",
     "check:identifier-contracts": "node scripts/check-identifier-contracts.mjs",
     "check:copilotkit-train": "node scripts/check-copilotkit-train.mjs",
     "skills:profile": "node tools/codex/skills/update-project-skills/scripts/manage-skill-profile.mjs",

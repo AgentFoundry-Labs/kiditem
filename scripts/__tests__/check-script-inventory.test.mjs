@@ -8,6 +8,7 @@ test('accepts complete script inventory metadata', () => {
     readme: SCRIPT_INVENTORY.map((file) => `\`scripts/${file}\``).join('\n'),
     packageScripts: {
       'check:copilotkit-train': 'node scripts/check-copilotkit-train.mjs',
+      'check:agent-os-hexagonal': 'node scripts/check-agent-os-hexagonal.mjs',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
       'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
@@ -37,6 +38,7 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.ok(result.undocumented.includes('check-script-inventory.mjs'));
   assert.deepEqual(result.missingPackageHooks, [
     'check:copilotkit-train',
+    'check:agent-os-hexagonal',
     'check:scripts-inventory',
     'check:schema-artifact-sync',
     'check:pr-release-contract',

@@ -277,7 +277,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/activity-events` | Flat | module/controller/service/`dto/`. |
 | `apps/server/src/advertising` | Hexagonal | port/adapter lanes complete; new ingest, daily-fact, and ad-action behavior uses `adapter/out/repository/` + `application/port/out/*` ports; architecture spec freezes invariants. |
 | `apps/server/src/advertising/services` | Flat | compatibility facade lane only; no new business logic. |
-| `apps/server/src/agent-os` | Hexagonal | runtime, queue, repository, policy, and event boundaries behind ports/adapters. |
+| `apps/server/src/agent-os` | Hexagonal | lane-first/capability-second runtime, queue, repository, transaction, policy, and event boundaries behind ports/adapters. |
 | `apps/server/src/ai` | Hexagonal | provider, runtime handler, bridge, sink, media, fetch, and storage boundaries behind ports/adapters. |
 | `apps/server/src/analytics/dashboard` | Hexagonal | port/adapter lanes complete; 8 outgoing ports + repository adapters cover Prisma reads, application services are Prisma-free, architecture + module wiring specs freeze invariants. |
 | `apps/server/src/analytics/statistics` | Flat | Overview, product, category, grade, Pareto, and repurchase read service. |
@@ -991,6 +991,27 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
 - Business domains that require LLM judgment depend on official Agent OS use-
   case ports such as `AgentSessionExecutionPort`; they do
   not import runtime services or adapters directly.
+- Agent OS is lane-first and capability-second: adapter lanes precede
+  capability folders (`adapter/in/<lane>/<capability>/`,
+  `adapter/out/<lane>/<capability>/`,
+  `application/port/in/<capability>/`,
+  `application/port/out/<lane>/<capability>/`, and
+  `application/service/<capability>/`), with pure aggregate/policy code under
+  `domain/`. Incoming HTTP, Operation, Agent, MCP, and CLI adapters inject
+  capability-named input ports and never concrete application services.
+  Official session/KID-25 input ports are never flat directly below
+  `application/port/in`; retained generic `AgentRun` ports are the narrow
+  classified compatibility exception.
+- Session authorization, event append, delegation, approval continuation,
+  attempt binding, and lifecycle transitions cross transaction-port seams and
+  execute through outgoing Prisma transaction adapters as one lifecycle
+  transaction. They are not decomposed into table-shaped CRUD calls.
+- Official Agent OS production modules stay at or below 700 lines. Tests and
+  temporary `legacy-run` files are exempt only from this size limit, never from
+  the incoming-adapter dependency direction. `check:agent-os-hexagonal` stays a
+  standalone live migration baseline until Tasks 12–14 remove existing concrete
+  imports and oversized surfaces; it joins `check:conventions` only after that
+  cleanup.
 - Automation workflows are deterministic and must not create Agent OS runs. If
   LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
   deterministic workflows through automation-owned incoming ports or registered

@@ -9,15 +9,24 @@ business aggregate owner.
 
 ```text
 agent-os/
-├── adapter/in/http/          # run/observability/admin HTTP surfaces
-├── adapter/out/              # repository, runtime, policy, event adapters
+├── adapter/
+│   ├── in/{http,operation,agent,mcp}/<capability>/
+│   └── out/{repository,transaction,runtime,event,cross-domain}/<capability>/
 ├── application/
 │   ├── event/                # finalized event types/constants
-│   ├── port/in/              # runner ports exposed to business domains
-│   ├── port/out/             # repository/runtime/event/policy ports
-│   └── service/              # queue, executor, runner, observability
-└── domain/                   # pure status/policy/schema helpers
+│   ├── port/in/<capability>/
+│   ├── port/out/<lane>/<capability>/
+│   └── service/<capability>/
+└── domain/<aggregate-or-policy>/
 ```
+
+Agent OS is lane-first and capability-second: it remains one platform hexagon,
+not a top-level hexagon per feature. Incoming adapters inject only
+capability-named `application/port/in` tokens; they never import a concrete
+`application/service` implementation. Official session/KID-25 input ports live
+inside a capability folder. The retained generic `AgentRun` input ports are a
+narrow, explicitly classified compatibility exception while migration is in
+progress.
 
 ## Owned Surfaces
 
@@ -130,6 +139,10 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 
 - Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen
   in one transaction.
+- Atomic session authorization, event append, delegation, approval continuation,
+  attempt binding, and lifecycle transitions use transaction ports and outgoing
+  Prisma transaction adapters; do not split one lifecycle transaction into
+  table-shaped CRUD calls.
 - Missing runtime handler fails fast with `runtime_not_configured`.
 - Durable runtime tests inject explicit fake adapters; production has no no-op
   or fallback runtime path.
@@ -138,6 +151,11 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Interaction analytics is metadata-only and non-authoritative. Never emit
   messages/model output, resource names, dashboard payloads, credentials,
   cookies, tokens, or raw organization/user identifiers.
+- Official production modules stay at or below 700 lines. Tests and temporary
+  `legacy-run` files are size-exempt but still obey incoming-adapter dependency
+  direction. `npm run check:agent-os-hexagonal` is intentionally a standalone
+  failing migration baseline until Tasks 12–14 remove its violations; only then
+  may it join `check:conventions`.
 
 ## Bootstrap
 
