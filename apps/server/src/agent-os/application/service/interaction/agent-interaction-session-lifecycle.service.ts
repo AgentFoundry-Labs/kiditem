@@ -18,9 +18,6 @@ import {
   AGENT_SESSION_LIFECYCLE_TRANSACTION,
   type AgentSessionLifecycleTransactionPort,
 } from "../../port/out/transaction/interaction/agent-session-lifecycle.transaction.port";
-import {
-  projectAgentSessionRetentionPolicy,
-} from "../../../domain/session/agent-session-retention.policy";
 import { AgentOsBoundaryError } from "../../../domain/agent-os.errors";
 
 @Injectable()
@@ -98,9 +95,6 @@ export class AgentInteractionSessionLifecycleService
     const session = await this.transactions.readSession(input);
     if (!session) throw scope();
     if (session.legalHoldAt) throw legalHold();
-    const policy = projectAgentSessionRetentionPolicy(
-      await this.transactions.readRetentionPolicy(input),
-    );
     const result = await this.transactions.deleteSession({
       ...input,
       tombstone: {
@@ -114,7 +108,6 @@ export class AgentInteractionSessionLifecycleService
         }),
         idempotencyKeyHash,
         requestFingerprintHash,
-        legalPolicyVersion: policy.legalPolicyVersion,
       },
     });
     if (

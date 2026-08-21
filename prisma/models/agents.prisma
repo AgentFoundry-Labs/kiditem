@@ -156,7 +156,7 @@ model AgentSessionLifecycleRequest {
 model AgentSessionTombstone {
   id                     String   @id @default(uuid()) @db.Uuid
   organizationIdHash     String   @map("organization_id_hash")
-  copilotThreadIdHash    String   @unique(map: "agent_session_tombstones_copilot_thread_hash_key") @map("copilot_thread_id_hash")
+  copilotThreadIdHash    String   @map("copilot_thread_id_hash")
   idempotencyKeyHash     String   @unique(map: "agent_session_tombstones_idempotency_hash_key") @map("idempotency_key_hash")
   requestFingerprintHash String   @map("request_fingerprint_hash")
   hashKeyVersion         String   @map("hash_key_version")
@@ -166,29 +166,58 @@ model AgentSessionTombstone {
   legalPolicyVersion     String   @map("legal_policy_version")
 
   @@index([organizationIdHash, deletedAt])
+  @@index([copilotThreadIdHash, deletedAt])
   @@map("agent_session_tombstones")
 }
 
 /// @namespace AgentOS
 /// @describe Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session.
 model AgentSessionLegalAuditProjection {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  recordKind     String   @map("record_kind")
-  legalBasisCode String   @map("legal_basis_code")
-  retentionDueAt DateTime @map("retention_due_at") @db.Timestamptz
-  artifactSha256 String?  @map("artifact_sha256")
-  inputTokens    Int?     @map("input_tokens")
-  outputTokens   Int?     @map("output_tokens")
-  costMicros     BigInt?  @map("cost_micros") @db.BigInt
-  recordCount    Int      @default(1) @map("record_count")
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  id               String   @id @default(uuid()) @db.Uuid
+  organizationId   String   @map("organization_id") @db.Uuid
+  recordKind       String   @map("record_kind")
+  legalBasisCode   String   @map("legal_basis_code")
+  retentionDueAt   DateTime @map("retention_due_at") @db.Timestamptz
+  sourceOccurredAt DateTime @map("source_occurred_at") @db.Timestamptz
+  inputTokens      Int?     @map("input_tokens")
+  outputTokens     Int?     @map("output_tokens")
+  costMicros       BigInt?  @map("cost_micros") @db.BigInt
+  currency         String?
+  recordCount      Int      @default(1) @map("record_count")
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  organization Organization @relation("AgentSessionLegalAuditProjectionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  organization Organization @relation("AgentSessionLegalAuditProjectionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
 
+  @@index([retentionDueAt])
   @@index([organizationId, retentionDueAt])
   @@index([organizationId, legalBasisCode, retentionDueAt])
   @@map("agent_session_legal_audit_projections")
+}
+
+/// @namespace AgentOS
+/// @describe Durable, organization-fenced storage-erasure claim. The raw reference is cleared after terminal handling and never leaves the eraser boundary.
+model AgentSessionArtifactErasureClaim {
+  id               String    @id @default(uuid()) @db.Uuid
+  organizationId   String    @map("organization_id") @db.Uuid
+  storageReference String?   @map("storage_reference") @db.Text
+  referenceHash    String    @map("reference_hash")
+  dueAt            DateTime  @map("due_at") @db.Timestamptz
+  status           String    @default("pending")
+  availableAt      DateTime  @map("available_at") @db.Timestamptz
+  claimToken       String?   @map("claim_token") @db.Uuid
+  claimedAt        DateTime? @map("claimed_at") @db.Timestamptz
+  attemptCount     Int       @default(0) @map("attempt_count")
+  lastErrorCode    String?   @map("last_error_code")
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization @relation("AgentSessionArtifactErasureClaimOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@unique([organizationId, referenceHash, dueAt], map: "agent_session_artifact_erasure_claims_org_reference_due_key")
+  @@index([dueAt, status])
+  @@index([availableAt, status])
+  @@index([organizationId, referenceHash, status])
+  @@map("agent_session_artifact_erasure_claims")
 }
 
 /// @namespace AgentOS

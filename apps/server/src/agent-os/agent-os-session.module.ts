@@ -10,6 +10,7 @@ import { PrismaAgentRunAuthorizationTransaction } from "./adapter/out/transactio
 import { PrismaAgentConversationEventTransaction } from "./adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction";
 import { PrismaAgentExecutionUsageTransaction } from "./adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction";
 import { PrismaAgentSessionLifecycleTransaction } from "./adapter/out/transaction/interaction/prisma-agent-session-lifecycle.transaction";
+import { PrismaAgentSessionLifecycleMaintenanceTransaction } from "./adapter/out/transaction/interaction/prisma-agent-session-lifecycle-maintenance.transaction";
 import { PrismaAgentSessionControlQueryRepository } from "./adapter/out/repository/session-control/prisma-agent-session-control-query.repository";
 import { PrismaAgentDelegationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-delegation.transaction";
 import { PrismaAgentAttemptOperationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction";
@@ -27,6 +28,7 @@ import { AGENT_RUN_AUTHORIZATION_TRANSACTION } from "./application/port/out/tran
 import { AGENT_CONVERSATION_EVENT_TRANSACTION } from "./application/port/out/transaction/interaction/agent-conversation-event.transaction.port";
 import { AGENT_EXECUTION_USAGE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-execution-usage.transaction.port";
 import { AGENT_SESSION_LIFECYCLE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-session-lifecycle.transaction.port";
+import { AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-session-lifecycle-maintenance.transaction.port";
 import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from "./application/port/out/repository/session-control/agent-session-control-query.repository.port";
 import { AGENT_DELEGATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-delegation.transaction.port";
 import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
@@ -96,6 +98,10 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
       useClass: PrismaAgentSessionLifecycleTransaction,
     },
     {
+      provide: AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION,
+      useClass: PrismaAgentSessionLifecycleMaintenanceTransaction,
+    },
+    {
       provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
       useClass: PrismaAgentSessionControlQueryRepository,
     },
@@ -159,6 +165,7 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
     AGENT_CONVERSATION_EVENT_TRANSACTION,
     AGENT_EXECUTION_USAGE_TRANSACTION,
     AGENT_SESSION_LIFECYCLE_TRANSACTION,
+    AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION,
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,

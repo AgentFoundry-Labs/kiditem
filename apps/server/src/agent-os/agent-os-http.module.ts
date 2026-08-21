@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 import { EventEmitter2 } from "@nestjs/event-emitter";
 import { OperationsModule } from "../operations/operations.module";
+import { StorageModule } from "../common/storage/storage.module";
 import { AgentAguiController } from "./adapter/in/http/interaction/agent-agui.controller";
 import { AgentCatalogController } from "./adapter/in/http/catalog/agent-catalog.controller";
 import { AgentApprovalsController } from "./adapter/in/http/legacy-run/agent-approvals.controller";
@@ -10,6 +11,7 @@ import { AgentInteractionActionsController } from "./adapter/in/http/interaction
 import { AgentInteractionBootstrapController } from "./adapter/in/http/interaction/agent-interaction-bootstrap.controller";
 import { AgentInteractionControlController } from "./adapter/in/http/interaction/agent-interaction-control.controller";
 import { AgentInteractionSessionLifecycleController } from "./adapter/in/http/interaction/agent-interaction-session-lifecycle.controller";
+import { AgentSessionLifecycleMaintenanceProcessor } from "./adapter/in/http/interaction/agent-session-lifecycle-maintenance.processor";
 import { AgentRunObservabilityController } from "./adapter/in/http/legacy-run/agent-run-observability.controller";
 import { AgentRunRequestsController } from "./adapter/in/http/legacy-run/agent-run-requests.controller";
 import { AgentRunsQueryController } from "./adapter/in/http/legacy-run/agent-runs-query.controller";
@@ -19,6 +21,7 @@ import { AgentSessionTaskOperationAdapter } from "./adapter/in/operation/session
 import { OperationsSessionExecutionAdapter } from "./adapter/out/cross-domain/operations-session-execution.adapter";
 import { InteractionProductAnalyticsAdapter } from "./adapter/out/event/interaction-product-analytics.adapter";
 import { OpenAiResponsesAguiRuntimeAdapter } from "./adapter/out/runtime/openai-responses-agui-runtime.adapter";
+import { StorageAgentSessionArtifactEraser } from "./adapter/out/storage/storage-agent-session-artifact-eraser.adapter";
 import { AGENT_AGUI_RUNNER_PORT } from "./application/port/in/agent-agui-runner.port";
 import { AGENT_CATALOG_PORT } from "./application/port/in/catalog/agent-catalog.port";
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from "./application/port/in/interaction/agent-interaction-authorization.port";
@@ -27,11 +30,13 @@ import { AGENT_AGUI_PRODUCER_PORT } from "./application/port/in/interaction/agen
 import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from "./application/port/in/interaction/agent-interaction-live-events.port";
 import { AGENT_INTERACTION_PRESENTATION_PORT } from "./application/port/in/interaction/agent-interaction-presentation.port";
 import { AGENT_INTERACTION_SESSION_LIFECYCLE_PORT } from "./application/port/in/interaction/agent-interaction-session-lifecycle.port";
+import { AGENT_SESSION_LIFECYCLE_MAINTENANCE_PORT } from "./application/port/in/interaction/agent-session-lifecycle-maintenance.port";
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from "./application/port/in/session-control/agent-session-approval-decision.port";
 import { AGENT_SESSION_TASK_CONTROL_PORT } from "./application/port/in/session-control/agent-session-task-control.port";
 import { AGENT_SESSION_TASK_EXECUTION_PORT } from "./application/port/in/session-execution/agent-session-task-execution.port";
 import { OPERATIONS_SESSION_EXECUTION_PORT } from "./application/port/out/cross-domain/operations-session-execution.port";
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from "./application/port/out/event/interaction-product-analytics.port";
+import { AGENT_SESSION_ARTIFACT_ERASER } from "./application/port/out/storage/agent-session-artifact-eraser.port";
 import { AgentAguiProducerCoordinator } from "./application/service/agent-agui-producer-coordinator.service";
 import { AgentAguiRunService } from "./application/service/agent-agui-run.service";
 import { AgentCatalogService } from "./application/service/agent-catalog.service";
@@ -43,6 +48,7 @@ import { AgentInteractionAuthorizationService } from "./application/service/inte
 import { AgentInteractionBootstrapService } from "./application/service/interaction/agent-interaction-bootstrap.service";
 import { AgentInteractionLiveEventsService } from "./application/service/interaction/agent-interaction-live-events.service";
 import { AgentInteractionSessionLifecycleService } from "./application/service/interaction/agent-interaction-session-lifecycle.service";
+import { AgentSessionLifecycleMaintenanceService } from "./application/service/interaction/agent-session-lifecycle-maintenance.service";
 import { InteractionAllowedVersionResolver } from "./application/service/interaction/interaction-allowed-version-resolver";
 import { interactionLifecycleEnvironmentProviders } from "./adapter/in/http/interaction/interaction-lifecycle.config";
 import { AgentSessionApprovalService } from "./application/service/session-control/agent-session-approval.service";
@@ -64,6 +70,7 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentOsLegacyRunModule,
     AgentOsRuntimeSupportModule,
     OperationsModule,
+    StorageModule,
   ],
   controllers: [
     AgentCatalogController,
@@ -89,6 +96,9 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     InteractionAllowedVersionResolver,
     AgentInteractionLiveEventsService,
     AgentInteractionSessionLifecycleService,
+    AgentSessionLifecycleMaintenanceService,
+    AgentSessionLifecycleMaintenanceProcessor,
+    StorageAgentSessionArtifactEraser,
     InteractionGatewayGuard,
     AgentAguiRunService,
     AgentAguiProducerCoordinator,
@@ -152,6 +162,14 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     {
       provide: AGENT_INTERACTION_SESSION_LIFECYCLE_PORT,
       useExisting: AgentInteractionSessionLifecycleService,
+    },
+    {
+      provide: AGENT_SESSION_ARTIFACT_ERASER,
+      useExisting: StorageAgentSessionArtifactEraser,
+    },
+    {
+      provide: AGENT_SESSION_LIFECYCLE_MAINTENANCE_PORT,
+      useExisting: AgentSessionLifecycleMaintenanceService,
     },
     {
       provide: AGENT_SESSION_TASK_CONTROL_PORT,

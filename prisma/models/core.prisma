@@ -79,6 +79,7 @@ model Organization {
   agentInteractionRetentionPolicy AgentInteractionRetentionPolicy? @relation("AgentInteractionRetentionPolicyOrganization")
   agentSessionLifecycleRequests   AgentSessionLifecycleRequest[]   @relation("AgentSessionLifecycleRequestOrganization")
   agentSessionLegalAuditProjections AgentSessionLegalAuditProjection[] @relation("AgentSessionLegalAuditProjectionOrganization")
+  agentSessionArtifactErasureClaims AgentSessionArtifactErasureClaim[] @relation("AgentSessionArtifactErasureClaimOrganization")
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]

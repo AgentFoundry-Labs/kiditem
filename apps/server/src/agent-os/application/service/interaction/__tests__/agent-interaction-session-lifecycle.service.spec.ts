@@ -117,4 +117,32 @@ describe("AgentInteractionSessionLifecycleService", () => {
       active: false,
     }));
   });
+
+  it("does not supply an unlocked legal-policy version to the deletion transaction", async () => {
+    const transactions = lifecycleTransaction({
+      deleteSession: vi.fn().mockResolvedValue({
+        idempotencyKeyHash: { hash: "idempotency", hashKeyVersion: "v1" },
+        requestFingerprintHash: { hash: "request_fingerprint", hashKeyVersion: "v1" },
+        terminalLifecycle: "deleted",
+        deletedAt: new Date("2026-08-21T00:00:00.000Z"),
+      }),
+    });
+    delete (transactions as { readRetentionPolicy?: unknown }).readRetentionPolicy;
+    const service = new AgentInteractionSessionLifecycleService(
+      transactions as never,
+      {
+        hash: vi.fn(({ domain }) => ({ hash: domain, hashKeyVersion: "v1" })),
+        matches: vi.fn(() => true),
+      } as never,
+    );
+
+    await expect(service.execute({
+      organizationId: ORGANIZATION_ID,
+      actorId: ACTOR_ID,
+      ...command,
+    })).resolves.toMatchObject({ status: "deleted" });
+    expect(transactions.deleteSession).toHaveBeenCalledWith(expect.objectContaining({
+      tombstone: expect.not.objectContaining({ legalPolicyVersion: expect.anything() }),
+    }));
+  });
 });

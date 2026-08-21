@@ -1,5 +1,4 @@
 import type { AgentSessionTombstoneHash } from "../../crypto/agent-session-tombstone-hasher.port";
-import type { AgentSessionRetentionPolicyRecord } from "../../../../../domain/session/agent-session-retention.policy";
 
 export const AGENT_SESSION_LIFECYCLE_TRANSACTION = Symbol(
   "AGENT_SESSION_LIFECYCLE_TRANSACTION",
@@ -27,9 +26,6 @@ export interface AgentSessionLifecycleTransactionPort {
     organizationId: string;
     sessionId: string;
   }): Promise<AgentSessionLifecycleSessionRecord | null>;
-  readRetentionPolicy(input: {
-    organizationId: string;
-  }): Promise<AgentSessionRetentionPolicyRecord | null>;
   findDeletedTombstone(input: {
     idempotencyKeyHash: AgentSessionTombstoneHash;
   }): Promise<AgentSessionLifecycleTombstoneRecord | null>;
@@ -60,7 +56,6 @@ export interface AgentSessionLifecycleTransactionPort {
       copilotThreadIdHash: AgentSessionTombstoneHash;
       idempotencyKeyHash: AgentSessionTombstoneHash;
       requestFingerprintHash: AgentSessionTombstoneHash;
-      legalPolicyVersion: string;
     };
   }): Promise<AgentSessionLifecycleTombstoneRecord>;
 }

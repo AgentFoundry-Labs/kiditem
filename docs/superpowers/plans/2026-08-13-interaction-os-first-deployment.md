@@ -222,13 +222,16 @@ model AgentSessionLifecycleRequest {
 model AgentSessionTombstone {
   id                  String   @id @default(uuid()) @db.Uuid
   organizationIdHash  String
-  copilotThreadIdHash String   @unique
+  copilotThreadIdHash String
+  idempotencyKeyHash  String   @unique
+  requestFingerprintHash String
   hashKeyVersion      String
   terminalLifecycle   String
   deletionReasonCode  String
   deletedAt           DateTime
   legalPolicyVersion  String
   @@index([organizationIdHash, deletedAt])
+  @@index([copilotThreadIdHash, deletedAt])
 }
 ```
 
@@ -242,6 +245,9 @@ that deletion, only the tombstone's versioned `idempotencyKeyHash` and
 identifier or request payload.
 `AgentOsHttpModule` fails fast without `INTERACTION_LIFECYCLE_HMAC_KEY`; the key
 and hasher are not imported by MCP or any non-API process root.
+Version `v1` lifecycle HMAC hashes do not rotate until an approved keyring,
+multi-version lookup, and migration design exists; this task deliberately has
+no fallback or partial rotation behavior.
 Archive/terminal lifecycle and legal hold are orthogonal: archive or terminal
 state computes `retentionDueAt`, while hold/release mutates only
 `legalHoldAt`/`legalHoldReason`. Releasing a hold never guesses or rewrites the
@@ -257,6 +263,15 @@ artifact or usage row explicitly classified as `independent_legal_audit`, with
 a strict legal-basis code and a later independent retention deadline, is
 projected into the organization-fenced, scalar-only legal-audit projection.
 Ordinary artifacts, usage, and all canonical session content are deleted.
+The projection retains only strict record-kind scalar facts (usage tokens,
+cost, currency, and source occurrence time; artifact occurrence time only),
+has a global due index and API-lifecycle bounded SKIP-LOCKED expiry processor,
+and cascades on organization removal. Artifact storage references are never
+projected: physical deletion creates an organization-fenced erasure claim with
+the raw reference held only while pending/deferred work needs it and a separate
+reference hash for coordination. The API-only eraser validates owned storage
+references, retries failures, defers live or later-retained shared references,
+and removes a successful claim so it cannot block organization deletion.
 
 - [ ] **Step 5: Implement the lifecycle repository transaction**
 
