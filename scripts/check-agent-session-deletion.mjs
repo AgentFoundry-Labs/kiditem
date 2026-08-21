@@ -193,7 +193,6 @@ function isDeletionSchedulerContext(relativePath, sourceFile, node) {
 }
 
 function astSchedulerPosition(relativePath, sourceFile) {
-  if (!relativePath.startsWith('apps/server/src/agent-os/')) return null;
   let position = null;
   const visit = (node) => {
     if (position !== null) return;
@@ -313,11 +312,16 @@ function ephemeralSuccessViolations(relativePath, source) {
     return violations;
   }
 
-  const propertyAssignment = (object, name) => object.properties.find(
-    (property) => ts.isPropertyAssignment(property)
-      && ts.isIdentifier(property.name)
-      && property.name.text === name,
-  );
+  const propertyAssignment = (object, name) => object.properties.find((property) => {
+    if (!ts.isPropertyAssignment(property)) return false;
+    const propertyName = property.name;
+    return (
+      (ts.isIdentifier(propertyName)
+        || ts.isStringLiteral(propertyName)
+        || ts.isNoSubstitutionTemplateLiteral(propertyName))
+      && propertyName.text === name
+    );
+  });
   const visit = (node) => {
     if (ts.isObjectLiteralExpression(node)) {
       const successPersistence = propertyAssignment(node, 'successPersistence');

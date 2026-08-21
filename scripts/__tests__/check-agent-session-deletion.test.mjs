@@ -111,6 +111,29 @@ test('rejects arrow and decorated retention schedulers without relying on callba
   );
 });
 
+test('rejects a deletion interval outside Agent OS', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/operations/delete-arrow.ts': 'setInterval(() => deleteSession(), 1000);',
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /second deletion scheduler/);
+    },
+  );
+});
+
+test('permits an ordinary interval outside Agent OS', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/operations/retry.ts': 'setInterval(refreshMetrics, 1000);',
+    }),
+    (result) => {
+      assert.equal(result.status, 0);
+    },
+  );
+});
+
 test('rejects Agent OS application and capability OperationRun repository bypasses', () => {
   withFixture(
     withRequiredLifecycleLocks({
@@ -182,6 +205,24 @@ test('rejects ephemeral success policy outside the AgentSession deletion definit
         '};',
       ].join('\n'),
     },
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /AGENT_SESSION_DELETE_OPERATION_KEY/);
+    },
+  );
+});
+
+test('rejects an ephemeral definition with a quoted persistence property outside deletion ownership', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const OTHER_OPERATION_KEY = 'agent-os.other';",
+        'export const definition = {',
+        '  key: OTHER_OPERATION_KEY,',
+        "  'successPersistence': 'ephemeral_on_success',",
+        '};',
+      ].join('\n'),
+    }),
     (result) => {
       assert.equal(result.status, 1);
       assert.match(result.stderr, /AGENT_SESSION_DELETE_OPERATION_KEY/);
