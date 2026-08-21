@@ -230,6 +230,77 @@ test('rejects an ephemeral definition with a quoted persistence property outside
   );
 });
 
+test('rejects an ephemeral definition with a computed template persistence property outside deletion ownership', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const OTHER_OPERATION_KEY = 'agent-os.other';",
+        'export const definition = {',
+        '  key: OTHER_OPERATION_KEY,',
+        "  [`successPersistence`]: 'ephemeral_on_success',",
+        '};',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /AGENT_SESSION_DELETE_OPERATION_KEY/);
+    },
+  );
+});
+
+test('rejects an ephemeral definition with a template literal persistence value outside deletion ownership', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const OTHER_OPERATION_KEY = 'agent-os.other';",
+        'export const definition = {',
+        '  key: OTHER_OPERATION_KEY,',
+        '  successPersistence: `ephemeral_on_success`,',
+        '};',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /AGENT_SESSION_DELETE_OPERATION_KEY/);
+    },
+  );
+});
+
+test('permits an owned deletion definition with a computed string key property', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const AGENT_SESSION_DELETE_OPERATION_KEY = 'agent-os.delete-session';",
+        'export const definition = {',
+        "  ['key']: AGENT_SESSION_DELETE_OPERATION_KEY,",
+        "  successPersistence: 'ephemeral_on_success',",
+        '};',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 0);
+    },
+  );
+});
+
+test('permits an ordinary nonliteral computed persistence property', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const OTHER_OPERATION_KEY = 'agent-os.other';",
+        "const persistenceProperty = 'successPersistence';",
+        'export const definition = {',
+        '  key: OTHER_OPERATION_KEY,',
+        "  [persistenceProperty]: 'ephemeral_on_success',",
+        '};',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 0);
+    },
+  );
+});
+
 test('rejects another definition in a source file that also declares the deletion key', () => {
   withFixture(
     {

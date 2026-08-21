@@ -146,6 +146,19 @@ function sourceFileFor(relativePath, source) {
   return ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
 }
 
+function staticLiteralText(node) {
+  if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
+    return node.text;
+  }
+  return null;
+}
+
+function objectPropertyNameText(name) {
+  if (ts.isIdentifier(name)) return name.text;
+  if (ts.isComputedPropertyName(name)) return staticLiteralText(name.expression);
+  return staticLiteralText(name);
+}
+
 function isAgentOsApplicationOrCapability(relativePath) {
   return relativePath.startsWith('apps/server/src/agent-os/application/')
     || relativePath.includes('/capability/');
@@ -314,20 +327,13 @@ function ephemeralSuccessViolations(relativePath, source) {
 
   const propertyAssignment = (object, name) => object.properties.find((property) => {
     if (!ts.isPropertyAssignment(property)) return false;
-    const propertyName = property.name;
-    return (
-      (ts.isIdentifier(propertyName)
-        || ts.isStringLiteral(propertyName)
-        || ts.isNoSubstitutionTemplateLiteral(propertyName))
-      && propertyName.text === name
-    );
+    return objectPropertyNameText(property.name) === name;
   });
   const visit = (node) => {
     if (ts.isObjectLiteralExpression(node)) {
       const successPersistence = propertyAssignment(node, 'successPersistence');
       const isEphemeral = successPersistence
-        && ts.isStringLiteral(successPersistence.initializer)
-        && successPersistence.initializer.text === 'ephemeral_on_success';
+        && staticLiteralText(successPersistence.initializer) === 'ephemeral_on_success';
       if (isEphemeral) {
         const key = propertyAssignment(node, 'key');
         const ownsDefinition = key
