@@ -1,8 +1,9 @@
 # KidItem CopilotKit-Native Interaction OS And AgentOS Design
 
 - Date: 2026-08-13
-- Last amended: 2026-08-14 — hexagonal capability/Operation boundary and
-  canonical identifier system
+- Last amended: 2026-08-21 — hexagonal capability/Operation boundary,
+  canonical identifier system, and AgentOS lane-first/capability-second
+  directory, transaction, and composition-module contracts
 - Status: Approved canonical design
 - Classification: greenfield AgentOS platform reconstruction with a shared web
   interaction surface
@@ -743,6 +744,85 @@ non-session `AgentRun` route is therefore not a permanent compatibility lane:
 each caller migrates to an owner-domain use case/Operation or to the official
 session execution path.
 
+### 14.2 AgentOS Hexagonal Directory And Module Contract
+
+AgentOS is one platform-owner hexagon. It keeps the repository-wide
+`adapter/application/domain` direction as the first directory level and uses
+owner capability as the second level. It does not create a separate top-level
+hexagon for interaction, session control, or task execution, and it does not
+leave those capabilities flat inside `application/service` or a single Prisma
+adapter.
+
+~~~text
+apps/server/src/agent-os/
+  adapter/
+    in/
+      http/{interaction,session-control,catalog}/
+      operation/session-execution/
+      {agent,mcp}/capability/
+    out/
+      repository/{interaction,session-control,catalog}/
+      transaction/{interaction,session-control}/
+      runtime/{agui,durable,local-cli,mcp}/
+      event/interaction/
+      cross-domain/
+  application/
+    port/
+      in/{interaction,session-control,session-execution,capability}/
+      out/{repository,transaction,runtime,event,cross-domain}/
+    service/{interaction,session-control,session-execution,capability,catalog}/
+  domain/{session,execution,approval,capability,catalog}/
+~~~
+
+The dependency path is always:
+
+~~~text
+incoming adapter
+  -> capability-named input port
+     -> application use case
+        -> pure domain policy
+        -> output port
+           -> outgoing adapter
+~~~
+
+- HTTP controllers, Operation handlers, Agent adapters, MCP adapters, and CLI
+  adapters inject input-port tokens. They do not import a concrete
+  `application/service` implementation.
+- An Operation handler translates the Operations envelope into an AgentOS
+  command and delegates to the session-execution input port. Runtime start,
+  reconnect, checkpoint, approval, artifact, and terminal reconciliation live
+  behind that use-case interface rather than in the incoming adapter.
+- Output repository ports represent focused reads. Atomic authorization,
+  event append, delegation, approval continuation, attempt binding, and
+  lifecycle transitions use transaction ports and Prisma transaction adapters.
+  The implementation is not split into table-shaped CRUD adapters when that
+  would break one lifecycle transaction.
+- `domain/` owns status transitions, parent/child consistency, approval
+  validity, and other pure invariants. It imports neither NestJS, Prisma,
+  Operations, provider runtimes, nor event infrastructure.
+- The transitional generic non-session `AgentRun` implementation may be
+  quarantined under `legacy-run` during migration, but the Phase 5 exit removes
+  it instead of retaining a permanent compatibility module.
+
+Nest composition reflects process ownership without creating a universal
+`BaseDomainModule`:
+
+- `AgentOsCatalogModule` owns code-defined catalog/version/manifest providers.
+- `AgentOsCapabilityModule` owns capability registry and invocation seams.
+- `AgentOsSessionModule` owns official session, execution, interaction, and
+  their outgoing adapters.
+- `AgentOsModule` is the controller-free core facade over those modules.
+- `AgentOsHttpModule` alone composes HTTP, interaction secrets, and
+  Operations-backed session controls.
+- `AgentOsWorkerModule` remains isolated from HTTP providers and is deleted
+  with the generic `AgentRun` worker when the cutover completes.
+
+Other backend owners use the same hexagonal dependency direction and standard
+lane names, but they add only the adapters and ports justified by real IO or a
+real second caller. Simple CRUD owners remain flat until a provider, runtime,
+cross-domain mutation, row-lock transaction, shared use case, meaningful pure
+policy, or large-file pressure creates a real seam.
+
 ## 15. Runtime Adapter Contract
 
 Hermes, Codex, Claude, local CLIs, and remote agents are execution adapters,
@@ -1022,6 +1102,12 @@ path.
   divergent Chatbot identity.
 - Remove the generic non-session AgentRun path after deterministic callers use
   owner-domain Operations and judgment callers use official sessions.
+- Deepen AgentOS into the lane-first/capability-second directory contract;
+  incoming adapters call capability input ports, official execution logic no
+  longer lives in the Operation adapter, and lifecycle writes no longer share
+  two aggregate-wide repository interfaces.
+- Split controller-free catalog, capability, and official-session composition
+  modules while preserving the KID-24 API/worker/MCP process-root contract.
 - Replace raw cross-boundary database IDs with canonical resource names without
   rekeying existing UUID rows.
 - Update docs/ARCHITECTURE.md, environment documentation, deployment contracts,

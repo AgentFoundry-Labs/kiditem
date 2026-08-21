@@ -1,5 +1,8 @@
 # AgentOS Durable Session Runtime Implementation Plan
 
+Last amended: 2026-08-21 — post-KID-24 AgentOS hexagonal directory deepening,
+input-port enforcement, lifecycle transaction seams, and composition modules.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Manage immutable Agent definitions and versions, then execute every session task through a policy-derived, durable, resumable runtime without creating another conversation lifecycle or transcript store.
@@ -1112,8 +1115,776 @@ git add apps/server/src/agent-os/__tests__ \
 git commit -m "test: prove durable agent runtime recovery"
 ```
 
+## Post-KID-24 Hexagonal Deepening Execution Shape
+
+Tasks 11–15 complete the directory and dependency reconstruction after the
+functional runtime work. They are five cohesive implementation batches, not
+five PRs and not a request for per-file review. Use Terra implementation agents
+for the batches when subagents are used, keep RED/GREEN evidence inside each
+batch, and request one integrated Sol review only after Task 15 gates pass.
+
+The final structure is lane-first and capability-second. A temporary
+`legacy-run` folder may exist only while the existing cutover task migrates its
+callers; no new behavior enters it.
+
+~~~text
+agent-os/
+  adapter/in/{http,operation,agent,mcp}/<capability>/
+  adapter/out/{repository,transaction,runtime,event,cross-domain}/<capability>/
+  application/port/in/<capability>/
+  application/port/out/<adapter-lane>/<capability>/
+  application/service/<capability>/
+  domain/<aggregate-or-policy>/
+~~~
+
+## Task 11: Lock The AgentOS Hexagonal Directory Contract
+
+**Files:**
+
+- Create: `scripts/check-agent-os-hexagonal.mjs`
+- Create: `scripts/__tests__/check-agent-os-hexagonal.test.mjs`
+- Modify: `scripts/check-script-inventory.mjs`
+- Modify: `package.json`
+- Modify: `apps/server/src/agent-os/AGENTS.md`
+- Modify: `docs/ARCHITECTURE.md`
+
+- [ ] **Step 1: Write scanner tests before moving production files**
+
+The fixture contract rejects an incoming adapter that imports a concrete
+application implementation, direct official-session input-port files, and
+oversized official-session production files. Tests and temporary
+`legacy-run` files are excluded from the size rule, but not from forbidden
+dependency-direction imports.
+
+```javascript
+test('rejects concrete application imports from incoming adapters', () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: 'apps/server/src/agent-os/adapter/in/http/interaction/bootstrap.controller.ts',
+      source: "import { BootstrapService } from '../../../application/service/interaction/bootstrap.service';",
+      lines: 12,
+    },
+  ]);
+  assert.match(violations.join('\n'), /incoming adapter must depend on port\/in/);
+});
+
+test('rejects flat official input ports and oversized official modules', () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: 'apps/server/src/agent-os/application/port/in/agent-session-execution.port.ts',
+      source: 'export interface AgentSessionExecutionPort {}',
+      lines: 10,
+    },
+    {
+      path: 'apps/server/src/agent-os/application/service/session-execution/huge.ts',
+      source: 'export class Huge {}',
+      lines: 701,
+    },
+  ]);
+  assert.equal(violations.length, 2);
+});
+```
+
+- [ ] **Step 2: Run the tests and record RED**
+
+```bash
+node --test scripts/__tests__/check-agent-os-hexagonal.test.mjs
+```
+
+Expected: FAIL because `check-agent-os-hexagonal.mjs` does not exist.
+
+- [ ] **Step 3: Implement the source scanner without enabling the live gate**
+
+```javascript
+const INCOMING_ADAPTER = '/agent-os/adapter/in/';
+const CONCRETE_APPLICATION_IMPORT =
+  /from\s+['"][^'"]*application\/service\//;
+const DIRECT_INPUT_PORT = '/agent-os/application/port/in/';
+
+export function analyzeAgentOsHexagonalSources(files) {
+  const violations = [];
+  for (const file of files) {
+    const normalized = `/${file.path.replaceAll('\\\\', '/')}`;
+    if (
+      normalized.includes(INCOMING_ADAPTER) &&
+      CONCRETE_APPLICATION_IMPORT.test(file.source)
+    ) {
+      violations.push(`${file.path}: incoming adapter must depend on port/in`);
+    }
+    if (normalized.includes(DIRECT_INPUT_PORT)) {
+      const rest = normalized.split(DIRECT_INPUT_PORT)[1];
+      if (rest && !rest.includes('/') && rest !== 'index.ts') {
+        violations.push(`${file.path}: official input port requires capability folder`);
+      }
+    }
+    if (
+      file.lines > 700 &&
+      !normalized.includes('/__tests__/') &&
+      !normalized.includes('/legacy-run/')
+    ) {
+      violations.push(`${file.path}: official AgentOS module exceeds 700 lines`);
+    }
+  }
+  return violations;
+}
+```
+
+Expose `npm run check:agent-os-hexagonal`, but do not yet add it to
+`check:conventions`; the live tree is expected to remain RED until Tasks 12–14
+remove the violations.
+
+- [ ] **Step 4: Run the fixture suite and confirm the live baseline**
+
+```bash
+node --test scripts/__tests__/check-agent-os-hexagonal.test.mjs
+npm run check:agent-os-hexagonal
+```
+
+Expected: fixture suite PASS; live command FAIL and list the current concrete
+controller imports plus the 815/1,178/1,329/1,635-line official files.
+
+- [ ] **Step 5: Commit the contract before implementation**
+
+```bash
+git add package.json scripts/check-script-inventory.mjs \
+  scripts/check-agent-os-hexagonal.mjs \
+  scripts/__tests__/check-agent-os-hexagonal.test.mjs \
+  apps/server/src/agent-os/AGENTS.md docs/ARCHITECTURE.md
+git commit -m "test: lock AgentOS hexagonal seams"
+```
+
+## Task 12: Route Incoming Adapters Through Capability Input Ports
+
+**Files:**
+
+- Create: `apps/server/src/agent-os/application/port/in/interaction/agent-interaction-bootstrap.port.ts`
+- Create: `apps/server/src/agent-os/application/port/in/interaction/agent-interaction-authorization.port.ts`
+- Create: `apps/server/src/agent-os/application/port/in/session-control/agent-session-task-control.port.ts`
+- Create: `apps/server/src/agent-os/application/port/in/session-control/agent-session-approval-decision.port.ts`
+- Create: `apps/server/src/agent-os/application/service/interaction/agent-interaction-bootstrap.service.ts`
+- Create: `apps/server/src/agent-os/application/service/interaction/agent-interaction-authorization.service.ts`
+- Create: `apps/server/src/agent-os/application/service/interaction/interaction-token-codec.ts`
+- Move: `apps/server/src/agent-os/adapter/in/http/agent-interaction-*.controller.ts`
+  to `apps/server/src/agent-os/adapter/in/http/interaction/`
+- Move: `apps/server/src/agent-os/adapter/in/http/agent-agui.controller.ts`
+  to `apps/server/src/agent-os/adapter/in/http/interaction/agent-agui.controller.ts`
+- Move: `apps/server/src/agent-os/adapter/in/http/agent-session.controller.ts`
+  to `apps/server/src/agent-os/adapter/in/http/session-control/agent-session.controller.ts`
+- Move: the associated DTOs and tests beside their incoming adapters
+- Move: session approval/cancellation/execution/continuation/runtime-control/
+  dispatch/delegation implementations and tests to
+  `apps/server/src/agent-os/application/service/session-control/`
+- Delete after GREEN: `apps/server/src/agent-os/application/service/agent-interaction-identity.service.ts`
+- Modify: `apps/server/src/agent-os/agent-os-http.module.ts`
+- Modify: `apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts`
+
+- [ ] **Step 1: Add port-level and incoming-adapter RED tests**
+
+Move the existing identity behavior fixtures into bootstrap and authorization
+suites without weakening the 40 existing authorization cases. Add controller
+fixtures that instantiate only the port interfaces, and a wiring expectation
+that each token resolves through `useExisting`.
+
+```typescript
+export interface InteractionPrincipalInput {
+  organizationId: string;
+  userId: string;
+}
+
+export interface InteractionPrincipal {
+  principalKey: string;
+}
+
+export interface PrepareRunIntentInput extends InteractionPrincipalInput {
+  agentDefinitionKey: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  dashboardContext: unknown;
+  userEvent: unknown;
+}
+
+export const AGENT_INTERACTION_BOOTSTRAP_PORT = Symbol(
+  'AGENT_INTERACTION_BOOTSTRAP_PORT',
+);
+
+export interface AgentInteractionBootstrapPort {
+  bootstrap(input: InteractionPrincipalInput): Promise<InteractionBootstrap>;
+  prepareRunIntent(input: PrepareRunIntentInput): Promise<AguiRunIntent>;
+}
+
+export const AGENT_INTERACTION_AUTHORIZATION_PORT = Symbol(
+  'AGENT_INTERACTION_AUTHORIZATION_PORT',
+);
+
+export interface AuthorizeRunInput {
+  runIntent: string;
+  copilotThreadId: string;
+  aguiRunId: string;
+  dashboardContext: unknown;
+  userEvent: unknown;
+}
+
+export interface AuthorizeConnectionInput extends InteractionPrincipalInput {
+  copilotThreadId: string;
+  cursor?: string | null;
+}
+
+export interface AuthorizeCurrentRunInput extends InteractionPrincipalInput {
+  agentDefinitionKey: string;
+  copilotThreadId: string;
+}
+
+export interface AuthorizeLiveJoinInput {
+  agentDefinitionKey: string;
+  copilotThreadId: string;
+  afterSequence: bigint;
+  liveJoinToken: string;
+}
+
+export interface AuthorizedCurrentRun {
+  session: AgentSessionName;
+  execution: AgentExecutionName;
+  aguiRunId: string;
+}
+
+export interface AuthorizedLiveJoin {
+  organizationId: string;
+  userId: string;
+  sessionId: string;
+  copilotThreadId: string;
+  contextEpoch: number;
+  afterSequence: bigint;
+}
+
+export interface AgentInteractionConnectionAuthorization {
+  authorization: AguiConnectionAuthorization;
+  replay: AgentConversationReplay;
+  liveJoinToken: string | null;
+  liveJoinExpiresAt: string | null;
+}
+
+export interface AgentInteractionAuthorizationPort {
+  resolvePrincipal(input: InteractionPrincipalInput): InteractionPrincipal;
+  authorizeRun(input: AuthorizeRunInput): Promise<AguiRunAuthorization>;
+  authorizeConnection(
+    input: AuthorizeConnectionInput,
+  ): Promise<AgentInteractionConnectionAuthorization>;
+  authorizeCurrentRun(
+    input: AuthorizeCurrentRunInput,
+  ): Promise<AuthorizedCurrentRun | null>;
+  authorizeLiveJoin(
+    input: AuthorizeLiveJoinInput,
+  ): Promise<AuthorizedLiveJoin>;
+  health(): Promise<{ status: 'ok' }>;
+}
+```
+
+- [ ] **Step 2: Run the focused suites and record RED**
+
+```bash
+npm exec --workspace=apps/server vitest -- run \
+  src/agent-os/application/service/interaction/__tests__/agent-interaction-bootstrap.service.spec.ts \
+  src/agent-os/application/service/interaction/__tests__/agent-interaction-authorization.service.spec.ts \
+  src/agent-os/adapter/in/http/interaction/__tests__ \
+  src/agent-os/adapter/in/http/session-control/__tests__
+```
+
+Expected: FAIL on missing input-port tokens and moved implementations.
+
+- [ ] **Step 3: Extract two deep interaction modules and one internal token codec**
+
+Move `bootstrap` and `prepareRunIntent` plus allowed-version resolution into
+`AgentInteractionBootstrapService`. Move run/current/connection/live
+authorization and replay projection into `AgentInteractionAuthorizationService`.
+Move HMAC claim schemas, domain separators, TTLs, `timingSafeEqual`, sign, and
+verify behavior into the non-exported `InteractionTokenCodec`. Keep Zod parsing
+and exact organization/resource correlation unchanged.
+
+Controllers inject only tokens:
+
+```typescript
+constructor(
+  @Inject(AGENT_INTERACTION_BOOTSTRAP_PORT)
+  private readonly interactions: AgentInteractionBootstrapPort,
+) {}
+```
+
+Bind implementations explicitly:
+
+```typescript
+{ provide: AGENT_INTERACTION_BOOTSTRAP_PORT,
+  useExisting: AgentInteractionBootstrapService },
+{ provide: AGENT_INTERACTION_AUTHORIZATION_PORT,
+  useExisting: AgentInteractionAuthorizationService },
+{ provide: AGENT_SESSION_TASK_CONTROL_PORT,
+  useExisting: AgentSessionExecutionService },
+{ provide: AGENT_SESSION_APPROVAL_DECISION_PORT,
+  useExisting: AgentSessionApprovalService },
+```
+
+- [ ] **Step 4: Move incoming adapters by capability and keep behavior GREEN**
+
+Group interaction, session-control, and catalog controllers, DTOs, and tests.
+Place generic `AgentRun` HTTP files under `adapter/in/http/legacy-run/` only as
+a temporary quarantine. Update relative imports and module metadata; do not
+change routes or response schemas.
+
+```bash
+npm exec --workspace=apps/server vitest -- run \
+  src/agent-os/application/service/interaction \
+  src/agent-os/application/service/session-control \
+  src/agent-os/adapter/in/http/interaction \
+  src/agent-os/adapter/in/http/session-control \
+  src/agent-os/__tests__/agent-os.module.wiring.spec.ts
+npm run build --workspace=apps/server
+```
+
+Expected: focused suites and server build PASS; no incoming adapter imports
+`application/service`.
+
+- [ ] **Step 5: Commit the incoming seam**
+
+```bash
+git add apps/server/src/agent-os
+git commit -m "refactor: route AgentOS adapters through input ports"
+```
+
+## Task 13: Make Session Execution A Deep Use-Case Module
+
+**Files:**
+
+- Create: `apps/server/src/agent-os/application/port/in/session-execution/agent-session-task-execution.port.ts`
+- Create: `apps/server/src/agent-os/application/port/out/cross-domain/operations-session-execution.port.ts`
+- Create: `apps/server/src/agent-os/application/service/session-execution/agent-session-task-execution.service.ts`
+- Create: `apps/server/src/agent-os/application/service/session-execution/__tests__/agent-session-task-execution.service.spec.ts`
+- Create: `apps/server/src/agent-os/adapter/out/cross-domain/operations-session-execution.adapter.ts`
+- Move and shrink: `apps/server/src/agent-os/adapter/in/operation/agent-session-task.operation-handler.ts`
+  to `apps/server/src/agent-os/adapter/in/operation/session-execution/agent-session-task.operation-adapter.ts`
+- Move: its mapping/registration tests beside the adapter
+- Create: `apps/server/src/agent-os/domain/session/agent-session-lifecycle.policy.ts`
+- Create: `apps/server/src/agent-os/domain/execution/agent-execution-lifecycle.policy.ts`
+- Create: `apps/server/src/agent-os/domain/approval/agent-approval.policy.ts`
+- Modify: session execution, approval, cancellation, continuation, and runtime-control services to use the policies
+- Modify: `apps/server/src/agent-os/agent-os-http.module.ts`
+
+- [ ] **Step 1: Move the existing 16 handler behaviors to a use-case RED suite**
+
+The use-case suite owns runtime start/reconnect, checkpoint-before-connect,
+approval/artifact persistence, signal handling, bounded cancellation, terminal
+reconciliation, and late-event rejection. The incoming adapter suite retains
+only Operation input mapping, handler registration, and result mapping.
+
+```typescript
+export const AGENT_SESSION_TASK_EXECUTION_PORT = Symbol(
+  'AGENT_SESSION_TASK_EXECUTION_PORT',
+);
+
+export type AgentSessionTaskExecutionResult =
+  | { status: 'completed'; output: Record<string, unknown> }
+  | {
+      status: 'attention_required';
+      reason: string;
+      output: Record<string, unknown>;
+    }
+  | { status: 'cancelled'; output: Record<string, unknown> }
+  | { status: 'failed'; code: string; message: string };
+
+export interface AgentSessionTaskExecutionPort {
+  execute(
+    input: ExecuteAgentSessionTaskCommand,
+  ): Promise<AgentSessionTaskExecutionResult>;
+  cancel(input: CancelAgentSessionTaskCommand): Promise<void>;
+}
+
+export interface ExecuteAgentSessionTaskCommand {
+  organizationId: string;
+  session: AgentSessionName;
+  task: AgentSessionTaskName;
+  execution: AgentExecutionName;
+  operation: OperationRunName;
+  operationAttemptToken: string;
+  requestedByUserId: string | null;
+  signal: AbortSignal;
+}
+
+export interface CancelAgentSessionTaskCommand {
+  organizationId: string;
+  operation: OperationRunName;
+  reason: string | null;
+  requestedByUserId: string | null;
+}
+```
+
+- [ ] **Step 2: Run RED**
+
+```bash
+npm exec --workspace=apps/server vitest -- run \
+  src/agent-os/application/service/session-execution/__tests__/agent-session-task-execution.service.spec.ts \
+  src/agent-os/adapter/in/operation/session-execution/__tests__/agent-session-task.operation-adapter.spec.ts
+```
+
+Expected: FAIL because the use-case port and implementation do not exist.
+
+- [ ] **Step 3: Move orchestration behind the input-port seam**
+
+The Operation adapter parses canonical resource names and delegates:
+
+```typescript
+async execute(context: OperationHandlerContext): Promise<OperationHandlerResult> {
+  const result = await this.execution.execute(mapOperationContext(context));
+  return mapExecutionResult(result);
+}
+
+async cancel(context: OperationCancelContext): Promise<void> {
+  await this.execution.cancel(mapOperationCancelContext(context));
+}
+
+function mapExecutionResult(
+  result: AgentSessionTaskExecutionResult,
+): OperationHandlerResult {
+  switch (result.status) {
+    case 'completed':
+      return { kind: 'completed', result: result.output };
+    case 'attention_required':
+      return {
+        kind: 'attention_required',
+        reason: result.reason,
+        result: result.output,
+      };
+    case 'cancelled':
+      return { kind: 'cancelled', result: result.output };
+    case 'failed':
+      return { kind: 'failed', code: result.code, message: result.message };
+  }
+}
+```
+
+`mapOperationContext` parses the existing strict
+`AgentSessionTaskOperationInputSchema`, verifies that the session organization
+equals `context.organizationId`, formats `context.runId` as the canonical
+Operation resource name, and copies only `attemptToken`, `requestedByUserId`,
+and `signal`. Attempt activation and runtime-handle correlation stay inside the
+deep use-case implementation because an incoming Operation envelope does not
+own the Agent execution-attempt identity.
+
+The application implementation depends on the AgentOS control/interaction
+ports and `OperationsSessionExecutionPort`; it does not import
+`OperationRunRepositoryPort` or `OperationCheckpointRepositoryPort` directly.
+The outgoing cross-domain adapter performs that translation.
+
+- [ ] **Step 4: Extract pure lifecycle policies**
+
+```typescript
+export function assertExecutionTransition(
+  current: AgentExecutionStatus,
+  next: AgentExecutionStatus,
+): void {
+  if (!EXECUTION_TRANSITIONS[current].has(next)) {
+    throw new AgentOsBoundaryError('AGENT_EXECUTION_TRANSITION_INVALID');
+  }
+}
+```
+
+Add equivalent pure task/session and approval-expiry/decision policies. Prisma
+adapters still enforce compare-and-set and FK constraints; domain policy is the
+single in-process source for allowed transitions.
+
+- [ ] **Step 5: Verify the deep module and real recovery path**
+
+```bash
+npm exec --workspace=apps/server vitest -- run \
+  src/agent-os/application/service/session-execution \
+  src/agent-os/adapter/in/operation/session-execution \
+  src/agent-os/domain/session \
+  src/agent-os/domain/execution \
+  src/agent-os/domain/approval
+npm run test:integration --workspace=apps/server -- \
+  src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts
+npm run build --workspace=apps/server
+```
+
+Expected: unit suites, real PostgreSQL recovery, and build PASS; the Operation
+adapter stays below 150 lines and has at most the registry plus one input-port
+dependency.
+
+- [ ] **Step 6: Commit the execution seam**
+
+```bash
+git add apps/server/src/agent-os
+git commit -m "refactor: deepen AgentOS session execution"
+```
+
+## Task 14: Split Persistence By Read And Lifecycle Transaction Seams
+
+**Files:**
+
+- Create under `apps/server/src/agent-os/application/port/out/repository/interaction/`:
+  `agent-session-query.repository.port.ts`,
+  `agent-conversation-query.repository.port.ts`, and
+  `agent-execution-query.repository.port.ts`
+- Create under `apps/server/src/agent-os/application/port/out/transaction/interaction/`:
+  `agent-run-authorization.transaction.port.ts`,
+  `agent-conversation-event.transaction.port.ts`, and
+  `agent-execution-usage.transaction.port.ts`
+- Create under `apps/server/src/agent-os/application/port/out/repository/session-control/`:
+  `agent-session-control-query.repository.port.ts`
+- Create under `apps/server/src/agent-os/application/port/out/transaction/session-control/`:
+  `agent-delegation.transaction.port.ts`,
+  `agent-attempt-operation.transaction.port.ts`,
+  `agent-approval-continuation.transaction.port.ts`, and
+  `agent-session-transition.transaction.port.ts`
+- Create matching Prisma adapters under
+  `apps/server/src/agent-os/adapter/out/{repository,transaction}/{interaction,session-control}/`
+- Move shared Prisma mapping helpers to capability-local `internal/` files
+- Delete after GREEN:
+  `application/port/out/repository/agent-interaction-repository.port.ts`,
+  `application/port/out/repository/agent-session-control.repository.port.ts`,
+  `adapter/out/repository/prisma-agent-interaction.repository.ts`, and
+  `adapter/out/repository/prisma-agent-session-control.repository.ts`
+- Modify all AgentOS application consumers and module bindings
+- Modify both real PostgreSQL repository integration suites
+
+- [ ] **Step 1: Add narrow-port contract tests and keep the two PG suites RED**
+
+The method ownership is normative:
+
+| Seam | Existing methods moved behind it |
+|---|---|
+| Session query | `listSessions`, `findAccessibleSession` |
+| Conversation query | `readConversationEvents`, `readModelConversation` |
+| Execution query | `loadExecutionRuntimeContext`, all `find*Execution` methods |
+| Run authorization transaction | `authorizeExecution` |
+| Conversation event transaction | `appendExecutionEvent`, `markExecutionTerminal` |
+| Execution usage transaction | `recordExecutionUsage` |
+| Session-control query | capability/delegation/task/session/cancel/recovery reads |
+| Delegation transaction | `createDelegatedTask` |
+| Attempt-operation transaction | reserve/find/activate/start/handle/finish/continue |
+| Approval-continuation transaction | request/decide/load/expire/advance/mark/list |
+| Session transition transaction | artifact/retry/task/session transitions |
+
+Run the existing integration suites after replacing their repository factory
+with the new adapter set. Expected RED is missing tokens/adapters, not changed
+business assertions.
+
+- [ ] **Step 2: Extract read adapters first**
+
+Read interfaces contain no mutation methods. Each Prisma read adapter owns its
+organization predicates and canonical mapping. Move duplicate AgentVersion
+lookups to the already existing `AgentVersionRepositoryPort` rather than
+creating another version-query interface.
+
+```typescript
+export interface AgentSessionQueryRepositoryPort {
+  listSessions(input: ListSessionsInput): Promise<AgentSessionRecord[]>;
+  findAccessibleSession(
+    input: FindAccessibleSessionInput,
+  ): Promise<AgentSessionRecord | null>;
+}
+```
+
+- [ ] **Step 3: Extract transaction adapters without splitting atomic work**
+
+Each command opens and completes its own Prisma transaction inside one adapter.
+Do not compose table repositories from the application module.
+
+```typescript
+export interface AgentRunAuthorizationTransactionPort {
+  authorizeExecution(
+    input: AuthorizeExecutionInput,
+  ): Promise<AuthorizedExecutionRecord>;
+}
+```
+
+Preserve advisory-lock keys, row locks, idempotent-winner reads, outbox writes,
+same-session composite fences, immutable Operation binding, and approval crash
+replay exactly as proven by the current PostgreSQL tests.
+
+- [ ] **Step 4: Switch consumers and delete the two aggregate-wide interfaces**
+
+Inject only the narrowest token required by each application module. A module
+that only lists sessions must not learn event append, approval, or attempt
+methods. Remove the old tokens, classes, and compatibility aliases only after
+`rg` finds no production import.
+
+```bash
+rg -n "AGENT_INTERACTION_REPOSITORY|AGENT_SESSION_CONTROL_REPOSITORY|AgentInteractionRepositoryPort|AgentSessionControlRepositoryPort" \
+  apps/server/src/agent-os --glob '*.ts'
+```
+
+Expected: no production matches after deletion; historical names may remain
+only in migration-plan prose if explicitly described as retired.
+
+- [ ] **Step 5: Run real PostgreSQL transaction evidence**
+
+```bash
+npm run test:integration --workspace=apps/server -- \
+  src/agent-os/adapter/out/transaction/interaction/__tests__/prisma-agent-interaction.pg.integration.spec.ts \
+  src/agent-os/adapter/out/transaction/session-control/__tests__/prisma-agent-session-control.pg.integration.spec.ts \
+  src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts \
+  src/agent-os/__tests__/session-delegation.pg.integration.spec.ts
+npm run check:idor
+npm run check:tenant-scope
+npm run build --workspace=apps/server
+```
+
+Expected: fresh PostgreSQL schema push succeeds; authorization, event/outbox,
+approval crash recovery, attempt continuation, delegation concurrency,
+organization fences, and build all PASS.
+
+- [ ] **Step 6: Commit the persistence seams**
+
+```bash
+git add apps/server/src/agent-os
+git commit -m "refactor: split AgentOS lifecycle transactions"
+```
+
+## Task 15: Split Composition Modules And Finish Architecture Acceptance
+
+**Files:**
+
+- Create: `apps/server/src/agent-os/agent-os-catalog.module.ts`
+- Create: `apps/server/src/agent-os/agent-os-capability.module.ts`
+- Create: `apps/server/src/agent-os/agent-os-session.module.ts`
+- Create temporarily: `apps/server/src/agent-os/agent-os-legacy-run.module.ts`
+- Modify: `apps/server/src/agent-os/agent-os.module.ts`
+- Modify: `apps/server/src/agent-os/agent-os-http.module.ts`
+- Modify: `apps/server/src/agent-os/agent-os-worker.module.ts`
+- Modify: `apps/server/src/agent-runtime-application.module.ts`
+- Modify: `apps/server/src/advertising/advertising.module.ts`
+- Modify: `apps/server/src/ai/ai.module.ts`
+- Modify: `apps/server/src/operation-cancellation/operation-cancellation.module.ts`
+- Modify: `apps/server/src/rules/rules.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing-agent-runtime.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing-agent-api-collection.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing-agent-shadow-operation.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing-agent-mcp-collection.module.ts`
+- Modify: `apps/server/src/sourcing/sourcing-shadow-operation.module.ts`
+- Modify: `apps/server/src/supply/supply-agent-runtime.module.ts`
+- In those owner modules, replace broad `AgentOsModule` imports with only the
+  catalog/capability/session or temporary legacy module actually consumed
+- Move transitional generic AgentRun files under capability-local
+  `legacy-run/` folders; update Plan 4 Task 8 to delete those exact paths
+- Modify: `apps/server/src/__tests__/application-roots.architecture.spec.ts`
+- Modify: `apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts`
+- Modify: `scripts/check-agent-os-hexagonal.mjs`
+- Modify: `package.json`
+- Modify: `docs/ARCHITECTURE.md`
+- Modify: `apps/server/src/agent-os/AGENTS.md`
+- Modify: `docs/runbooks/interaction-platform.md`
+- Modify: `docs/superpowers/plans/2026-08-13-interaction-os-cutover.md`
+
+- [ ] **Step 1: Add composition-root RED assertions**
+
+```typescript
+expect(moduleImports(AgentOsHttpModule)).toEqual(
+  expect.arrayContaining([AgentOsModule, OperationsModule]),
+);
+expect(moduleControllers(AgentOsModule)).toEqual([]);
+expect(moduleImports(AgentOsWorkerModule)).not.toContain(AgentOsHttpModule);
+expect(sourceOf(AgentOsModule)).not.toContain('OperationsModule');
+```
+
+Also assert worker and MCP roots do not contain HTTP controllers, gateway
+guards, interaction secret providers, or `OperationsModule` transitively.
+
+- [ ] **Step 2: Build controller-free internal composition modules**
+
+`AgentOsCatalogModule` owns definitions, versions, manifests, assets, and
+startup validation. `AgentOsCapabilityModule` owns capability registration,
+policy routing, MCP execution, and owner adapter registration. `AgentOsSessionModule`
+owns official session/interaction queries, lifecycle transactions, execution,
+conversation events, and durable runtime selection. `AgentOsModule` becomes a
+small facade that imports and exports only these focused modules/tokens.
+
+The transitional `AgentRun` runner/worker remains quarantined for the existing
+cutover task and receives no new dependencies or behavior.
+
+- [ ] **Step 3: Enable the live architecture gate**
+
+Add `check:agent-os-hexagonal` to `check:conventions`. The live scanner must now
+find no incoming concrete implementation import, flat official input port,
+or official production file over 700 lines.
+
+```bash
+npm run check:agent-os-hexagonal
+npm run check:directory-architecture
+npm run check:agents-hygiene
+```
+
+Expected: all PASS.
+
+- [ ] **Step 4: Run focused and full acceptance gates once**
+
+```bash
+npm exec --workspace=apps/server vitest -- run \
+  src/agent-os/__tests__/agent-os.module.wiring.spec.ts \
+  src/__tests__/application-roots.architecture.spec.ts \
+  src/agent-os/application/service/interaction \
+  src/agent-os/application/service/session-control \
+  src/agent-os/application/service/session-execution
+npm run test:integration --workspace=apps/server -- \
+  src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts \
+  src/agent-os/__tests__/session-delegation.pg.integration.spec.ts
+npm run build --workspace=packages/shared
+npm run build --workspace=apps/server
+npm run check:conventions
+node deploy/interaction-gateway/smoke-official-recovery.mjs
+npm run dev:server
+```
+
+Expected: all finite gates and official smoke PASS; API boots with interaction
+secrets, worker and MCP boot without them, and the watched server is stopped
+after readiness. No owned child process remains.
+
+- [ ] **Step 5: Perform one integrated Sol review**
+
+Review the complete Task 11–15 diff once against the approved design, KID-24
+process-root contract, canonical identifier rules, organization fences,
+transaction atomicity, and deletion plan. Fix every P1/P2, rerun only affected
+focused gates, then rerun the final acceptance command set once.
+
+- [ ] **Step 6: Commit the completed architecture reconstruction**
+
+```bash
+git add apps/server/src/agent-os apps/server/src/__tests__ \
+  apps/server/src/agent-runtime-application.module.ts \
+  apps/server/src/advertising/advertising.module.ts \
+  apps/server/src/ai/ai.module.ts \
+  apps/server/src/operation-cancellation/operation-cancellation.module.ts \
+  apps/server/src/rules/rules.module.ts \
+  apps/server/src/sourcing/sourcing.module.ts \
+  apps/server/src/sourcing/sourcing-agent-runtime.module.ts \
+  apps/server/src/sourcing/sourcing-agent-api-collection.module.ts \
+  apps/server/src/sourcing/sourcing-agent-shadow-operation.module.ts \
+  apps/server/src/sourcing/sourcing-agent-mcp-collection.module.ts \
+  apps/server/src/sourcing/sourcing-shadow-operation.module.ts \
+  apps/server/src/supply/supply-agent-runtime.module.ts \
+  scripts package.json docs/ARCHITECTURE.md \
+  docs/runbooks/interaction-platform.md \
+  docs/superpowers/plans/2026-08-13-interaction-os-cutover.md
+git commit -m "refactor: deepen AgentOS hexagonal modules"
+```
+
 ## Plan Acceptance Evidence
 
+- [ ] AgentOS is lane-first and capability-second: all official incoming
+  adapters call capability-named input ports, and no incoming adapter imports
+  a concrete application implementation.
+- [ ] Interaction bootstrap/authorization and session execution are deep
+  modules behind small interfaces; the Operation adapter contains only
+  Operations mapping/registration and delegates official execution.
+- [ ] Interaction and session-control persistence use separate read and
+  lifecycle-transaction interfaces; authorization, event/outbox append,
+  delegation, attempt binding, approval continuation, and lifecycle CAS remain
+  atomic Prisma transactions with organization fences.
+- [ ] `AgentOsCatalogModule`, `AgentOsCapabilityModule`, and
+  `AgentOsSessionModule` are controller-free; `AgentOsHttpModule` alone owns
+  HTTP/Operations composition, and worker/MCP roots do not receive interaction
+  secrets or HTTP providers.
+- [ ] No official AgentOS production module exceeds 700 lines, while generic
+  non-session AgentRun code is either quarantined for the existing cutover task
+  or deleted; no new behavior enters the compatibility lane.
 - [ ] Production Agent definitions come only from the code-owned registry and
   immutable active `AgentVersion`; user/project/plugin markdown cannot alter
   authority.

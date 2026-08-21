@@ -1,7 +1,8 @@
 # CopilotKit-Native Interaction OS Execution Index Implementation Plan
 
-Last amended: 2026-08-14 — owner-port execution boundaries and canonical ID
-system propagated through Plans 1–4.
+Last amended: 2026-08-21 — owner-port execution boundaries, canonical ID
+system, and AgentOS lane-first/capability-second hexagonal deepening propagated
+through Plans 1–4.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -74,6 +75,12 @@ Testing Library, and Playwright
   capabilities. Operations owns lifecycle, not business capabilities.
 - HTTP, CLI, Agent, and Operation entrypoints are incoming adapters. Input
   ports are named for owning-domain use cases, never for caller type.
+- AgentOS keeps `adapter/application/domain` as its first directory level and
+  groups official interaction, session control, session execution, capability,
+  and catalog modules beneath those lanes. Incoming adapters inject input-port
+  tokens rather than concrete application implementations; lifecycle writes
+  use focused transaction ports rather than aggregate-wide repository
+  interfaces.
 - An Operations handler invokes its owner input port and never dispatches a
   business command through `AgentCapabilityRegistry`. The AgentOS-owned
   durable task operation may resume only the AgentOS task-execution use case.
@@ -123,6 +130,10 @@ Testing Library, and Playwright
 - Use one follow-up pull request targeting `develop`. The four linked plans are
   ordered
   verification checkpoints, not PR boundaries.
+- The post-KID-24 AgentOS directory reconstruction is executed as five cohesive
+  batches appended to the official-session-runtime plan. It receives one
+  integrated review after the complete local acceptance gate, not a separate
+  integration review for each file move or micro-step.
 - This is the declared platform-boundary exception covering AgentOS,
   Operations, shared contracts, backend, web, schema, and deployment. Exclude
   unrelated cleanup and business-domain rewrites.

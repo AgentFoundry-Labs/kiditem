@@ -793,23 +793,32 @@ git commit -m "feat: cut ai surfaces to interaction os"
 - Delete: `apps/server/src/chat/claude-cli-env.spec.ts`
 - Delete: `apps/server/src/chat/AGENTS.md`
 - Delete: `apps/server/src/chat/CLAUDE.md`
-- Delete: `apps/server/src/agent-os/adapter/in/http/agent-conversations.controller.ts`
-- Delete: `apps/server/src/agent-os/adapter/in/http/dto/agent-conversations.dto.ts`
-- Delete: `apps/server/src/agent-os/application/service/agent-conversation.service.ts`
-- Delete: `apps/server/src/agent-os/application/service/__tests__/agent-conversation.service.spec.ts`
-- Delete: `apps/server/src/agent-os/application/port/in/agent-interaction.port.ts`
+- Delete after the post-KID-24 directory deepening:
+  `apps/server/src/agent-os/adapter/in/http/legacy-run/agent-conversations.controller.ts`
+- Delete after the post-KID-24 directory deepening:
+  `apps/server/src/agent-os/adapter/in/http/legacy-run/dto/agent-conversations.dto.ts`
+- Delete after the post-KID-24 directory deepening:
+  `apps/server/src/agent-os/application/service/legacy-run/agent-conversation.service.ts`
+- Delete after the post-KID-24 directory deepening:
+  `apps/server/src/agent-os/application/service/legacy-run/__tests__/agent-conversation.service.spec.ts`
+- Delete after the post-KID-24 directory deepening:
+  `apps/server/src/agent-os/application/port/in/legacy-run/agent-interaction.port.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/adapter/in/http/agent-run-requests.controller.ts`
+  `apps/server/src/agent-os/adapter/in/http/legacy-run/agent-run-requests.controller.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/adapter/in/http/agent-runs-query.controller.ts`
+  `apps/server/src/agent-os/adapter/in/http/legacy-run/agent-runs-query.controller.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/application/service/agent-run-coordinator.service.ts`
+  `apps/server/src/agent-os/application/service/legacy-run/agent-run-coordinator.service.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/application/service/agent-run-executor.service.ts`
+  `apps/server/src/agent-os/application/service/legacy-run/agent-run-executor.service.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/application/service/agent-run-worker.service.ts`
+  `apps/server/src/agent-os/application/service/legacy-run/agent-run-worker.service.ts`
 - Delete after classified caller migration:
-  `apps/server/src/agent-os/application/service/agent-tool-router.service.ts`
+  `apps/server/src/agent-os/application/service/legacy-run/agent-tool-router.service.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/agent-os-legacy-run.module.ts`
+- Delete after classified caller migration:
+  `apps/server/src/agent-os/agent-os-worker.module.ts`
 - Modify/delete superseded legacy AgentRun schemas and Prisma models only after
   the zero-consumer/data checks in this task.
 - Modify: `apps/server/src/app.module.ts`
