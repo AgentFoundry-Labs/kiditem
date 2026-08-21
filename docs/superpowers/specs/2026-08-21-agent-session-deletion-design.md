@@ -1,7 +1,7 @@
 # AgentSession Complete Deletion Design
 
 - Date: 2026-08-21
-- Status: Conversation-approved; written review pending
+- Status: Approved for implementation planning
 - Tracking issue: KID-25
 - Source baseline: `5aeedfe9`
 - Classification: Agent OS lifecycle and Operations-platform boundary revision
@@ -261,6 +261,24 @@ count, erasure lease, or quarantine state.
 edge. This prevents a writer envelope from disappearing while its artifact can
 still commit.
 
+While an artifact is `materializing`, one transient
+`AgentSessionArtifactMaterialization` row may retain only the provider's opaque
+multipart upload ID and the exact artifact/operation coordinates. It is not a
+job, reference, URL, object key, retry lease, or shared-object record. The
+writer persists the upload ID before sending the first byte and deletes the row
+when activation commits. Deletion aborts that exact multipart invocation before
+deleting the derived object; if completion won the provider race, it deletes
+the completed object and confirms absence. The invocation row is deleted with
+the session graph and never survives successful deletion.
+
+If the provider creates an upload but the process dies before the upload ID is
+bound, the nullable materialization row remains the durable discovery anchor.
+Cleanup enumerates every multipart upload whose key exactly equals the derived
+artifact key, aborts the known ID plus every discovered orphan ID, repeats the
+exact-key enumeration until empty, and only then deletes/heads the completed
+object. A null stored ID never means that no upload exists. Ambiguous
+enumeration, abort, or absence is `unknown` and cannot become deletion success.
+
 Artifact-producing runtime adapters must materialize bytes through a KidItem
 artifact-writer port before emitting a normalized artifact event. Materializing
 an artifact is itself crash-safe:
@@ -268,7 +286,9 @@ an artifact is itself crash-safe:
 1. under the session lifecycle lock, the writer creates a session-owned
    `materializing` artifact row, generates `artifactId`, and binds the exact
    session-scoped OperationRun that owns the write;
-2. after commit, the code-owned server writer writes bytes to the derived key;
+2. after commit, the code-owned server writer opens a multipart upload, persists
+   its opaque upload ID under the same lifecycle lock, and only then sends bytes
+   to the derived key;
 3. it reacquires the session lifecycle lock, verifies that the session is still
    writable and the same operation fence is current, verifies the SHA-256, and
    transitions the row to `active`; and
@@ -287,10 +307,13 @@ code-owned writer can no longer commit and provider read-after-delete confirms
 absence. An ambiguous or unsupported provider result remains `unknown`, causes
 an OperationRun retry, and can ultimately produce `delete_failed`.
 
-If the process exited before or during the put, recovery reconciles the same
-derived key and operation fence. Normal reads never expose `materializing`
-rows. A storage adapter that cannot provide this fenced reconciliation contract
-cannot back `AgentSessionArtifact`; it may expose only a resource reference.
+If the process exited before or during the put, recovery aborts the persisted
+multipart invocation and reconciles the same derived key and operation fence.
+An upload-ID creation request that died before persistence never received or
+uploaded bytes and cannot complete an object. Normal reads never expose
+`materializing` rows. A storage adapter that cannot prove multipart
+abort/completion ordering plus object absence cannot back
+`AgentSessionArtifact`; it may expose only a resource reference.
 
 The normalized runtime event carries `artifactId` and safe presentation
 metadata, not a storage path. If an adapter cannot copy provider content into
@@ -311,6 +334,14 @@ policy `ephemeral_on_success`.
 - Success purges the current run, predecessors in the same deletion lineage,
   their attempt counters, checkpoints, and every deletion binding.
 - No other OperationRun type may opt into this purge behavior dynamically.
+- Ephemeral definitions and runs are absent from the public Operations catalog,
+  start, list, get, reconnect, and cancel surfaces. The generic Operations
+  runner rejects them before lookup or mutation, using the same non-enumerating
+  result as an unknown definition/run.
+- The only creation authority is the scoped deletion transaction that atomically
+  fences the exact AgentSession and inserts the run plus deletion binding.
+  Internal lifecycle recovery and exact-run fencing may control an already
+  bound run; the `system` trigger value alone grants no authority.
 
 ### 5.4 Session-owned OperationRuns
 
@@ -348,7 +379,10 @@ scope and one of:
 - the requester created the session; or
 - the requester has the organization administrator role.
 
-The controller never accepts `organizationId` from the request body or query.
+The URL retains the existing UUID path-segment convention, but the controller
+validates that segment against the authenticated organization and passes a
+canonical `AgentSessionName` through the application port. The controller never
+accepts `organizationId` from the request body or query.
 Cross-organization, unauthorized, already-deleted, and unknown session IDs use
 the same non-enumerating response. A new or already-running deletion returns
 `202`. If the session graph is absent but its exact code-owned deletion
@@ -356,6 +390,12 @@ OperationRun has not finished purging, repeated `DELETE` returns
 `202 finalizing`, while the status route returns
 `200 { state: "finalizing" }`. Only the absence of both the session and that
 ephemeral run returns `204`.
+
+The command service first attempts the scoped session transition. If that
+returns absent, it performs the same organization-scoped transient-binding
+query used by status, rechecks membership plus creator/administrator authority,
+and returns `finalizing` only for an exact `graph_deleted` deletion lineage.
+Every other absent or unauthorized case remains the same non-enumerating `204`.
 
 During `finalizing`, the transient binding supplies the original session
 creator and deletion requester needed for the same creator/admin authorization
@@ -417,8 +457,8 @@ organization/session lifecycle advisory lock
 ```
 
 `deleting` and `delete_failed` are non-writable. This applies to live runtime
-events, replay joins that can mutate state, artifact materialization, approval,
-retry, delegation, and execution creation.
+events, replay joins that can mutate state, execution usage, artifact
+materialization, approval, retry, delegation, and execution creation.
 
 No external runtime or object-storage call occurs while a database transaction
 or row lock is open. There is no global physical-object lock because artifacts
@@ -451,6 +491,24 @@ The operation handler:
 9. after every object succeeds, enters the final graph transaction; and
 10. returns success only after that transaction records `graph_deleted`.
 
+Before any runtime `start` side effect, session execution first persists a UUID
+start intent on the exact attempt under the writable-session lock, then records
+that same intent with runtime type, execution, and attempt in the existing
+Operation checkpoint. The first transaction is idempotent for the same UUID,
+rejects drift, and returns the persisted runtime-credential generation. Both
+the intent and generation are passed in the durable runtime context. On
+re-entry, execution reuses the persisted attempt/checkpoint intent and never
+overwrites it. Deletion loads every attempt, including
+one whose `runtime_starting` checkpoint exists but whose returned handle was
+never persisted. Cleanup therefore receives the exact runtime type/start intent
+and a nullable handle; a missing handle never means that no external process,
+credential, or filesystem state exists.
+
+A queued attempt with no start intent, no `runtime_starting` checkpoint, and no
+handle is a durable `never_started` coordinate. It is skipped only after its
+complete owned OperationRun closure has been terminal-fenced. Any start evidence
+without the exact persisted intent is an invariant failure.
+
 Runtime cancellation failure does not block deletion after the canonical write
 fence is durable. A late callback cannot become canonical and cannot recreate an
 artifact.
@@ -465,6 +523,21 @@ credential, or path proven to be exclusively owned by the session; a
 cross-owner coordinate is an invariant failure. External-provider telemetry
 remains outside this boundary as stated in the non-goals.
 
+Hermes start/control uses the start intent as its exact idempotency and lookup
+coordinate. The isolated CLI supervisor and owner-only attempt directory retain
+the same coordinate before spawn. After process recreation, each adapter must
+either terminate/revoke and remove the handle-less exact attempt state or return
+`unknown`; it may not infer success from absent handle columns.
+
+Runtime credentials carry exact organization, session, execution, attempt,
+start-intent, and runtime-credential-generation claims. Signature and expiry are
+only codec checks: every consuming API or MCP boundary re-reads the exact
+attempt and writable parent session through the credential-verification input
+port. The deletion fence increments the persisted credential generation for all
+session attempts. Consequently a token issued before deletion is rejected by a
+newly created broker/verifier process even while its TTL remains; no in-memory
+revocation list is authoritative.
+
 ### 7.4 Final graph transaction and purge
 
 The final transaction reacquires the lifecycle lock and AgentSession row,
@@ -473,12 +546,20 @@ session graph in FK-safe order. The deletion covers at least:
 
 - conversation events and outbox rows;
 - approvals and approval continuations;
+- transient artifact materialization invocations;
 - artifacts;
-- execution usage, execution-attempt OperationRun bindings, and executions;
-- every terminal or fenced OperationRun reached only through those attempt
-  bindings or session-ownership edges, including its checkpoints and results;
-- task delegations, policy snapshots, context epochs, and tasks; and
+- execution usage and execution-attempt OperationRun bindings;
+- task delegations and immutable session-owned OperationRun ownership edges;
+- checkpoints/results and then every terminal or fenced OperationRun reached
+  only through those attempt bindings or ownership edges, with runs removed in
+  child-before-parent order;
+- execution attempts, executions, policy snapshots, context epochs, and tasks
+  in deepest-child-before-parent order with the root last; and
 - the AgentSession row.
+
+Ownership edges are deleted before their restrictive OperationRun FKs, and
+executions are deleted before their restrictive policy-snapshot FKs.
+Task children are deleted before the restrictive task self-FK parent.
 
 The graph transaction deletes ordinary session OperationRun ownership edges but
 retains the complete transient deletion binding lineage and every corresponding
@@ -507,6 +588,20 @@ cannot disagree about deterministic capability runs.
 The same transaction persists a `graph_deleted` checkpoint on the current
 OperationRun. This cross-domain checkpoint is required so recovery can
 distinguish a completed graph contraction from an unknown missing session.
+
+Immediately before that irreversible transaction, the trusted ephemeral
+handler enters a lifecycle-scoped finalization phase. Entry atomically clears
+the ordinary business-execution deadline while retaining the exact attempt
+lease heartbeat, fence-loss abort, and server-lifecycle signal. If the graph
+commit acknowledgement is lost, the handler re-reads the exact current
+run/attempt/digest checkpoint. A matching `graph_deleted` checkpoint is success,
+and a successful false read is confirmed absence. A query exception is unknown,
+not absence: the same attempt repeats the exact read with abortable delays capped
+at one second until it obtains a definitive answer or the lifecycle/fence signal
+aborts. It never requeues a possibly committed graph deletion. The same live
+process therefore proceeds to purge without requiring a restart; lifecycle
+shutdown propagates unchanged and defers the checkpoint-present/absent decision
+to the next `ACCEPTING` boundary.
 
 After the handler returns, the Operations executor terminalizes the run and
 deletes the complete deletion lineage in one code-owned ephemeral-finalization
@@ -601,6 +696,9 @@ create a quarantine state or silently discard a row.
   worker.
 - No dedicated lifecycle HMAC key, retention scheduler, or maintenance timer is
   introduced.
+- Lifecycle cancellation/schedule sweep and post-accepting deletion/finalizer
+  recovery share the existing single 30-second Operations startup deadline; a
+  second hook-specific timeout must not extend bootstrap.
 
 ## 10. Verification contract
 
@@ -612,8 +710,14 @@ create a quarantine state or silently discard a row.
   absent `204`, and administrator retry contracts;
 - code-owned `ephemeral_on_success` registration and rejection for other
   operation types;
+- public Operations catalog/start/list/get/reconnect/cancel quarantine for the
+  deletion definition/run, while canonical DELETE creates one bound run;
 - runtime adapter artifact materialization with no raw storage reference in the
   normalized event;
+- handle-less runtime cleanup by persisted start intent after a crash between
+  runtime start and handle persistence;
+- exact start-intent replay/conflict rules, never-started queued-attempt
+  classification, and six-claim runtime credential issuance/verification;
 - materialization reconciliation that never treats an unknown put as erased;
 - adapter-specific runtime home, state, handle, and credential cleanup that
   refuses success while a controlled process can recreate them;
@@ -630,6 +734,8 @@ create a quarantine state or silently discard a row.
 - a paused and then ambiguous storage put versus deletion proves that cleanup
   cannot convert `unknown` or an unfenced writer into success and leaves no late
   object;
+- process recreation after multipart open succeeds but before the upload ID is
+  bound discovers and aborts that exact-key orphan before graph deletion;
 - a timed-out put that resolves after the caller deadline cannot commit after
   deletion has reported success;
 - every mutation family rejects a fenced session;
@@ -638,14 +744,23 @@ create a quarantine state or silently discard a row.
   delete, and after `graph_deleted` but before ephemeral purge, with the old run
   remaining immutable and any executing successor created only after
   `ACCEPTING`;
+- graph commit followed by lost acknowledgement or the old execution deadline
+  still reconciles `graph_deleted` and purges in the same live lifecycle;
+- the first post-commit reconcile query may fail transiently without requeueing
+  the already committed deletion; a later same-lifecycle read completes purge;
+- process recreation immediately after runtime start but before handle
+  persistence cleans the exact start-intent process/filesystem/credential state
+  or remains `unknown`, never deletion success;
+- a credential issued before the deletion fence is rejected after recreating
+  the API and MCP credential-verifier contexts;
 - multiple server restarts cannot exceed five cumulative attempts in one retry
   generation;
 - `scheduledFor` prevents claims before each database-time 1/2/4/8-minute due
   instant;
 - five storage failures produce `delete_failed`, and an administrator retry
   succeeds;
-- successful deletion leaves zero session graph rows and zero deletion
-  OperationRun lineage rows;
+- successful deletion leaves zero session graph rows, zero deletion
+  OperationRun lineage rows, and zero transient multipart invocations;
 - deterministic capability and Agent-attempt OperationRuns created from the
   session are both reached through immutable ownership and fully removed, while
   a cross-owner edge fails closed;

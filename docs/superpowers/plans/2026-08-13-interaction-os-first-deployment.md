@@ -1,7 +1,7 @@
 # Interaction OS Pre-Launch Contraction And First Deployment Implementation Plan
 
-Last amended: 2026-08-21 — replaced the unused staged production cutover with
-a zero-data pre-launch contraction and first-deployment proof.
+Last amended: 2026-08-22 — replaced the unreleased retention/legal-hold Task 1
+with complete AgentSession deletion and linked its bounded TDD execution plan.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -10,7 +10,7 @@ one recoverable platform with every product surface on the official session
 path and no legacy chat, polling, transcript, or generic AgentRun runtime.
 
 **Architecture:** AgentOS/PostgreSQL owns production conversation durability,
-replay, retention, recovery, and observability; Operations owns durable run
+replay, complete deletion, recovery, and observability; Operations owns durable run
 envelopes/checkpoints but never the conversation or business capabilities. The Office release
 train builds and pins the stateless CopilotKit OSS Interaction Gateway beside
 API/web images. KID-25 has never served production traffic or established a
@@ -38,16 +38,18 @@ compatibility canaries, NestJS, Next.js, Vitest, Playwright, k6
 - `AgentSession` and `AgentConversationEvent` in KidItem PostgreSQL are the one
   canonical conversation store. Ephemeral fan-out and the Interaction Gateway
   are reconstructable and never authoritative.
-- Default retention is 365 days after session archive or terminal state;
-  organization legal hold overrides deletion. Organization-specific policy
-  values are read from `AgentInteractionRetentionPolicy`; the first deployment
-  exposes no ordinary mutation API, and any shorter policy requires a separate
-  approved privacy/legal design change.
+- AgentSession deletion is explicit, asynchronous, creator/administrator
+  authorized, and complete for KidItem-owned runtime, storage, and canonical
+  graph state. This pre-launch train has no automatic session retention or
+  legal-hold subsystem.
 - Data residency is `KR`; primary, replicas, backups, logs, and restore environments remain in the approved Korean residency boundary.
 - Target platform objectives are RPO ≤ 15 minutes and RTO ≤ 4 hours, verified quarterly.
 - Production vendor telemetry is disabled; KidItem correlation metrics/logs/traces exclude message content and secrets.
-- Session deletion is idempotent, organization/user authorized, legal-hold aware, and produces a non-content tombstone before conversation/control removal.
-- Organization removal revokes principal access immediately, archives sessions, and schedules non-held physical deletion under the organization policy.
+- Session deletion atomically persists its canonical write fence and ephemeral
+  deletion OperationRun before returning `202`; successful completion purges
+  the entire deletion lineage and requires no permanent receipt.
+- Organization removal orchestration is outside KID-25. Existing organization
+  deletion remains restricted by live AgentSession relations.
 - KID-25 has no production legacy writes or continuing legacy work to migrate.
   The intended deployment database must have a wholly absent legacy schema or
   zero rows/associations in every legacy execution, conversation, task-session,
@@ -106,243 +108,40 @@ boundaries. Adjacent tasks may be implemented as coherent bundles when their
 contracts are already fixed. Request one integrated review after final local
 verification; repeat only to close concrete findings or a stop condition.
 
-## Task 1: Implement Session Lifecycle, Retention, Legal Hold, And Tombstones
+## Task 1: Implement Complete AgentSession Deletion
 
-**Files:**
-- Modify: `packages/shared/src/agent-interaction/index.ts`
-- Create: `packages/shared/src/agent-interaction/lifecycle.ts`
-- Create: `packages/shared/src/agent-interaction/lifecycle.spec.ts`
-- Modify: `prisma/models/agents.prisma`
-- Modify: `prisma/models/core.prisma`
-- Create: `apps/server/src/agent-os/application/port/in/interaction/agent-interaction-session-lifecycle.port.ts`
-- Create: `apps/server/src/agent-os/application/port/out/transaction/interaction/agent-session-lifecycle.transaction.port.ts`
-- Create: `apps/server/src/agent-os/application/port/out/crypto/agent-session-tombstone-hasher.port.ts`
-- Create: `apps/server/src/agent-os/adapter/out/transaction/interaction/prisma-agent-session-lifecycle.transaction.ts`
-- Modify: `apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts`
-- Modify: `apps/server/src/agent-os/adapter/out/transaction/session-control/__tests__/prisma-agent-session-control.pg.integration.spec.ts`
-- Create: `apps/server/src/agent-os/adapter/out/crypto/hmac-agent-session-tombstone-hasher.adapter.ts`
-- Create: `apps/server/src/agent-os/adapter/out/crypto/__tests__/hmac-agent-session-tombstone-hasher.adapter.spec.ts`
-- Create: `apps/server/src/agent-os/application/service/interaction/agent-interaction-session-lifecycle.service.ts`
-- Create: `apps/server/src/agent-os/application/service/interaction/__tests__/agent-interaction-session-lifecycle.service.spec.ts`
-- Create: `apps/server/src/agent-os/adapter/in/http/interaction/agent-interaction-session-lifecycle.controller.ts`
-- Create: `apps/server/src/agent-os/adapter/in/http/interaction/__tests__/agent-interaction-session-lifecycle.controller.spec.ts`
-- Create: `apps/server/src/agent-os/adapter/in/http/interaction/interaction-lifecycle.config.ts`
-- Create: `apps/server/src/agent-os/domain/session/agent-session-retention.policy.ts`
-- Create: `apps/server/src/agent-os/domain/session/__tests__/agent-session-retention.policy.spec.ts`
-- Modify: `apps/server/src/agent-os/agent-os-session.module.ts`
-- Modify: `apps/server/src/agent-os/agent-os-http.module.ts`
-- Modify: `apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts`
+**Execution authority:**
+- Design: `docs/superpowers/specs/2026-08-21-agent-session-deletion-design.md`
+- TDD implementation: `docs/superpowers/plans/2026-08-22-agent-session-complete-deletion.md`
 
 **Interfaces:**
-- Consumes: current organization/user, `AgentSession` lifecycle, canonical
-  conversation rows, organization retention policy, and the API-only dedicated
-  lifecycle HMAC key.
-- Produces: one organization-scoped lifecycle transaction port and Prisma
-  adapter, lifecycle request/tombstone models, and scoped
-  archive/delete/legal-hold endpoints. The HTTP adapter injects a lifecycle
-  input port; it never imports the concrete service or transaction adapter.
+- Consumes: authenticated organization/user scope, canonical AgentSession graph,
+  Operations lifecycle/attempt/checkpoint platform, exact runtime handles, and
+  KidItem-owned artifact storage.
+- Produces: asynchronous creator/admin deletion, universal canonical write
+  fence, exact runtime/artifact cleanup, atomic graph contraction, bounded
+  database-time retry, administrator retry generation, and ephemeral deletion
+  OperationRun purge.
 
-- [ ] **Step 1: Write retention and legal-hold tests**
+This task is a pre-launch replacement of the unreleased retention/legal-hold
+implementation. It has no compatibility alias, backfill, dual write, automatic
+retention, legal hold, audit projection, tombstone, shared artifact object,
+organization-removal workflow, lifecycle HMAC key, or second deletion worker.
 
-```typescript
-describe('AgentInteractionSessionLifecycleService', () => {
-  it('blocks deletion under legal hold', async () => {
-    const service = createLifecycleService({ legalHoldAt: new Date() });
-    await expect(service.requestDelete(deleteInput())).rejects.toMatchObject({ code: 'THREAD_LEGAL_HOLD' });
-    expect(repository.deleteSession).not.toHaveBeenCalled();
-  });
+- [ ] **Step 1: Execute the replacement TDD plan**
 
-  it('uses the unified session retention policy', () => {
-    expect(service.deletionDueAt(new Date('2026-08-13T00:00:00Z')).toISOString()).toBe('2027-08-13T00:00:00.000Z');
-  });
-});
-```
+Complete Tasks 1–10 in `2026-08-22-agent-session-complete-deletion.md` in order.
+Preserve each RED, pass each listed GREEN gate, and use the grouped Terra
+implementation/Sol review protocol defined in that plan.
 
-- [ ] **Step 2: Run and verify failure**
+- [ ] **Step 2: Require the complete-deletion acceptance boundary**
 
-Run: `npm exec --workspace=apps/server vitest -- run src/agent-os/application/service/interaction/__tests__/agent-interaction-session-lifecycle.service.spec.ts`
-
-Expected: FAIL because the service/port do not exist.
-
-- [ ] **Step 3: Define strict lifecycle contracts**
-
-```typescript
-export const AgentSessionLifecycleCommandSchema = z.object({
-  session: AgentSessionNameSchema,
-  command: z.enum(['archive', 'delete', 'place_legal_hold', 'release_legal_hold']),
-  reason: z.string().trim().min(1).max(500),
-  idempotencyKey: z.string().min(20).max(200),
-}).strict();
-
-export const InteractionRetentionPolicySchema = z.object({
-  sessionRetentionDays: z.number().int().min(365).default(365),
-  residency: z.literal('KR'),
-}).strict();
-```
-
-- [ ] **Step 4: Add lifecycle request and tombstone persistence**
-
-Add the three shown fields to the existing `AgentSession` model; the snippet is
-not a second model declaration.
-
-```prisma
-model AgentSession {
-  // existing fields and relations remain
-  legalHoldAt     DateTime?
-  legalHoldReason String?   @db.Text
-  retentionDueAt DateTime?
-}
-
-model AgentInteractionRetentionPolicy {
-  organizationId      String   @id @db.Uuid
-  sessionRetentionDays Int     @default(365)
-  residency           String   @default("KR")
-  legalPolicyVersion  String
-  updatedByUserId     String?  @db.Uuid
-  updatedAt           DateTime @updatedAt
-}
-
-model AgentSessionLifecycleRequest {
-  id              String   @id @default(uuid()) @db.Uuid
-  organizationId  String   @db.Uuid
-  sessionId       String   @db.Uuid
-  command         String
-  reason          String   @db.Text
-  idempotencyKey  String
-  status          String
-  requestedByUserId String @db.Uuid
-  deletionDueAt   DateTime?
-  errorCode       String?
-  createdAt       DateTime @default(now())
-  finishedAt      DateTime?
-  @@unique([organizationId, idempotencyKey])
-  @@index([organizationId, status, deletionDueAt])
-}
-
-model AgentSessionTombstone {
-  id                  String   @id @default(uuid()) @db.Uuid
-  organizationIdHash  String
-  copilotThreadIdHash String
-  idempotencyKeyHash  String   @unique
-  requestFingerprintHash String
-  hashKeyVersion      String
-  terminalLifecycle   String
-  deletionReasonCode  String
-  deletedAt           DateTime
-  legalPolicyVersion  String
-  @@index([organizationIdHash, deletedAt])
-  @@index([copilotThreadIdHash, deletedAt])
-}
-```
-
-Tombstones contain versioned HMAC-SHA-256 values from a dedicated lifecycle
-key and policy metadata only: no raw org/user/thread ID, unhashed identifier,
-title, message, goal, resource, action, or model output.
-While a session exists, its lifecycle request remains composite FK-fenced and
-is removed by the physical-delete transaction (explicitly or by cascade). After
-that deletion, only the tombstone's versioned `idempotencyKeyHash` and
-`requestFingerprintHash` authorize an exact retry; neither hash preserves a raw
-identifier or request payload.
-`AgentOsHttpModule` fails fast without `INTERACTION_LIFECYCLE_HMAC_KEY`; the key
-and hasher are not imported by MCP or any non-API process root.
-Version `v1` lifecycle HMAC hashes do not rotate until an approved keyring,
-multi-version lookup, and migration design exists; this task deliberately has
-no fallback or partial rotation behavior.
-Archive/terminal lifecycle and legal hold are orthogonal: archive or terminal
-state computes `retentionDueAt`, while hold/release mutates only
-`legalHoldAt`/`legalHoldReason`. Releasing a hold never guesses or rewrites the
-session's prior lifecycle.
-`AgentInteractionRetentionPolicy` has exact Organization/User relations in the
-final Prisma schema. Absence projects the locked 365-day/KR default; shortening
-the stored duration is outside this plan and requires a separately approved
-privacy/legal change rather than an ordinary settings update.
-`OperationRun` is not a lifecycle legal-audit owner: its `title`, `input`,
-`result`, and error fields are arbitrary application payloads and are never
-copied into a lifecycle retention record. During physical deletion, only an
-artifact or usage row explicitly classified as `independent_legal_audit`, with
-a strict legal-basis code and a later independent retention deadline, is
-projected into the organization-fenced, scalar-only legal-audit projection.
-Ordinary artifacts, usage, and all canonical session content are deleted.
-The projection retains only strict record-kind scalar facts (usage tokens,
-cost, currency, and source occurrence time; artifact occurrence time only),
-has a global due index and API-lifecycle bounded SKIP-LOCKED expiry processor,
-and cascades on organization removal. Artifact storage references are never
-projected: a single organization-fenced physical-object owner carries a strict,
-immutable `agent-artifacts/<organization UUID>/<object UUID>` reference only
-while it is active or being erased, plus a global deterministic reference hash
-for locking and coordination. Appends increment its active live-reference
-count; deletion decrements it and adds any independently retained legal hold.
-The API-only eraser may transition only a zero-live, non-held object to an
-erasure lease, validates the organization-partitioned key again before storage
-deletion, clears/removes the raw reference after success, and leaves only a
-hash-only erased receipt to prevent reuse. Invalid references fail before any
-canonical artifact/session mutation; corrupt persisted state is quarantined
-without an erase retry. Due terminal, non-held sessions are also boundedly
-claimed by the API lifecycle processor and execute the same fenced tombstone
-delete with deterministic system-retention idempotency; expired leases retry.
-Organization removal is explicitly scheduled under its locked policy: active
-sessions are archived at one captured time, existing terminal deadlines are
-preserved, and any terminal row missing a deadline is projected from its
-terminal timestamp (or that captured time) under the same policy. Legal holds
-remain intact, so direct organization deletion stays restricted until the
-lifecycle drains rather than bypassing the 365-day policy.
-
-- [ ] **Step 5: Implement the lifecycle repository transaction**
-
-```typescript
-export interface AgentSessionLifecycleTransactionPort {
-  archiveSession(input: ScopedLifecycleMutation): Promise<AgentSessionRecord>;
-  setLegalHold(input: ScopedLegalHoldMutation): Promise<AgentSessionRecord>;
-  deleteSession(input: ScopedDeletionMutation): Promise<AgentSessionTombstoneRecord>;
-}
-```
-
-The service derives actor/organization, parses the expected session resource
-name, revalidates its organization parent, selects `AgentSession` in that scope,
-and enforces lifecycle, legal hold, and retention. The Prisma adapter takes a
-full-scope advisory transaction lock, creates/reuses the lifecycle request,
-archives or deletes the canonical conversation events/projections/outbox and
-eligible control rows in explicit FK order, writes the content-free tombstone,
-and marks the request terminal in the same transaction. Exact retry returns the
-same result; partial failure rolls back and remains retryable with the same
-idempotency key. Artifact/audit records with a longer legal basis are detached
-to their own retained owner before session deletion and never preserve message
-content.
-The pure retention policy is shared by lifecycle and session-transition
-transactions. Completing, cancelling, or archiving a session sets
-`retentionDueAt` from the exact organization policy in the same transaction;
-placing a hold prevents the due-row claim rather than erasing that timestamp.
-The existing real-PostgreSQL session-control suite proves the terminal path, so
-retention cannot depend on a later best-effort lifecycle request.
-
-- [ ] **Step 6: Run lifecycle, schema, and scope gates**
-
-Run:
-
-```bash
-npm run db:push
-npx prisma generate
-npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/domain/session/__tests__/agent-session-retention.policy.spec.ts \
-  src/agent-os/application/service/interaction/__tests__/agent-interaction-session-lifecycle.service.spec.ts \
-  src/agent-os/adapter/in/http/interaction/__tests__/agent-interaction-session-lifecycle.controller.spec.ts
-npm exec --workspace=apps/server vitest -- run \
-  src/agent-os/adapter/out/transaction/session-control/__tests__/prisma-agent-session-control.pg.integration.spec.ts \
-  --config vitest.config.integration.ts
-npm run check:idor
-npm run check:tenant-scope
-```
-
-Expected: tests/scanners pass; legal hold prevents PostgreSQL deletion;
-repeated commands are idempotent and no orphan event/outbox/control row remains.
-
-- [ ] **Step 7: Commit lifecycle controls**
-
-```bash
-git add packages/shared/src/agent-interaction prisma apps/server/src/agent-os
-git commit -m "feat: govern agent session lifecycle"
-```
-
+Do not begin Task 2 below until the replacement plan proves: atomic fence/run
+creation, universal mutation rejection, KidItem-owned runtime and artifact
+cleanup, graph-plus-checkpoint atomicity, five-attempt lifecycle recovery,
+admin retry, zero successful lineage rows, API-only execution composition,
+browser acceptance, disposable PostgreSQL, process-root boots, and hard-zero
+retired-symbol scanners.
 ## Task 2: Productionize KidItem Conversation Persistence And Recovery
 
 **Files:**
@@ -358,7 +157,6 @@ git commit -m "feat: govern agent session lifecycle"
 - Modify: `apps/server/src/agent-os/__tests__/agent-os.module.wiring.spec.ts`
 - Create: `deploy/interaction-gateway/conversation-persistence-contract.json`
 - Create: `deploy/interaction-gateway/backup-restore-runbook.md`
-- Create: `deploy/interaction-gateway/retention-runbook.md`
 - Create: `deploy/interaction-gateway/alerts.yaml`
 - Create: `deploy/interaction-gateway/k6/reconnect-storm.js`
 - Create: `deploy/interaction-gateway/k6/long-stream.js`
@@ -369,7 +167,7 @@ git commit -m "feat: govern agent session lifecycle"
 - Modify: `docs/runbooks/interaction-platform.md`
 
 **Interfaces:**
-- Consumes: canonical event/outbox rows, lifecycle service, KidItem PostgreSQL,
+- Consumes: canonical event/outbox rows, complete-deletion service, KidItem PostgreSQL,
   attachment storage, and Office backup inventory.
 - Produces: a focused outbox transaction adapter, idempotent API-process
   delivery, database-backed catch-up, and a backup/restore/DR/observability/
@@ -542,7 +340,7 @@ The repeated hex values are deterministic test fixtures. The workflow replaces t
 `apply-deployment.ps1` validates schema 2, all three approved GHCR digest refs,
 digest/ref equality, revision labels, required gateway-service/run-intent/
 principal/replay-cursor secrets, `INTERACTION_ANALYTICS_HMAC_KEY`,
-`INTERACTION_LIFECYCLE_HMAC_KEY`, and database schema compatibility before
+and database schema compatibility before
 changing the live archive. It rejects any Enterprise URL/key/license setting.
 It pulls all images first, starts API/gateway/web, checks each `/health/ready`,
 verifies nginx `/api/copilotkit/info` and a read-only KidItem replay probe, then
@@ -905,7 +703,9 @@ git commit -m "test: gate pre-launch interaction contraction"
 - Create: `apps/server/src/agent-os/application/service/session-control/__tests__/agent-judgment-submission.service.spec.ts`
 - Create: `apps/server/src/agent-os/application/service/session-control/__tests__/agent-judgment-dispatch.service.spec.ts`
 - Create: `apps/server/src/agent-os/__tests__/agent-judgment-submission.pg.integration.spec.ts`
-- Create: `apps/server/src/agent-os/agent-os-api-execution.module.ts`
+- Modify: `apps/server/src/agent-os/agent-os-api-execution.module.ts`
+- Modify: `apps/server/src/agent-os/application/port/in/session-control/agent-session-owned-operation.port.ts`
+- Modify: `apps/server/src/agent-os/application/service/session-control/agent-session-owned-operation.service.ts`
 - Modify: `prisma/models/agents.prisma`
 - Modify: `prisma/models/core.prisma`
 - Modify: `apps/server/src/agent-os/application/port/out/capability/agent-capability-handler.port.ts`
@@ -1063,9 +863,12 @@ creating a second Operation. The outbox has exact organization/session/task/
 execution composite foreign keys, one row per execution, `pending|dispatched`
 state, and no prompt or result content.
 
-`AgentOsApiExecutionModule` is controller-free and API-process-only. It imports
-`AgentOsSessionModule` plus the controller-free `OperationsModule`, exports only
-the judgment and session-control input-port tokens, and is imported by
+`AgentOsApiExecutionModule` already exists as the controller-free,
+API-process-only owner of complete AgentSession deletion, artifact storage, and
+Operations recovery. Extend it rather than replacing it. It imports
+`AgentOsSessionModule` plus the controller-free `OperationsModule`, retains the
+deletion handler/hooks/providers, exports only the judgment and session-control
+input-port tokens, and is imported by
 `AgentOsHttpModule` and the API-domain composition modules whose outgoing
 adapters submit judgment. First split the current Operations composition:
 `OperationsModule` retains repositories, lifecycle, scheduling, dispatch, and
@@ -1134,6 +937,15 @@ its owner ledger. Operation cancellation removes `agent_run` and
 `agent_run_request` target variants, response arrays, audit fields, and
 workflow cancellation counts; it delegates official session/operation control
 to canonical resource-name ports.
+
+Every owner-local deterministic Operation port used from an official
+AgentSession capability must carry the canonical session coordinate and be
+backed by `AGENT_SESSION_OWNED_OPERATION_PORT`, so OperationRun creation and its
+immutable session-ownership edge commit together. The same owner port may keep
+its existing generic Operations implementation only for direct non-session
+callers. Add a real-PG capability assertion that the returned owner Operation
+has exactly one `AgentSessionOperationRunOwnership`; reject missing or foreign
+session context instead of falling back to generic `OPERATION_RUNNER_PORT`.
 
 - [ ] **Step 6: Remove the generic registry/runtime consumers**
 
@@ -1448,8 +1260,8 @@ AgentConversationEvent, AgentConversationOutbox, AgentExecutionUsage,
 AgentSessionTaskDelegation, AgentExecutionAttempt,
 AgentExecutionAttemptOperationBinding, AgentSessionApproval,
 AgentSessionApprovalContinuation, AgentSessionArtifact,
-AgentInteractionRetentionPolicy, AgentSessionLifecycleRequest,
-AgentSessionTombstone,
+AgentSessionArtifactMaterialization,
+AgentSessionDeletionOperationBinding, AgentSessionOperationRunOwnership,
 AgentExecutionDispatchOutbox
 ```
 
@@ -1473,8 +1285,8 @@ Apply this relation-level contraction explicitly:
 
 | Retained owner | Remove | Preserve |
 |---|---|---|
-| `Organization` | `agentInstances`, `agentRuntimeStates`, `agentTaskSessions`, `agentRunRequests`, `agentRuns`, `agentRunEvents`, `agentInstanceToolPolicies`, `agentAuthorizationEvents`, `agentApprovalRequests`, `agentCostEvents`, `agentConversations`, `agentMessages`, `agentToolInvocations`, `agentArtifacts` | official session/policy/execution/usage/authority/retention/lifecycle-request relations |
-| `User` | `agentInstanceId`, `agentInstance`, its index, and legacy run/authorization/approval/conversation actor arrays | `createdAgentSessions`, retention-policy updater/lifecycle requester relations, and unrelated owner-domain actor relations |
+| `Organization` | `agentInstances`, `agentRuntimeStates`, `agentTaskSessions`, `agentRunRequests`, `agentRuns`, `agentRunEvents`, `agentInstanceToolPolicies`, `agentAuthorizationEvents`, `agentApprovalRequests`, `agentCostEvents`, `agentConversations`, `agentMessages`, `agentToolInvocations`, `agentArtifacts` | official session/policy/execution/usage/authority, transient deletion binding, and immutable session-run ownership relations |
+| `User` | `agentInstanceId`, `agentInstance`, its index, and legacy run/authorization/approval/conversation actor arrays | `createdAgentSessions`, active deletion requester relation, and unrelated owner-domain actor relations |
 | `WorkflowRun` | `agentRunRequests` and the comment claiming workflow dispatch through `AgentRunnerPort` | deterministic workflow/Operation ownership |
 | `AgentExecution` | nothing from the official graph | add the exact one-to-one `AgentExecutionDispatchOutbox` relation |
 
@@ -1596,7 +1408,7 @@ git commit -m "refactor: remove generic AgentRun runtime"
 
 Document CopilotKit OSS presentation ownership, AgentOS/PostgreSQL conversation
 event ownership, the AG-UI boundary, principal flow, session/task/Operations
-split, exact runtime matrices, lifecycle/retention/legal hold, backup/restore,
+split, exact runtime matrices, complete deletion, backup/restore,
 fork policy, upgrade canary, Office topology, endpoints to keep, and deleted
 concepts. Remove every document claiming Enterprise Intelligence or a legacy
 transcript is canonical, `/api/chat` is supported, Chatbot exists, or frontend
@@ -1617,7 +1429,8 @@ In the isolated production-like environment:
 5. replay the conversational session from its durable cursor, reconnect the
    active run, resolve the durable task approval, and finish the task;
 6. run exact candidate upgrade canary and rollback to locked train;
-7. verify retention deletion and legal hold;
+7. verify creator/admin complete deletion, runtime/artifact cleanup, bounded
+   failure, administrator retry, and zero successful lineage;
 8. verify opaque `copilotThreadId`/`aguiRunId` correlation with canonical
    `session`, `task`, `execution`, `attempt`, and `operation` resource names,
    and zero duplicate event or capability invocation;
@@ -1646,6 +1459,8 @@ npm run check:pr-release-contract -- --base origin/develop --head HEAD
 npm run build --workspace=packages/shared
 npm run build --workspace=apps/interaction-gateway
 npm run build --workspace=apps/web
+! rg -n 'INTERACTION_LIFECYCLE_HMAC_KEY' \
+  apps packages prisma deploy .github docs/runbooks
 npm exec --workspace=apps/server vitest -- run \
   src/agent-os/__tests__/agent-judgment-submission.pg.integration.spec.ts \
   src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts \
@@ -1689,7 +1504,7 @@ git commit -m "docs: finalize interaction os operations"
 ## Plan Acceptance Evidence
 
 - [ ] KidItem PostgreSQL/outbox/attachment persistence meets encryption, KR
-  residency, backup/restore, retention, legal hold, capacity, and alerting
+  residency, backup/restore, complete deletion, capacity, and alerting
   requirements; ephemeral fan-out is reconstructable.
 - [ ] Achieved RPO is ≤15 minutes and RTO is ≤4 hours.
 - [ ] Office release builds API/web/gateway from one SHA and deploys immutable digest refs with atomic health validation.
@@ -1720,6 +1535,7 @@ git commit -m "docs: finalize interaction os operations"
 - [ ] Mutable scanner finding allowlists are empty; the exact five-file
   non-runtime preflight quarantine and CI/Office preflight enforce the boundary;
   no runtime phase manifest or legacy fallback toggle exists.
-- [ ] Single-lifecycle conversations and durable tasks pass production smoke, retention/deletion/legal hold, restart, approval, cancellation, and correlation verification.
+- [ ] Single-lifecycle conversations and durable tasks pass production smoke,
+  complete deletion, restart, approval, cancellation, and correlation verification.
 - [ ] Architecture, environment, deployment, ownership, first-deployment,
   upgrade, and DR docs match the final system.
