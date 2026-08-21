@@ -32,7 +32,7 @@ import type {
   AuthorizedExecutionRecord,
   ConversationEventPage,
 } from "../../../port/out/repository/interaction/agent-interaction.persistence.types";
-import * as interactionTokens from "../../agent-interaction.tokens";
+import * as interactionTokens from "../../../port/in/interaction/interaction-gateway-config.port";
 import { AgentInteractionBootstrapService } from "../agent-interaction-bootstrap.service";
 import { AgentInteractionAuthorizationService } from "../agent-interaction-authorization.service";
 import { InteractionAllowedVersionResolver } from "../interaction-allowed-version-resolver";

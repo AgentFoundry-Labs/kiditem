@@ -41,7 +41,7 @@ import {
   INTERACTION_PRINCIPAL_HMAC_KEY,
   INTERACTION_RUN_INTENT_HMAC_KEY,
   type InteractionClock,
-} from "../agent-interaction.tokens";
+} from "../../port/in/interaction/interaction-gateway-config.port";
 import {
   InteractionTokenCodec,
   RUN_INTENT_DOMAIN,

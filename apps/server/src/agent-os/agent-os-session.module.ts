@@ -2,8 +2,9 @@ import { Module } from "@nestjs/common";
 import { OperationAlertRuntimeModule } from "../automation/operation-alert-runtime.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { ReadinessStateModule } from "../readiness/readiness-state.module";
-import { AgentOsCapabilityModule } from './agent-os-capability.module';
-import { AgentOsCatalogModule } from './agent-os-catalog.module';
+import { AgentOsCapabilityModule } from "./agent-os-capability.module";
+import { AgentOsCatalogModule } from "./agent-os-catalog.module";
+import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
 import { AgentOsPlatformProbeCapabilityAdapter } from "./adapter/in/agent/agent-os-platform-probe-capability.adapter";
 import { AnalyticsOverviewAgentCapabilityAdapter } from "./adapter/in/agent/analytics-overview-agent-capability.adapter";
 import { PrismaAgentSessionQueryRepository } from "./adapter/out/repository/interaction/prisma-agent-session-query.repository";
@@ -60,12 +61,8 @@ import { AGENT_SESSION_RESOURCE_VERSION_VALIDATOR } from "./application/port/out
 import { AGENT_RUNNER_PORT } from "./application/port/in/agent-runner.port";
 import { AGENT_INTERACTION_PORT } from "./application/port/in/legacy-run/agent-interaction.port";
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from "./application/port/in/session-capability/agent-capability-invocation.port";
-import {
-  AGENT_API_CAPABILITY_GRANT_PORT,
-} from "./application/port/in/capability/agent-api-capability-grant.port";
-import {
-  AGENT_OS_MCP_TOOL_EXECUTION_PORT,
-} from "./application/port/in/capability/agent-os-mcp-tool-execution.port";
+import { AGENT_API_CAPABILITY_GRANT_PORT } from "./application/port/in/capability/agent-api-capability-grant.port";
+import { AGENT_OS_MCP_TOOL_EXECUTION_PORT } from "./application/port/in/capability/agent-os-mcp-tool-execution.port";
 import {
   LEGACY_AGENT_APPROVAL_PORT,
   LEGACY_AGENT_CONVERSATION_PORT,
@@ -107,14 +104,6 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
 import { resolveAgentOsRepositoryRoot } from "./seed-agent-os";
 import { AgentApiCapabilityGrantService } from "./application/service/agent-api-capability-grant.service";
 
-const agentInteractionProviders = [
-  AgentInteractionService,
-  {
-    provide: AGENT_INTERACTION_PORT,
-    useExisting: AgentInteractionService,
-  },
-];
-
 @Module({
   imports: [
     PrismaModule,
@@ -122,18 +111,9 @@ const agentInteractionProviders = [
     ReadinessStateModule,
     AgentOsCatalogModule,
     AgentOsCapabilityModule,
+    AgentOsRuntimeSupportModule,
   ],
   providers: [
-    ...agentInteractionProviders,
-    AgentApprovalService,
-    AgentConversationService,
-    AgentObservabilityService,
-    AgentPlanValidator,
-    OperatorContextBuilder,
-    AgentRunCoordinator,
-    AgentRunExecutor,
-    AgentRunGraphService,
-    AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
     {
       provide: HermesRuntimeStartupRegistrar,
@@ -146,40 +126,7 @@ const agentInteractionProviders = [
     AgentConversationModelViewService,
     AgentExecutionContextBuilder,
     AgentSessionCapabilityInvocationService,
-    AgentTaskDelegationService,
-    AgentToolRouter,
-    AgentOsMcpToolExecutor,
-    KidItemMcpToolRegistry,
-    OpenAiResponsesOperatorRuntimeAdapter,
     OpenAiConversationSummarizerAdapter,
-    OperatorDecisionExecutor,
-    OperatorDecisionParser,
-    OperatorRuntimeHandler,
-    RoutingRuntimeAdapter,
-    AgentLocalCliRuntimeAdapter,
-    AgentLocalProcessRegistry,
-    KidItemMcpSessionAdapter,
-    AgentApiCapabilityGrantService,
-    {
-      provide: AGENT_API_CAPABILITY_GRANT_PORT,
-      useExisting: AgentApiCapabilityGrantService,
-    },
-    {
-      provide: AGENT_OS_MCP_TOOL_EXECUTION_PORT,
-      useExisting: AgentOsMcpToolExecutor,
-    },
-    { provide: LEGACY_AGENT_APPROVAL_PORT, useExisting: AgentApprovalService },
-    { provide: LEGACY_AGENT_CONVERSATION_PORT, useExisting: AgentConversationService },
-    { provide: LEGACY_AGENT_RUN_GRAPH_PORT, useExisting: AgentRunGraphService },
-    { provide: LEGACY_AGENT_RUN_EXECUTION_PORT, useExisting: AgentRunExecutor },
-    { provide: LEGACY_AGENT_OBSERVABILITY_PORT, useExisting: AgentObservabilityService },
-    AgentRunOperationAlertBridge,
-    AgentOsLiveReadinessAdapter,
-    { provide: AGENT_RUNNER_PORT, useExisting: AgentRunCoordinator },
-    {
-      provide: AGENT_OS_LIVE_READINESS_PORT,
-      useExisting: AgentOsLiveReadinessAdapter,
-    },
     {
       provide: AGENT_SESSION_QUERY_REPOSITORY,
       useClass: PrismaAgentSessionQueryRepository,
@@ -204,11 +151,26 @@ const agentInteractionProviders = [
       provide: AGENT_EXECUTION_USAGE_TRANSACTION,
       useClass: PrismaAgentExecutionUsageTransaction,
     },
-    { provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY, useClass: PrismaAgentSessionControlQueryRepository },
-    { provide: AGENT_DELEGATION_TRANSACTION, useClass: PrismaAgentDelegationTransaction },
-    { provide: AGENT_ATTEMPT_OPERATION_TRANSACTION, useClass: PrismaAgentAttemptOperationTransaction },
-    { provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION, useClass: PrismaAgentApprovalContinuationTransaction },
-    { provide: AGENT_SESSION_TRANSITION_TRANSACTION, useClass: PrismaAgentSessionTransitionTransaction },
+    {
+      provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
+      useClass: PrismaAgentSessionControlQueryRepository,
+    },
+    {
+      provide: AGENT_DELEGATION_TRANSACTION,
+      useClass: PrismaAgentDelegationTransaction,
+    },
+    {
+      provide: AGENT_ATTEMPT_OPERATION_TRANSACTION,
+      useClass: PrismaAgentAttemptOperationTransaction,
+    },
+    {
+      provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION,
+      useClass: PrismaAgentApprovalContinuationTransaction,
+    },
+    {
+      provide: AGENT_SESSION_TRANSITION_TRANSACTION,
+      useClass: PrismaAgentSessionTransitionTransaction,
+    },
     {
       // Until each owner domain supplies a version resolver, only an approval
       // with no resource reference may be resumed. Unknown resources never
@@ -244,32 +206,14 @@ const agentInteractionProviders = [
       provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
       useExisting: AgentSessionCapabilityInvocationService,
     },
-    { provide: AGENT_RUNTIME_PORT, useExisting: RoutingRuntimeAdapter },
-    {
-      provide: AGENT_MCP_SESSION_PORT,
-      useExisting: KidItemMcpSessionAdapter,
-    },
-    { provide: AGENT_LOG_STORE_PORT, useClass: FilesystemAgentLogStoreAdapter },
   ],
   exports: [
-    AGENT_INTERACTION_PORT,
-    AGENT_RUNNER_PORT,
     AGENT_SESSION_QUERY_REPOSITORY,
     AGENT_CONVERSATION_QUERY_REPOSITORY,
     AGENT_EXECUTION_QUERY_REPOSITORY,
     AGENT_RUN_AUTHORIZATION_TRANSACTION,
     AGENT_CONVERSATION_EVENT_TRANSACTION,
     AGENT_EXECUTION_USAGE_TRANSACTION,
-    AgentApiCapabilityGrantService,
-    AgentRunCoordinator,
-    AgentRunExecutor,
-    AgentRunGraphService,
-    AgentApprovalService,
-    AgentConversationService,
-    AgentObservabilityService,
-    AgentPlanValidator,
-    OperatorContextBuilder,
-    AgentRuntimeHandlerRegistry,
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
@@ -280,19 +224,6 @@ const agentInteractionProviders = [
     AGENT_SESSION_TRANSITION_TRANSACTION,
     AGENT_CONVERSATION_LIVE_PUBLISHER,
     AGENT_SESSION_RESOURCE_VERSION_VALIDATOR,
-    OpenAiResponsesOperatorRuntimeAdapter,
-    AgentTaskDelegationService,
-    AgentToolRouter,
-    AgentOsMcpToolExecutor,
-    OperatorDecisionExecutor,
-    OperatorDecisionParser,
-    AGENT_API_CAPABILITY_GRANT_PORT,
-    AGENT_OS_MCP_TOOL_EXECUTION_PORT,
-    LEGACY_AGENT_APPROVAL_PORT,
-    LEGACY_AGENT_CONVERSATION_PORT,
-    LEGACY_AGENT_RUN_GRAPH_PORT,
-    LEGACY_AGENT_RUN_EXECUTION_PORT,
-    LEGACY_AGENT_OBSERVABILITY_PORT,
   ],
 })
 /** Controller-free official session/runtime composition. */

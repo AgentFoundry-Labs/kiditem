@@ -47,7 +47,7 @@ import { AgentSessionOperationContinuationService } from './agent-session-operat
 import {
   INTERACTION_CLOCK,
   type InteractionClock,
-} from '../agent-interaction.tokens';
+} from '../../port/in/interaction/interaction-gateway-config.port';
 interface RequestInput {
   organizationId: string;
   session: AgentSessionName;

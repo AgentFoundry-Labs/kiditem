@@ -30,7 +30,7 @@ import { AgentOsRuntimeError } from "../../../domain/agent-os.errors";
 import {
   INTERACTION_CLOCK,
   type InteractionClock,
-} from "../agent-interaction.tokens";
+} from "../../port/in/interaction/interaction-gateway-config.port";
 import type { NormalizedRuntimeEvent } from "../../port/out/runtime/agent-durable-runtime.port";
 
 export interface PersistedAgentSessionRuntimeEvent {

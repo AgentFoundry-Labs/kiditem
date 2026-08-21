@@ -71,7 +71,7 @@ import {
   INTERACTION_REPLAY_CURSOR_HMAC_KEY,
   INTERACTION_RUN_INTENT_HMAC_KEY,
   type InteractionClock,
-} from "../agent-interaction.tokens";
+} from "../../port/in/interaction/interaction-gateway-config.port";
 import {
   LIVE_JOIN_DOMAIN,
   LIVE_JOIN_TTL_MS,

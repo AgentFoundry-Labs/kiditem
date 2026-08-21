@@ -117,6 +117,61 @@ const retiredSessionControlSymbols = [
   "PrismaAgentSessionControlRepository",
 ] as const;
 
+const sessionControlAdapterSeams = [
+  [
+    "adapter/out/repository/session-control/prisma-agent-session-control-query.repository.ts",
+    "AgentSessionControlQueryRepositoryPort",
+    [
+      "isExecutionCapabilityAllowed",
+      "loadDelegationContext",
+      "loadCancelableTask",
+      "loadTaskExecution",
+      "listLifecycleRecoveryCandidates",
+    ],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-delegation.transaction.ts",
+    "AgentDelegationTransactionPort",
+    ["createDelegatedTask"],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts",
+    "AgentAttemptOperationTransactionPort",
+    [
+      "reserveAttemptForOperation",
+      "findAttemptForOperation",
+      "activateAttemptForOperation",
+      "startAttempt",
+      "persistAttemptHandle",
+      "finishAttempt",
+      "continueOperationAttempt",
+    ],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
+    "AgentApprovalContinuationTransactionPort",
+    [
+      "requestApproval",
+      "decideApproval",
+      "loadApproval",
+      "expireApproval",
+      "advanceApprovedContinuation",
+      "markApprovalContinuationInterruptDelivered",
+      "listIncompleteApprovalContinuations",
+    ],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
+    "AgentSessionTransitionTransactionPort",
+    [
+      "appendArtifact",
+      "transitionTask",
+      "transitionSession",
+      "createRetryExecution",
+    ],
+  ],
+] as const;
+
 describe("AgentOS persistence seam contracts", () => {
   it.each(readPorts)(
     "defines %s as a read-only narrow port",
@@ -184,7 +239,10 @@ describe("AgentOS persistence seam contracts", () => {
   it.each(sessionControlAdapters)(
     "%s owns PrismaService directly without an aggregate persistence dependency",
     (path) => {
-      const source = readFileSync(resolve(outRoot, "..", "..", "..", path), "utf8");
+      const source = readFileSync(
+        resolve(outRoot, "..", "..", "..", path),
+        "utf8",
+      );
       expect(source).toContain("PrismaService");
       expect(source).toMatch(
         /constructor\(private readonly prisma: PrismaService\)/,
@@ -200,14 +258,52 @@ describe("AgentOS persistence seam contracts", () => {
     const agentOsRoot = resolve(outRoot, "..", "..", "..");
     const sources = [
       resolve(outRoot, "repository/agent-session-control.repository.port.ts"),
-      resolve(agentOsRoot, "adapter/out/repository/prisma-agent-session-control.repository.ts"),
-      resolve(agentOsRoot, "adapter/out/internal/prisma-agent-session-control.persistence.ts"),
+      resolve(
+        agentOsRoot,
+        "adapter/out/repository/prisma-agent-session-control.repository.ts",
+      ),
+      resolve(
+        agentOsRoot,
+        "adapter/out/internal/prisma-agent-session-control.persistence.ts",
+      ),
     ];
     for (const path of sources) expect(existsSync(path)).toBe(false);
     for (const symbol of retiredSessionControlSymbols) {
       for (const path of sessionControlAdapters) {
-        expect(readFileSync(resolve(agentOsRoot, path), "utf8")).not.toContain(symbol);
+        expect(readFileSync(resolve(agentOsRoot, path), "utf8")).not.toContain(
+          symbol,
+        );
       }
     }
   });
+
+  it.each(sessionControlAdapterSeams)(
+    "%s imports and exposes only its owned narrow persistence seam",
+    (path, ownedPort, ownedMethods) => {
+      const source = readFileSync(
+        resolve(outRoot, "..", "..", "..", path),
+        "utf8",
+      );
+      expect(source).toContain(`implements ${ownedPort}`);
+      expect(source).not.toContain("SessionControlPersistenceMethods");
+
+      for (const port of sessionControlAdapterSeams.map(([, port]) => port)) {
+        if (port === ownedPort) {
+          expect(source).toContain(`type { ${port} }`);
+        } else {
+          expect(source).not.toContain(port);
+        }
+      }
+
+      const foreignMethods = sessionControlAdapterSeams
+        .filter(([, port]) => port !== ownedPort)
+        .flatMap(([, , methods]) => methods);
+      for (const method of foreignMethods) {
+        expect(source).not.toMatch(new RegExp(`\\basync\\s+${method}\\s*\\(`));
+      }
+      for (const method of ownedMethods) {
+        expect(source).toMatch(new RegExp(`\\basync\\s+${method}\\s*\\(`));
+      }
+    },
+  );
 });
