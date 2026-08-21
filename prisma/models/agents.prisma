@@ -170,6 +170,28 @@ model AgentSessionTombstone {
 }
 
 /// @namespace AgentOS
+/// @describe Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session.
+model AgentSessionLegalAuditProjection {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  recordKind     String   @map("record_kind")
+  legalBasisCode String   @map("legal_basis_code")
+  retentionDueAt DateTime @map("retention_due_at") @db.Timestamptz
+  artifactSha256 String?  @map("artifact_sha256")
+  inputTokens    Int?     @map("input_tokens")
+  outputTokens   Int?     @map("output_tokens")
+  costMicros     BigInt?  @map("cost_micros") @db.BigInt
+  recordCount    Int      @default(1) @map("record_count")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation("AgentSessionLegalAuditProjectionOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+
+  @@index([organizationId, retentionDueAt])
+  @@index([organizationId, legalBasisCode, retentionDueAt])
+  @@map("agent_session_legal_audit_projections")
+}
+
+/// @namespace AgentOS
 /// @describe Root or delegated task control state owned by one canonical interaction session.
 model AgentSessionTask {
   id                     String    @id @default(uuid()) @db.Uuid
@@ -356,6 +378,9 @@ model AgentExecutionUsage {
   costMicros     BigInt   @map("cost_micros") @db.BigInt
   currency       String   @default("USD")
   recordedAt     DateTime @default(now()) @map("recorded_at") @db.Timestamptz
+  retentionClass            String   @default("session") @map("retention_class")
+  independentLegalBasisCode String?  @map("independent_legal_basis_code")
+  independentRetentionDueAt DateTime? @map("independent_retention_due_at") @db.Timestamptz
 
   organization Organization   @relation("AgentExecutionUsageOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
   execution    AgentExecution @relation("AgentExecutionUsages", fields: [executionId, organizationId], references: [id, organizationId], onDelete: Cascade)
@@ -542,6 +567,9 @@ model AgentSessionArtifact {
   idempotencyKey   String    @map("idempotency_key")
   createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
   supersededAt     DateTime? @map("superseded_at") @db.Timestamptz
+  retentionClass            String   @default("session") @map("retention_class")
+  independentLegalBasisCode String?  @map("independent_legal_basis_code")
+  independentRetentionDueAt DateTime? @map("independent_retention_due_at") @db.Timestamptz
 
   session   AgentSession     @relation("AgentSessionArtifacts", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
   task      AgentSessionTask @relation("AgentSessionTaskArtifacts", fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)

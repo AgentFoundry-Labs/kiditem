@@ -6,6 +6,7 @@ import {
   projectAgentSessionRetentionDueAt,
   projectAgentSessionRetentionPolicy,
 } from "../../../../domain/session/agent-session-retention.policy";
+import { AgentSessionIndependentLegalAuditClassificationSchema } from "../../../../domain/session/agent-session-retention-audit.policy";
 import { AgentOsBoundaryError } from "../../../../domain/agent-os.errors";
 import type {
   AgentSessionLifecycleSessionRecord,
@@ -142,7 +143,7 @@ export class PrismaAgentSessionLifecycleTransaction
       const session = await lockSession(tx, input);
       if (!session) throw scope();
       if (session.legalHoldAt) throw legalHold();
-      if (session.lifecycle !== "archived") throw state();
+      if (!isDeletableTerminalLifecycle(session.lifecycle)) throw state();
       if (!session.retentionDueAt || session.retentionDueAt > new Date())
         throw retentionNotDue();
       const request = await createOrReuseRequest(tx, {
@@ -167,6 +168,12 @@ export class PrismaAgentSessionLifecycleTransaction
         select: tombstoneSelect,
       });
       await completeRequest(tx, request.id, session.retentionDueAt);
+      await projectIndependentLegalAudits(
+        tx,
+        input.organizationId,
+        input.sessionId,
+        session.retentionDueAt,
+      );
       await deleteSessionGraph(tx, input.organizationId, input.sessionId);
       return mapTombstone(tombstone);
     }, transactionOptions).catch(rethrow);
@@ -310,6 +317,102 @@ async function deleteSessionGraph(
   });
 }
 
+async function projectIndependentLegalAudits(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  sessionId: string,
+  sessionRetentionDueAt: Date,
+): Promise<void> {
+  const [artifacts, usage] = await Promise.all([
+    tx.agentSessionArtifact.findMany({
+      where: { organizationId, sessionId },
+      select: {
+        retentionClass: true,
+        independentLegalBasisCode: true,
+        independentRetentionDueAt: true,
+        sha256: true,
+      },
+    }),
+    tx.agentExecutionUsage.findMany({
+      where: { organizationId, execution: { sessionId } },
+      select: {
+        retentionClass: true,
+        independentLegalBasisCode: true,
+        independentRetentionDueAt: true,
+        inputTokens: true,
+        outputTokens: true,
+        costMicros: true,
+      },
+    }),
+  ]);
+  const projections = [
+    ...artifacts.flatMap((artifact) => {
+      const classification = parseIndependentLegalAudit(
+        artifact,
+        sessionRetentionDueAt,
+      );
+      return classification
+        ? [{
+            organizationId,
+            recordKind: "artifact",
+            legalBasisCode: classification.independentLegalBasisCode,
+            retentionDueAt: classification.independentRetentionDueAt,
+            artifactSha256: artifact.sha256,
+            inputTokens: null,
+            outputTokens: null,
+            costMicros: null,
+            recordCount: 1,
+          }]
+        : [];
+    }),
+    ...usage.flatMap((record) => {
+      const classification = parseIndependentLegalAudit(
+        record,
+        sessionRetentionDueAt,
+      );
+      return classification
+        ? [{
+            organizationId,
+            recordKind: "usage",
+            legalBasisCode: classification.independentLegalBasisCode,
+            retentionDueAt: classification.independentRetentionDueAt,
+            artifactSha256: null,
+            inputTokens: record.inputTokens,
+            outputTokens: record.outputTokens,
+            costMicros: record.costMicros,
+            recordCount: 1,
+          }]
+        : [];
+    }),
+  ];
+  if (projections.length) {
+    await tx.agentSessionLegalAuditProjection.createMany({ data: projections });
+  }
+}
+
+function parseIndependentLegalAudit(
+  record: {
+    retentionClass: string;
+    independentLegalBasisCode: string | null;
+    independentRetentionDueAt: Date | null;
+  },
+  sessionRetentionDueAt: Date,
+) {
+  if (record.retentionClass === "session") return null;
+  const parsed = AgentSessionIndependentLegalAuditClassificationSchema.safeParse({
+    retentionClass: record.retentionClass,
+    independentLegalBasisCode: record.independentLegalBasisCode,
+    independentRetentionDueAt: record.independentRetentionDueAt,
+  });
+  if (!parsed.success || parsed.data.independentRetentionDueAt <= sessionRetentionDueAt)
+    throw retentionAuditInvalid();
+  return parsed.data;
+}
+
+function isDeletableTerminalLifecycle(lifecycle: string): boolean {
+  return lifecycle === "completed" || lifecycle === "cancelled" || lifecycle === "archived";
+}
+
 function mapSession(row: Prisma.AgentSessionGetPayload<{ select: typeof sessionSelect }>): AgentSessionLifecycleSessionRecord {
   return row;
 }
@@ -392,6 +495,9 @@ function legalHold(): AgentOsBoundaryError {
 }
 function retentionNotDue(): AgentOsBoundaryError {
   return new AgentOsBoundaryError("THREAD_RETENTION_NOT_DUE");
+}
+function retentionAuditInvalid(): AgentOsBoundaryError {
+  return new AgentOsBoundaryError("THREAD_RETENTION_AUDIT_INVALID");
 }
 function idempotencyConflict(): AgentOsBoundaryError {
   return new AgentOsBoundaryError("THREAD_LIFECYCLE_IDEMPOTENCY_CONFLICT");

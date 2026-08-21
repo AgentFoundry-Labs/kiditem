@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 36 |
+| [AgentOS](erd/agentos.md) | 37 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
@@ -70,6 +70,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentSessionApproval | AgentOS | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it. |
 | AgentSessionApprovalContinuation | AgentOS | `agent_session_approval_continuations` | Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately. |
 | AgentSessionArtifact | AgentOS | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
+| AgentSessionLegalAuditProjection | AgentOS | `agent_session_legal_audit_projections` | Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session. |
 | AgentSessionLifecycleRequest | AgentOS | `agent_session_lifecycle_requests` | Scoped lifecycle idempotency record retained only while its canonical AgentSession exists. |
 | AgentSessionTask | AgentOS | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
 | AgentSessionTaskDelegation | AgentOS | `agent_session_task_delegations` | Immutable parent-child task delegation with a bounded authority subset and stable idempotency identity. |
@@ -462,6 +463,9 @@ erDiagram
     BigInt costMicros
     String currency
     DateTime recordedAt
+    String retentionClass
+    String independentLegalBasisCode
+    DateTime independentRetentionDueAt
   }
   AgentInstance {
     String id PK
@@ -700,6 +704,22 @@ erDiagram
     String idempotencyKey
     DateTime createdAt
     DateTime supersededAt
+    String retentionClass
+    String independentLegalBasisCode
+    DateTime independentRetentionDueAt
+  }
+  AgentSessionLegalAuditProjection {
+    String id PK
+    String organizationId FK
+    String recordKind
+    String legalBasisCode
+    DateTime retentionDueAt
+    String artifactSha256
+    Int inputTokens
+    Int outputTokens
+    BigInt costMicros
+    Int recordCount
+    DateTime createdAt
   }
   AgentSessionLifecycleRequest {
     String id PK
@@ -3433,6 +3453,7 @@ erDiagram
   Organization ||--o{ AgentRunRequest : "organization"
   Organization ||--o{ AgentRuntimeState : "organization"
   Organization ||--o{ AgentSession : "organization"
+  Organization ||--o{ AgentSessionLegalAuditProjection : "organization"
   Organization ||--o{ AgentSessionLifecycleRequest : "organization"
   Organization ||--o{ AgentTaskSession : "organization"
   Organization ||--o{ AgentToolInvocation : "organization"

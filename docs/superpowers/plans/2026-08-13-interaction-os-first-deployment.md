@@ -250,6 +250,13 @@ session's prior lifecycle.
 final Prisma schema. Absence projects the locked 365-day/KR default; shortening
 the stored duration is outside this plan and requires a separately approved
 privacy/legal change rather than an ordinary settings update.
+`OperationRun` is not a lifecycle legal-audit owner: its `title`, `input`,
+`result`, and error fields are arbitrary application payloads and are never
+copied into a lifecycle retention record. During physical deletion, only an
+artifact or usage row explicitly classified as `independent_legal_audit`, with
+a strict legal-basis code and a later independent retention deadline, is
+projected into the organization-fenced, scalar-only legal-audit projection.
+Ordinary artifacts, usage, and all canonical session content are deleted.
 
 - [ ] **Step 5: Implement the lifecycle repository transaction**
 
