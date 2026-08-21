@@ -171,6 +171,94 @@ test("follows incoming adapters through server-wide relative and alias barrels",
   expectViolationsFor(violations, ["entry.controller.ts"]);
 });
 
+test("follows external barrels that import and then re-export AgentOS services", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/entry.controller.ts",
+      source: "import { Bridge } from '@/shared/agent-os-bridge';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/agent-os-bridge.ts",
+      source: [
+        "import { Bridge } from '@/shared/agent-os-bridge-inner';",
+        "export { Bridge };",
+      ].join("\n"),
+      lines: 3,
+    },
+    {
+      path: "apps/server/src/shared/agent-os-bridge-inner.ts",
+      source: [
+        "import { Bridge } from '@/agent-os/application/service/interaction/bridge.service';",
+        "export { Bridge };",
+      ].join("\n"),
+      lines: 3,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/interaction/bridge.service.ts",
+      source: "export class Bridge {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, ["entry.controller.ts"]);
+});
+
+test("treats a default import as a runtime dependency even with type-only named specifiers", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/default-import.controller.ts",
+      source:
+        "import ConcreteService, { type Marker } from '@/agent-os/application/service/interaction/concrete.service';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/interaction/concrete.service.ts",
+      source: "export default class ConcreteService {}\nexport interface Marker {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, ["default-import.controller.ts"]);
+});
+
+test("does not mistake a Nest composition root for an adapter-to-service bypass", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/cli/operator.cli.ts",
+      source: "import { AgentApplicationModule } from '@/agent-application.module';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-application.module.ts",
+      source: [
+        "import { Module } from '@nestjs/common';",
+        "import { AgentLegacyModule } from '@/agent-legacy.module';",
+        "@Module({ imports: [AgentLegacyModule] })",
+        "export class AgentApplicationModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/agent-legacy.module.ts",
+      source: [
+        "import { Module } from '@nestjs/common';",
+        "import { ConcreteService } from '@/agent-os/application/service/concrete.service';",
+        "@Module({ providers: [ConcreteService] })",
+        "export class AgentLegacyModule {}",
+      ].join("\n"),
+      lines: 4,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  assert.deepEqual(violations, []);
+});
+
 test("rejects flat official input ports", () => {
   const violations = analyzeAgentOsHexagonalSources([
     {

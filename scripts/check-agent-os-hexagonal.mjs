@@ -64,21 +64,56 @@ export function analyzeAgentOsHexagonalSources(files) {
 
 function reachesConcreteApplicationService(entryPath, sources) {
   const visited = new Set();
-  const pending = [entryPath];
+  const pending = [{ path: entryPath, crossesExternalComposition: false }];
 
   while (pending.length > 0) {
-    const currentPath = pending.pop();
-    if (!currentPath || visited.has(currentPath)) continue;
-    visited.add(currentPath);
-
-    if (currentPath.includes("/agent-os/application/service/")) return true;
-    const current = sources.get(currentPath);
+    const current = pending.pop();
     if (!current) continue;
-    for (const dependency of staticLocalDependencies(current, sources)) {
-      pending.push(dependency);
+    const { path: currentPath, crossesExternalComposition } = current;
+    const visitKey = `${currentPath}:${crossesExternalComposition}`;
+    if (visited.has(visitKey)) continue;
+    visited.add(visitKey);
+
+    if (
+      !crossesExternalComposition &&
+      currentPath.includes("/agent-os/application/service/")
+    ) {
+      return true;
+    }
+    const currentFile = sources.get(currentPath);
+    if (!currentFile) continue;
+    const crossesComposition =
+      crossesExternalComposition || isExternalNestCompositionModule(currentFile);
+    for (const dependency of staticLocalDependencies(currentFile, sources)) {
+      pending.push({
+        path: dependency,
+        crossesExternalComposition: crossesComposition,
+      });
     }
   }
   return false;
+}
+
+function isExternalNestCompositionModule(file) {
+  if (normalizePath(file.path).includes(AGENT_OS_ROOT)) return false;
+  const sourceFile = ts.createSourceFile(
+    file.path,
+    file.source,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  return sourceFile.statements.some(
+    (statement) =>
+      ts.isClassDeclaration(statement) &&
+      (ts.getDecorators(statement) ?? []).some((decorator) => {
+        const expression = decorator.expression;
+        return (
+          ts.isCallExpression(expression) &&
+          ts.isIdentifier(expression.expression) &&
+          expression.expression.text === "Module"
+        );
+      }),
+  );
 }
 
 function staticLocalDependencies(file, sources) {
@@ -89,16 +124,9 @@ function staticLocalDependencies(file, sources) {
     true,
   );
   const dependencies = [];
-  const normalizedPath = normalizePath(file.path);
   for (const statement of sourceFile.statements) {
     const specifier = moduleSpecifierOf(statement);
     if (!specifier || isTypeOnlyDependency(statement)) continue;
-    if (
-      !normalizedPath.includes(AGENT_OS_ROOT) &&
-      !ts.isExportDeclaration(statement)
-    ) {
-      continue;
-    }
     const resolved = resolveLocalModule(
       normalizePath(file.path),
       specifier,
@@ -134,8 +162,13 @@ function isTypeOnlyDependency(statement) {
     return true;
   }
 
-  const clause = ts.isImportDeclaration(statement)
-    ? statement.importClause?.namedBindings
+  const importClause = ts.isImportDeclaration(statement)
+    ? statement.importClause
+    : undefined;
+  if (importClause?.name) return false;
+
+  const clause = importClause
+    ? importClause.namedBindings
     : ts.isExportDeclaration(statement)
       ? statement.exportClause
       : undefined;
