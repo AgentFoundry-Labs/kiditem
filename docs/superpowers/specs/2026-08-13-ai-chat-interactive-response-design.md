@@ -2,8 +2,8 @@
 
 - Date: 2026-08-13
 - Last amended: 2026-08-21 — hexagonal capability/Operation boundary,
-  canonical identifier system, and AgentOS lane-first/capability-second
-  directory, transaction, and composition-module contracts
+  canonical identifier system, AgentOS lane-first/capability-second directory
+  contracts, and zero-data pre-launch contraction
 - Status: Approved canonical design
 - Classification: greenfield AgentOS platform reconstruction with a shared web
   interaction surface
@@ -532,7 +532,6 @@ interface AgentSessionTask {
   assignedAgentVersionId: AgentVersionId;
   objective: string | null;
   isRoot: boolean;
-  operationRunId: OperationRunId | null;
   status: string;
 }
 
@@ -563,6 +562,17 @@ interface AgentConversationEvent {
   payload: unknown;
   createdAt: Date;
 }
+
+interface AgentExecutionDispatchOutbox {
+  id: string;
+  organizationId: OrganizationId;
+  sessionId: AgentSessionId;
+  sessionTaskId: AgentSessionTaskId;
+  executionId: AgentExecutionId;
+  idempotencyKey: IdempotencyKey;
+  status: 'pending' | 'dispatched';
+  dispatchedAt: Date | null;
+}
 ~~~
 
 Additional control records cover:
@@ -575,6 +585,10 @@ Additional control records cover:
 - token and cost ledger entries;
 - policy decisions;
 - runtime attempts;
+- immutable execution-attempt-to-Operation bindings and the content-free
+  programmatic judgment dispatch outbox;
+- organization interaction-retention policy, idempotent lifecycle requests,
+  and versioned-HMAC deletion tombstones;
 - append-only conversation events and replay checkpoints;
 - audit events.
 
@@ -583,6 +597,11 @@ state and one canonical user-message event. The task objective remains null
 until the runtime derives normalized work metadata; KidItem does not copy the
 first message into a task field or audit record. Database and repository
 invariants enforce one root task per session and one monotonic event sequence.
+An authenticated API-domain judgment submission creates the same official
+graph plus `AgentExecutionDispatchOutbox` in one transaction. An API-only
+dispatcher idempotently creates/binds the Operation and marks the row
+dispatched; startup recovery drains committed pending rows. Interactive AG-UI
+executions do not use that outbox.
 
 `AgentSession` directly owns the organization-scoped AG-UI thread association.
 There is no separate pre-session binding. Context epochs, conversation events,
@@ -696,7 +715,7 @@ Official AgentOS tasks may outlive a browser connection or server process.
 - Operations owns the generic run envelope, scheduling, engine dispatch, and
   cancellation contract.
 - A durable workflow implementation persists checkpoints and resumes after
-  worker failure.
+  API process or Operations lifecycle failure.
 - CopilotKit receives progress and interrupts through AG-UI; KidItem replays
   persisted conversation events and reconnects the client to the same run.
 - A closed panel does not cancel work.
@@ -718,7 +737,7 @@ HTTP / CLI / Agent capability adapter
         -> synchronous result
         OR -> Operations request -> owner operation handler -> same input port
 
-Operations schedule / retry / worker
+Operations schedule / retry / API lifecycle loop
   -> owner operation handler
      -> owning-domain input port
 
@@ -801,8 +820,9 @@ incoming adapter
   validity, and other pure invariants. It imports neither NestJS, Prisma,
   Operations, provider runtimes, nor event infrastructure.
 - The transitional generic non-session `AgentRun` implementation may be
-  quarantined under `legacy-run` during migration, but the Phase 5 exit removes
-  it instead of retaining a permanent compatibility module.
+  quarantined under `legacy-run` while replacement ports are completed, but
+  the Phase 5 pre-launch exit removes it instead of retaining a permanent
+  compatibility module.
 
 Nest composition reflects process ownership without creating a universal
 `BaseDomainModule`:
@@ -812,10 +832,18 @@ Nest composition reflects process ownership without creating a universal
 - `AgentOsSessionModule` owns official session, execution, interaction, and
   their outgoing adapters.
 - `AgentOsModule` is the controller-free core facade over those modules.
-- `AgentOsHttpModule` alone composes HTTP, interaction secrets, and
-  Operations-backed session controls.
+- `AgentOsApiExecutionModule` is controller-free but API-process-only. It
+  composes Operations-backed session execution and the official judgment
+  submission input port for authenticated API-domain adapters. Worker and MCP
+  roots do not import it.
+- `AgentOsHttpModule` owns HTTP controllers, interaction secrets, and guards;
+  it imports `AgentOsApiExecutionModule` instead of owning execution providers.
+- `OperationsModule` is the controller-free lifecycle/repository/dispatcher
+  core consumed by API-owned execution adapters. `OperationsHttpModule` alone
+  owns Operations HTTP controllers. `ApiApplicationModule` composes both HTTP
+  modules; MCP and non-API roots compose neither.
 - `AgentOsWorkerModule` remains isolated from HTTP providers and is deleted
-  with the generic `AgentRun` worker when the cutover completes.
+  with the generic `AgentRun` worker before the first production deployment.
 
 Other backend owners use the same hexagonal dependency direction and standard
 lane names, but they add only the adapters and ports justified by real IO or a
@@ -990,8 +1018,11 @@ Management rules:
   dispatches through `AgentCapabilityRegistry`; and
 - raw UUID strings as an interchangeable public ID type.
 
-Legacy components may exist during cutover only. No new feature is added to
-them, and no permanent dual write is allowed.
+Legacy components may exist only on the unshipped implementation branch while
+replacement contracts are completed. KID-25 has never carried production
+traffic or production AgentRun/conversation data, so there is no live legacy
+audience to freeze, migrate, or serve read-only. No new feature is added to the
+legacy path and no permanent dual write is allowed.
 
 ## 20. Delivery Plan
 
@@ -1001,10 +1032,13 @@ place through additive corrective commits; do not rewrite already shared
 history. No production backfill or durable migration is required for the
 branch-only models.
 
-The schema decision for this reconstruction is:
+The schema decision is compatible `db:push` while adding the official graph,
+followed by one explicitly destructive empty-schema contraction before the
+first deployment:
 
 ~~~text
-Release decision: compatible db:push; no backfill; retired lifecycle was never deployed
+Release decision: keep VERSION 0.1.30; pre-launch empty legacy schema contraction,
+no production backfill, rollback restores the verified same-attempt database backup
 ~~~
 
 Add replacement contracts and regression gates before deleting superseded
@@ -1091,13 +1125,27 @@ retains explicit policy and approval boundaries.
 Exit: local and remote agents use the same AgentOS policy and AG-UI interaction
 path.
 
-### Phase 5 — cutover and deletion
+### Phase 5 — pre-launch contraction and first deployment
 
 - Add contract scanners that detect new legacy chat API or transcript-store
   use.
-- Cut the global entry and AgentOS workspace to CopilotKit.
-- Migrate only official records with continuing business value; do not preserve
-  obsolete transient chats merely for compatibility.
+- Inventory every generic AgentRun caller and classify it as an owner-domain
+  synchronous use case, owner Operation, or official AgentSession judgment.
+  Unknown classification is a stop condition.
+- Run a read-only preflight against the intended deployment database. Accept
+  either a wholly absent unshipped legacy schema or a wholly present schema
+  with zero AgentRun/conversation/task-session/approval/artifact/tool-policy
+  data and only an exact code-owned instance/runtime seed projection. A partial
+  schema, drifted seed, association, or unexpected row stops contraction and
+  requires an explicit design amendment; it never enables an implicit
+  compatibility or backfill path.
+- The Office database preflight runs inside the existing SHA-verified
+  `apply-deployment.ps1` delivered by the GitHub Actions release bundle while
+  application writers are stopped. The GitHub-hosted runner does not receive
+  the Office database URL, and no standalone local deployment path is added.
+- Cut the global entry and AgentOS workspace to CopilotKit before the first
+  production deployment. There is no Freeze/Cutover/Contract release sequence,
+  legacy 410 compatibility window, or migration mapping for an unshipped path.
 - Remove legacy chat APIs, polling, duplicate stores, renderers, and the
   divergent Chatbot identity.
 - Remove the generic non-session AgentRun path after deterministic callers use
@@ -1106,15 +1154,23 @@ path.
   incoming adapters call capability input ports, official execution logic no
   longer lives in the Operation adapter, and lifecycle writes no longer share
   two aggregate-wide repository interfaces.
-- Split controller-free catalog, capability, and official-session composition
-  modules while preserving the KID-24 API/worker/MCP process-root contract.
+- Split controller-free catalog, capability, official-session, and API-only
+  execution composition modules while preserving the KID-24 API/MCP boundary
+  and deleting the generic Agent worker root.
 - Replace raw cross-boundary database IDs with canonical resource names without
   rekeying existing UUID rows.
 - Update docs/ARCHITECTURE.md, environment documentation, deployment contracts,
   and ownership maps in the same implementation train.
-- Run reconstruction and release-contract guards before deletion.
+- Contract the empty legacy schema in the same pre-launch train after the
+  source and database preflights pass. The guarded deployer first stops writers
+  and verifies a full pre-push database backup. Any post-push failure restores
+  and verifies that backup before the prior immutable application artifact may
+  start; runtime-only rollback and legacy fallback are forbidden.
+- Run reconstruction, release-contract, PostgreSQL, browser, API, MCP, and
+  generic-worker-absence gates before the first deployment.
 
-Exit: no production conversational path bypasses CopilotKit or AG-UI.
+Exit: the first production artifact contains no conversational path that
+bypasses CopilotKit or AG-UI and no generic non-session AgentRun runtime.
 
 ### Phase 6 — additional channels
 
@@ -1188,7 +1244,7 @@ Exit: no production conversational path bypasses CopilotKit or AG-UI.
 
 ### Durability and operations tests
 
-- worker/process failure resumes from a persisted checkpoint;
+- API/Operations lifecycle failure resumes from a persisted checkpoint;
 - long-running Hermes/local CLI work survives browser disconnect;
 - cancellation propagates through every layer;
 - retries preserve idempotency;
@@ -1211,8 +1267,8 @@ applicable repository gates:
   `npm run check:tenant-scope`;
 - static ownership: schema-artifact, shared-import, convention, and retired
   lifecycle scanners; and
-- architecture cutover: reconstruction and release-contract guards against the
-  intended base.
+- architecture contraction: reconstruction and release-contract guards against
+  the intended base.
 
 ## 22. Acceptance Criteria
 
@@ -1243,8 +1299,8 @@ applicable repository gates:
 - There is no dedicated answer-expansion action.
 - Hermes, Codex, Claude, and local CLI runtimes integrate through AgentOS
   adapters and emit normalized AG-UI events.
-- Durable work survives browser and worker restarts and supports resume,
-  approval, retry, and cancel.
+- Durable work survives browser and API-owned Operations lifecycle restarts and
+  supports resume, approval, retry, and cancel.
 - Business authorization, domain facts, and mutations remain outside
   CopilotKit.
 - Owner input ports express business use cases; HTTP, Agent, and Operation
@@ -1259,7 +1315,7 @@ applicable repository gates:
   IDs remain opaque, and request/idempotency/sequence/token/digest identities
   are not conflated.
 - Legacy chat APIs, polling, duplicate storage, and divergent renderers are
-  removed after guarded cutover.
+  removed after guarded zero-data preflight and before the first deployment.
 - CopilotKit and AG-UI upgrades are exact-pinned, canaried, observable, and
   recoverable.
 - No runtime path requires Enterprise Intelligence, Rich Threads, hosted

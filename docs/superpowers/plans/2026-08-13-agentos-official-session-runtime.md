@@ -1124,8 +1124,9 @@ for the batches when subagents are used, keep RED/GREEN evidence inside each
 batch, and request one integrated Sol review only after Task 15 gates pass.
 
 The final structure is lane-first and capability-second. A temporary
-`legacy-run` folder may exist only while the existing cutover task migrates its
-callers; no new behavior enters it.
+`legacy-run` folder may exist only while Plan 4's pre-launch
+contraction/first-deployment task migrates its callers; no new behavior enters
+it.
 
 ~~~text
 agent-os/
@@ -1794,7 +1795,7 @@ git commit -m "refactor: split AgentOS lifecycle transactions"
 - Modify: `docs/ARCHITECTURE.md`
 - Modify: `apps/server/src/agent-os/AGENTS.md`
 - Modify: `docs/runbooks/interaction-platform.md`
-- Modify: `docs/superpowers/plans/2026-08-13-interaction-os-cutover.md`
+- Modify: `docs/superpowers/plans/2026-08-13-interaction-os-first-deployment.md`
 
 - [ ] **Step 1: Add composition-root RED assertions**
 
@@ -1819,8 +1820,9 @@ owns official session/interaction queries, lifecycle transactions, execution,
 conversation events, and durable runtime selection. `AgentOsModule` becomes a
 small facade that imports and exports only these focused modules/tokens.
 
-The transitional `AgentRun` runner/worker remains quarantined for the existing
-cutover task and receives no new dependencies or behavior.
+The transitional `AgentRun` runner/worker remains quarantined for Plan 4's
+pre-launch contraction/first-deployment task and receives no new dependencies
+or behavior.
 
 - [ ] **Step 3: Enable the live architecture gate**
 
@@ -1885,7 +1887,7 @@ git add apps/server/src/agent-os apps/server/src/__tests__ \
   apps/server/src/supply/supply-agent-runtime.module.ts \
   scripts package.json docs/ARCHITECTURE.md \
   docs/runbooks/interaction-platform.md \
-  docs/superpowers/plans/2026-08-13-interaction-os-cutover.md
+  docs/superpowers/plans/2026-08-13-interaction-os-first-deployment.md
 git commit -m "refactor: deepen AgentOS hexagonal modules"
 ```
 
@@ -1908,8 +1910,9 @@ git commit -m "refactor: deepen AgentOS hexagonal modules"
 - [ ] Every official AgentOS application or adapter production file over 700
   lines receives an explicit responsibility/cohesion review. Splitting follows
   real capability, transaction, or adapter seams rather than line count; generic
-  non-session AgentRun code is either quarantined for the existing cutover task
-  or deleted, and no new behavior enters the compatibility lane.
+  non-session AgentRun code is either quarantined for Plan 4's pre-launch
+  contraction/first-deployment task or deleted, and no new behavior enters the
+  compatibility lane.
 - [ ] Production Agent definitions come only from the code-owned registry and
   immutable active `AgentVersion`; user/project/plugin markdown cannot alter
   authority.

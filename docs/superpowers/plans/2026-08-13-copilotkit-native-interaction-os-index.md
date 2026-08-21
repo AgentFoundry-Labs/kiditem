@@ -1,8 +1,8 @@
 # CopilotKit-Native Interaction OS Execution Index Implementation Plan
 
 Last amended: 2026-08-21 — owner-port execution boundaries, canonical ID
-system, and AgentOS lane-first/capability-second hexagonal deepening propagated
-through Plans 1–4.
+system, AgentOS lane-first/capability-second hexagonal deepening, and zero-data
+pre-launch contraction propagated through Plans 1–4.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -121,8 +121,13 @@ Testing Library, and Playwright
   has been updated onto that merged baseline.
 - Preserve KID-24's process-root contract during that update:
   `AgentOsModule` stays controller-free, interaction HTTP controllers and their
-  auth-only secrets live in `AgentOsHttpModule`, and the Agent worker/MCP roots
-  must not instantiate HTTP guards or require interaction HMAC secrets.
+  auth-only secrets live in `AgentOsHttpModule`, Operations-backed official
+  submission lives in the API-only controller-free
+  `AgentOsApiExecutionModule`, controller-free `OperationsModule` owns lifecycle
+  execution, and `OperationsHttpModule` alone owns Operations controllers.
+  Worker/MCP roots must not instantiate either HTTP module or require
+  interaction HMAC secrets. Plan 4 deletes the generic Agent worker root before
+  the first deployment; it does not move official execution into that root.
 - KID-24's API-lifecycle ownership remains authoritative for every
   Operations-backed Agent execution. KID-25 may correlate an execution to an
   Operations run, but it must not restore a shared API/worker root, cross-boot
@@ -355,19 +360,28 @@ session root. It removes the generic non-session AgentRun branch, keeps Agent
 capabilities as owner-domain incoming adapters, and keeps Operations handlers
 on owner use-case ports.
 
-### 4. [Production Cutover And Legacy Deletion](./2026-08-13-interaction-os-cutover.md)
+### 4. [Pre-Launch Contraction And First Deployment](./2026-08-13-interaction-os-first-deployment.md)
 
 Consumes all earlier plans and produces production-grade KidItem conversation
 storage/replay operations, Office release integration, retention/deletion/legal
-hold, compatibility canaries, guarded migration, and deletion of every legacy
-conversation and generic AgentRun path without rekeying existing UUID rows.
+hold, compatibility canaries, a zero-data preflight, and deletion of every
+legacy conversation and generic AgentRun path before the first production
+deployment without rekeying retained UUID rows. Because KID-25 has never served
+production traffic, Plan 4 has no Freeze/Cutover/Contract deployment sequence
+or legacy data migration window. The read-only preflight accepts a wholly absent
+unshipped legacy schema or a wholly present schema whose execution/content
+boundaries are empty and whose only rows are the exact code-owned
+`AgentInstance`/pristine `AgentRuntimeState` seed projection. When those legacy
+tables are present, missing or drifted seed rows or user associations block
+contraction; a partial schema or any unexpected data always blocks it.
 
 Execute Plans 1–4 in order. A draft PR may exist while KID-24 is active, but
 final integration and acceptance require its merged baseline. Within a plan,
 parallel work is allowed only for
 tasks with disjoint files and explicit contracts already committed by an
-earlier task. Cutover starts only after the session interaction and durable
-runtime acceptance gates pass.
+earlier task. Pre-launch contraction starts only after the session interaction
+and durable runtime acceptance gates pass; an unexpected legacy database row is
+a stop condition that requires a design/plan amendment.
 
 ## Release-Train Gate
 
@@ -384,8 +398,10 @@ git show origin/develop:VERSION
 Expected for this plan: the current isolated branch, local/develop open train
 `0.1.30`, and no request to create another release train. Re-fetch and stop for
 plan refresh if remote release state changed. The branch-only control schema
-was never deployed, so its reconstruction uses compatible `db:push` with no
-data backfill and no version bump.
+was never deployed, so additive reconstruction uses compatible `db:push`; Plan
+4 then uses one explicitly approved `db:push --accept-data-loss` only after the
+target-database preflight proves the legacy tables contain no execution data.
+Neither step needs a production backfill or version bump.
 
 ## Cross-Plan Verification Matrix
 
@@ -397,12 +413,12 @@ data backfill and no version bump.
 | Empty surface/history/reconnect write nothing | service test | browser test | regression | production smoke |
 | First run creates session graph plus first event | real PostgreSQL | AG-UI test | regression | smoke |
 | Every execution owns session/task | schema + repository | regression | durable test | scanner |
-| Canonical resource names; no raw cross-boundary DB IDs | shared contract + scanner | gateway/UI | runtime/operations | cutover scanner |
+| Canonical resource names; no raw cross-boundary DB IDs | shared contract + scanner | gateway/UI | runtime/operations | legacy-boundary scanner |
 | Owner input ports shared by HTTP/Agent/Operation adapters | architecture contract | initial capability | full dispatch | scanner |
 | Operations never dispatch business work through Agent capability registry | service contract | regression | durable test | scanner |
 | Same thread in panel/workspace | connection contract | full test | progress test | smoke |
 | Mutation remains policy/HITL gated | policy contract | read slice | full matrix | smoke |
-| Browser/gateway/worker restart recovery | connection test | gateway | durable run | load/DR |
+| Browser/gateway/API Operations restart recovery | connection test | gateway | durable run | load/DR |
 | No dedicated answer expansion | contract | component test | regression | scanner |
 | Legacy path absent | coexistence guard | coexistence guard | coexistence guard | deletion |
 
@@ -432,8 +448,10 @@ npm run check:schema-artifact-sync
 
 Expected: finite commands exit 0 and `dev:server` reaches normal Nest API
 readiness with `AgentOsHttpModule` initialized, then is stopped. The
-controller-free Agent worker root must also boot without interaction HTTP
-secrets or an Operations lifecycle owner.
+controller-free Agent worker root must boot without interaction HTTP secrets or
+an Operations lifecycle owner until Plan 4 removes it; final acceptance instead
+proves that no Agent worker entrypoint, package command, or deployment service
+exists.
 
 ## Global Stop Conditions
 
@@ -447,8 +465,8 @@ Stop instead of adding a compatibility layer when:
 - first-run concurrency can create duplicate sessions or root tasks;
 - HITL resume can duplicate a capability invocation or accept a stale
   decision;
-- a selected durable runtime cannot persist and inspect a handle after worker
-  restart;
+- a selected durable runtime cannot persist and inspect a handle after the
+  API-owned Operations lifecycle restarts;
 - an HTTP, AG-UI, event, or cross-domain contract requires an untyped raw
   database UUID instead of a canonical resource name;
 - deterministic work can run only by creating AgentOS state, or an Operations
@@ -471,8 +489,9 @@ resumes.
 - [ ] Plan 2 proves global panel, first submit, same-session continuation, new
   conversation, reconnect, and safe read/render behavior.
 - [ ] Plan 3 proves policy-gated durable work survives browser, gateway, and
-  worker restarts with approval, retry, and cancellation while preserving the
-  capability/use-case/operation dependency direction.
+  API-owned Operations lifecycle restarts with approval, retry, and
+  cancellation while preserving the capability/use-case/operation dependency
+  direction.
 - [ ] Plan 4 proves backup/restore, retention/deletion, upgrade canary,
   production ingress, and absence of legacy paths.
 - [ ] Architecture, environment, deployment, ownership, SBOM, license, and
