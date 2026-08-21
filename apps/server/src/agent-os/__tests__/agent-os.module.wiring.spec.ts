@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import "reflect-metadata";
 import { describe, expect, it } from "vitest";
 import { Test } from "@nestjs/testing";
 import { EventEmitterModule } from "@nestjs/event-emitter";
+import { AgentRuntimeApplicationModule } from "../../agent-runtime-application.module";
 import { MODULE_METADATA } from "@nestjs/common/constants";
 import { DashboardCapabilityModule } from "../../analytics/dashboard/dashboard-capability.module";
 import { ANALYTICS_OVERVIEW_CAPABILITY_PORT } from "../../analytics/dashboard/application/port/in/analytics-overview-capability.port";
@@ -112,6 +115,8 @@ import { AgentRunWorker } from "../application/service/agent-run-worker.service"
 import { AgentRunCoordinator } from "../application/service/agent-run-coordinator.service";
 import { AgentRunExecutor } from "../application/service/agent-run-executor.service";
 import { AgentRunGraphService } from "../application/service/agent-run-graph.service";
+import { AgentRuntimeHandlerRegistry } from "../application/service/agent-runtime-handler-registry.service";
+import { AgentToolRouter } from "../application/service/agent-tool-router.service";
 import { AgentObservabilityService } from "../application/service/agent-observability.service";
 import { AgentRuntimeAdapterRegistry } from "../application/service/agent-runtime-adapter.registry";
 import { AgentSessionApprovalService } from "../application/service/session-control/agent-session-approval.service";
@@ -186,6 +191,19 @@ describe("Agent OS process-root wiring", () => {
     await moduleRef.close();
   });
 
+  it("compiles the fresh controller-free runtime root with shared generic-run contracts", async () => {
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+
+    const moduleRef = await Test.createTestingModule({
+      imports: [AgentRuntimeApplicationModule],
+    }).compile();
+
+    expect(moduleRef.get(AGENT_RUNNER_PORT)).toBeDefined();
+    expect(moduleRef.get(AgentRuntimeHandlerRegistry)).toBeDefined();
+    expect(moduleRef.get(AgentToolRouter)).toBeDefined();
+    await moduleRef.close();
+  });
+
   it("composes the controller-free facade from focused modules", () => {
     expect(Reflect.getMetadata(IMPORTS_KEY, AgentOsModule) ?? []).toEqual([
       AgentOsCatalogModule,
@@ -202,8 +220,6 @@ describe("Agent OS process-root wiring", () => {
       Reflect.getMetadata(IMPORTS_KEY, AgentOsSessionModule) ?? [];
     expect(imports).toEqual([
       PrismaModule,
-      OperationAlertRuntimeModule,
-      ReadinessStateModule,
       AgentOsCatalogModule,
       AgentOsCapabilityModule,
       AgentOsRuntimeSupportModule,
@@ -510,5 +526,15 @@ describe("Agent OS process-root wiring", () => {
     expect(
       Reflect.getMetadata(SELF_DECLARED_DEPS_KEY, AgentSessionApprovalService),
     ).toContainEqual({ index: 6, param: INTERACTION_CLOCK });
+  });
+
+  it("keeps legacy, automation, and readiness source dependencies out of official session composition", () => {
+    const source = readFileSync(
+      resolve(__dirname, "..", "agent-os-session.module.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(/legacy-run|AgentRun(?:Coordinator|Executor|Worker|GraphService)|AgentInteractionService/);
+    expect(source).not.toMatch(/OperationAlertRuntimeModule|ReadinessStateModule|AgentRunOperationAlertBridge|AgentOsLiveReadinessAdapter/);
+    expect(source).not.toMatch(/AGENT_(?:RUNNER|INTERACTION|API_CAPABILITY_GRANT|OS_MCP_TOOL_EXECUTION)_PORT/);
   });
 });

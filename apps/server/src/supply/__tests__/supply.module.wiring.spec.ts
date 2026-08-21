@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { SupplyModule } from '../supply.module';
 import { SupplyAgentRuntimeModule } from '../supply-agent-runtime.module';
+import { AgentOsLegacyRunModule } from '../../agent-os/agent-os-legacy-run.module';
 import { SuppliersController } from '../adapter/in/http/suppliers.controller';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import { ProcurementTestIntentsController } from '../adapter/in/http/procurement-test-intents.controller';
@@ -182,6 +183,15 @@ describe('SupplyModule owner wiring', () => {
       expect(runtimeProviders).toContain(provider);
       expect(ownerProviders).not.toContain(provider);
     }
+  });
+
+  it('imports the generic-run contract owner directly for the order handler', () => {
+    expect(
+      Reflect.getMetadata(PROVIDERS_KEY, SupplyAgentRuntimeModule) ?? [],
+    ).toContain(OrderAgentRuntimeHandler);
+    expect(
+      Reflect.getMetadata('imports', SupplyAgentRuntimeModule) ?? [],
+    ).toContain(AgentOsLegacyRunModule);
   });
 
   it('keeps public /api route prefixes', () => {

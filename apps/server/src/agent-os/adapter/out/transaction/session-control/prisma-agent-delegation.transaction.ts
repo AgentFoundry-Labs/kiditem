@@ -10,10 +10,6 @@ import { PrismaService } from "../../../../../prisma/prisma.service";
 import {
   AgentSessionControlRepositoryError,
   type DelegatedTaskRecord,
-  type DelegationContextRecord,
-  type ExecutionAttemptRecord,
-  type SessionApprovalRecord,
-  type SessionArtifactRecord,
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentDelegationTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-delegation.transaction.port";
 
@@ -304,92 +300,6 @@ function mapDelegation(
     state: row.state,
   };
 }
-function mapAttempt(row: {
-  id: string;
-  executionId: string;
-  attemptNumber: number;
-  runtimeType: string;
-  externalRunId: string | null;
-  encryptedHandleRef: string | null;
-  runtimeGeneration: number;
-  state: string;
-}): ExecutionAttemptRecord {
-  return {
-    id: row.id,
-    executionId: row.executionId,
-    attemptNumber: row.attemptNumber,
-    runtimeType: row.runtimeType,
-    externalRunId: row.externalRunId,
-    encryptedHandleRef: row.encryptedHandleRef,
-    runtimeGeneration: row.runtimeGeneration,
-    state: row.state,
-  };
-}
-function mapApproval(
-  row: { id: string; state: string; decisionIdempotencyKey: string | null },
-  changed: boolean,
-): SessionApprovalRecord {
-  return {
-    id: row.id,
-    state: row.state,
-    decisionIdempotencyKey: row.decisionIdempotencyKey,
-    changed,
-  };
-}
-async function ensureApprovalContinuation(
-  tx: Prisma.TransactionClient,
-  approval: { id: string; organizationId: string; state: string },
-): Promise<void> {
-  if (approval.state !== "approved") return;
-  const existing = await tx.agentSessionApprovalContinuation.findFirst({
-    where: { approvalId: approval.id, organizationId: approval.organizationId },
-    select: { id: true },
-  });
-  if (existing) return;
-  await tx.agentSessionApprovalContinuation.create({
-    data: {
-      organizationId: approval.organizationId,
-      approvalId: approval.id,
-      state: "pending",
-    },
-  });
-}
-function mapApprovalContinuation(
-  approval: {
-    id: string;
-    attemptId: string;
-    executionId: string;
-    attempt: {
-      runtimeType: string;
-      externalRunId: string | null;
-      encryptedHandleRef: string | null;
-      runtimeGeneration: number;
-    };
-  },
-  operationRunId: string,
-  continuationState: "successor_created" | "interrupt_delivered",
-) {
-  if (!approval.attempt.externalRunId || !approval.attempt.encryptedHandleRef)
-    throw state();
-  return {
-    approvalId: approval.id,
-    operationRunId,
-    attemptId: approval.attemptId,
-    runtimeType: approval.attempt.runtimeType,
-    executionId: approval.executionId,
-    externalRunId: approval.attempt.externalRunId,
-    encryptedHandleRef: approval.attempt.encryptedHandleRef,
-    runtimeGeneration: approval.attempt.runtimeGeneration,
-    state: continuationState,
-  };
-}
-function mapArtifact(row: {
-  id: string;
-  sha256: string;
-  lifecycle: string;
-}): SessionArtifactRecord {
-  return { id: row.id, sha256: row.sha256, lifecycle: row.lifecycle };
-}
 
 async function lock(
   tx: Prisma.TransactionClient,
@@ -420,16 +330,6 @@ function canonicalJson(value: unknown): string {
       .join(",")}}`;
   }
   throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
-}
-function retryRunId(taskId: string, idempotencyKey: string): string {
-  return `retry-${createHash("sha256")
-    .update(canonicalJson([taskId, idempotencyKey]))
-    .digest("hex")}`;
-}
-function toInputJson(
-  value: Prisma.JsonValue,
-): Prisma.InputJsonValue | Prisma.JsonNullValueInput {
-  return value === null ? Prisma.JsonNull : (value as Prisma.InputJsonValue);
 }
 function stringArray(value: unknown): string[] {
   if (

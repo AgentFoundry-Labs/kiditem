@@ -3,6 +3,7 @@ import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
 import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
+import { AgentOsLegacyRunModule } from "../../agent-os/agent-os-legacy-run.module";
 import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
@@ -651,6 +652,15 @@ describe("SourcingModule canonical owner wiring", () => {
       expect(runtimeProviders).toContain(provider);
       expect(ownerProviders).not.toContain(provider);
     }
+  });
+
+  it("imports the generic-run contract owner directly for runtime and API grant providers", () => {
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentRuntimeModule) ?? [],
+    ).toContain(AgentOsLegacyRunModule);
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentApiCollectionModule) ?? [],
+    ).toContain(AgentOsLegacyRunModule);
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {

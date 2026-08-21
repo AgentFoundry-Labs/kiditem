@@ -19,8 +19,8 @@ import {
 } from '../dto/agent-interaction.dto';
 import {
   InteractionGatewayGuard,
-  readRequiredInteractionSecret,
 } from '../interaction-gateway.guard';
+import { readRequiredInteractionSecret } from '../interaction-gateway.config';
 import type { AuthUser } from '../../../../../../auth/auth.types';
 import type { ExecutionContext } from '@nestjs/common';
 

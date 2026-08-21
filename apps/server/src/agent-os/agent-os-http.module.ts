@@ -36,7 +36,7 @@ import { AgentCatalogService } from "./application/service/agent-catalog.service
 import { AgentAguiRuntimeRegistry } from "./application/service/agent-agui-runtime-registry.service";
 import { AgentInlineRunReconciler } from "./application/service/agent-inline-run-reconciler.service";
 import { AgentInteractionPresentationService } from "./application/service/agent-interaction-presentation.service";
-import { interactionEnvironmentProviders } from "./application/port/in/interaction/interaction-gateway-config.port";
+import { interactionEnvironmentProviders } from "./adapter/in/http/interaction/interaction-gateway.config";
 import { AgentInteractionAuthorizationService } from "./application/service/interaction/agent-interaction-authorization.service";
 import { AgentInteractionBootstrapService } from "./application/service/interaction/agent-interaction-bootstrap.service";
 import { AgentInteractionLiveEventsService } from "./application/service/interaction/agent-interaction-live-events.service";

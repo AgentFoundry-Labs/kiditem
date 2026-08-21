@@ -1,6 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
-import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
+import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
 import { InventoryFreshnessRuntimeModule } from '../inventory/inventory-freshness-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
@@ -21,7 +21,7 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
   imports: [
     PrismaModule,
     AgentOsCapabilityModule,
-    AgentOsSessionModule,
+    AgentOsLegacyRunModule,
     InventoryFreshnessRuntimeModule,
   ],
   providers: [

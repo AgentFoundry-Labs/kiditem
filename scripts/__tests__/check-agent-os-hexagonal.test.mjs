@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   analyzeAgentOsHexagonalSources,
+  collectServerProductionSources,
   collectAgentOsArchitectureSmells,
 } from "../check-agent-os-hexagonal.mjs";
 
@@ -110,6 +111,64 @@ test("permits external modules, type-only imports, and local port barrels", () =
   ]);
 
   assert.deepEqual(violations, []);
+});
+
+test("treats named type specifiers as type-only dependencies", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/named-import.controller.ts",
+      source:
+        "import { type ConcreteService } from '@/agent-os/application/service/interaction/concrete.service';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/named-export.controller.ts",
+      source:
+        "export { type ConcreteService } from '@/agent-os/application/service/interaction/concrete.service';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/interaction/concrete.service.ts",
+      source: "export class ConcreteService {}",
+      lines: 3,
+    },
+  ]);
+
+  assert.deepEqual(violations, []);
+});
+
+test("collects the full server graph before limiting reports to AgentOS entries", () => {
+  const paths = collectServerProductionSources().map((file) => file.path);
+  assert.ok(paths.includes("apps/server/src/agent-os/agent-os.module.ts"));
+  assert.ok(paths.includes("apps/server/src/sourcing/sourcing-agent-runtime.module.ts"));
+});
+
+test("follows incoming adapters through server-wide relative and alias barrels", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/entry.controller.ts",
+      source: "import { Bridge } from '../../../../../shared/agent-os-bridge';",
+      lines: 10,
+    },
+    {
+      path: "apps/server/src/shared/agent-os-bridge.ts",
+      source: "export { Bridge } from '@/shared/agent-os-bridge-inner';",
+      lines: 3,
+    },
+    {
+      path: "apps/server/src/shared/agent-os-bridge-inner.ts",
+      source:
+        "export { Bridge } from '@/agent-os/application/service/interaction/bridge.service';",
+      lines: 3,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/interaction/bridge.service.ts",
+      source: "export class Bridge {}",
+      lines: 3,
+    },
+  ]);
+
+  expectViolationsFor(violations, ["entry.controller.ts"]);
 });
 
 test("rejects flat official input ports", () => {

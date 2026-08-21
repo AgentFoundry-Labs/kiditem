@@ -346,4 +346,51 @@ describe("AgentOS persistence seam contracts", () => {
     expect(approval).not.toContain("operationRun.create");
     expect(approval).not.toContain("operationRunCheckpoint.create");
   });
+
+  it("does not retain copied helpers from another session-control adapter", () => {
+    const agentOsRoot = resolve(outRoot, "..", "..", "..");
+    const copiedHelpers = new Map([
+      [
+        "adapter/out/repository/session-control/prisma-agent-session-control-query.repository.ts",
+        [
+          "parseCanonicalUserEvent",
+          "mapDelegation",
+          "mapAttempt",
+          "mapApproval",
+          "ensureApprovalContinuation",
+          "mapApprovalContinuation",
+          "mapArtifact",
+          "lock",
+          "canonicalEqual",
+          "canonicalJson",
+          "retryRunId",
+          "toInputJson",
+          "rethrowStable",
+        ],
+      ],
+      [
+        "adapter/out/transaction/session-control/prisma-agent-delegation.transaction.ts",
+        ["mapAttempt", "mapApproval", "ensureApprovalContinuation", "mapApprovalContinuation", "mapArtifact", "retryRunId", "toInputJson"],
+      ],
+      [
+        "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
+        [
+          "parseCanonicalUserEvent",
+          "mapDelegation",
+          "mapAttempt",
+          "mapApproval",
+          "ensureApprovalContinuation",
+          "mapApprovalContinuation",
+          "stringArray",
+        ],
+      ],
+    ]);
+
+    for (const [path, helpers] of copiedHelpers) {
+      const source = readFileSync(resolve(agentOsRoot, path), "utf8");
+      for (const helper of helpers) {
+        expect(source).not.toMatch(new RegExp(`(?:async\\s+)?function\\s+${helper}\\s*\\(`));
+      }
+    }
+  });
 });

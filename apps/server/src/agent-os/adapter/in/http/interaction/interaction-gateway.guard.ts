@@ -8,11 +8,9 @@ import {
 } from '@nestjs/common';
 import {
   INTERACTION_GATEWAY_SHARED_SECRET,
-  readRequiredInteractionSecret,
 } from '../../../../application/port/in/interaction/interaction-gateway-config.port';
+import { readRequiredInteractionSecret } from './interaction-gateway.config';
 import type { Request } from 'express';
-
-export { readRequiredInteractionSecret };
 
 const GATEWAY_HEADER = 'x-kiditem-interaction-gateway';
 

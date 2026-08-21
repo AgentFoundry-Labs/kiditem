@@ -89,9 +89,16 @@ function staticLocalDependencies(file, sources) {
     true,
   );
   const dependencies = [];
+  const normalizedPath = normalizePath(file.path);
   for (const statement of sourceFile.statements) {
     const specifier = moduleSpecifierOf(statement);
     if (!specifier || isTypeOnlyDependency(statement)) continue;
+    if (
+      !normalizedPath.includes(AGENT_OS_ROOT) &&
+      !ts.isExportDeclaration(statement)
+    ) {
+      continue;
+    }
     const resolved = resolveLocalModule(
       normalizePath(file.path),
       specifier,
@@ -120,9 +127,23 @@ function moduleSpecifierOf(statement) {
 }
 
 function isTypeOnlyDependency(statement) {
-  return (
+  if (
     (ts.isImportDeclaration(statement) && statement.importClause?.isTypeOnly) ||
     (ts.isExportDeclaration(statement) && statement.isTypeOnly)
+  ) {
+    return true;
+  }
+
+  const clause = ts.isImportDeclaration(statement)
+    ? statement.importClause?.namedBindings
+    : ts.isExportDeclaration(statement)
+      ? statement.exportClause
+      : undefined;
+  return (
+    !!clause &&
+    (ts.isNamedImports(clause) || ts.isNamedExports(clause)) &&
+    clause.elements.length > 0 &&
+    clause.elements.every((element) => element.isTypeOnly)
   );
 }
 
@@ -202,9 +223,9 @@ function countLines(source) {
   );
 }
 
-export function collectAgentOsProductionSources(root = repoRoot()) {
+export function collectServerProductionSources(root = repoRoot()) {
   return listProductionTypeScriptFiles(
-    path.join(root, "apps", "server", "src", "agent-os"),
+    path.join(root, "apps", "server", "src"),
   ).map((absolutePath) => {
     const source = readFileSync(absolutePath, "utf8");
     return {
@@ -215,8 +236,10 @@ export function collectAgentOsProductionSources(root = repoRoot()) {
   });
 }
 
+export const collectAgentOsProductionSources = collectServerProductionSources;
+
 function main() {
-  const files = collectAgentOsProductionSources();
+  const files = collectServerProductionSources();
   const violations = analyzeAgentOsHexagonalSources(files);
   const smells = collectAgentOsArchitectureSmells(files);
   if (violations.length === 0) {
