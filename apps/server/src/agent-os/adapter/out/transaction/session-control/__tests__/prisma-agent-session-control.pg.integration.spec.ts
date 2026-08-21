@@ -182,6 +182,40 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.toMatchObject({ sessionId: fixture.sessionId });
   });
 
+  it('fails closed when a direct continuation has an unowned predecessor', async () => {
+    const fixture = await createRootGraph();
+    const predecessor = await createUnownedContinuationPredecessor(fixture);
+    const continuationKey = `lifecycle:${predecessor.operationRunId}`;
+
+    await expect(repository.continueOperationAttempt({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: predecessor.attemptId,
+      predecessorOperationRunId: predecessor.operationRunId,
+      continuationKey,
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+
+    await expect(prisma!.operationRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: `agent-session-continuation:${predecessor.attemptId}:${continuationKey}`,
+      },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentExecutionAttemptOperationBinding.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: predecessor.attemptId,
+        continuationKey,
+      },
+    })).resolves.toBe(0);
+    await expect(prisma!.operationRunCheckpoint.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+  });
+
   it('creates one idempotent delegated child and fences organization ownership', async () => {
     const fixture = await createRootGraph();
     const input = {
@@ -2279,6 +2313,53 @@ async function createOwnedExecutionOperation(
     definition: sessionTaskDefinition,
     parsedInput: { execution: fixture.executionId },
   });
+}
+
+async function createUnownedContinuationPredecessor(
+  fixture: { sessionId: string; taskId: string; executionId: string },
+): Promise<{ operationRunId: string; attemptId: string }> {
+  const operation = await prisma!.operationRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationKey: sessionTaskDefinition.key,
+      definitionVersion: sessionTaskDefinition.version,
+      ownerDomain: sessionTaskDefinition.ownerDomain,
+      title: sessionTaskDefinition.title,
+      engineType: sessionTaskDefinition.engineType,
+      resourceClass: sessionTaskDefinition.resourceClass,
+      executionTimeoutMs: sessionTaskDefinition.executionTimeoutMs,
+      status: 'attention_required',
+      triggerSource: 'agent',
+      requestedByUserId: TEST_USER_ID,
+      input: { execution: fixture.executionId },
+      maxAttempts: sessionTaskDefinition.maxAttempts,
+    },
+  });
+  const attempt = await prisma!.agentExecutionAttempt.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptNumber: 1,
+      idempotencyKey: `unowned-continuation:${fixture.executionId}`,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'unowned-continuation-runtime',
+      encryptedHandleRef: 'vault://unowned-continuation-runtime',
+      runtimeGeneration: 1,
+      state: 'running',
+    },
+  });
+  await prisma!.agentExecutionAttemptOperationBinding.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      executionAttemptId: attempt.id,
+      executionId: fixture.executionId,
+      sessionId: fixture.sessionId,
+      operationRunId: operation.id,
+      continuationKey: `initial:${operation.id}`,
+    },
+  });
+  return { operationRunId: operation.id, attemptId: attempt.id };
 }
 
 function artifactStorageReference(organizationId: string, objectId: string): string {

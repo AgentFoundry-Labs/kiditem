@@ -111,7 +111,7 @@ export async function continueOperationAttemptInTransaction(
       },
       select: { sessionId: true },
     });
-  if (predecessorOwnership && predecessorOwnership.sessionId !== input.sessionId) {
+  if (!predecessorOwnership || predecessorOwnership.sessionId !== input.sessionId) {
     throw scope();
   }
 
@@ -136,15 +136,13 @@ export async function continueOperationAttemptInTransaction(
     },
     select: { id: true },
   });
-  if (predecessorOwnership) {
-    await tx.agentSessionOperationRunOwnership.create({
-      data: {
-        organizationId: input.organizationId,
-        sessionId: predecessorOwnership.sessionId,
-        operationRunId: operationRun.id,
-      },
-    });
-  }
+  await tx.agentSessionOperationRunOwnership.create({
+    data: {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      operationRunId: operationRun.id,
+    },
+  });
   await tx.agentExecutionAttemptOperationBinding.create({
     data: {
       organizationId: input.organizationId,
