@@ -9,6 +9,7 @@ import {
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentApprovalContinuationTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
 import { continueOperationAttemptInTransaction } from "./internal/continue-operation-attempt";
+import { lockWritableAgentSession } from "./internal/lock-writable-agent-session";
 
 const TERMINAL_STATES = new Set([
   "archived",
@@ -29,6 +30,7 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
   ): Promise<SessionApprovalRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "approval-open",
           input.organizationId,
@@ -123,6 +125,7 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
   ): Promise<SessionApprovalRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "approval-decision",
           input.organizationId,
@@ -256,6 +259,7 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
   ): Promise<SessionApprovalRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "approval-expire",
           input.organizationId,
@@ -288,6 +292,7 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
     input.signal.throwIfAborted();
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         const approval = await tx.agentSessionApproval.findFirst({
           where: {
             id: input.approvalId,
@@ -379,35 +384,50 @@ export class PrismaAgentApprovalContinuationTransaction implements AgentApproval
       AgentApprovalContinuationTransactionPort["markApprovalContinuationInterruptDelivered"]
     >[0],
   ): Promise<void> {
-    const updated =
-      await this.prisma.agentSessionApprovalContinuation.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          approvalId: input.approvalId,
-          successorOperationRunId: input.operationRunId,
-          state: { in: ["successor_created", "interrupt_delivered"] },
-        },
-        data: {
-          state: "interrupt_delivered",
-          interruptDeliveredAt: new Date(),
-        },
-      });
-    if (updated.count !== 1) {
-      const continuation =
-        await this.prisma.agentSessionApprovalContinuation.findFirst({
+    await this.prisma
+      .$transaction(async (tx: Prisma.TransactionClient) => {
+        const current = await tx.agentSessionApprovalContinuation.findFirst({
           where: {
             organizationId: input.organizationId,
             approvalId: input.approvalId,
           },
-          select: { successorOperationRunId: true, state: true },
+          select: { approval: { select: { sessionId: true } } },
         });
-      if (
-        !continuation ||
-        continuation.successorOperationRunId !== input.operationRunId ||
-        continuation.state !== "interrupt_delivered"
-      )
-        throw state();
-    }
+        if (!current) throw state();
+        await lockWritableAgentSession(tx, {
+          organizationId: input.organizationId,
+          sessionId: current.approval.sessionId,
+        });
+        const updated = await tx.agentSessionApprovalContinuation.updateMany({
+          where: {
+            organizationId: input.organizationId,
+            approvalId: input.approvalId,
+            successorOperationRunId: input.operationRunId,
+            state: { in: ["successor_created", "interrupt_delivered"] },
+          },
+          data: {
+            state: "interrupt_delivered",
+            interruptDeliveredAt: new Date(),
+          },
+        });
+        if (updated.count !== 1) {
+          const continuation =
+            await tx.agentSessionApprovalContinuation.findFirst({
+              where: {
+                organizationId: input.organizationId,
+                approvalId: input.approvalId,
+              },
+              select: { successorOperationRunId: true, state: true },
+            });
+          if (
+            !continuation ||
+            continuation.successorOperationRunId !== input.operationRunId ||
+            continuation.state !== "interrupt_delivered"
+          )
+            throw state();
+        }
+      })
+      .catch(rethrowStable);
   }
 
   async listIncompleteApprovalContinuations(

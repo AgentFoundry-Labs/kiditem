@@ -12,6 +12,7 @@ import {
   type DelegatedTaskRecord,
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentDelegationTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-delegation.transaction.port";
+import { lockWritableAgentSession } from "./internal/lock-writable-agent-session";
 
 const TERMINAL_STATES = new Set([
   "archived",
@@ -30,6 +31,7 @@ export class PrismaAgentDelegationTransaction implements AgentDelegationTransact
   ): Promise<DelegatedTaskRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "agent-os:delegation-parent:v1",
           input.organizationId,

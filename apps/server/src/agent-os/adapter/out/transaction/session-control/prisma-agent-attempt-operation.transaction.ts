@@ -7,6 +7,7 @@ import {
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentAttemptOperationTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
 import { continueOperationAttemptInTransaction } from "./internal/continue-operation-attempt";
+import { lockWritableAgentSession } from "./internal/lock-writable-agent-session";
 
 const TERMINAL_STATES = new Set([
   "archived",
@@ -25,6 +26,7 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
   ): Promise<ExecutionAttemptRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, ["attempt", input.executionId]);
         const execution = await tx.agentExecution.findFirst({
           where: {
@@ -108,6 +110,7 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
   ): Promise<ExecutionAttemptRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "attempt-operation-activate",
           input.organizationId,
@@ -143,36 +146,41 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
   async finishAttempt(
     input: Parameters<AgentAttemptOperationTransactionPort["finishAttempt"]>[0],
   ): Promise<ExecutionAttemptRecord> {
-    const current = await this.prisma.agentExecutionAttempt.findFirst({
-      where: {
-        id: input.attemptId,
-        executionId: input.executionId,
-        sessionId: input.sessionId,
-        organizationId: input.organizationId,
-      },
-    });
-    if (!current) throw scope();
-    if (current.state === input.state) return mapAttempt(current);
-    if (
-      current.state !== input.expectedState ||
-      TERMINAL_STATES.has(current.state)
-    )
-      throw state();
-    const result = await this.prisma.agentExecutionAttempt.updateMany({
-      where: { id: input.attemptId, state: input.expectedState },
-      data: {
-        state: input.state,
-        finishedAt: new Date(),
-        errorCode: input.errorCode ?? null,
-        errorMessage: input.errorMessage ?? null,
-      },
-    });
-    if (result.count !== 1) throw state();
-    return mapAttempt(
-      (await this.prisma.agentExecutionAttempt.findFirst({
-        where: { id: input.attemptId, organizationId: input.organizationId },
-      }))!,
-    );
+    return this.prisma
+      .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
+        const current = await tx.agentExecutionAttempt.findFirst({
+          where: {
+            id: input.attemptId,
+            executionId: input.executionId,
+            sessionId: input.sessionId,
+            organizationId: input.organizationId,
+          },
+        });
+        if (!current) throw scope();
+        if (current.state === input.state) return mapAttempt(current);
+        if (
+          current.state !== input.expectedState ||
+          TERMINAL_STATES.has(current.state)
+        )
+          throw state();
+        const result = await tx.agentExecutionAttempt.updateMany({
+          where: { id: input.attemptId, state: input.expectedState },
+          data: {
+            state: input.state,
+            finishedAt: new Date(),
+            errorCode: input.errorCode ?? null,
+            errorMessage: input.errorMessage ?? null,
+          },
+        });
+        if (result.count !== 1) throw state();
+        return mapAttempt(
+          (await tx.agentExecutionAttempt.findFirst({
+            where: { id: input.attemptId, organizationId: input.organizationId },
+          }))!,
+        );
+      })
+      .catch(rethrowStable);
   }
 
   async persistAttemptHandle(
@@ -182,6 +190,7 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
   ): Promise<ExecutionAttemptRecord> {
     return this.prisma
       .$transaction(async (tx) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, ["attempt-handle", input.executionId, input.attemptId]);
         const attempt = await tx.agentExecutionAttempt.findFirst({
           where: {

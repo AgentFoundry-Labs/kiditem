@@ -6,6 +6,7 @@ import {
 } from '../../../../application/port/out/repository/session-control/agent-session-control.persistence.types';
 import type { AgentSessionOperationDefinitionSnapshot } from '../../../../application/port/out/operation/agent-session-operation-platform.port';
 import type { AgentSessionOwnedOperationTransactionPort } from '../../../../application/port/out/transaction/session-control/agent-session-owned-operation.transaction.port';
+import { lockWritableAgentSession } from './internal/lock-writable-agent-session';
 
 @Injectable()
 export class PrismaAgentSessionOwnedOperationTransaction
@@ -18,7 +19,7 @@ export class PrismaAgentSessionOwnedOperationTransaction
   ): Promise<{ operationRunId: string; attemptId: string }> {
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       input.signal.throwIfAborted();
-      await lockWritableSession(tx, input);
+      await lockActiveSession(tx, input);
       const existing = await findIdempotentRun(tx, input);
       if (existing) {
         const attemptId = exactExecutionReplay(existing, input);
@@ -81,7 +82,7 @@ export class PrismaAgentSessionOwnedOperationTransaction
   ): Promise<{ operationRunId: string }> {
     return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
       input.signal.throwIfAborted();
-      await lockWritableSession(tx, input);
+      await lockActiveSession(tx, input);
       const existing = await findIdempotentRun(tx, input);
       if (existing) {
         exactCapabilityReplay(existing, input);
@@ -110,27 +111,11 @@ type OperationInput = {
   parsedInput: Record<string, unknown>;
 };
 
-async function lockWritableSession(
+async function lockActiveSession(
   tx: Prisma.TransactionClient,
   input: Pick<OperationInput, 'organizationId' | 'sessionId'>,
 ): Promise<void> {
-  await tx.$executeRaw(
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${[
-      'agent-session-lifecycle',
-      input.organizationId,
-      input.sessionId,
-    ].join(':')}, 0))`,
-  );
-  const [session] = await tx.$queryRaw<Array<{ lifecycle: string }>>(
-    Prisma.sql`
-      SELECT lifecycle
-      FROM agent_sessions
-      WHERE id = ${input.sessionId}::uuid
-        AND organization_id = ${input.organizationId}::uuid
-      FOR UPDATE
-    `,
-  );
-  if (!session) throw scope();
+  const session = await lockWritableAgentSession(tx, input);
   if (session.lifecycle !== 'active') throw state();
 }
 

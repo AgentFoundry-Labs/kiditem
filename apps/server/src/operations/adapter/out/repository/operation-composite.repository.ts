@@ -2,6 +2,7 @@ import { OperationExecutionTimeoutMsSchema } from '@kiditem/shared/operations';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { CreateOperationRunRecord } from '../../../application/port/out/repository/operation.repository.port';
+import { lockWritableAgentSession } from '../../../../agent-os/adapter/out/transaction/session-control/internal/lock-writable-agent-session';
 
 interface ChildRunIdentity {
   runId: string;
@@ -97,11 +98,11 @@ export async function createFencedCompositeChildren(
           select: { sessionId: true },
         });
       if (parentOwnership) {
-        const writable = await lockWritableSession(transaction, {
+        const writable = await lockWritableAgentSession(transaction, {
           organizationId: input.parentOrganizationId,
           sessionId: parentOwnership.sessionId,
         });
-        if (!writable) return null;
+        if (writable.lifecycle !== 'active') return null;
       }
 
       const children: ChildRunIdentity[] = [];
@@ -197,29 +198,6 @@ export async function createFencedCompositeChildren(
     if (error instanceof ParentFenceLostError) return null;
     throw error;
   }
-}
-
-async function lockWritableSession(
-  transaction: Prisma.TransactionClient,
-  input: { organizationId: string; sessionId: string },
-): Promise<boolean> {
-  await transaction.$executeRaw(
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${[
-      'agent-session-lifecycle',
-      input.organizationId,
-      input.sessionId,
-    ].join(':')}, 0))`,
-  );
-  const [session] = await transaction.$queryRaw<Array<{ lifecycle: string }>>(
-    Prisma.sql`
-      SELECT lifecycle
-      FROM agent_sessions
-      WHERE id = ${input.sessionId}::uuid
-        AND organization_id = ${input.organizationId}::uuid
-      FOR UPDATE
-    `,
-  );
-  return session?.lifecycle === 'active';
 }
 
 export async function cancelFencedCompositeRun(

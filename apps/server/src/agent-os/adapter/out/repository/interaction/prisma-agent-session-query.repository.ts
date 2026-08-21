@@ -25,6 +25,7 @@ export class PrismaAgentSessionQueryRepository implements AgentSessionQueryRepos
       where: {
         organizationId: input.organizationId,
         createdByUserId: input.userId,
+        lifecycle: { notIn: ["deleting", "delete_failed"] },
       },
       select: {
         id: true,
@@ -49,6 +50,7 @@ export class PrismaAgentSessionQueryRepository implements AgentSessionQueryRepos
         organizationId: input.organizationId,
         createdByUserId: input.userId,
         copilotThreadId: input.copilotThreadId,
+        lifecycle: { notIn: ["deleting", "delete_failed"] },
       },
       select: sessionSelect,
     });

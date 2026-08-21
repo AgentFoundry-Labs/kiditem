@@ -3,6 +3,7 @@ import {
   AgentSessionControlRepositoryError,
   type AgentSessionOperationContinuationRecord,
 } from "../../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
+import { lockWritableAgentSession } from "./lock-writable-agent-session";
 
 export interface ContinueOperationAttemptInput {
   signal: AbortSignal;
@@ -25,6 +26,7 @@ export async function continueOperationAttemptInTransaction(
   input: ContinueOperationAttemptInput,
 ): Promise<AgentSessionOperationContinuationRecord> {
   input.signal.throwIfAborted();
+  await lockWritableAgentSession(tx, input);
   await lock(tx, [
     "attempt-operation-continuation",
     input.organizationId,

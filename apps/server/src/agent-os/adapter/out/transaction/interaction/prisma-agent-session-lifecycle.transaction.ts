@@ -17,6 +17,7 @@ import type {
   AgentSessionLifecycleTransactionPort,
 } from "../../../../application/port/out/transaction/interaction/agent-session-lifecycle.transaction.port";
 import type { AgentSessionTombstoneHash } from "../../../../application/port/out/crypto/agent-session-tombstone-hasher.port";
+import { lockAgentSessionForDeletion } from "../session-control/internal/lock-writable-agent-session";
 
 const transactionOptions = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -52,8 +53,9 @@ export class PrismaAgentSessionLifecycleTransaction
   ): Promise<{ retentionDueAt: Date }> {
     return this.prisma.$transaction(async (tx) => {
       await lock(tx, ["agent-session-lifecycle-idempotency", input.organizationId, input.idempotencyKey]);
-      await lock(tx, ["agent-session-lifecycle", input.organizationId, input.sessionId]);
-      const session = await lockSession(tx, input);
+      const locked = await lockAgentSessionForDeletion(tx, input);
+      if (!locked) throw scope();
+      const session = await readLockedSession(tx, input);
       if (!session) throw scope();
       const request = await createOrReuseRequest(tx, {
         ...input,
@@ -96,8 +98,9 @@ export class PrismaAgentSessionLifecycleTransaction
   ): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       await lock(tx, ["agent-session-lifecycle-idempotency", input.organizationId, input.idempotencyKey]);
-      await lock(tx, ["agent-session-lifecycle", input.organizationId, input.sessionId]);
-      const session = await lockSession(tx, input);
+      const locked = await lockAgentSessionForDeletion(tx, input);
+      if (!locked) throw scope();
+      const session = await readLockedSession(tx, input);
       if (!session) throw scope();
       const command = input.active ? "place_legal_hold" : "release_legal_hold";
       const request = await createOrReuseRequest(tx, {
@@ -129,9 +132,9 @@ export class PrismaAgentSessionLifecycleTransaction
       });
       if (prior) return assertExactTombstoneRetry(prior, input.tombstone);
 
-      await lock(tx, ["agent-session-lifecycle", input.organizationId, input.sessionId]);
-
-      const session = await lockSession(tx, input);
+      const locked = await lockAgentSessionForDeletion(tx, input);
+      if (!locked) throw scope();
+      const session = await readLockedSession(tx, input);
       if (!session) throw scope();
       const now = new Date();
       if (
@@ -208,7 +211,7 @@ async function lock(
   );
 }
 
-async function lockSession(
+async function readLockedSession(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; sessionId: string },
 ) {

@@ -12,6 +12,7 @@ import {
   type SessionArtifactRecord,
 } from "../../../../application/port/out/repository/session-control/agent-session-control.persistence.types";
 import type { AgentSessionTransitionTransactionPort } from "../../../../application/port/out/transaction/session-control/agent-session-transition.transaction.port";
+import { lockWritableAgentSession } from "./internal/lock-writable-agent-session";
 
 const TERMINAL_STATES = new Set([
   "archived",
@@ -32,6 +33,7 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
   ): Promise<SessionArtifactRecord> {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, ["artifact", input.executionId, input.idempotencyKey]);
         const execution = await tx.agentExecution.findFirst({
           where: {
@@ -113,20 +115,23 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
       input.expectedState !== input.state
     )
       throw state();
-    const result = await this.prisma.agentSessionTask.updateMany({
-      where: {
-        id: input.taskId,
-        sessionId: input.sessionId,
-        organizationId: input.organizationId,
-        status: input.expectedState,
-      },
-      data: {
-        status: input.state,
-        finishedAt: TERMINAL_STATES.has(input.state) ? new Date() : null,
-      },
+    return this.prisma.$transaction(async (tx) => {
+      await lockWritableAgentSession(tx, input);
+      const result = await tx.agentSessionTask.updateMany({
+        where: {
+          id: input.taskId,
+          sessionId: input.sessionId,
+          organizationId: input.organizationId,
+          status: input.expectedState,
+        },
+        data: {
+          status: input.state,
+          finishedAt: TERMINAL_STATES.has(input.state) ? new Date() : null,
+        },
+      });
+      if (result.count !== 1) await this.throwScopeOrStateForTask(input, tx);
+      return (await this.findTask(input, tx))!;
     });
-    if (result.count !== 1) await this.throwScopeOrStateForTask(input);
-    return (await this.findTask(input))!;
   }
 
   async transitionSession(
@@ -140,6 +145,7 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
     )
       throw state();
     return this.prisma.$transaction(async (tx) => {
+      await lockWritableAgentSession(tx, input);
       const terminalAt = TERMINAL_STATES.has(input.state) ? new Date() : null;
       const policy = terminalAt
         ? projectAgentSessionRetentionPolicy(
@@ -192,6 +198,7 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
   ) {
     return this.prisma
       .$transaction(async (tx: Prisma.TransactionClient) => {
+        await lockWritableAgentSession(tx, input);
         await lock(tx, [
           "retry-task",
           input.organizationId,
@@ -312,12 +319,15 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
       .catch(rethrowStable);
   }
 
-  private findTask(input: {
-    organizationId: string;
-    sessionId: string;
-    taskId: string;
-  }) {
-    return this.prisma.agentSessionTask.findFirst({
+  private findTask(
+    input: {
+      organizationId: string;
+      sessionId: string;
+      taskId: string;
+    },
+    client: Pick<Prisma.TransactionClient, "agentSessionTask"> = this.prisma,
+  ) {
+    return client.agentSessionTask.findFirst({
       where: {
         id: input.taskId,
         sessionId: input.sessionId,
@@ -334,12 +344,11 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
     });
   }
 
-  private async throwScopeOrStateForTask(input: {
-    organizationId: string;
-    sessionId: string;
-    taskId: string;
-  }): Promise<never> {
-    if (!(await this.findTask(input))) throw scope();
+  private async throwScopeOrStateForTask(
+    input: { organizationId: string; sessionId: string; taskId: string },
+    client: Pick<Prisma.TransactionClient, "agentSessionTask"> = this.prisma,
+  ): Promise<never> {
+    if (!(await this.findTask(input, client))) throw scope();
     throw state();
   }
 }

@@ -17,8 +17,8 @@ import {
   mapEvent,
   sessionSelect,
   type EventRow,
-  type SessionRow,
 } from "../../repository/interaction/internal/prisma-interaction.mapping";
+import { lockWritableAgentSession } from "../session-control/internal/lock-writable-agent-session";
 const options = { maxWait: 10_000, timeout: 30_000 } as const;
 @Injectable()
 export class PrismaAgentConversationEventTransaction implements AgentConversationEventTransactionPort {
@@ -39,12 +39,7 @@ export class PrismaAgentConversationEventTransaction implements AgentConversatio
     };
     try {
       return await this.prisma.$transaction(async (tx) => {
-        let session = await lockSession(
-          tx,
-          input.organizationId,
-          input.sessionId,
-        );
-        if (!session) throw sessionNotFound();
+        const lockedSession = await lockWritableAgentSession(tx, input);
         validateTerminalEnvelope(input);
         const existing = await findEvent(tx, input);
         if (existing) {
@@ -68,11 +63,11 @@ export class PrismaAgentConversationEventTransaction implements AgentConversatio
             id: execution.id,
             ...input.terminal,
           });
-        session = await tx.agentSession.update({
+        const session = await tx.agentSession.update({
           where: {
             id_organizationId: {
-              id: session.id,
-              organizationId: session.organizationId,
+              id: lockedSession.id,
+              organizationId: input.organizationId,
             },
           },
           data: { lastEventSequence: { increment: 1 } },
@@ -114,21 +109,6 @@ export class PrismaAgentConversationEventTransaction implements AgentConversatio
     validateTerminal(input.status, input.errorCode);
     await this.prisma.$transaction((tx) => terminal(tx, input), options);
   }
-}
-async function lockSession(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  sessionId: string,
-): Promise<SessionRow | null> {
-  const [locked] = await tx.$queryRaw<
-    Array<{ id: string }>
-  >`SELECT id::text AS "id" FROM agent_sessions WHERE id = ${sessionId}::uuid AND organization_id = ${organizationId}::uuid FOR UPDATE`;
-  return locked
-    ? tx.agentSession.findFirst({
-        where: { id: locked.id, organizationId },
-        select: sessionSelect,
-      })
-    : null;
 }
 function findEvent(
   client: Pick<PrismaService, "agentConversationEvent">,

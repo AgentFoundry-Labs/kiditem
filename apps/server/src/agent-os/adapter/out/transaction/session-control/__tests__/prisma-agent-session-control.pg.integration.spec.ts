@@ -246,6 +246,114 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.toBe(1);
   });
 
+  it.each([
+    ['delegation', async () => {
+      const fixture = await createRootGraph();
+      await markDeleting(fixture.sessionId);
+      return repository.createDelegatedTask({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        parentTaskId: fixture.taskId,
+        fromAgentVersionId: VERSION_FROM,
+        toAgentVersionId: VERSION_TO,
+        objective: 'must not delegate after deletion begins',
+        authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+        depth: 1,
+        idempotencyKey: 'deleting:delegation',
+      });
+    }],
+    ['approval', async () => {
+      const fixture = await createRootGraph();
+      const owned = await createOwnedExecutionOperation(fixture, 'deleting-approval');
+      await repository.activateAttemptForOperation({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        operationRunId: owned.operationRunId,
+      });
+      await repository.persistAttemptHandle({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        attemptId: owned.attemptId,
+        runtimeType: 'copilotkit_agui',
+        externalRunId: 'deleting-approval-runtime',
+        encryptedHandleRef: 'vault://deleting-approval-runtime',
+        runtimeGeneration: 1,
+      });
+      await markDeleting(fixture.sessionId);
+      return repository.requestApproval({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: owned.attemptId,
+        operationRunId: owned.operationRunId,
+        capabilityKey: 'supply.submit_purchase_order',
+        argumentsHash: 'a'.repeat(64),
+        resourceSnapshot: [],
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        idempotencyKey: 'deleting:approval',
+      });
+    }],
+    ['attempt', async () => {
+      const fixture = await createRootGraph();
+      await markDeleting(fixture.sessionId);
+      return repository.startAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        runtimeType: 'copilotkit_agui',
+        idempotencyKey: 'deleting:attempt',
+      });
+    }],
+    ['artifact', async () => {
+      const fixture = await createRootGraph();
+      await markDeleting(fixture.sessionId);
+      return repository.appendArtifact({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        artifactType: 'report',
+        storageReference: artifactStorageReference(
+          TEST_ORGANIZATION_ID,
+          '77777777-7777-4777-8777-777777777777',
+        ),
+        sha256: 'a'.repeat(64),
+        metadata: {},
+        idempotencyKey: 'deleting:artifact',
+      });
+    }],
+    ['retry', async () => {
+      const fixture = await createRootGraph();
+      await repository.transitionTask({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        expectedState: 'running',
+        state: 'failed',
+      });
+      await prisma!.agentExecution.update({
+        where: { id: fixture.executionId },
+        data: { status: 'failed', finishedAt: new Date() },
+      });
+      await markDeleting(fixture.sessionId);
+      return repository.createRetryExecution({
+        organizationId: TEST_ORGANIZATION_ID,
+        actorId: TEST_USER_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        expectedStatus: 'failed',
+        idempotencyKey: 'deleting:retry',
+      });
+    }],
+  ])('rejects %s after the deletion fence', async (_kind, mutate) => {
+    await expect(mutate()).rejects.toMatchObject({
+      code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT',
+    });
+  });
+
   it('anchors an official child execution to the canonical parent user event without copying a conversation turn', async () => {
     const fixture = await createRootGraph();
 
@@ -2413,6 +2521,13 @@ async function markDueArchived(sessionId: string): Promise<void> {
       archivedAt: new Date('2026-08-13T00:00:00.000Z'),
       retentionDueAt: new Date('2026-08-13T00:00:00.000Z'),
     },
+  });
+}
+
+async function markDeleting(sessionId: string): Promise<void> {
+  await prisma!.agentSession.update({
+    where: { id: sessionId },
+    data: { lifecycle: 'deleting' },
   });
 }
 

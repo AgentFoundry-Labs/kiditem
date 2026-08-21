@@ -25,6 +25,7 @@ import {
   type SessionRow,
   type TaskRow,
 } from "../../repository/interaction/internal/prisma-interaction.mapping";
+import { lockWritableAgentSession } from "../session-control/internal/lock-writable-agent-session";
 const options = { maxWait: 10_000, timeout: 30_000 } as const;
 const ROOT_TASK_IDEMPOTENCY_KEY = "root";
 @Injectable()
@@ -51,13 +52,32 @@ export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthoriza
     };
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await lock(tx, input);
-        await principal(tx, input);
         let session = await sessionForThread(
           tx,
           input.organizationId,
           input.copilotThreadId,
         );
+        if (session) {
+          await lockWritableAgentSession(tx, {
+            organizationId: input.organizationId,
+            sessionId: session.id,
+          });
+        }
+        await lock(tx, input);
+        if (!session) {
+          session = await sessionForThread(
+            tx,
+            input.organizationId,
+            input.copilotThreadId,
+          );
+          if (session) {
+            await lockWritableAgentSession(tx, {
+              organizationId: input.organizationId,
+              sessionId: session.id,
+            });
+          }
+        }
+        await principal(tx, input);
         let createdSession = false;
         let rootTask: TaskRow;
         if (session) {
@@ -232,15 +252,10 @@ async function sessionForThread(
   organizationId: string,
   copilotThreadId: string,
 ): Promise<SessionRow | null> {
-  const [locked] = await tx.$queryRaw<
-    Array<{ id: string }>
-  >`SELECT id::text AS "id" FROM agent_sessions WHERE organization_id = ${organizationId}::uuid AND copilot_thread_id = ${copilotThreadId} FOR UPDATE`;
-  return locked
-    ? tx.agentSession.findFirst({
-        where: { id: locked.id, organizationId },
-        select: sessionSelect,
-      })
-    : null;
+  return tx.agentSession.findFirst({
+    where: { organizationId, copilotThreadId },
+    select: sessionSelect,
+  });
 }
 function assertSession(
   session: SessionRow,

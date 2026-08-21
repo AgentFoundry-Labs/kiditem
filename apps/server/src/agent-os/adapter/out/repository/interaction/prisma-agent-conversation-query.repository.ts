@@ -23,6 +23,7 @@ export class PrismaAgentConversationQueryRepository implements AgentConversation
         id: input.sessionId,
         organizationId: input.organizationId,
         createdByUserId: input.userId,
+        lifecycle: { notIn: ["deleting", "delete_failed"] },
       },
       select: { id: true },
     });
@@ -57,6 +58,7 @@ export class PrismaAgentConversationQueryRepository implements AgentConversation
         organizationId: input.organizationId,
         sessionId: input.sessionId,
         sequence: { lte: input.throughSequence },
+        session: { lifecycle: { notIn: ["deleting", "delete_failed"] } },
       },
       select: eventSelect,
       orderBy: [{ sequence: "asc" }, { id: "asc" }],

@@ -1,6 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../../prisma/prisma.service";
 import { AgentOsBoundaryError } from "../../../../domain/agent-os.errors";
+import { lockWritableAgentSession } from "../session-control/internal/lock-writable-agent-session";
 import type { AgentExecutionUsageTransactionPort } from "../../../../application/port/out/transaction/interaction/agent-execution-usage.transaction.port";
 import type { RecordAgentExecutionUsageInput } from "../../../../application/port/out/repository/interaction/agent-interaction.persistence.types";
 @Injectable()
@@ -11,10 +12,27 @@ export class PrismaAgentExecutionUsageTransaction implements AgentExecutionUsage
   ): Promise<void> {
     await this.prisma.$transaction(
       async (tx) => {
+        const session = await tx.agentSession.findFirst({
+          where: {
+            organizationId: input.organizationId,
+            executions: { some: { id: input.executionId } },
+          },
+          select: { id: true },
+        });
+        if (!session)
+          throw new AgentOsBoundaryError(
+            "INTERACTION_USAGE_EXECUTION_NOT_FOUND",
+            "Interaction execution was not found in the requested organization.",
+          );
+        await lockWritableAgentSession(tx, {
+          organizationId: input.organizationId,
+          sessionId: session.id,
+        });
         const execution = await tx.agentExecution.findFirst({
           where: {
             id: input.executionId,
             organizationId: input.organizationId,
+            sessionId: session.id,
           },
           select: { id: true, modelIdentity: true },
         });
