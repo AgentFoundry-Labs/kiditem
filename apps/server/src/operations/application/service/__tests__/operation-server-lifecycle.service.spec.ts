@@ -192,6 +192,59 @@ describe('OperationServerLifecycleService startup', () => {
     expect(dependencies.worker.start).not.toHaveBeenCalled();
   });
 
+  it('rejects at the remaining shared deadline when a post-accepting hook ignores abort', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    dependencies.repository.cancelRunsForLifecycle.mockImplementationOnce(async () => {
+      dependencies.events.push('cancel:operation_server_lifecycle_expired');
+      await new Promise<void>((resolve) => setTimeout(resolve, 20_000));
+      return { updated: 0, remaining: false };
+    });
+    hooks.register({
+      key: 'never-settles',
+      priority: 1,
+      run: async () => new Promise<void>(() => undefined),
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    const bootstrap = lifecycle.onApplicationBootstrap();
+    const outcome = Promise.race([
+      bootstrap.then(
+        () => 'unexpected_success',
+        (error: Error) => error.message,
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('post_accepting_hook_was_unbounded'), 30_000);
+      }),
+    ]);
+    await vi.advanceTimersByTimeAsync(30_000);
+
+    await expect(outcome).resolves.toBe('operation_server_lifecycle_startup_timeout');
+    expect(dependencies.gate.state()).toBe('STOPPING');
+    expect(dependencies.scheduler.start).not.toHaveBeenCalled();
+    expect(dependencies.worker.start).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when a post-accepting hook rejects after opening the gate', async () => {
+    const dependencies = makeDependencies();
+    const hooks = new OperationPostAcceptingHookRegistryService();
+    hooks.register({
+      key: 'recovery-failure',
+      priority: 1,
+      run: async () => {
+        throw new Error('session_recovery_failed');
+      },
+    });
+    const lifecycle = makeLifecycleWithHooks(dependencies, hooks);
+
+    await expect(lifecycle.onApplicationBootstrap()).rejects.toThrow(
+      'session_recovery_failed',
+    );
+    expect(dependencies.gate.state()).toBe('STOPPING');
+    expect(dependencies.scheduler.start).not.toHaveBeenCalled();
+    expect(dependencies.worker.start).not.toHaveBeenCalled();
+  });
+
   it('drains runs then schedules before opening intake in exact order', async () => {
     const dependencies = makeDependencies();
     const lifecycle = makeLifecycle(dependencies);

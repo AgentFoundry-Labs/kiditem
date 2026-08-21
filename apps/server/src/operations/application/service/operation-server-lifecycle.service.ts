@@ -86,8 +86,16 @@ export class OperationServerLifecycleService
       );
       startup.signal.throwIfAborted();
       this.gate.open();
-      await this.postAcceptingHooks.runAll(startup.signal);
-      startup.signal.throwIfAborted();
+      try {
+        await this.withinStartupBudget(
+          startup.signal,
+          this.postAcceptingHooks.runAll(startup.signal),
+        );
+        startup.signal.throwIfAborted();
+      } catch (error) {
+        this.gate.beginStopping();
+        throw error;
+      }
       this.scheduler.start();
       this.worker.start();
     } finally {

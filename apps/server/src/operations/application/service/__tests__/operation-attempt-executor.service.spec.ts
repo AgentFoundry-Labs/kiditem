@@ -136,6 +136,65 @@ describe('OperationAttemptExecutorService', () => {
     );
   });
 
+  it('clears the deadline while an exhausted ephemeral hook keeps retrying', async () => {
+    const repository = {
+      heartbeatRun: vi.fn().mockResolvedValue(run()),
+      transition: vi.fn(),
+      transitionActiveAttempt: vi.fn(),
+    };
+    let finalizationSignal: AbortSignal | undefined;
+    const exhaustRetry = vi.fn(async (context: { signal: AbortSignal }) => {
+      finalizationSignal = context.signal;
+      throw new Error('purge unavailable');
+    });
+    const registry = {
+      getDefinition: vi.fn().mockReturnValue({
+        successPersistence: 'ephemeral_on_success',
+      }),
+      getHandler: vi.fn().mockReturnValue({
+        execute: vi.fn().mockResolvedValue({
+          kind: 'retryable',
+          code: 'STORAGE_DELETE_UNKNOWN',
+          message: 'Deletion storage state is unknown',
+          retryAfterMs: 60_000,
+        }),
+        exhaustRetry,
+      }),
+    };
+    const dispatcher = new OperationDispatcherService(
+      registry as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+    );
+    const executor = new OperationAttemptExecutorService(
+      dispatcher,
+      repository as never,
+      registry as never,
+    );
+
+    const execution = executor.execute(run({
+      operationKey: 'agent-os.delete-session',
+      triggerSource: 'system',
+      attempts: 3,
+      maxAttempts: 3,
+      deadlineAt: new Date(NOW.getTime() + 1_000),
+    }));
+
+    await vi.waitFor(() => expect(exhaustRetry).toHaveBeenCalledOnce());
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(finalizationSignal?.aborted).toBe(false);
+    expect(exhaustRetry).toHaveBeenCalledTimes(5);
+    expect(repository.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'operation_deadline_exceeded' }),
+    );
+
+    executor.abortAll(new Error('operation_attempt_fence_lost'));
+    await execution;
+    expect(repository.transition).not.toHaveBeenCalledWith(
+      expect.objectContaining({ errorCode: 'operation_deadline_exceeded' }),
+    );
+  });
+
   it('rejects retained operations that request ephemeral finalization', async () => {
     const dispatcher = {
       dispatch: vi.fn(async (_run, controls: {

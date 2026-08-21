@@ -12,6 +12,26 @@ const scannerPath = path.resolve(
   'check-agent-session-deletion.mjs',
 );
 
+const REQUIRED_LIFECYCLE_LOCK_ADAPTERS = [
+  'apps/server/src/agent-os/adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-delegation.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts',
+];
+
+function withRequiredLifecycleLocks(files) {
+  return {
+    ...Object.fromEntries(REQUIRED_LIFECYCLE_LOCK_ADAPTERS.map((relativePath) => [
+      relativePath,
+      "import { lockWritableAgentSession } from './lock-writable-agent-session';\nlockWritableAgentSession;",
+    ])),
+    ...files,
+  };
+}
+
 function writeFixtureFile(rootDir, relativePath, source) {
   const absolutePath = path.join(rootDir, relativePath);
   mkdirSync(path.dirname(absolutePath), { recursive: true });
@@ -64,6 +84,89 @@ test('rejects raw artifact references and a second deletion worker', () => {
       assert.equal(result.status, 1);
       assert.match(result.stderr, /storageReference/);
       assert.match(result.stderr, /second deletion scheduler/);
+    },
+  );
+});
+
+test('rejects arrow and decorated retention schedulers without relying on callback names', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/delete-arrow.ts': [
+        'const RETENTION_INTERVAL = 60_000;',
+        'setInterval(async () => { await cleanup(); }, RETENTION_INTERVAL);',
+      ].join('\n'),
+      'apps/server/src/agent-os/delete-decorator.ts': [
+        'const CLEANUP_INTERVAL = 60_000;',
+        'class RetentionWorker {',
+        '  @Interval(CLEANUP_INTERVAL)',
+        '  async cleanup() {}',
+        '}',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /second deletion scheduler/);
+      assert.equal((result.stderr.match(/second deletion scheduler/g) ?? []).length, 2);
+    },
+  );
+});
+
+test('rejects Agent OS application and capability OperationRun repository bypasses', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/application/service/session-bypass.ts': [
+        "import { OPERATION_REPOSITORY_PORT } from '../../../operations/application/port/out/repository/operation.repository.port';",
+        'OPERATION_REPOSITORY_PORT;',
+      ].join('\n'),
+      'apps/server/src/agent-os/domain/capability/session-bypass.ts': [
+        'export async function bypass(repository: { createRun(input: object): Promise<void> }) {',
+        '  await repository.createRun({});',
+        '}',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /session-originated OperationRun must use the owned-run transaction port/);
+      assert.equal(
+        (result.stderr.match(/session-originated OperationRun must use the owned-run transaction port/g) ?? []).length,
+        2,
+      );
+    },
+  );
+});
+
+test('rejects an ephemeral definition whose deletion key appears only in a comment', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const OTHER_OPERATION_KEY = 'agent-os.other';",
+        'export const definition = {',
+        '  // key: AGENT_SESSION_DELETE_OPERATION_KEY',
+        '  key: OTHER_OPERATION_KEY,',
+        "  successPersistence: 'ephemeral_on_success',",
+        '};',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /AGENT_SESSION_DELETE_OPERATION_KEY/);
+    },
+  );
+});
+
+test('ignores ephemeral string-literal types because only object definitions own persistence', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/domain/operation/agent-os.operations.ts': [
+        "export const AGENT_SESSION_DELETE_OPERATION_KEY = 'agent-os.delete-session';",
+        'interface DeletionOperationDefinition {',
+        '  key: typeof AGENT_SESSION_DELETE_OPERATION_KEY;',
+        "  successPersistence: 'ephemeral_on_success';",
+        '}',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 0);
     },
   );
 });

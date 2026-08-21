@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 
 const ACTIVE_SOURCE_ROOTS = Object.freeze([
   'agents/src',
@@ -66,6 +67,7 @@ const SESSION_MUTATION_TRANSACTION_ADAPTERS = Object.freeze([
 const OWNED_OPERATION_CREATE_OWNER = /(?:owned-operation|session-deletion|continue-operation-attempt)/;
 const EPHEMERAL_SUCCESS_ASSIGNMENT = /\bsuccessPersistence\s*:\s*['"]ephemeral_on_success['"]/g;
 const AGENT_SESSION_DELETE_OPERATION_KEY = 'AGENT_SESSION_DELETE_OPERATION_KEY';
+const TYPESCRIPT_OR_JAVASCRIPT_SOURCE = /\.[cm]?[jt]sx?$/;
 
 function toRepoPath(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -131,83 +133,114 @@ function firstMatch(source, pattern) {
   return pattern.exec(source);
 }
 
-function allMatches(source, pattern) {
-  pattern.lastIndex = 0;
-  const matches = [];
-  let match = pattern.exec(source);
-  while (match) {
-    matches.push(match);
-    match = pattern.exec(source);
-  }
-  return matches;
-}
-
 function identifierPattern(identifier) {
   return new RegExp(`\\b${identifier}\\b`);
 }
 
-function forEachCodeCharacter(source, start, end, visit) {
-  let quote = null;
-  let lineComment = false;
-  let blockComment = false;
-  let escaped = false;
-  for (let cursor = start; cursor < end; cursor += 1) {
-    const character = source[cursor];
-    const next = source[cursor + 1];
-    if (lineComment) {
-      if (character === '\n') lineComment = false;
-      continue;
-    }
-    if (blockComment) {
-      if (character === '*' && next === '/') {
-        blockComment = false;
-        cursor += 1;
-      }
-      continue;
-    }
-    if (quote) {
-      if (escaped) escaped = false;
-      else if (character === '\\') escaped = true;
-      else if (character === quote) quote = null;
-      continue;
-    }
-    if (character === '/' && next === '/') {
-      lineComment = true;
-      cursor += 1;
-      continue;
-    }
-    if (character === '/' && next === '*') {
-      blockComment = true;
-      cursor += 1;
-      continue;
-    }
-    if (character === '\'' || character === '"' || character === '`') {
-      quote = character;
-      continue;
-    }
-    visit(cursor, character);
-  }
+function isTypeScriptOrJavaScript(relativePath) {
+  return TYPESCRIPT_OR_JAVASCRIPT_SOURCE.test(relativePath);
 }
 
-function objectLiteralContaining(source, index) {
-  const starts = [];
-  forEachCodeCharacter(source, 0, index, (cursor, character) => {
-    if (character === '{') starts.push(cursor);
-    if (character === '}') starts.pop();
-  });
-  const start = starts.at(-1);
-  if (start === undefined) return null;
+function sourceFileFor(relativePath, source) {
+  if (!isTypeScriptOrJavaScript(relativePath)) return null;
+  return ts.createSourceFile(relativePath, source, ts.ScriptTarget.Latest, true);
+}
 
-  let nestedObjects = 0;
-  let end = null;
-  forEachCodeCharacter(source, start, source.length, (cursor, character) => {
-    if (end !== null) return;
-    if (character === '{') nestedObjects += 1;
-    if (character !== '}') return;
-    nestedObjects -= 1;
-    if (nestedObjects === 0) end = cursor;
-  });
-  return end === null ? null : source.slice(start, end + 1);
+function isAgentOsApplicationOrCapability(relativePath) {
+  return relativePath.startsWith('apps/server/src/agent-os/application/')
+    || relativePath.includes('/capability/');
+}
+
+function lineNumberOfNode(sourceFile, node) {
+  return sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+}
+
+function importedSymbolPosition(sourceFile, symbol) {
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if (element.isTypeOnly) continue;
+      const importedName = element.propertyName?.text ?? element.name.text;
+      if (importedName === symbol) return element.getStart(sourceFile);
+    }
+  }
+  return null;
+}
+
+function firstCalledPropertyPosition(sourceFile, propertyName) {
+  let position = null;
+  const visit = (node) => {
+    if (position !== null) return;
+    if (
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === propertyName
+    ) {
+      position = node.getStart(sourceFile);
+      return;
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return position;
+}
+
+function isDeletionSchedulerContext(relativePath, sourceFile, node) {
+  return /(?:delete|deletion|retention)/i.test(relativePath)
+    || /(?:delete|deletion|retention|cleanup)/i.test(node.getText(sourceFile));
+}
+
+function astSchedulerPosition(relativePath, sourceFile) {
+  if (!relativePath.startsWith('apps/server/src/agent-os/')) return null;
+  let position = null;
+  const visit = (node) => {
+    if (position !== null) return;
+    if (
+      ts.isCallExpression(node)
+      && ts.isIdentifier(node.expression)
+      && node.expression.text === 'setInterval'
+      && isDeletionSchedulerContext(relativePath, sourceFile, node)
+    ) {
+      position = node.getStart(sourceFile);
+      return;
+    }
+    for (const decorator of ts.getDecorators(node) ?? []) {
+      const expression = decorator.expression;
+      const target = ts.isCallExpression(expression) ? expression.expression : expression;
+      if (
+        ts.isIdentifier(target)
+        && target.text === 'Interval'
+        && isDeletionSchedulerContext(relativePath, sourceFile, node)
+      ) {
+        position = decorator.getStart(sourceFile);
+        return;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
+  return position;
+}
+
+function schedulerViolations(relativePath, source) {
+  const sourceFile = sourceFileFor(relativePath, source);
+  const astPosition = sourceFile && astSchedulerPosition(relativePath, sourceFile);
+  if (astPosition !== null) {
+    return [
+      `${relativePath}:${lineNumberAt(source, astPosition)}: second deletion scheduler`,
+    ];
+  }
+  for (const scheduler of FORBIDDEN_DELETE_SCHEDULERS) {
+    const match = firstMatch(source, scheduler);
+    if (match) {
+      return [
+        `${relativePath}:${lineNumberAt(source, match.index)}: second deletion scheduler`,
+      ];
+    }
+  }
+  return [];
 }
 
 function requireLifecycleLock(rootDir) {
@@ -236,13 +269,21 @@ function requireLifecycleLock(rootDir) {
 
 function ownershipViolations(relativePath, source) {
   const violations = [];
-  const isAgentOsApplicationOrCapability =
-    relativePath.startsWith('apps/server/src/agent-os/application/') ||
-    relativePath.includes('/capability/');
-  const operationRunner = firstMatch(source, /\bOPERATION_RUNNER_PORT\b/);
-  if (isAgentOsApplicationOrCapability && operationRunner) {
+  const sourceFile = sourceFileFor(relativePath, source);
+  const isApplicationOrCapability = isAgentOsApplicationOrCapability(relativePath);
+  const operationRunner = sourceFile
+    ? importedSymbolPosition(sourceFile, 'OPERATION_RUNNER_PORT')
+    : firstMatch(source, /\bOPERATION_RUNNER_PORT\b/)?.index ?? null;
+  const operationRepository = sourceFile
+    ? importedSymbolPosition(sourceFile, 'OPERATION_REPOSITORY_PORT')
+    : firstMatch(source, /\bOPERATION_REPOSITORY_PORT\b/)?.index ?? null;
+  const createRun = sourceFile
+    ? firstCalledPropertyPosition(sourceFile, 'createRun')
+    : firstMatch(source, /\.createRun\s*\(/)?.index ?? null;
+  const operationBypass = operationRunner ?? operationRepository ?? createRun;
+  if (isApplicationOrCapability && operationBypass !== null) {
     violations.push(
-      `${relativePath}:${lineNumberAt(source, operationRunner.index)}: session-originated OperationRun must use the owned-run transaction port`,
+      `${relativePath}:${lineNumberAt(source, operationBypass)}: session-originated OperationRun must use the owned-run transaction port`,
     );
   }
 
@@ -261,18 +302,43 @@ function ownershipViolations(relativePath, source) {
 
 function ephemeralSuccessViolations(relativePath, source) {
   const violations = [];
-  for (const assignment of allMatches(source, EPHEMERAL_SUCCESS_ASSIGNMENT)) {
-    const containingObject = objectLiteralContaining(source, assignment.index);
-    const ownsDefinition = containingObject
-      && new RegExp(
-        `\\bkey\\s*:\\s*${AGENT_SESSION_DELETE_OPERATION_KEY}\\b`,
-      ).test(containingObject);
-    if (!ownsDefinition) {
+  const sourceFile = sourceFileFor(relativePath, source);
+  if (!sourceFile) {
+    const assignment = firstMatch(source, EPHEMERAL_SUCCESS_ASSIGNMENT);
+    if (assignment) {
       violations.push(
         `${relativePath}:${lineNumberAt(source, assignment.index)}: ephemeral success definitions must use ${AGENT_SESSION_DELETE_OPERATION_KEY}`,
       );
     }
+    return violations;
   }
+
+  const propertyAssignment = (object, name) => object.properties.find(
+    (property) => ts.isPropertyAssignment(property)
+      && ts.isIdentifier(property.name)
+      && property.name.text === name,
+  );
+  const visit = (node) => {
+    if (ts.isObjectLiteralExpression(node)) {
+      const successPersistence = propertyAssignment(node, 'successPersistence');
+      const isEphemeral = successPersistence
+        && ts.isStringLiteral(successPersistence.initializer)
+        && successPersistence.initializer.text === 'ephemeral_on_success';
+      if (isEphemeral) {
+        const key = propertyAssignment(node, 'key');
+        const ownsDefinition = key
+          && ts.isIdentifier(key.initializer)
+          && key.initializer.text === AGENT_SESSION_DELETE_OPERATION_KEY;
+        if (!ownsDefinition) {
+          violations.push(
+            `${relativePath}:${lineNumberOfNode(sourceFile, successPersistence)}: ephemeral success definitions must use ${AGENT_SESSION_DELETE_OPERATION_KEY}`,
+          );
+        }
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  ts.forEachChild(sourceFile, visit);
   return violations;
 }
 
@@ -287,13 +353,7 @@ export function checkAgentSessionDeletion(rootDir) {
         `${relativePath}:${lineNumberAt(source, match.index)}: retired AgentSession deletion identifier ${identifier}`,
       );
     }
-    for (const scheduler of FORBIDDEN_DELETE_SCHEDULERS) {
-      const match = firstMatch(source, scheduler);
-      if (!match) continue;
-      violations.push(
-        `${relativePath}:${lineNumberAt(source, match.index)}: second deletion scheduler`,
-      );
-    }
+    violations.push(...schedulerViolations(relativePath, source));
     violations.push(...ownershipViolations(relativePath, source));
     violations.push(...ephemeralSuccessViolations(relativePath, source));
   }

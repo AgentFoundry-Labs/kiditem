@@ -284,6 +284,235 @@ describe('OperationRunService', () => {
     }));
   });
 
+  it('fails closed when a terminal exact run has drifted from its expected token', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(makeRecord({
+      status: 'cancelled',
+      attemptToken: null,
+    }));
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: RUN_ID,
+        operationKey: definition.key,
+        expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      }],
+    })).resolves.toEqual([{
+      runId: RUN_ID,
+      state: 'unknown',
+      nativeRunType: null,
+      nativeRunId: null,
+    }]);
+    expect(repository.transition).not.toHaveBeenCalled();
+  });
+
+  it('requires native fencing proof even when the exact run is already terminal', async () => {
+    const nativeTerminal = makeRecord({
+      status: 'cancelled',
+      attemptToken: null,
+      nativeRunType: 'browser',
+      nativeRunId: 'native-terminal-run',
+    });
+    const registry = new OperationHandlerRegistryService();
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const fenceExternalAuthority = vi.fn()
+      .mockResolvedValueOnce('unknown')
+      .mockResolvedValueOnce('fenced');
+    registry.register(definition, {
+      ...handler,
+      cancel,
+      fenceExternalAuthority,
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(nativeTerminal);
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+    const input = {
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: nativeTerminal.id,
+        operationKey: definition.key,
+        expectedAttemptToken: null,
+      }],
+    };
+
+    await expect(service.fenceAndCancel(input)).resolves.toEqual([{
+      runId: nativeTerminal.id,
+      state: 'unknown',
+      nativeRunType: 'browser',
+      nativeRunId: 'native-terminal-run',
+    }]);
+    await expect(service.fenceAndCancel(input)).resolves.toEqual([{
+      runId: nativeTerminal.id,
+      state: 'fenced',
+      nativeRunType: 'browser',
+      nativeRunId: 'native-terminal-run',
+    }]);
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(fenceExternalAuthority).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries external native fencing after the database transition becomes terminal', async () => {
+    const nativeRun = makeRecord({
+      status: 'running',
+      attemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      nativeRunType: 'browser',
+      nativeRunId: 'native-retry-run',
+    });
+    const registry = new OperationHandlerRegistryService();
+    const fenceExternalAuthority = vi.fn()
+      .mockResolvedValueOnce('unknown')
+      .mockResolvedValueOnce('fenced');
+    registry.register(definition, {
+      ...handler,
+      cancel: vi.fn().mockResolvedValue(undefined),
+      fenceExternalAuthority,
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockImplementation(async () => nativeRun);
+    repository.transition = vi.fn().mockImplementation(async () => {
+      nativeRun.status = 'cancelled';
+      nativeRun.attemptToken = null;
+      nativeRun.claimedBy = null;
+      nativeRun.claimedAt = null;
+      nativeRun.leaseExpiresAt = null;
+      return nativeRun;
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: nativeRun.id,
+        operationKey: definition.key,
+        expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      }],
+    })).resolves.toMatchObject([{ state: 'unknown' }]);
+    await expect(service.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: nativeRun.id,
+        operationKey: definition.key,
+        expectedAttemptToken: null,
+      }],
+    })).resolves.toMatchObject([{ state: 'fenced' }]);
+    expect(repository.transition).toHaveBeenCalledTimes(1);
+    expect(fenceExternalAuthority).toHaveBeenCalledTimes(2);
+  });
+
+  it('bounds never-settling native cancellation and authority hooks', async () => {
+    vi.useFakeTimers();
+    try {
+      const registry = new OperationHandlerRegistryService();
+      const cancel = vi.fn()
+        .mockImplementationOnce(() => new Promise<void>(() => undefined))
+        .mockResolvedValueOnce(undefined);
+      const fenceExternalAuthority = vi.fn()
+        .mockImplementationOnce(() => new Promise<'fenced'>(() => undefined));
+      registry.register(definition, { ...handler, cancel, fenceExternalAuthority });
+      const cancellingRun = makeRecord({
+        id: '55555555-5555-4555-8555-555555555555',
+        attemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        nativeRunType: 'browser',
+        nativeRunId: 'native-cancel-timeout',
+      });
+      const authorityRun = makeRecord({
+        id: '66666666-6666-4666-8666-666666666666',
+        attemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        nativeRunType: 'browser',
+        nativeRunId: 'native-authority-timeout',
+      });
+      const repository = makeRepository();
+      repository.findRunById = vi.fn(async ({ runId }) => (
+        runId === cancellingRun.id ? cancellingRun : authorityRun
+      ));
+      repository.transition = vi.fn().mockImplementation(async (input) => ({
+        ...(input.runId === cancellingRun.id ? cancellingRun : authorityRun),
+        status: 'cancelled',
+        attemptToken: null,
+        claimedBy: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+      }));
+      const service = new OperationRunService(
+        registry,
+        repository,
+        compositeCoordinator,
+        acceptingGate(),
+      );
+      const request = (runId: string) => service.fenceAndCancel({
+        signal: new AbortController().signal,
+        organizationId: ORG_ID,
+        reason: 'session_deleting',
+        runs: [{
+          runId,
+          operationKey: definition.key,
+          expectedAttemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+        }],
+      });
+
+      const cancelTimeout = request(cancellingRun.id);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(cancelTimeout).resolves.toMatchObject([{ state: 'unknown' }]);
+      const authorityTimeout = request(authorityRun.id);
+      await vi.advanceTimersByTimeAsync(5_000);
+      await expect(authorityTimeout).resolves.toMatchObject([{ state: 'unknown' }]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('returns terminal for a non-native terminal row with an exact token', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const terminal = makeRecord({ status: 'succeeded', attemptToken: null });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(terminal);
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.fenceAndCancel({
+      signal: new AbortController().signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: terminal.id,
+        operationKey: definition.key,
+        expectedAttemptToken: null,
+      }],
+    })).resolves.toMatchObject([{ state: 'terminal' }]);
+  });
+
   it('terminal-fences a queued exact run only when its null attempt token still matches', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

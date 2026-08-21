@@ -121,6 +121,34 @@ export class OperationDispatcherService {
             if (!handler.exhaustRetry) {
               throw new Error('operation_retry_exhaustion_handler_missing');
             }
+            if (definition.successPersistence === 'ephemeral_on_success') {
+              const finalization = await controls.enterEphemeralFinalization();
+              while (!finalization.signal.aborted) {
+                try {
+                  await handler.exhaustRetry(context, {
+                    code: result.code,
+                    message: result.message,
+                  });
+                  return;
+                } catch {
+                  if (finalization.signal.aborted || controls.signal.aborted) return;
+                  try {
+                    await controls.checkpoint({
+                      stage: 'ephemeral_exhaustion_finalizing',
+                    });
+                  } catch {
+                    return;
+                  }
+                  if (finalization.signal.aborted || controls.signal.aborted) return;
+                  try {
+                    await abortableDelay(250, finalization.signal);
+                  } catch {
+                    return;
+                  }
+                }
+              }
+              return;
+            }
             await handler.exhaustRetry(context, {
               code: result.code,
               message: result.message,

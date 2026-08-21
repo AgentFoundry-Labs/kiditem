@@ -377,6 +377,108 @@ describe('OperationDispatcherService', () => {
     expect(repository.transitionActiveAttempt).not.toHaveBeenCalled();
   });
 
+  it('retries a rejected ephemeral exhaustion hook without generically failing the operation', async () => {
+    vi.useFakeTimers();
+    try {
+      const exhaustRetry = vi.fn()
+        .mockRejectedValueOnce(new Error('purge unavailable'))
+        .mockResolvedValueOnce(undefined);
+      const checkpoint = vi.fn().mockResolvedValue(undefined);
+      const repository = { transitionActiveAttempt: vi.fn() };
+      const dispatcher = new OperationDispatcherService(
+        {
+          getDefinition: vi.fn().mockReturnValue({
+            successPersistence: 'ephemeral_on_success',
+          }),
+          getHandler: vi.fn().mockReturnValue({
+            execute: vi.fn().mockResolvedValue({
+              kind: 'retryable',
+              code: 'STORAGE_DELETE_UNKNOWN',
+              message: 'Deletion storage state is unknown',
+              retryAfterMs: 60_000,
+            }),
+            exhaustRetry,
+          }),
+        } as never,
+        repository as never,
+        { waitForChild: vi.fn() } as never,
+      );
+      const finalization = new AbortController();
+      const dispatch = dispatcher.dispatch(run({
+        attempts: 3,
+        maxAttempts: 3,
+        triggerSource: 'system',
+      }), {
+        signal: finalization.signal,
+        checkpoint,
+        enterEphemeralFinalization: vi.fn().mockResolvedValue({
+          signal: finalization.signal,
+        }),
+      } as never);
+
+      await vi.waitFor(() => expect(checkpoint).toHaveBeenCalledWith({
+        stage: 'ephemeral_exhaustion_finalizing',
+      }));
+      await vi.advanceTimersByTimeAsync(250);
+      await dispatch;
+
+      expect(exhaustRetry).toHaveBeenCalledTimes(2);
+      expect(repository.transitionActiveAttempt).not.toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('leaves an exhausted ephemeral operation to lifecycle recovery when finalization aborts', async () => {
+    vi.useFakeTimers();
+    try {
+      const exhaustRetry = vi.fn().mockRejectedValue(new Error('purge unavailable'));
+      const repository = { transitionActiveAttempt: vi.fn() };
+      const dispatcher = new OperationDispatcherService(
+        {
+          getDefinition: vi.fn().mockReturnValue({
+            successPersistence: 'ephemeral_on_success',
+          }),
+          getHandler: vi.fn().mockReturnValue({
+            execute: vi.fn().mockResolvedValue({
+              kind: 'retryable',
+              code: 'STORAGE_DELETE_UNKNOWN',
+              message: 'Deletion storage state is unknown',
+              retryAfterMs: 60_000,
+            }),
+            exhaustRetry,
+          }),
+        } as never,
+        repository as never,
+        { waitForChild: vi.fn() } as never,
+      );
+      const finalization = new AbortController();
+      const dispatch = dispatcher.dispatch(run({
+        attempts: 3,
+        maxAttempts: 3,
+        triggerSource: 'system',
+      }), {
+        signal: finalization.signal,
+        checkpoint: vi.fn().mockResolvedValue(undefined),
+        enterEphemeralFinalization: vi.fn().mockResolvedValue({
+          signal: finalization.signal,
+        }),
+      } as never);
+
+      await vi.waitFor(() => expect(exhaustRetry).toHaveBeenCalledOnce());
+      finalization.abort(new Error('operation_server_shutdown'));
+      await dispatch;
+
+      expect(repository.transitionActiveAttempt).not.toHaveBeenCalledWith(
+        expect.objectContaining({ status: 'failed' }),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('finalizes an ephemeral completion without persisting succeeded', async () => {
     const finalizeEphemeralSuccess = vi.fn().mockResolvedValue(undefined);
     const repository = { transitionActiveAttempt: vi.fn() };

@@ -41,6 +41,7 @@ const TERMINAL_OPERATION_STATUSES = new Set<OperationStatus>([
   'failed',
   'cancelled',
 ]);
+const NATIVE_FENCE_HOOK_TIMEOUT_MS = 5_000;
 
 @Injectable()
 export class OperationRunService
@@ -234,12 +235,25 @@ export class OperationRunService
       ) {
         return { runId: requested.runId, state: 'unknown', ...coordinates };
       }
+      if (snapshot.attemptToken !== requested.expectedAttemptToken) {
+        return { runId: requested.runId, state: 'unknown', ...coordinates };
+      }
       if (TERMINAL_OPERATION_STATUSES.has(snapshot.status)) {
+        if (this.hasNativeAuthority(snapshot)) {
+          const fenced = await this.cancelAndFenceNativeAuthority(
+            snapshot,
+            input,
+          );
+          return {
+            runId: requested.runId,
+            state: fenced ? 'fenced' : 'unknown',
+            ...coordinates,
+          };
+        }
         return { runId: requested.runId, state: 'terminal', ...coordinates };
       }
       if (
-        !EXACT_FENCEABLE_OPERATION_STATUSES.has(snapshot.status) ||
-        snapshot.attemptToken !== requested.expectedAttemptToken
+        !EXACT_FENCEABLE_OPERATION_STATUSES.has(snapshot.status)
       ) {
         return { runId: requested.runId, state: 'unknown', ...coordinates };
       }
@@ -268,23 +282,18 @@ export class OperationRunService
         return { runId: requested.runId, state: 'unknown', ...coordinates };
       }
 
-      const handler = this.registry.getHandler(snapshot.operationKey);
-      await settleWithAbort(
-        handler.cancel?.({
-          runId: snapshot.id,
-          organizationId: snapshot.organizationId,
-          operationKey: snapshot.operationKey,
-          reason: input.reason,
-          requestedByUserId: null,
-        }),
-        input.signal,
-      );
-      if (snapshot.nativeRunType !== null || snapshot.nativeRunId !== null) {
-        if (!handler.fenceExternalAuthority) {
+      if (this.hasNativeAuthority(snapshot)) {
+        const externalAuthorityFenced = await this.cancelAndFenceNativeAuthority(
+          snapshot,
+          input,
+        );
+        if (!externalAuthorityFenced) {
           return { runId: requested.runId, state: 'unknown', ...coordinates };
         }
-        const authority = await settleWithAbort(
-          handler.fenceExternalAuthority({
+      } else {
+        const handler = this.registry.getHandler(snapshot.operationKey);
+        await settleWithAbort(
+          handler.cancel?.({
             runId: snapshot.id,
             organizationId: snapshot.organizationId,
             operationKey: snapshot.operationKey,
@@ -292,10 +301,8 @@ export class OperationRunService
             requestedByUserId: null,
           }),
           input.signal,
+          NATIVE_FENCE_HOOK_TIMEOUT_MS,
         );
-        if (authority !== 'fenced') {
-          return { runId: requested.runId, state: 'unknown', ...coordinates };
-        }
       }
       return { runId: requested.runId, state: 'fenced', ...coordinates };
     } catch {
@@ -306,6 +313,37 @@ export class OperationRunService
         nativeRunId: snapshot?.nativeRunId ?? null,
       };
     }
+  }
+
+  private hasNativeAuthority(snapshot: OperationRunRecord): boolean {
+    return snapshot.nativeRunType !== null || snapshot.nativeRunId !== null;
+  }
+
+  private async cancelAndFenceNativeAuthority(
+    snapshot: OperationRunRecord,
+    input: { signal: AbortSignal; reason: string },
+  ): Promise<boolean> {
+    const handler = this.registry.getHandler(snapshot.operationKey);
+    if (!handler.cancel || !handler.fenceExternalAuthority) return false;
+
+    const command = {
+      runId: snapshot.id,
+      organizationId: snapshot.organizationId,
+      operationKey: snapshot.operationKey,
+      reason: input.reason,
+      requestedByUserId: null,
+    };
+    await settleWithAbort(
+      handler.cancel(command),
+      input.signal,
+      NATIVE_FENCE_HOOK_TIMEOUT_MS,
+    );
+    const authority = await settleWithAbort(
+      handler.fenceExternalAuthority(command),
+      input.signal,
+      NATIVE_FENCE_HOOK_TIMEOUT_MS,
+    );
+    return authority === 'fenced';
   }
 
   private async require(
@@ -365,20 +403,31 @@ export class OperationRunService
 function settleWithAbort<T>(
   work: Promise<T> | undefined,
   signal: AbortSignal,
+  timeoutMs?: number,
 ): Promise<T | undefined> {
   signal.throwIfAborted();
   if (!work) return Promise.resolve(undefined);
   return new Promise<T>((resolve, reject) => {
-    const onAbort = () => reject(signal.reason);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const complete = (settle: () => void) => {
+      signal.removeEventListener('abort', onAbort);
+      if (timeout) clearTimeout(timeout);
+      settle();
+    };
+    const onAbort = () => complete(() => reject(signal.reason));
     signal.addEventListener('abort', onAbort, { once: true });
+    if (timeoutMs !== undefined) {
+      timeout = setTimeout(() => {
+        complete(() => reject(new Error('operation_native_fence_hook_timeout')));
+      }, timeoutMs);
+      timeout.unref?.();
+    }
     work.then(
       (value) => {
-        signal.removeEventListener('abort', onAbort);
-        resolve(value);
+        complete(() => resolve(value));
       },
       (error: unknown) => {
-        signal.removeEventListener('abort', onAbort);
-        reject(error);
+        complete(() => reject(error));
       },
     );
   });

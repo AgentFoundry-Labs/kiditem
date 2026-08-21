@@ -249,7 +249,7 @@ model OperationRun {
   agentSessionApprovalPredecessors         AgentSessionApproval[]                    @relation("AgentSessionApprovalPredecessorOperationRun")
   agentSessionApprovalContinuationSuccessor AgentSessionApprovalContinuation?        @relation("AgentSessionApprovalContinuationSuccessorRun")
   agentSessionCurrentDeletionRuns                  AgentSession[]                          @relation("AgentSessionCurrentDeletionRun")
-  agentSessionDeletionOperationBindings            AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingRun")
+  agentSessionDeletionOperationBindings            AgentSessionDeletionOperationBinding?   @relation("AgentSessionDeletionBindingRun")
   agentSessionDeletionOperationBindingPredecessors AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingPredecessor")
   agentSessionOperationRunOwnership                AgentSessionOperationRunOwnership?      @relation("AgentSessionOperationRunOwnership")
 

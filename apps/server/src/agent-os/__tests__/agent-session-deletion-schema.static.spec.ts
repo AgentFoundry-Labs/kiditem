@@ -121,7 +121,7 @@ describe('AgentSession deletion Prisma schema contract', () => {
       /agentSessionCurrentDeletionRuns\s+AgentSession\[\]\s+@relation\("AgentSessionCurrentDeletionRun"\)/,
     );
     expect(operationRun).toMatch(
-      /agentSessionDeletionOperationBindings\s+AgentSessionDeletionOperationBinding\[\]\s+@relation\("AgentSessionDeletionBindingRun"\)/,
+      /agentSessionDeletionOperationBindings\s+AgentSessionDeletionOperationBinding\?\s+@relation\("AgentSessionDeletionBindingRun"\)/,
     );
     expect(operationRun).toMatch(
       /agentSessionDeletionOperationBindingPredecessors\s+AgentSessionDeletionOperationBinding\[\]\s+@relation\("AgentSessionDeletionBindingPredecessor"\)/,
