@@ -1,4 +1,4 @@
-import { createHash, timingSafeEqual } from "node:crypto";
+import { timingSafeEqual } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
@@ -134,6 +134,11 @@ export class PrismaAgentSessionLifecycleTransaction
       const session = await lockSession(tx, input);
       if (!session) throw scope();
       const now = new Date();
+      if (
+        input.systemRetention &&
+        session.retentionDeleteClaimToken !== input.systemRetention.claimToken
+      )
+        throw state();
       if (session.legalHoldAt) throw legalHold();
       if (!isDeletableTerminalLifecycle(session.lifecycle)) throw state();
       if (!session.retentionDueAt || session.retentionDueAt > now)
@@ -154,7 +159,9 @@ export class PrismaAgentSessionLifecycleTransaction
           requestFingerprintHash: input.tombstone.requestFingerprintHash.hash,
           hashKeyVersion: input.tombstone.organizationIdHash.hashKeyVersion,
           terminalLifecycle: "deleted",
-          deletionReasonCode: "user_requested",
+          deletionReasonCode: input.systemRetention
+            ? "retention_expired"
+            : "user_requested",
           deletedAt: now,
           legalPolicyVersion: policy.legalPolicyVersion,
         },
@@ -182,6 +189,7 @@ const sessionSelect = {
   legalHoldAt: true,
   legalHoldReason: true,
   retentionDueAt: true,
+  retentionDeleteClaimToken: true,
 } as const;
 const tombstoneSelect = {
   idempotencyKeyHash: true,
@@ -344,11 +352,12 @@ async function projectIndependentLegalAudits(
     tx.agentSessionArtifact.findMany({
       where: { organizationId, sessionId },
       select: {
+        storageObjectId: true,
         retentionClass: true,
         independentLegalBasisCode: true,
         independentRetentionDueAt: true,
-        storageReference: true,
         createdAt: true,
+        storageObject: { select: { referenceHash: true } },
       },
     }),
     tx.agentExecutionUsage.findMany({
@@ -418,18 +427,12 @@ async function projectIndependentLegalAudits(
   if (projections.length) {
     await tx.agentSessionLegalAuditProjection.createMany({ data: projections });
   }
-  for (const { artifact, classification } of artifactPlans.sort((left, right) =>
-    erasureClaimLockKey(left.artifact.storageReference, left.classification, deletionNow)
-      .localeCompare(erasureClaimLockKey(right.artifact.storageReference, right.classification, deletionNow)),
-  )) {
-    await queueArtifactErasureClaim(tx, {
-      organizationId,
-      storageReference: artifact.storageReference,
-      dueAt: classification
-        ? classification.independentRetentionDueAt
-        : deletionNow,
-    });
-  }
+  await releaseArtifactObjects(
+    tx,
+    organizationId,
+    artifactPlans,
+    deletionNow,
+  );
 }
 
 function parseIndependentLegalAudit(
@@ -456,63 +459,84 @@ function parseIndependentLegalAudit(
   return parsed.data;
 }
 
-async function queueArtifactErasureClaim(
+async function releaseArtifactObjects(
   tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    storageReference: string;
-    dueAt: Date;
-  },
-): Promise<void> {
-  const referenceHash = createHash("sha256")
-    .update(input.storageReference)
-    .digest("hex");
-  await lock(tx, [
-    "agent-session-artifact-erasure",
-    input.organizationId,
-    referenceHash,
-  ]);
-  const existing = await tx.agentSessionArtifactErasureClaim.findMany({
-    where: {
-      organizationId: input.organizationId,
-      referenceHash,
-    },
-    select: { storageReference: true, dueAt: true },
-  });
-  for (const candidate of existing) {
-    if (
-      !candidate.storageReference ||
-      !sameRawReference(candidate.storageReference, input.storageReference)
-    )
-      throw artifactErasureHashCollision();
-    if (candidate.dueAt.getTime() === input.dueAt.getTime()) return;
-  }
-  await tx.agentSessionArtifactErasureClaim.create({
-    data: {
-      organizationId: input.organizationId,
-      storageReference: input.storageReference,
-      referenceHash,
-      dueAt: input.dueAt,
-      availableAt: input.dueAt,
-      status: "pending",
-    },
-  });
-}
-
-function erasureClaimLockKey(
-  storageReference: string,
-  classification: { independentRetentionDueAt: Date } | null,
+  organizationId: string,
+  artifacts: Array<{
+    artifact: {
+      storageObjectId: string;
+      storageObject: { referenceHash: string };
+    };
+    classification: {
+      independentLegalBasisCode: string;
+      independentRetentionDueAt: Date;
+    } | null;
+  }>,
   deletionNow: Date,
-): string {
-  return `${createHash("sha256").update(storageReference).digest("hex")}:${(
-    classification?.independentRetentionDueAt ?? deletionNow
-  ).toISOString()}`;
+): Promise<void> {
+  const grouped = new Map<string, {
+    referenceHash: string;
+    count: number;
+    holds: Array<{ legalBasisCode: string; retentionDueAt: Date }>;
+  }>();
+  for (const { artifact, classification } of artifacts) {
+    const current = grouped.get(artifact.storageObjectId) ?? {
+      referenceHash: artifact.storageObject.referenceHash,
+      count: 0,
+      holds: [],
+    };
+    current.count += 1;
+    if (classification) {
+      current.holds.push({
+        legalBasisCode: classification.independentLegalBasisCode,
+        retentionDueAt: classification.independentRetentionDueAt,
+      });
+    }
+    grouped.set(artifact.storageObjectId, current);
+  }
+  for (const [artifactObjectId, input] of [...grouped.entries()].sort((left, right) =>
+    left[1].referenceHash.localeCompare(right[1].referenceHash),
+  )) {
+    await lock(tx, ["agent-session-artifact-object", input.referenceHash]);
+    const object = await tx.agentSessionArtifactObject.findFirst({
+      where: { id: artifactObjectId, organizationId },
+      include: { retentionHolds: { select: { retentionDueAt: true } } },
+    });
+    if (
+      !object ||
+      object.status !== "active" ||
+      object.liveReferenceCount < input.count
+    )
+      throw state();
+    const remainingReferences = object.liveReferenceCount - input.count;
+    const independentDueAts = [
+      ...object.retentionHolds.map(({ retentionDueAt }) => retentionDueAt),
+      ...input.holds.map(({ retentionDueAt }) => retentionDueAt),
+    ];
+    const nextDueAt = remainingReferences === 0
+      ? independentDueAts.length > 0
+        ? earliestDueAt(independentDueAts)
+        : deletionNow
+      : object.erasureDueAt;
+    if (input.holds.length) {
+      await tx.agentSessionArtifactObjectRetentionHold.createMany({
+        data: input.holds.map((hold) => ({ artifactObjectId, ...hold })),
+      });
+    }
+    await tx.agentSessionArtifactObject.update({
+      where: { id: artifactObjectId },
+      data: {
+        liveReferenceCount: remainingReferences,
+        erasureDueAt: nextDueAt,
+      },
+    });
+  }
 }
 
-function sameRawReference(left: string, right: string): boolean {
-  const leftBytes = Buffer.from(left, "utf8");
-  const rightBytes = Buffer.from(right, "utf8");
-  return leftBytes.byteLength === rightBytes.byteLength && timingSafeEqual(leftBytes, rightBytes);
+function earliestDueAt(values: Date[]): Date {
+  return values.reduce((earliest, value) =>
+    value < earliest ? value : earliest,
+  );
 }
 
 function isDeletableTerminalLifecycle(lifecycle: string): boolean {
@@ -604,9 +628,6 @@ function retentionNotDue(): AgentOsBoundaryError {
 }
 function retentionAuditInvalid(): AgentOsBoundaryError {
   return new AgentOsBoundaryError("THREAD_RETENTION_AUDIT_INVALID");
-}
-function artifactErasureHashCollision(): AgentOsBoundaryError {
-  return new AgentOsBoundaryError("THREAD_ARTIFACT_ERASURE_HASH_COLLISION");
 }
 function idempotencyConflict(): AgentOsBoundaryError {
   return new AgentOsBoundaryError("THREAD_LIFECYCLE_IDEMPOTENCY_CONFLICT");

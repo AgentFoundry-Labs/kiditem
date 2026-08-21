@@ -35,7 +35,9 @@
 | AgentSessionApproval | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it. |
 | AgentSessionApprovalContinuation | `agent_session_approval_continuations` | Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately. |
 | AgentSessionArtifact | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
-| AgentSessionArtifactErasureClaim | `agent_session_artifact_erasure_claims` | Durable, organization-fenced storage-erasure claim. The raw reference is cleared after terminal handling and never leaves the eraser boundary. |
+| AgentSessionArtifactObject | `agent_session_artifact_objects` | One durable, organization-fenced owner for an immutable physical AgentOS artifact key. Raw storage text exists only while the object remains actionable. |
+| AgentSessionArtifactObjectRetentionHold | `agent_session_artifact_object_retention_holds` | Content-free independent-retention hold for one physical artifact object after canonical session rows are deleted. |
+| AgentSessionArtifactObjectTombstone | `agent_session_artifact_object_tombstones` | Hash-only terminal receipt which prevents immutable physical artifact-key reuse after successful erasure. |
 | AgentSessionLegalAuditProjection | `agent_session_legal_audit_projections` | Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session. |
 | AgentSessionLifecycleRequest | `agent_session_lifecycle_requests` | Scoped lifecycle idempotency record retained only while its canonical AgentSession exists. |
 | AgentSessionTask | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
@@ -435,6 +437,8 @@ erDiagram
     DateTime legalHoldAt
     String legalHoldReason
     DateTime retentionDueAt
+    String retentionDeleteClaimToken
+    DateTime retentionDeleteClaimedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -476,7 +480,7 @@ erDiagram
     String taskId FK
     String executionId FK
     String artifactType
-    String storageReference
+    String storageObjectId FK
     String sha256
     Json metadata
     String lifecycle
@@ -487,20 +491,33 @@ erDiagram
     String independentLegalBasisCode
     DateTime independentRetentionDueAt
   }
-  AgentSessionArtifactErasureClaim {
+  AgentSessionArtifactObject {
     String id PK
     String organizationId FK
     String storageReference
-    String referenceHash
-    DateTime dueAt
+    String referenceHash UK
     String status
-    DateTime availableAt
+    Int liveReferenceCount
+    DateTime erasureDueAt
     String claimToken
     DateTime claimedAt
     Int attemptCount
     String lastErrorCode
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentSessionArtifactObjectRetentionHold {
+    String id PK
+    String artifactObjectId FK
+    String legalBasisCode
+    DateTime retentionDueAt
+    DateTime createdAt
+  }
+  AgentSessionArtifactObjectTombstone {
+    String id PK
+    String referenceHash UK
+    DateTime erasedAt
+    DateTime createdAt
   }
   AgentSessionLegalAuditProjection {
     String id PK
@@ -734,6 +751,8 @@ erDiagram
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
+  AgentSessionArtifactObject ||--o{ AgentSessionArtifact : "storageObject"
+  AgentSessionArtifactObject ||--o{ AgentSessionArtifactObjectRetentionHold : "artifactObject"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
@@ -791,7 +810,7 @@ erDiagram
 | AgentSession | organization | references external | Core | Organization |
 | AgentSessionApproval | predecessorOperationRun | references external | System | OperationRun |
 | AgentSessionApprovalContinuation | successorOperationRun | references external | System | OperationRun |
-| AgentSessionArtifactErasureClaim | organization | references external | Core | Organization |
+| AgentSessionArtifactObject | organization | references external | Core | Organization |
 | AgentSessionLegalAuditProjection | organization | references external | Core | Organization |
 | AgentSessionLifecycleRequest | organization | references external | Core | Organization |
 | AgentSessionLifecycleRequest | requestedBy | references external | Core | User |

@@ -81,6 +81,8 @@ model AgentSession {
   legalHoldAt               DateTime? @map("legal_hold_at") @db.Timestamptz
   legalHoldReason           String?   @map("legal_hold_reason") @db.Text
   retentionDueAt            DateTime? @map("retention_due_at") @db.Timestamptz
+  retentionDeleteClaimToken String?   @map("retention_delete_claim_token") @db.Uuid
+  retentionDeleteClaimedAt  DateTime? @map("retention_delete_claimed_at") @db.Timestamptz
   createdAt                 DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt                 DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -101,6 +103,7 @@ model AgentSession {
   @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
   @@unique([id, organizationId], map: "agent_sessions_id_org_key")
   @@index([organizationId, createdByUserId, lifecycle, updatedAt])
+  @@index([retentionDueAt, lifecycle, legalHoldAt])
   @@index([createdByUserId])
   @@index([primaryAgentVersionId])
   @@map("agent_sessions")
@@ -195,29 +198,58 @@ model AgentSessionLegalAuditProjection {
 }
 
 /// @namespace AgentOS
-/// @describe Durable, organization-fenced storage-erasure claim. The raw reference is cleared after terminal handling and never leaves the eraser boundary.
-model AgentSessionArtifactErasureClaim {
-  id               String    @id @default(uuid()) @db.Uuid
-  organizationId   String    @map("organization_id") @db.Uuid
-  storageReference String?   @map("storage_reference") @db.Text
-  referenceHash    String    @map("reference_hash")
-  dueAt            DateTime  @map("due_at") @db.Timestamptz
-  status           String    @default("pending")
-  availableAt      DateTime  @map("available_at") @db.Timestamptz
-  claimToken       String?   @map("claim_token") @db.Uuid
-  claimedAt        DateTime? @map("claimed_at") @db.Timestamptz
-  attemptCount     Int       @default(0) @map("attempt_count")
-  lastErrorCode    String?   @map("last_error_code")
-  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+/// @describe One durable, organization-fenced owner for an immutable physical AgentOS artifact key. Raw storage text exists only while the object remains actionable.
+model AgentSessionArtifactObject {
+  id                 String    @id @default(uuid()) @db.Uuid
+  organizationId     String    @map("organization_id") @db.Uuid
+  storageReference   String?   @map("storage_reference") @db.Text
+  referenceHash      String    @unique(map: "agent_session_artifact_objects_reference_hash_key") @map("reference_hash")
+  status             String    @default("active")
+  liveReferenceCount Int       @default(0) @map("live_reference_count")
+  erasureDueAt       DateTime? @map("erasure_due_at") @db.Timestamptz
+  claimToken         String?   @map("claim_token") @db.Uuid
+  claimedAt          DateTime? @map("claimed_at") @db.Timestamptz
+  attemptCount       Int       @default(0) @map("attempt_count")
+  lastErrorCode      String?   @map("last_error_code")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization Organization @relation("AgentSessionArtifactErasureClaimOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  organization   Organization                         @relation("AgentSessionArtifactObjectOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  artifacts      AgentSessionArtifact[]               @relation("AgentSessionArtifactStorageObject")
+  retentionHolds AgentSessionArtifactObjectRetentionHold[]
 
-  @@unique([organizationId, referenceHash, dueAt], map: "agent_session_artifact_erasure_claims_org_reference_due_key")
-  @@index([dueAt, status])
-  @@index([availableAt, status])
-  @@index([organizationId, referenceHash, status])
-  @@map("agent_session_artifact_erasure_claims")
+  @@unique([id, organizationId], map: "agent_session_artifact_objects_id_org_key")
+  @@index([status, erasureDueAt])
+  @@index([organizationId, status])
+  @@map("agent_session_artifact_objects")
+}
+
+/// @namespace AgentOS
+/// @describe Content-free independent-retention hold for one physical artifact object after canonical session rows are deleted.
+model AgentSessionArtifactObjectRetentionHold {
+  id               String   @id @default(uuid()) @db.Uuid
+  artifactObjectId String   @map("artifact_object_id") @db.Uuid
+  legalBasisCode   String   @map("legal_basis_code")
+  retentionDueAt   DateTime @map("retention_due_at") @db.Timestamptz
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  artifactObject AgentSessionArtifactObject @relation(fields: [artifactObjectId], references: [id], onDelete: Cascade)
+
+  @@index([artifactObjectId, retentionDueAt])
+  @@index([retentionDueAt])
+  @@map("agent_session_artifact_object_retention_holds")
+}
+
+/// @namespace AgentOS
+/// @describe Hash-only terminal receipt which prevents immutable physical artifact-key reuse after successful erasure.
+model AgentSessionArtifactObjectTombstone {
+  id            String   @id @default(uuid()) @db.Uuid
+  referenceHash String   @unique(map: "agent_session_artifact_object_tombstones_reference_hash_key") @map("reference_hash")
+  erasedAt      DateTime @map("erased_at") @db.Timestamptz
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([erasedAt])
+  @@map("agent_session_artifact_object_tombstones")
 }
 
 /// @namespace AgentOS
@@ -589,7 +621,7 @@ model AgentSessionArtifact {
   taskId           String    @map("task_id") @db.Uuid
   executionId      String    @map("execution_id") @db.Uuid
   artifactType     String    @map("artifact_type")
-  storageReference String    @map("storage_reference")
+  storageObjectId String    @map("storage_object_id") @db.Uuid
   sha256           String
   metadata         Json      @default("{}") @db.JsonB
   lifecycle        String    @default("active")
@@ -603,6 +635,7 @@ model AgentSessionArtifact {
   session   AgentSession     @relation("AgentSessionArtifacts", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
   task      AgentSessionTask @relation("AgentSessionTaskArtifacts", fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
   execution AgentExecution   @relation("AgentExecutionArtifacts", fields: [executionId, taskId, sessionId, organizationId], references: [id, sessionTaskId, sessionId, organizationId], onDelete: Restrict)
+  storageObject AgentSessionArtifactObject @relation("AgentSessionArtifactStorageObject", fields: [storageObjectId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([executionId, idempotencyKey], map: "agent_session_artifacts_execution_idempotency_key")
   @@unique([id, organizationId], map: "agent_session_artifacts_id_org_key")
@@ -610,6 +643,7 @@ model AgentSessionArtifact {
   @@index([sessionId, organizationId])
   @@index([taskId, sessionId, organizationId])
   @@index([executionId, taskId, sessionId, organizationId])
+  @@index([storageObjectId, organizationId])
   @@map("agent_session_artifacts")
 }
 

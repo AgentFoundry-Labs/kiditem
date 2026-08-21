@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, timingSafeEqual } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../../prisma/prisma.service";
@@ -6,6 +6,7 @@ import {
   projectAgentSessionRetentionDueAt,
   projectAgentSessionRetentionPolicy,
 } from "../../../../domain/session/agent-session-retention.policy";
+import { isOwnedAgentSessionArtifactReference } from "../../../../domain/session/agent-session-artifact-reference.policy";
 import {
   AgentSessionControlRepositoryError,
   type SessionArtifactRecord,
@@ -41,11 +42,13 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
           },
         });
         if (!execution) throw scope();
+        assertOwnedArtifactReference(input.organizationId, input.storageReference);
         const existing = await tx.agentSessionArtifact.findFirst({
           where: {
             executionId: input.executionId,
             idempotencyKey: input.idempotencyKey,
           },
+          include: { storageObject: true },
         });
         if (existing) {
           if (
@@ -53,13 +56,34 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
             existing.sessionId !== input.sessionId ||
             existing.taskId !== input.taskId ||
             existing.artifactType !== input.artifactType ||
-            existing.storageReference !== input.storageReference ||
+            !sameReference(existing.storageObject.storageReference, input.storageReference) ||
             existing.sha256 !== input.sha256 ||
             !canonicalEqual(existing.metadata, input.metadata)
           )
             throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
           return mapArtifact(existing);
         }
+        const referenceHash = artifactReferenceHash(input.storageReference);
+        await lock(tx, ["agent-session-artifact-object", referenceHash]);
+        if (await tx.agentSessionArtifactObjectTombstone.findFirst({
+          where: { referenceHash },
+          select: { id: true },
+        }))
+          throw erasedReference();
+        const object = await tx.agentSessionArtifactObject.findUnique({
+          where: { referenceHash },
+        });
+        const storageObject = object
+          ? await reuseArtifactObject(tx, object, input)
+          : await tx.agentSessionArtifactObject.create({
+              data: {
+                organizationId: input.organizationId,
+                storageReference: input.storageReference,
+                referenceHash,
+                status: "active",
+                liveReferenceCount: 1,
+              },
+            });
         return mapArtifact(
           await tx.agentSessionArtifact.create({
             data: {
@@ -68,7 +92,7 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
               taskId: input.taskId,
               executionId: input.executionId,
               artifactType: input.artifactType,
-              storageReference: input.storageReference,
+              storageObjectId: storageObject.id,
               sha256: input.sha256,
               metadata: input.metadata as Prisma.InputJsonValue,
               idempotencyKey: input.idempotencyKey,
@@ -320,6 +344,29 @@ export class PrismaAgentSessionTransitionTransaction implements AgentSessionTran
   }
 }
 
+async function reuseArtifactObject(
+  tx: Prisma.TransactionClient,
+  object: {
+    id: string;
+    organizationId: string;
+    storageReference: string | null;
+    status: string;
+  },
+  input: Parameters<AgentSessionTransitionTransactionPort["appendArtifact"]>[0],
+) {
+  if (
+    object.organizationId !== input.organizationId ||
+    !sameReference(object.storageReference, input.storageReference)
+  )
+    throw invalidReference();
+  if (object.status === "erased") throw erasedReference();
+  if (object.status !== "active") throw erasingReference();
+  return tx.agentSessionArtifactObject.update({
+    where: { id: object.id },
+    data: { liveReferenceCount: { increment: 1 } },
+  });
+}
+
 function mapArtifact(row: {
   id: string;
   sha256: string;
@@ -340,6 +387,48 @@ async function lock(
 
 function canonicalEqual(left: unknown, right: unknown): boolean {
   return canonicalJson(left) === canonicalJson(right);
+}
+
+function assertOwnedArtifactReference(
+  organizationId: string,
+  storageReference: string,
+): void {
+  if (!isOwnedAgentSessionArtifactReference(organizationId, storageReference))
+    throw invalidReference();
+}
+
+function artifactReferenceHash(storageReference: string): string {
+  return createHash("sha256")
+    .update(`agent-session-artifact-object\u0000${storageReference}`, "utf8")
+    .digest("hex");
+}
+
+function sameReference(left: string | null, right: string): boolean {
+  if (left === null) return false;
+  const leftBytes = Buffer.from(left, "utf8");
+  const rightBytes = Buffer.from(right, "utf8");
+  return leftBytes.byteLength === rightBytes.byteLength && timingSafeEqual(leftBytes, rightBytes);
+}
+
+function invalidReference(): AgentSessionControlRepositoryError {
+  return new AgentSessionControlRepositoryError(
+    "AGENT_SESSION_ARTIFACT_REFERENCE_INVALID",
+    "Artifact storage references must be immutable, organization-owned AgentOS keys.",
+  );
+}
+
+function erasingReference(): AgentSessionControlRepositoryError {
+  return new AgentSessionControlRepositoryError(
+    "AGENT_SESSION_ARTIFACT_REFERENCE_ERASING",
+    "The physical artifact object is being erased and cannot receive new references.",
+  );
+}
+
+function erasedReference(): AgentSessionControlRepositoryError {
+  return new AgentSessionControlRepositoryError(
+    "AGENT_SESSION_ARTIFACT_REFERENCE_ERASED",
+    "A previously erased immutable artifact key cannot be reused.",
+  );
 }
 function canonicalJson(value: unknown): string {
   if (

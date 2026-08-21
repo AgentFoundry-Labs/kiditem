@@ -3,7 +3,10 @@ export class AgentSessionControlRepositoryError extends Error {
     readonly code:
       | 'AGENT_SESSION_CONTROL_SCOPE_INVALID'
       | 'AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT'
-      | 'AGENT_SESSION_CONTROL_STATE_CONFLICT',
+      | 'AGENT_SESSION_CONTROL_STATE_CONFLICT'
+      | 'AGENT_SESSION_ARTIFACT_REFERENCE_INVALID'
+      | 'AGENT_SESSION_ARTIFACT_REFERENCE_ERASING'
+      | 'AGENT_SESSION_ARTIFACT_REFERENCE_ERASED',
     message: string,
   ) {
     super(message);

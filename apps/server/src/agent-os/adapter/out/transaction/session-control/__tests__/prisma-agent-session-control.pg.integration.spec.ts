@@ -1,11 +1,14 @@
 import { createHash } from 'node:crypto';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaAgentSessionLifecycleTransaction } from '../../interaction/prisma-agent-session-lifecycle.transaction';
 import { PrismaAgentSessionLifecycleMaintenanceTransaction } from '../../interaction/prisma-agent-session-lifecycle-maintenance.transaction';
 import { AgentSessionLifecycleMaintenanceService } from '../../../../../application/service/interaction/agent-session-lifecycle-maintenance.service';
+import { HmacAgentSessionTombstoneHasher } from '../../../crypto/hmac-agent-session-tombstone-hasher.adapter';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
+  OTHER_USER_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
@@ -13,7 +16,6 @@ import {
 } from '../../../../../../test-helpers/real-prisma';
 import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
 import { SessionControlAdapterSet } from './session-control-adapter-set';
-import { Prisma, type PrismaClient } from '@prisma/client';
 
 const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
 const VERSION_TO = '20000000-0000-4000-8000-000000000002';
@@ -596,7 +598,7 @@ describe('Prisma Agent session-control transaction seams', () => {
       taskId: fixture.taskId,
       executionId: fixture.executionId,
       artifactType: 'report',
-      storageReference: 'artifact-store://reports/one',
+      storageReference: artifactStorageReference(TEST_ORGANIZATION_ID, '11111111-1111-4111-8111-111111111111'),
       sha256: 'b'.repeat(64),
       metadata: { navigationActionId: 'sourcing.openRecommendationRun' },
       idempotencyKey: 'artifact:report:1',
@@ -607,7 +609,7 @@ describe('Prisma Agent session-control transaction seams', () => {
       taskId: fixture.taskId,
       executionId: fixture.executionId,
       artifactType: 'report',
-      storageReference: 'artifact-store://reports/one',
+      storageReference: artifactStorageReference(TEST_ORGANIZATION_ID, '11111111-1111-4111-8111-111111111111'),
       sha256: 'b'.repeat(64),
       metadata: { navigationActionId: 'sourcing.openRecommendationRun' },
       idempotencyKey: 'artifact:report:1',
@@ -636,6 +638,66 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
   });
 
+  it('rejects an unowned artifact reference before it persists a session artifact', async () => {
+    const fixture = await createRootGraph();
+
+    await expect(repository.appendArtifact({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      artifactType: 'report',
+      storageReference: 'https://storage.local/kiditem/inventory/private-product-source',
+      sha256: 'a'.repeat(64),
+      metadata: {},
+      idempotencyKey: 'artifact:unowned-reference',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_ARTIFACT_REFERENCE_INVALID' });
+
+    await expect(prisma!.agentSessionArtifact.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(0);
+  });
+
+  it('rejects a different organization using an existing organization-partitioned artifact key', async () => {
+    const key = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      '22222222-2222-4222-8222-222222222222',
+    );
+    const owner = await createRootGraph();
+    await repository.appendArtifact({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: owner.sessionId,
+      taskId: owner.taskId,
+      executionId: owner.executionId,
+      artifactType: 'report',
+      storageReference: key,
+      sha256: 'b'.repeat(64),
+      metadata: {},
+      idempotencyKey: 'artifact:owner-key',
+    });
+    const other = await createRootGraph({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      authorityProfileVersionId: OTHER_AUTHORITY_VERSION,
+    });
+
+    await expect(repository.appendArtifact({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sessionId: other.sessionId,
+      taskId: other.taskId,
+      executionId: other.executionId,
+      artifactType: 'report',
+      storageReference: key,
+      sha256: 'c'.repeat(64),
+      metadata: {},
+      idempotencyKey: 'artifact:cross-organization-key',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_ARTIFACT_REFERENCE_INVALID' });
+
+    await expect(prisma!.agentSessionArtifact.count({
+      where: { organizationId: OTHER_ORGANIZATION_ID, sessionId: other.sessionId },
+    })).resolves.toBe(0);
+  });
+
   it('enforces the exact task/execution ownership tuple in PostgreSQL', async () => {
     const fixture = await createRootGraph();
     const unrelatedTask = await prisma!.agentSessionTask.create({
@@ -651,6 +713,13 @@ describe('Prisma Agent session-control transaction seams', () => {
       },
     });
 
+    const storageObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: artifactStorageReference(
+        TEST_ORGANIZATION_ID,
+        '44444444-4444-4444-8444-444444444444',
+      ),
+    });
     await expect(prisma!.agentSessionArtifact.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -658,7 +727,7 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: unrelatedTask.id,
         executionId: fixture.executionId,
         artifactType: 'report',
-        storageReference: 'artifact-store://reports/mismatched-task',
+        storageObjectId: storageObject.id,
         sha256: 'd'.repeat(64),
         metadata: {},
         idempotencyKey: 'artifact:mismatched-task:1',
@@ -1073,6 +1142,20 @@ describe('Prisma Agent session-control transaction seams', () => {
     const usageOccurredAt = new Date('2026-07-14T00:00:00.000Z');
     const sensitiveArtifactContent = 'never retain this artifact message or credential';
     const sensitiveUsageContent = 'never retain this usage model output';
+    const independentArtifactObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: artifactStorageReference(
+        TEST_ORGANIZATION_ID,
+        '55555555-5555-4555-8555-555555555555',
+      ),
+    });
+    const ordinaryArtifactObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: artifactStorageReference(
+        TEST_ORGANIZATION_ID,
+        '66666666-6666-4666-8666-666666666666',
+      ),
+    });
 
     await prisma!.agentSessionArtifact.create({
       data: {
@@ -1081,7 +1164,7 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: fixture.taskId,
         executionId: fixture.executionId,
         artifactType: 'regulatory_evidence',
-        storageReference: `vault://credential/${sensitiveArtifactContent}`,
+        storageObjectId: independentArtifactObject.id,
         sha256: '1'.repeat(64),
         metadata: { content: sensitiveArtifactContent },
         idempotencyKey: 'artifact:independent-legal-audit',
@@ -1098,7 +1181,7 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: fixture.taskId,
         executionId: fixture.executionId,
         artifactType: 'ordinary_output',
-        storageReference: 'vault://credential/ordinary',
+        storageObjectId: ordinaryArtifactObject.id,
         sha256: '2'.repeat(64),
         metadata: { content: 'ordinary artifact content' },
         idempotencyKey: 'artifact:ordinary-session-retention',
@@ -1205,32 +1288,21 @@ describe('Prisma Agent session-control transaction seams', () => {
     expect(retainedJson).not.toContain(sensitiveUsageContent);
     expect(retainedJson).not.toContain('1'.repeat(64));
     expect(retainedJson).not.toContain('vault://credential');
-    const erasureClaims = await prisma!.$queryRaw<Array<{
-      referenceHash: string;
-      dueAt: Date;
-      status: string;
-    }>>(Prisma.sql`
-      SELECT reference_hash AS "referenceHash", due_at AS "dueAt", status
-      FROM agent_session_artifact_erasure_claims
-      WHERE organization_id = ${TEST_ORGANIZATION_ID}::uuid
-      ORDER BY due_at ASC, reference_hash ASC
-    `);
-    expect(erasureClaims).toHaveLength(2);
-    expect(erasureClaims).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        referenceHash: createHash('sha256')
-          .update(`vault://credential/${sensitiveArtifactContent}`)
-          .digest('hex'),
-        dueAt: independentDueAt,
-        status: 'pending',
-      }),
-      expect.objectContaining({
-        referenceHash: createHash('sha256')
-          .update('vault://credential/ordinary')
-          .digest('hex'),
-        status: 'pending',
-      }),
-    ]));
+    await expect(prisma!.agentSessionArtifactObject.findUniqueOrThrow({
+      where: { id: independentArtifactObject.id },
+      select: { liveReferenceCount: true, erasureDueAt: true, storageReference: true },
+    })).resolves.toEqual({
+      liveReferenceCount: 0,
+      erasureDueAt: independentDueAt,
+      storageReference: independentArtifactObject.storageReference,
+    });
+    await expect(prisma!.agentSessionArtifactObject.findUniqueOrThrow({
+      where: { id: ordinaryArtifactObject.id },
+      select: { liveReferenceCount: true, erasureDueAt: true },
+    })).resolves.toEqual({
+      liveReferenceCount: 0,
+      erasureDueAt: expect.any(Date),
+    });
     await expect(prisma!.agentSessionArtifact.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
     })).resolves.toBe(0);
@@ -1248,6 +1320,13 @@ describe('Prisma Agent session-control transaction seams', () => {
   it('fails closed and rolls back deletion when an independent-audit classification is invalid', async () => {
     const fixture = await createRootGraph();
     const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const artifactObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: artifactStorageReference(
+        TEST_ORGANIZATION_ID,
+        '77777777-7777-4777-8777-777777777777',
+      ),
+    });
     await prisma!.agentSessionArtifact.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1255,7 +1334,7 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: fixture.taskId,
         executionId: fixture.executionId,
         artifactType: 'unvalidated_legal_audit',
-        storageReference: 'vault://credential/must-not-delete-on-invalid-basis',
+        storageObjectId: artifactObject.id,
         sha256: '3'.repeat(64),
         metadata: { content: 'canonical content must survive the rejected deletion' },
         idempotencyKey: 'artifact:invalid-independent-legal-audit',
@@ -1292,6 +1371,13 @@ describe('Prisma Agent session-control transaction seams', () => {
   it('fails closed when an independent legal-audit deadline has already expired at deletion', async () => {
     const fixture = await createRootGraph();
     const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const artifactObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: artifactStorageReference(
+        TEST_ORGANIZATION_ID,
+        '88888888-8888-4888-8888-888888888888',
+      ),
+    });
     await prisma!.agentSessionArtifact.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1299,7 +1385,7 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: fixture.taskId,
         executionId: fixture.executionId,
         artifactType: 'expired_legal_audit',
-        storageReference: 'https://storage.local/kiditem/agent-artifacts/expired-audit',
+        storageObjectId: artifactObject.id,
         sha256: '4'.repeat(64),
         metadata: {},
         idempotencyKey: 'artifact:expired-independent-legal-audit',
@@ -1322,8 +1408,16 @@ describe('Prisma Agent session-control transaction seams', () => {
     const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
     const first = await createRootGraph();
     const second = await createRootGraph();
-    const storageReference = 'https://storage.local/kiditem/agent-artifacts/shared-retained-object';
+    const storageReference = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      '99999999-9999-4999-8999-999999999999',
+    );
     const retentionDueAt = new Date('2033-08-13T00:00:00.000Z');
+    const storageObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference,
+      liveReferenceCount: 2,
+    });
     for (const fixture of [first, second]) {
       await prisma!.agentSessionArtifact.create({
         data: {
@@ -1332,7 +1426,7 @@ describe('Prisma Agent session-control transaction seams', () => {
           taskId: fixture.taskId,
           executionId: fixture.executionId,
           artifactType: 'shared_regulatory_evidence',
-          storageReference,
+          storageObjectId: storageObject.id,
           sha256: `shared-${fixture.sessionId}`,
           metadata: {},
           idempotencyKey: `artifact:shared-retained:${fixture.sessionId}`,
@@ -1348,54 +1442,278 @@ describe('Prisma Agent session-control transaction seams', () => {
       lifecycle.deleteSession(lifecycleDeleteInput(first.sessionId, 'shared-retained-first')),
       lifecycle.deleteSession(lifecycleDeleteInput(second.sessionId, 'shared-retained-second')),
     ])).resolves.toHaveLength(2);
-    await expect(prisma!.agentSessionArtifactErasureClaim.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        referenceHash: createHash('sha256').update(storageReference).digest('hex'),
-        dueAt: retentionDueAt,
-      },
-    })).resolves.toBe(1);
+    await expect(prisma!.agentSessionArtifactObject.findUniqueOrThrow({
+      where: { id: storageObject.id },
+      select: { liveReferenceCount: true, erasureDueAt: true },
+    })).resolves.toEqual({ liveReferenceCount: 0, erasureDueAt: retentionDueAt });
+    await expect(prisma!.agentSessionArtifactObjectRetentionHold.count({
+      where: { artifactObjectId: storageObject.id },
+    })).resolves.toBe(2);
   });
 
-  it('fails closed when an existing erasure-reference hash maps to different raw storage content', async () => {
+  it('fails closed when a physical-object hash maps to different raw storage content', async () => {
     const fixture = await createRootGraph();
-    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
-    const storageReference = 'https://storage.local/kiditem/agent-artifacts/expected-reference';
-    const independentDueAt = new Date('2033-08-13T00:00:00.000Z');
-    await prisma!.agentSessionArtifactErasureClaim.create({
+    const storageReference = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+    );
+    await prisma!.agentSessionArtifactObject.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        storageReference: 'https://storage.local/kiditem/agent-artifacts/collision-reference',
-        referenceHash: createHash('sha256').update(storageReference).digest('hex'),
-        dueAt: new Date('2034-08-13T00:00:00.000Z'),
-        availableAt: new Date('2034-08-13T00:00:00.000Z'),
-        status: 'pending',
+        storageReference: artifactStorageReference(
+          TEST_ORGANIZATION_ID,
+          'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        ),
+        referenceHash: artifactObjectReferenceHash(storageReference),
+        status: 'active',
+        liveReferenceCount: 0,
       },
     });
-    await prisma!.agentSessionArtifact.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sessionId: fixture.sessionId,
-        taskId: fixture.taskId,
-        executionId: fixture.executionId,
-        artifactType: 'collision_probe',
-        storageReference,
-        sha256: '6'.repeat(64),
-        metadata: {},
-        idempotencyKey: 'artifact:collision-probe',
-        retentionClass: 'independent_legal_audit',
-        independentLegalBasisCode: 'regulatory_inquiry',
-        independentRetentionDueAt: independentDueAt,
-      },
-    });
-    await markDueArchived(fixture.sessionId);
 
-    await expect(lifecycle.deleteSession(
-      lifecycleDeleteInput(fixture.sessionId, 'erasure-hash-collision'),
-    )).rejects.toMatchObject({ code: 'THREAD_ARTIFACT_ERASURE_HASH_COLLISION' });
-    await expect(prisma!.agentSession.findUnique({
-      where: { id: fixture.sessionId },
-    })).resolves.not.toBeNull();
+    await expect(repository.appendArtifact({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      artifactType: 'collision_probe',
+      storageReference,
+      sha256: '6'.repeat(64),
+      metadata: {},
+      idempotencyKey: 'artifact:collision-probe',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_ARTIFACT_REFERENCE_INVALID' });
+  });
+
+  it('rejects a concurrent append after the same physical artifact key enters erasing', async () => {
+    const source = await createRootGraph();
+    const target = await createRootGraph();
+    const storageReference = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      '33333333-3333-4333-8333-333333333333',
+    );
+    await repository.appendArtifact({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: source.sessionId,
+      taskId: source.taskId,
+      executionId: source.executionId,
+      artifactType: 'report',
+      storageReference,
+      sha256: '3'.repeat(64),
+      metadata: {},
+      idempotencyKey: 'artifact:erasing-source',
+    });
+    await markDueArchived(source.sessionId);
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    await lifecycle.deleteSession(lifecycleDeleteInput(source.sessionId, 'erasing-race'));
+
+    const maintenanceTransactions = new PrismaAgentSessionLifecycleMaintenanceTransaction(
+      prisma as never,
+    );
+    let beginErase!: () => void;
+    let finishErase!: () => void;
+    const erasing = new Promise<void>((resolve) => { beginErase = resolve; });
+    const finished = new Promise<void>((resolve) => { finishErase = resolve; });
+    const service = new AgentSessionLifecycleMaintenanceService(
+      maintenanceTransactions as never,
+      {
+        erase: async () => {
+          beginErase();
+          await finished;
+          return { outcome: 'erased' as const };
+        },
+      },
+    );
+    const drain = service.drain({ now: new Date('2035-08-21T00:00:00.000Z'), limit: 10 });
+    await erasing;
+
+    try {
+      await expect(repository.appendArtifact({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: target.sessionId,
+        taskId: target.taskId,
+        executionId: target.executionId,
+        artifactType: 'report',
+        storageReference,
+        sha256: '4'.repeat(64),
+        metadata: {},
+        idempotencyKey: 'artifact:erasing-target',
+      })).rejects.toMatchObject({ code: 'AGENT_SESSION_ARTIFACT_REFERENCE_ERASING' });
+    } finally {
+      finishErase();
+      await drain;
+    }
+  });
+
+  it('claims due terminal sessions while leaving legal holds unclaimed', async () => {
+    const due = await createRootGraph();
+    const held = await createRootGraph();
+    const maintenanceTransactions = new PrismaAgentSessionLifecycleMaintenanceTransaction(
+      prisma as never,
+    );
+    const now = new Date();
+    await prisma!.agentSession.updateMany({
+      where: { id: { in: [due.sessionId, held.sessionId] } },
+      data: {
+        lifecycle: 'completed',
+        completedAt: new Date('2026-08-13T00:00:00.000Z'),
+        retentionDueAt: now,
+      },
+    });
+    await prisma!.agentSession.update({
+      where: { id: held.sessionId },
+      data: {
+        legalHoldAt: new Date('2027-08-12T00:00:00.000Z'),
+        legalHoldReason: 'ongoing inquiry',
+      },
+    });
+
+    await expect(maintenanceTransactions.claimDueSessionDeletions({
+      now,
+      claimToken: crypto.randomUUID(),
+      leaseExpiredBefore: new Date('2027-08-12T23:55:00.000Z'),
+      limit: 10,
+    })).resolves.toEqual([
+      expect.objectContaining({
+        sessionId: due.sessionId,
+        organizationId: TEST_ORGANIZATION_ID,
+        retentionDueAt: now,
+      }),
+    ]);
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: held.sessionId },
+      select: { retentionDeleteClaimToken: true },
+    })).resolves.toEqual({ retentionDeleteClaimToken: null });
+  });
+
+  it('auto-deletes due terminal sessions with fenced crash recovery while skipping legal holds', async () => {
+    const due = await createRootGraph();
+    const crashed = await createRootGraph();
+    const held = await createRootGraph();
+    const maintenanceTransactions = new PrismaAgentSessionLifecycleMaintenanceTransaction(
+      prisma as never,
+    );
+    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
+    const now = new Date();
+    await prisma!.agentSession.updateMany({
+      where: { id: { in: [due.sessionId, crashed.sessionId, held.sessionId] } },
+      data: {
+        lifecycle: 'archived',
+        archivedAt: new Date(now.getTime() - 365 * 24 * 60 * 60 * 1000),
+        retentionDueAt: now,
+      },
+    });
+    await prisma!.agentSession.update({
+      where: { id: held.sessionId },
+      data: {
+        legalHoldAt: new Date(now.getTime() - 60_000),
+        legalHoldReason: 'preserve for inquiry',
+      },
+    });
+    await maintenanceTransactions.claimDueSessionDeletions({
+      now,
+      claimToken: crypto.randomUUID(),
+      leaseExpiredBefore: new Date(now.getTime() - 5 * 60 * 1000),
+      limit: 1,
+    });
+    const hasher = new HmacAgentSessionTombstoneHasher(
+      Buffer.alloc(32, 'lifecycle-test-key'),
+      'v1',
+    );
+    const createService = () => new AgentSessionLifecycleMaintenanceService(
+      maintenanceTransactions as never,
+      { erase: async () => ({ outcome: 'erased' as const }) },
+      lifecycle as never,
+      hasher,
+    );
+
+    const later = new Date(now.getTime() + 6 * 60 * 1000);
+    const results = await Promise.all([
+      createService().drain({ now: later, limit: 10 }),
+      createService().drain({ now: later, limit: 10 }),
+    ]);
+
+    expect(results.reduce((count, result) => count + result.deletedSessions, 0)).toBe(2);
+    await expect(prisma!.agentSession.count({
+      where: { id: { in: [due.sessionId, crashed.sessionId] } },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: held.sessionId },
+      select: { legalHoldAt: true, retentionDueAt: true },
+    })).resolves.toEqual({
+      legalHoldAt: expect.any(Date),
+      retentionDueAt: now,
+    });
+    await expect(prisma!.agentSessionTombstone.count({
+      where: { deletionReasonCode: 'retention_expired' },
+    })).resolves.toBe(2);
+  });
+
+  it('schedules organization removal through the locked policy without bypassing held or terminal retention', async () => {
+    const active = await createRootGraph();
+    const heldActive = await createRootGraph();
+    const terminal = await createRootGraph();
+    const terminalWithoutDueAt = await createRootGraph();
+    const maintenanceTransactions = new PrismaAgentSessionLifecycleMaintenanceTransaction(
+      prisma as never,
+    );
+    const now = new Date('2026-08-13T00:00:00.000Z');
+    const terminalDueAt = new Date('2030-08-13T00:00:00.000Z');
+    await prisma!.agentSession.update({
+      where: { id: heldActive.sessionId },
+      data: {
+        legalHoldAt: new Date('2026-08-12T00:00:00.000Z'),
+        legalHoldReason: 'hold remains in force',
+      },
+    });
+    await prisma!.agentSession.update({
+      where: { id: terminal.sessionId },
+      data: {
+        lifecycle: 'completed',
+        completedAt: new Date('2026-08-12T00:00:00.000Z'),
+        retentionDueAt: terminalDueAt,
+      },
+    });
+    await prisma!.agentSession.update({
+      where: { id: terminalWithoutDueAt.sessionId },
+      data: {
+        lifecycle: 'cancelled',
+        cancelledAt: new Date('2026-08-11T00:00:00.000Z'),
+        retentionDueAt: null,
+      },
+    });
+
+    await expect(maintenanceTransactions.scheduleOrganizationRemoval({
+      organizationId: TEST_ORGANIZATION_ID,
+      now,
+    })).resolves.toEqual({ archived: 2, terminal: 2, held: 1 });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: active.sessionId },
+      select: { lifecycle: true, retentionDueAt: true },
+    })).resolves.toEqual({
+      lifecycle: 'archived',
+      retentionDueAt: new Date('2027-08-13T00:00:00.000Z'),
+    });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: heldActive.sessionId },
+      select: { lifecycle: true, legalHoldAt: true, retentionDueAt: true },
+    })).resolves.toEqual({
+      lifecycle: 'archived',
+      legalHoldAt: expect.any(Date),
+      retentionDueAt: new Date('2027-08-13T00:00:00.000Z'),
+    });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: terminal.sessionId },
+      select: { lifecycle: true, retentionDueAt: true },
+    })).resolves.toEqual({ lifecycle: 'completed', retentionDueAt: terminalDueAt });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: terminalWithoutDueAt.sessionId },
+      select: { lifecycle: true, retentionDueAt: true },
+    })).resolves.toEqual({
+      lifecycle: 'cancelled',
+      retentionDueAt: new Date('2027-08-11T00:00:00.000Z'),
+    });
+    await expect(prisma!.organization.delete({
+      where: { id: TEST_ORGANIZATION_ID },
+    })).rejects.toMatchObject({ code: 'P2003' });
   });
 
   it('reclaims a crashed erasure lease, preserves a shared live reference, and expires due legal-audit projections', async () => {
@@ -1403,7 +1721,10 @@ describe('Prisma Agent session-control transaction seams', () => {
       prisma as never,
     );
     const now = new Date('2026-08-21T00:00:00.000Z');
-    const storageReference = 'https://storage.local/kiditem/agent-artifacts/due-object';
+    const storageReference = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+    );
     const objects = new Set([storageReference]);
     const eraser = {
       erase: async ({ storageReference: reference }: { storageReference: string }) => {
@@ -1415,16 +1736,12 @@ describe('Prisma Agent session-control transaction seams', () => {
       maintenanceTransactions as never,
       eraser,
     );
-    const referenceHash = createHash('sha256').update(storageReference).digest('hex');
-    const crashedClaim = await prisma!.agentSessionArtifactErasureClaim.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        storageReference,
-        referenceHash,
-        dueAt: new Date('2026-08-20T00:00:00.000Z'),
-        availableAt: new Date('2026-08-20T00:00:00.000Z'),
-        status: 'pending',
-      },
+    const referenceHash = artifactObjectReferenceHash(storageReference);
+    const crashedObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference,
+      liveReferenceCount: 0,
+      erasureDueAt: new Date('2026-08-20T00:00:00.000Z'),
     });
     await maintenanceTransactions.claimDueArtifactErasures({
       now: new Date('2026-08-20T00:01:00.000Z'),
@@ -1464,9 +1781,12 @@ describe('Prisma Agent session-control transaction seams', () => {
       expiredAuditProjections: 1,
     });
     expect(objects.has(storageReference)).toBe(false);
-    await expect(prisma!.agentSessionArtifactErasureClaim.findUnique({
-      where: { id: crashedClaim.id },
+    await expect(prisma!.agentSessionArtifactObject.findUnique({
+      where: { id: crashedObject.id },
     })).resolves.toBeNull();
+    await expect(prisma!.agentSessionArtifactObjectTombstone.findUnique({
+      where: { referenceHash },
+    })).resolves.not.toBeNull();
     await expect(prisma!.agentSessionLegalAuditProjection.findUnique({
       where: { id: dueProjection.id },
     })).resolves.toBeNull();
@@ -1475,6 +1795,16 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.not.toBeNull();
 
     const liveFixture = await createRootGraph();
+    const liveStorageReference = artifactStorageReference(
+      TEST_ORGANIZATION_ID,
+      'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+    );
+    const liveObject = await createArtifactObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      storageReference: liveStorageReference,
+      liveReferenceCount: 1,
+      erasureDueAt: new Date('2026-08-20T00:00:00.000Z'),
+    });
     await prisma!.agentSessionArtifact.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1482,41 +1812,41 @@ describe('Prisma Agent session-control transaction seams', () => {
         taskId: liveFixture.taskId,
         executionId: liveFixture.executionId,
         artifactType: 'live_shared',
-        storageReference,
+        storageObjectId: liveObject.id,
         sha256: '5'.repeat(64),
         metadata: {},
         idempotencyKey: 'artifact:live-shared-reference',
       },
     });
-    const sharedClaim = await prisma!.agentSessionArtifactErasureClaim.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        storageReference,
-        referenceHash,
-        dueAt: new Date('2026-08-20T00:00:00.000Z'),
-        availableAt: new Date('2026-08-20T00:00:00.000Z'),
-        status: 'pending',
-      },
-    });
-    objects.add(storageReference);
+    objects.add(liveStorageReference);
 
-    await expect(service.drain({ now, limit: 10 })).resolves.toMatchObject({ deferred: 1 });
-    expect(objects.has(storageReference)).toBe(true);
-    await expect(prisma!.agentSessionArtifactErasureClaim.findUniqueOrThrow({
-      where: { id: sharedClaim.id },
-      select: { status: true, storageReference: true },
-    })).resolves.toEqual({ status: 'deferred', storageReference });
+    await expect(service.drain({ now, limit: 10 })).resolves.toMatchObject({ erased: 0 });
+    expect(objects.has(liveStorageReference)).toBe(true);
+    await expect(prisma!.agentSessionArtifactObject.findUniqueOrThrow({
+      where: { id: liveObject.id },
+      select: { liveReferenceCount: true, status: true },
+    })).resolves.toEqual({ liveReferenceCount: 1, status: 'active' });
     await prisma!.agentSessionArtifact.deleteMany({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: liveFixture.sessionId },
+    });
+    await prisma!.agentSessionArtifactObject.update({
+      where: { id: liveObject.id },
+      data: {
+        liveReferenceCount: 0,
+        erasureDueAt: new Date('2026-08-21T00:00:00.000Z'),
+      },
     });
     await expect(service.drain({
       now: new Date('2026-08-21T00:06:00.000Z'),
       limit: 10,
     })).resolves.toMatchObject({ erased: 1 });
-    expect(objects.has(storageReference)).toBe(false);
+    expect(objects.has(liveStorageReference)).toBe(false);
 
     const erasedOrganizationId = crypto.randomUUID();
-    const erasedReference = 'https://storage.local/kiditem/agent-artifacts/org-removal-erased';
+    const erasedReference = artifactStorageReference(
+      erasedOrganizationId,
+      'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+    );
     await prisma!.organization.create({
       data: {
         id: erasedOrganizationId,
@@ -1524,19 +1854,15 @@ describe('Prisma Agent session-control transaction seams', () => {
         slug: `erased-claim-owner-${erasedOrganizationId}`,
       },
     });
-    await prisma!.agentSessionArtifactErasureClaim.create({
-      data: {
-        organizationId: erasedOrganizationId,
-        storageReference: erasedReference,
-        referenceHash: createHash('sha256').update(erasedReference).digest('hex'),
-        dueAt: new Date('2026-08-20T00:00:00.000Z'),
-        availableAt: new Date('2026-08-20T00:00:00.000Z'),
-        status: 'pending',
-      },
+    await createArtifactObject({
+      organizationId: erasedOrganizationId,
+      storageReference: erasedReference,
+      liveReferenceCount: 0,
+      erasureDueAt: new Date('2026-08-20T00:00:00.000Z'),
     });
     objects.add(erasedReference);
     await service.drain({ now, limit: 10 });
-    await expect(prisma!.agentSessionArtifactErasureClaim.count({
+    await expect(prisma!.agentSessionArtifactObject.count({
       where: { organizationId: erasedOrganizationId },
     })).resolves.toBe(0);
     await expect(prisma!.organization.delete({
@@ -1544,7 +1870,10 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.toBeDefined();
 
     const protectedOrganizationId = crypto.randomUUID();
-    const protectedReference = 'https://storage.local/kiditem/agent-artifacts/org-removal-pending';
+    const protectedReference = artifactStorageReference(
+      protectedOrganizationId,
+      'ffffffff-ffff-4fff-8fff-ffffffffffff',
+    );
     await prisma!.organization.create({
       data: {
         id: protectedOrganizationId,
@@ -1552,21 +1881,17 @@ describe('Prisma Agent session-control transaction seams', () => {
         slug: `pending-claim-owner-${protectedOrganizationId}`,
       },
     });
-    const protectedClaim = await prisma!.agentSessionArtifactErasureClaim.create({
-      data: {
-        organizationId: protectedOrganizationId,
-        storageReference: protectedReference,
-        referenceHash: createHash('sha256').update(protectedReference).digest('hex'),
-        dueAt: new Date('2033-08-13T00:00:00.000Z'),
-        availableAt: new Date('2033-08-13T00:00:00.000Z'),
-        status: 'pending',
-      },
+    const protectedObject = await createArtifactObject({
+      organizationId: protectedOrganizationId,
+      storageReference: protectedReference,
+      liveReferenceCount: 0,
+      erasureDueAt: new Date('2033-08-13T00:00:00.000Z'),
     });
     await expect(prisma!.organization.delete({
       where: { id: protectedOrganizationId },
     })).rejects.toMatchObject({ code: 'P2003' });
-    await prisma!.agentSessionArtifactErasureClaim.delete({
-      where: { id: protectedClaim.id },
+    await prisma!.agentSessionArtifactObject.delete({
+      where: { id: protectedObject.id },
     });
     await prisma!.organization.delete({ where: { id: protectedOrganizationId } });
   });
@@ -1789,26 +2114,33 @@ async function seedControlFixture(client: PrismaClient): Promise<void> {
   });
 }
 
-async function createRootGraph(): Promise<{
+async function createRootGraph(input: {
+  organizationId?: string;
+  userId?: string;
+  authorityProfileVersionId?: string;
+} = {}): Promise<{
   sessionId: string;
   taskId: string;
   policyId: string;
   executionId: string;
 }> {
   if (!prisma) throw new Error('Prisma test client was not initialized');
+  const organizationId = input.organizationId ?? TEST_ORGANIZATION_ID;
+  const userId = input.userId ?? TEST_USER_ID;
+  const authorityProfileVersionId = input.authorityProfileVersionId ?? AUTHORITY_VERSION;
   const session = await prisma.agentSession.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      createdByUserId: TEST_USER_ID,
+      organizationId,
+      createdByUserId: userId,
       copilotThreadId: `control-${crypto.randomUUID()}`,
       primaryAgentVersionId: VERSION_FROM,
-      authorityProfileVersionId: AUTHORITY_VERSION,
+      authorityProfileVersionId,
       lifecycle: 'active',
     },
   });
   const task = await prisma.agentSessionTask.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
       assignedAgentVersionId: VERSION_FROM,
       isRoot: true,
@@ -1818,10 +2150,10 @@ async function createRootGraph(): Promise<{
   });
   const policy = await prisma.agentPolicySnapshot.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
       agentVersionId: VERSION_FROM,
-      authorityProfileVersionId: AUTHORITY_VERSION,
+      authorityProfileVersionId,
       capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
       policyHash: '5'.repeat(64),
     },
@@ -1838,7 +2170,7 @@ async function createRootGraph(): Promise<{
   const currentInput = { userEvent };
   const execution = await prisma.agentExecution.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
       sessionTaskId: task.id,
       copilotThreadId: session.copilotThreadId,
@@ -1857,7 +2189,7 @@ async function createRootGraph(): Promise<{
   });
   await prisma.agentConversationEvent.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
       executionId: execution.id,
       externalEventId: userEvent.externalEventId,
@@ -1872,6 +2204,35 @@ async function createRootGraph(): Promise<{
     data: { lastEventSequence: 1n },
   });
   return { sessionId: session.id, taskId: task.id, policyId: policy.id, executionId: execution.id };
+}
+
+function artifactStorageReference(organizationId: string, objectId: string): string {
+  return `agent-artifacts/${organizationId}/${objectId}`;
+}
+
+function artifactObjectReferenceHash(storageReference: string): string {
+  return createHash('sha256')
+    .update(`agent-session-artifact-object\u0000${storageReference}`)
+    .digest('hex');
+}
+
+async function createArtifactObject(input: {
+  organizationId: string;
+  storageReference: string;
+  liveReferenceCount?: number;
+  erasureDueAt?: Date | null;
+  status?: string;
+}) {
+  return prisma!.agentSessionArtifactObject.create({
+    data: {
+      organizationId: input.organizationId,
+      storageReference: input.storageReference,
+      referenceHash: artifactObjectReferenceHash(input.storageReference),
+      status: input.status ?? 'active',
+      liveReferenceCount: input.liveReferenceCount ?? 1,
+      erasureDueAt: input.erasureDueAt ?? null,
+    },
+  });
 }
 
 function canonicalJson(value: unknown): string {

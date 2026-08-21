@@ -4,8 +4,12 @@ export const AGENT_SESSION_ARTIFACT_ERASER = Symbol(
 
 export type AgentSessionArtifactEraseResult =
   | { outcome: "erased" }
-  | { outcome: "retry"; errorCode: "unsupported_reference" | "storage_delete_failed" };
+  | { outcome: "retry"; errorCode: "storage_delete_failed" }
+  | { outcome: "quarantined"; errorCode: "invalid_reference" };
 
 export interface AgentSessionArtifactEraserPort {
-  erase(input: { storageReference: string }): Promise<AgentSessionArtifactEraseResult>;
+  erase(input: {
+    organizationId: string;
+    storageReference: string;
+  }): Promise<AgentSessionArtifactEraseResult>;
 }

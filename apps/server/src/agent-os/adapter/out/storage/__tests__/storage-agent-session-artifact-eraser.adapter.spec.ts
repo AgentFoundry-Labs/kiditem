@@ -3,13 +3,10 @@ import { StorageAgentSessionArtifactEraser } from "../storage-agent-session-arti
 
 describe("StorageAgentSessionArtifactEraser", () => {
   it("erases an owned storage object without exposing its reference in the result", async () => {
-    const objects = new Set(["agent-artifacts/due-object"]);
+    const organizationId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
+    const storageReference = `agent-artifacts/${organizationId}/11111111-1111-4111-8111-111111111111`;
+    const objects = new Set([storageReference]);
     const storage = {
-      extractKey: vi.fn((reference: string) =>
-        reference === "https://storage.local/kiditem/agent-artifacts/due-object"
-          ? "agent-artifacts/due-object"
-          : null,
-      ),
       delete: vi.fn(async (key: string) => {
         objects.delete(key);
       }),
@@ -17,35 +14,23 @@ describe("StorageAgentSessionArtifactEraser", () => {
     const eraser = new StorageAgentSessionArtifactEraser(storage as never);
 
     await expect(eraser.erase({
-      storageReference: "https://storage.local/kiditem/agent-artifacts/due-object",
+      organizationId,
+      storageReference,
     })).resolves.toEqual({ outcome: "erased" });
-    expect(objects.has("agent-artifacts/due-object")).toBe(false);
-    expect(storage.delete).toHaveBeenCalledWith("agent-artifacts/due-object");
+    expect(objects.has(storageReference)).toBe(false);
+    expect(storage.delete).toHaveBeenCalledWith(storageReference);
   });
 
-  it("fails safely without deleting an unowned reference", async () => {
+  it("quarantines malformed persisted state without deleting a storage object", async () => {
     const storage = {
-      extractKey: vi.fn(() => null),
       delete: vi.fn(),
     };
     const eraser = new StorageAgentSessionArtifactEraser(storage as never);
 
     await expect(eraser.erase({
+      organizationId: "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d",
       storageReference: "vault://unowned/credential",
-    })).resolves.toEqual({ outcome: "retry", errorCode: "unsupported_reference" });
-    expect(storage.delete).not.toHaveBeenCalled();
-  });
-
-  it("rejects a non-AgentOS key even when it belongs to the configured bucket", async () => {
-    const storage = {
-      extractKey: vi.fn(() => "inventory/private-product-source"),
-      delete: vi.fn(),
-    };
-    const eraser = new StorageAgentSessionArtifactEraser(storage as never);
-
-    await expect(eraser.erase({
-      storageReference: "https://storage.local/kiditem/inventory/private-product-source",
-    })).resolves.toEqual({ outcome: "retry", errorCode: "unsupported_reference" });
+    })).resolves.toEqual({ outcome: "quarantined", errorCode: "invalid_reference" });
     expect(storage.delete).not.toHaveBeenCalled();
   });
 });

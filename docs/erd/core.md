@@ -387,7 +387,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentRunRequest |
 | Organization | organization | referenced by external | AgentOS | AgentRuntimeState |
 | Organization | organization | referenced by external | AgentOS | AgentSession |
-| Organization | organization | referenced by external | AgentOS | AgentSessionArtifactErasureClaim |
+| Organization | organization | referenced by external | AgentOS | AgentSessionArtifactObject |
 | Organization | organization | referenced by external | AgentOS | AgentSessionLegalAuditProjection |
 | Organization | organization | referenced by external | AgentOS | AgentSessionLifecycleRequest |
 | Organization | organization | referenced by external | AgentOS | AgentTaskSession |

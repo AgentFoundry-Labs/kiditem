@@ -57,5 +57,6 @@ export interface AgentSessionLifecycleTransactionPort {
       idempotencyKeyHash: AgentSessionTombstoneHash;
       requestFingerprintHash: AgentSessionTombstoneHash;
     };
+    systemRetention?: { claimToken: string };
   }): Promise<AgentSessionLifecycleTombstoneRecord>;
 }

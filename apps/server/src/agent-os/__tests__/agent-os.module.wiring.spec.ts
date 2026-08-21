@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import "reflect-metadata";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { Test } from "@nestjs/testing";
 import { EventEmitterModule } from "@nestjs/event-emitter";
 import { MODULE_METADATA } from "@nestjs/common/constants";
@@ -193,6 +193,15 @@ describe("Agent OS process-root wiring", () => {
     process.env.INTERACTION_LIFECYCLE_HMAC_KEY = "f".repeat(32);
     process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
 
+    const drain = vi.fn().mockResolvedValue({
+      erased: 0,
+      deferred: 0,
+      retried: 0,
+      quarantined: 0,
+      deletedSessions: 0,
+      retentionRetried: 0,
+      expiredAuditProjections: 0,
+    });
     const moduleRef = await Test.createTestingModule({
       imports: [EventEmitterModule.forRoot(), AgentOsHttpModule],
     })
@@ -200,8 +209,12 @@ describe("Agent OS process-root wiring", () => {
       .useValue({})
       .overrideProvider(StorageService)
       .useValue({ extractKey: () => null, delete: async () => undefined })
+      .overrideProvider(AgentInlineRunReconciler)
+      .useValue({ onModuleInit: async () => undefined })
+      .overrideProvider(AgentRuntimeCatalogStartupValidator)
+      .useValue({ onApplicationBootstrap: async () => undefined })
       .overrideProvider(AGENT_SESSION_LIFECYCLE_MAINTENANCE_PORT)
-      .useValue({ drain: async () => ({ erased: 0, deferred: 0, retried: 0, expiredAuditProjections: 0 }) })
+      .useValue({ drain })
       .compile();
 
     expect(moduleRef.get(AgentInteractionBootstrapController)).toBeDefined();
@@ -213,6 +226,13 @@ describe("Agent OS process-root wiring", () => {
     expect(moduleRef.get(AGENT_AGUI_PRODUCER_PORT)).toBe(
       moduleRef.get(AgentAguiProducerCoordinator),
     );
+    const maintenanceProcessor = moduleRef.get(
+      AgentSessionLifecycleMaintenanceProcessor,
+    );
+    maintenanceProcessor.onModuleInit();
+    await Promise.resolve();
+    expect(drain).toHaveBeenCalledOnce();
+    await maintenanceProcessor.onModuleDestroy();
     await moduleRef.close();
   });
 

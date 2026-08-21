@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 38 |
+| [AgentOS](erd/agentos.md) | 40 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
@@ -70,7 +70,9 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentSessionApproval | AgentOS | `agent_session_approvals` | Invocation-scoped human approval request and immutable terminal decision identity, bound to the exact OperationRun envelope that requested it. |
 | AgentSessionApprovalContinuation | AgentOS | `agent_session_approval_continuations` | Durable approval-continuation outbox. It records successor-envelope creation and exact idempotent runtime interrupt delivery separately. |
 | AgentSessionArtifact | AgentOS | `agent_session_artifacts` | Immutable content-addressed artifact reference owned by one durable session task and execution. |
-| AgentSessionArtifactErasureClaim | AgentOS | `agent_session_artifact_erasure_claims` | Durable, organization-fenced storage-erasure claim. The raw reference is cleared after terminal handling and never leaves the eraser boundary. |
+| AgentSessionArtifactObject | AgentOS | `agent_session_artifact_objects` | One durable, organization-fenced owner for an immutable physical AgentOS artifact key. Raw storage text exists only while the object remains actionable. |
+| AgentSessionArtifactObjectRetentionHold | AgentOS | `agent_session_artifact_object_retention_holds` | Content-free independent-retention hold for one physical artifact object after canonical session rows are deleted. |
+| AgentSessionArtifactObjectTombstone | AgentOS | `agent_session_artifact_object_tombstones` | Hash-only terminal receipt which prevents immutable physical artifact-key reuse after successful erasure. |
 | AgentSessionLegalAuditProjection | AgentOS | `agent_session_legal_audit_projections` | Content-free, organization-fenced record retained only when an explicit independent legal-audit basis outlives a deleted interaction session. |
 | AgentSessionLifecycleRequest | AgentOS | `agent_session_lifecycle_requests` | Scoped lifecycle idempotency record retained only while its canonical AgentSession exists. |
 | AgentSessionTask | AgentOS | `agent_session_tasks` | Root or delegated task control state owned by one canonical interaction session. |
@@ -657,6 +659,8 @@ erDiagram
     DateTime legalHoldAt
     String legalHoldReason
     DateTime retentionDueAt
+    String retentionDeleteClaimToken
+    DateTime retentionDeleteClaimedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -698,7 +702,7 @@ erDiagram
     String taskId FK
     String executionId FK
     String artifactType
-    String storageReference
+    String storageObjectId FK
     String sha256
     Json metadata
     String lifecycle
@@ -709,20 +713,33 @@ erDiagram
     String independentLegalBasisCode
     DateTime independentRetentionDueAt
   }
-  AgentSessionArtifactErasureClaim {
+  AgentSessionArtifactObject {
     String id PK
     String organizationId FK
     String storageReference
-    String referenceHash
-    DateTime dueAt
+    String referenceHash UK
     String status
-    DateTime availableAt
+    Int liveReferenceCount
+    DateTime erasureDueAt
     String claimToken
     DateTime claimedAt
     Int attemptCount
     String lastErrorCode
     DateTime createdAt
     DateTime updatedAt
+  }
+  AgentSessionArtifactObjectRetentionHold {
+    String id PK
+    String artifactObjectId FK
+    String legalBasisCode
+    DateTime retentionDueAt
+    DateTime createdAt
+  }
+  AgentSessionArtifactObjectTombstone {
+    String id PK
+    String referenceHash UK
+    DateTime erasedAt
+    DateTime createdAt
   }
   AgentSessionLegalAuditProjection {
     String id PK
@@ -3334,6 +3351,8 @@ erDiagram
   AgentSession ||--o{ AgentSessionTask : "session"
   AgentSession ||--o{ AgentSessionTaskDelegation : "session"
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
+  AgentSessionArtifactObject ||--o{ AgentSessionArtifact : "storageObject"
+  AgentSessionArtifactObject ||--o{ AgentSessionArtifactObjectRetentionHold : "artifactObject"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
@@ -3470,7 +3489,7 @@ erDiagram
   Organization ||--o{ AgentRunRequest : "organization"
   Organization ||--o{ AgentRuntimeState : "organization"
   Organization ||--o{ AgentSession : "organization"
-  Organization ||--o{ AgentSessionArtifactErasureClaim : "organization"
+  Organization ||--o{ AgentSessionArtifactObject : "organization"
   Organization ||--o{ AgentSessionLegalAuditProjection : "organization"
   Organization ||--o{ AgentSessionLifecycleRequest : "organization"
   Organization ||--o{ AgentTaskSession : "organization"

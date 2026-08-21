@@ -267,11 +267,25 @@ The projection retains only strict record-kind scalar facts (usage tokens,
 cost, currency, and source occurrence time; artifact occurrence time only),
 has a global due index and API-lifecycle bounded SKIP-LOCKED expiry processor,
 and cascades on organization removal. Artifact storage references are never
-projected: physical deletion creates an organization-fenced erasure claim with
-the raw reference held only while pending/deferred work needs it and a separate
-reference hash for coordination. The API-only eraser validates owned storage
-references, retries failures, defers live or later-retained shared references,
-and removes a successful claim so it cannot block organization deletion.
+projected: a single organization-fenced physical-object owner carries a strict,
+immutable `agent-artifacts/<organization UUID>/<object UUID>` reference only
+while it is active or being erased, plus a global deterministic reference hash
+for locking and coordination. Appends increment its active live-reference
+count; deletion decrements it and adds any independently retained legal hold.
+The API-only eraser may transition only a zero-live, non-held object to an
+erasure lease, validates the organization-partitioned key again before storage
+deletion, clears/removes the raw reference after success, and leaves only a
+hash-only erased receipt to prevent reuse. Invalid references fail before any
+canonical artifact/session mutation; corrupt persisted state is quarantined
+without an erase retry. Due terminal, non-held sessions are also boundedly
+claimed by the API lifecycle processor and execute the same fenced tombstone
+delete with deterministic system-retention idempotency; expired leases retry.
+Organization removal is explicitly scheduled under its locked policy: active
+sessions are archived at one captured time, existing terminal deadlines are
+preserved, and any terminal row missing a deadline is projected from its
+terminal timestamp (or that captured time) under the same policy. Legal holds
+remain intact, so direct organization deletion stays restricted until the
+lifecycle drains rather than bypassing the 365-day policy.
 
 - [ ] **Step 5: Implement the lifecycle repository transaction**
 
