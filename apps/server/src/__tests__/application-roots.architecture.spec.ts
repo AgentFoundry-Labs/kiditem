@@ -37,7 +37,10 @@ import { MarketShadowSnapshotRepositoryAdapter } from '../sourcing/adapter/out/r
 import { AiDirectJobWorkerService } from '../ai/application/service/ai-direct-job-worker.service';
 import { AI_DIRECT_JOB_WAKE_PORT } from '../ai/application/port/out/runtime';
 import { AgentSessionDeletionController } from '../agent-os/adapter/in/http/session-control/agent-session-deletion.controller';
+import { AgentSessionDeletionOperationHandler } from '../agent-os/adapter/in/operation/agent-session-deletion.operation-handler';
 import { AgentSessionDeletionService } from '../agent-os/application/service/session-control/agent-session-deletion.service';
+import { AgentSessionDeletionFinalizerRecoveryService } from '../agent-os/application/service/session-control/agent-session-deletion-finalizer-recovery.service';
+import { AgentSessionDeletionRecoveryService } from '../agent-os/application/service/session-control/agent-session-deletion-recovery.service';
 import { PrismaAgentSessionDeletionCommandTransaction } from '../agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction';
 import { PrismaAgentSessionDeletionQueryRepository } from '../agent-os/adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
@@ -146,22 +149,30 @@ describe('application root topology', () => {
     expect(hasGlobalGuard(AgentMcpApplicationModule)).toBe(false);
   });
 
-  it('keeps the unbound AgentSession deletion-control surface out of API, worker, and MCP roots', () => {
+  it('composes AgentSession deletion execution only in the API root', () => {
     const deletionSurface = [
       AgentSessionDeletionController,
       AgentSessionDeletionService,
       PrismaAgentSessionDeletionCommandTransaction,
       PrismaAgentSessionDeletionQueryRepository,
+      AgentSessionDeletionOperationHandler,
+      AgentSessionDeletionFinalizerRecoveryService,
+      AgentSessionDeletionRecoveryService,
     ];
-    for (const root of [
-      ApiApplicationModule,
-      AgentWorkerApplicationModule,
-      AgentMcpApplicationModule,
-    ]) {
+    expect(controllers(ApiApplicationModule)).toContain(
+      AgentSessionDeletionController,
+    );
+    expect(providers(ApiApplicationModule)).toEqual(
+      expect.arrayContaining(deletionSurface.slice(1)),
+    );
+    expect(providers(ApiApplicationModule)).toContain(OperationRunWorkerService);
+
+    for (const root of [AgentWorkerApplicationModule, AgentMcpApplicationModule]) {
       expect(controllers(root)).not.toContain(AgentSessionDeletionController);
       expect(providers(root)).not.toEqual(
         expect.arrayContaining(deletionSurface),
       );
+      expect(providers(root)).not.toContain(OperationRunWorkerService);
     }
   });
 

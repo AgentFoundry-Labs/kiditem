@@ -1,6 +1,8 @@
 import {
   Controller,
+  ConflictException,
   Delete,
+  ForbiddenException,
   Get,
   HttpStatus,
   Inject,
@@ -17,6 +19,7 @@ import {
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../../auth/auth.types';
+import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import {
   AGENT_SESSION_DELETION_PORT,
   type AgentSessionDeletionPort,
@@ -60,10 +63,23 @@ export class AgentSessionDeletionController {
     @Param('sessionId') sessionId: string,
     @Res({ passthrough: true }) response: Response,
   ) {
-    const result = await this.deletion.retry(deletionScope(organizationId, user, sessionId));
+    const result = await this.deletion.retry(deletionScope(organizationId, user, sessionId))
+      .catch(rethrowRetryHttpError);
     response.status(result ? HttpStatus.ACCEPTED : HttpStatus.NO_CONTENT);
     return result ?? undefined;
   }
+}
+
+function rethrowRetryHttpError(error: unknown): never {
+  if (error instanceof AgentOsRuntimeError) {
+    if (error.code === 'DELETION_RETRY_ADMIN_REQUIRED') {
+      throw new ForbiddenException({ code: error.code });
+    }
+    if (error.code === 'DELETION_RETRY_STATE_INVALID') {
+      throw new ConflictException({ code: error.code });
+    }
+  }
+  throw error;
 }
 
 function deletionScope(organizationId: string, user: AuthUser, sessionId: string) {

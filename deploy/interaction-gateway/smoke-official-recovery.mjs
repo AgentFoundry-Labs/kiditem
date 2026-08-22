@@ -37,6 +37,7 @@ run([
   '--',
   'playwright',
   'test',
+  'apps/web/e2e/agent-session-interaction.spec.ts',
   'apps/web/e2e/interaction-os/durable-session.spec.ts',
 ], { KIDITEM_E2E_SKIP_WEB_BUILD: '1' });
 

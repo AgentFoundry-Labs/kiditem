@@ -2,6 +2,7 @@ import { ConflictException, ForbiddenException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { Response } from 'express';
 import type { AuthUser } from '../../../../../auth/auth.types';
+import { AgentOsRuntimeError } from '../../../../../domain/agent-os.errors';
 import { AgentSessionDeletionController } from '../agent-session-deletion.controller';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000010';
@@ -102,5 +103,23 @@ describe('AgentSessionDeletionController', () => {
       actorUserId: user('creator').id,
       session: `organizations/${ORGANIZATION_ID}/agentSessions/${SESSION_ID}`,
     });
+  });
+
+  it('maps the retry policy denial to a forbidden HTTP response', async () => {
+    const deletion = {
+      request: vi.fn(),
+      status: vi.fn(),
+      retry: vi.fn().mockRejectedValue(new AgentOsRuntimeError(
+        'DELETION_RETRY_ADMIN_REQUIRED',
+        'Only an organization owner or administrator can retry session deletion.',
+      )),
+    };
+    const controller = new AgentSessionDeletionController(deletion as never);
+
+    await expect(controller.retry(ORGANIZATION_ID, user('creator'), SESSION_ID, response()))
+      .rejects.toMatchObject({
+        status: 403,
+        response: { code: 'DELETION_RETRY_ADMIN_REQUIRED' },
+      });
   });
 });

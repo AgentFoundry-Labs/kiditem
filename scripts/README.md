@@ -46,6 +46,7 @@ npm run test:scripts
 | `scripts/safe-prisma-db-push.mjs` | local `db:push` wrapper that blocks whole-schema `--force-reset`; the guarded production rebuild workflow keeps its direct Prisma entrypoint | `npm run db:push` |
 | `scripts/seed-agent-os.ts` | local/dev Agent OS runtime seed wrapper | `npm run seed:agent-os` |
 | `scripts/seed-order-collection-mall-accounts.ts` | confirmation-gated, organization-scoped order-collection mall credential seed; encrypts complete `ID/PW/URL` triples into `ChannelAccount` and never creates a runtime env fallback | `npm run seed:order-collection-malls`, `docs/runbooks/environment-variables.md` |
+| `scripts/verify-agent-session-deletion-process-roots.mjs` | bounded disposable-PostgreSQL process-root proof for API/worker/MCP deletion ownership; owns and removes only its recorded container, PIDs, and listeners | `node scripts/verify-agent-session-deletion-process-roots.mjs` |
 
 ## Support Files
 

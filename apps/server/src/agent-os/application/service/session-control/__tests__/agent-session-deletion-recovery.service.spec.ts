@@ -125,4 +125,40 @@ describe('AgentSession deletion recovery', () => {
 
     expect(order).toEqual(['finalizers', 'deletions']);
   });
+
+  it('registers both bounded recovery hooks once with the API lifecycle registry', async () => {
+    const finalization = {
+      listGraphDeletedFinalizers: vi.fn().mockResolvedValue([]),
+      listInterruptedDeletions: vi.fn().mockResolvedValue([]),
+      purgeGraphDeletedLineage: vi.fn(),
+      continueInterruptedDeletion: vi.fn(),
+    };
+    const registry = { register: vi.fn() };
+    const finalizers = Reflect.construct(
+      AgentSessionDeletionFinalizerRecoveryService,
+      [finalization, registry],
+    ) as { onModuleInit(): void };
+    const deletions = Reflect.construct(AgentSessionDeletionRecoveryService, [
+      finalization,
+      registry,
+    ]) as { onModuleInit(): void };
+
+    finalizers.onModuleInit();
+    deletions.onModuleInit();
+
+    expect(registry.register).toHaveBeenNthCalledWith(1, {
+      key: 'agent-session-deletion-finalizers',
+      priority: 10,
+      run: expect.any(Function),
+    });
+    expect(registry.register).toHaveBeenNthCalledWith(2, {
+      key: 'agent-session-deletions',
+      priority: 20,
+      run: expect.any(Function),
+    });
+    await registry.register.mock.calls[0][0].run(signal);
+    await registry.register.mock.calls[1][0].run(signal);
+    expect(finalization.listGraphDeletedFinalizers).toHaveBeenCalledOnce();
+    expect(finalization.listInterruptedDeletions).toHaveBeenCalledOnce();
+  });
 });

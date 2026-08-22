@@ -24,6 +24,7 @@ import { AgentInteractionBootstrapController } from "../adapter/in/http/interact
 import { AGENT_SESSION_ARTIFACT_WRITER_PORT } from "../application/port/in/session-execution/agent-session-artifact-writer.port";
 import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from "../application/port/in/session-execution/agent-runtime-credential-verification.port";
 import { AGENT_SESSION_DELETION_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-deletion-execution.port";
+import { AGENT_SESSION_DELETION_PORT } from "../application/port/in/session-control/agent-session-deletion.port";
 import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "../application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port";
 import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "../application/port/out/runtime/agent-session-runtime-cleanup.port";
 import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
@@ -63,6 +64,14 @@ import { AgentAguiProducerCoordinator } from "../application/service/agent-agui-
 import { AgentOsApiExecutionModule } from "../agent-os-api-execution.module";
 import { AgentOsHttpModule } from "../agent-os-http.module";
 import { AgentOsSessionModule } from "../agent-os-session.module";
+import { AgentSessionDeletionController } from "../adapter/in/http/session-control/agent-session-deletion.controller";
+import { AgentSessionDeletionOperationHandler } from "../adapter/in/operation/agent-session-deletion.operation-handler";
+import { AgentSessionDeletionService } from "../application/service/session-control/agent-session-deletion.service";
+import { AgentSessionDeletionFinalizerRecoveryService } from "../application/service/session-control/agent-session-deletion-finalizer-recovery.service";
+import { AgentSessionDeletionRecoveryService } from "../application/service/session-control/agent-session-deletion-recovery.service";
+import { PrismaAgentSessionDeletionCommandTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction";
+import { PrismaAgentSessionDeletionFinalizationTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction";
+import { PrismaAgentSessionDeletionQueryRepository } from "../adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository";
 import { RuntimeCredentialBroker } from "../adapter/out/runtime/runtime-credential-broker";
 import { AgentRuntimeCredentialVerificationService } from "../application/service/session-execution/agent-runtime-credential-verification.service";
 import { PrismaAguiRuntimeCleanupDependencies } from "../adapter/out/runtime/prisma-agui-runtime-cleanup-dependencies";
@@ -233,16 +242,43 @@ describe("Agent OS artifact materialization composition", () => {
       AGENT_SESSION_OWNED_OPERATION_PORT,
       AGENT_SESSION_ARTIFACT_WRITER_PORT,
       AGENT_SESSION_DELETION_EXECUTION_PORT,
+      AGENT_SESSION_DELETION_PORT,
     ]);
     expect(imports(AgentOsHttpModule)).toContain(AgentOsApiExecutionModule);
   });
 
-  it("composes neither lifecycle nor deletion HTTP controllers before the live cutover", () => {
+  it("composes the deletion HTTP controller only in the API HTTP wrapper", () => {
     const names = controllers(AgentOsHttpModule).map(
       (item: { name?: string }) => item.name,
     );
     expect(names).not.toContain("AgentInteractionSessionLifecycleController");
-    expect(names).not.toContain("AgentSessionDeletionController");
+    expect(names).toContain("AgentSessionDeletionController");
+    expect(controllers(AgentOsSessionModule)).not.toContain(
+      AgentSessionDeletionController,
+    );
+  });
+
+  it("registers one deletion handler and both recovery hooks only in API execution composition", () => {
+    const apiProviders = providers(AgentOsApiExecutionModule);
+    expect(apiProviders).toEqual(expect.arrayContaining([
+      AgentSessionDeletionService,
+      PrismaAgentSessionDeletionCommandTransaction,
+      PrismaAgentSessionDeletionQueryRepository,
+      PrismaAgentSessionDeletionFinalizationTransaction,
+      AgentSessionDeletionOperationHandler,
+      AgentSessionDeletionFinalizerRecoveryService,
+      AgentSessionDeletionRecoveryService,
+    ]));
+    const sessionProviders = providers(AgentOsSessionModule);
+    for (const provider of [
+      AgentSessionDeletionService,
+      PrismaAgentSessionDeletionCommandTransaction,
+      PrismaAgentSessionDeletionQueryRepository,
+      PrismaAgentSessionDeletionFinalizationTransaction,
+      AgentSessionDeletionOperationHandler,
+      AgentSessionDeletionFinalizerRecoveryService,
+      AgentSessionDeletionRecoveryService,
+    ]) expect(sessionProviders).not.toContain(provider);
   });
 
   it("keeps the public facade controller-free and focused on catalog, capability, and session ownership", () => {
@@ -311,9 +347,8 @@ describe("Agent OS artifact materialization composition", () => {
     );
   });
 
-  it("removes lifecycle key, maintenance, controller, and deletion-route composition from active roots", () => {
+  it("removes lifecycle key and maintenance composition from controller-free roots", () => {
     for (const path of [
-      resolve(__dirname, "..", "agent-os-http.module.ts"),
       resolve(__dirname, "..", "agent-os-api-execution.module.ts"),
       resolve(__dirname, "..", "agent-os-session.module.ts"),
     ]) {

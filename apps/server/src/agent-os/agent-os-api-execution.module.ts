@@ -10,9 +10,22 @@ import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from './application/port/out/op
 import { AgentSessionOwnedOperationService } from './application/service/session-control/agent-session-owned-operation.service';
 import { AgentSessionArtifactWriterService } from './application/service/session-execution/agent-session-artifact-writer.service';
 import { AgentSessionDeletionExecutionService } from './application/service/session-execution/agent-session-deletion-execution.service';
+import { AgentSessionDeletionOperationService } from './application/service/session-execution/agent-session-deletion-operation.service';
 import { OperationsAgentSessionOwnedOperationControlAdapter } from './adapter/out/operation/operations-agent-session-owned-operation-control.adapter';
 import { AGENT_SESSION_DELETION_EXECUTION_PORT } from './application/port/in/session-execution/agent-session-deletion-execution.port';
+import { AGENT_SESSION_DELETION_OPERATION_PORT } from './application/port/in/session-execution/agent-session-deletion-operation.port';
 import { AGENT_SESSION_OWNED_OPERATION_CONTROL_PORT } from './application/port/out/operation/agent-session-owned-operation-control.port';
+import { AgentSessionDeletionOperationHandler } from './adapter/in/operation/agent-session-deletion.operation-handler';
+import { AgentSessionDeletionService } from './application/service/session-control/agent-session-deletion.service';
+import { AgentSessionDeletionFinalizerRecoveryService } from './application/service/session-control/agent-session-deletion-finalizer-recovery.service';
+import { AgentSessionDeletionRecoveryService } from './application/service/session-control/agent-session-deletion-recovery.service';
+import { PrismaAgentSessionDeletionCommandTransaction } from './adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction';
+import { PrismaAgentSessionDeletionFinalizationTransaction } from './adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction';
+import { PrismaAgentSessionDeletionQueryRepository } from './adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository';
+import { AGENT_SESSION_DELETION_PORT } from './application/port/in/session-control/agent-session-deletion.port';
+import { AGENT_SESSION_DELETION_QUERY } from './application/port/out/repository/session-deletion/agent-session-deletion-query.port';
+import { AGENT_SESSION_DELETION_COMMAND_TRANSACTION } from './application/port/out/transaction/session-deletion/agent-session-deletion-command.transaction.port';
+import { AGENT_SESSION_DELETION_FINALIZATION_TRANSACTION } from './application/port/out/transaction/session-deletion/agent-session-deletion-finalization.transaction.port';
 import { AgentOsSessionModule } from './agent-os-session.module';
 
 /** API-only composition for Operations-backed AgentSession execution creation. */
@@ -24,6 +37,14 @@ import { AgentOsSessionModule } from './agent-os-session.module';
     StorageAgentSessionArtifactAdapter,
     AgentSessionArtifactWriterService,
     AgentSessionDeletionExecutionService,
+    AgentSessionDeletionOperationService,
+    AgentSessionDeletionOperationHandler,
+    AgentSessionDeletionService,
+    AgentSessionDeletionFinalizerRecoveryService,
+    AgentSessionDeletionRecoveryService,
+    PrismaAgentSessionDeletionCommandTransaction,
+    PrismaAgentSessionDeletionFinalizationTransaction,
+    PrismaAgentSessionDeletionQueryRepository,
     OperationsAgentSessionOwnedOperationControlAdapter,
     {
       provide: AGENT_SESSION_OPERATION_PLATFORM_PORT,
@@ -42,11 +63,21 @@ import { AgentOsSessionModule } from './agent-os-session.module';
       useExisting: AgentSessionArtifactWriterService,
     },
     { provide: AGENT_SESSION_DELETION_EXECUTION_PORT, useExisting: AgentSessionDeletionExecutionService },
+    { provide: AGENT_SESSION_DELETION_OPERATION_PORT, useExisting: AgentSessionDeletionOperationService },
+    { provide: AGENT_SESSION_DELETION_PORT, useExisting: AgentSessionDeletionService },
+    { provide: AGENT_SESSION_DELETION_COMMAND_TRANSACTION, useExisting: PrismaAgentSessionDeletionCommandTransaction },
+    { provide: AGENT_SESSION_DELETION_QUERY, useExisting: PrismaAgentSessionDeletionQueryRepository },
+    { provide: AGENT_SESSION_DELETION_FINALIZATION_TRANSACTION, useExisting: PrismaAgentSessionDeletionFinalizationTransaction },
     {
       provide: AGENT_SESSION_OWNED_OPERATION_CONTROL_PORT,
       useExisting: OperationsAgentSessionOwnedOperationControlAdapter,
     },
   ],
-  exports: [AGENT_SESSION_OWNED_OPERATION_PORT, AGENT_SESSION_ARTIFACT_WRITER_PORT, AGENT_SESSION_DELETION_EXECUTION_PORT],
+  exports: [
+    AGENT_SESSION_OWNED_OPERATION_PORT,
+    AGENT_SESSION_ARTIFACT_WRITER_PORT,
+    AGENT_SESSION_DELETION_EXECUTION_PORT,
+    AGENT_SESSION_DELETION_PORT,
+  ],
 })
 export class AgentOsApiExecutionModule {}

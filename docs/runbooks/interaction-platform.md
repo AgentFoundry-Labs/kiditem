@@ -90,11 +90,19 @@ npm run build --workspace=apps/web
 npx playwright test apps/web/e2e/agent-session-interaction.spec.ts
 npx playwright test apps/web/e2e/interaction-os/durable-session.spec.ts
 node deploy/interaction-gateway/smoke-official-recovery.mjs
+node scripts/verify-agent-session-deletion-process-roots.mjs
 ```
 
 The acceptance harness owns and stops only the exact child processes it starts.
 It uses disposable PostgreSQL 17 and a deterministic fake runtime, while keeping
 the real Nest, gateway, persistence, and browser boundaries.
+
+For complete-deletion launch verification, use only the bounded process-root
+verifier. It creates one labelled disposable PostgreSQL 17 container, verifies
+its identity before `db push --accept-data-loss`, and removes only that exact
+container plus the child PIDs/listeners it recorded. Do not point it at
+`kiditem-postgres` or `kiditem-minio`; there is no backfill and the release
+train `VERSION` remains unchanged.
 
 `smoke-official-recovery.mjs` refuses production-like environments. It builds
 the exact server, gateway, and web artifacts, then runs the real browser

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AgentSessionDeletionOperationHandler } from '../agent-session-deletion.operation-handler';
+import { AGENT_SESSION_DELETE_OPERATION } from '../../../../domain/operation/agent-session-deletion.operations';
 
 describe('AgentSessionDeletionOperationHandler', () => {
   it('delegates execution and terminal hooks to the deletion operation use case', async () => {
@@ -66,5 +67,26 @@ describe('AgentSessionDeletionOperationHandler', () => {
         retryGeneration: 1,
       },
     } as never)).rejects.toBe(lifecycleReason);
+  });
+
+  it('registers the deletion definition exactly once through the Operations registry', () => {
+    const deletion = {
+      execute: vi.fn(),
+      exhaustRetry: vi.fn(),
+      finalizeEphemeralSuccess: vi.fn(),
+    };
+    const registry = { register: vi.fn() };
+    const handler = Reflect.construct(AgentSessionDeletionOperationHandler, [
+      deletion,
+      registry,
+    ]) as { onModuleInit(): void };
+
+    handler.onModuleInit();
+
+    expect(registry.register).toHaveBeenCalledTimes(1);
+    expect(registry.register).toHaveBeenCalledWith(
+      AGENT_SESSION_DELETE_OPERATION,
+      handler,
+    );
   });
 });

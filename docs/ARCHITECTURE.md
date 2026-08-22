@@ -49,6 +49,22 @@ Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. The Agent worker is a
 separate process and cannot query or mutate `OperationRun` rows.
 
+### Complete AgentSession deletion
+
+The API root is the only deletion composition owner. `AgentOsHttpModule` owns
+the DELETE/status/retry controller and `AgentOsApiExecutionModule` owns the
+deletion facade, execution service, exactly one Operations handler, and both
+post-accepting recovery hooks. Worker and MCP roots compose none of those
+providers; MCP may only verify an already-issued runtime credential.
+
+Deletion fences runtime authority before provider work, deletes only
+KidItem-derived artifact keys, and gives each retry generation a cumulative
+five-attempt budget. `present` and `unknown` storage results never succeed;
+only an administrator can create a fresh retry generation. Successful graph
+deletion removes the session and all owned lineage. It does not implement
+retention, legal holds, audits, tombstones, shared-object deletion, provider
+telemetry, organization removal, migrations, backfill, or a VERSION change.
+
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 

@@ -73,6 +73,14 @@ test('AgentOS interaction vertical slice is durable, replay-safe, and tenant-sco
       await harness.authenticate(page, 'other-organization');
       await harness.expectSessionUnavailable(page, secondThread);
     });
+    await stage('complete deletion retries safely and removes the full session graph', async () => {
+      await harness.authenticate(page, 'primary');
+      const deletion = Reflect.get(harness, 'expectCompleteDeletion') as
+        | ((currentPage: typeof page) => Promise<void>)
+        | undefined;
+      expect(typeof deletion).toBe('function');
+      await deletion?.call(harness, page);
+    }, 60_000);
   } finally {
     await harness.close();
   }

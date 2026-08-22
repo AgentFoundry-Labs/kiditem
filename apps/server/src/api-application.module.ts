@@ -20,7 +20,6 @@ import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { OperationCancellationModule } from './operation-cancellation/operation-cancellation.module';
-import { OperationsModule } from './operations/operations.module';
 import { OrdersModule } from './orders/orders.module';
 import { OrganizationsModule } from './organizations/organizations.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -53,7 +52,6 @@ import { UploadsModule } from './uploads/uploads.module';
     AiModule,
     FinanceModule,
     RulesModule,
-    OperationsModule,
     AgentOsHttpModule,
     AutomationModule,
     OperationCancellationModule,

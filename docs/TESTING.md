@@ -185,7 +185,11 @@ the real interaction gateway, a production Next build, and a deterministic fake
 AG-UI runtime before driving system Chrome. It verifies zero-write open/select,
 first-submit canonical graph creation, replay without writes, later turns,
 failed-run retry, tool renderers, one-shot suggestions, authorized navigation,
-and cross-organization denial. Each browser/DB stage is bounded to 10–15 seconds;
+and cross-organization denial. It also drives complete AgentSession deletion
+through the real controller and Operations worker: a supported deterministic
+storage fake produces five `unknown` outcomes, creator retry receives `403`,
+administrator retry succeeds after `erased`, and every scoped graph row is zero.
+Each browser/DB stage is bounded to 10–15 seconds;
 do not hide readiness or locator failures by increasing the total timeout.
 
 ### Tier 3 추가 시 체크리스트

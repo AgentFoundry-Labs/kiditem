@@ -13,6 +13,7 @@ import { AgentRunObservabilityController } from "./adapter/in/http/legacy-run/ag
 import { AgentRunRequestsController } from "./adapter/in/http/legacy-run/agent-run-requests.controller";
 import { AgentRunsQueryController } from "./adapter/in/http/legacy-run/agent-runs-query.controller";
 import { AgentSessionController } from "./adapter/in/http/session-control/agent-session.controller";
+import { AgentSessionDeletionController } from "./adapter/in/http/session-control/agent-session-deletion.controller";
 import { InteractionGatewayGuard } from "./adapter/in/http/interaction/interaction-gateway.guard";
 import { AgentSessionTaskOperationAdapter } from "./adapter/in/operation/session-execution/agent-session-task.operation-adapter";
 import { OperationsSessionExecutionAdapter } from "./adapter/out/cross-domain/operations-session-execution.adapter";
@@ -79,6 +80,7 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentAguiController,
     AgentInteractionActionsController,
     AgentSessionController,
+    AgentSessionDeletionController,
   ],
   providers: [
     AgentInlineRunReconciler,

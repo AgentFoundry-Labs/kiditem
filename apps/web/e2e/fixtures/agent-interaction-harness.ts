@@ -16,6 +16,8 @@ import { AgentInteractionBootstrapController } from '../../../server/dist/agent-
 import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-control.controller.js';
 import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-actions.controller.js';
 import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session.controller.js';
+import { AgentSessionDeletionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session-deletion.controller.js';
+import { AgentSessionDeletionOperationHandler } from '../../../server/dist/agent-os/adapter/in/operation/agent-session-deletion.operation-handler.js';
 import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction/interaction-gateway.guard.js';
 import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-authorization.port.js';
@@ -25,6 +27,7 @@ import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from '../../../server/dist/agent-o
 import { AGENT_INTERACTION_PRESENTATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-presentation.port.js';
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-approval-decision.port.js';
 import { AGENT_SESSION_TASK_CONTROL_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-task-control.port.js';
+import { AGENT_SESSION_DELETION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-deletion.port.js';
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/session-capability/agent-capability-invocation.port.js';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os/application/port/out/event/agent-conversation-live-publisher.port.js';
 import { AGENT_SESSION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-session-query.repository.port.js';
@@ -60,7 +63,11 @@ import { AgentSessionDelegationService } from '../../../server/dist/agent-os/app
 import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-execution.service.js';
 import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-runtime-control.service.js';
 import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-dispatch.service.js';
+import { AgentSessionOwnedOperationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-owned-operation.service.js';
 import { AgentSessionTaskControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-control.service.js';
+import { AgentSessionDeletionService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-deletion.service.js';
+import { AgentSessionDeletionExecutionService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-deletion-execution.service.js';
+import { AgentSessionDeletionOperationService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-deletion-operation.service.js';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -76,12 +83,24 @@ import { PrismaAgentVersionRepository } from '../../../server/dist/agent-os/adap
 import { PrismaAgentRunAuthorizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction.js';
 import { PrismaAgentConversationEventTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction.js';
 import { PrismaAgentExecutionUsageTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction.js';
+import { PrismaAgentSessionDeletionCommandTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction.js';
+import { PrismaAgentSessionDeletionExecutionTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction.js';
+import { PrismaAgentSessionDeletionFinalizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction.js';
+import { PrismaAgentSessionDeletionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository.js';
+import { PrismaAgentSessionOwnedOperationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.js';
+import { OperationsAgentSessionOwnedOperationControlAdapter } from '../../../server/dist/agent-os/adapter/out/operation/operations-agent-session-owned-operation-control.adapter.js';
+import { OperationDefinitionSnapshotAdapter } from '../../../server/dist/agent-os/adapter/out/operation/operation-definition-snapshot.adapter.js';
+import { PrismaAgentSessionArtifactMaterializationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.js';
+import { AgentSessionArtifactWriterService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-artifact-writer.service.js';
 import { SessionControlAdapterSet } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/__tests__/session-control-adapter-set.js';
 import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
 import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
 import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
 import { OperationLifecycleGateService } from '../../../server/dist/operations/application/service/operation-lifecycle-gate.service.js';
 import { OperationRunService } from '../../../server/dist/operations/application/service/operation-run.service.js';
+import { OperationDispatcherService } from '../../../server/dist/operations/application/service/operation-dispatcher.service.js';
+import { OperationAttemptExecutorService } from '../../../server/dist/operations/application/service/operation-attempt-executor.service.js';
+import { OperationRunWorkerService } from '../../../server/dist/operations/application/service/operation-run-worker.service.js';
 import { AGENT_OS_OPERATIONS } from '../../../server/dist/agent-os/domain/operation/agent-os.operations.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../../../server/dist/agent-os/application/port/out/event/interaction-product-analytics.port.js';
@@ -288,7 +307,6 @@ class AcceptanceDurableControlPlane {
         kind: 'artifact',
         artifactId: artifact.id,
         payload: {
-          name: 'kiditem.ui.agent_artifact.v1',
           artifactType: 'acceptance_report',
           label: '검증 산출물',
           sha256: artifact.sha256,
@@ -534,6 +552,36 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
 
 export interface CanonicalCounts { sessions: number; executions: number; events: number; outbox: number }
 
+export interface DeletionHarnessControl {
+  setStorageResult(result: 'erased' | 'present' | 'unknown'): void;
+  releaseLateRuntimeEvent(): Promise<void>;
+  makeCurrentDeletionDue(): Promise<void>;
+  drainOneOperationAttempt(): Promise<void>;
+  countSessionGraph(sessionId: string): Promise<Record<string, number>>;
+}
+
+class DeterministicDeletionStorage {
+  private result: 'erased' | 'present' | 'unknown' = 'unknown';
+
+  setResult(result: 'erased' | 'present' | 'unknown'): void {
+    this.result = result;
+  }
+
+  materializationCapability(): 'supported' {
+    return 'supported';
+  }
+
+  async openMultipart(): Promise<{ uploadId: string }> {
+    return { uploadId: 'deletion-harness-upload' };
+  }
+
+  async uploadAndComplete(): Promise<void> {}
+  async verifyCompleted(): Promise<void> {}
+  async abortEraseAndConfirm() { return { state: this.result }; }
+  async deleteActiveAndConfirm() { return { state: this.result }; }
+  async inspect() { return this.result; }
+}
+
 export async function createAgentInteractionAcceptanceHarness() {
   if (process.env.KIDITEM_E2E_SKIP_WEB_BUILD !== '1') buildAcceptanceWeb();
   const postgres = await new PostgreSqlContainer('postgres:17')
@@ -549,7 +597,7 @@ export async function createAgentInteractionAcceptanceHarness() {
   await seedBaseFixture(prisma);
   await seedAgentVersion(prisma);
   const analyticsEvents: unknown[] = [];
-  const { app: nest, durableControls } = await startNest(prisma, analyticsEvents);
+  const { app: nest, durableControls, deletionControl } = await startNest(prisma, analyticsEvents);
   const gatewayLog: string[] = [];
   const webLog: string[] = [];
   const gateway = await startGateway(gatewayLog);
@@ -570,7 +618,7 @@ export async function createAgentInteractionAcceptanceHarness() {
   }
 
   return new AgentInteractionAcceptanceHarness(
-    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls,
+    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls, deletionControl,
   );
 }
 
@@ -587,6 +635,7 @@ class AgentInteractionAcceptanceHarness {
     private readonly webLog: string[],
     private readonly analyticsEvents: unknown[],
     private readonly durableControls: AcceptanceDurableControlPlane,
+    private readonly deletionControl: AgentSessionDeletionAcceptanceControl,
   ) {}
 
   diagnostics() {
@@ -869,6 +918,77 @@ class AgentInteractionAcceptanceHarness {
     if (response.ok()) throw new Error('cross-organization session was available');
   }
 
+  async expectCompleteDeletion(page: Page): Promise<void> {
+    if (!this.selectedThreadId) throw new Error('missing selected session for deletion acceptance');
+    const session = await this.session(this.selectedThreadId);
+    await this.deletionControl.prepare(session.id);
+    const headers = { cookie: `kiditem_session=${PRIMARY_TOKEN}` };
+    const route = `http://127.0.0.1:${NEST_PORT}/api/agent-os/sessions/${session.id}`;
+    const eventCountAtFence = await this.prisma.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: session.id },
+    });
+
+    const requested = await page.request.delete(route, { headers });
+    if (requested.status() !== 202 || (await requested.json() as { state?: unknown }).state !== 'deleting') {
+      throw new Error('creator deletion request was not accepted as deleting');
+    }
+    const status = await page.request.get(`${route}/deletion`, { headers });
+    if (status.status() !== 200 || (await status.json() as { state?: unknown }).state !== 'deleting') {
+      throw new Error('creator deletion status was not visible as deleting');
+    }
+    const foreign = await page.request.get(`${route}/deletion`, {
+      headers: { cookie: `kiditem_session=${OTHER_TOKEN}` },
+    });
+    if (foreign.status() !== 204) throw new Error('cross-organization deletion status was enumerable');
+    await this.deletionControl.releaseLateRuntimeEvent();
+    const afterLateEvent = await this.prisma.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: session.id },
+    });
+    if (afterLateEvent !== eventCountAtFence) throw new Error('late runtime event changed canonical history');
+
+    this.deletionControl.setStorageResult('unknown');
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      await this.deletionControl.makeCurrentDeletionDue();
+      await this.deletionControl.drainOneOperationAttempt();
+    }
+    const failed = await page.request.get(`${route}/deletion`, { headers });
+    const failedBody = await failed.json() as { state?: unknown; failureCode?: unknown };
+    if (failed.status() !== 200 || failedBody.state !== 'delete_failed' || failedBody.failureCode !== 'STORAGE_DELETE_UNKNOWN') {
+      throw new Error(`five deterministic deletion failures did not reach delete_failed: ${JSON.stringify(failedBody)}`);
+    }
+
+    const membership = await this.prisma.organizationMembership.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, status: 'active' },
+      select: { id: true },
+    });
+    await this.prisma.organizationMembership.update({ where: { id: membership.id }, data: { role: 'member' } });
+    const creatorRetry = await page.request.post(`${route}/deletion/retry`, { headers });
+    if (creatorRetry.status() !== 403) throw new Error('non-administrator creator retry was not forbidden');
+    await this.prisma.organizationMembership.update({ where: { id: membership.id }, data: { role: 'owner' } });
+
+    this.deletionControl.setStorageResult('erased');
+    const retried = await page.request.post(`${route}/deletion/retry`, { headers });
+    if (retried.status() !== 202 || (await retried.json() as { state?: unknown }).state !== 'deleting') {
+      throw new Error('administrator retry was not accepted as deleting');
+    }
+    await this.deletionControl.drainOneOperationAttempt();
+    const absent = await page.request.get(`${route}/deletion`, { headers });
+    if (absent.status() !== 204) throw new Error('deleted session deletion status was not absent');
+    assertJson(await this.deletionControl.countSessionGraph(session.id), {
+      sessions: 0,
+      tasks: 0,
+      executions: 0,
+      attempts: 0,
+      events: 0,
+      approvals: 0,
+      artifacts: 0,
+      artifactMaterializations: 0,
+      ownerships: 0,
+      deletionBindings: 0,
+      deletionRuns: 0,
+    }, 'complete deletion graph');
+  }
+
   async close() {
     // Browser pages can retain an SSE connection through the gateway. Stop
     // that owned boundary first so Nest shutdown cannot wait on the client.
@@ -953,6 +1073,157 @@ class AgentInteractionAcceptanceHarness {
   }
 }
 
+class AgentSessionDeletionAcceptanceControl implements DeletionHarnessControl {
+  private sessionId: string | null = null;
+
+  constructor(
+    private readonly prisma: PrismaClient,
+    private readonly storage: DeterministicDeletionStorage,
+    private readonly worker: OperationRunWorkerService,
+    private readonly events: PrismaAgentConversationEventTransaction,
+    private readonly ownedOperations: AgentSessionOwnedOperationService,
+  ) {}
+
+  async prepare(sessionId: string): Promise<void> {
+    const organizationId = OrganizationIdSchema.parse(TEST_ORGANIZATION_ID);
+    const execution = await this.prisma.agentExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId },
+      orderBy: { startedAt: 'asc' },
+      select: { id: true, sessionTaskId: true },
+    });
+    const materialization = await this.ownedOperations.startCapability({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId,
+      operationKey: AGENT_OS_OPERATIONS[0].key,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey: `deletion-acceptance-materialization:${sessionId}`,
+      input: {
+        session: formatAgentSessionName(organizationId, sessionId as never),
+        task: formatAgentSessionTaskName(
+          organizationId,
+          sessionId as never,
+          execution.sessionTaskId as never,
+        ),
+        execution: formatAgentExecutionName(
+          organizationId,
+          sessionId as never,
+          execution.id as never,
+        ),
+      },
+    });
+    await this.prisma.agentSessionArtifact.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId,
+        taskId: execution.sessionTaskId,
+        executionId: execution.id,
+        artifactType: 'deletion_acceptance',
+        materializationOperationRunId: materialization.operationRunId,
+        sha256: 'd'.repeat(64),
+        lifecycle: 'active',
+        idempotencyKey: `deletion-acceptance:${sessionId}`,
+      },
+    });
+    this.sessionId = sessionId;
+  }
+
+  setStorageResult(result: 'erased' | 'present' | 'unknown'): void {
+    this.storage.setResult(result);
+  }
+
+  async releaseLateRuntimeEvent(): Promise<void> {
+    const sessionId = this.requireSessionId();
+    const before = await this.prisma.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId },
+    });
+    const execution = await this.prisma.agentExecution.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId },
+      select: { id: true },
+    });
+    await this.events.appendExecutionEvent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId,
+      executionId: execution.id,
+      externalEventId: `late-deletion-event:${randomUUID()}`,
+      eventType: 'assistant_message',
+      schemaVersion: 1,
+      payload: { phase: 'start', messageId: `late-deletion:${randomUUID()}` },
+    } as never).then(
+      () => { throw new Error('late runtime event bypassed the deletion fence'); },
+      () => undefined,
+    );
+    const after = await this.prisma.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId },
+    });
+    if (after !== before) throw new Error('late runtime event changed canonical history');
+  }
+
+  async makeCurrentDeletionDue(): Promise<void> {
+    const sessionId = this.requireSessionId();
+    const session = await this.prisma.agentSession.findUniqueOrThrow({
+      where: { id: sessionId },
+      select: { deletionOperationRunId: true },
+    });
+    if (!session.deletionOperationRunId) throw new Error('missing current deletion operation');
+    await this.prisma.operationRun.update({
+      where: { id: session.deletionOperationRunId },
+      data: { scheduledFor: new Date(Date.now() - 1_000) },
+    });
+  }
+
+  async drainOneOperationAttempt(): Promise<void> {
+    await this.worker.tick();
+    await this.worker.drainUntil(Date.now() + 10_000, true);
+  }
+
+  async countSessionGraph(sessionId: string): Promise<Record<string, number>> {
+    const scope = { organizationId: TEST_ORGANIZATION_ID, sessionId };
+    const [
+      sessions,
+      tasks,
+      executions,
+      attempts,
+      events,
+      approvals,
+      artifacts,
+      artifactMaterializations,
+      ownerships,
+      deletionBindings,
+      deletionRuns,
+    ] = await Promise.all([
+      this.prisma.agentSession.count({ where: { id: sessionId, organizationId: TEST_ORGANIZATION_ID } }),
+      this.prisma.agentSessionTask.count({ where: scope }),
+      this.prisma.agentExecution.count({ where: scope }),
+      this.prisma.agentExecutionAttempt.count({ where: scope }),
+      this.prisma.agentConversationEvent.count({ where: scope }),
+      this.prisma.agentSessionApproval.count({ where: scope }),
+      this.prisma.agentSessionArtifact.count({ where: scope }),
+      this.prisma.agentSessionArtifactMaterialization.count({ where: scope }),
+      this.prisma.agentSessionOperationRunOwnership.count({ where: scope }),
+      this.prisma.agentSessionDeletionOperationBinding.count({ where: scope }),
+      this.prisma.operationRun.count({ where: { agentSessionDeletionOperationBindings: { is: scope } } }),
+    ]);
+    return {
+      sessions,
+      tasks,
+      executions,
+      attempts,
+      events,
+      approvals,
+      artifacts,
+      artifactMaterializations,
+      ownerships,
+      deletionBindings,
+      deletionRuns,
+    };
+  }
+
+  private requireSessionId(): string {
+    if (!this.sessionId) throw new Error('deletion acceptance session is not prepared');
+    return this.sessionId;
+  }
+}
+
 function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void {
   registry.register({
     key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
@@ -995,7 +1266,11 @@ function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void
 async function startNest(
   prisma: PrismaClient,
   analyticsEvents: unknown[],
-): Promise<{ app: INestApplication; durableControls: AcceptanceDurableControlPlane }> {
+): Promise<{
+  app: INestApplication;
+  durableControls: AcceptanceDurableControlPlane;
+  deletionControl: AgentSessionDeletionAcceptanceControl;
+}> {
   const sessions = new PrismaAgentSessionQueryRepository(prisma as never);
   const conversations = new PrismaAgentConversationQueryRepository(prisma as never);
   const executionsQuery = new PrismaAgentExecutionQueryRepository(prisma as never);
@@ -1026,7 +1301,75 @@ async function startNest(
     operationCoordinator,
     operationLifecycle,
   );
-  const dispatch = new AgentSessionTaskDispatchService(operations, controls as never);
+  process.env.OPERATION_RUNTIME_WORKER_ENABLED = '1';
+  const deletionStorage = new DeterministicDeletionStorage();
+  const deletionExecutionTransactions = new PrismaAgentSessionDeletionExecutionTransaction(prisma as never);
+  const deletionFinalizationTransactions = new PrismaAgentSessionDeletionFinalizationTransaction(prisma as never);
+  const deletionWriter = new AgentSessionArtifactWriterService(
+    new PrismaAgentSessionArtifactMaterializationTransaction(prisma as never),
+    deletionStorage as never,
+  );
+  const deletionExecution = new AgentSessionDeletionExecutionService(
+    deletionExecutionTransactions,
+    new OperationsAgentSessionOwnedOperationControlAdapter(operations),
+    {
+      cleanup: async () => ({
+        state: 'clean' as const,
+        executionAuthority: 'irrevocably_revoked' as const,
+        credentials: 'irrevocably_revoked' as const,
+        handle: 'removed' as const,
+        filesystem: 'not_owned' as const,
+      }),
+    },
+    deletionWriter,
+    deletionStorage,
+  );
+  const deletionOperation = new AgentSessionDeletionOperationService(
+    deletionExecution,
+    deletionExecutionTransactions,
+    deletionFinalizationTransactions,
+  );
+  const deletionHandler = new AgentSessionDeletionOperationHandler(
+    deletionOperation,
+    operationRegistry,
+  );
+  deletionHandler.onModuleInit();
+  const deletionService = new AgentSessionDeletionService(
+    new PrismaAgentSessionDeletionCommandTransaction(prisma as never),
+    new PrismaAgentSessionDeletionQueryRepository(prisma as never),
+  );
+  const deletionDispatcher = new OperationDispatcherService(
+    operationRegistry,
+    operationRepository,
+    operationCoordinator,
+  );
+  const deletionExecutor = new OperationAttemptExecutorService(
+    deletionDispatcher,
+    operationRepository,
+    operationRegistry,
+  );
+  const deletionWorker = new OperationRunWorkerService(
+    deletionExecutor,
+    operationRepository,
+    operationCoordinator,
+    operationLifecycle,
+  );
+  const dispatch = new AgentSessionTaskDispatchService(
+    new AgentSessionOwnedOperationService(
+      new OperationDefinitionSnapshotAdapter(operationRegistry, operationLifecycle),
+      new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
+    ),
+  );
+  const deletionControl = new AgentSessionDeletionAcceptanceControl(
+    prisma,
+    deletionStorage,
+    deletionWorker,
+    events,
+    new AgentSessionOwnedOperationService(
+      new OperationDefinitionSnapshotAdapter(operationRegistry, operationLifecycle),
+      new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
+    ),
+  );
   const runtimeControl = new AgentSessionRuntimeControlService(
     events,
     publisher,
@@ -1123,6 +1466,7 @@ async function startNest(
       AgentInteractionActionsController,
       AgentAguiController,
       AgentSessionController,
+      AgentSessionDeletionController,
     ],
     providers: [
       { provide: AGENT_SESSION_QUERY_REPOSITORY, useValue: sessions },
@@ -1143,6 +1487,7 @@ async function startNest(
       { provide: AGENT_INTERACTION_PRESENTATION_PORT, useValue: presentation },
       { provide: AGENT_AGUI_PRODUCER_PORT, useExisting: AgentAguiProducerCoordinator },
       { provide: AGENT_SESSION_TASK_CONTROL_PORT, useValue: taskControls },
+      { provide: AGENT_SESSION_DELETION_PORT, useValue: deletionService },
       { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useValue: approvals },
       { provide: AGENT_CONVERSATION_LIVE_PUBLISHER, useValue: publisher },
       { provide: INTERACTION_CLOCK, useValue: () => new Date() },
@@ -1209,7 +1554,7 @@ async function startNest(
     next();
   });
   await app.listen(NEST_PORT, '127.0.0.1');
-  return { app, durableControls: createdDurableControls };
+  return { app, durableControls: createdDurableControls, deletionControl };
 }
 
 async function startGateway(log: string[]): Promise<ChildProcess> {
