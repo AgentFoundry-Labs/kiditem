@@ -49,6 +49,10 @@ export interface AgentDurableRuntimeExecutionContext {
   sessionTaskId: string;
   executionId: string;
   attemptId: string;
+  /** Immutable ownership marker persisted before any external runtime start. */
+  startIntentId?: string;
+  /** Session-deletion fence generation; no runtime may invent a default. */
+  runtimeCredentialGeneration?: number;
   agentDefinitionKey: string;
   agentVersionId: string;
   runtimeType: string;
@@ -73,6 +77,27 @@ export interface RuntimeHandle {
   encryptedHandleRef: string;
   generation: number;
 }
+
+export interface AgentSessionRuntimeCleanupInput {
+  signal: AbortSignal;
+  organizationId: string;
+  sessionId: string;
+  runtimeType: string;
+  executionId: string;
+  attemptId: string;
+  startIntentId: string;
+  handle: RuntimeHandle | null;
+}
+
+export type AgentSessionRuntimeCleanupResult =
+  | {
+      state: 'clean';
+      executionAuthority: 'process_exited' | 'irrevocably_revoked';
+      credentials: 'removed' | 'irrevocably_revoked' | 'not_owned';
+      handle: 'removed';
+      filesystem: 'removed' | 'not_owned';
+    }
+  | { state: 'unknown'; code: 'RUNTIME_CLEANUP_UNKNOWN' };
 
 export const MAX_AGENT_SESSION_ARTIFACT_BYTES = 16 * 1024 * 1024;
 
@@ -136,6 +161,8 @@ export interface AgentDurableRuntimeAdapter {
   inspect(handle: RuntimeHandle): Promise<RuntimeInspection>;
   interrupt(handle: RuntimeHandle, input: RuntimeInterruptInput): Promise<void>;
   cancel(handle: RuntimeHandle): Promise<void>;
+  /** Optional until a runtime is promoted to the session-deletion boundary. */
+  cleanup?(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult>;
 }
 
 export const AGENT_DURABLE_RUNTIME_ASSETS_PORT = Symbol(

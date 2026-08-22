@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import { CanonicalResourceRefSchema } from "@kiditem/shared/agent-interaction";
 import {
@@ -272,11 +273,32 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         return this.finalize(operation, input, attempt.id, handle, "cancelled");
       }
     } else {
+      const persistedStart = latest
+        ? startAuthorityFromState(latest.state, input.executionId, attempt.id)
+        : null;
+      const startAuthority = await this.attempts.persistRuntimeStartIntent({
+        organizationId: operation.organizationId,
+        sessionId: input.sessionId,
+        executionId: input.executionId,
+        attemptId: attempt.id,
+        operationRunId: operation.runId,
+        attemptToken: operation.attemptToken,
+        runtimeType: context.runtimeType,
+        startIntentId: persistedStart?.startIntentId ?? randomUUID(),
+      });
       await this.checkpoint(operation, "runtime_starting", {
         attemptId: attempt.id,
         runtimeType: context.runtimeType,
+        executionId: input.executionId,
+        startIntentId: startAuthority.startIntentId,
+        runtimeCredentialGeneration: startAuthority.runtimeCredentialGeneration,
       });
-      handle = assertHandleCorrelation(await runtime.start(context), context);
+      const startContext = {
+        ...context,
+        startIntentId: startAuthority.startIntentId,
+        runtimeCredentialGeneration: startAuthority.runtimeCredentialGeneration,
+      };
+      handle = assertHandleCorrelation(await runtime.start(startContext), startContext);
       await this.checkpoint(operation, "runtime_started", {
         runtimeHandle: checkpointRuntimeHandle(handle),
       });
@@ -820,6 +842,29 @@ function canonicalNames(input: SessionTaskOperationInput, attemptId: string) {
 function handleFromState(state: Record<string, unknown>): RuntimeHandle | null {
   const parsed = RuntimeHandleSchema.safeParse(state.runtimeHandle);
   return parsed.success ? parsed.data : null;
+}
+
+function startAuthorityFromState(
+  state: Record<string, unknown>,
+  executionId: string,
+  attemptId: string,
+): { startIntentId: string } | null {
+  const parsed = z
+    .object({
+      startIntentId: z.string().uuid(),
+      executionId: z.string().min(1),
+      attemptId: z.string().min(1),
+    })
+    .passthrough()
+    .safeParse(state);
+  if (!parsed.success) return null;
+  if (
+    parsed.data.executionId !== executionId ||
+    parsed.data.attemptId !== attemptId
+  ) {
+    throw new Error("AGENT_RUNTIME_START_INTENT_CORRELATION_INVALID");
+  }
+  return { startIntentId: parsed.data.startIntentId };
 }
 
 function checkpointRuntimeHandle(handle: RuntimeHandle): RuntimeHandle {

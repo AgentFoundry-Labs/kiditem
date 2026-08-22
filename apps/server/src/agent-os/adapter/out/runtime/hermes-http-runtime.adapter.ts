@@ -135,6 +135,8 @@ export class HermesFetchRuntimeTransport implements HermesRuntimeTransport {
         execution: {
           id: input.context.executionId,
           attemptId: input.context.attemptId,
+          startIntentId: input.context.startIntentId,
+          runtimeCredentialGeneration: input.context.runtimeCredentialGeneration,
           agentDefinitionKey: input.context.agentDefinitionKey,
           agentVersionId: input.context.agentVersionId,
           runtimeType: input.context.runtimeType,
@@ -260,9 +262,16 @@ export class HermesHttpRuntimeAdapter implements AgentDurableRuntimeAdapter {
 
   async start(context: AgentDurableRuntimeExecutionContext): Promise<RuntimeHandle> {
     if (context.runtimeType !== this.runtimeType) throw new Error('RUNTIME_CONTEXT_TYPE_MISMATCH');
+    if (!context.startIntentId || context.runtimeCredentialGeneration === undefined) {
+      throw new Error('RUNTIME_START_AUTHORITY_REQUIRED');
+    }
     const issued = this.options.credentialBroker.issue({
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
       executionId: context.executionId,
       attemptId: context.attemptId,
+      startIntentId: context.startIntentId,
+      runtimeCredentialGeneration: context.runtimeCredentialGeneration,
     });
     const started = await this.options.transport.start({
       context,
@@ -307,6 +316,33 @@ export class HermesHttpRuntimeAdapter implements AgentDurableRuntimeAdapter {
     const pending = this.options.transport.cancel(this.transportHandle(handle));
     this.cancellationByHandle.set(key, pending);
     return pending;
+  }
+
+  async cleanup(input: import('../../../application/port/out/runtime/agent-durable-runtime.port').AgentSessionRuntimeCleanupInput) {
+    if (input.runtimeType !== this.runtimeType || !input.startIntentId) {
+      return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
+    }
+    if (!input.handle) {
+      // Hermes cannot prove a terminal/revoked remote process without the
+      // persisted reconnect handle. Missing authority is deliberately retryable.
+      return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
+    }
+    try {
+      await this.cancel(input.handle);
+      const inspection = await this.inspect(input.handle);
+      if (inspection.status === 'running' || inspection.status === 'unknown') {
+        return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
+      }
+      return {
+        state: 'clean' as const,
+        executionAuthority: 'irrevocably_revoked' as const,
+        credentials: 'irrevocably_revoked' as const,
+        handle: 'removed' as const,
+        filesystem: 'not_owned' as const,
+      };
+    } catch {
+      return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
+    }
   }
 
   private transportHandle(handle: RuntimeHandle) {

@@ -24,6 +24,8 @@ function context(): AgentDurableRuntimeExecutionContext {
     sessionTaskId: '55555555-5555-4555-8555-555555555555',
     executionId: EXECUTION_ID,
     attemptId: ATTEMPT_ID,
+    startIntentId: '88888888-8888-4888-8888-888888888888',
+    runtimeCredentialGeneration: 0,
     agentDefinitionKey: 'operator',
     agentVersionId: '66666666-6666-4666-8666-666666666666',
     runtimeType: 'hermes_http',
@@ -68,7 +70,14 @@ describe('Hermes durable runtime trust boundary', () => {
     expect(runtimeCredentialBrokerFromEnvironment({
       AGENT_RUNTIME_CREDENTIAL_HMAC_KEY: 'test-secret-at-least-32-characters-long',
       AGENT_RUNTIME_CREDENTIAL_TTL_MS: '60000',
-    }).issue({ executionId: EXECUTION_ID, attemptId: ATTEMPT_ID }).token).toBeTruthy();
+    }).issue({
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      sessionId: '44444444-4444-4444-8444-444444444444',
+      executionId: EXECUTION_ID,
+      attemptId: ATTEMPT_ID,
+      startIntentId: '88888888-8888-4888-8888-888888888888',
+      runtimeCredentialGeneration: 0,
+    }).token).toBeTruthy();
   });
 
   it('requires an explicit Hermes control-plane base URL', () => {
@@ -93,13 +102,20 @@ describe('Hermes durable runtime trust boundary', () => {
       ttlMs: 1_000,
       now: () => now,
     });
-    const issued = broker.issue({ executionId: EXECUTION_ID, attemptId: ATTEMPT_ID });
-    expect(broker.verify(issued.token, { executionId: EXECUTION_ID, attemptId: ATTEMPT_ID })).toMatchObject({
-      executionId: EXECUTION_ID, attemptId: ATTEMPT_ID,
+    const issued = broker.issue({
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      sessionId: '44444444-4444-4444-8444-444444444444',
+      executionId: EXECUTION_ID,
+      attemptId: ATTEMPT_ID,
+      startIntentId: '88888888-8888-4888-8888-888888888888',
+      runtimeCredentialGeneration: 0,
     });
-    expect(() => broker.verify(issued.token, { executionId: EXECUTION_ID, attemptId: 'other' })).toThrow('RUNTIME_CREDENTIAL_SCOPE_INVALID');
+    expect(broker.verify(issued.token)).toMatchObject({
+      executionId: EXECUTION_ID, attemptId: ATTEMPT_ID, runtimeCredentialGeneration: 0,
+    });
+    expect(() => broker.verify(issued.token, { executionId: EXECUTION_ID, attemptId: 'other' } as never)).toThrow('RUNTIME_CREDENTIAL_SCOPE_INVALID');
     now = new Date('2026-08-14T00:00:02.000Z');
-    expect(() => broker.verify(issued.token, { executionId: EXECUTION_ID, attemptId: ATTEMPT_ID })).toThrow('RUNTIME_CREDENTIAL_EXPIRED');
+    expect(() => broker.verify(issued.token)).toThrow('RUNTIME_CREDENTIAL_EXPIRED');
 
     expect(buildRunScopedMcpConfig({
       capabilityKeys: ['analytics.readOverview'],

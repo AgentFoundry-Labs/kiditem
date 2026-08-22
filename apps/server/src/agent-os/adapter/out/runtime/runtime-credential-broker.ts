@@ -2,8 +2,12 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 
 const CredentialPayloadSchema = z.object({
+  organizationId: z.string().min(1).max(128),
+  sessionId: z.string().uuid(),
   executionId: z.string().min(1).max(128),
   attemptId: z.string().min(1).max(128),
+  startIntentId: z.string().uuid(),
+  runtimeCredentialGeneration: z.number().int().nonnegative(),
   issuedAt: z.number().int().nonnegative(),
   expiresAt: z.number().int().positive(),
 }).strict();
@@ -34,7 +38,14 @@ export class RuntimeCredentialBroker {
     }
   }
 
-  issue(scope: { executionId: string; attemptId: string }): {
+  issue(scope: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    attemptId: string;
+    startIntentId: string;
+    runtimeCredentialGeneration: number;
+  }): {
     token: string;
     expiresAt: Date;
   } {
@@ -51,7 +62,7 @@ export class RuntimeCredentialBroker {
     };
   }
 
-  verify(token: string, scope: { executionId: string; attemptId: string }) {
+  verify(token: string, scope?: { executionId: string; attemptId: string }) {
     const [encoded, signature, extra] = token.split('.');
     if (!encoded || !signature || extra !== undefined) throw new Error('RUNTIME_CREDENTIAL_INVALID');
     const expected = this.sign(encoded);
@@ -67,7 +78,7 @@ export class RuntimeCredentialBroker {
       throw new Error('RUNTIME_CREDENTIAL_INVALID');
     }
     const payload = CredentialPayloadSchema.parse(raw);
-    if (payload.executionId !== scope.executionId || payload.attemptId !== scope.attemptId) {
+    if (scope && (payload.executionId !== scope.executionId || payload.attemptId !== scope.attemptId)) {
       throw new Error('RUNTIME_CREDENTIAL_SCOPE_INVALID');
     }
     if (payload.expiresAt <= this.now().getTime()) throw new Error('RUNTIME_CREDENTIAL_EXPIRED');

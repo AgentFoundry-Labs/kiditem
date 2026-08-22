@@ -229,6 +229,50 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
       .catch(rethrowStable);
   }
 
+  async persistRuntimeStartIntent(
+    input: Parameters<
+      AgentAttemptOperationTransactionPort["persistRuntimeStartIntent"]
+    >[0],
+  ): Promise<{ startIntentId: string; runtimeCredentialGeneration: number }> {
+    return this.prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      await lockWritableAgentSession(tx, input);
+      await lock(tx, ["attempt-start-intent", input.executionId, input.attemptId]);
+      const binding = await tx.agentExecutionAttemptOperationBinding.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+          executionAttemptId: input.attemptId,
+          executionId: input.executionId,
+          sessionId: input.sessionId,
+          operationRun: { attemptToken: input.attemptToken },
+        },
+        include: { attempt: true },
+      });
+      if (!binding || binding.attempt.runtimeType !== input.runtimeType) throw scope();
+      const attempt = binding.attempt;
+      if (attempt.runtimeStartIntentId) {
+        if (attempt.runtimeStartIntentId !== input.startIntentId) {
+          throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
+        }
+        return {
+          startIntentId: attempt.runtimeStartIntentId,
+          runtimeCredentialGeneration: attempt.runtimeCredentialGeneration,
+        };
+      }
+      if (attempt.state !== "running" || attempt.externalRunId || attempt.encryptedHandleRef) throw state();
+      const updated = await tx.agentExecutionAttempt.update({
+        where: { id: attempt.id },
+        data: { runtimeStartIntentId: input.startIntentId },
+        select: { runtimeStartIntentId: true, runtimeCredentialGeneration: true },
+      });
+      if (!updated.runtimeStartIntentId) throw state();
+      return {
+        startIntentId: updated.runtimeStartIntentId,
+        runtimeCredentialGeneration: updated.runtimeCredentialGeneration,
+      };
+    }).catch(rethrowStable);
+  }
+
   async continueOperationAttempt(
     input: Parameters<
       AgentAttemptOperationTransactionPort["continueOperationAttempt"]
@@ -250,6 +294,8 @@ function mapAttempt(row: {
   externalRunId: string | null;
   encryptedHandleRef: string | null;
   runtimeGeneration: number;
+  runtimeStartIntentId?: string | null;
+  runtimeCredentialGeneration?: number;
   state: string;
 }): ExecutionAttemptRecord {
   return {
@@ -260,6 +306,8 @@ function mapAttempt(row: {
     externalRunId: row.externalRunId,
     encryptedHandleRef: row.encryptedHandleRef,
     runtimeGeneration: row.runtimeGeneration,
+    runtimeStartIntentId: row.runtimeStartIntentId ?? null,
+    runtimeCredentialGeneration: row.runtimeCredentialGeneration ?? 0,
     state: row.state,
   };
 }

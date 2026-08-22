@@ -42,6 +42,18 @@ export class AgentRuntimeAdapterRegistry {
     return adapter;
   }
 
+  /** Exact persisted type lookup. Deletion may never substitute a fallback runtime. */
+  requireExact(runtimeType: string): AgentDurableRuntimeAdapter {
+    const adapter = this.adapters.get(runtimeType);
+    if (!adapter) {
+      throw new AgentOsRuntimeError(
+        'AGENT_RUNTIME_NOT_CONFIGURED',
+        `AGENT_RUNTIME_NOT_CONFIGURED: ${runtimeType}`,
+      );
+    }
+    return adapter;
+  }
+
   registeredTypes(): string[] {
     return [...this.adapters.keys()].sort();
   }

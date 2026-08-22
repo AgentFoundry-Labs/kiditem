@@ -176,6 +176,10 @@ function harness(
       order.push("persist-handle");
       return { id: ATTEMPT_ID };
     }),
+    persistRuntimeStartIntent: vi.fn(async () => ({
+      startIntentId: "00000000-0000-4000-8000-000000000007",
+      runtimeCredentialGeneration: 0,
+    })),
     finishAttempt: vi.fn(async () => {
       order.push("finish-attempt");
       return { id: ATTEMPT_ID };
@@ -292,6 +296,26 @@ function harness(
 }
 
 describe("AgentSessionTaskExecutionService", () => {
+  it("persists one start intent before the first remote runtime start", async () => {
+    const { handler, controls, runtime, order } = harness();
+    controls.persistRuntimeStartIntent = vi.fn(async () => ({
+      startIntentId: "00000000-0000-4000-8000-000000000007",
+      runtimeCredentialGeneration: 0,
+    }));
+
+    await handler.execute(operation);
+
+    expect(controls.persistRuntimeStartIntent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operationRunId: operation.runId,
+        runtimeType: "hermes_http",
+      }),
+    );
+    expect(order.indexOf("checkpoint:runtime_starting")).toBeLessThan(
+      order.indexOf("start"),
+    );
+  });
+
   it("registers a finite API-owned Operations resource policy", () => {
     expect(AGENT_OS_OPERATIONS[0]).toMatchObject({
       resourceClass: "default",

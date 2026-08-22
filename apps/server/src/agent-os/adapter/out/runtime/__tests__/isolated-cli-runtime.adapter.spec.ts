@@ -19,6 +19,8 @@ function context(attemptId = ATTEMPT_ID, runtimeType = 'codex_cli'): AgentDurabl
     sessionTaskId: '55555555-5555-4555-8555-555555555555',
     executionId: EXECUTION_ID,
     attemptId,
+    startIntentId: '88888888-8888-4888-8888-888888888888',
+    runtimeCredentialGeneration: 0,
     agentDefinitionKey: 'operator',
     agentVersionId: '66666666-6666-4666-8666-666666666666',
     runtimeType,
@@ -129,6 +131,8 @@ describe('isolated CLI durable runtime', () => {
     const cipherValues = new Map([['vault://cli/1', JSON.stringify({
       reconnectSecret: 'resume-1', nativeSessionId: 'native-session-1', pid: 42,
       processStartIdentity: 'proc-start-42', executableVersion: 'codex-cli 1.2.3',
+      organizationId: '33333333-3333-4333-8333-333333333333', sessionId: '44444444-4444-4444-8444-444444444444',
+      startIntentId: '88888888-8888-4888-8888-888888888888', runtimeCredentialGeneration: 0,
       mcpToolSet: { schemaVersion: 1, servers: [] },
     })]]);
     const options = {
@@ -161,6 +165,8 @@ describe('isolated CLI durable runtime', () => {
     const cipherValues = new Map([['vault://cli/1', JSON.stringify({
       reconnectSecret: 'resume-1', nativeSessionId: 'native-session-1', pid: 42,
       processStartIdentity: 'proc-start-42', executableVersion: 'codex-cli 1.2.3',
+      organizationId: '33333333-3333-4333-8333-333333333333', sessionId: '44444444-4444-4444-8444-444444444444',
+      startIntentId: '88888888-8888-4888-8888-888888888888', runtimeCredentialGeneration: 0,
       mcpToolSet: { schemaVersion: 1, servers: [] },
     })]]);
     const options = {
@@ -194,6 +200,8 @@ describe('isolated CLI durable runtime', () => {
     const cipherValues = new Map([['vault://cli/1', JSON.stringify({
       reconnectSecret: 'resume-1', nativeSessionId: 'native-session-1', pid: 42,
       processStartIdentity: 'proc-start-42', executableVersion: 'codex-cli 1.2.3',
+      organizationId: '33333333-3333-4333-8333-333333333333', sessionId: '44444444-4444-4444-8444-444444444444',
+      startIntentId: '88888888-8888-4888-8888-888888888888', runtimeCredentialGeneration: 0,
       mcpToolSet: {
         schemaVersion: 1,
         servers: [{ key: 'kiditem', tools: ['analytics_read_overview'] }],
@@ -222,8 +230,12 @@ describe('isolated CLI durable runtime', () => {
     }
 
     expect(credentials).toHaveBeenLastCalledWith({
+      organizationId: '33333333-3333-4333-8333-333333333333',
+      sessionId: '44444444-4444-4444-8444-444444444444',
       executionId: EXECUTION_ID,
       attemptId: ATTEMPT_ID,
+      startIntentId: '88888888-8888-4888-8888-888888888888',
+      runtimeCredentialGeneration: 0,
     });
     expect(vi.mocked(cli.connect).mock.calls[0][1]).toMatchObject({
       env: expect.objectContaining({

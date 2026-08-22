@@ -44,6 +44,8 @@ export interface ExecutionAttemptRecord {
   externalRunId: string | null;
   encryptedHandleRef: string | null;
   runtimeGeneration: number;
+  runtimeStartIntentId?: string | null;
+  runtimeCredentialGeneration?: number;
   state: string;
 }
 

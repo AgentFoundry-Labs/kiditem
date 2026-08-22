@@ -38,6 +38,10 @@ export interface IsolatedCliProcessHandle {
 
 export interface IsolatedCliNativeHandle extends IsolatedCliProcessHandle {
   executableVersion: string;
+  organizationId: string;
+  sessionId: string;
+  startIntentId: string;
+  runtimeCredentialGeneration: number;
   mcpToolSet: {
     schemaVersion: 1;
     servers: Array<{ key: string; tools: string[] }>;
@@ -71,8 +75,12 @@ export interface IsolatedCliRuntimeOptions {
 }
 
 export interface RuntimeCredentialScope {
+  organizationId: string;
+  sessionId: string;
   executionId: string;
   attemptId: string;
+  startIntentId: string;
+  runtimeCredentialGeneration: number;
 }
 
 export const DEFAULT_ISOLATED_CLI_RUN_ROOT = '/var/lib/kiditem-agent-runs';
@@ -100,6 +108,10 @@ const nativeHandleSchema = z.object({
   pid: z.number().int().positive(),
   processStartIdentity: z.string().min(1).max(512),
   executableVersion: z.string().min(1).max(512),
+  organizationId: z.string().min(1).max(128),
+  sessionId: z.string().uuid(),
+  startIntentId: z.string().uuid(),
+  runtimeCredentialGeneration: z.number().int().nonnegative(),
   mcpToolSet: mcpToolSetSchema,
 }).strict();
 
@@ -153,17 +165,24 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
   async start(context: AgentDurableRuntimeExecutionContext): Promise<RuntimeHandle> {
     if (!this.readyVersion) throw new Error(`CLI_RUNTIME_NOT_READY: ${this.runtimeType}`);
     if (context.runtimeType !== this.runtimeType) throw new Error('RUNTIME_CONTEXT_TYPE_MISMATCH');
+    if (!context.startIntentId || context.runtimeCredentialGeneration === undefined) {
+      throw new Error('RUNTIME_START_AUTHORITY_REQUIRED');
+    }
     const paths = await this.prepareRunDirectories(context.executionId, context.attemptId);
     const credential = runtimeCredentialSchema.parse(this.options.runtimeCredential({
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
       executionId: context.executionId,
       attemptId: context.attemptId,
+      startIntentId: context.startIntentId,
+      runtimeCredentialGeneration: context.runtimeCredentialGeneration,
     }));
     const mcpConfig = parseRunScopedMcpConfig(this.options.mcpConfig(context));
     await this.writeOwnerOnly(
       paths.mcpConfig,
       JSON.stringify(mcpConfig),
     );
-    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential);
+    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential, context.startIntentId);
     const started = await this.options.transport.start({
       binary: this.options.binary,
       args: [...this.options.startArgs],
@@ -177,6 +196,10 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       pid: started.pid,
       processStartIdentity: started.processStartIdentity,
       executableVersion: this.readyVersion,
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
+      startIntentId: context.startIntentId,
+      runtimeCredentialGeneration: context.runtimeCredentialGeneration,
       mcpToolSet: snapshotMcpToolSet(mcpConfig),
     });
     const encryptedHandleRef = this.options.handleCipher.encrypt(JSON.stringify(native));
@@ -199,6 +222,7 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
         processStartIdentity: native.processStartIdentity,
         executableVersion: native.executableVersion,
         generation: handle.generation,
+        startIntentId: context.startIntentId,
         encryptedHandleRef,
       }),
     );
@@ -212,14 +236,15 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       handle.attemptId,
     );
     const credential = runtimeCredentialSchema.parse(this.options.runtimeCredential({
-      executionId: handle.executionId,
-      attemptId: handle.attemptId,
+      organizationId: native.organizationId, sessionId: native.sessionId, executionId: handle.executionId,
+      attemptId: handle.attemptId, startIntentId: native.startIntentId,
+      runtimeCredentialGeneration: native.runtimeCredentialGeneration,
     }));
     await this.writeOwnerOnly(
       paths.mcpConfig,
       JSON.stringify(hydrateMcpConfig(native.mcpToolSet, credential)),
     );
-    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential);
+    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential, native.startIntentId);
     for await (const event of this.options.transport.connect(native, {
       binary: this.options.binary,
       args: [...this.options.resumeArgs, native.nativeSessionId],
@@ -301,7 +326,7 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     };
   }
 
-  private childEnvironment(home: string, mcpConfigPath: string, credential: string) {
+  private childEnvironment(home: string, mcpConfigPath: string, credential: string, startIntentId: string) {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.ambientEnv ?? process.env)) {
       if (SAFE_AMBIENT_ENV.has(key) && typeof value === 'string') env[key] = value;
@@ -312,6 +337,7 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       XDG_CONFIG_HOME: join(home, '.config'),
       KIDITEM_RUNTIME_CREDENTIAL: credential,
       KIDITEM_MCP_CONFIG: mcpConfigPath,
+      KIDITEM_RUNTIME_START_INTENT: startIntentId,
     };
   }
 
