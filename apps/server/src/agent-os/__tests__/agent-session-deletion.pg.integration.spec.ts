@@ -9,17 +9,28 @@ import {
   vi,
 } from "vitest";
 import {
+  AgentExecutionIdSchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  formatAgentExecutionName,
+  formatAgentSessionName,
+  formatAgentSessionTaskName,
+  OrganizationIdSchema,
+} from "@kiditem/shared/identifiers";
+import {
   makeTestPrisma,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from "../../test-helpers/real-prisma";
+import { PrismaAgentExecutionQueryRepository } from "../adapter/out/repository/interaction/prisma-agent-execution-query.repository";
 import { PrismaAgentSessionDeletionExecutionTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction";
 import { PrismaAgentSessionDeletionFinalizationTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction";
 import { AgentSessionDeletionExecutionService } from "../application/service/session-execution/agent-session-deletion-execution.service";
 import { AgentAguiRuntimeRegistry } from "../application/service/agent-agui-runtime-registry.service";
 import { AgentAguiInProcessRunRegistry } from "../application/service/agent-agui-in-process-run-registry.service";
+import { AgentAguiRunService } from "../application/service/agent-agui-run.service";
 import { OpenAiResponsesAguiRuntimeAdapter } from "../adapter/out/runtime/openai-responses-agui-runtime.adapter";
 import { PrismaAguiRuntimeCleanupDependencies } from "../adapter/out/runtime/prisma-agui-runtime-cleanup-dependencies";
 import { lockAgentSessionForDeletion } from "../adapter/out/transaction/session-control/internal/lock-writable-agent-session";
@@ -470,6 +481,143 @@ describe("AgentSession deletion graph finalization (PostgreSQL)", () => {
     await expect(
       prisma!.agentSession.findUnique({ where: { id: fixture.sessionId } }),
     ).resolves.toBeNull();
+  });
+
+  it("seals a loaded AG-UI context that resumes after deletion before runtime registration", async () => {
+    const fixture = await createFencedDeletionFixture();
+    const agui = await createRunningAguiAttempt(prisma!, fixture.sessionId);
+    const message = await createAguiUserMessage(prisma!, fixture.sessionId, agui);
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: { lifecycle: "active", deletionOperationRunId: null },
+    });
+
+    const contextStalled = deferred<void>();
+    const resumeStaleRequest = deferred<void>();
+    const executionQueries = new PrismaAgentExecutionQueryRepository(
+      prisma as never,
+    );
+    const activeRuns = new AgentAguiInProcessRunRegistry();
+    const responses = { decide: vi.fn() };
+    const runtimeRegistry = new AgentAguiRuntimeRegistry();
+    const runtime = new OpenAiResponsesAguiRuntimeAdapter(
+      runtimeRegistry,
+      responses as never,
+      new PrismaAguiRuntimeCleanupDependencies(prisma as never, activeRuns),
+      undefined,
+      activeRuns,
+    );
+    runtime.onModuleInit();
+    const invokeCapability = vi.fn();
+    const application = new AgentAguiRunService(
+      {
+        loadExecutionRuntimeContext:
+          executionQueries.loadExecutionRuntimeContext.bind(executionQueries),
+        findCurrentExecution:
+          executionQueries.findCurrentExecution.bind(executionQueries),
+      } as never,
+      {
+        readModelConversation: async () => {
+          contextStalled.resolve();
+          await resumeStaleRequest.promise;
+          return { events: [message], hasMore: false };
+        },
+      } as never,
+      {
+        appendExecutionEvent: vi.fn(async (input) => ({
+          id: input.externalEventId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          sequence: 1n,
+        })),
+      } as never,
+      { recordExecutionUsage: vi.fn() } as never,
+      { publish: vi.fn() } as never,
+      runtimeRegistry,
+      { invoke: invokeCapability } as never,
+    );
+    const stale = application
+      .run(aguiRunRequest(fixture.sessionId, agui, message))
+      [Symbol.asyncIterator]();
+    const staleResult = stale.next();
+    await contextStalled.promise;
+
+    await prisma!.agentSession.update({
+      where: { id: fixture.sessionId },
+      data: {
+        lifecycle: "deleting",
+        deletionOperationRunId: fixture.deletionRunId,
+      },
+    });
+    const transactions = new PrismaAgentSessionDeletionExecutionTransaction(
+      prisma as never,
+    );
+    const deletion = new AgentSessionDeletionExecutionService(
+      {
+        loadFencedSnapshot: transactions.loadFencedSnapshot.bind(transactions),
+        terminalizeOwnedRun:
+          transactions.terminalizeOwnedRun.bind(transactions),
+        deleteGraphAndCheckpoint:
+          transactions.deleteGraphAndCheckpoint.bind(transactions),
+        hasGraphDeletedCheckpoint:
+          transactions.hasGraphDeletedCheckpoint.bind(transactions),
+      } as never,
+      { fenceAndCancel: vi.fn().mockResolvedValue({ state: "fenced" }) } as never,
+      { cleanup: runtime.cleanup.bind(runtime) } as never,
+      {
+        beginFence: vi.fn().mockResolvedValue(undefined),
+        confirmFenced: vi.fn().mockResolvedValue({ state: "fenced" }),
+      } as never,
+      {
+        abortEraseAndConfirm: vi.fn().mockResolvedValue({ state: "erased" }),
+        deleteActiveAndConfirm: vi.fn().mockResolvedValue({ state: "erased" }),
+      } as never,
+    );
+
+    await expect(
+      deletion.execute({
+        ...fixture.attempt,
+        enterEphemeralFinalization: vi
+          .fn()
+          .mockResolvedValue({ signal: fixture.attempt.signal }),
+      }),
+    ).resolves.toEqual({ kind: "completed" });
+    await expect(
+      prisma!.agentSession.findUnique({ where: { id: fixture.sessionId } }),
+    ).resolves.toBeNull();
+
+    resumeStaleRequest.resolve();
+    await expect(staleResult).resolves.toMatchObject({
+      value: { type: "RUN_ERROR" },
+      done: false,
+    });
+    expect(responses.decide).not.toHaveBeenCalled();
+    expect(invokeCapability).not.toHaveBeenCalled();
+    expect(
+      (activeRuns as unknown as { active: Map<string, unknown> }).active.size,
+    ).toBe(0);
+    await expect(
+      Promise.all([
+        prisma!.agentSession.count({ where: { id: fixture.sessionId } }),
+        prisma!.agentExecution.count({ where: { id: agui.executionId } }),
+        prisma!.agentExecutionAttempt.count({ where: { id: agui.attemptId } }),
+        prisma!.agentConversationEvent.count({
+          where: { sessionId: fixture.sessionId },
+        }),
+      ]),
+    ).resolves.toEqual([0, 0, 0, 0]);
+    await expect(
+      activeRuns.stopAndInspect(
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: fixture.sessionId,
+          executionId: agui.executionId,
+          attemptId: agui.attemptId,
+          startIntentId: agui.startIntentId,
+        },
+        new AbortController().signal,
+      ),
+    ).resolves.toEqual({ status: "cancelled" });
   });
 
   it("treats a recreated process with no local AG-UI run as clean only after exact persisted invalidation", async () => {
@@ -1168,6 +1316,101 @@ async function createRunningAguiAttempt(
     startIntentId,
     copilotThreadId: session.copilotThreadId,
     aguiRunId,
+  };
+}
+
+async function createAguiUserMessage(
+  client: PrismaClient,
+  sessionId: string,
+  agui: { executionId: string; aguiRunId: string },
+) {
+  const externalEventId = `agui-user-${randomUUID()}`;
+  return client.agentConversationEvent.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId,
+      executionId: agui.executionId,
+      externalEventId,
+      sequence: 2n,
+      eventType: "user_message",
+      schemaVersion: 1,
+      payload: {
+        phase: "complete",
+        messageId: externalEventId,
+        content: "stalled deletion test",
+      },
+    },
+    select: {
+      id: true,
+      organizationId: true,
+      sessionId: true,
+      executionId: true,
+      externalEventId: true,
+      sequence: true,
+      eventType: true,
+      schemaVersion: true,
+      payload: true,
+      createdAt: true,
+    },
+  });
+}
+
+function aguiRunRequest(
+  sessionId: string,
+  agui: {
+    taskId: string;
+    executionId: string;
+    copilotThreadId: string;
+    aguiRunId: string;
+  },
+  message: { externalEventId: string },
+) {
+  const organization = OrganizationIdSchema.parse(TEST_ORGANIZATION_ID);
+  const session = AgentSessionIdSchema.parse(sessionId);
+  return {
+    agentDefinitionKey: "deletion-test-agent",
+    input: {
+      threadId: agui.copilotThreadId,
+      runId: agui.aguiRunId,
+      state: {},
+      messages: [
+        {
+          id: message.externalEventId,
+          role: "user" as const,
+          content: "stalled deletion test",
+        },
+      ],
+      tools: [],
+      context: [],
+      forwardedProps: {
+        kiditemAuthorization: {
+          session: formatAgentSessionName(organization, session),
+          task: formatAgentSessionTaskName(
+            organization,
+            session,
+            AgentSessionTaskIdSchema.parse(agui.taskId),
+          ),
+          execution: formatAgentExecutionName(
+            organization,
+            session,
+            AgentExecutionIdSchema.parse(agui.executionId),
+          ),
+          modelIdentity: "test-model",
+          runtimeType: "copilotkit_agui",
+          policyHash: "e".repeat(64),
+          contextEpoch: 1,
+          dashboardContext: {
+            routeKey: "agent_os",
+            resourceRefs: [],
+            filters: {},
+            visibleRowIds: [],
+            aggregateSummary: {},
+            locale: "ko-KR",
+            timezone: "Asia/Seoul",
+          },
+        },
+      },
+    },
   };
 }
 

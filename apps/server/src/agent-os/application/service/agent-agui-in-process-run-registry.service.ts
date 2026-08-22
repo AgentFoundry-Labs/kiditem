@@ -16,9 +16,17 @@ interface ActiveAguiRun {
 @Injectable()
 export class AgentAguiInProcessRunRegistry {
   private readonly active = new Map<string, ActiveAguiRun>();
+  /**
+   * A deletion seal lasts for this registry's process lifetime. A paused
+   * request cannot outlive a process restart, so process teardown is the only
+   * safe cleanup boundary; time-based eviction could reopen a revoked grant.
+   */
+  private readonly sealed = new Set<string>();
 
   begin(input: AguiRunCoordinate): { signal: AbortSignal; finish(): void } {
     const key = coordinateKey(input);
+    if (this.sealed.has(key))
+      throw new Error("AGUI_RUNTIME_COORDINATE_SEALED");
     if (this.active.has(key))
       throw new Error("AGUI_RUNTIME_COORDINATE_ALREADY_ACTIVE");
     let settle!: () => void;
@@ -41,12 +49,21 @@ export class AgentAguiInProcessRunRegistry {
     };
   }
 
+  seal(input: AguiRunCoordinate): void {
+    this.sealed.add(coordinateKey(input));
+  }
+
   async stopAndInspect(
     input: AguiRunCoordinate,
     signal: AbortSignal,
   ): Promise<RuntimeInspection> {
+    const key = coordinateKey(input);
+    // This is called only after persisted exact-coordinate invalidation. Seal
+    // before inspecting local state so a request paused before `begin()` cannot
+    // enter after deletion observes no active local entry.
+    this.seal(input);
     signal.throwIfAborted();
-    const run = this.active.get(coordinateKey(input));
+    const run = this.active.get(key);
     if (!run) return { status: "cancelled" };
     run.controller.abort(new Error("agent_session_deleting"));
     await settleOrAbort(run.settled, signal);

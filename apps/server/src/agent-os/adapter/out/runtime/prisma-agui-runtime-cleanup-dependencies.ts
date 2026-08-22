@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../../../prisma/prisma.service";
+import { AgentAguiInProcessRunRegistry } from "../../../application/service/agent-agui-in-process-run-registry.service";
+import { lockAgentSessionForDeletion } from "../transaction/session-control/internal/lock-writable-agent-session";
 import type {
   AguiRuntimeCleanupDependencies,
   AguiStartIntent,
@@ -9,8 +11,6 @@ import type {
   RuntimeHandle,
   RuntimeInspection,
 } from "../../../application/port/out/runtime/agent-durable-runtime.port";
-import { AgentAguiInProcessRunRegistry } from "../../../application/service/agent-agui-in-process-run-registry.service";
-import { lockAgentSessionForDeletion } from "../transaction/session-control/internal/lock-writable-agent-session";
 
 const AGUI_RUNTIME_TYPE = "copilotkit_agui";
 
@@ -113,6 +113,10 @@ export class PrismaAguiRuntimeCleanupDependencies implements AguiRuntimeCleanupD
         });
       }
     });
+    // Persisted revocation is complete. Seal before `stop()` so even a local
+    // handle-shape failure cannot let a request paused before registration
+    // begin with this exact, now-revoked start intent.
+    this.activeRuns.seal(input);
   }
 
   async stop(
