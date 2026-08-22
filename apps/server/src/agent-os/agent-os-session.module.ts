@@ -47,6 +47,15 @@ import {
 import { AgentExecutionContextBuilder } from "./application/service/agent-execution-context-builder.service";
 import { AgentSessionCapabilityInvocationService } from "./application/service/agent-session-capability-invocation.service";
 import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime-adapter.registry";
+import { PrismaAgentRuntimeCredentialAuthorityRepository } from "./adapter/out/repository/session-execution/prisma-agent-runtime-credential-authority.repository";
+import { AgentSessionRuntimeCleanupAdapter } from "./adapter/out/runtime/agent-session-runtime-cleanup.adapter";
+import { PrismaAgentSessionDeletionExecutionTransaction } from "./adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction";
+import { AgentRuntimeCredentialVerificationService } from "./application/service/session-execution/agent-runtime-credential-verification.service";
+import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "./application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port";
+import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from "./application/port/in/session-execution/agent-runtime-credential-verification.port";
+import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "./application/port/out/runtime/agent-session-runtime-cleanup.port";
+import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "./application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
+import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credential-broker";
 
 @Module({
   imports: [
@@ -57,6 +66,26 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
   ],
   providers: [
     AgentRuntimeAdapterRegistry,
+    PrismaAgentRuntimeCredentialAuthorityRepository,
+    AgentRuntimeCredentialVerificationService,
+    AgentSessionRuntimeCleanupAdapter,
+    PrismaAgentSessionDeletionExecutionTransaction,
+    {
+      provide: RuntimeCredentialBroker,
+      useFactory: () => {
+        const secret = process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY?.trim();
+        return {
+          verify: (...args: Parameters<RuntimeCredentialBroker["verify"]>) => {
+            if (!secret) throw new Error("AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED");
+            return new RuntimeCredentialBroker({ secret }).verify(...args);
+          },
+        } as RuntimeCredentialBroker;
+      },
+    },
+    { provide: AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY, useExisting: PrismaAgentRuntimeCredentialAuthorityRepository },
+    { provide: AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT, useExisting: AgentRuntimeCredentialVerificationService },
+    { provide: AGENT_SESSION_RUNTIME_CLEANUP_PORT, useExisting: AgentSessionRuntimeCleanupAdapter },
+    { provide: AGENT_SESSION_DELETION_EXECUTION_TRANSACTION, useExisting: PrismaAgentSessionDeletionExecutionTransaction },
     {
       provide: HermesRuntimeStartupRegistrar,
       inject: [AgentRuntimeAdapterRegistry, AgentCapabilityRegistry],
@@ -167,6 +196,10 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+    AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY,
+    AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
+    AGENT_SESSION_RUNTIME_CLEANUP_PORT,
+    AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
     AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
     AGENT_DELEGATION_TRANSACTION,
     AGENT_ATTEMPT_OPERATION_TRANSACTION,

@@ -22,6 +22,11 @@ import { OperationDefinitionSnapshotAdapter } from '../adapter/out/operation/ope
 import { AgentAguiController } from '../adapter/in/http/interaction/agent-agui.controller';
 import { AgentInteractionBootstrapController } from '../adapter/in/http/interaction/agent-interaction-bootstrap.controller';
 import { AGENT_SESSION_ARTIFACT_WRITER_PORT } from '../application/port/in/session-execution/agent-session-artifact-writer.port';
+import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from '../application/port/in/session-execution/agent-runtime-credential-verification.port';
+import { AGENT_SESSION_DELETION_EXECUTION_PORT } from '../application/port/in/session-execution/agent-session-deletion-execution.port';
+import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from '../application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port';
+import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from '../application/port/out/runtime/agent-session-runtime-cleanup.port';
+import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from '../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port';
 import { AGENT_SESSION_OWNED_OPERATION_PORT } from '../application/port/in/session-control/agent-session-owned-operation.port';
 import type { AgentSessionOwnedOperationPort } from '../application/port/in/session-control/agent-session-owned-operation.port';
 import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from '../application/port/out/operation/agent-session-operation-platform.port';
@@ -180,6 +185,7 @@ describe('Agent OS artifact materialization composition', () => {
     expect(exportsOf(AgentOsApiExecutionModule)).toEqual([
       AGENT_SESSION_OWNED_OPERATION_PORT,
       AGENT_SESSION_ARTIFACT_WRITER_PORT,
+      AGENT_SESSION_DELETION_EXECUTION_PORT,
     ]);
     expect(imports(AgentOsHttpModule)).toContain(AgentOsApiExecutionModule);
   });
@@ -263,6 +269,10 @@ describe('Agent OS artifact materialization composition', () => {
       AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
       AGENT_CONVERSATION_LIVE_PUBLISHER,
       AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+      AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY,
+      AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
+      AGENT_SESSION_RUNTIME_CLEANUP_PORT,
+      AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
     ]) expect(sessionProviders).toContainEqual(expect.objectContaining({ provide: token }));
     expect(sessionProviders).toContain(AgentRuntimeAdapterRegistry);
     expect(sessionProviders).toContain(AgentSessionCapabilityInvocationService);
@@ -287,9 +297,21 @@ describe('Agent OS artifact materialization composition', () => {
       AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
       AGENT_CONVERSATION_LIVE_PUBLISHER,
       AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
+      AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY,
+      AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
+      AGENT_SESSION_RUNTIME_CLEANUP_PORT,
+      AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
     ]) expect(sessionExports).toContain(token);
     expect(sessionExports).not.toContain(StorageAgentSessionArtifactAdapter);
     expect(sessionExports).not.toContain(AgentSessionArtifactWriterService);
+  });
+
+  it('composes deletion execution only in the API wrapper without importing storage or Operations into session core', () => {
+    expect(providers(AgentOsApiExecutionModule)).toContainEqual(
+      expect.objectContaining({ provide: AGENT_SESSION_DELETION_EXECUTION_PORT }),
+    );
+    expect(exportsOf(AgentOsApiExecutionModule)).toContain(AGENT_SESSION_DELETION_EXECUTION_PORT);
+    expect(imports(AgentOsSessionModule)).not.toContain(StorageModule);
   });
 
   it('quarantines generic AgentRun providers in the legacy module', () => {
