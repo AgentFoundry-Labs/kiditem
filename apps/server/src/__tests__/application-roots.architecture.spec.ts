@@ -10,6 +10,10 @@ import { AgentMcpApplicationModule } from '../agent-mcp-application.module';
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
 import { AgentOsWorkerModule } from '../agent-os/agent-os-worker.module';
 import { OperationsModule } from '../operations/operations.module';
+import { OperationsHttpModule } from '../operations/operations-http.module';
+import { OperationsController } from '../operations/adapter/in/http/operations.controller';
+import { OperationSchedulesController } from '../operations/adapter/in/http/operation-schedules.controller';
+import { BrowserOperationRuntimeController } from '../operations/adapter/in/http/browser-operation-runtime.controller';
 import { OperationRunWorkerService } from '../operations/application/service/operation-run-worker.service';
 import { OperationSchedulerService } from '../operations/application/service/operation-scheduler.service';
 import {
@@ -124,6 +128,26 @@ function productionTypeScriptFiles(directory: string): string[] {
 }
 
 describe('application root topology', () => {
+  it('keeps Operations controller-free while its HTTP wrapper owns API controllers', () => {
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, OperationsModule) ?? [],
+    ).toEqual([]);
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, OperationsHttpModule) ?? [],
+    ).toEqual([
+      OperationsController,
+      OperationSchedulesController,
+      BrowserOperationRuntimeController,
+    ]);
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.IMPORTS, ApiApplicationModule) ?? [],
+    ).toContain(OperationsHttpModule);
+
+    for (const root of [AgentWorkerApplicationModule, AgentMcpApplicationModule]) {
+      expect([...graph(root)].map(moduleClass)).not.toContain(OperationsHttpModule);
+    }
+  });
+
   it('does not give the worker wrapper HTTP or Operations dependencies', () => {
     const workerImports: ModuleLike[] =
       Reflect.getMetadata(MODULE_METADATA.IMPORTS, AgentOsWorkerModule) ?? [];

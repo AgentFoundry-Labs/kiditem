@@ -1,8 +1,5 @@
 import { Module } from '@nestjs/common';
 import { PrismaModule } from '../prisma/prisma.module';
-import { OperationsController } from './adapter/in/http/operations.controller';
-import { OperationSchedulesController } from './adapter/in/http/operation-schedules.controller';
-import { BrowserOperationRuntimeController } from './adapter/in/http/browser-operation-runtime.controller';
 import { OperationRepositoryAdapter } from './adapter/out/repository/operation.repository.adapter';
 import { OperationCheckpointRepositoryAdapter } from './adapter/out/repository/operation-checkpoint.repository.adapter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from './application/port/in/operation-handler-registry.port';
@@ -35,11 +32,6 @@ import {
 
 @Module({
   imports: [PrismaModule],
-  controllers: [
-    OperationsController,
-    OperationSchedulesController,
-    BrowserOperationRuntimeController,
-  ],
   providers: [
     OperationHandlerRegistryService,
     OperationPostAcceptingHookRegistryService,

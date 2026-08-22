@@ -21,6 +21,7 @@
 | AgentExecution | `agent_executions` | Required session/task-owned interaction execution and terminal control state. |
 | AgentExecutionAttempt | `agent_execution_attempts` | One immutable numbered runtime attempt and its opaque reconnect handle identity. |
 | AgentExecutionAttemptOperationBinding | `agent_execution_attempt_operation_bindings` | Immutable lifecycle-envelope binding for one durable Agent execution attempt. A successor OperationRun retains the same external runtime handle and references the previous immutable OperationRun. |
+| AgentExecutionDispatchOutbox | `agent_execution_dispatch_outboxes` | Content-free API judgment dispatch handoff for exactly one official execution. |
 | AgentExecutionUsage | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
@@ -230,6 +231,22 @@ erDiagram
     String predecessorOperationRunId FK
     String continuationKey
     DateTime createdAt
+  }
+  AgentExecutionDispatchOutbox {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String sessionTaskId FK
+    String executionId FK,UK
+    String idempotencyKey
+    String fingerprint
+    String state
+    String leaseToken
+    DateTime leaseExpiresAt
+    String operationRunId FK
+    DateTime dispatchedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   AgentExecutionUsage {
     String id PK
@@ -642,6 +659,7 @@ erDiagram
   AgentConversationEvent ||--|| AgentConversationOutbox : "event"
   AgentExecution o|--o{ AgentConversationEvent : "execution"
   AgentExecution ||--o{ AgentExecutionAttempt : "execution"
+  AgentExecution ||--|| AgentExecutionDispatchOutbox : "execution"
   AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentExecution ||--o{ AgentSessionApproval : "execution"
   AgentExecution ||--o{ AgentSessionArtifact : "execution"
@@ -687,6 +705,7 @@ erDiagram
   AgentSession ||--o{ AgentContextEpoch : "session"
   AgentSession ||--o{ AgentConversationEvent : "session"
   AgentSession ||--o{ AgentExecution : "session"
+  AgentSession ||--o{ AgentExecutionDispatchOutbox : "session"
   AgentSession ||--o{ AgentPolicySnapshot : "session"
   AgentSession ||--o{ AgentSessionApproval : "session"
   AgentSession ||--o{ AgentSessionArtifact : "session"
@@ -696,6 +715,7 @@ erDiagram
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
   AgentSessionArtifact ||--|| AgentSessionArtifactMaterialization : "artifact"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
+  AgentSessionTask ||--o{ AgentExecutionDispatchOutbox : "task"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
   AgentSessionTask o|--o{ AgentSessionTask : "parent"
@@ -735,6 +755,8 @@ erDiagram
 | AgentExecution | organization | references external | Core | Organization |
 | AgentExecutionAttemptOperationBinding | operationRun | references external | System | OperationRun |
 | AgentExecutionAttemptOperationBinding | predecessorOperationRun | references external | System | OperationRun |
+| AgentExecutionDispatchOutbox | operationRun | references external | System | OperationRun |
+| AgentExecutionDispatchOutbox | organization | references external | Core | Organization |
 | AgentExecutionUsage | organization | references external | Core | Organization |
 | AgentInstance | agentInstance | referenced by external | Core | User |
 | AgentInstance | organization | references external | Core | Organization |

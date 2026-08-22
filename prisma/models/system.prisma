@@ -254,6 +254,7 @@ model OperationRun {
   agentSessionOperationRunOwnership                AgentSessionOperationRunOwnership?      @relation("AgentSessionOperationRunOwnership")
   agentSessionArtifactMaterializations             AgentSessionArtifactMaterialization[]   @relation("AgentSessionArtifactMaterializationInvocationRun")
   agentSessionArtifactMaterializationArtifacts     AgentSessionArtifact[]                  @relation("AgentSessionArtifactMaterializationRun")
+  agentExecutionDispatchOutboxes AgentExecutionDispatchOutbox[] @relation("AgentExecutionDispatchOutboxOperationRun")
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))

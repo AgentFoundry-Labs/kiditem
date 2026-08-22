@@ -1,33 +1,21 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-  type AgentRunnerResult,
-} from '../../../agent-os/application/port/in/agent-runner.port';
+  ADVERTISING_JUDGMENT_PORT,
+  type AdvertisingJudgmentPort,
+} from '../port/out/cross-domain/advertising-judgment.port';
 import {
   OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../port/out/cross-domain/operation-alert.port';
 
 /**
- * Triggers the `ad_strategy` agent through the Agent OS port.
- *
- * Run observability (status / latest / list) is owned by the Agent OS
- * surface (`/api/agent-os/runs*`). Advertising no longer reads
- * `AgentRun*` directly — the legacy `AgentTask` model and its event-bus
- * post-processing have been removed.
- *
- * Producer-owned operation Alert: when the runner returns a durable
- * `requestId`, this service opens an Alert keyed by `agent_run_request` /
- * `<requestId>` through the `OperationAlertPort` (advertising's consumer-
- * side wrapper around `automation.OperationAlertService`). The operation-
- * alert bridge closes the same row on FINALIZED.
+ * Triggers `ad_strategy` as official, human-originated AgentSession work.
  */
 @Injectable()
 export class AdStrategyAgentService {
   constructor(
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
+    @Inject(ADVERTISING_JUDGMENT_PORT)
+    private readonly judgment: AdvertisingJudgmentPort,
     @Inject(OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
   ) {}
@@ -36,34 +24,28 @@ export class AdStrategyAgentService {
     organizationId: string;
     triggeredByUserId: string | null;
     dryRun?: boolean;
-  }): Promise<AgentRunnerResult> {
-    const result = await this.agentRunner.runByType('ad_strategy', {
-      organizationId: input.organizationId,
-      sourceType: 'advertising.ad_strategy.manual',
-      reason: 'manual_trigger',
-      dryRun: input.dryRun,
-      ...(input.triggeredByUserId
-        ? { requestedByUserId: input.triggeredByUserId }
-        : {}),
-    });
-
-    if (result.ok && result.requestId) {
-      await this.operationAlerts.start({
-        organizationId: input.organizationId,
-        operationKey: `ad-strategy:${result.requestId}`,
-        type: 'ad_strategy',
-        title: '광고 전략 분석 진행 중',
-        sourceType: 'agent_run_request',
-        sourceId: result.requestId,
-        actorUserId: input.triggeredByUserId,
-        href: '/ad-ops',
-        metadata: {
-          agentType: 'ad_strategy',
-          dryRun: input.dryRun ?? false,
-        },
-      });
+  }): Promise<Awaited<ReturnType<AdvertisingJudgmentPort['submit']>>> {
+    if (!input.triggeredByUserId) {
+      throw new Error('AD_STRATEGY_JUDGMENT_ACTOR_REQUIRED');
     }
-
+    const result = await this.judgment.submit({
+      organizationId: input.organizationId,
+      actorUserId: input.triggeredByUserId,
+      objective: 'Create an advertising strategy analysis.',
+      resourceRefs: [],
+      idempotencyKey: `advertising.ad_strategy.manual:${input.organizationId}:${input.triggeredByUserId}:${input.dryRun ?? false}`,
+    });
+    await this.operationAlerts.start({
+      organizationId: input.organizationId,
+      operationKey: `ad-strategy:${result.operation}`,
+      type: 'ad_strategy',
+      title: '광고 전략 분석 진행 중',
+      sourceType: 'operation_run',
+      sourceId: result.operation,
+      actorUserId: input.triggeredByUserId,
+      href: '/ad-ops',
+      metadata: { agentDefinition: 'ad_strategy', dryRun: input.dryRun ?? false },
+    });
     return result;
   }
 }

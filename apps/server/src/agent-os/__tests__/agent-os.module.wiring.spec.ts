@@ -29,6 +29,7 @@ import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "../application/po
 import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "../application/port/out/runtime/agent-session-runtime-cleanup.port";
 import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
 import { AGENT_SESSION_OWNED_OPERATION_PORT } from "../application/port/in/session-control/agent-session-owned-operation.port";
+import { AGENT_JUDGMENT_SUBMISSION_PORT } from '../application/port/in/judgment/agent-judgment-submission.port';
 import type { AgentSessionOwnedOperationPort } from "../application/port/in/session-control/agent-session-owned-operation.port";
 import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from "../application/port/out/operation/agent-session-operation-platform.port";
 import { AGENT_INTERACTION_BOOTSTRAP_PORT } from "../application/port/in/interaction/agent-interaction-bootstrap.port";
@@ -240,6 +241,7 @@ describe("Agent OS artifact materialization composition", () => {
     );
     expect(exportsOf(AgentOsApiExecutionModule)).toEqual([
       AGENT_SESSION_OWNED_OPERATION_PORT,
+      AGENT_JUDGMENT_SUBMISSION_PORT,
       AGENT_SESSION_ARTIFACT_WRITER_PORT,
       AGENT_SESSION_DELETION_EXECUTION_PORT,
       AGENT_SESSION_DELETION_PORT,

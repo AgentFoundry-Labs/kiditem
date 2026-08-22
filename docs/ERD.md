@@ -24,7 +24,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Domain | Models |
 |---|---:|
 | [Advertising](erd/advertising.md) | 5 |
-| [AgentOS](erd/agentos.md) | 36 |
+| [AgentOS](erd/agentos.md) | 37 |
 | [AI](erd/ai.md) | 22 |
 | [Channels](erd/channels.md) | 21 |
 | [Core](erd/core.md) | 16 |
@@ -56,6 +56,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | AgentExecution | AgentOS | `agent_executions` | Required session/task-owned interaction execution and terminal control state. |
 | AgentExecutionAttempt | AgentOS | `agent_execution_attempts` | One immutable numbered runtime attempt and its opaque reconnect handle identity. |
 | AgentExecutionAttemptOperationBinding | AgentOS | `agent_execution_attempt_operation_bindings` | Immutable lifecycle-envelope binding for one durable Agent execution attempt. A successor OperationRun retains the same external runtime handle and references the previous immutable OperationRun. |
+| AgentExecutionDispatchOutbox | AgentOS | `agent_execution_dispatch_outboxes` | Content-free API judgment dispatch handoff for exactly one official execution. |
 | AgentExecutionUsage | AgentOS | `agent_execution_usages` | Immutable model usage and cost record attached to an organization-scoped interaction execution. |
 | AgentInstance | AgentOS | `agent_instances` | Organization-owned runnable subject. Type must match the code-owned Agent Definition Registry. |
 | AgentInstanceToolPolicy | AgentOS | `agent_instance_tool_policies` | Per-instance override for tool policy. Registry defaults are code-owned; DB stores organization overrides. |
@@ -452,6 +453,22 @@ erDiagram
     String predecessorOperationRunId FK
     String continuationKey
     DateTime createdAt
+  }
+  AgentExecutionDispatchOutbox {
+    String id PK
+    String organizationId FK
+    String sessionId FK
+    String sessionTaskId FK
+    String executionId FK,UK
+    String idempotencyKey
+    String fingerprint
+    String state
+    String leaseToken
+    DateTime leaseExpiresAt
+    String operationRunId FK
+    DateTime dispatchedAt
+    DateTime createdAt
+    DateTime updatedAt
   }
   AgentExecutionUsage {
     String id PK
@@ -3241,6 +3258,7 @@ erDiagram
   AgentConversationEvent ||--|| AgentConversationOutbox : "event"
   AgentExecution o|--o{ AgentConversationEvent : "execution"
   AgentExecution ||--o{ AgentExecutionAttempt : "execution"
+  AgentExecution ||--|| AgentExecutionDispatchOutbox : "execution"
   AgentExecution ||--o{ AgentExecutionUsage : "execution"
   AgentExecution ||--o{ AgentSessionApproval : "execution"
   AgentExecution ||--o{ AgentSessionArtifact : "execution"
@@ -3287,6 +3305,7 @@ erDiagram
   AgentSession ||--o{ AgentContextEpoch : "session"
   AgentSession ||--o{ AgentConversationEvent : "session"
   AgentSession ||--o{ AgentExecution : "session"
+  AgentSession ||--o{ AgentExecutionDispatchOutbox : "session"
   AgentSession ||--o{ AgentPolicySnapshot : "session"
   AgentSession ||--o{ AgentSessionApproval : "session"
   AgentSession ||--o{ AgentSessionArtifact : "session"
@@ -3296,6 +3315,7 @@ erDiagram
   AgentSessionApproval ||--|| AgentSessionApprovalContinuation : "approval"
   AgentSessionArtifact ||--|| AgentSessionArtifactMaterialization : "artifact"
   AgentSessionTask ||--o{ AgentExecution : "sessionTask"
+  AgentSessionTask ||--o{ AgentExecutionDispatchOutbox : "task"
   AgentSessionTask ||--o{ AgentSessionApproval : "task"
   AgentSessionTask ||--o{ AgentSessionArtifact : "task"
   AgentSessionTask o|--o{ AgentSessionTask : "parent"
@@ -3401,6 +3421,7 @@ erDiagram
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
   OperationRun ||--|| AgentExecutionAttemptOperationBinding : "operationRun"
   OperationRun o|--o{ AgentExecutionAttemptOperationBinding : "predecessorOperationRun"
+  OperationRun o|--o{ AgentExecutionDispatchOutbox : "operationRun"
   OperationRun o|--o{ AgentSession : "deletionOperationRun"
   OperationRun ||--o{ AgentSessionApproval : "predecessorOperationRun"
   OperationRun o|--o| AgentSessionApprovalContinuation : "successorOperationRun"
@@ -3426,6 +3447,7 @@ erDiagram
   Organization ||--o{ AgentConversation : "organization"
   Organization ||--o{ AgentCostEvent : "organization"
   Organization ||--o{ AgentExecution : "organization"
+  Organization ||--o{ AgentExecutionDispatchOutbox : "organization"
   Organization ||--o{ AgentExecutionUsage : "organization"
   Organization ||--o{ AgentInstance : "organization"
   Organization ||--o{ AgentInstanceToolPolicy : "organization"

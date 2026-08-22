@@ -27,13 +27,27 @@ import { AGENT_SESSION_DELETION_QUERY } from './application/port/out/repository/
 import { AGENT_SESSION_DELETION_COMMAND_TRANSACTION } from './application/port/out/transaction/session-deletion/agent-session-deletion-command.transaction.port';
 import { AGENT_SESSION_DELETION_FINALIZATION_TRANSACTION } from './application/port/out/transaction/session-deletion/agent-session-deletion-finalization.transaction.port';
 import { AgentOsSessionModule } from './agent-os-session.module';
+import { AgentOsCatalogModule } from './agent-os-catalog.module';
+import { AgentJudgmentSubmissionService } from './application/service/agent-judgment-submission.service';
+import { AgentJudgmentDispatchService } from './application/service/session-control/agent-judgment-dispatch.service';
+import { AgentSessionTaskDispatchService } from './application/service/session-control/agent-session-task-dispatch.service';
+import { AGENT_JUDGMENT_SUBMISSION_PORT } from './application/port/in/judgment/agent-judgment-submission.port';
+import { PrismaAgentJudgmentSubmissionTransaction } from './adapter/out/transaction/session-control/prisma-agent-judgment-submission.transaction';
+import { PrismaAgentJudgmentDispatchOutboxTransaction } from './adapter/out/transaction/session-control/prisma-agent-judgment-dispatch-outbox.transaction';
+import { AGENT_JUDGMENT_SUBMISSION_TRANSACTION } from './application/port/out/transaction/session-control/agent-judgment-submission.transaction.port';
+import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/out/transaction/session-control/agent-judgment-dispatch-outbox.transaction.port';
 
 /** API-only composition for Operations-backed AgentSession execution creation. */
 @Module({
-  imports: [AgentOsSessionModule, OperationsModule, StorageModule],
+  imports: [AgentOsCatalogModule, AgentOsSessionModule, OperationsModule, StorageModule],
   providers: [
     OperationDefinitionSnapshotAdapter,
     AgentSessionOwnedOperationService,
+    AgentSessionTaskDispatchService,
+    AgentJudgmentDispatchService,
+    AgentJudgmentSubmissionService,
+    PrismaAgentJudgmentSubmissionTransaction,
+    PrismaAgentJudgmentDispatchOutboxTransaction,
     StorageAgentSessionArtifactAdapter,
     AgentSessionArtifactWriterService,
     AgentSessionDeletionExecutionService,
@@ -53,6 +67,15 @@ import { AgentOsSessionModule } from './agent-os-session.module';
     {
       provide: AGENT_SESSION_OWNED_OPERATION_PORT,
       useExisting: AgentSessionOwnedOperationService,
+    },
+    { provide: AGENT_JUDGMENT_SUBMISSION_PORT, useExisting: AgentJudgmentSubmissionService },
+    {
+      provide: AGENT_JUDGMENT_SUBMISSION_TRANSACTION,
+      useExisting: PrismaAgentJudgmentSubmissionTransaction,
+    },
+    {
+      provide: AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION,
+      useExisting: PrismaAgentJudgmentDispatchOutboxTransaction,
     },
     {
       provide: AGENT_SESSION_ARTIFACT_STORAGE_PORT,
@@ -75,6 +98,7 @@ import { AgentOsSessionModule } from './agent-os-session.module';
   ],
   exports: [
     AGENT_SESSION_OWNED_OPERATION_PORT,
+    AGENT_JUDGMENT_SUBMISSION_PORT,
     AGENT_SESSION_ARTIFACT_WRITER_PORT,
     AGENT_SESSION_DELETION_EXECUTION_PORT,
     AGENT_SESSION_DELETION_PORT,

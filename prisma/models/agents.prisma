@@ -100,6 +100,7 @@ model AgentSession {
   approvals               AgentSessionApproval[]       @relation("AgentSessionApprovals")
   artifacts               AgentSessionArtifact[]       @relation("AgentSessionArtifacts")
   operationRunOwnerships  AgentSessionOperationRunOwnership[] @relation("AgentSessionOperationRunOwnerships")
+  executionDispatchOutboxes AgentExecutionDispatchOutbox[] @relation("AgentExecutionDispatchOutboxSession")
 
   @@unique([organizationId, copilotThreadId], map: "agent_sessions_org_copilot_thread_key")
   @@unique([id, organizationId], map: "agent_sessions_id_org_key")
@@ -176,6 +177,7 @@ model AgentSessionTask {
   incomingDelegation   AgentSessionTaskDelegation?  @relation("AgentSessionTaskIncomingDelegation")
   approvals            AgentSessionApproval[]       @relation("AgentSessionTaskApprovals")
   artifacts            AgentSessionArtifact[]       @relation("AgentSessionTaskArtifacts")
+  executionDispatchOutboxes AgentExecutionDispatchOutbox[] @relation("AgentExecutionDispatchOutboxTask")
 
   @@unique([sessionId, idempotencyKey], map: "agent_session_tasks_session_idempotency_key")
   @@unique([sessionId], map: "agent_session_tasks_one_root_key", where: raw("is_root = true"))
@@ -267,6 +269,7 @@ model AgentExecution {
   attempts       AgentExecutionAttempt[]  @relation("AgentExecutionAttempts")
   approvals      AgentSessionApproval[]   @relation("AgentExecutionApprovals")
   artifacts      AgentSessionArtifact[]   @relation("AgentExecutionArtifacts")
+  dispatchOutbox AgentExecutionDispatchOutbox? @relation("AgentExecutionDispatchOutboxExecution")
 
   @@unique([id, organizationId], map: "agent_executions_id_org_key")
   @@unique([id, sessionId, organizationId], map: "agent_executions_id_session_org_key")
@@ -278,6 +281,39 @@ model AgentExecution {
   @@index([agentVersionId])
   @@index([policySnapshotId, sessionId, organizationId])
   @@map("agent_executions")
+}
+
+/// @namespace AgentOS
+/// @describe Content-free API judgment dispatch handoff for exactly one official execution.
+model AgentExecutionDispatchOutbox {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  sessionId      String    @map("session_id") @db.Uuid
+  sessionTaskId  String    @map("session_task_id") @db.Uuid
+  executionId    String    @unique(map: "agent_execution_dispatch_outboxes_execution_key") @map("execution_id") @db.Uuid
+  idempotencyKey String    @map("idempotency_key")
+  fingerprint    String
+  state          String    @default("pending")
+  leaseToken     String?   @map("lease_token") @db.Uuid
+  leaseExpiresAt DateTime? @map("lease_expires_at") @db.Timestamptz
+  operationRunId String?   @map("operation_run_id") @db.Uuid
+  dispatchedAt   DateTime? @map("dispatched_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  organization Organization     @relation("AgentExecutionDispatchOutboxOrganization", fields: [organizationId], references: [id], onDelete: Restrict)
+  session      AgentSession     @relation("AgentExecutionDispatchOutboxSession", fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  task         AgentSessionTask @relation("AgentExecutionDispatchOutboxTask", fields: [sessionTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  execution    AgentExecution   @relation("AgentExecutionDispatchOutboxExecution", fields: [executionId, sessionTaskId, sessionId, organizationId], references: [id, sessionTaskId, sessionId, organizationId], onDelete: Cascade)
+  operationRun OperationRun?    @relation("AgentExecutionDispatchOutboxOperationRun", fields: [operationRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "agent_execution_dispatch_outboxes_id_org_key")
+  @@unique([executionId, sessionTaskId, sessionId, organizationId], map: "agent_execution_dispatch_outboxes_execution_scope_key")
+  @@index([organizationId, state, leaseExpiresAt, createdAt])
+  @@index([sessionId, organizationId])
+  @@index([sessionTaskId, sessionId, organizationId])
+  @@index([operationRunId, organizationId])
+  @@map("agent_execution_dispatch_outboxes")
 }
 
 /// @namespace AgentOS

@@ -376,6 +376,7 @@ erDiagram
 | Organization | organization | referenced by external | AgentOS | AgentConversation |
 | Organization | organization | referenced by external | AgentOS | AgentCostEvent |
 | Organization | organization | referenced by external | AgentOS | AgentExecution |
+| Organization | organization | referenced by external | AgentOS | AgentExecutionDispatchOutbox |
 | Organization | organization | referenced by external | AgentOS | AgentExecutionUsage |
 | Organization | organization | referenced by external | AgentOS | AgentInstance |
 | Organization | organization | referenced by external | AgentOS | AgentInstanceToolPolicy |

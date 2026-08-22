@@ -1,0 +1,16 @@
+import { Module } from '@nestjs/common';
+import { BrowserOperationRuntimeController } from './adapter/in/http/browser-operation-runtime.controller';
+import { OperationSchedulesController } from './adapter/in/http/operation-schedules.controller';
+import { OperationsController } from './adapter/in/http/operations.controller';
+import { OperationsModule } from './operations.module';
+
+/** HTTP-only Operations composition. Worker and owner adapters import OperationsModule. */
+@Module({
+  imports: [OperationsModule],
+  controllers: [
+    OperationsController,
+    OperationSchedulesController,
+    BrowserOperationRuntimeController,
+  ],
+})
+export class OperationsHttpModule {}

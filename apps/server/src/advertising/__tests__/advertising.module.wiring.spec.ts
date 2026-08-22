@@ -2,7 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { AdvertisingModule } from "../advertising.module";
 import { PrismaModule } from "../../prisma/prisma.module";
-import { AgentOsModule } from "../../agent-os/agent-os.module";
+import { AgentOsApiExecutionModule } from '../../agent-os/agent-os-api-execution.module';
 import { AiModule } from "../../ai/ai.module";
 import { AutomationModule } from "../../automation/automation.module";
 import { ChannelsModule } from "../../channels/channels.module";
@@ -102,7 +102,7 @@ describe("AdvertisingModule capability wiring", () => {
     expect(new Set(imports)).toEqual(
       new Set([
         PrismaModule,
-        AgentOsModule,
+        AgentOsApiExecutionModule,
         // Keyword relevance judgement is a language call, owned by AI.
         AiModule,
         AutomationModule,
@@ -200,7 +200,7 @@ describe("AdvertisingModule capability wiring", () => {
       (p): p is { provide: unknown; useExisting?: unknown } =>
         typeof p === "object" && p !== null && "provide" in p,
     );
-    expect(tokenProviders).toHaveLength(22);
+    expect(tokenProviders).toHaveLength(23);
     for (const provider of tokenProviders) {
       expect(provider.useExisting).toBeDefined();
       expect((provider.useExisting as { name?: string }).name).not.toBe(
