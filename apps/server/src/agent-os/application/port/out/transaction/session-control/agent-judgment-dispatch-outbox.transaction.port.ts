@@ -3,6 +3,13 @@ export const AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION = Symbol(
 );
 
 export interface AgentJudgmentDispatchOutboxTransactionPort {
+  listPending(input: { limit: number }): Promise<Array<{
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    executionId: string;
+    requestedByUserId: string;
+  }>>;
   claim(input: {
     organizationId: string;
     sessionId: string;

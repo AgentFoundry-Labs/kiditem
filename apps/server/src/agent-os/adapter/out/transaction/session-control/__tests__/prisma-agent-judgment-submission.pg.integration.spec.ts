@@ -12,6 +12,7 @@ import { PrismaAgentJudgmentSubmissionTransaction } from '../prisma-agent-judgme
 import { PrismaAgentJudgmentDispatchOutboxTransaction } from '../prisma-agent-judgment-dispatch-outbox.transaction';
 import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
 import { AgentJudgmentDispatchService } from '../../../../../application/service/session-control/agent-judgment-dispatch.service';
+import { AgentJudgmentDispatchRecoveryService } from '../../../../../application/service/session-control/agent-judgment-dispatch-recovery.service';
 import { AgentSessionTaskDispatchService } from '../../../../../application/service/session-control/agent-session-task-dispatch.service';
 import { AGENT_SESSION_TASK_OPERATION_KEY } from '../../../../../domain/operation/agent-os.operations';
 
@@ -141,6 +142,56 @@ describe('Prisma judgment submission transaction', () => {
     ])).resolves.toEqual([1, 1, 1, { state: 'dispatched', operationRunId: first.operationsRunId }]);
   });
 
+  it('lists only content-free pending coordinates with the exact session requester', async () => {
+    const submitted = await new PrismaAgentJudgmentSubmissionTransaction(prisma as never).submit(submissionInput());
+    const outbox = new PrismaAgentJudgmentDispatchOutboxTransaction(prisma as never);
+
+    await expect(outbox.listPending({ limit: 100 })).resolves.toEqual([{
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: submitted.sessionId,
+      taskId: submitted.taskId,
+      executionId: submitted.executionId,
+      requestedByUserId: TEST_USER_ID,
+    }]);
+  });
+
+  it('does not expose a pending handoff held by a live lease to recovery', async () => {
+    const submitted = await new PrismaAgentJudgmentSubmissionTransaction(prisma as never).submit(submissionInput());
+    await prisma!.agentExecutionDispatchOutbox.update({
+      where: { executionId: submitted.executionId },
+      data: {
+        leaseToken: '90000000-0000-4000-8000-000000000003',
+        leaseExpiresAt: new Date(Date.now() + 60_000),
+      },
+    });
+    const outbox = new PrismaAgentJudgmentDispatchOutboxTransaction(prisma as never);
+
+    await expect(outbox.listPending({ limit: 100 })).resolves.toEqual([]);
+  });
+
+  it('recovers a committed session graph without an API submission retry', async () => {
+    const submitted = await new PrismaAgentJudgmentSubmissionTransaction(prisma as never).submit(submissionInput());
+    const outbox = new PrismaAgentJudgmentDispatchOutboxTransaction(prisma as never);
+    const recovery = new AgentJudgmentDispatchRecoveryService(outbox, makeDispatcher(outbox), { register: () => undefined });
+
+    await recovery.run(new AbortController().signal);
+
+    await expect(Promise.all([
+      prisma!.operationRun.count(),
+      prisma!.agentSessionOperationRunOwnership.count(),
+      prisma!.agentExecutionAttemptOperationBinding.count(),
+      prisma!.agentExecutionDispatchOutbox.findFirstOrThrow({
+        where: { executionId: submitted.executionId },
+        select: { state: true, operationRunId: true },
+      }),
+    ])).resolves.toEqual([
+      1,
+      1,
+      1,
+      { state: 'dispatched', operationRunId: expect.any(String) },
+    ]);
+  });
+
   it('recovers after an Operation exists but before the dispatched mark and preserves one immutable operation', async () => {
     const submitted = await new PrismaAgentJudgmentSubmissionTransaction(prisma as never).submit(submissionInput());
     const realOutbox = new PrismaAgentJudgmentDispatchOutboxTransaction(prisma as never);
@@ -154,12 +205,20 @@ describe('Prisma judgment submission transaction', () => {
       taskId: submitted.taskId, executionId: submitted.executionId, requestedByUserId: TEST_USER_ID,
     };
     await expect(crashing.dispatch(input)).rejects.toThrow('crash-before-mark');
-    const recovered = await makeDispatcher(realOutbox).dispatch(input);
+    const recovery = new AgentJudgmentDispatchRecoveryService(
+      realOutbox,
+      makeDispatcher(realOutbox),
+      { register: () => undefined },
+    );
+    await recovery.run(new AbortController().signal);
     await expect(Promise.all([
       prisma!.operationRun.count(), prisma!.agentSessionOperationRunOwnership.count(),
       prisma!.agentExecutionAttemptOperationBinding.count(),
-    ])).resolves.toEqual([1, 1, 1]);
-    expect(recovered.operationsRunId).toMatch(/^[0-9a-f-]{36}$/);
+      prisma!.agentExecutionDispatchOutbox.findFirstOrThrow({
+        where: { executionId: submitted.executionId },
+        select: { state: true, operationRunId: true },
+      }),
+    ])).resolves.toEqual([1, 1, 1, { state: 'dispatched', operationRunId: expect.any(String) }]);
   });
 
   it('serializes two dispatchers racing the same pending execution', async () => {
@@ -177,6 +236,33 @@ describe('Prisma judgment submission transaction', () => {
       prisma!.operationRun.count(), prisma!.agentSessionOperationRunOwnership.count(),
       prisma!.agentExecutionAttemptOperationBinding.count(),
     ])).resolves.toEqual([1, 1, 1]);
+  });
+
+  it('does not duplicate an Operation when competing recovery hooks see one pending execution', async () => {
+    const submitted = await new PrismaAgentJudgmentSubmissionTransaction(prisma as never).submit(submissionInput());
+    const outbox = new PrismaAgentJudgmentDispatchOutboxTransaction(prisma as never);
+    const left = new AgentJudgmentDispatchRecoveryService(
+      outbox,
+      makeDispatcher(outbox),
+      { register: () => undefined },
+    );
+    const right = new AgentJudgmentDispatchRecoveryService(
+      outbox,
+      makeDispatcher(outbox),
+      { register: () => undefined },
+    );
+
+    await Promise.all([left.run(new AbortController().signal), right.run(new AbortController().signal)]);
+
+    await expect(Promise.all([
+      prisma!.operationRun.count(),
+      prisma!.agentSessionOperationRunOwnership.count(),
+      prisma!.agentExecutionAttemptOperationBinding.count(),
+      prisma!.agentExecutionDispatchOutbox.findFirstOrThrow({
+        where: { executionId: submitted.executionId },
+        select: { state: true },
+      }),
+    ])).resolves.toEqual([1, 1, 1, { state: 'dispatched' }]);
   });
 });
 

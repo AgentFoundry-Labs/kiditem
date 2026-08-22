@@ -28,15 +28,42 @@ export class AgentJudgmentDispatchService {
     }
     if (claimed.state === 'dispatched') return { operationsRunId: claimed.operationRunId };
     if (!claimed.leaseToken) throw new Error('AGENT_JUDGMENT_DISPATCH_LEASED');
+    return this.dispatchClaimed(input, claimed.leaseToken);
+  }
+
+  /** Best-effort startup drain: a concurrent valid lease owns this coordinate. */
+  async dispatchPending(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    executionId: string;
+    requestedByUserId: string;
+  }): Promise<{ operationsRunId: string } | null> {
+    const claimed = await this.outbox.claim(input);
+    if (claimed.state === 'dispatched') return { operationsRunId: claimed.operationRunId };
+    if (!claimed.leaseToken) return null;
+    return this.dispatchClaimed(input, claimed.leaseToken);
+  }
+
+  private async dispatchClaimed(
+    input: {
+      organizationId: string;
+      sessionId: string;
+      taskId: string;
+      executionId: string;
+      requestedByUserId: string;
+    },
+    leaseToken: string,
+  ): Promise<{ operationsRunId: string }> {
     try {
       const operation = await this.tasks.dispatch(input);
-      const marked = await this.outbox.markDispatched({ ...input, leaseToken: claimed.leaseToken, operationRunId: operation.operationsRunId });
+      const marked = await this.outbox.markDispatched({ ...input, leaseToken, operationRunId: operation.operationsRunId });
       return { operationsRunId: marked.operationRunId };
     } catch (error) {
       await this.outbox.release({
         organizationId: input.organizationId,
         executionId: input.executionId,
-        leaseToken: claimed.leaseToken,
+        leaseToken,
       });
       throw error;
     }

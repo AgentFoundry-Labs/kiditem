@@ -30,6 +30,7 @@ import { AgentOsSessionModule } from './agent-os-session.module';
 import { AgentOsCatalogModule } from './agent-os-catalog.module';
 import { AgentJudgmentSubmissionService } from './application/service/agent-judgment-submission.service';
 import { AgentJudgmentDispatchService } from './application/service/session-control/agent-judgment-dispatch.service';
+import { AgentJudgmentDispatchRecoveryService } from './application/service/session-control/agent-judgment-dispatch-recovery.service';
 import { AgentSessionTaskDispatchService } from './application/service/session-control/agent-session-task-dispatch.service';
 import { AGENT_JUDGMENT_SUBMISSION_PORT } from './application/port/in/judgment/agent-judgment-submission.port';
 import { PrismaAgentJudgmentSubmissionTransaction } from './adapter/out/transaction/session-control/prisma-agent-judgment-submission.transaction';
@@ -48,6 +49,7 @@ import { AGENT_SESSION_CANCELLATION_PORT } from './application/port/in/session-c
     AgentSessionCancellationService,
     AgentSessionTaskDispatchService,
     AgentJudgmentDispatchService,
+    AgentJudgmentDispatchRecoveryService,
     AgentJudgmentSubmissionService,
     PrismaAgentJudgmentSubmissionTransaction,
     PrismaAgentJudgmentDispatchOutboxTransaction,

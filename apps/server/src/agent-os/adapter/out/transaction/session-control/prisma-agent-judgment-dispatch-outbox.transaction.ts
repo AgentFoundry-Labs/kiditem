@@ -14,6 +14,34 @@ export class PrismaAgentJudgmentDispatchOutboxTransaction
 {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listPending(
+    input: Parameters<AgentJudgmentDispatchOutboxTransactionPort['listPending']>[0],
+  ): Promise<Awaited<ReturnType<AgentJudgmentDispatchOutboxTransactionPort['listPending']>>> {
+    const now = new Date();
+    const rows = await this.prisma.agentExecutionDispatchOutbox.findMany({
+      where: {
+        state: 'pending',
+        OR: [{ leaseExpiresAt: null }, { leaseExpiresAt: { lte: now } }],
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: input.limit,
+      select: {
+        organizationId: true,
+        sessionId: true,
+        sessionTaskId: true,
+        executionId: true,
+        session: { select: { createdByUserId: true } },
+      },
+    });
+    return rows.map((row) => ({
+      organizationId: row.organizationId,
+      sessionId: row.sessionId,
+      taskId: row.sessionTaskId,
+      executionId: row.executionId,
+      requestedByUserId: row.session.createdByUserId,
+    }));
+  }
+
   async claim(input: Parameters<AgentJudgmentDispatchOutboxTransactionPort['claim']>[0]) {
     return this.prisma.$transaction(async (tx) => {
       const row = await find(tx, input);

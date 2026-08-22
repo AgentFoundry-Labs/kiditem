@@ -72,6 +72,7 @@ import { AgentSessionDeletionOperationHandler } from "../adapter/in/operation/ag
 import { AgentSessionDeletionService } from "../application/service/session-control/agent-session-deletion.service";
 import { AgentSessionDeletionFinalizerRecoveryService } from "../application/service/session-control/agent-session-deletion-finalizer-recovery.service";
 import { AgentSessionDeletionRecoveryService } from "../application/service/session-control/agent-session-deletion-recovery.service";
+import { AgentJudgmentDispatchRecoveryService } from '../application/service/session-control/agent-judgment-dispatch-recovery.service';
 import { PrismaAgentSessionDeletionCommandTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction";
 import { PrismaAgentSessionDeletionFinalizationTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction";
 import { PrismaAgentSessionDeletionQueryRepository } from "../adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository";
@@ -269,7 +270,7 @@ describe("Agent OS artifact materialization composition", () => {
     );
   });
 
-  it("registers one deletion handler and both recovery hooks only in API execution composition", () => {
+  it("registers deletion and judgment recovery hooks only in API execution composition", () => {
     const apiProviders = providers(AgentOsApiExecutionModule);
     expect(apiProviders).toEqual(expect.arrayContaining([
       AgentSessionDeletionService,
@@ -279,6 +280,7 @@ describe("Agent OS artifact materialization composition", () => {
       AgentSessionDeletionOperationHandler,
       AgentSessionDeletionFinalizerRecoveryService,
       AgentSessionDeletionRecoveryService,
+      AgentJudgmentDispatchRecoveryService,
     ]));
     const sessionProviders = providers(AgentOsSessionModule);
     for (const provider of [
@@ -289,6 +291,7 @@ describe("Agent OS artifact materialization composition", () => {
       AgentSessionDeletionOperationHandler,
       AgentSessionDeletionFinalizerRecoveryService,
       AgentSessionDeletionRecoveryService,
+      AgentJudgmentDispatchRecoveryService,
     ]) expect(sessionProviders).not.toContain(provider);
   });
 
