@@ -252,6 +252,8 @@ model OperationRun {
   agentSessionDeletionOperationBindings            AgentSessionDeletionOperationBinding?   @relation("AgentSessionDeletionBindingRun")
   agentSessionDeletionOperationBindingPredecessors AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingPredecessor")
   agentSessionOperationRunOwnership                AgentSessionOperationRunOwnership?      @relation("AgentSessionOperationRunOwnership")
+  agentSessionArtifactMaterializations             AgentSessionArtifactMaterialization[]   @relation("AgentSessionArtifactMaterializationInvocationRun")
+  agentSessionArtifactMaterializationArtifacts     AgentSessionArtifact[]                  @relation("AgentSessionArtifactMaterializationRun")
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")
   @@unique([organizationId, operationKey, idempotencyKey], map: "operation_runs_idempotency_key", where: raw("idempotency_key IS NOT NULL"))

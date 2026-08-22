@@ -24,7 +24,6 @@ import { PrismaAgentExecutionQueryRepository } from "../../../repository/interac
 import { PrismaAgentRunAuthorizationTransaction } from "../prisma-agent-run-authorization.transaction";
 import { PrismaAgentConversationEventTransaction } from "../prisma-agent-conversation-event.transaction";
 import { PrismaAgentExecutionUsageTransaction } from "../prisma-agent-execution-usage.transaction";
-import { PrismaAgentSessionLifecycleTransaction } from "../prisma-agent-session-lifecycle.transaction";
 import type { PrismaClient } from "@prisma/client";
 import type { AgentVersionRepositoryPort } from "../../../../application/port/out/repository/agent-version.repository.port";
 import type { AgentSessionQueryRepositoryPort } from "../../../../application/port/out/repository/interaction/agent-session-query.repository.port";
@@ -1301,138 +1300,6 @@ describe("Prisma interaction persistence seams", () => {
     ).resolves.toEqual({ events: [], lastSequence: 0n, hasMore: false });
   });
 
-  it("orders append and deletion on two PostgreSQL connections without deadlock", async () => {
-    const events = new PrismaAgentConversationEventTransaction(prisma as never);
-    const lifecycle = new PrismaAgentSessionLifecycleTransaction(prisma as never);
-    const appendFirst = await repository.authorizeExecution(
-      firstRunInput({
-        copilotThreadId: "thread-append-before-delete",
-        aguiRunId: "run-append-before-delete",
-      }),
-    );
-    await markDueArchived(appendFirst.session.id);
-    const tableLock = makeTestPrisma();
-    await tableLock.$connect();
-    const releaseAppend = deferred<void>();
-    const appendBlocked = tableLock.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        "LOCK TABLE agent_conversation_events IN SHARE ROW EXCLUSIVE MODE",
-      );
-      await releaseAppend.promise;
-    });
-    await waitForCondition(
-      async () => {
-        const [row] = await prisma!.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS "count"
-          FROM pg_locks
-          WHERE relation = 'agent_conversation_events'::regclass
-            AND mode = 'ShareRowExclusiveLock'
-        `;
-        return row?.count === 1;
-      },
-      "append table-lock barrier",
-    );
-    const append = events.appendExecutionEvent({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: appendFirst.session.id,
-      executionId: appendFirst.execution.id,
-      externalEventId: "append-before-delete",
-      eventType: "assistant_message",
-      schemaVersion: 1,
-      payload: {
-        phase: "complete",
-        messageId: "append-before-delete",
-        content: "append before delete",
-      },
-    });
-    await waitForCondition(
-      async () => {
-        const [row] = await prisma!.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS "count"
-          FROM pg_stat_activity
-          WHERE datname = current_database()
-            AND wait_event_type = 'Lock'
-            AND wait_event = 'relation'
-        `;
-        return (row?.count ?? 0) >= 1;
-      },
-      "append after the common session lock",
-    );
-    const deletion = lifecycle.deleteSession(
-      lifecycleDeleteInput(appendFirst.session.id, "append-before-delete"),
-    );
-    await waitForAdvisoryLockWaiters(prisma!, 1);
-    releaseAppend.resolve();
-    await expect(
-      settlesWithin(Promise.all([append, deletion, appendBlocked]), 5_000),
-    ).resolves.toHaveLength(3);
-
-    const deleteFirst = await repository.authorizeExecution(
-      firstRunInput({
-        copilotThreadId: "thread-delete-before-append",
-        aguiRunId: "run-delete-before-append",
-      }),
-    );
-    await markDueArchived(deleteFirst.session.id);
-    const releaseDelete = deferred<void>();
-    const deleteBlocked = tableLock.$transaction(async (tx) => {
-      await tx.$executeRawUnsafe(
-        "LOCK TABLE agent_conversation_events IN SHARE ROW EXCLUSIVE MODE",
-      );
-      await releaseDelete.promise;
-    });
-    await waitForCondition(
-      async () => {
-        const [row] = await prisma!.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS "count"
-          FROM pg_locks
-          WHERE relation = 'agent_conversation_events'::regclass
-            AND mode = 'ShareRowExclusiveLock'
-        `;
-        return row?.count === 1;
-      },
-      "deletion table-lock barrier",
-    );
-    const deleteThenAppend = lifecycle.deleteSession(
-      lifecycleDeleteInput(deleteFirst.session.id, "delete-before-append"),
-    );
-    await waitForCondition(
-      async () => {
-        const [row] = await prisma!.$queryRaw<Array<{ count: number }>>`
-          SELECT COUNT(*)::int AS "count"
-          FROM pg_stat_activity
-          WHERE datname = current_database()
-            AND wait_event_type = 'Lock'
-            AND wait_event = 'relation'
-        `;
-        return (row?.count ?? 0) >= 1;
-      },
-      "deletion after the common session lock",
-    );
-    const rejectedAppend = events.appendExecutionEvent({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: deleteFirst.session.id,
-      executionId: deleteFirst.execution.id,
-      externalEventId: "delete-before-append",
-      eventType: "assistant_message",
-      schemaVersion: 1,
-      payload: {
-        phase: "complete",
-        messageId: "delete-before-append",
-        content: "must reject after deletion",
-      },
-    });
-    await waitForAdvisoryLockWaiters(prisma!, 1);
-    releaseDelete.resolve();
-    await expect(
-      settlesWithin(Promise.all([deleteThenAppend, deleteBlocked]), 5_000),
-    ).resolves.toHaveLength(2);
-    await expect(settlesWithin(rejectedAppend, 5_000)).rejects.toMatchObject({
-      code: "AGENT_SESSION_CONTROL_SCOPE_INVALID",
-    });
-    await tableLock.$disconnect();
-  });
-
   it("fences compact bounded session lists and direct access by organization and creator", async () => {
     if (!prisma) throw new Error("Prisma test client was not initialized");
     const sessionA = await repository.authorizeExecution(
@@ -2006,35 +1873,6 @@ async function createAuthorizationSession(
       },
     }),
   ]);
-}
-
-async function markDueArchived(sessionId: string): Promise<void> {
-  await prisma!.agentSession.update({
-    where: { id: sessionId },
-    data: {
-      lifecycle: "archived",
-      archivedAt: new Date("2026-08-13T00:00:00.000Z"),
-      retentionDueAt: new Date("2026-08-13T00:00:00.000Z"),
-    },
-  });
-}
-
-function lifecycleDeleteInput(sessionId: string, variant: string) {
-  const hash = (kind: string) =>
-    createHash("sha256").update(`${kind}:${variant}`).digest("hex");
-  return {
-    organizationId: TEST_ORGANIZATION_ID,
-    sessionId,
-    actorId: TEST_USER_ID,
-    reason: "Delete the due interaction",
-    idempotencyKey: `delete-session-${variant}`,
-    tombstone: {
-      organizationIdHash: { hash: hash("organization"), hashKeyVersion: "v1" },
-      copilotThreadIdHash: { hash: hash("thread"), hashKeyVersion: "v1" },
-      idempotencyKeyHash: { hash: hash("idempotency"), hashKeyVersion: "v1" },
-      requestFingerprintHash: { hash: hash("fingerprint"), hashKeyVersion: "v1" },
-    },
-  };
 }
 
 function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {

@@ -83,11 +83,14 @@ const transactionPorts = [
   [
     "transaction/session-control/agent-session-transition.transaction.port.ts",
     [
-      "appendArtifact",
       "transitionTask",
       "transitionSession",
       "createRetryExecution",
     ],
+  ],
+  [
+    "transaction/session-control/agent-session-artifact-materialization.transaction.port.ts",
+    ["prepare", "bindUpload", "activate"],
   ],
 ] as const;
 
@@ -113,6 +116,7 @@ const sessionControlAdapters = [
   "adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
+  "adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts",
 ] as const;
 
 const retiredSessionControlSymbols = [
@@ -172,11 +176,15 @@ const sessionControlAdapterSeams = [
     "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
     "AgentSessionTransitionTransactionPort",
     [
-      "appendArtifact",
       "transitionTask",
       "transitionSession",
       "createRetryExecution",
     ],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts",
+    "AgentSessionArtifactMaterializationTransactionPort",
+    ["prepare", "bindUpload", "activate"],
   ],
 ] as const;
 

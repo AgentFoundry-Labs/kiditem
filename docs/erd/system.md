@@ -242,7 +242,9 @@ erDiagram
 | BusinessRule | organization | references external | Core | Organization |
 | Marketplace | marketplace | referenced by external | AgentOS | WorkflowTemplate |
 | OperationRun | deletionOperationRun | referenced by external | AgentOS | AgentSession |
+| OperationRun | materializationOperationRun | referenced by external | AgentOS | AgentSessionArtifact |
 | OperationRun | operationRun | referenced by external | AgentOS | AgentExecutionAttemptOperationBinding |
+| OperationRun | operationRun | referenced by external | AgentOS | AgentSessionArtifactMaterialization |
 | OperationRun | operationRun | referenced by external | AgentOS | AgentSessionDeletionOperationBinding |
 | OperationRun | operationRun | referenced by external | AgentOS | AgentSessionOperationRunOwnership |
 | OperationRun | organization | references external | Core | Organization |

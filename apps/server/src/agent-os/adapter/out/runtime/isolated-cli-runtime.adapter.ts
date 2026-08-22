@@ -3,7 +3,7 @@ import { z } from 'zod';
 import type {
   AgentDurableRuntimeAdapter,
   AgentDurableRuntimeExecutionContext,
-  NormalizedRuntimeEvent,
+  DurableRuntimeAdapterEvent,
   RuntimeHandle,
   RuntimeInspection,
   RuntimeInterruptInput,
@@ -47,7 +47,7 @@ export interface IsolatedCliNativeHandle extends IsolatedCliProcessHandle {
 export interface IsolatedCliTransport {
   probeVersion(binary: string): Promise<string>;
   start(request: IsolatedCliStartRequest): Promise<IsolatedCliProcessHandle>;
-  connect(handle: IsolatedCliNativeHandle, resume: { binary: string; args: string[]; cwd: string; env: Record<string, string> }): AsyncIterable<NormalizedRuntimeEvent>;
+  connect(handle: IsolatedCliNativeHandle, resume: { binary: string; args: string[]; cwd: string; env: Record<string, string> }): AsyncIterable<DurableRuntimeAdapterEvent>;
   inspect(handle: IsolatedCliNativeHandle): Promise<RuntimeInspection>;
   interrupt(handle: IsolatedCliNativeHandle, input: RuntimeInterruptInput): Promise<void>;
   cancel(handle: IsolatedCliNativeHandle): Promise<void>;
@@ -205,7 +205,7 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     return handle;
   }
 
-  async *connect(handle: RuntimeHandle): AsyncIterable<NormalizedRuntimeEvent> {
+  async *connect(handle: RuntimeHandle): AsyncIterable<DurableRuntimeAdapterEvent> {
     const native = await this.validatedNativeHandle(handle);
     const paths = await this.prepareRunDirectories(
       handle.executionId,

@@ -48,6 +48,12 @@ vi.mock('@aws-sdk/client-s3', () => ({
       Object.assign(this, args);
     }
   },
+  ListMultipartUploadsCommand: class MockListMultipartUploadsCommand {
+    __type = 'ListMultipartUploads';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
 }));
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
@@ -176,6 +182,50 @@ describe('StorageService', () => {
       expect(cmd.__type).toBe('DeleteObject');
       expect(cmd.Bucket).toBe('kiditem');
       expect(cmd.Key).toBe('images/a.png');
+    });
+  });
+
+  describe('listExactMultipartUploads', () => {
+    it('paginates every exact-key upload and excludes a prefix sibling', async () => {
+      mockSend
+        .mockResolvedValueOnce({
+          IsTruncated: true,
+          NextKeyMarker: 'agent-artifacts/org/session/artifact',
+          NextUploadIdMarker: 'upload-1',
+          Uploads: [
+            { Key: 'agent-artifacts/org/session/artifact', UploadId: 'upload-1' },
+            { Key: 'agent-artifacts/org/session/artifact-sibling', UploadId: 'sibling' },
+          ],
+        })
+        .mockResolvedValueOnce({
+          IsTruncated: false,
+          Uploads: [
+            { Key: 'agent-artifacts/org/session/artifact', UploadId: 'upload-2' },
+          ],
+        });
+      const service = new StorageService();
+
+      await expect(
+        service.listExactMultipartUploads(
+          'agent-artifacts/org/session/artifact',
+          AbortSignal.timeout(1_000),
+        ),
+      ).resolves.toEqual([
+        { key: 'agent-artifacts/org/session/artifact', uploadId: 'upload-1' },
+        { key: 'agent-artifacts/org/session/artifact', uploadId: 'upload-2' },
+      ]);
+      expect(mockSend.mock.calls.map(([command]) => command)).toEqual([
+        expect.objectContaining({
+          __type: 'ListMultipartUploads',
+          Prefix: 'agent-artifacts/org/session/artifact',
+        }),
+        expect.objectContaining({
+          __type: 'ListMultipartUploads',
+          Prefix: 'agent-artifacts/org/session/artifact',
+          KeyMarker: 'agent-artifacts/org/session/artifact',
+          UploadIdMarker: 'upload-1',
+        }),
+      ]);
     });
   });
 

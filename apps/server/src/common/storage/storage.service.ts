@@ -8,6 +8,11 @@ import {
   S3Client,
   PutObjectCommand,
   CopyObjectCommand,
+  CreateMultipartUploadCommand,
+  UploadPartCommand,
+  CompleteMultipartUploadCommand,
+  AbortMultipartUploadCommand,
+  ListMultipartUploadsCommand,
   DeleteObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -119,6 +124,121 @@ export class StorageService implements OnModuleInit {
   /** key 삭제 */
   async delete(key: string): Promise<void> {
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+  }
+
+  /** Internal AgentSession writer primitive. It never issues a browser URL. */
+  async openMultipartUpload(input: {
+    key: string;
+    mimeType: string;
+    signal: AbortSignal;
+  }): Promise<{ uploadId: string }> {
+    const result = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        ContentType: input.mimeType,
+      }),
+      { abortSignal: input.signal },
+    );
+    if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
+    return { uploadId: result.UploadId };
+  }
+
+  /** Internal AgentSession writer primitive. One bounded part is completed atomically. */
+  async uploadAndCompleteMultipart(input: {
+    key: string;
+    uploadId: string;
+    bytes: Uint8Array;
+    signal: AbortSignal;
+  }): Promise<void> {
+    const part = await this.client.send(
+      new UploadPartCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        PartNumber: 1,
+        Body: input.bytes,
+      }),
+      { abortSignal: input.signal },
+    );
+    if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
+      }),
+      { abortSignal: input.signal },
+    );
+  }
+
+  async listExactMultipartUploads(
+    key: string,
+    signal: AbortSignal,
+  ): Promise<Array<{ key: string; uploadId: string }>> {
+    const uploads: Array<{ key: string; uploadId: string }> = [];
+    let keyMarker: string | undefined;
+    let uploadIdMarker: string | undefined;
+    for (;;) {
+      const result = await this.client.send(
+        new ListMultipartUploadsCommand({
+          Bucket: this.bucket,
+          Prefix: key,
+          ...(keyMarker ? { KeyMarker: keyMarker } : {}),
+          ...(uploadIdMarker ? { UploadIdMarker: uploadIdMarker } : {}),
+        }),
+        { abortSignal: signal },
+      );
+      uploads.push(
+        ...(result.Uploads ?? [])
+          .filter((upload) => upload.Key === key && upload.UploadId)
+          .map((upload) => ({ key, uploadId: upload.UploadId! })),
+      );
+      if (!result.IsTruncated) return uploads;
+      if (!result.NextKeyMarker || !result.NextUploadIdMarker)
+        throw new Error('STORAGE_MULTIPART_PAGINATION_MARKER_MISSING');
+      keyMarker = result.NextKeyMarker;
+      uploadIdMarker = result.NextUploadIdMarker;
+    }
+  }
+
+  async abortMultipartUpload(input: {
+    key: string;
+    uploadId: string;
+    signal: AbortSignal;
+  }): Promise<void> {
+    await this.client.send(
+      new AbortMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+      }),
+      { abortSignal: input.signal },
+    );
+  }
+
+  async deleteOwnedObject(input: { key: string; signal: AbortSignal }): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: input.key }),
+      { abortSignal: input.signal },
+    );
+  }
+
+  async headOwnedObject(input: {
+    key: string;
+    signal: AbortSignal;
+  }): Promise<'present' | 'erased'> {
+    try {
+      await this.client.send(
+        new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
+        { abortSignal: input.signal },
+      );
+      return 'present';
+    } catch (error) {
+      if (isMissingObject(error)) return 'erased';
+      throw error;
+    }
   }
 
   /** 브라우저가 서버를 경유하지 않고 고정 key에 JPEG를 업로드할 수 있는 서명 URL 발급 */
@@ -242,4 +362,11 @@ export class StorageService implements OnModuleInit {
     if (!url.startsWith(this.publicUrl + '/')) return null;
     return url.substring(this.publicUrl.length + 1);
   }
+}
+
+function isMissingObject(error: unknown): boolean {
+  const status = (error as { $metadata?: { httpStatusCode?: unknown } })?.$metadata
+    ?.httpStatusCode;
+  const name = (error as { name?: unknown })?.name;
+  return status === 404 || name === 'NotFound' || name === 'NoSuchKey';
 }

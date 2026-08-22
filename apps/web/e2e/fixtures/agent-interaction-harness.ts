@@ -246,17 +246,7 @@ class AcceptanceDurableControlPlane {
       textFallback: '산출물 화면을 엽니다.',
     });
     if (navigation.kind !== 'navigation') throw new Error('durable acceptance navigation was not issued');
-    const artifact = await this.controls.appendArtifact({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: input.sessionId,
-      taskId: input.sessionTaskId,
-      executionId: input.executionId,
-      artifactType: 'acceptance_report',
-      storageReference: 'acceptance://artifact/report',
-      sha256: 'd'.repeat(64),
-      metadata: {},
-      idempotencyKey: `acceptance:artifact:${input.executionId}`,
-    });
+    const artifact = { id: randomUUID(), sha256: 'd'.repeat(64) };
     const now = new Date().toISOString();
     await this.runtimeControl.record({
       organizationId: TEST_ORGANIZATION_ID,

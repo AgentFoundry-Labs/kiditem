@@ -20,6 +20,7 @@ const REQUIRED_LIFECYCLE_LOCK_ADAPTERS = [
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts',
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts',
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts',
 ];
 
 function withRequiredLifecycleLocks(files) {
@@ -40,7 +41,16 @@ function writeFixtureFile(rootDir, relativePath, source) {
 
 function fixture(files) {
   const rootDir = mkdtempSync(path.join(tmpdir(), 'kiditem-agent-session-deletion-'));
-  for (const [relativePath, source] of Object.entries(files)) {
+  const completeFiles = {
+    'prisma/models/agents.prisma': [
+      'model AgentExecution {',
+      '  sessionId String',
+      '  sessionTaskId String',
+      '}',
+    ].join('\n'),
+    ...files,
+  };
+  for (const [relativePath, source] of Object.entries(completeFiles)) {
     writeFixtureFile(rootDir, relativePath, source);
   }
   return rootDir;
@@ -66,10 +76,12 @@ test('rejects every retired lifecycle concept', () => {
   withFixture(
     {
       'prisma/models/agents.prisma': 'model AgentSessionTombstone {}',
+      'apps/server/src/agent-os/a.ts': "const kind = 'quick_ask';",
     },
     (result) => {
       assert.equal(result.status, 1);
       assert.match(result.stderr, /AgentSessionTombstone/);
+      assert.match(result.stderr, /quick_ask/);
     },
   );
 });
@@ -139,7 +151,10 @@ test('rejects Agent OS application and capability OperationRun repository bypass
     withRequiredLifecycleLocks({
       'apps/server/src/agent-os/application/service/session-bypass.ts': [
         "import { OPERATION_REPOSITORY_PORT } from '../../../operations/application/port/out/repository/operation.repository.port';",
-        'OPERATION_REPOSITORY_PORT;',
+        'async function bypass(repository: { createRun(input: object): Promise<void> }) {',
+        '  await repository.createRun({});',
+        '}',
+        'OPERATION_REPOSITORY_PORT; bypass;',
       ].join('\n'),
       'apps/server/src/agent-os/domain/capability/session-bypass.ts': [
         'export async function bypass(repository: { createRun(input: object): Promise<void> }) {',
@@ -329,6 +344,7 @@ test('permits ephemeral success only when the AgentSession deletion key owns the
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts',
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts',
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts',
+    'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts',
   ];
   const files = Object.fromEntries(transactionAdapter.map((relativePath) => [
     relativePath,
@@ -356,6 +372,7 @@ test('permits a deletion definition when an earlier string contains an opening b
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts',
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts',
     'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts',
+    'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts',
   ];
   const files = Object.fromEntries(transactionAdapter.map((relativePath) => [
     relativePath,

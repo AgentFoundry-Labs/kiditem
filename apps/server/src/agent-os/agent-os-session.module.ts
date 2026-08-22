@@ -9,14 +9,13 @@ import { PrismaAgentExecutionQueryRepository } from "./adapter/out/repository/in
 import { PrismaAgentRunAuthorizationTransaction } from "./adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction";
 import { PrismaAgentConversationEventTransaction } from "./adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction";
 import { PrismaAgentExecutionUsageTransaction } from "./adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction";
-import { PrismaAgentSessionLifecycleTransaction } from "./adapter/out/transaction/interaction/prisma-agent-session-lifecycle.transaction";
-import { PrismaAgentSessionLifecycleMaintenanceTransaction } from "./adapter/out/transaction/interaction/prisma-agent-session-lifecycle-maintenance.transaction";
 import { PrismaAgentSessionControlQueryRepository } from "./adapter/out/repository/session-control/prisma-agent-session-control-query.repository";
 import { PrismaAgentDelegationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-delegation.transaction";
 import { PrismaAgentAttemptOperationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction";
 import { PrismaAgentSessionOwnedOperationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction";
 import { PrismaAgentApprovalContinuationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction";
 import { PrismaAgentSessionTransitionTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-transition.transaction";
+import { PrismaAgentSessionArtifactMaterializationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction";
 import { PrismaAgentExecutionContextRepository } from "./adapter/out/repository/prisma-agent-execution-context.repository";
 import { PrismaAgentConversationModelViewRepository } from "./adapter/out/repository/prisma-agent-conversation-model-view.repository";
 import { InProcessAgentConversationLivePublisher } from "./adapter/out/event/in-process-agent-conversation-live-publisher.adapter";
@@ -28,14 +27,13 @@ import { AGENT_EXECUTION_QUERY_REPOSITORY } from "./application/port/out/reposit
 import { AGENT_RUN_AUTHORIZATION_TRANSACTION } from "./application/port/out/transaction/interaction/agent-run-authorization.transaction.port";
 import { AGENT_CONVERSATION_EVENT_TRANSACTION } from "./application/port/out/transaction/interaction/agent-conversation-event.transaction.port";
 import { AGENT_EXECUTION_USAGE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-execution-usage.transaction.port";
-import { AGENT_SESSION_LIFECYCLE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-session-lifecycle.transaction.port";
-import { AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION } from "./application/port/out/transaction/interaction/agent-session-lifecycle-maintenance.transaction.port";
 import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from "./application/port/out/repository/session-control/agent-session-control-query.repository.port";
 import { AGENT_DELEGATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-delegation.transaction.port";
 import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
 import { AGENT_SESSION_OWNED_OPERATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-owned-operation.transaction.port";
 import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
 import { AGENT_SESSION_TRANSITION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-transition.transaction.port";
+import { AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port";
 import { AGENT_EXECUTION_CONTEXT_REPOSITORY } from "./application/port/out/repository/agent-execution-context.repository.port";
 import { AGENT_CONVERSATION_MODEL_VIEW_REPOSITORY } from "./application/port/out/repository/agent-conversation-model-view.repository.port";
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from "./application/port/out/event/agent-conversation-live-publisher.port";
@@ -96,14 +94,6 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
       useClass: PrismaAgentExecutionUsageTransaction,
     },
     {
-      provide: AGENT_SESSION_LIFECYCLE_TRANSACTION,
-      useClass: PrismaAgentSessionLifecycleTransaction,
-    },
-    {
-      provide: AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION,
-      useClass: PrismaAgentSessionLifecycleMaintenanceTransaction,
-    },
-    {
       provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
       useClass: PrismaAgentSessionControlQueryRepository,
     },
@@ -126,6 +116,10 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
     {
       provide: AGENT_SESSION_TRANSITION_TRANSACTION,
       useClass: PrismaAgentSessionTransitionTransaction,
+    },
+    {
+      provide: AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
+      useClass: PrismaAgentSessionArtifactMaterializationTransaction,
     },
     {
       // Until each owner domain supplies a version resolver, only an approval
@@ -170,8 +164,6 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
     AGENT_RUN_AUTHORIZATION_TRANSACTION,
     AGENT_CONVERSATION_EVENT_TRANSACTION,
     AGENT_EXECUTION_USAGE_TRANSACTION,
-    AGENT_SESSION_LIFECYCLE_TRANSACTION,
-    AGENT_SESSION_LIFECYCLE_MAINTENANCE_TRANSACTION,
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
@@ -181,6 +173,7 @@ import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime
     AGENT_SESSION_OWNED_OPERATION_TRANSACTION,
     AGENT_APPROVAL_CONTINUATION_TRANSACTION,
     AGENT_SESSION_TRANSITION_TRANSACTION,
+    AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
     AGENT_CONVERSATION_LIVE_PUBLISHER,
     AGENT_SESSION_RESOURCE_VERSION_VALIDATOR,
   ],

@@ -184,11 +184,20 @@ function harness(
     transitionTask: vi
       .fn()
       .mockResolvedValue({ id: "task-1", status: "completed" }),
-    appendArtifact: vi.fn().mockResolvedValue({
-      id: ARTIFACT_ID,
-      sha256: "a".repeat(64),
-      lifecycle: "active",
+  };
+  const artifacts = {
+    materialize: vi.fn().mockResolvedValue({
+      kind: "artifact",
+      artifactId: ARTIFACT_ID,
+      payload: {
+        artifactType: "report",
+        label: "검증 보고서",
+        sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+        navigationActionId: "00000000-0000-4000-8000-000000000006",
+      },
     }),
+    beginFence: vi.fn(),
+    confirmFenced: vi.fn(),
   };
   const executions = {
     loadExecutionRuntimeContext: vi.fn().mockResolvedValue({
@@ -224,6 +233,7 @@ function harness(
     controls as never,
     controls as never,
     controls as never,
+    artifacts as never,
     runtimeControl as never,
     approvals as never,
     executions as never,
@@ -272,6 +282,7 @@ function harness(
     runtime,
     checkpoints,
     controls,
+    artifacts,
     runtimeControl,
     approvals,
     executions,
@@ -525,20 +536,19 @@ describe("AgentSessionTaskExecutionService", () => {
     ).toBeLessThan(order.indexOf("approval-publish"));
   });
 
-  it("persists an artifact before emitting its registered durable card", async () => {
-    const { handler, controls, runtimeControl } = harness({
+  it("materializes a bounded artifact candidate before emitting its registered durable card", async () => {
+    const { handler, artifacts, runtimeControl } = harness({
       events: [
         {
-          kind: "artifact",
-          artifactId: "provider-artifact-1",
-          payload: {
-            artifactType: "report",
-            label: "검증 보고서",
-            storageReference: "artifact-store://reports/one",
-            sha256: "a".repeat(64),
-            navigationActionId: "00000000-0000-4000-8000-000000000006",
-            metadata: { source: "runtime" },
-          },
+          kind: "artifact_candidate",
+          externalArtifactId: "provider-artifact-1",
+          artifactType: "report",
+          label: "검증 보고서",
+          bytes: new Uint8Array([1, 2, 3]),
+          mimeType: "application/octet-stream",
+          sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+          navigationActionId: "00000000-0000-4000-8000-000000000006",
+          metadata: { source: "runtime" },
         },
         { kind: "terminal", status: "completed", output: { ok: true } },
       ],
@@ -548,13 +558,15 @@ describe("AgentSessionTaskExecutionService", () => {
       kind: "completed",
     });
 
-    expect(controls.appendArtifact).toHaveBeenCalledWith(
+    expect(artifacts.materialize).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
         sessionId: SESSION_ID,
         taskId: TASK_ID,
         executionId: EXECUTION_ID,
-        idempotencyKey: "runtime-artifact:provider-artifact-1",
+        operationRunId: operation.runId,
+        attemptToken: operation.attemptToken,
+        externalArtifactId: "provider-artifact-1",
       }),
     );
     expect(runtimeControl.record).toHaveBeenCalledWith(

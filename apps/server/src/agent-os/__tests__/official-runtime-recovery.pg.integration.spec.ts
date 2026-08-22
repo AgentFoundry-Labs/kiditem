@@ -1029,6 +1029,11 @@ function makeHandler(input: {
     publish: vi.fn(),
   };
   const approvals = input.approvals ?? { request: vi.fn() };
+  const artifacts = {
+    materialize: vi.fn(),
+    beginFence: vi.fn(),
+    confirmFenced: vi.fn(),
+  };
   const operations = input.operations ?? {
     heartbeatRun: vi.fn().mockResolvedValue(true),
   };
@@ -1067,6 +1072,7 @@ function makeHandler(input: {
     input.controls as never,
     input.controls as never,
     input.controls as never,
+    artifacts as never,
     runtimeControl as never,
     approvals as never,
     executions as never,

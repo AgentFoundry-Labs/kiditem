@@ -62,17 +62,6 @@ export { CanonicalResourceRefSchema } from "./resource-ref";
 export type { CanonicalResourceRef } from "./resource-ref";
 
 export {
-  AgentInteractionRetentionPolicySchema,
-  AgentSessionLifecycleCommandSchema,
-  AgentSessionLifecycleCommandKindSchema,
-} from "./lifecycle";
-export type {
-  AgentInteractionRetentionPolicy,
-  AgentSessionLifecycleCommand,
-  AgentSessionLifecycleCommandKind,
-} from "./lifecycle";
-
-export {
   AgentSessionDeletionFailureCodeSchema,
   AgentSessionDeletionStateSchema,
   AgentSessionDeletionStatusSchema,

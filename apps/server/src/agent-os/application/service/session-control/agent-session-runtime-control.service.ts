@@ -256,6 +256,19 @@ function eventContent(
           }),
         },
       };
+    case "resource_ref":
+      return {
+        ...base,
+        eventType: "state_snapshot",
+        schemaVersion: 1,
+        payload: {
+          snapshotType: "agent_resource_ref",
+          snapshotVersion: 1,
+          data: {
+            content: JSON.stringify({ resource: event.resource }),
+          },
+        },
+      };
     case "terminal":
       return {
         ...base,

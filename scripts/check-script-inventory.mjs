@@ -7,7 +7,6 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
   'check-agent-os-hexagonal.mjs',
   'check-agent-session-deletion.mjs',
-  'check-agent-interaction-lifecycle.mjs',
   'check-agents-hygiene.mjs',
   'check-copilotkit-train.mjs',
   'check-directory-architecture.mjs',
@@ -110,6 +109,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:scripts-inventory')) {
     missingPackageHooks.push('check:conventions -> check:scripts-inventory');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:agent-session-deletion')) {
+    missingPackageHooks.push('check:conventions -> check:agent-session-deletion');
   }
   if (!packageScripts['check:conventions']?.includes('check:schema-artifact-sync')) {
     missingPackageHooks.push('check:conventions -> check:schema-artifact-sync');

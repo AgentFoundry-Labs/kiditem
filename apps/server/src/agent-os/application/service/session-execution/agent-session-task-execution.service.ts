@@ -36,6 +36,10 @@ import {
   AGENT_SESSION_TRANSITION_TRANSACTION,
   type AgentSessionTransitionTransactionPort,
 } from "../../../application/port/out/transaction/session-control/agent-session-transition.transaction.port";
+import {
+  AGENT_SESSION_ARTIFACT_WRITER_PORT,
+  type AgentSessionArtifactWriterPort,
+} from "../../../application/port/in/session-execution/agent-session-artifact-writer.port";
 import { AgentExecutionContextBuilder } from "../../../application/service/agent-execution-context-builder.service";
 import { AgentRuntimeAdapterRegistry } from "../../../application/service/agent-runtime-adapter.registry";
 import { AgentSessionApprovalService } from "../../../application/service/session-control/agent-session-approval.service";
@@ -56,6 +60,7 @@ import {
 } from "../../port/out/cross-domain/operations-session-execution.port";
 import type {
   AgentDurableRuntimeAdapter,
+  DurableRuntimeAdapterEvent,
   NormalizedRuntimeEvent,
   RuntimeHandle,
 } from "../../../application/port/out/runtime/agent-durable-runtime.port";
@@ -94,11 +99,13 @@ const RuntimeApprovalPayloadSchema = z
     expiresAt: z.string().datetime(),
   })
   .strict();
-const RuntimeArtifactPayloadSchema = z
+const RuntimeArtifactCandidateSchema = z
   .object({
+    externalArtifactId: z.string().min(1).max(256),
     artifactType: z.string().min(1).max(128),
     label: z.string().min(1).max(500),
-    storageReference: z.string().min(1).max(2_048),
+    bytes: z.instanceof(Uint8Array),
+    mimeType: z.string().min(1).max(128),
     sha256: z.string().regex(/^[a-f0-9]{64}$/),
     navigationActionId: z.string().uuid(),
     metadata: z.record(z.string(), z.unknown()).default({}),
@@ -118,6 +125,7 @@ interface SessionExecutionOperation {
   organizationId: string;
   runId: string;
   operation: import("@kiditem/shared/identifiers").OperationRunName;
+  attemptToken: string;
   input: Record<string, unknown>;
   signal: AbortSignal;
 }
@@ -153,6 +161,8 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     private readonly attempts: AgentAttemptOperationTransactionPort,
     @Inject(AGENT_SESSION_TRANSITION_TRANSACTION)
     private readonly transitions: AgentSessionTransitionTransactionPort,
+    @Inject(AGENT_SESSION_ARTIFACT_WRITER_PORT)
+    private readonly artifacts: AgentSessionArtifactWriterPort,
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     private readonly approvals: AgentSessionApprovalService,
     @Inject(AGENT_EXECUTION_QUERY_REPOSITORY)
@@ -169,6 +179,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       organizationId: graph.organizationId,
       runId: graph.operationRunId,
       operation: command.operation,
+      attemptToken: command.operationAttemptToken,
       input: {
         session: command.session,
         task: command.task,
@@ -379,7 +390,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
           );
         }
         const unsafeEvent = next.value;
-        const event = normalizedEvent(unsafeEvent);
+        const event = adapterEvent(unsafeEvent);
         eventCount += 1;
         if (event.kind === "interrupt") {
           if (assistantOpen) {
@@ -454,12 +465,12 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
           assistantOpen = false;
         }
         const nonInterruptEvent = event as Exclude<
-          NormalizedRuntimeEvent,
+          DurableRuntimeAdapterEvent,
           { kind: "interrupt" }
         >;
         const durableEvent =
-          nonInterruptEvent.kind === "artifact"
-            ? await this.persistArtifact(input, nonInterruptEvent)
+          nonInterruptEvent.kind === "artifact_candidate"
+            ? await this.persistArtifact(operation, input, nonInterruptEvent)
             : nonInterruptEvent;
         await this.recordRuntimeEvent(
           operation,
@@ -468,11 +479,11 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
           eventCount,
           durableEvent,
         );
-        if (event.kind === "artifact") {
+        if (durableEvent.kind === "artifact") {
           await this.checkpoint(operation, "artifact_boundary", {
             runtimeHandle: checkpointRuntimeHandle(handle),
             eventCount,
-            artifactId: event.artifactId,
+            artifactId: durableEvent.artifactId,
           });
         } else if (eventCount % 100 === 0) {
           await this.checkpoint(operation, "event_batch", {
@@ -604,31 +615,29 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
   }
 
   private async persistArtifact(
+    operation: SessionExecutionOperation,
     input: SessionTaskOperationInput,
-    event: Extract<NormalizedRuntimeEvent, { kind: "artifact" }>,
+    event: Extract<DurableRuntimeAdapterEvent, { kind: "artifact_candidate" }>,
   ): Promise<Extract<NormalizedRuntimeEvent, { kind: "artifact" }>> {
-    const payload = RuntimeArtifactPayloadSchema.parse(event.payload);
-    const artifact = await this.transitions.appendArtifact({
+    const { kind: _kind, ...candidate } = event;
+    const payload = RuntimeArtifactCandidateSchema.parse(candidate);
+    return this.artifacts.materialize({
+      signal: operation.signal,
       organizationId: input.organizationId,
       sessionId: input.sessionId,
       taskId: input.taskId,
       executionId: input.executionId,
+      operationRunId: operation.runId,
+      attemptToken: operation.attemptToken,
+      externalArtifactId: payload.externalArtifactId,
       artifactType: payload.artifactType,
-      storageReference: payload.storageReference,
+      bytes: payload.bytes,
+      mimeType: payload.mimeType,
       sha256: payload.sha256,
+      label: payload.label,
+      navigationActionId: payload.navigationActionId,
       metadata: payload.metadata,
-      idempotencyKey: `runtime-artifact:${event.artifactId}`,
     });
-    return {
-      kind: "artifact",
-      artifactId: artifact.id,
-      payload: {
-        artifactType: payload.artifactType,
-        label: payload.label,
-        sha256: artifact.sha256,
-        navigationActionId: payload.navigationActionId,
-      },
-    };
   }
 
   private recordRuntimeEvent(
@@ -842,9 +851,9 @@ function assertHandleCorrelation(
   return parsed;
 }
 
-function normalizedEvent(
-  event: NormalizedRuntimeEvent,
-): NormalizedRuntimeEvent {
+function adapterEvent(
+  event: DurableRuntimeAdapterEvent,
+): DurableRuntimeAdapterEvent {
   if (!event || typeof event !== "object" || !("kind" in event)) {
     throw new Error("AGENT_RUNTIME_EVENT_INVALID");
   }
@@ -852,9 +861,9 @@ function normalizedEvent(
 }
 
 function nextRuntimeEvent(
-  iterator: AsyncIterator<NormalizedRuntimeEvent>,
+  iterator: AsyncIterator<DurableRuntimeAdapterEvent>,
   signal: AbortSignal,
-): Promise<IteratorResult<NormalizedRuntimeEvent>> {
+): Promise<IteratorResult<DurableRuntimeAdapterEvent>> {
   if (signal.aborted) return Promise.reject(abortReason(signal));
   return new Promise((resolve, reject) => {
     const onAbort = () => {
@@ -935,6 +944,7 @@ function terminalCheckpointResult(
 function parseExecutionCommand(command: ExecuteAgentSessionTaskCommand): {
   organizationId: string;
   operationRunId: string;
+  attemptToken: string;
 } {
   try {
     const input = parseOperationInput({
@@ -952,6 +962,7 @@ function parseExecutionCommand(command: ExecuteAgentSessionTaskCommand): {
     return {
       organizationId: input.organizationId,
       operationRunId: operation.operation,
+      attemptToken: command.operationAttemptToken,
     };
   } catch {
     throw new Error("AGENT_SESSION_OPERATION_SCOPE_INVALID");

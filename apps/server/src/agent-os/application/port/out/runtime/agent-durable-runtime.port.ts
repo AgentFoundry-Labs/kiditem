@@ -74,15 +74,48 @@ export interface RuntimeHandle {
   generation: number;
 }
 
+export const MAX_AGENT_SESSION_ARTIFACT_BYTES = 16 * 1024 * 1024;
+
+export type DurableRuntimeAdapterEvent =
+  | { kind: 'text_start' }
+  | { kind: 'text_delta'; content: string }
+  | { kind: 'text_end' }
+  | { kind: 'progress'; progress: number; label: string }
+  | { kind: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
+  | { kind: 'delegation'; payload: Record<string, unknown> }
+  | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string }
+  | {
+      kind: 'artifact_candidate';
+      externalArtifactId: string;
+      artifactType: string;
+      label: string;
+      bytes: Uint8Array;
+      mimeType: string;
+      sha256: string;
+      navigationActionId: string;
+      metadata: Record<string, unknown>;
+    }
+  | { kind: 'resource_ref'; resource: CanonicalResourceRef };
+
 export type NormalizedRuntimeEvent =
   | { kind: 'text_start' }
   | { kind: 'text_delta'; content: string }
   | { kind: 'text_end' }
   | { kind: 'progress'; progress: number; label: string }
   | { kind: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
-  | { kind: 'artifact'; artifactId: string; payload: Record<string, unknown> }
   | { kind: 'delegation'; payload: Record<string, unknown> }
-  | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string };
+  | { kind: 'resource_ref'; resource: CanonicalResourceRef }
+  | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string }
+  | {
+      kind: 'artifact';
+      artifactId: string;
+      payload: {
+        artifactType: string;
+        label: string;
+        sha256: string;
+        navigationActionId: string;
+      };
+    };
 
 export type RuntimeInspection =
   | { status: 'running' }
@@ -99,7 +132,7 @@ export interface AgentDurableRuntimeAdapter {
   readonly runtimeType: string;
   readonly capabilities: AgentDurableRuntimeCapabilities;
   start(context: AgentDurableRuntimeExecutionContext): Promise<RuntimeHandle>;
-  connect(handle: RuntimeHandle): AsyncIterable<NormalizedRuntimeEvent>;
+  connect(handle: RuntimeHandle): AsyncIterable<DurableRuntimeAdapterEvent>;
   inspect(handle: RuntimeHandle): Promise<RuntimeInspection>;
   interrupt(handle: RuntimeHandle, input: RuntimeInterruptInput): Promise<void>;
   cancel(handle: RuntimeHandle): Promise<void>;

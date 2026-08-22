@@ -48,6 +48,16 @@ const FORBIDDEN_ARTIFACT_FIELDS = Object.freeze([
   'storageObjectId',
 ]);
 
+const RETIRED_INTERACTION_SOURCE_IDENTIFIERS = Object.freeze([
+  ["'quick_ask'", /(['"`])quick_ask\1/],
+  ['QuickAskScope', /\bQuickAskScope\b/],
+  ['AgentInteractionThreadBinding', /\bAgentInteractionThreadBinding\b/],
+  ['idleExpiresAt', /\bidleExpiresAt\b/],
+  ['withQuickAskLock', /\bwithQuickAskLock\b/],
+  ['AgentSessionPromotion', /\bAgentSessionPromotion\b/],
+  ['interactionClass:', /\binteractionClass\s*\??\s*:/],
+]);
+
 const FORBIDDEN_DELETE_SCHEDULERS = Object.freeze([
   /AgentSessionDeletion(Job|Processor|Scheduler)/,
   /setInterval\([^)]*(delete|deletion|retention)/is,
@@ -62,6 +72,7 @@ const SESSION_MUTATION_TRANSACTION_ADAPTERS = Object.freeze([
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts',
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts',
   'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts',
+  'apps/server/src/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts',
 ]);
 
 const OWNED_OPERATION_CREATE_OWNER = /(?:owned-operation|session-deletion|continue-operation-attempt)/;
@@ -135,6 +146,49 @@ function firstMatch(source, pattern) {
 
 function identifierPattern(identifier) {
   return new RegExp(`\\b${identifier}\\b`);
+}
+
+function retiredInteractionSourceViolations(relativePath, source) {
+  const violations = [];
+  for (const [identifier, pattern] of RETIRED_INTERACTION_SOURCE_IDENTIFIERS) {
+    const match = firstMatch(source, pattern);
+    if (match) {
+      violations.push(
+        `${relativePath}:${lineNumberAt(source, match.index)}: retired agent interaction lifecycle identifier ${identifier}`,
+      );
+    }
+  }
+  return violations;
+}
+
+function agentExecutionBlock(schemaSource) {
+  const match = /^\s*model\s+AgentExecution\s*\{([\s\S]*?)^\s*\}/m.exec(
+    schemaSource,
+  );
+  return match?.[1] ?? null;
+}
+
+function executionSessionOwnershipViolations(schemaSource) {
+  const block = agentExecutionBlock(schemaSource);
+  if (block === null) {
+    return ['prisma/models/agents.prisma: AgentExecution model is required'];
+  }
+  const uncommentedBlock = block
+    .split(/\r?\n/)
+    .map((line) => line.replace(/\/\/.*$/, ''))
+    .join('\n');
+  const violations = [];
+  for (const field of ['sessionId', 'sessionTaskId']) {
+    const declaration = new RegExp(`^\\s*${field}\\s+(\\S+)`, 'm').exec(
+      uncommentedBlock,
+    );
+    if (!declaration) {
+      violations.push(`prisma/models/agents.prisma: AgentExecution.${field} is required`);
+    } else if (declaration[1].endsWith('?')) {
+      violations.push(`prisma/models/agents.prisma: AgentExecution.${field} must be non-null`);
+    }
+  }
+  return violations;
 }
 
 function isTypeScriptOrJavaScript(relativePath) {
@@ -292,10 +346,17 @@ function ownershipViolations(relativePath, source) {
   const createRun = sourceFile
     ? firstCalledPropertyPosition(sourceFile, 'createRun')
     : firstMatch(source, /\.createRun\s*\(/)?.index ?? null;
-  const operationBypass = operationRunner ?? operationRepository ?? createRun;
-  if (isApplicationOrCapability && operationBypass !== null) {
+  if (
+    isApplicationOrCapability &&
+    createRun !== null &&
+    (
+      operationRunner !== null ||
+      operationRepository !== null ||
+      relativePath.includes('/capability/')
+    )
+  ) {
     violations.push(
-      `${relativePath}:${lineNumberAt(source, operationBypass)}: session-originated OperationRun must use the owned-run transaction port`,
+      `${relativePath}:${lineNumberAt(source, createRun)}: session-originated OperationRun must use the owned-run transaction port`,
     );
   }
 
@@ -363,9 +424,19 @@ export function checkAgentSessionDeletion(rootDir) {
         `${relativePath}:${lineNumberAt(source, match.index)}: retired AgentSession deletion identifier ${identifier}`,
       );
     }
+    violations.push(...retiredInteractionSourceViolations(relativePath, source));
     violations.push(...schedulerViolations(relativePath, source));
     violations.push(...ownershipViolations(relativePath, source));
     violations.push(...ephemeralSuccessViolations(relativePath, source));
+  }
+
+  const agentSchemaPath = path.join(rootDir, 'prisma/models/agents.prisma');
+  if (!existsSync(agentSchemaPath)) {
+    violations.push('prisma/models/agents.prisma: schema file is required');
+  } else {
+    violations.push(
+      ...executionSessionOwnershipViolations(readFileSync(agentSchemaPath, 'utf8')),
+    );
   }
 
   violations.push(...requireLifecycleLock(rootDir));

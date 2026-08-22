@@ -4,6 +4,7 @@ import {
   HermesFetchRuntimeTransport,
   HermesHttpRuntimeAdapter,
   hermesFetchRuntimeTransportFromEnvironment,
+  normalizeHermesProviderItem,
   type HermesRuntimeTransport,
 } from '../hermes-http-runtime.adapter';
 import {
@@ -212,6 +213,34 @@ describe('Hermes durable runtime trust boundary', () => {
     await Promise.all([recreated.cancel(handle), recreated.cancel(handle)]);
     expect(fake.cancel).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(handle)).not.toContain('secret-1');
+  });
+
+  it('normalizes only a bounded base64 artifact envelope and rejects raw provider references', () => {
+    const normalized = normalizeHermesProviderItem({
+      type: 'artifact_candidate',
+      externalArtifactId: 'provider-artifact-1',
+      artifactType: 'report',
+      label: 'Result report',
+      contentBase64: 'AQID',
+      mimeType: 'application/octet-stream',
+      sha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+      navigationActionId: '00000000-0000-4000-8000-000000000006',
+      metadata: { source: 'hermes' },
+    });
+    expect(normalized).toMatchObject({ kind: 'artifact_candidate' });
+    if (normalized.kind !== 'artifact_candidate') throw new Error('artifact candidate missing');
+    expect([...normalized.bytes]).toEqual([1, 2, 3]);
+    expect(() => normalizeHermesProviderItem({
+      type: 'artifact_candidate',
+      externalArtifactId: 'provider-artifact-1',
+      artifactType: 'report',
+      label: 'Result report',
+      contentBase64: 'AQID',
+      mimeType: 'application/octet-stream',
+      sha256: '039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81',
+      navigationActionId: '00000000-0000-4000-8000-000000000006',
+      storageReference: 'provider://artifact/path',
+    } as never)).toThrow();
   });
 
   it('rejects authority-expanding runtime options', () => {

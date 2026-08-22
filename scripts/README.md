@@ -22,8 +22,7 @@ npm run test:scripts
 |---|---|---|
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
-| `scripts/check-agent-interaction-lifecycle.mjs` | retired Agent OS interaction lifecycle and required execution session-ownership regression gate | `npm run check:agent-interaction-lifecycle` |
-| `scripts/check-agent-session-deletion.mjs` | complete-deletion contraction guard for retired lifecycle concepts, raw artifact references, duplicate deletion schedulers, lifecycle write fences, and session-owned OperationRuns; intentionally standalone until later contraction tasks remove its live baseline violations | `npm run check:agent-session-deletion` |
+| `scripts/check-agent-session-deletion.mjs` | live complete-deletion contraction guard for retired lifecycle concepts, raw artifact references, duplicate deletion schedulers, lifecycle write fences, and session-owned OperationRuns | `npm run check:agent-session-deletion` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |
 | `scripts/check-copilotkit-train.mjs` | exact CopilotKit v2 and AG-UI platform-train guard | `npm run check:copilotkit-train` |
 | `scripts/check-directory-architecture.mjs` | docs/ARCHITECTURE directory map drift gate | `npm run check:directory-architecture` |

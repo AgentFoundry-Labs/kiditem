@@ -9,6 +9,7 @@ test('accepts complete script inventory metadata', () => {
     packageScripts: {
       'check:copilotkit-train': 'node scripts/check-copilotkit-train.mjs',
       'check:agent-os-hexagonal': 'node scripts/check-agent-os-hexagonal.mjs',
+      'check:agent-session-deletion': 'node scripts/check-agent-session-deletion.mjs',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
       'check:pr-release-contract': 'node scripts/check-pr-release-contract.mjs',
@@ -16,7 +17,7 @@ test('accepts complete script inventory metadata', () => {
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:agent-session-deletion && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
     },
   });
 
@@ -39,6 +40,7 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.deepEqual(result.missingPackageHooks, [
     'check:copilotkit-train',
     'check:agent-os-hexagonal',
+    'check:agent-session-deletion',
     'check:scripts-inventory',
     'check:schema-artifact-sync',
     'check:pr-release-contract',
@@ -47,6 +49,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:identifier-contracts',
     'test:scripts',
     'check:conventions -> check:scripts-inventory',
+    'check:conventions -> check:agent-session-deletion',
     'check:conventions -> check:schema-artifact-sync',
     'check:conventions -> check:directory-architecture',
     'check:conventions -> check:shared-interface-names',

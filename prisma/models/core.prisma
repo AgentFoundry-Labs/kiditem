@@ -76,10 +76,6 @@ model Organization {
   agentExecutions           AgentExecution[]          @relation("AgentExecutionOrganization")
   agentExecutionUsages      AgentExecutionUsage[]     @relation("AgentExecutionUsageOrganization")
   agentAuthorityProfileVersions AgentAuthorityProfileVersion[] @relation("AgentAuthorityProfileVersionOrganization")
-  agentInteractionRetentionPolicy AgentInteractionRetentionPolicy? @relation("AgentInteractionRetentionPolicyOrganization")
-  agentSessionLifecycleRequests   AgentSessionLifecycleRequest[]   @relation("AgentSessionLifecycleRequestOrganization")
-  agentSessionLegalAuditProjections AgentSessionLegalAuditProjection[] @relation("AgentSessionLegalAuditProjectionOrganization")
-  agentSessionArtifactObjects AgentSessionArtifactObject[] @relation("AgentSessionArtifactObjectOrganization")
   agentSessionDeletionOperationBindings AgentSessionDeletionOperationBinding[] @relation("AgentSessionDeletionBindingOrganization")
 
   // Order domain (Plan A.5)
@@ -270,8 +266,6 @@ model User {
   createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
   createdAgentSessions              AgentSession[]            @relation("AgentSessionCreatedBy")
   requestedAgentSessionDeletions           AgentSession[]                    @relation("AgentSessionDeletionRequestedBy")
-  updatedAgentInteractionRetentionPolicies AgentInteractionRetentionPolicy[] @relation("AgentInteractionRetentionPolicyUpdatedBy")
-  requestedAgentSessionLifecycleRequests   AgentSessionLifecycleRequest[]    @relation("AgentSessionLifecycleRequestRequestedBy")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")
