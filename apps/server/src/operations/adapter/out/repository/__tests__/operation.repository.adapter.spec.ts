@@ -23,6 +23,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
+function unownedOperationRunOwnership() {
+  return { findFirst: vi.fn().mockResolvedValue(null) };
+}
+
 function sqlText(value: unknown): string {
   if (
     typeof value !== 'object' ||
@@ -283,6 +287,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
     const transaction = {
       $queryRaw: vi.fn().mockResolvedValue([]),
       operationRun: { findFirst, create },
+      agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
     };
     const repository = new OperationRepositoryAdapter({
       $transaction: vi.fn((callback) => callback(transaction)),
@@ -323,6 +328,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
       $transaction: vi.fn((callback) => callback({
         $queryRaw: queryRaw,
         operationRun: { findFirst: findChild, create },
+        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: { findFirst: findRun },
     } as never);
@@ -359,6 +365,10 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
 
   it('reuses an existing idempotent child without creating a duplicate', async () => {
     const create = vi.fn();
+    const child = makeCreateRunInput({
+      parentRunId: RUN_ID,
+      idempotencyKey: `child:${RUN_ID}`,
+    });
     const repository = new OperationRepositoryAdapter({
       $transaction: vi.fn((callback) => callback({
         $queryRaw: vi.fn()
@@ -367,11 +377,11 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
         operationRun: {
           findFirst: vi.fn().mockResolvedValue({
             id: CHILD_ID,
-            organizationId: ORG_ID,
-            parentRunId: RUN_ID,
+            ...child,
           }),
           create,
         },
+        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: {
         findFirst: vi.fn().mockResolvedValue(makeRunRow({ id: CHILD_ID })),
@@ -383,10 +393,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
       parentOrganizationId: ORG_ID,
       parentRunId: RUN_ID,
       expectedAttemptToken: ATTEMPT_TOKEN,
-      child: makeCreateRunInput({
-        parentRunId: RUN_ID,
-        idempotencyKey: `child:${RUN_ID}`,
-      }) as never,
+      child: child as never,
     })).resolves.toMatchObject({ id: CHILD_ID });
     expect(create).not.toHaveBeenCalled();
   });
@@ -405,6 +412,7 @@ describe('OperationRepositoryAdapter composite child fencing', () => {
             organizationId: ORG_ID,
           }),
         },
+        agentSessionOperationRunOwnership: unownedOperationRunOwnership(),
       })),
       operationRun: { findFirst: findRun },
     } as never);
