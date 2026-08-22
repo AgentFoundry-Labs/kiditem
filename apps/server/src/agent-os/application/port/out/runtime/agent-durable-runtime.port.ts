@@ -1,4 +1,4 @@
-import type { CanonicalResourceRef } from '@kiditem/shared/agent-interaction';
+import type { CanonicalResourceRef } from "@kiditem/shared/agent-interaction";
 export interface ResolvedAgentDurableRuntimeAssets {
   prompt: string;
   promptSha256: string;
@@ -27,11 +27,11 @@ export interface AgentDurableRuntimeCapabilities {
 }
 
 export interface RuntimeConversationTurn {
-  role: 'user' | 'assistant' | 'tool';
+  role: "user" | "assistant" | "tool";
   content: string;
   throughSequence: string;
   toolName?: string;
-  toolStatus?: 'started' | 'completed' | 'failed' | 'cancelled';
+  toolStatus?: "started" | "completed" | "failed" | "cancelled";
 }
 
 export interface VersionedConversationSummary {
@@ -65,8 +65,7 @@ export interface AgentDurableRuntimePreStartContext {
   currentResourceRefs: CanonicalResourceRef[];
 }
 
-export interface AgentDurableRuntimeExecutionContext
-  extends AgentDurableRuntimePreStartContext {
+export interface AgentDurableRuntimeExecutionContext extends AgentDurableRuntimePreStartContext {
   /** Immutable ownership marker persisted before any external runtime start. */
   startIntentId: string;
   /** Session-deletion fence generation; no runtime may invent a default. */
@@ -86,6 +85,10 @@ export interface AgentSessionRuntimeCleanupInput {
   signal: AbortSignal;
   organizationId: string;
   sessionId: string;
+  /** Current deletion operation fenced with this runtime cleanup. */
+  deletionOperationRunId: string;
+  /** Current deletion lease/attempt authority; never inferred by a runtime. */
+  deletionAttemptToken: string;
   runtimeType: string;
   executionId: string;
   attemptId: string;
@@ -95,26 +98,31 @@ export interface AgentSessionRuntimeCleanupInput {
 
 export type AgentSessionRuntimeCleanupResult =
   | {
-      state: 'clean';
-      executionAuthority: 'process_exited' | 'irrevocably_revoked';
-      credentials: 'removed' | 'irrevocably_revoked' | 'not_owned';
-      handle: 'removed';
-      filesystem: 'removed' | 'not_owned';
+      state: "clean";
+      executionAuthority: "process_exited" | "irrevocably_revoked";
+      credentials: "removed" | "irrevocably_revoked" | "not_owned";
+      handle: "removed";
+      filesystem: "removed" | "not_owned";
     }
-  | { state: 'unknown'; code: 'RUNTIME_CLEANUP_UNKNOWN' };
+  | { state: "unknown"; code: "RUNTIME_CLEANUP_UNKNOWN" };
 
 export const MAX_AGENT_SESSION_ARTIFACT_BYTES = 16 * 1024 * 1024;
 
 export type DurableRuntimeAdapterEvent =
-  | { kind: 'text_start' }
-  | { kind: 'text_delta'; content: string }
-  | { kind: 'text_end' }
-  | { kind: 'progress'; progress: number; label: string }
-  | { kind: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
-  | { kind: 'delegation'; payload: Record<string, unknown> }
-  | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string }
+  | { kind: "text_start" }
+  | { kind: "text_delta"; content: string }
+  | { kind: "text_end" }
+  | { kind: "progress"; progress: number; label: string }
+  | { kind: "interrupt"; interruptId: string; payload: Record<string, unknown> }
+  | { kind: "delegation"; payload: Record<string, unknown> }
   | {
-      kind: 'artifact_candidate';
+      kind: "terminal";
+      status: "completed" | "failed" | "cancelled";
+      output?: Record<string, unknown>;
+      errorCode?: string;
+    }
+  | {
+      kind: "artifact_candidate";
       externalArtifactId: string;
       artifactType: string;
       label: string;
@@ -124,19 +132,24 @@ export type DurableRuntimeAdapterEvent =
       navigationActionId: string;
       metadata: Record<string, unknown>;
     }
-  | { kind: 'resource_ref'; resource: CanonicalResourceRef };
+  | { kind: "resource_ref"; resource: CanonicalResourceRef };
 
 export type NormalizedRuntimeEvent =
-  | { kind: 'text_start' }
-  | { kind: 'text_delta'; content: string }
-  | { kind: 'text_end' }
-  | { kind: 'progress'; progress: number; label: string }
-  | { kind: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
-  | { kind: 'delegation'; payload: Record<string, unknown> }
-  | { kind: 'resource_ref'; resource: CanonicalResourceRef }
-  | { kind: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string }
+  | { kind: "text_start" }
+  | { kind: "text_delta"; content: string }
+  | { kind: "text_end" }
+  | { kind: "progress"; progress: number; label: string }
+  | { kind: "interrupt"; interruptId: string; payload: Record<string, unknown> }
+  | { kind: "delegation"; payload: Record<string, unknown> }
+  | { kind: "resource_ref"; resource: CanonicalResourceRef }
   | {
-      kind: 'artifact';
+      kind: "terminal";
+      status: "completed" | "failed" | "cancelled";
+      output?: Record<string, unknown>;
+      errorCode?: string;
+    }
+  | {
+      kind: "artifact";
       artifactId: string;
       payload: {
         artifactType: string;
@@ -147,10 +160,10 @@ export type NormalizedRuntimeEvent =
     };
 
 export type RuntimeInspection =
-  | { status: 'running' }
-  | { status: 'completed'; output: Record<string, unknown> }
-  | { status: 'cancelled' }
-  | { status: 'unknown' };
+  | { status: "running" }
+  | { status: "completed"; output: Record<string, unknown> }
+  | { status: "cancelled" }
+  | { status: "unknown" };
 
 export interface RuntimeInterruptInput {
   interruptId: string;
@@ -166,11 +179,13 @@ export interface AgentDurableRuntimeAdapter {
   interrupt(handle: RuntimeHandle, input: RuntimeInterruptInput): Promise<void>;
   cancel(handle: RuntimeHandle): Promise<void>;
   /** Optional until a runtime is promoted to the session-deletion boundary. */
-  cleanup?(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult>;
+  cleanup?(
+    input: AgentSessionRuntimeCleanupInput,
+  ): Promise<AgentSessionRuntimeCleanupResult>;
 }
 
 export const AGENT_DURABLE_RUNTIME_ASSETS_PORT = Symbol(
-  'AGENT_DURABLE_RUNTIME_ASSETS_PORT',
+  "AGENT_DURABLE_RUNTIME_ASSETS_PORT",
 );
 
 export interface AgentDurableRuntimeAssetsPort {

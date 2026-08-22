@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { AgentConversationEventContentSchema } from "@kiditem/shared/agent-interaction";
@@ -54,141 +54,154 @@ export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthoriza
     for (let retry = 0; retry < 3; retry += 1) {
       try {
         return await this.prisma.$transaction(async (tx) => {
-        let session = await sessionForThread(
-          tx,
-          input.organizationId,
-          input.copilotThreadId,
-        );
-        if (session) {
-          const lockedSessionId = session.id;
-          await lockWritableAgentSession(tx, {
-            organizationId: input.organizationId,
-            sessionId: lockedSessionId,
-          });
-          await lock(tx, input);
-          session = await sessionForThread(
+          let session = await sessionForThread(
             tx,
             input.organizationId,
             input.copilotThreadId,
           );
-          if (!session || session.id !== lockedSessionId) throw scopeInvalid();
-        } else {
-          await lock(tx, input);
-          session = await sessionForThread(
-            tx,
-            input.organizationId,
-            input.copilotThreadId,
-          );
-          if (session) throw new SessionAppearedAfterAuthorizationLockError();
-        }
-        await principal(tx, input);
-        let createdSession = false;
-        let rootTask: TaskRow;
-        if (session) {
-          assertSession(session, input);
-          rootTask = await root(tx, session.id, input.organizationId);
-          const existing = await existingExecution(tx, input);
-          if (existing)
-            return existingAuthorization(
+          if (session) {
+            const lockedSessionId = session.id;
+            await lockWritableAgentSession(tx, {
+              organizationId: input.organizationId,
+              sessionId: lockedSessionId,
+            });
+            await lock(tx, input);
+            session = await sessionForThread(
               tx,
-              input,
-              session,
-              rootTask,
-              existing,
+              input.organizationId,
+              input.copilotThreadId,
             );
-          await activeVersion(tx, input);
-        } else {
-          await activeVersion(tx, input);
-          await authority(tx, input);
-          session = await tx.agentSession.create({
+            if (!session || session.id !== lockedSessionId)
+              throw scopeInvalid();
+          } else {
+            await lock(tx, input);
+            session = await sessionForThread(
+              tx,
+              input.organizationId,
+              input.copilotThreadId,
+            );
+            if (session) throw new SessionAppearedAfterAuthorizationLockError();
+          }
+          await principal(tx, input);
+          let createdSession = false;
+          let rootTask: TaskRow;
+          if (session) {
+            assertSession(session, input);
+            rootTask = await root(tx, session.id, input.organizationId);
+            const existing = await existingExecution(tx, input);
+            if (existing)
+              return existingAuthorization(
+                tx,
+                input,
+                session,
+                rootTask,
+                existing,
+              );
+            await activeVersion(tx, input);
+          } else {
+            await activeVersion(tx, input);
+            await authority(tx, input);
+            session = await tx.agentSession.create({
+              data: {
+                organizationId: input.organizationId,
+                createdByUserId: input.userId,
+                copilotThreadId: input.copilotThreadId,
+                primaryAgentVersionId: input.agentVersionId,
+                authorityProfileVersionId: input.authorityProfileVersionId,
+                contextEpoch: 1,
+                lifecycle: "active",
+              },
+              select: sessionSelect,
+            });
+            createdSession = true;
+            rootTask = await tx.agentSessionTask.create({
+              data: {
+                organizationId: input.organizationId,
+                sessionId: session.id,
+                assignedAgentVersionId: input.agentVersionId,
+                objective: null,
+                isRoot: true,
+                status: "interpreting",
+                idempotencyKey: ROOT_TASK_IDEMPOTENCY_KEY,
+              },
+              select: taskSelect,
+            });
+            await tx.agentContextEpoch.create({
+              data: {
+                organizationId: input.organizationId,
+                sessionId: session.id,
+                epoch: 1,
+              },
+            });
+          }
+          if (!session) throw scopeInvalid();
+          const policy = await policySnapshot(tx, session.id, input);
+          const execution = await tx.agentExecution.create({
             data: {
               organizationId: input.organizationId,
-              createdByUserId: input.userId,
+              sessionId: session.id,
+              sessionTaskId: rootTask.id,
               copilotThreadId: input.copilotThreadId,
-              primaryAgentVersionId: input.agentVersionId,
-              authorityProfileVersionId: input.authorityProfileVersionId,
-              contextEpoch: 1,
-              lifecycle: "active",
+              aguiRunId: input.aguiRunId,
+              agentVersionId: input.agentVersionId,
+              runtimeType: input.runtimeType,
+              modelIdentity: input.modelIdentity,
+              policySnapshotId: policy.id,
+              inputHash: input.inputHash,
+              currentInput: (input.currentInput ?? {}) as Prisma.InputJsonValue,
+              resourceRefs: (input.currentResourceRefs ??
+                []) as Prisma.InputJsonValue,
+              attempt: 1,
+              status: "running",
             },
+            select: executionSelect,
+          });
+          await tx.agentExecutionAttempt.create({
+            data: {
+              organizationId: input.organizationId,
+              sessionId: session.id,
+              executionId: execution.id,
+              attemptNumber: 1,
+              idempotencyKey: `agui:${input.aguiRunId}`,
+              runtimeType: input.runtimeType,
+              runtimeStartIntentId: randomUUID(),
+              state: "running",
+            },
+          });
+          session = await tx.agentSession.update({
+            where: {
+              id_organizationId: {
+                id: session.id,
+                organizationId: session.organizationId,
+              },
+            },
+            data: { lastEventSequence: { increment: 1 } },
             select: sessionSelect,
           });
-          createdSession = true;
-          rootTask = await tx.agentSessionTask.create({
+          const event = await tx.agentConversationEvent.create({
             data: {
               organizationId: input.organizationId,
               sessionId: session.id,
-              assignedAgentVersionId: input.agentVersionId,
-              objective: null,
-              isRoot: true,
-              status: "interpreting",
-              idempotencyKey: ROOT_TASK_IDEMPOTENCY_KEY,
+              executionId: execution.id,
+              externalEventId: input.userEvent.externalEventId,
+              sequence: session.lastEventSequence,
+              eventType: "user_message",
+              schemaVersion: input.userEvent.schemaVersion,
+              payload: input.userEvent.payload as Prisma.InputJsonValue,
             },
-            select: taskSelect,
+            select: eventSelect,
           });
-          await tx.agentContextEpoch.create({
-            data: {
-              organizationId: input.organizationId,
-              sessionId: session.id,
-              epoch: 1,
-            },
+          await tx.agentConversationOutbox.create({
+            data: { organizationId: input.organizationId, eventId: event.id },
           });
-        }
-        if (!session) throw scopeInvalid();
-        const policy = await policySnapshot(tx, session.id, input);
-        const execution = await tx.agentExecution.create({
-          data: {
-            organizationId: input.organizationId,
-            sessionId: session.id,
-            sessionTaskId: rootTask.id,
-            copilotThreadId: input.copilotThreadId,
-            aguiRunId: input.aguiRunId,
-            agentVersionId: input.agentVersionId,
-            runtimeType: input.runtimeType,
-            modelIdentity: input.modelIdentity,
-            policySnapshotId: policy.id,
-            inputHash: input.inputHash,
-            currentInput: (input.currentInput ?? {}) as Prisma.InputJsonValue,
-            resourceRefs: (input.currentResourceRefs ??
-              []) as Prisma.InputJsonValue,
-            attempt: 1,
-            status: "running",
-          },
-          select: executionSelect,
-        });
-        session = await tx.agentSession.update({
-          where: {
-            id_organizationId: {
-              id: session.id,
-              organizationId: session.organizationId,
-            },
-          },
-          data: { lastEventSequence: { increment: 1 } },
-          select: sessionSelect,
-        });
-        const event = await tx.agentConversationEvent.create({
-          data: {
-            organizationId: input.organizationId,
-            sessionId: session.id,
-            executionId: execution.id,
-            externalEventId: input.userEvent.externalEventId,
-            sequence: session.lastEventSequence,
-            eventType: "user_message",
-            schemaVersion: input.userEvent.schemaVersion,
-            payload: input.userEvent.payload as Prisma.InputJsonValue,
-          },
-          select: eventSelect,
-        });
-        await tx.agentConversationOutbox.create({
-          data: { organizationId: input.organizationId, eventId: event.id },
-        });
-        return result(
-          createdSession,
-          session,
-          rootTask,
-          policy,
-          execution,
-          event,
-        );
+          return result(
+            createdSession,
+            session,
+            rootTask,
+            policy,
+            execution,
+            event,
+          );
         }, options);
       } catch (error) {
         if (error instanceof SessionAppearedAfterAuthorizationLockError) {
@@ -319,7 +332,7 @@ async function existingAuthorization(
   rootTask: TaskRow,
   execution: ExecutionRow,
 ): Promise<AuthorizedExecutionRecord> {
-  const [policy, event] = await Promise.all([
+  const [policy, event, attempt] = await Promise.all([
     tx.agentPolicySnapshot.findFirst({
       where: {
         id: execution.policySnapshotId,
@@ -337,6 +350,22 @@ async function existingAuthorization(
       select: eventSelect,
       orderBy: [{ sequence: "asc" }, { id: "asc" }],
     }),
+    tx.agentExecutionAttempt.findUnique({
+      where: {
+        executionId_attemptNumber: {
+          executionId: execution.id,
+          attemptNumber: 1,
+        },
+      },
+      select: {
+        executionId: true,
+        sessionId: true,
+        organizationId: true,
+        idempotencyKey: true,
+        runtimeType: true,
+        runtimeStartIntentId: true,
+      },
+    }),
   ]);
   if (
     !policy ||
@@ -350,6 +379,13 @@ async function existingAuthorization(
     execution.modelIdentity !== input.modelIdentity ||
     execution.inputHash !== input.inputHash ||
     execution.attempt !== 1 ||
+    !attempt ||
+    attempt.executionId !== execution.id ||
+    attempt.sessionId !== session.id ||
+    attempt.organizationId !== input.organizationId ||
+    attempt.idempotencyKey !== `agui:${input.aguiRunId}` ||
+    attempt.runtimeType !== input.runtimeType ||
+    !attempt.runtimeStartIntentId ||
     policy.sessionId !== session.id ||
     policy.agentVersionId !== input.agentVersionId ||
     policy.authorityProfileVersionId !== input.authorityProfileVersionId ||

@@ -1,10 +1,12 @@
-import { createHash } from 'node:crypto';
+import { createHash } from "node:crypto";
 import {
+  Inject,
   Injectable,
   Logger,
   OnModuleInit,
+  Optional,
   ServiceUnavailableException,
-} from '@nestjs/common';
+} from "@nestjs/common";
 import {
   S3Client,
   PutObjectCommand,
@@ -18,23 +20,25 @@ import {
   HeadBucketCommand,
   HeadObjectCommand,
   GetObjectCommand,
-} from '@aws-sdk/client-s3';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+} from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 // Nest dev/runtime compiles this service as CommonJS; sharp exports the callable
 // module itself, not a callable `.default` value in that execution path.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp')['default'] = require('sharp');
+const sharp: (typeof import("sharp"))["default"] = require("sharp");
 
-const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
+const IMMUTABLE_ASSET_CACHE_CONTROL = "public, max-age=31536000, immutable";
 
-export type AgentSessionMultipartCleanupCapability =
-  'unsupported';
+export type AgentSessionMultipartCleanupCapability = "unsupported";
 
 export interface StorageServiceOptions {
   client?: S3Client;
   bucket?: string;
   publicUrl?: string;
 }
+
+/** Explicit test-only override; production composition always resolves env configuration. */
+export const STORAGE_SERVICE_OPTIONS = Symbol("STORAGE_SERVICE_OPTIONS");
 
 /**
  * S3-호환 객체 스토리지 (로컬: MinIO, 운영: S3/R2)
@@ -55,27 +59,43 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicUrl: string;
-  constructor(options: StorageServiceOptions = {}) {
-    const isDev = process.env.NODE_ENV !== 'production';
-    const endpoint = process.env.S3_ENDPOINT || (isDev ? 'http://localhost:9000' : '');
-    const accessKeyId = process.env.S3_ACCESS_KEY || (isDev ? 'minioadmin' : '');
-    const secretAccessKey = process.env.S3_SECRET_KEY || (isDev ? 'minioadmin' : '');
-    this.bucket = options.bucket || process.env.S3_BUCKET || (isDev ? 'kiditem' : '');
+  constructor(
+    @Optional()
+    @Inject(STORAGE_SERVICE_OPTIONS)
+    options: StorageServiceOptions = {},
+  ) {
+    const isDev = process.env.NODE_ENV !== "production";
+    const endpoint =
+      process.env.S3_ENDPOINT || (isDev ? "http://localhost:9000" : "");
+    const accessKeyId =
+      process.env.S3_ACCESS_KEY || (isDev ? "minioadmin" : "");
+    const secretAccessKey =
+      process.env.S3_SECRET_KEY || (isDev ? "minioadmin" : "");
+    this.bucket =
+      options.bucket || process.env.S3_BUCKET || (isDev ? "kiditem" : "");
 
-    if ((!options.client && (!endpoint || !accessKeyId || !secretAccessKey)) || !this.bucket) {
+    if (
+      (!options.client && (!endpoint || !accessKeyId || !secretAccessKey)) ||
+      !this.bucket
+    ) {
       throw new Error(
-        'StorageService: S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET env가 필요합니다 (production은 필수, dev는 기본값 있음)',
+        "StorageService: S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET env가 필요합니다 (production은 필수, dev는 기본값 있음)",
       );
     }
 
-    this.publicUrl = options.publicUrl || process.env.S3_PUBLIC_URL || `${endpoint.replace(/\/$/, '')}/${this.bucket}`;
+    this.publicUrl =
+      options.publicUrl ||
+      process.env.S3_PUBLIC_URL ||
+      `${endpoint.replace(/\/$/, "")}/${this.bucket}`;
 
-    this.client = options.client ?? new S3Client({
-      endpoint,
-      region: process.env.S3_REGION || 'us-east-1',
-      credentials: { accessKeyId, secretAccessKey },
-      forcePathStyle: true, // MinIO 필수, S3/R2도 호환
-    });
+    this.client =
+      options.client ??
+      new S3Client({
+        endpoint,
+        region: process.env.S3_REGION || "us-east-1",
+        credentials: { accessKeyId, secretAccessKey },
+        forcePathStyle: true, // MinIO 필수, S3/R2도 호환
+      });
   }
 
   async onModuleInit() {
@@ -105,11 +125,11 @@ export class StorageService implements OnModuleInit {
     } catch (error) {
       const storageError = error as Error & { code?: unknown };
       this.logger.error(
-        `이미지 저장 실패 (${String(storageError.code ?? storageError.name ?? 'unknown')})`,
+        `이미지 저장 실패 (${String(storageError.code ?? storageError.name ?? "unknown")})`,
         storageError.stack,
       );
       throw new ServiceUnavailableException(
-        '이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.',
+        "이미지 저장소에 연결하지 못했습니다. 잠시 후 다시 시도해 주세요.",
         { cause: error },
       );
     }
@@ -130,7 +150,9 @@ export class StorageService implements OnModuleInit {
 
   /** key 삭제 */
   async delete(key: string): Promise<void> {
-    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+    await this.client.send(
+      new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+    );
   }
 
   /** Internal AgentSession writer primitive. It never issues a browser URL. */
@@ -147,7 +169,8 @@ export class StorageService implements OnModuleInit {
       }),
       { abortSignal: input.signal },
     );
-    if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
+    if (!result.UploadId)
+      throw new Error("STORAGE_MULTIPART_UPLOAD_ID_MISSING");
     return { uploadId: result.UploadId };
   }
 
@@ -168,14 +191,14 @@ export class StorageService implements OnModuleInit {
       }),
       { abortSignal: input.signal },
     );
-    if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
+    if (!part.ETag) throw new Error("STORAGE_MULTIPART_PART_ETAG_MISSING");
     await this.client.send(
       new CompleteMultipartUploadCommand({
         Bucket: this.bucket,
         Key: input.key,
         UploadId: input.uploadId,
         MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
-        IfNoneMatch: '*',
+        IfNoneMatch: "*",
       }),
       { abortSignal: input.signal },
     );
@@ -186,7 +209,7 @@ export class StorageService implements OnModuleInit {
    * across process recreation, so deletion must treat cleanup as unknown.
    */
   agentSessionMultipartCleanupCapability(): AgentSessionMultipartCleanupCapability {
-    return 'unsupported';
+    return "unsupported";
   }
 
   async verifyOwnedObjectSha256(input: {
@@ -197,15 +220,16 @@ export class StorageService implements OnModuleInit {
     signal: AbortSignal;
   }): Promise<void> {
     if (
-      input.expectedByteLength < 0
-      || input.expectedByteLength > input.maxByteLength
-    ) throw new Error('STORAGE_OBJECT_VERIFICATION_BOUND_INVALID');
+      input.expectedByteLength < 0 ||
+      input.expectedByteLength > input.maxByteLength
+    )
+      throw new Error("STORAGE_OBJECT_VERIFICATION_BOUND_INVALID");
     const head = await this.client.send(
       new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
       { abortSignal: input.signal },
     );
     if (head.ContentLength !== input.expectedByteLength) {
-      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+      throw new Error("STORAGE_OBJECT_LENGTH_MISMATCH");
     }
     const object = await this.client.send(
       new GetObjectCommand({
@@ -218,20 +242,20 @@ export class StorageService implements OnModuleInit {
       }),
       { abortSignal: input.signal },
     );
-    if (!object.Body) throw new Error('STORAGE_OBJECT_BODY_MISSING');
+    if (!object.Body) throw new Error("STORAGE_OBJECT_BODY_MISSING");
     if (
-      object.ContentLength !== undefined
-      && object.ContentLength !== input.expectedByteLength
+      object.ContentLength !== undefined &&
+      object.ContentLength !== input.expectedByteLength
     ) {
-      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+      throw new Error("STORAGE_OBJECT_LENGTH_MISMATCH");
     }
     const bytes = await object.Body.transformToByteArray();
     if (bytes.byteLength !== input.expectedByteLength) {
-      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+      throw new Error("STORAGE_OBJECT_LENGTH_MISMATCH");
     }
-    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    const sha256 = createHash("sha256").update(bytes).digest("hex");
     if (sha256 !== input.expectedSha256) {
-      throw new Error('STORAGE_OBJECT_SHA256_MISMATCH');
+      throw new Error("STORAGE_OBJECT_SHA256_MISMATCH");
     }
   }
 
@@ -259,7 +283,7 @@ export class StorageService implements OnModuleInit {
       );
       if (!result.IsTruncated) return uploads;
       if (!result.NextKeyMarker || !result.NextUploadIdMarker)
-        throw new Error('STORAGE_MULTIPART_PAGINATION_MARKER_MISSING');
+        throw new Error("STORAGE_MULTIPART_PAGINATION_MARKER_MISSING");
       keyMarker = result.NextKeyMarker;
       uploadIdMarker = result.NextUploadIdMarker;
     }
@@ -280,7 +304,10 @@ export class StorageService implements OnModuleInit {
     );
   }
 
-  async deleteOwnedObject(input: { key: string; signal: AbortSignal }): Promise<void> {
+  async deleteOwnedObject(input: {
+    key: string;
+    signal: AbortSignal;
+  }): Promise<void> {
     await this.client.send(
       new DeleteObjectCommand({ Bucket: this.bucket, Key: input.key }),
       { abortSignal: input.signal },
@@ -290,15 +317,15 @@ export class StorageService implements OnModuleInit {
   async headOwnedObject(input: {
     key: string;
     signal: AbortSignal;
-  }): Promise<'present' | 'erased'> {
+  }): Promise<"present" | "erased"> {
     try {
       await this.client.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
         { abortSignal: input.signal },
       );
-      return 'present';
+      return "present";
     } catch (error) {
-      if (isMissingObject(error)) return 'erased';
+      if (isMissingObject(error)) return "erased";
       throw error;
     }
   }
@@ -306,7 +333,7 @@ export class StorageService implements OnModuleInit {
   /** 브라우저가 서버를 경유하지 않고 고정 key에 JPEG를 업로드할 수 있는 서명 URL 발급 */
   async createPresignedPut(input: {
     key: string;
-    contentType: 'image/jpeg';
+    contentType: "image/jpeg";
     expiresInSeconds: number;
     metadata: Record<string, string>;
   }): Promise<{
@@ -316,10 +343,16 @@ export class StorageService implements OnModuleInit {
     imageUrl: string;
   }> {
     const metadata = Object.fromEntries(
-      Object.entries(input.metadata).map(([key, value]) => [key.toLowerCase(), value]),
+      Object.entries(input.metadata).map(([key, value]) => [
+        key.toLowerCase(),
+        value,
+      ]),
     );
     const metadataHeaders = Object.fromEntries(
-      Object.entries(metadata).map(([key, value]) => [`x-amz-meta-${key}`, value]),
+      Object.entries(metadata).map(([key, value]) => [
+        `x-amz-meta-${key}`,
+        value,
+      ]),
     );
     const metadataHeaderNames = Object.keys(metadataHeaders);
     const command = new PutObjectCommand({
@@ -332,8 +365,8 @@ export class StorageService implements OnModuleInit {
     const uploadUrl = await getSignedUrl(this.client, command, {
       expiresIn: input.expiresInSeconds,
       signableHeaders: new Set([
-        'cache-control',
-        'content-type',
+        "cache-control",
+        "content-type",
         ...metadataHeaderNames,
       ]),
       unhoistableHeaders: new Set(metadataHeaderNames),
@@ -342,8 +375,8 @@ export class StorageService implements OnModuleInit {
     return {
       uploadUrl,
       headers: {
-        'Content-Type': input.contentType,
-        'Cache-Control': IMMUTABLE_ASSET_CACHE_CONTROL,
+        "Content-Type": input.contentType,
+        "Cache-Control": IMMUTABLE_ASSET_CACHE_CONTROL,
         ...metadataHeaders,
       },
       expiresAt: new Date(Date.now() + input.expiresInSeconds * 1000),
@@ -363,11 +396,13 @@ export class StorageService implements OnModuleInit {
     const head = await this.client.send(
       new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
     );
-    const contentType = head.ContentType ?? '';
+    const contentType = head.ContentType ?? "";
     const byteLength = head.ContentLength ?? 0;
 
-    if (contentType !== 'image/jpeg') {
-      throw new Error(`StorageService: JPEG content type이 아닙니다 (${contentType || 'missing'})`);
+    if (contentType !== "image/jpeg") {
+      throw new Error(
+        `StorageService: JPEG content type이 아닙니다 (${contentType || "missing"})`,
+      );
     }
     if (byteLength <= 0 || byteLength > input.maxByteLength) {
       throw new Error(
@@ -379,8 +414,8 @@ export class StorageService implements OnModuleInit {
       new GetObjectCommand({ Bucket: this.bucket, Key: input.key }),
     );
     const body = object.Body;
-    if (!body || typeof body.transformToByteArray !== 'function') {
-      throw new Error('StorageService: JPEG body를 읽을 수 없습니다');
+    if (!body || typeof body.transformToByteArray !== "function") {
+      throw new Error("StorageService: JPEG body를 읽을 수 없습니다");
     }
 
     const bytes = Buffer.from(await body.transformToByteArray());
@@ -396,12 +431,12 @@ export class StorageService implements OnModuleInit {
       bytes[bytes.byteLength - 2] !== 0xff ||
       bytes[bytes.byteLength - 1] !== 0xd9
     ) {
-      throw new Error('StorageService: 유효한 JPEG body가 아닙니다');
+      throw new Error("StorageService: 유효한 JPEG body가 아닙니다");
     }
 
     const image = await sharp(bytes).metadata();
-    if (image.format !== 'jpeg' || !image.width || !image.height) {
-      throw new Error('StorageService: JPEG dimensions를 확인할 수 없습니다');
+    if (image.format !== "jpeg" || !image.width || !image.height) {
+      throw new Error("StorageService: JPEG dimensions를 확인할 수 없습니다");
     }
 
     return {
@@ -409,7 +444,7 @@ export class StorageService implements OnModuleInit {
       byteLength,
       pixelWidth: image.width,
       pixelHeight: image.height,
-      sha256: createHash('sha256').update(bytes).digest('hex'),
+      sha256: createHash("sha256").update(bytes).digest("hex"),
       metadata: head.Metadata ?? {},
     };
   }
@@ -421,14 +456,14 @@ export class StorageService implements OnModuleInit {
 
   /** public URL → key (이 서비스의 URL이 아니면 null) */
   extractKey(url: string): string | null {
-    if (!url.startsWith(this.publicUrl + '/')) return null;
+    if (!url.startsWith(this.publicUrl + "/")) return null;
     return url.substring(this.publicUrl.length + 1);
   }
 }
 
 function isMissingObject(error: unknown): boolean {
-  const status = (error as { $metadata?: { httpStatusCode?: unknown } })?.$metadata
-    ?.httpStatusCode;
+  const status = (error as { $metadata?: { httpStatusCode?: unknown } })
+    ?.$metadata?.httpStatusCode;
   const name = (error as { name?: unknown })?.name;
-  return status === 404 || name === 'NotFound' || name === 'NoSuchKey';
+  return status === 404 || name === "NotFound" || name === "NoSuchKey";
 }

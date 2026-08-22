@@ -1,75 +1,82 @@
-import { MODULE_METADATA } from '@nestjs/common/constants';
-import { Inject, Injectable, Module } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { EventEmitterModule } from '@nestjs/event-emitter';
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import { describe, expect, it } from 'vitest';
-import { PrismaModule } from '../../prisma/prisma.module';
-import { OperationServerLifecycleService } from '../../operations/application/service/operation-server-lifecycle.service';
-import { StorageModule } from '../../common/storage/storage.module';
-import { StorageService } from '../../common/storage/storage.service';
-import { AgentRuntimeApplicationModule } from '../../agent-runtime-application.module';
-import { AgentMcpApplicationModule } from '../../agent-mcp-application.module';
-import { AgentOsCatalogModule } from '../agent-os-catalog.module';
-import { AgentOsCapabilityModule } from '../agent-os-capability.module';
-import { AgentOsLegacyRunModule } from '../agent-os-legacy-run.module';
-import { AgentOsRuntimeSupportModule } from '../agent-os-runtime-support.module';
-import { AgentOsWorkerModule } from '../agent-os-worker.module';
-import { AgentOsModule } from '../agent-os.module';
-import { StorageAgentSessionArtifactAdapter } from '../adapter/out/storage/storage-agent-session-artifact.adapter';
-import { OperationDefinitionSnapshotAdapter } from '../adapter/out/operation/operation-definition-snapshot.adapter';
-import { AgentAguiController } from '../adapter/in/http/interaction/agent-agui.controller';
-import { AgentInteractionBootstrapController } from '../adapter/in/http/interaction/agent-interaction-bootstrap.controller';
-import { AGENT_SESSION_ARTIFACT_WRITER_PORT } from '../application/port/in/session-execution/agent-session-artifact-writer.port';
-import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from '../application/port/in/session-execution/agent-runtime-credential-verification.port';
-import { AGENT_SESSION_DELETION_EXECUTION_PORT } from '../application/port/in/session-execution/agent-session-deletion-execution.port';
-import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from '../application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port';
-import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from '../application/port/out/runtime/agent-session-runtime-cleanup.port';
-import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from '../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port';
-import { AGENT_SESSION_OWNED_OPERATION_PORT } from '../application/port/in/session-control/agent-session-owned-operation.port';
-import type { AgentSessionOwnedOperationPort } from '../application/port/in/session-control/agent-session-owned-operation.port';
-import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from '../application/port/out/operation/agent-session-operation-platform.port';
-import { AGENT_INTERACTION_BOOTSTRAP_PORT } from '../application/port/in/interaction/agent-interaction-bootstrap.port';
-import { AGENT_AGUI_PRODUCER_PORT } from '../application/port/in/interaction/agent-agui-producer.port';
-import { AGENT_SESSION_TASK_EXECUTION_PORT } from '../application/port/in/session-execution/agent-session-task-execution.port';
-import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../application/port/in/session-capability/agent-capability-invocation.port';
-import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from '../application/port/out/repository/session-control/agent-session-control-query.repository.port';
-import { AGENT_DELEGATION_TRANSACTION } from '../application/port/out/transaction/session-control/agent-delegation.transaction.port';
-import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from '../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port';
-import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from '../application/port/out/transaction/session-control/agent-approval-continuation.transaction.port';
-import { AGENT_SESSION_TRANSITION_TRANSACTION } from '../application/port/out/transaction/session-control/agent-session-transition.transaction.port';
-import { AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION } from '../application/port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port';
-import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../application/port/out/event/agent-conversation-live-publisher.port';
-import { AGENT_VERSION_REPOSITORY } from '../application/port/out/repository/agent-version.repository.port';
-import { AgentCatalogService } from '../application/service/agent-catalog.service';
-import { AgentRuntimeAdapterRegistry } from '../application/service/agent-runtime-adapter.registry';
-import { AgentSessionCapabilityInvocationService } from '../application/service/agent-session-capability-invocation.service';
-import { AgentInteractionService } from '../application/service/agent-interaction.service';
-import { AgentRunWorker } from '../application/service/agent-run-worker.service';
-import { AgentRunCoordinator } from '../application/service/agent-run-coordinator.service';
-import { AgentRunExecutor } from '../application/service/agent-run-executor.service';
-import { AgentRunGraphService } from '../application/service/agent-run-graph.service';
-import { AgentApprovalService } from '../application/service/agent-approval.service';
-import { AgentConversationService } from '../application/service/agent-conversation.service';
-import { AgentObservabilityService } from '../application/service/agent-observability.service';
-import { AgentSessionArtifactWriterService } from '../application/service/session-execution/agent-session-artifact-writer.service';
-import { AgentSessionOwnedOperationService } from '../application/service/session-control/agent-session-owned-operation.service';
-import { AgentSessionTaskExecutionService } from '../application/service/session-execution/agent-session-task-execution.service';
-import { AgentSessionTaskOperationAdapter } from '../adapter/in/operation/session-execution/agent-session-task.operation-adapter';
-import { AgentInlineRunReconciler } from '../application/service/agent-inline-run-reconciler.service';
-import { AgentRuntimeCatalogStartupValidator } from '../application/service/agent-runtime-catalog-startup-validator.service';
-import { AgentAguiProducerCoordinator } from '../application/service/agent-agui-producer-coordinator.service';
-import { AgentOsApiExecutionModule } from '../agent-os-api-execution.module';
-import { AgentOsHttpModule } from '../agent-os-http.module';
-import { AgentOsSessionModule } from '../agent-os-session.module';
-import { RuntimeCredentialBroker } from '../adapter/out/runtime/runtime-credential-broker';
-import { AgentRuntimeCredentialVerificationService } from '../application/service/session-execution/agent-runtime-credential-verification.service';
+import { MODULE_METADATA } from "@nestjs/common/constants";
+import { Inject, Injectable, Module } from "@nestjs/common";
+import { Test } from "@nestjs/testing";
+import { EventEmitterModule } from "@nestjs/event-emitter";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { describe, expect, it } from "vitest";
+import { PrismaModule } from "../../prisma/prisma.module";
+import { OperationServerLifecycleService } from "../../operations/application/service/operation-server-lifecycle.service";
+import { StorageModule } from "../../common/storage/storage.module";
+import { StorageService } from "../../common/storage/storage.service";
+import { AgentRuntimeApplicationModule } from "../../agent-runtime-application.module";
+import { AgentMcpApplicationModule } from "../../agent-mcp-application.module";
+import { AgentOsCatalogModule } from "../agent-os-catalog.module";
+import { AgentOsCapabilityModule } from "../agent-os-capability.module";
+import { AgentOsLegacyRunModule } from "../agent-os-legacy-run.module";
+import { AgentOsRuntimeSupportModule } from "../agent-os-runtime-support.module";
+import { AgentOsWorkerModule } from "../agent-os-worker.module";
+import { AgentOsModule } from "../agent-os.module";
+import { StorageAgentSessionArtifactAdapter } from "../adapter/out/storage/storage-agent-session-artifact.adapter";
+import { OperationDefinitionSnapshotAdapter } from "../adapter/out/operation/operation-definition-snapshot.adapter";
+import { AgentAguiController } from "../adapter/in/http/interaction/agent-agui.controller";
+import { AgentInteractionBootstrapController } from "../adapter/in/http/interaction/agent-interaction-bootstrap.controller";
+import { AGENT_SESSION_ARTIFACT_WRITER_PORT } from "../application/port/in/session-execution/agent-session-artifact-writer.port";
+import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from "../application/port/in/session-execution/agent-runtime-credential-verification.port";
+import { AGENT_SESSION_DELETION_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-deletion-execution.port";
+import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "../application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port";
+import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "../application/port/out/runtime/agent-session-runtime-cleanup.port";
+import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
+import { AGENT_SESSION_OWNED_OPERATION_PORT } from "../application/port/in/session-control/agent-session-owned-operation.port";
+import type { AgentSessionOwnedOperationPort } from "../application/port/in/session-control/agent-session-owned-operation.port";
+import { AGENT_SESSION_OPERATION_PLATFORM_PORT } from "../application/port/out/operation/agent-session-operation-platform.port";
+import { AGENT_INTERACTION_BOOTSTRAP_PORT } from "../application/port/in/interaction/agent-interaction-bootstrap.port";
+import { AGENT_AGUI_PRODUCER_PORT } from "../application/port/in/interaction/agent-agui-producer.port";
+import { AGENT_SESSION_TASK_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-task-execution.port";
+import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from "../application/port/in/session-capability/agent-capability-invocation.port";
+import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from "../application/port/out/repository/session-control/agent-session-control-query.repository.port";
+import { AGENT_DELEGATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-delegation.transaction.port";
+import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-attempt-operation.transaction.port";
+import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
+import { AGENT_SESSION_TRANSITION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-session-transition.transaction.port";
+import { AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION } from "../application/port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port";
+import { AGENT_CONVERSATION_LIVE_PUBLISHER } from "../application/port/out/event/agent-conversation-live-publisher.port";
+import { AGENT_VERSION_REPOSITORY } from "../application/port/out/repository/agent-version.repository.port";
+import { AgentCatalogService } from "../application/service/agent-catalog.service";
+import { AgentRuntimeAdapterRegistry } from "../application/service/agent-runtime-adapter.registry";
+import { AgentSessionCapabilityInvocationService } from "../application/service/agent-session-capability-invocation.service";
+import { AgentInteractionService } from "../application/service/agent-interaction.service";
+import { AgentRunWorker } from "../application/service/agent-run-worker.service";
+import { AgentRunCoordinator } from "../application/service/agent-run-coordinator.service";
+import { AgentRunExecutor } from "../application/service/agent-run-executor.service";
+import { AgentRunGraphService } from "../application/service/agent-run-graph.service";
+import { AgentApprovalService } from "../application/service/agent-approval.service";
+import { AgentConversationService } from "../application/service/agent-conversation.service";
+import { AgentObservabilityService } from "../application/service/agent-observability.service";
+import { AgentSessionArtifactWriterService } from "../application/service/session-execution/agent-session-artifact-writer.service";
+import { AgentSessionOwnedOperationService } from "../application/service/session-control/agent-session-owned-operation.service";
+import { AgentSessionTaskExecutionService } from "../application/service/session-execution/agent-session-task-execution.service";
+import { AgentSessionTaskOperationAdapter } from "../adapter/in/operation/session-execution/agent-session-task.operation-adapter";
+import { AgentInlineRunReconciler } from "../application/service/agent-inline-run-reconciler.service";
+import { AgentRuntimeCatalogStartupValidator } from "../application/service/agent-runtime-catalog-startup-validator.service";
+import { AgentAguiProducerCoordinator } from "../application/service/agent-agui-producer-coordinator.service";
+import { AgentOsApiExecutionModule } from "../agent-os-api-execution.module";
+import { AgentOsHttpModule } from "../agent-os-http.module";
+import { AgentOsSessionModule } from "../agent-os-session.module";
+import { RuntimeCredentialBroker } from "../adapter/out/runtime/runtime-credential-broker";
+import { AgentRuntimeCredentialVerificationService } from "../application/service/session-execution/agent-runtime-credential-verification.service";
+import { PrismaAguiRuntimeCleanupDependencies } from "../adapter/out/runtime/prisma-agui-runtime-cleanup-dependencies";
+import { AGUI_RUNTIME_CLEANUP_DEPENDENCIES } from "../application/port/out/runtime/agent-agui-runtime-cleanup.port";
+import { AgentAguiInProcessRunRegistry } from "../application/service/agent-agui-in-process-run-registry.service";
 
-const imports = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? [];
-const providers = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.PROVIDERS, module) ?? [];
-const exportsOf = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.EXPORTS, module) ?? [];
-const controllers = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, module) ?? [];
+const imports = (module: unknown) =>
+  Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? [];
+const providers = (module: unknown) =>
+  Reflect.getMetadata(MODULE_METADATA.PROVIDERS, module) ?? [];
+const exportsOf = (module: unknown) =>
+  Reflect.getMetadata(MODULE_METADATA.EXPORTS, module) ?? [];
+const controllers = (module: unknown) =>
+  Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, module) ?? [];
 
 @Injectable()
 class OwnedOperationPortConsumer {
@@ -101,9 +108,27 @@ class PlatformPortConsumer {
 })
 class PlatformPortConsumerModule {}
 
-describe('Agent OS artifact materialization composition', () => {
-  it('composes Operations-backed owned execution only through the API wrapper', async () => {
-    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
+describe("Agent OS artifact materialization composition", () => {
+  it("resolves StorageModule and the AgentOS API composition without reflected options dependencies", async () => {
+    const storageModule = await Test.createTestingModule({
+      imports: [StorageModule],
+    }).compile();
+    expect(storageModule.get(StorageService)).toBeInstanceOf(StorageService);
+    await storageModule.close();
+
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+    const agentOsModule = await Test.createTestingModule({
+      imports: [OwnedOperationPortConsumerModule],
+    })
+      .overrideProvider(OperationServerLifecycleService)
+      .useValue({})
+      .compile();
+    expect(agentOsModule.get(OwnedOperationPortConsumer).writer).toBeDefined();
+    await agentOsModule.close();
+  });
+
+  it("composes Operations-backed owned execution only through the API wrapper", async () => {
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
     const moduleRef = await Test.createTestingModule({
       imports: [OwnedOperationPortConsumerModule],
     })
@@ -112,43 +137,51 @@ describe('Agent OS artifact materialization composition', () => {
       .compile();
 
     const owned = moduleRef.get(OwnedOperationPortConsumer).owned;
-    expect(owned.startExecution).toBeTypeOf('function');
-    expect(owned.startCapability).toBeTypeOf('function');
+    expect(owned.startExecution).toBeTypeOf("function");
+    expect(owned.startCapability).toBeTypeOf("function");
     expect(moduleRef.get(OwnedOperationPortConsumer).writer).toBeDefined();
     await moduleRef.close();
   });
 
-  it('does not export the private Operations platform adapter from the API wrapper', async () => {
-    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
-    await expect(Test.createTestingModule({
-      imports: [PlatformPortConsumerModule],
-    })
-      .overrideProvider(OperationServerLifecycleService)
-      .useValue({})
-      .compile()).rejects.toThrow(/AGENT_SESSION_OPERATION_PLATFORM_PORT/);
+  it("does not export the private Operations platform adapter from the API wrapper", async () => {
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+    await expect(
+      Test.createTestingModule({
+        imports: [PlatformPortConsumerModule],
+      })
+        .overrideProvider(OperationServerLifecycleService)
+        .useValue({})
+        .compile(),
+    ).rejects.toThrow(/AGENT_SESSION_OPERATION_PLATFORM_PORT/);
   });
 
-  it('keeps owned-operation, platform, writer, and storage providers out of runtime and MCP roots', async () => {
-    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
-    for (const root of [AgentRuntimeApplicationModule, AgentMcpApplicationModule]) {
-      const moduleRef = await Test.createTestingModule({ imports: [root] }).compile();
+  it("keeps owned-operation, platform, writer, and storage providers out of runtime and MCP roots", async () => {
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+    for (const root of [
+      AgentRuntimeApplicationModule,
+      AgentMcpApplicationModule,
+    ]) {
+      const moduleRef = await Test.createTestingModule({
+        imports: [root],
+      }).compile();
       for (const provider of [
         AgentSessionOwnedOperationService,
         OperationDefinitionSnapshotAdapter,
         AgentSessionArtifactWriterService,
         StorageAgentSessionArtifactAdapter,
-      ]) expect(() => moduleRef.get(provider, { strict: true })).toThrow();
+      ])
+        expect(() => moduleRef.get(provider, { strict: true })).toThrow();
       await moduleRef.close();
     }
   });
 
-  it('compiles the active HTTP root and resolves bootstrap, AGUI, and session execution through declared ports', async () => {
-    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
-    process.env.INTERACTION_GATEWAY_SHARED_SECRET = 'a'.repeat(32);
-    process.env.INTERACTION_ANALYTICS_HMAC_KEY = 'b'.repeat(32);
-    process.env.INTERACTION_PRINCIPAL_HMAC_KEY = 'c'.repeat(32);
-    process.env.INTERACTION_RUN_INTENT_HMAC_KEY = 'd'.repeat(32);
-    process.env.INTERACTION_REPLAY_CURSOR_HMAC_KEY = 'e'.repeat(32);
+  it("compiles the active HTTP root and resolves bootstrap, AGUI, and session execution through declared ports", async () => {
+    process.env.AGENT_DEFAULT_MODEL = "acceptance-test-model";
+    process.env.INTERACTION_GATEWAY_SHARED_SECRET = "a".repeat(32);
+    process.env.INTERACTION_ANALYTICS_HMAC_KEY = "b".repeat(32);
+    process.env.INTERACTION_PRINCIPAL_HMAC_KEY = "c".repeat(32);
+    process.env.INTERACTION_RUN_INTENT_HMAC_KEY = "d".repeat(32);
+    process.env.INTERACTION_REPLAY_CURSOR_HMAC_KEY = "e".repeat(32);
     const moduleRef = await Test.createTestingModule({
       imports: [EventEmitterModule.forRoot(), AgentOsHttpModule],
     })
@@ -171,19 +204,31 @@ describe('Agent OS artifact materialization composition', () => {
     expect(moduleRef.get(AGENT_SESSION_TASK_EXECUTION_PORT)).toBe(
       moduleRef.get(AgentSessionTaskExecutionService),
     );
+    expect(moduleRef.get(AGUI_RUNTIME_CLEANUP_DEPENDENCIES)).toBeInstanceOf(
+      PrismaAguiRuntimeCleanupDependencies,
+    );
+    expect(moduleRef.get(AgentAguiInProcessRunRegistry)).toBeInstanceOf(
+      AgentAguiInProcessRunRegistry,
+    );
     await moduleRef.close();
   });
 
-  it('keeps the materialization transaction controller-free in the session module', () => {
-    expect(exportsOf(AgentOsSessionModule)).toContain(AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION);
+  it("keeps the materialization transaction controller-free in the session module", () => {
+    expect(exportsOf(AgentOsSessionModule)).toContain(
+      AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
+    );
     expect(controllers(AgentOsSessionModule)).toEqual([]);
   });
 
-  it('composes storage and the writer only in the API execution wrapper', () => {
+  it("composes storage and the writer only in the API execution wrapper", () => {
     expect(imports(AgentOsApiExecutionModule)).toContain(AgentOsSessionModule);
     expect(imports(AgentOsApiExecutionModule)).toContain(StorageModule);
-    expect(providers(AgentOsApiExecutionModule)).toContain(StorageAgentSessionArtifactAdapter);
-    expect(providers(AgentOsApiExecutionModule)).toContain(AgentSessionArtifactWriterService);
+    expect(providers(AgentOsApiExecutionModule)).toContain(
+      StorageAgentSessionArtifactAdapter,
+    );
+    expect(providers(AgentOsApiExecutionModule)).toContain(
+      AgentSessionArtifactWriterService,
+    );
     expect(exportsOf(AgentOsApiExecutionModule)).toEqual([
       AGENT_SESSION_OWNED_OPERATION_PORT,
       AGENT_SESSION_ARTIFACT_WRITER_PORT,
@@ -192,13 +237,15 @@ describe('Agent OS artifact materialization composition', () => {
     expect(imports(AgentOsHttpModule)).toContain(AgentOsApiExecutionModule);
   });
 
-  it('composes neither lifecycle nor deletion HTTP controllers before the live cutover', () => {
-    const names = controllers(AgentOsHttpModule).map((item: { name?: string }) => item.name);
-    expect(names).not.toContain('AgentInteractionSessionLifecycleController');
-    expect(names).not.toContain('AgentSessionDeletionController');
+  it("composes neither lifecycle nor deletion HTTP controllers before the live cutover", () => {
+    const names = controllers(AgentOsHttpModule).map(
+      (item: { name?: string }) => item.name,
+    );
+    expect(names).not.toContain("AgentInteractionSessionLifecycleController");
+    expect(names).not.toContain("AgentSessionDeletionController");
   });
 
-  it('keeps the public facade controller-free and focused on catalog, capability, and session ownership', () => {
+  it("keeps the public facade controller-free and focused on catalog, capability, and session ownership", () => {
     expect(imports(AgentOsModule)).toEqual([
       AgentOsCatalogModule,
       AgentOsCapabilityModule,
@@ -207,7 +254,7 @@ describe('Agent OS artifact materialization composition', () => {
     expect(controllers(AgentOsModule)).toEqual([]);
   });
 
-  it('keeps the session core controller-free and free of HTTP, Operations, and storage ownership', () => {
+  it("keeps the session core controller-free and free of HTTP, Operations, and storage ownership", () => {
     expect(imports(AgentOsSessionModule)).toEqual([
       PrismaModule,
       AgentOsCatalogModule,
@@ -216,19 +263,33 @@ describe('Agent OS artifact materialization composition', () => {
     ]);
     expect(imports(AgentOsSessionModule)).not.toContain(StorageModule);
     expect(controllers(AgentOsSessionModule)).toEqual([]);
-    expect(providers(AgentOsSessionModule)).not.toContain(StorageAgentSessionArtifactAdapter);
-    expect(providers(AgentOsSessionModule)).not.toContain(AgentSessionArtifactWriterService);
+    expect(providers(AgentOsSessionModule)).not.toContain(
+      StorageAgentSessionArtifactAdapter,
+    );
+    expect(providers(AgentOsSessionModule)).not.toContain(
+      AgentSessionArtifactWriterService,
+    );
   });
 
-  it('keeps task execution orchestration in HTTP while artifact storage remains API-only', () => {
-    expect(providers(AgentOsHttpModule)).toContain(AgentSessionTaskExecutionService);
-    expect(providers(AgentOsHttpModule)).toContain(AgentSessionTaskOperationAdapter);
-    expect(providers(AgentOsHttpModule)).not.toContain(StorageAgentSessionArtifactAdapter);
-    expect(providers(AgentOsHttpModule)).not.toContain(AgentSessionArtifactWriterService);
-    expect(providers(AgentOsApiExecutionModule)).toContain(AgentSessionOwnedOperationService);
+  it("keeps task execution orchestration in HTTP while artifact storage remains API-only", () => {
+    expect(providers(AgentOsHttpModule)).toContain(
+      AgentSessionTaskExecutionService,
+    );
+    expect(providers(AgentOsHttpModule)).toContain(
+      AgentSessionTaskOperationAdapter,
+    );
+    expect(providers(AgentOsHttpModule)).not.toContain(
+      StorageAgentSessionArtifactAdapter,
+    );
+    expect(providers(AgentOsHttpModule)).not.toContain(
+      AgentSessionArtifactWriterService,
+    );
+    expect(providers(AgentOsApiExecutionModule)).toContain(
+      AgentSessionOwnedOperationService,
+    );
   });
 
-  it('keeps HTTP and Operations composition outside the shared Agent OS facade', () => {
+  it("keeps HTTP and Operations composition outside the shared Agent OS facade", () => {
     const sharedProviders = providers(AgentOsModule);
     for (const provider of [
       AgentSessionTaskExecutionService,
@@ -236,31 +297,34 @@ describe('Agent OS artifact materialization composition', () => {
       AgentSessionOwnedOperationService,
       StorageAgentSessionArtifactAdapter,
       AgentSessionArtifactWriterService,
-    ]) expect(sharedProviders).not.toContain(provider);
+    ])
+      expect(sharedProviders).not.toContain(provider);
     expect(imports(AgentOsModule)).not.toContain(AgentOsApiExecutionModule);
     expect(imports(AgentOsModule)).not.toContain(AgentOsLegacyRunModule);
   });
 
-  it('keeps the worker wrapper confined to legacy generic-run composition', () => {
+  it("keeps the worker wrapper confined to legacy generic-run composition", () => {
     expect(imports(AgentOsWorkerModule)).toEqual([AgentOsLegacyRunModule]);
     expect(providers(AgentOsWorkerModule)).toEqual([]);
-    expect(imports(AgentOsWorkerModule)).not.toContain(AgentOsApiExecutionModule);
+    expect(imports(AgentOsWorkerModule)).not.toContain(
+      AgentOsApiExecutionModule,
+    );
   });
 
-  it('removes lifecycle key, maintenance, controller, and deletion-route composition from active roots', () => {
+  it("removes lifecycle key, maintenance, controller, and deletion-route composition from active roots", () => {
     for (const path of [
-      resolve(__dirname, '..', 'agent-os-http.module.ts'),
-      resolve(__dirname, '..', 'agent-os-api-execution.module.ts'),
-      resolve(__dirname, '..', 'agent-os-session.module.ts'),
+      resolve(__dirname, "..", "agent-os-http.module.ts"),
+      resolve(__dirname, "..", "agent-os-api-execution.module.ts"),
+      resolve(__dirname, "..", "agent-os-session.module.ts"),
     ]) {
-      const source = readFileSync(path, 'utf8');
-      expect(source).not.toContain('INTERACTION_LIFECYCLE_HMAC_KEY');
-      expect(source).not.toContain('agent-session-lifecycle-maintenance');
-      expect(source).not.toContain('AgentSessionDeletionController');
+      const source = readFileSync(path, "utf8");
+      expect(source).not.toContain("INTERACTION_LIFECYCLE_HMAC_KEY");
+      expect(source).not.toContain("agent-session-lifecycle-maintenance");
+      expect(source).not.toContain("AgentSessionDeletionController");
     }
   });
 
-  it('keeps official session persistence and materialization transactions in the session module', () => {
+  it("keeps official session persistence and materialization transactions in the session module", () => {
     const sessionProviders = providers(AgentOsSessionModule);
     for (const token of [
       AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
@@ -275,23 +339,31 @@ describe('Agent OS artifact materialization composition', () => {
       AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
       AGENT_SESSION_RUNTIME_CLEANUP_PORT,
       AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
-    ]) expect(sessionProviders).toContainEqual(expect.objectContaining({ provide: token }));
+    ])
+      expect(sessionProviders).toContainEqual(
+        expect.objectContaining({ provide: token }),
+      );
     expect(sessionProviders).toContain(AgentRuntimeAdapterRegistry);
     expect(sessionProviders).toContain(AgentSessionCapabilityInvocationService);
   });
 
-  it('defers a missing runtime credential key until the injected verifier is invoked', async () => {
+  it("defers a missing runtime credential key until the injected verifier is invoked", async () => {
     const originalSecret = process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
     delete process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
     try {
       const brokerProvider = providers(AgentOsSessionModule).find(
-        (provider: unknown): provider is { provide: unknown; useFactory: () => RuntimeCredentialBroker } =>
-          typeof provider === 'object'
-          && provider !== null
-          && 'provide' in provider
-          && provider.provide === RuntimeCredentialBroker
-          && 'useFactory' in provider
-          && typeof provider.useFactory === 'function',
+        (
+          provider: unknown,
+        ): provider is {
+          provide: unknown;
+          useFactory: () => RuntimeCredentialBroker;
+        } =>
+          typeof provider === "object" &&
+          provider !== null &&
+          "provide" in provider &&
+          provider.provide === RuntimeCredentialBroker &&
+          "useFactory" in provider &&
+          typeof provider.useFactory === "function",
       );
       expect(brokerProvider).toBeDefined();
       const broker = brokerProvider!.useFactory();
@@ -300,16 +372,17 @@ describe('Agent OS artifact materialization composition', () => {
       const verifier = new AgentRuntimeCredentialVerificationService(broker, {
         loadRuntimeCredentialAuthority: async () => null,
       });
-      await expect(verifier.verify({ token: 'e30.signature' })).rejects.toThrow(
-        'AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED',
+      await expect(verifier.verify({ token: "e30.signature" })).rejects.toThrow(
+        "AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED",
       );
     } finally {
-      if (originalSecret === undefined) delete process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
+      if (originalSecret === undefined)
+        delete process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
       else process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY = originalSecret;
     }
   });
 
-  it('keeps catalog and capability ownership in their focused modules', () => {
+  it("keeps catalog and capability ownership in their focused modules", () => {
     expect(providers(AgentOsCatalogModule)).toContain(AgentCatalogService);
     expect(providers(AgentOsCatalogModule)).toContainEqual(
       expect.objectContaining({ provide: AGENT_VERSION_REPOSITORY }),
@@ -317,7 +390,7 @@ describe('Agent OS artifact materialization composition', () => {
     expect(controllers(AgentOsCapabilityModule)).toEqual([]);
   });
 
-  it('exports durable session seams but not artifact storage implementation detail', () => {
+  it("exports durable session seams but not artifact storage implementation detail", () => {
     const sessionExports = exportsOf(AgentOsSessionModule);
     for (const token of [
       AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
@@ -332,34 +405,47 @@ describe('Agent OS artifact materialization composition', () => {
       AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
       AGENT_SESSION_RUNTIME_CLEANUP_PORT,
       AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
-    ]) expect(sessionExports).toContain(token);
+    ])
+      expect(sessionExports).toContain(token);
     expect(sessionExports).not.toContain(StorageAgentSessionArtifactAdapter);
     expect(sessionExports).not.toContain(AgentSessionArtifactWriterService);
   });
 
-  it('composes deletion execution only in the API wrapper without importing storage or Operations into session core', () => {
+  it("composes deletion execution only in the API wrapper without importing storage or Operations into session core", () => {
     expect(providers(AgentOsApiExecutionModule)).toContainEqual(
-      expect.objectContaining({ provide: AGENT_SESSION_DELETION_EXECUTION_PORT }),
+      expect.objectContaining({
+        provide: AGENT_SESSION_DELETION_EXECUTION_PORT,
+      }),
     );
-    expect(exportsOf(AgentOsApiExecutionModule)).toContain(AGENT_SESSION_DELETION_EXECUTION_PORT);
+    expect(exportsOf(AgentOsApiExecutionModule)).toContain(
+      AGENT_SESSION_DELETION_EXECUTION_PORT,
+    );
     expect(imports(AgentOsSessionModule)).not.toContain(StorageModule);
   });
 
-  it('does not invent operation authority or expose local CLI start/cleanup providers from session and API roots', () => {
-    const api = readFileSync(resolve(__dirname, '..', 'agent-os-api-execution.module.ts'), 'utf8');
-    const session = readFileSync(resolve(__dirname, '..', 'agent-os-session.module.ts'), 'utf8');
+  it("does not invent operation authority or expose local CLI start/cleanup providers from session and API roots", () => {
+    const api = readFileSync(
+      resolve(__dirname, "..", "agent-os-api-execution.module.ts"),
+      "utf8",
+    );
+    const session = readFileSync(
+      resolve(__dirname, "..", "agent-os-session.module.ts"),
+      "utf8",
+    );
     const roots = `${api}\n${session}`;
 
-    expect(api).not.toContain('validated-by-deletion-snapshot');
-    expect(api).not.toContain('validateOwnedClosure');
-    expect(api).not.toContain('useFactory');
-    expect(roots).not.toContain('CodexCliRuntimeAdapter');
-    expect(roots).not.toContain('ClaudeCliRuntimeAdapter');
-    expect(roots).not.toMatch(/(?:Codex|Claude).*Runtime.*(?:Provider|Adapter)/);
+    expect(api).not.toContain("validated-by-deletion-snapshot");
+    expect(api).not.toContain("validateOwnedClosure");
+    expect(api).not.toContain("useFactory");
+    expect(roots).not.toContain("CodexCliRuntimeAdapter");
+    expect(roots).not.toContain("ClaudeCliRuntimeAdapter");
+    expect(roots).not.toMatch(
+      /(?:Codex|Claude).*Runtime.*(?:Provider|Adapter)/,
+    );
     expect(roots).not.toMatch(/(?:Codex|Claude).*Cleanup/);
   });
 
-  it('quarantines generic AgentRun providers in the legacy module', () => {
+  it("quarantines generic AgentRun providers in the legacy module", () => {
     const sessionProviders = providers(AgentOsSessionModule);
     for (const provider of [
       AgentInteractionService,
@@ -370,14 +456,24 @@ describe('Agent OS artifact materialization composition', () => {
       AgentConversationService,
       AgentObservabilityService,
       AgentRunWorker,
-    ]) expect(sessionProviders).not.toContain(provider);
+    ])
+      expect(sessionProviders).not.toContain(provider);
     expect(imports(AgentOsLegacyRunModule)).not.toContain(AgentOsSessionModule);
   });
 
-  it('keeps legacy, automation, and readiness dependencies out of official session source composition', () => {
-    const source = readFileSync(resolve(__dirname, '..', 'agent-os-session.module.ts'), 'utf8');
-    expect(source).not.toMatch(/legacy-run|AgentRun(?:Coordinator|Executor|Worker|GraphService)|AgentInteractionService/);
-    expect(source).not.toMatch(/OperationAlertRuntimeModule|ReadinessStateModule|AgentRunOperationAlertBridge|AgentOsLiveReadinessAdapter/);
-    expect(source).not.toMatch(/AGENT_(?:RUNNER|INTERACTION|API_CAPABILITY_GRANT|OS_MCP_TOOL_EXECUTION)_PORT/);
+  it("keeps legacy, automation, and readiness dependencies out of official session source composition", () => {
+    const source = readFileSync(
+      resolve(__dirname, "..", "agent-os-session.module.ts"),
+      "utf8",
+    );
+    expect(source).not.toMatch(
+      /legacy-run|AgentRun(?:Coordinator|Executor|Worker|GraphService)|AgentInteractionService/,
+    );
+    expect(source).not.toMatch(
+      /OperationAlertRuntimeModule|ReadinessStateModule|AgentRunOperationAlertBridge|AgentOsLiveReadinessAdapter/,
+    );
+    expect(source).not.toMatch(
+      /AGENT_(?:RUNNER|INTERACTION|API_CAPABILITY_GRANT|OS_MCP_TOOL_EXECUTION)_PORT/,
+    );
   });
 });

@@ -1,20 +1,20 @@
-import { createHash } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { createHash } from "node:crypto";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   AGENT_SESSION_ARTIFACT_WRITER_PORT,
   type AgentSessionArtifactMaterializationInput,
   type AgentSessionArtifactWriterPort,
-} from '../../port/in/session-execution/agent-session-artifact-writer.port';
+} from "../../port/in/session-execution/agent-session-artifact-writer.port";
 import {
   AGENT_SESSION_ARTIFACT_STORAGE_PORT,
   type AgentSessionArtifactStoragePort,
-} from '../../port/out/storage/agent-session-artifact-storage.port';
+} from "../../port/out/storage/agent-session-artifact-storage.port";
 import {
   AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
   type AgentSessionArtifactMaterializationTransactionPort,
-} from '../../port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port';
-import { MAX_AGENT_SESSION_ARTIFACT_BYTES } from '../../port/out/runtime/agent-durable-runtime.port';
-import { deriveAgentSessionArtifactKey } from '../../../domain/session/agent-session-artifact-key';
+} from "../../port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port";
+import { MAX_AGENT_SESSION_ARTIFACT_BYTES } from "../../port/out/runtime/agent-durable-runtime.port";
+import { deriveAgentSessionArtifactKey } from "../../../domain/session/agent-session-artifact-key";
 
 export const MAX_ACTIVE_AGENT_SESSION_ARTIFACT_PUTS = 128;
 
@@ -27,11 +27,12 @@ interface ActivePut {
 }
 
 @Injectable()
-export class AgentSessionArtifactWriterService
-  implements AgentSessionArtifactWriterPort
-{
+export class AgentSessionArtifactWriterService implements AgentSessionArtifactWriterPort {
   private readonly activePuts = new Map<string, ActivePut>();
-  private readonly activeAdmissions = new Map<string, Promise<ReturnType<typeof artifactEvent>>>();
+  private readonly activeAdmissions = new Map<
+    string,
+    Promise<ReturnType<typeof artifactEvent>>
+  >();
 
   constructor(
     @Inject(AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION)
@@ -40,25 +41,38 @@ export class AgentSessionArtifactWriterService
     private readonly storage: AgentSessionArtifactStoragePort,
   ) {}
 
-  materialize(input: AgentSessionArtifactMaterializationInput): Promise<ReturnType<typeof artifactEvent>> {
+  materialize(
+    input: AgentSessionArtifactMaterializationInput,
+  ): Promise<ReturnType<typeof artifactEvent>> {
     try {
       input.signal.throwIfAborted();
       if (input.bytes.byteLength > MAX_AGENT_SESSION_ARTIFACT_BYTES) {
-        throw new Error('AGENT_SESSION_ARTIFACT_TOO_LARGE');
+        throw new Error("AGENT_SESSION_ARTIFACT_TOO_LARGE");
       }
-      if (createHash('sha256').update(input.bytes).digest('hex') !== input.sha256) {
-        throw new Error('AGENT_SESSION_ARTIFACT_SHA256_MISMATCH');
+      if (
+        createHash("sha256").update(input.bytes).digest("hex") !== input.sha256
+      ) {
+        throw new Error("AGENT_SESSION_ARTIFACT_SHA256_MISMATCH");
       }
     } catch (error) {
       return Promise.reject(error);
+    }
+    if (this.storage.materializationCapability() !== "supported") {
+      return Promise.reject(
+        new Error("AGENT_SESSION_ARTIFACT_MATERIALIZATION_UNSUPPORTED"),
+      );
     }
     const admissionKey = materializationRequestKey(input);
     const existingAdmission = this.activeAdmissions.get(admissionKey);
     if (existingAdmission) return existingAdmission;
     if (this.activeAdmissions.size >= MAX_ACTIVE_AGENT_SESSION_ARTIFACT_PUTS) {
-      return Promise.reject(new Error('AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED'));
+      return Promise.reject(
+        new Error("AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED"),
+      );
     }
-    const admission = Promise.resolve().then(() => this.materializeAdmitted(input));
+    const admission = Promise.resolve().then(() =>
+      this.materializeAdmitted(input),
+    );
     const trackedAdmission = admission.finally(() => {
       if (this.activeAdmissions.get(admissionKey) === trackedAdmission) {
         this.activeAdmissions.delete(admissionKey);
@@ -78,14 +92,15 @@ export class AgentSessionArtifactWriterService
       sessionId: input.sessionId,
       artifactId: prepared.artifactId,
     });
-    if (prepared.lifecycle === 'active') return artifactEvent(input, prepared.artifactId);
+    if (prepared.lifecycle === "active")
+      return artifactEvent(input, prepared.artifactId);
     const controller = new AbortController();
     const abort = () => controller.abort(input.signal.reason);
-    input.signal.addEventListener('abort', abort, { once: true });
+    input.signal.addEventListener("abort", abort, { once: true });
     const activeKey = putKey(input, prepared.artifactId);
     const existing = this.activePuts.get(activeKey);
     if (existing) {
-      input.signal.removeEventListener('abort', abort);
+      input.signal.removeEventListener("abort", abort);
       await existing.promise;
       return artifactEvent(input, prepared.artifactId);
     }
@@ -106,7 +121,7 @@ export class AgentSessionArtifactWriterService
     void this.put({ input, artifactId: prepared.artifactId, key, controller })
       .then(resolvePending, rejectPending)
       .finally(() => {
-        input.signal.removeEventListener('abort', abort);
+        input.signal.removeEventListener("abort", abort);
         this.activePuts.delete(activeKey);
       });
     await pending;
@@ -125,7 +140,7 @@ export class AgentSessionArtifactWriterService
         put.sessionId === input.sessionId &&
         operationRunIds.has(put.operationRunId)
       )
-        put.controller.abort(new Error('agent_session_artifact_writer_fenced'));
+        put.controller.abort(new Error("agent_session_artifact_writer_fenced"));
     }
   }
 
@@ -141,9 +156,12 @@ export class AgentSessionArtifactWriterService
         put.sessionId === input.sessionId &&
         operationRunIds.has(put.operationRunId)
       )
-        return { state: 'unknown' as const, code: 'ARTIFACT_WRITER_NOT_FENCED' as const };
+        return {
+          state: "unknown" as const,
+          code: "ARTIFACT_WRITER_NOT_FENCED" as const,
+        };
     }
-    return { state: 'fenced' as const };
+    return { state: "fenced" as const };
   }
 
   private async put(input: {
@@ -217,7 +235,9 @@ function putKey(
   return `${input.organizationId}/${input.sessionId}/${input.operationRunId}/${artifactId}`;
 }
 
-function materializationRequestKey(input: AgentSessionArtifactMaterializationInput): string {
+function materializationRequestKey(
+  input: AgentSessionArtifactMaterializationInput,
+): string {
   return [
     input.organizationId,
     input.sessionId,
@@ -226,7 +246,7 @@ function materializationRequestKey(input: AgentSessionArtifactMaterializationInp
     input.operationRunId,
     input.attemptToken,
     input.externalArtifactId,
-  ].join('/');
+  ].join("/");
 }
 
 function artifactEvent(
@@ -234,7 +254,7 @@ function artifactEvent(
   artifactId: string,
 ) {
   return {
-    kind: 'artifact' as const,
+    kind: "artifact" as const,
     artifactId,
     payload: {
       artifactType: input.artifactType,

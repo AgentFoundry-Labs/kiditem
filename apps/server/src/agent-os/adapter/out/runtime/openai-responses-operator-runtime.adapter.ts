@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { Injectable, Optional } from '@nestjs/common';
-import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
+import { readFileSync } from "node:fs";
+import { Injectable, Optional } from "@nestjs/common";
+import { AgentOsRuntimeError } from "../../../domain/agent-os.errors";
 
-const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const MAX_RUNTIME_ERROR_CHARS = 2_000;
 
@@ -13,6 +13,7 @@ export interface OpenAiResponsesHttpInput {
   apiKey: string;
   body: JsonObject;
   timeoutMs: number;
+  signal?: AbortSignal;
 }
 
 export interface OpenAiResponsesHttpResult {
@@ -33,10 +34,11 @@ export interface OpenAiResponsesOperatorRuntimeInput {
   timeoutMs?: number;
   outputSchema?: unknown;
   outputSchemaPath?: string;
+  signal?: AbortSignal;
 }
 
 export interface OpenAiResponsesOperatorRuntimeResult {
-  provider: 'openai_responses';
+  provider: "openai_responses";
   rawOutput: string;
   responseId: string | null;
   model: string;
@@ -47,31 +49,33 @@ export interface OpenAiResponsesOperatorRuntimeResult {
 }
 
 function asRecord(value: unknown): JsonObject | null {
-  return typeof value === 'object' && value !== null
+  return typeof value === "object" && value !== null
     ? (value as JsonObject)
     : null;
 }
 
 function stringField(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0
+  return typeof value === "string" && value.trim().length > 0
     ? value.trim()
     : null;
 }
 
 function numberField(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
 }
 
 function compactRuntimeError(message: string): string {
   return message
-    .replace(/Bearer\s+[\w.-]+/gi, 'Bearer [REDACTED]')
-    .replace(/sk-[\w-]+/gi, 'sk-[REDACTED]')
+    .replace(/Bearer\s+[\w.-]+/gi, "Bearer [REDACTED]")
+    .replace(/sk-[\w-]+/gi, "sk-[REDACTED]")
     .slice(-MAX_RUNTIME_ERROR_CHARS)
     .trim();
 }
 
 function isAbortError(error: unknown): boolean {
-  return error instanceof Error && error.name === 'AbortError';
+  return error instanceof Error && error.name === "AbortError";
 }
 
 function readOutputSchema(input: OpenAiResponsesOperatorRuntimeInput): unknown {
@@ -79,16 +83,16 @@ function readOutputSchema(input: OpenAiResponsesOperatorRuntimeInput): unknown {
     return input.outputSchema;
   }
   if (input.outputSchemaPath) {
-    return JSON.parse(readFileSync(input.outputSchemaPath, 'utf8')) as unknown;
+    return JSON.parse(readFileSync(input.outputSchemaPath, "utf8")) as unknown;
   }
   throw new AgentOsRuntimeError(
-    'operator_runtime_schema_required',
-    'OpenAI Responses Operator runtime requires an output schema.',
+    "operator_runtime_schema_required",
+    "OpenAI Responses Operator runtime requires an output schema.",
   );
 }
 
 function buildResponsesUrl(baseUrl: string): string {
-  return `${baseUrl.replace(/\/+$/, '')}/responses`;
+  return `${baseUrl.replace(/\/+$/, "")}/responses`;
 }
 
 function errorMessageFromBody(body: unknown): string {
@@ -100,7 +104,7 @@ function errorMessageFromBody(body: unknown): string {
   try {
     return JSON.stringify(body);
   } catch {
-    return 'OpenAI Responses API request failed.';
+    return "OpenAI Responses API request failed.";
   }
 }
 
@@ -121,7 +125,7 @@ function hasRefusalContent(content: unknown): boolean {
 
   return content.some((item) => {
     const record = asRecord(item);
-    return stringField(record?.refusal) !== null || record?.type === 'refusal';
+    return stringField(record?.refusal) !== null || record?.type === "refusal";
   });
 }
 
@@ -167,21 +171,21 @@ function cachedInputTokens(body: unknown): number | undefined {
   return numberField(details?.cached_tokens);
 }
 
-export class FetchOpenAiResponsesHttpClient
-  implements OpenAiResponsesHttpClient
-{
+export class FetchOpenAiResponsesHttpClient implements OpenAiResponsesHttpClient {
   async create(
     input: OpenAiResponsesHttpInput,
   ): Promise<OpenAiResponsesHttpResult> {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), input.timeoutMs);
+    const abort = () => controller.abort(input.signal?.reason);
+    input.signal?.addEventListener("abort", abort, { once: true });
 
     try {
       const response = await fetch(input.url, {
-        method: 'POST',
+        method: "POST",
         headers: {
           Authorization: `Bearer ${input.apiKey}`,
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(input.body),
         signal: controller.signal,
@@ -203,6 +207,7 @@ export class FetchOpenAiResponsesHttpClient
       };
     } finally {
       clearTimeout(timeout);
+      input.signal?.removeEventListener("abort", abort);
     }
   }
 }
@@ -211,8 +216,7 @@ export class FetchOpenAiResponsesHttpClient
 export class OpenAiResponsesOperatorRuntimeAdapter {
   constructor(
     @Optional()
-    private readonly client: OpenAiResponsesHttpClient =
-      new FetchOpenAiResponsesHttpClient(),
+    private readonly client: OpenAiResponsesHttpClient = new FetchOpenAiResponsesHttpClient(),
   ) {}
 
   async decide(
@@ -222,16 +226,16 @@ export class OpenAiResponsesOperatorRuntimeAdapter {
     const apiKey = stringField(input.apiKey ?? process.env.OPENAI_API_KEY);
     if (!apiKey) {
       throw new AgentOsRuntimeError(
-        'operator_runtime_unavailable',
-        'OpenAI API key is not available.',
+        "operator_runtime_unavailable",
+        "OpenAI API key is not available.",
       );
     }
 
     const model = stringField(input.model);
     if (!model) {
       throw new AgentOsRuntimeError(
-        'operator_runtime_model_required',
-        'OpenAI Responses Operator runtime requires an explicit model.',
+        "operator_runtime_model_required",
+        "OpenAI Responses Operator runtime requires an explicit model.",
       );
     }
 
@@ -241,14 +245,15 @@ export class OpenAiResponsesOperatorRuntimeAdapter {
         url: buildResponsesUrl(input.baseUrl ?? DEFAULT_BASE_URL),
         apiKey,
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+        ...(input.signal ? { signal: input.signal } : {}),
         body: {
           model,
-          input: [{ role: 'user', content: input.prompt }],
+          input: [{ role: "user", content: input.prompt }],
           store: false,
           text: {
             format: {
-              type: 'json_schema',
-              name: 'operator_decision',
+              type: "json_schema",
+              name: "operator_decision",
               schema: readOutputSchema(input),
               strict: true,
             },
@@ -258,8 +263,8 @@ export class OpenAiResponsesOperatorRuntimeAdapter {
     } catch (error) {
       if (isAbortError(error)) {
         throw new AgentOsRuntimeError(
-          'operator_runtime_timeout',
-          'OpenAI Responses Operator runtime timed out.',
+          "operator_runtime_timeout",
+          "OpenAI Responses Operator runtime timed out.",
         );
       }
       throw error;
@@ -267,7 +272,7 @@ export class OpenAiResponsesOperatorRuntimeAdapter {
 
     if (!response.ok) {
       throw new AgentOsRuntimeError(
-        'operator_runtime_failed',
+        "operator_runtime_failed",
         compactRuntimeError(
           `OpenAI Responses API request failed with status ${response.status}: ${errorMessageFromBody(response.body)}`,
         ),
@@ -275,38 +280,38 @@ export class OpenAiResponsesOperatorRuntimeAdapter {
     }
 
     const status = responseStatus(response.body);
-    if (status && status !== 'completed') {
+    if (status && status !== "completed") {
       throw new AgentOsRuntimeError(
-        'operator_runtime_incomplete',
+        "operator_runtime_incomplete",
         `OpenAI Responses API returned status ${status}.`,
       );
     }
 
     if (hasModelRefusal(response.body)) {
       throw new AgentOsRuntimeError(
-        'operator_runtime_refused',
-        'OpenAI Responses model refused the Operator decision request.',
+        "operator_runtime_refused",
+        "OpenAI Responses model refused the Operator decision request.",
       );
     }
 
     const rawOutput = extractOutputText(response.body);
     if (!rawOutput) {
       throw new AgentOsRuntimeError(
-        'operator_runtime_empty',
-        'OpenAI Responses Operator runtime returned no output text.',
+        "operator_runtime_empty",
+        "OpenAI Responses Operator runtime returned no output text.",
       );
     }
 
     const body = asRecord(response.body);
 
     return {
-      provider: 'openai_responses',
+      provider: "openai_responses",
       rawOutput,
       responseId: stringField(body?.id),
       model: stringField(body?.model) ?? model,
       durationMs: Date.now() - startedAt,
-      inputTokens: usageNumber(response.body, 'input_tokens'),
-      outputTokens: usageNumber(response.body, 'output_tokens'),
+      inputTokens: usageNumber(response.body, "input_tokens"),
+      outputTokens: usageNumber(response.body, "output_tokens"),
       cachedInputTokens: cachedInputTokens(response.body),
     };
   }

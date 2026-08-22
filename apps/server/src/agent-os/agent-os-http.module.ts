@@ -18,6 +18,7 @@ import { AgentSessionTaskOperationAdapter } from "./adapter/in/operation/session
 import { OperationsSessionExecutionAdapter } from "./adapter/out/cross-domain/operations-session-execution.adapter";
 import { InteractionProductAnalyticsAdapter } from "./adapter/out/event/interaction-product-analytics.adapter";
 import { OpenAiResponsesAguiRuntimeAdapter } from "./adapter/out/runtime/openai-responses-agui-runtime.adapter";
+import { PrismaAguiRuntimeCleanupDependencies } from "./adapter/out/runtime/prisma-agui-runtime-cleanup-dependencies";
 import { AGENT_AGUI_RUNNER_PORT } from "./application/port/in/agent-agui-runner.port";
 import { AGENT_CATALOG_PORT } from "./application/port/in/catalog/agent-catalog.port";
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from "./application/port/in/interaction/agent-interaction-authorization.port";
@@ -28,12 +29,14 @@ import { AGENT_INTERACTION_PRESENTATION_PORT } from "./application/port/in/inter
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from "./application/port/in/session-control/agent-session-approval-decision.port";
 import { AGENT_SESSION_TASK_CONTROL_PORT } from "./application/port/in/session-control/agent-session-task-control.port";
 import { AGENT_SESSION_TASK_EXECUTION_PORT } from "./application/port/in/session-execution/agent-session-task-execution.port";
+import { AGUI_RUNTIME_CLEANUP_DEPENDENCIES } from "./application/port/out/runtime/agent-agui-runtime-cleanup.port";
 import { OPERATIONS_SESSION_EXECUTION_PORT } from "./application/port/out/cross-domain/operations-session-execution.port";
 import { INTERACTION_PRODUCT_ANALYTICS_PORT } from "./application/port/out/event/interaction-product-analytics.port";
 import { AgentAguiProducerCoordinator } from "./application/service/agent-agui-producer-coordinator.service";
 import { AgentAguiRunService } from "./application/service/agent-agui-run.service";
 import { AgentCatalogService } from "./application/service/agent-catalog.service";
 import { AgentAguiRuntimeRegistry } from "./application/service/agent-agui-runtime-registry.service";
+import { AgentAguiInProcessRunRegistry } from "./application/service/agent-agui-in-process-run-registry.service";
 import { AgentInlineRunReconciler } from "./application/service/agent-inline-run-reconciler.service";
 import { AgentInteractionPresentationService } from "./application/service/agent-interaction-presentation.service";
 import { interactionEnvironmentProviders } from "./adapter/in/http/interaction/interaction-gateway.config";
@@ -88,6 +91,12 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentAguiRunService,
     AgentAguiProducerCoordinator,
     AgentAguiRuntimeRegistry,
+    AgentAguiInProcessRunRegistry,
+    PrismaAguiRuntimeCleanupDependencies,
+    {
+      provide: AGUI_RUNTIME_CLEANUP_DEPENDENCIES,
+      useExisting: PrismaAguiRuntimeCleanupDependencies,
+    },
     OpenAiResponsesAguiRuntimeAdapter,
     {
       provide: AgentInteractionPresentationService,

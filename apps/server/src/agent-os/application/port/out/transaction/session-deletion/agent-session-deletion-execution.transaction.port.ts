@@ -1,18 +1,18 @@
-import type { RuntimeHandle } from '../../runtime/agent-durable-runtime.port';
-import type { OperationStatus } from '@kiditem/shared/operations';
+import type { RuntimeHandle } from "../../runtime/agent-durable-runtime.port";
+import type { OperationStatus } from "@kiditem/shared/operations";
 
 export const AGENT_SESSION_DELETION_EXECUTION_TRANSACTION = Symbol(
-  'AGENT_SESSION_DELETION_EXECUTION_TRANSACTION',
+  "AGENT_SESSION_DELETION_EXECUTION_TRANSACTION",
 );
 
 export const AGENT_SESSION_DELETION_FAILURE_CODES = [
-  'SESSION_DELETION_INVARIANT',
-  'SESSION_OPERATION_OWNERSHIP_INVALID',
-  'RUNTIME_CLEANUP_UNKNOWN',
-  'ARTIFACT_WRITER_NOT_FENCED',
-  'STORAGE_DELETE_PRESENT',
-  'STORAGE_DELETE_UNKNOWN',
-  'SESSION_GRAPH_CHANGED',
+  "SESSION_DELETION_INVARIANT",
+  "SESSION_OPERATION_OWNERSHIP_INVALID",
+  "RUNTIME_CLEANUP_UNKNOWN",
+  "ARTIFACT_WRITER_NOT_FENCED",
+  "STORAGE_DELETE_PRESENT",
+  "STORAGE_DELETE_UNKNOWN",
+  "SESSION_GRAPH_CHANGED",
 ] as const;
 
 export type AgentSessionDeletionFailureCode =
@@ -31,13 +31,13 @@ export type RuntimeCleanupCoordinate =
       executionId: string;
       attemptId: string;
       runtimeType: string;
-      state: 'never_started';
+      state: "never_started";
     }
   | {
       executionId: string;
       attemptId: string;
       runtimeType: string;
-      state: 'started';
+      state: "started";
       startIntentId: string;
       handle: RuntimeHandle | null;
     };
@@ -51,8 +51,9 @@ export interface OwnedOperationCleanupCoordinate {
   nativeRunId: string | null;
 }
 
-export interface MaterializingArtifactDeletionCoordinate {
+export interface AgentSessionArtifactDeletionCoordinate {
   artifactId: string;
+  lifecycle: "active" | "materializing";
   materializationOperationRunId: string;
   providerUploadId: string | null;
 }
@@ -64,14 +65,14 @@ export interface AgentSessionDeletionExecutionSnapshot {
   operationRuns: readonly OwnedOperationCleanupCoordinate[];
   /** Derived only for the in-process writer fence; never an authority input. */
   operationRunIds: readonly string[];
-  artifacts: readonly MaterializingArtifactDeletionCoordinate[];
+  artifacts: readonly AgentSessionArtifactDeletionCoordinate[];
   closureDigest: string;
 }
 
 export type AgentSessionDeletionSnapshotResult =
-  | { kind: 'ready'; snapshot: AgentSessionDeletionExecutionSnapshot }
+  | { kind: "ready"; snapshot: AgentSessionDeletionExecutionSnapshot }
   | {
-      kind: 'retryable';
+      kind: "retryable";
       code: AgentSessionDeletionFailureCode;
       consumedAttempts: number;
     };
@@ -90,6 +91,8 @@ export interface AgentSessionDeletionExecutionTransactionPort {
     input: ScopedDeletionAttempt & { fencedClosureDigest: string },
   ): Promise<boolean>;
   markDeleteFailed(
-    input: ScopedDeletionAttempt & { failureCode: AgentSessionDeletionFailureCode },
+    input: ScopedDeletionAttempt & {
+      failureCode: AgentSessionDeletionFailureCode;
+    },
   ): Promise<void>;
 }

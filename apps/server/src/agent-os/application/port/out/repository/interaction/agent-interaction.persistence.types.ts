@@ -5,11 +5,11 @@ import type {
   AgentConversationEventType,
   AgentSessionSummary,
   MessageEventPayload,
-} from '@kiditem/shared/agent-interaction';
+} from "@kiditem/shared/agent-interaction";
 
 export type AgentUserMessageEventPayload = MessageEventPayload;
 export type AgentConversationEventPayload =
-  AgentConversationEventEnvelope['payload'];
+  AgentConversationEventEnvelope["payload"];
 
 export interface ActiveAgentVersionRecord {
   id: string;
@@ -42,7 +42,7 @@ export interface AgentSessionRecord {
   contextEpoch: number;
   title: string | null;
   lastEventSequence: bigint;
-  lifecycle: AgentSessionSummary['lifecycle'];
+  lifecycle: AgentSessionSummary["lifecycle"];
   completedAt: Date | null;
   cancelledAt: Date | null;
   archivedAt: Date | null;
@@ -177,6 +177,9 @@ export interface AgentExecutionRuntimeContext {
   sessionId: string;
   sessionTaskId: string;
   executionId: string;
+  attemptId: string;
+  startIntentId: string;
+  runtimeCredentialGeneration: number;
   copilotThreadId: string;
   aguiRunId: string;
   agentVersionId: string;
@@ -185,7 +188,7 @@ export interface AgentExecutionRuntimeContext {
   policySnapshotId: string;
   policyHash: string;
   contextEpoch: number;
-  lifecycle: AgentSessionSummary['lifecycle'];
+  lifecycle: AgentSessionSummary["lifecycle"];
   capabilityKeys: string[];
   initialUserEvent: AgentConversationEventRecord;
 }
@@ -216,17 +219,17 @@ interface AgentExecutionTerminalInputBase {
 
 export type MarkAgentExecutionTerminalInput =
   | (AgentExecutionTerminalInputBase & {
-      status: 'completed';
+      status: "completed";
       errorCode: null;
     })
   | (AgentExecutionTerminalInputBase & {
-      status: 'failed' | 'cancelled';
+      status: "failed" | "cancelled";
       errorCode: string | null;
     });
 
 export type AppendExecutionTerminalInput = Omit<
   MarkAgentExecutionTerminalInput,
-  'organizationId' | 'sessionId' | 'id'
+  "organizationId" | "sessionId" | "id"
 >;
 
 interface AppendExecutionEventInputBase {
@@ -249,5 +252,5 @@ export interface RecordAgentExecutionUsageInput {
   inputTokens: number;
   outputTokens: number;
   costMicros: bigint;
-  currency: 'USD';
+  currency: "USD";
 }

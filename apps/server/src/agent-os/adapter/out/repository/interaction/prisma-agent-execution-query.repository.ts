@@ -32,6 +32,16 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
         runtimeType: true,
         modelIdentity: true,
         policySnapshotId: true,
+        attempts: {
+          where: { attemptNumber: 1 },
+          select: {
+            id: true,
+            runtimeType: true,
+            runtimeStartIntentId: true,
+            runtimeCredentialGeneration: true,
+            state: true,
+          },
+        },
         session: {
           select: {
             createdByUserId: true,
@@ -43,7 +53,14 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
         agentVersion: { select: { agentDefinitionKey: true } },
       },
     });
-    if (!execution) return null;
+    if (!execution || execution.attempts.length !== 1) return null;
+    const attempt = execution.attempts[0]!;
+    if (
+      attempt.runtimeType !== execution.runtimeType ||
+      attempt.state !== "running" ||
+      !attempt.runtimeStartIntentId
+    )
+      return null;
     const initialUserEvent = await this.prisma.agentConversationEvent.findFirst(
       {
         where: {
@@ -65,6 +82,9 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
       sessionId: execution.sessionId,
       sessionTaskId: execution.sessionTaskId,
       executionId: execution.id,
+      attemptId: attempt.id,
+      startIntentId: attempt.runtimeStartIntentId,
+      runtimeCredentialGeneration: attempt.runtimeCredentialGeneration,
       copilotThreadId: execution.copilotThreadId,
       aguiRunId: execution.aguiRunId,
       agentVersionId: execution.agentVersionId,

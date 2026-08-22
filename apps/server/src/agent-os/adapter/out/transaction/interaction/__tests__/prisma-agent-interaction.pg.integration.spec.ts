@@ -134,7 +134,9 @@ describe("Prisma interaction persistence seams", () => {
     await expect(repository.probeHealth()).resolves.toBeUndefined();
     expect(await tableCounts(prisma)).toEqual(before);
     expect(repository).not.toHaveProperty("createPolicySnapshot");
-    expect(repository).not.toHaveProperty(['with', 'Quick', 'Ask', 'Lock'].join(''));
+    expect(repository).not.toHaveProperty(
+      ["with", "Quick", "Ask", "Lock"].join(""),
+    );
     expect(repository).not.toHaveProperty("createQuickAskBinding");
   });
 
@@ -210,6 +212,33 @@ describe("Prisma interaction persistence seams", () => {
         where: { eventId: first.userEvent.id },
       }),
     ).resolves.toBe(1);
+    await expect(
+      prisma.agentExecutionAttempt.findMany({
+        where: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: first.session.id,
+          executionId: first.execution.id,
+        },
+        select: {
+          id: true,
+          attemptNumber: true,
+          idempotencyKey: true,
+          runtimeType: true,
+          runtimeStartIntentId: true,
+          runtimeCredentialGeneration: true,
+          state: true,
+        },
+      }),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        attemptNumber: 1,
+        idempotencyKey: `agui:${first.execution.aguiRunId}`,
+        runtimeType: "copilotkit_agui",
+        runtimeStartIntentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+        runtimeCredentialGeneration: 0,
+        state: "running",
+      }),
+    ]);
   });
 
   it("loads canonical runtime authority, bounded model history, and exact current execution", async () => {
@@ -236,6 +265,9 @@ describe("Prisma interaction persistence seams", () => {
       aguiRunId: "run-runtime-context",
       runtimeType: "copilotkit_agui",
       modelIdentity: "gpt-5.4",
+      attemptId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      startIntentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      runtimeCredentialGeneration: 0,
       capabilityKeys: ["catalog.read"],
       initialUserEvent: {
         id: authorized.userEvent.id,
@@ -1123,20 +1155,24 @@ describe("Prisma interaction persistence seams", () => {
         markExecutionTerminal(input: Record<string, unknown>): Promise<void>;
       };
 
-      await expect(unsafeEvents.markExecutionTerminal({
-        organizationId: TEST_ORGANIZATION_ID,
-        sessionId: first.session.id,
-        id: first.execution.id,
-        status: "cancelled",
-        errorCode: "deletion_fenced",
-        finishedAt: new Date("2026-08-22T00:00:00.000Z"),
-      })).rejects.toMatchObject({
+      await expect(
+        unsafeEvents.markExecutionTerminal({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: first.session.id,
+          id: first.execution.id,
+          status: "cancelled",
+          errorCode: "deletion_fenced",
+          finishedAt: new Date("2026-08-22T00:00:00.000Z"),
+        }),
+      ).rejects.toMatchObject({
         code: "AGENT_SESSION_CONTROL_STATE_CONFLICT",
       });
-      await expect(prisma!.agentExecution.findUniqueOrThrow({
-        where: { id: first.execution.id },
-        select: { status: true, errorCode: true, finishedAt: true },
-      })).resolves.toEqual({
+      await expect(
+        prisma!.agentExecution.findUniqueOrThrow({
+          where: { id: first.execution.id },
+          select: { status: true, errorCode: true, finishedAt: true },
+        }),
+      ).resolves.toEqual({
         status: "running",
         errorCode: null,
         finishedAt: null,
@@ -1199,57 +1235,66 @@ describe("Prisma interaction persistence seams", () => {
   });
 
   it.each([
-    ["event", async () => {
-      const first = await repository.authorizeExecution(
-        firstRunInput({
-          copilotThreadId: "thread-deleting-event",
-          aguiRunId: "run-deleting-event",
-        }),
-      );
-      await markDeleting(first.session.id);
-      return repository.appendExecutionEvent({
-        organizationId: TEST_ORGANIZATION_ID,
-        sessionId: first.session.id,
-        executionId: first.execution.id,
-        externalEventId: "deleting-event",
-        eventType: "assistant_message",
-        schemaVersion: 1,
-        payload: {
-          phase: "complete",
-          messageId: "deleting-event",
-          content: "must not append after deletion begins",
-        },
-      });
-    }],
-    ["authorization", async () => {
-      const input = firstRunInput({
-        copilotThreadId: "thread-deleting-authorization",
-        aguiRunId: "run-deleting-authorization",
-      });
-      const first = await repository.authorizeExecution(input);
-      await markDeleting(first.session.id);
-      return repository.authorizeExecution(input);
-    }],
-    ["usage", async () => {
-      const first = await repository.authorizeExecution(
-        firstRunInput({
-          copilotThreadId: "thread-deleting-usage",
-          aguiRunId: "run-deleting-usage",
-        }),
-      );
-      await markDeleting(first.session.id);
-      return repository.recordExecutionUsage({
-        organizationId: TEST_ORGANIZATION_ID,
-        sessionId: first.session.id,
-        executionId: first.execution.id,
-        modelIdentity: "gpt-5.4",
-        provider: "openai",
-        inputTokens: 40,
-        outputTokens: 12,
-        costMicros: 345n,
-        currency: "USD",
-      });
-    }],
+    [
+      "event",
+      async () => {
+        const first = await repository.authorizeExecution(
+          firstRunInput({
+            copilotThreadId: "thread-deleting-event",
+            aguiRunId: "run-deleting-event",
+          }),
+        );
+        await markDeleting(first.session.id);
+        return repository.appendExecutionEvent({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: first.session.id,
+          executionId: first.execution.id,
+          externalEventId: "deleting-event",
+          eventType: "assistant_message",
+          schemaVersion: 1,
+          payload: {
+            phase: "complete",
+            messageId: "deleting-event",
+            content: "must not append after deletion begins",
+          },
+        });
+      },
+    ],
+    [
+      "authorization",
+      async () => {
+        const input = firstRunInput({
+          copilotThreadId: "thread-deleting-authorization",
+          aguiRunId: "run-deleting-authorization",
+        });
+        const first = await repository.authorizeExecution(input);
+        await markDeleting(first.session.id);
+        return repository.authorizeExecution(input);
+      },
+    ],
+    [
+      "usage",
+      async () => {
+        const first = await repository.authorizeExecution(
+          firstRunInput({
+            copilotThreadId: "thread-deleting-usage",
+            aguiRunId: "run-deleting-usage",
+          }),
+        );
+        await markDeleting(first.session.id);
+        return repository.recordExecutionUsage({
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: first.session.id,
+          executionId: first.execution.id,
+          modelIdentity: "gpt-5.4",
+          provider: "openai",
+          inputTokens: 40,
+          outputTokens: 12,
+          costMicros: 345n,
+          currency: "USD",
+        });
+      },
+    ],
   ])("rejects %s after the deletion fence", async (_kind, mutate) => {
     await expect(mutate()).rejects.toMatchObject({
       code: "AGENT_SESSION_CONTROL_STATE_CONFLICT",
@@ -1879,7 +1924,10 @@ function settlesWithin<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
     promise,
     new Promise<T>((_resolve, reject) => {
-      setTimeout(() => reject(new Error(`Timed out after ${timeoutMs}ms`)), timeoutMs);
+      setTimeout(
+        () => reject(new Error(`Timed out after ${timeoutMs}ms`)),
+        timeoutMs,
+      );
     }),
   ]);
 }
