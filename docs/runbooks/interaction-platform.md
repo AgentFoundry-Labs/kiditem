@@ -97,6 +97,13 @@ The acceptance harness owns and stops only the exact child processes it starts.
 It uses disposable PostgreSQL 17 and a deterministic fake runtime, while keeping
 the real Nest, gateway, persistence, and browser boundaries.
 
+Official Hermes runtime output cannot carry inline artifact bytes. Its only
+artifact-adjacent output contract is a canonical `resource_ref`; a provider
+`artifact_candidate` is rejected before writer, database, or storage work.
+Deletion acceptance may use a narrow fake solely to control deletion erase
+state. That fake is not evidence that production storage supports artifact
+materialization.
+
 For complete-deletion launch verification, use only the bounded process-root
 verifier. It creates one labelled disposable PostgreSQL 17 container, verifies
 its identity before `db push --accept-data-loss`, and removes only that exact

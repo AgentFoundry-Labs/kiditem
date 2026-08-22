@@ -86,6 +86,9 @@ function exited(record) {
 }
 
 async function main() {
+  if (!process.env.PRISMA_USER_CONSENT_FOR_DANGEROUS_AI_ACTION?.trim()) {
+    throw new Error('fresh disposable db push requires explicit user consent');
+  }
   const password = `proof-${randomUUID()}`;
   let databaseUrl;
   let containerStarted = false;
@@ -99,8 +102,12 @@ async function main() {
       '--publish', '127.0.0.1::5432', 'postgres:17',
     ]);
     containerStarted = true;
-    const inspected = await command('docker', ['inspect', '--format', '{{index .Config.Labels "kiditem.deletion-process-proof"}} {{.State.Running}}', container]);
-    if (inspected.stdout.trim() !== `${label} true`) throw new Error('disposable PostgreSQL identity check failed');
+    const inspected = await command('docker', [
+      'inspect', '--format', '{{index .Config.Labels "kiditem.deletion-process-proof"}} {{.State.Running}} {{.Config.Image}}', container,
+    ]);
+    if (inspected.stdout.trim() !== `${label} true postgres:17`) {
+      throw new Error('disposable PostgreSQL image/label identity check failed');
+    }
     const port = (await command('docker', ['port', container, '5432/tcp'])).stdout.trim().split(':').at(-1);
     if (!port || !/^\d+$/.test(port)) throw new Error('disposable PostgreSQL port was not assigned');
     databaseUrl = `postgresql://kiditem_task10:${encodeURIComponent(password)}@127.0.0.1:${port}/kiditem_task10`;
@@ -124,6 +131,7 @@ async function main() {
     const api = start('api', ['apps/server/dist/main.js'], env);
     await waitFor(() => api.output.join('').includes('Server running'), 'API root')
       .catch((error) => { throw new Error(`${error.message}: ${api.output.join('')}`); });
+    await stop(api);
 
     const worker = start('worker', ['apps/server/dist/worker.js'], {
       ...env,
@@ -132,7 +140,7 @@ async function main() {
     });
     await waitFor(() => worker.output.join('').includes('Worker running with Nest application context'), 'worker root')
       .catch((error) => { throw new Error(`${error.message}: ${worker.output.join('')}`); });
-    if (/AgentSessionDeletion(OperationHandler|FinalizerRecovery|Recovery)|OperationsModule/.test(worker.output.join(''))) throw new Error('worker reached API-only deletion provider');
+    await stop(worker);
 
     const mcp = start('mcp', ['apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js'], {
       ...env,
@@ -148,7 +156,12 @@ async function main() {
     mcp.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'proof', version: '1' } } })}\n`);
     await waitFor(() => mcp.output.join('').includes('"id":1'), 'MCP initialize response')
       .catch((error) => { throw new Error(`${error.message}: ${mcp.output.join('')}`); });
-    if (/AgentSessionDeletion(OperationHandler|FinalizerRecovery|Recovery)|OperationsModule/.test(mcp.output.join(''))) throw new Error('MCP reached API-only deletion provider');
+    await stop(mcp);
+
+    // The test-only probe creates the three real Nest roots and resolves their
+    // providers directly. Log text is used above only for bounded process
+    // readiness, never as dependency-injection evidence.
+    await command(process.execPath, ['apps/server/dist/__tests__/agent-session-deletion-root-probe.js'], { env });
     console.log('verify-agent-session-deletion-process-roots PASS');
   } finally {
     for (const child of children.reverse()) await stop(child);

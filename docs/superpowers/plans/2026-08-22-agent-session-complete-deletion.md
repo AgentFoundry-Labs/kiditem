@@ -3028,6 +3028,14 @@ await expect(control.countSessionGraph(sessionId)).resolves.toEqual({
 });
 ```
 
+For deletion specifically, retain the interaction-only deterministic runtime
+fixture but boot a separate real `ApiApplicationModule` against the same
+disposable database. Seed persisted `AuthSession` credentials and exercise the
+registered controller/handler/Operations worker through that root. Do not
+assemble a deletion controller/handler graph manually or bind
+`AGENT_SESSION_DELETION_PORT` with `useValue`. A deletion fake may control
+erase confirmation only; it must not expose a materialization capability.
+
 The harness advances only disposable DB `scheduledFor` rows between attempts; production code still uses PostgreSQL time. Assert cross-organization and ordinary-user requests are non-enumerating `204`.
 
 - [ ] **Step 5: Update durable architecture and runbooks**

@@ -108,6 +108,9 @@ export class OperationRunService
       organizationId: query.organizationId,
       status: query.status,
       limit: Math.min(Math.max(query.limit ?? 50, 1), 100),
+      excludedOperationKeys: this.registry.listDefinitions()
+        .filter((definition) => definition.successPersistence === 'ephemeral_on_success')
+        .map((definition) => definition.key),
     });
     return records
       .filter((record) => !this.isEphemeral(record))

@@ -8,6 +8,7 @@ export type AgentSessionDeletionExecutionResult =
 
 export interface AgentSessionDeletionExecutionPort {
   execute(input: ScopedDeletionAttempt & {
+    fallbackConsumedAttempts: number;
     enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
   }): Promise<AgentSessionDeletionExecutionResult>;
 }

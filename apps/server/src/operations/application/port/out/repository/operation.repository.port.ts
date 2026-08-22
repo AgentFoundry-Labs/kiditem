@@ -255,6 +255,8 @@ export interface OperationRunRepositoryPort {
     organizationId: string;
     status?: OperationStatus;
     limit: number;
+    /** Code-owned public-list exclusions, applied by persistence before limit. */
+    excludedOperationKeys: string[];
   }): Promise<OperationRunRecord[]>;
   listReconnectableRuns(input: {
     organizationId: string;

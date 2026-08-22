@@ -142,6 +142,10 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
   credential, and never fall back to a different runtime or a new external
   run. Their `home`, `work`, and `state` paths are worker-owned and owner-only;
   gateway and web processes must never spawn those executables.
+- Hermes production output is resource-reference-only: it may emit a canonical
+  `resource_ref`, never inline artifact bytes or an `artifact_candidate`.
+  Reject unsupported inline envelopes before the artifact writer, persistence,
+  or storage provider boundary.
 
 ## Boundary Rules
 

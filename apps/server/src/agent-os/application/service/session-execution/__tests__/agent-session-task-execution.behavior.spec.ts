@@ -14,6 +14,8 @@ import {
   AGENT_OS_OPERATIONS,
   AgentSessionTaskOperationInputSchema,
 } from "../../../../domain/operation/agent-os.operations";
+import { HermesHttpRuntimeAdapter } from "../../../../adapter/out/runtime/hermes-http-runtime.adapter";
+import { RuntimeCredentialBroker } from "../../../../adapter/out/runtime/runtime-credential-broker";
 import { AgentSessionTaskExecutionService } from "../agent-session-task-execution.service";
 
 const SESSION_ID = "00000000-0000-4000-8000-000000000001";
@@ -101,10 +103,11 @@ function harness(
     checkpoint?: Record<string, unknown>;
     inspection?: Record<string, unknown>;
     events?: Array<Record<string, unknown>>;
+    runtime?: any;
   } = {},
 ) {
   const order: string[] = [];
-  const runtime = {
+  const runtime = options.runtime ?? {
     runtimeType: "hermes_http",
     capabilities: {
       detached: true,
@@ -658,6 +661,91 @@ describe("AgentSessionTaskExecutionService", () => {
           kind: "artifact",
           artifactId: ARTIFACT_ID,
         }),
+      }),
+    );
+  });
+
+  it("rejects Hermes inline artifact candidates before the writer or canonical event persistence", async () => {
+    const transport = {
+      start: vi.fn().mockResolvedValue({
+        externalRunId: "hermes-inline-artifact",
+        reconnectSecret: "opaque-reconnect-secret",
+        generation: 1,
+      }),
+      connect: vi.fn(async function* () {
+        yield {
+          type: "artifact_candidate",
+          externalArtifactId: "provider-artifact-1",
+          artifactType: "report",
+          label: "Inline artifact",
+          contentBase64: "AQID",
+          mimeType: "application/octet-stream",
+          sha256: "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
+          navigationActionId: "00000000-0000-4000-8000-000000000006",
+        } as never;
+      }),
+      inspect: vi.fn(),
+      interrupt: vi.fn(),
+      cancel: vi.fn(),
+      inspectStartIntent: vi.fn(),
+      cancelStartIntent: vi.fn(),
+      revokeStartIntent: vi.fn(),
+    };
+    const runtime = new HermesHttpRuntimeAdapter({
+      transport: transport as never,
+      credentialBroker: new RuntimeCredentialBroker({
+        secret: "test-secret-at-least-32-characters-long",
+      }),
+      handleCipher: { encrypt: (value: string) => value, decrypt: (value: string) => value },
+      toolRegistry: new Map(),
+    });
+    const { handler, artifacts, runtimeControl } = harness({ runtime });
+
+    await expect(handler.execute(operation)).rejects.toThrow(
+      "agent_session_runtime_inline_artifact_unsupported",
+    );
+    expect(artifacts.materialize).not.toHaveBeenCalled();
+    expect(runtimeControl.record).not.toHaveBeenCalledWith(
+      expect.objectContaining({ event: expect.objectContaining({ kind: "artifact" }) }),
+    );
+  });
+
+  it("accepts Hermes canonical resource references without invoking the artifact writer", async () => {
+    const transport = {
+      start: vi.fn().mockResolvedValue({
+        externalRunId: "hermes-resource-ref",
+        reconnectSecret: "opaque-reconnect-secret",
+        generation: 1,
+      }),
+      connect: vi.fn(async function* () {
+        yield {
+          type: "resource_ref",
+          resource: { kind: "report", id: "resource-1", version: null },
+        };
+        yield { type: "terminal", status: "completed", output: { ok: true } };
+      }),
+      inspect: vi.fn(),
+      interrupt: vi.fn(),
+      cancel: vi.fn(),
+      inspectStartIntent: vi.fn(),
+      cancelStartIntent: vi.fn(),
+      revokeStartIntent: vi.fn(),
+    };
+    const runtime = new HermesHttpRuntimeAdapter({
+      transport: transport as never,
+      credentialBroker: new RuntimeCredentialBroker({
+        secret: "test-secret-at-least-32-characters-long",
+      }),
+      handleCipher: { encrypt: (value: string) => value, decrypt: (value: string) => value },
+      toolRegistry: new Map(),
+    });
+    const { handler, artifacts, runtimeControl } = harness({ runtime });
+
+    await expect(handler.execute(operation)).resolves.toMatchObject({ kind: "completed" });
+    expect(artifacts.materialize).not.toHaveBeenCalled();
+    expect(runtimeControl.record).toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({ kind: "resource_ref" }),
       }),
     );
   });

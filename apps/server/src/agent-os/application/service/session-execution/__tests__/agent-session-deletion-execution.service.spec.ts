@@ -7,6 +7,7 @@ const input = {
   sessionId: "00000000-0000-4000-8000-0000dd000001",
   operationRunId: "00000000-0000-4000-8000-0000dd000002",
   attemptToken: "delete-attempt-token",
+  fallbackConsumedAttempts: 1,
   enterEphemeralFinalization: vi.fn().mockResolvedValue({
     signal: new AbortController().signal,
   }),
@@ -385,6 +386,28 @@ describe("AgentSessionDeletionExecutionService", () => {
       kind: "retryable",
       code: "SESSION_DELETION_INVARIANT",
       consumedAttempts: 3,
+    });
+  });
+
+  it("keeps the caller's persisted attempt count when loading the fenced snapshot fails", async () => {
+    const service = new AgentSessionDeletionExecutionService(
+      {
+        loadFencedSnapshot: vi
+          .fn()
+          .mockRejectedValue(new Error("snapshot_read_fault")),
+      } as never,
+      { fenceAndCancel: vi.fn() } as never,
+      { cleanup: vi.fn() } as never,
+      { beginFence: vi.fn(), confirmFenced: vi.fn() } as never,
+      { abortEraseAndConfirm: vi.fn() } as never,
+    );
+
+    await expect(
+      service.execute({ ...input, fallbackConsumedAttempts: 4 }),
+    ).resolves.toEqual({
+      kind: "retryable",
+      code: "SESSION_DELETION_INVARIANT",
+      consumedAttempts: 4,
     });
   });
 

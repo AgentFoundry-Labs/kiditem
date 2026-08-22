@@ -27,7 +27,9 @@ import {
 import { PrismaAgentExecutionQueryRepository } from "../adapter/out/repository/interaction/prisma-agent-execution-query.repository";
 import { PrismaAgentSessionDeletionExecutionTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction";
 import { PrismaAgentSessionDeletionFinalizationTransaction } from "../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction";
+import { AgentSessionDeletionOperationHandler } from "../adapter/in/operation/agent-session-deletion.operation-handler";
 import { AgentSessionDeletionExecutionService } from "../application/service/session-execution/agent-session-deletion-execution.service";
+import { AgentSessionDeletionOperationService } from "../application/service/session-execution/agent-session-deletion-operation.service";
 import { AgentAguiRuntimeRegistry } from "../application/service/agent-agui-runtime-registry.service";
 import { AgentAguiInProcessRunRegistry } from "../application/service/agent-agui-in-process-run-registry.service";
 import { AgentAguiRunService } from "../application/service/agent-agui-run.service";
@@ -35,6 +37,14 @@ import { OpenAiResponsesAguiRuntimeAdapter } from "../adapter/out/runtime/openai
 import { PrismaAguiRuntimeCleanupDependencies } from "../adapter/out/runtime/prisma-agui-runtime-cleanup-dependencies";
 import { lockAgentSessionForDeletion } from "../adapter/out/transaction/session-control/internal/lock-writable-agent-session";
 import type { PrismaClient } from "@prisma/client";
+import { OperationRepositoryAdapter } from "../../operations/adapter/out/repository/operation.repository.adapter";
+import { OperationAttemptExecutorService } from "../../operations/application/service/operation-attempt-executor.service";
+import { CompositeOperationCoordinatorService } from "../../operations/application/service/composite-operation-coordinator.service";
+import { OperationDispatcherService } from "../../operations/application/service/operation-dispatcher.service";
+import { OperationHandlerRegistryService } from "../../operations/application/service/operation-handler-registry.service";
+import { OperationLifecycleGateService } from "../../operations/application/service/operation-lifecycle-gate.service";
+import { OperationRunWorkerService } from "../../operations/application/service/operation-run-worker.service";
+import { AGENT_SESSION_DELETE_OPERATION } from "../domain/operation/agent-session-deletion.operations";
 
 const VERSION_ID = "00000000-0000-4000-8000-000000000101";
 const AUTHORITY_VERSION_ID = "00000000-0000-4000-8000-000000000102";
@@ -313,6 +323,7 @@ describe("AgentSession deletion graph finalization (PostgreSQL)", () => {
     await expect(
       service.execute({
         ...fixture.attempt,
+        fallbackConsumedAttempts: 1,
         enterEphemeralFinalization: vi
           .fn()
           .mockResolvedValue({ signal: fixture.attempt.signal }),
@@ -443,6 +454,7 @@ describe("AgentSession deletion graph finalization (PostgreSQL)", () => {
     );
     const deletion = service.execute({
       ...fixture.attempt,
+      fallbackConsumedAttempts: 1,
       enterEphemeralFinalization: vi
         .fn()
         .mockResolvedValue({ signal: fixture.attempt.signal }),
@@ -803,6 +815,114 @@ describe("AgentSession deletion graph finalization (PostgreSQL)", () => {
       },
       { status: "failed", errorCode: "STORAGE_DELETE_UNKNOWN" },
     ]);
+  });
+
+  it("exhausts five registered worker attempts when fenced snapshot loading repeatedly faults", async () => {
+    const fixture = await createFencedDeletionFixture();
+    const executionTransactions = new PrismaAgentSessionDeletionExecutionTransaction(
+      prisma as never,
+    );
+    const finalizationTransactions = new PrismaAgentSessionDeletionFinalizationTransaction(
+      prisma as never,
+    );
+    const snapshotFailure = vi
+      .fn()
+      .mockRejectedValue(new Error("snapshot_read_fault"));
+    const execution = new AgentSessionDeletionExecutionService(
+      {
+        loadFencedSnapshot: snapshotFailure,
+        markDeleteFailed: executionTransactions.markDeleteFailed.bind(executionTransactions),
+      } as never,
+      { fenceAndCancel: vi.fn() } as never,
+      { cleanup: vi.fn() } as never,
+      { beginFence: vi.fn(), confirmFenced: vi.fn() } as never,
+      { abortEraseAndConfirm: vi.fn() } as never,
+    );
+    const registry = new OperationHandlerRegistryService();
+    const deletion = new AgentSessionDeletionOperationService(
+      execution,
+      executionTransactions,
+      finalizationTransactions,
+    );
+    const handler = new AgentSessionDeletionOperationHandler(deletion, registry);
+    handler.onModuleInit();
+    const repository = new OperationRepositoryAdapter(prisma as never);
+    const gate = new OperationLifecycleGateService();
+    gate.open();
+    const coordinator = new CompositeOperationCoordinatorService(
+      registry,
+      repository,
+      gate,
+    );
+    const worker = new OperationRunWorkerService(
+      new OperationAttemptExecutorService(
+        new OperationDispatcherService(registry, repository, coordinator),
+        repository,
+        registry,
+      ),
+      repository,
+      coordinator,
+      gate,
+    );
+    await prisma!.operationRun.update({
+      where: { id: fixture.deletionRunId },
+      data: {
+        status: "queued",
+        attempts: 0,
+        executionTimeoutMs: 60_000,
+        attemptToken: null,
+        claimedBy: null,
+        claimedAt: null,
+        leaseExpiresAt: null,
+        deadlineAt: null,
+        scheduledFor: new Date(Date.now() - 1_000),
+        input: {
+          session: formatAgentSessionName(
+            TEST_ORGANIZATION_ID,
+            fixture.sessionId,
+          ),
+          retryGeneration: 1,
+        },
+      },
+    });
+
+    for (let attempt = 1; attempt <= 5; attempt += 1) {
+      await worker.tick();
+      await worker.drainUntil(Date.now() + 5_000, true);
+      const run = await prisma!.operationRun.findUniqueOrThrow({
+        where: { id: fixture.deletionRunId },
+        select: { status: true, attempts: true, deadlineAt: true },
+      });
+      if (attempt < 5) {
+        expect(run).toEqual({
+          status: "queued",
+          attempts: attempt,
+          deadlineAt: null,
+        });
+        await prisma!.operationRun.update({
+          where: { id: fixture.deletionRunId },
+          data: { scheduledFor: new Date(Date.now() - 1_000) },
+        });
+      } else {
+        expect(run).toMatchObject({
+          status: "failed",
+          attempts: 5,
+        });
+      }
+    }
+    expect(snapshotFailure).toHaveBeenCalledTimes(5);
+    await expect(
+      prisma!.agentSession.findUniqueOrThrow({
+        where: { id: fixture.sessionId },
+        select: { lifecycle: true, deletionFailureCode: true },
+      }),
+    ).resolves.toEqual({
+      lifecycle: "delete_failed",
+      deletionFailureCode: "SESSION_DELETION_INVARIANT",
+    });
+    expect(registry.getDefinition(AGENT_SESSION_DELETE_OPERATION.key)).toEqual(
+      expect.objectContaining({ successPersistence: "ephemeral_on_success" }),
+    );
   });
 
   it("never creates a sixth cumulative attempt across lifecycle successors", async () => {

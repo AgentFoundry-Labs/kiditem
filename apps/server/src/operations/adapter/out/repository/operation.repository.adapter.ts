@@ -561,11 +561,15 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     organizationId: string;
     status?: OperationRunRecord['status'];
     limit: number;
+    excludedOperationKeys: string[];
   }): Promise<OperationRunRecord[]> {
     const rows = await this.prisma.operationRun.findMany({
       where: {
         organizationId: input.organizationId,
         ...(input.status ? { status: input.status } : {}),
+        ...(input.excludedOperationKeys.length > 0
+          ? { operationKey: { notIn: input.excludedOperationKeys } }
+          : {}),
       },
       include: runInclude,
       orderBy: { createdAt: 'desc' },
@@ -751,6 +755,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
           attempt_token = NULL,
           claimed_at = NULL,
           lease_expires_at = NULL,
+          deadline_at = NULL,
           updated_at = clock_timestamp()
       WHERE id = ${input.runId}::uuid
         AND organization_id = ${input.organizationId}::uuid

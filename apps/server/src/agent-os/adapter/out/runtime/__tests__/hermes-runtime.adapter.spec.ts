@@ -406,8 +406,9 @@ describe("Hermes durable runtime trust boundary", () => {
     },
   );
 
-  it("normalizes only a bounded base64 artifact envelope and rejects raw provider references", () => {
-    const normalized = normalizeHermesProviderItem({
+  it("rejects inline artifact bytes and accepts only canonical resource references", () => {
+    expect(() =>
+      normalizeHermesProviderItem({
       type: "artifact_candidate",
       externalArtifactId: "provider-artifact-1",
       artifactType: "report",
@@ -418,25 +419,16 @@ describe("Hermes durable runtime trust boundary", () => {
         "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
       navigationActionId: "00000000-0000-4000-8000-000000000006",
       metadata: { source: "hermes" },
-    });
-    expect(normalized).toMatchObject({ kind: "artifact_candidate" });
-    if (normalized.kind !== "artifact_candidate")
-      throw new Error("artifact candidate missing");
-    expect([...normalized.bytes]).toEqual([1, 2, 3]);
-    expect(() =>
-      normalizeHermesProviderItem({
-        type: "artifact_candidate",
-        externalArtifactId: "provider-artifact-1",
-        artifactType: "report",
-        label: "Result report",
-        contentBase64: "AQID",
-        mimeType: "application/octet-stream",
-        sha256:
-          "039058c6f2c0cb492c533b0a4d14ef77cc0f78abccced5287d84a1a2011cfb81",
-        navigationActionId: "00000000-0000-4000-8000-000000000006",
-        storageReference: "provider://artifact/path",
       } as never),
-    ).toThrow();
+    ).toThrow('agent_session_runtime_inline_artifact_unsupported');
+
+    expect(normalizeHermesProviderItem({
+      type: 'resource_ref',
+      resource: { kind: 'report', id: 'resource-1', version: null },
+    })).toEqual({
+      kind: 'resource_ref',
+      resource: { kind: 'report', id: 'resource-1', version: null },
+    });
   });
 
   it("rejects authority-expanding runtime options", () => {

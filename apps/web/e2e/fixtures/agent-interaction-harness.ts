@@ -16,9 +16,8 @@ import { AgentInteractionBootstrapController } from '../../../server/dist/agent-
 import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-control.controller.js';
 import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-actions.controller.js';
 import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session.controller.js';
-import { AgentSessionDeletionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session-deletion.controller.js';
-import { AgentSessionDeletionOperationHandler } from '../../../server/dist/agent-os/adapter/in/operation/agent-session-deletion.operation-handler.js';
 import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction/interaction-gateway.guard.js';
+import { ApiApplicationModule } from '../../../server/dist/api-application.module.js';
 import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
 import { AGENT_INTERACTION_AUTHORIZATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-authorization.port.js';
 import { AGENT_INTERACTION_BOOTSTRAP_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-bootstrap.port.js';
@@ -27,8 +26,8 @@ import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from '../../../server/dist/agent-o
 import { AGENT_INTERACTION_PRESENTATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-presentation.port.js';
 import { AGENT_SESSION_APPROVAL_DECISION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-approval-decision.port.js';
 import { AGENT_SESSION_TASK_CONTROL_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-task-control.port.js';
-import { AGENT_SESSION_DELETION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-deletion.port.js';
 import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/session-capability/agent-capability-invocation.port.js';
+import { AGENT_SESSION_ARTIFACT_STORAGE_PORT } from '../../../server/dist/agent-os/application/port/out/storage/agent-session-artifact-storage.port.js';
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os/application/port/out/event/agent-conversation-live-publisher.port.js';
 import { AGENT_SESSION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-session-query.repository.port.js';
 import { AGENT_CONVERSATION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-conversation-query.repository.port.js';
@@ -46,10 +45,6 @@ import { AgentCapabilityRegistry } from '../../../server/dist/agent-os/applicati
 import { AgentAguiRunService } from '../../../server/dist/agent-os/application/service/agent-agui-run.service.js';
 import { AgentAguiProducerCoordinator } from '../../../server/dist/agent-os/application/service/agent-agui-producer-coordinator.service.js';
 import { AgentAguiRuntimeRegistry } from '../../../server/dist/agent-os/application/service/agent-agui-runtime-registry.service.js';
-import {
-  AUTHORITY_PROFILE_VERSION_ID,
-  FOUNDATION_CAPABILITY_KEYS,
-} from '../../../server/dist/agent-os/application/service/interaction/interaction-authority-profile.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
 import { AgentInteractionAuthorizationService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-authorization.service.js';
 import { AgentInteractionBootstrapService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-bootstrap.service.js';
@@ -65,9 +60,6 @@ import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os
 import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-dispatch.service.js';
 import { AgentSessionOwnedOperationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-owned-operation.service.js';
 import { AgentSessionTaskControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-control.service.js';
-import { AgentSessionDeletionService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-deletion.service.js';
-import { AgentSessionDeletionExecutionService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-deletion-execution.service.js';
-import { AgentSessionDeletionOperationService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-deletion-operation.service.js';
 import {
   INTERACTION_CLOCK,
   INTERACTION_GATEWAY_SHARED_SECRET,
@@ -83,23 +75,14 @@ import { PrismaAgentVersionRepository } from '../../../server/dist/agent-os/adap
 import { PrismaAgentRunAuthorizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction.js';
 import { PrismaAgentConversationEventTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction.js';
 import { PrismaAgentExecutionUsageTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction.js';
-import { PrismaAgentSessionDeletionCommandTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction.js';
-import { PrismaAgentSessionDeletionExecutionTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction.js';
-import { PrismaAgentSessionDeletionFinalizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction.js';
-import { PrismaAgentSessionDeletionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository.js';
 import { PrismaAgentSessionOwnedOperationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.js';
-import { OperationsAgentSessionOwnedOperationControlAdapter } from '../../../server/dist/agent-os/adapter/out/operation/operations-agent-session-owned-operation-control.adapter.js';
 import { OperationDefinitionSnapshotAdapter } from '../../../server/dist/agent-os/adapter/out/operation/operation-definition-snapshot.adapter.js';
-import { PrismaAgentSessionArtifactMaterializationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.js';
-import { AgentSessionArtifactWriterService } from '../../../server/dist/agent-os/application/service/session-execution/agent-session-artifact-writer.service.js';
 import { SessionControlAdapterSet } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/__tests__/session-control-adapter-set.js';
 import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
 import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
 import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
 import { OperationLifecycleGateService } from '../../../server/dist/operations/application/service/operation-lifecycle-gate.service.js';
 import { OperationRunService } from '../../../server/dist/operations/application/service/operation-run.service.js';
-import { OperationDispatcherService } from '../../../server/dist/operations/application/service/operation-dispatcher.service.js';
-import { OperationAttemptExecutorService } from '../../../server/dist/operations/application/service/operation-attempt-executor.service.js';
 import { OperationRunWorkerService } from '../../../server/dist/operations/application/service/operation-run-worker.service.js';
 import { AGENT_OS_OPERATIONS } from '../../../server/dist/agent-os/domain/operation/agent-os.operations.js';
 import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
@@ -114,6 +97,8 @@ import {
   OrganizationIdSchema,
 } from '@kiditem/shared/identifiers';
 import { AgentProgressEventSchema } from '@kiditem/shared/agent-interaction';
+import { hashAuthSessionToken } from '../../../server/dist/auth/domain/auth-credentials.js';
+import { seedAgentOs } from '../../../server/dist/agent-os/seed-agent-os.js';
 import type {
   AgentAguiRuntimeAdapter,
   AgentAguiRuntimeInput,
@@ -127,13 +112,16 @@ import { stopTrackedChild } from './tracked-child';
 const repoRoot = path.resolve(__dirname, '../../../..');
 const WEB_PORT = 4310;
 const NEST_PORT = 4320;
+const DELETION_API_PORT = 4321;
 const GATEWAY_PORT = 4330;
 const SERVICE_SECRET = 'e2e-interaction-gateway-secret-value-0001';
 const HMAC = Buffer.from('e2e-interaction-hmac-secret-value-0000001');
-const AGENT_VERSION_ID = '10000000-0000-4000-8000-000000000001';
-const DELEGATE_VERSION_ID = '10000000-0000-4000-8000-000000000002';
+let AGENT_VERSION_ID = '';
+let DELEGATE_VERSION_ID = '';
 const PRIMARY_TOKEN = 'p'.repeat(43);
 const OTHER_TOKEN = 'o'.repeat(43);
+const MEMBER_TOKEN = 'm'.repeat(43);
+const MEMBER_USER_ID = '30000000-0000-4000-8000-000000000001';
 
 interface DurableControlGraph {
   readonly copilotThreadId: string;
@@ -232,7 +220,7 @@ class AcceptanceDurableControlPlane {
       sessionId: input.sessionId,
       executionId: delegated.childExecutionId,
       attemptId: activeAttempt.id,
-      runtimeType: 'hermes_http',
+      runtimeType: 'codex_cli',
       externalRunId: 'acceptance-external-child-run',
       encryptedHandleRef: 'vault://acceptance-child-handle',
       runtimeGeneration: 1,
@@ -567,16 +555,6 @@ class DeterministicDeletionStorage {
     this.result = result;
   }
 
-  materializationCapability(): 'supported' {
-    return 'supported';
-  }
-
-  async openMultipart(): Promise<{ uploadId: string }> {
-    return { uploadId: 'deletion-harness-upload' };
-  }
-
-  async uploadAndComplete(): Promise<void> {}
-  async verifyCompleted(): Promise<void> {}
   async abortEraseAndConfirm() { return { state: this.result }; }
   async deleteActiveAndConfirm() { return { state: this.result }; }
   async inspect() { return this.result; }
@@ -595,9 +573,29 @@ export async function createAgentInteractionAcceptanceHarness() {
   const prisma = makeTestPrisma();
   await prisma.$connect();
   await seedBaseFixture(prisma);
+  await prisma.user.create({
+    data: {
+      id: MEMBER_USER_ID,
+      email: 'member@test.local',
+      name: 'Ordinary Member',
+      role: 'member',
+      type: 'human',
+    },
+  });
+  await prisma.organizationMembership.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: MEMBER_USER_ID,
+      role: 'member',
+      status: 'active',
+    },
+  });
+  await seedAcceptanceAuthSessions(prisma);
+  configureActualDeletionEnvironment();
   await seedAgentVersion(prisma);
   const analyticsEvents: unknown[] = [];
-  const { app: nest, durableControls, deletionControl } = await startNest(prisma, analyticsEvents);
+  const { app: nest, durableControls } = await startNest(prisma, analyticsEvents);
+  const { app: deletionApi, deletionControl } = await startDeletionApiRoot(prisma);
   const gatewayLog: string[] = [];
   const webLog: string[] = [];
   const gateway = await startGateway(gatewayLog);
@@ -611,6 +609,7 @@ export async function createAgentInteractionAcceptanceHarness() {
       stopTrackedChild(web),
       stopTrackedChild(gateway),
       nest.close(),
+      deletionApi.close(),
       prisma.$disconnect(),
       postgres.stop(),
     ]);
@@ -618,7 +617,7 @@ export async function createAgentInteractionAcceptanceHarness() {
   }
 
   return new AgentInteractionAcceptanceHarness(
-    postgres, prisma, nest, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls, deletionControl,
+    postgres, prisma, nest, deletionApi, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls, deletionControl,
   );
 }
 
@@ -629,6 +628,7 @@ class AgentInteractionAcceptanceHarness {
     private readonly postgres: StartedPostgreSqlContainer,
     private readonly prisma: PrismaClient,
     private readonly nest: INestApplication,
+    private readonly deletionApi: INestApplication,
     private gateway: ChildProcess,
     private readonly web: ChildProcess,
     private readonly gatewayLog: string[],
@@ -732,7 +732,9 @@ class AgentInteractionAcceptanceHarness {
     if (graph.copilotThreadId !== threadId) {
       throw new Error('durable control graph was attached to the wrong Copilot thread');
     }
-    await page.getByRole('button', { name: 'AgentOS 대화 닫기' }).click();
+    // An unrelated notification may remain visible while the durable control
+    // graph advances. It must not block exercising the dialog's close action.
+    await page.getByRole('button', { name: 'AgentOS 대화 닫기' }).click({ force: true });
     await this.durableControls.continueAfterPanelClose();
     graph = this.durableControls.current();
     if (!graph.approvalId) throw new Error('durable approval was not persisted');
@@ -922,8 +924,11 @@ class AgentInteractionAcceptanceHarness {
     if (!this.selectedThreadId) throw new Error('missing selected session for deletion acceptance');
     const session = await this.session(this.selectedThreadId);
     await this.deletionControl.prepare(session.id);
-    const headers = { cookie: `kiditem_session=${PRIMARY_TOKEN}` };
-    const route = `http://127.0.0.1:${NEST_PORT}/api/agent-os/sessions/${session.id}`;
+    // Deletion requests go through the separately booted ApiApplicationModule
+    // with persisted AuthSession credentials. The interaction-only test app
+    // remains responsible solely for deterministic browser/runtime behavior.
+    const headers = { authorization: `Bearer ${PRIMARY_TOKEN}` };
+    const route = `http://127.0.0.1:${DELETION_API_PORT}/api/agent-os/sessions/${session.id}`;
     const eventCountAtFence = await this.prisma.agentConversationEvent.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: session.id },
     });
@@ -936,10 +941,35 @@ class AgentInteractionAcceptanceHarness {
     if (status.status() !== 200 || (await status.json() as { state?: unknown }).state !== 'deleting') {
       throw new Error('creator deletion status was not visible as deleting');
     }
-    const foreign = await page.request.get(`${route}/deletion`, {
-      headers: { cookie: `kiditem_session=${OTHER_TOKEN}` },
-    });
-    if (foreign.status() !== 204) throw new Error('cross-organization deletion status was enumerable');
+    const foreignHeaders = { authorization: `Bearer ${OTHER_TOKEN}` };
+    for (const [label, request] of [
+      ['delete', () => page.request.delete(route, { headers: foreignHeaders })],
+      ['status', () => page.request.get(`${route}/deletion`, { headers: foreignHeaders })],
+      ['retry', () => page.request.post(`${route}/deletion/retry`, { headers: foreignHeaders })],
+    ] as const) {
+      const response = await request();
+      if (response.status() !== 204) {
+        throw new Error(`cross-organization deletion ${label} was enumerable`);
+      }
+    }
+    const memberHeaders = { authorization: `Bearer ${MEMBER_TOKEN}` };
+    for (const [label, request] of [
+      ['delete', () => page.request.delete(route, { headers: memberHeaders })],
+      ['status', () => page.request.get(`${route}/deletion`, { headers: memberHeaders })],
+      ['retry', () => page.request.post(`${route}/deletion/retry`, { headers: memberHeaders })],
+    ] as const) {
+      const response = await request();
+      if (response.status() !== 204) {
+        throw new Error(`ordinary same-organization member ${label} was enumerable`);
+      }
+    }
+    const history = await page.request.get(
+      `http://127.0.0.1:${NEST_PORT}/api/agent-os/interaction/bootstrap`,
+      { headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` } },
+    );
+    if (!history.ok() || JSON.stringify(await history.json()).includes(this.selectedThreadId)) {
+      throw new Error('deleting session remained visible in interaction history');
+    }
     await this.deletionControl.releaseLateRuntimeEvent();
     const afterLateEvent = await this.prisma.agentConversationEvent.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: session.id },
@@ -996,6 +1026,7 @@ class AgentInteractionAcceptanceHarness {
     await stopTrackedChild(this.web);
     await Promise.allSettled([
       this.nest.close(),
+      this.deletionApi.close(),
       this.prisma.$disconnect(),
     ]);
     await this.postgres.stop();
@@ -1111,6 +1142,14 @@ class AgentSessionDeletionAcceptanceControl implements DeletionHarnessControl {
         ),
       },
     });
+    // This is a retained, completed capability fixture that gives the active
+    // artifact a real Operations ownership edge. It is deliberately not a
+    // handcrafted deletion run: DELETE below creates that run through the
+    // separately booted API controller and its registered handler.
+    await this.prisma.operationRun.update({
+      where: { id: materialization.operationRunId },
+      data: { status: 'succeeded', finishedAt: new Date() },
+    });
     await this.prisma.agentSessionArtifact.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1224,6 +1263,73 @@ class AgentSessionDeletionAcceptanceControl implements DeletionHarnessControl {
   }
 }
 
+async function seedAcceptanceAuthSessions(prisma: PrismaClient): Promise<void> {
+  const expiresAt = new Date('2099-01-01T00:00:00.000Z');
+  await prisma.authSession.createMany({
+    data: [
+      { userId: TEST_USER_ID, tokenHash: hashAuthSessionToken(PRIMARY_TOKEN), expiresAt },
+      { userId: OTHER_USER_ID, tokenHash: hashAuthSessionToken(OTHER_TOKEN), expiresAt },
+      { userId: MEMBER_USER_ID, tokenHash: hashAuthSessionToken(MEMBER_TOKEN), expiresAt },
+    ],
+  });
+}
+
+async function startDeletionApiRoot(prisma: PrismaClient): Promise<{
+  app: INestApplication;
+  deletionControl: AgentSessionDeletionAcceptanceControl;
+}> {
+  configureActualDeletionEnvironment();
+  const storage = new DeterministicDeletionStorage();
+  const moduleRef = await Test.createTestingModule({
+    imports: [ApiApplicationModule],
+  })
+    // Test-only deletion-result control. It intentionally does not implement
+    // materializationCapability/openMultipart/upload methods, so this narrow
+    // fake cannot claim Hermes production materialization support.
+    .overrideProvider(AGENT_SESSION_ARTIFACT_STORAGE_PORT)
+    .useValue(storage)
+    .compile();
+  const app = moduleRef.createNestApplication();
+  app.setGlobalPrefix('api');
+  app.enableCors({ origin: `http://localhost:${WEB_PORT}`, credentials: true });
+  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
+  await app.listen(DELETION_API_PORT, '127.0.0.1');
+
+  const registry = app.get(OperationHandlerRegistryService, { strict: false });
+  if (!registry.listDefinitions().some((definition) => definition.key === 'agent-os.delete-session')) {
+    throw new Error('actual API root did not register the AgentSession deletion handler');
+  }
+  const worker = app.get(OperationRunWorkerService, { strict: false });
+  const ownedOperations = app.get(AgentSessionOwnedOperationService, { strict: false });
+  return {
+    app,
+    deletionControl: new AgentSessionDeletionAcceptanceControl(
+      prisma,
+      storage,
+      worker,
+      new PrismaAgentConversationEventTransaction(prisma as never),
+      ownedOperations,
+    ),
+  };
+}
+
+function configureActualDeletionEnvironment(): void {
+  Object.assign(process.env, {
+    NODE_ENV: 'test',
+    AGENT_DEFAULT_MODEL: 'deletion-browser-proof',
+    AGENT_RUNTIME_CREDENTIAL_HMAC_KEY: 'd'.repeat(48),
+    INTERACTION_GATEWAY_SHARED_SECRET: SERVICE_SECRET,
+    INTERACTION_PRINCIPAL_HMAC_KEY: 'p'.repeat(48),
+    INTERACTION_RUN_INTENT_HMAC_KEY: 'i'.repeat(48),
+    INTERACTION_REPLAY_CURSOR_HMAC_KEY: 'r'.repeat(48),
+    INTERACTION_ANALYTICS_HMAC_KEY: 'a'.repeat(48),
+    OPERATION_RUNTIME_WORKER_ENABLED: '0',
+    OPERATION_SCHEDULER_ENABLED: '0',
+    AGENT_RUNTIME_WORKER_ENABLED: '0',
+    AI_DIRECT_JOB_WORKER_ENABLED: '0',
+  });
+}
+
 function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void {
   registry.register({
     key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
@@ -1269,7 +1375,6 @@ async function startNest(
 ): Promise<{
   app: INestApplication;
   durableControls: AcceptanceDurableControlPlane;
-  deletionControl: AgentSessionDeletionAcceptanceControl;
 }> {
   const sessions = new PrismaAgentSessionQueryRepository(prisma as never);
   const conversations = new PrismaAgentConversationQueryRepository(prisma as never);
@@ -1301,70 +1406,7 @@ async function startNest(
     operationCoordinator,
     operationLifecycle,
   );
-  process.env.OPERATION_RUNTIME_WORKER_ENABLED = '1';
-  const deletionStorage = new DeterministicDeletionStorage();
-  const deletionExecutionTransactions = new PrismaAgentSessionDeletionExecutionTransaction(prisma as never);
-  const deletionFinalizationTransactions = new PrismaAgentSessionDeletionFinalizationTransaction(prisma as never);
-  const deletionWriter = new AgentSessionArtifactWriterService(
-    new PrismaAgentSessionArtifactMaterializationTransaction(prisma as never),
-    deletionStorage as never,
-  );
-  const deletionExecution = new AgentSessionDeletionExecutionService(
-    deletionExecutionTransactions,
-    new OperationsAgentSessionOwnedOperationControlAdapter(operations),
-    {
-      cleanup: async () => ({
-        state: 'clean' as const,
-        executionAuthority: 'irrevocably_revoked' as const,
-        credentials: 'irrevocably_revoked' as const,
-        handle: 'removed' as const,
-        filesystem: 'not_owned' as const,
-      }),
-    },
-    deletionWriter,
-    deletionStorage,
-  );
-  const deletionOperation = new AgentSessionDeletionOperationService(
-    deletionExecution,
-    deletionExecutionTransactions,
-    deletionFinalizationTransactions,
-  );
-  const deletionHandler = new AgentSessionDeletionOperationHandler(
-    deletionOperation,
-    operationRegistry,
-  );
-  deletionHandler.onModuleInit();
-  const deletionService = new AgentSessionDeletionService(
-    new PrismaAgentSessionDeletionCommandTransaction(prisma as never),
-    new PrismaAgentSessionDeletionQueryRepository(prisma as never),
-  );
-  const deletionDispatcher = new OperationDispatcherService(
-    operationRegistry,
-    operationRepository,
-    operationCoordinator,
-  );
-  const deletionExecutor = new OperationAttemptExecutorService(
-    deletionDispatcher,
-    operationRepository,
-    operationRegistry,
-  );
-  const deletionWorker = new OperationRunWorkerService(
-    deletionExecutor,
-    operationRepository,
-    operationCoordinator,
-    operationLifecycle,
-  );
   const dispatch = new AgentSessionTaskDispatchService(
-    new AgentSessionOwnedOperationService(
-      new OperationDefinitionSnapshotAdapter(operationRegistry, operationLifecycle),
-      new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
-    ),
-  );
-  const deletionControl = new AgentSessionDeletionAcceptanceControl(
-    prisma,
-    deletionStorage,
-    deletionWorker,
-    events,
     new AgentSessionOwnedOperationService(
       new OperationDefinitionSnapshotAdapter(operationRegistry, operationLifecycle),
       new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
@@ -1377,7 +1419,7 @@ async function startNest(
   );
   let durableControls: AcceptanceDurableControlPlane | null = null;
   const approvalRuntime = {
-    runtimeType: 'hermes_http',
+    runtimeType: 'codex_cli',
     capabilities: { detached: true, reconnect: true, interrupt: true, cancel: true, inspect: true },
     start: async () => { throw new Error('acceptance approval runtime must reconnect'); },
     inspect: async () => ({ status: 'running' as const }),
@@ -1466,7 +1508,6 @@ async function startNest(
       AgentInteractionActionsController,
       AgentAguiController,
       AgentSessionController,
-      AgentSessionDeletionController,
     ],
     providers: [
       { provide: AGENT_SESSION_QUERY_REPOSITORY, useValue: sessions },
@@ -1487,7 +1528,6 @@ async function startNest(
       { provide: AGENT_INTERACTION_PRESENTATION_PORT, useValue: presentation },
       { provide: AGENT_AGUI_PRODUCER_PORT, useExisting: AgentAguiProducerCoordinator },
       { provide: AGENT_SESSION_TASK_CONTROL_PORT, useValue: taskControls },
-      { provide: AGENT_SESSION_DELETION_PORT, useValue: deletionService },
       { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useValue: approvals },
       { provide: AGENT_CONVERSATION_LIVE_PUBLISHER, useValue: publisher },
       { provide: INTERACTION_CLOCK, useValue: () => new Date() },
@@ -1536,25 +1576,30 @@ async function startNest(
     });
   });
   app.use('/api/auth/me', (request: any, response: any) => {
-    const other = String(request.headers.cookie ?? '').includes(OTHER_TOKEN);
+    const cookie = String(request.headers.cookie ?? '');
+    const other = cookie.includes(OTHER_TOKEN);
+    const member = cookie.includes(MEMBER_TOKEN);
     response.json({
-      id: other ? OTHER_USER_ID : TEST_USER_ID,
-      email: other ? 'other@test.local' : 'test@test.local',
-      name: other ? 'Other Tester' : 'Tester',
-      role: 'owner', type: 'human',
+      id: other ? OTHER_USER_ID : member ? MEMBER_USER_ID : TEST_USER_ID,
+      email: other ? 'other@test.local' : member ? 'member@test.local' : 'test@test.local',
+      name: other ? 'Other Tester' : member ? 'Ordinary Member' : 'Tester',
+      role: member ? 'member' : 'owner', type: 'human',
       organizationId: other ? OTHER_ORGANIZATION_ID : TEST_ORGANIZATION_ID,
       membershipId: '33333333-3333-4333-8333-333333333333',
     });
   });
   app.use((request: any, _response: any, next: () => void) => {
-    const identity = String(request.headers.cookie ?? '').includes(OTHER_TOKEN)
-      ? { id: OTHER_USER_ID, organizationId: OTHER_ORGANIZATION_ID, email: 'other@test.local' }
-      : { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID, email: 'test@test.local' };
-    request.authUser = { ...identity, membershipId: '33333333-3333-4333-8333-333333333333', role: 'owner', type: 'human' };
+    const cookie = String(request.headers.cookie ?? '');
+    const identity = cookie.includes(OTHER_TOKEN)
+      ? { id: OTHER_USER_ID, organizationId: OTHER_ORGANIZATION_ID, email: 'other@test.local', role: 'owner' }
+      : cookie.includes(MEMBER_TOKEN)
+        ? { id: MEMBER_USER_ID, organizationId: TEST_ORGANIZATION_ID, email: 'member@test.local', role: 'member' }
+        : { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID, email: 'test@test.local', role: 'owner' };
+    request.authUser = { ...identity, membershipId: '33333333-3333-4333-8333-333333333333', type: 'human' };
     next();
   });
   await app.listen(NEST_PORT, '127.0.0.1');
-  return { app, durableControls: createdDurableControls, deletionControl };
+  return { app, durableControls: createdDurableControls };
 }
 
 async function startGateway(log: string[]): Promise<ChildProcess> {
@@ -1618,104 +1663,27 @@ function pushSchema(postgres: StartedPostgreSqlContainer) {
 }
 
 async function seedAgentVersion(prisma: PrismaClient) {
-  const capabilityKeys = [...FOUNDATION_CAPABILITY_KEYS];
-  const authorityProfilePolicyDocument = {
-    authorityClass: AUTHORITY_PROFILE_VERSION_ID,
-    capabilityKeys,
-  };
-  await prisma.agentAuthorityProfileVersion.create({ data: {
-    id: AUTHORITY_PROFILE_VERSION_ID,
-    organizationId: TEST_ORGANIZATION_ID,
-    profileKey: 'foundation_read_only_probe',
-    version: 1,
-    capabilityKeys,
-    policyDocument: authorityProfilePolicyDocument,
-    policyHash: createHash('sha256')
-      .update(JSON.stringify(authorityProfilePolicyDocument))
-      .digest('hex'),
-  } });
-  await prisma.agentVersion.create({ data: {
-    id: AGENT_VERSION_ID, agentDefinitionKey: 'operator', version: 1,
-    displayName: 'Operator', description: 'Deterministic acceptance operator',
-    runtimeType: 'copilotkit_agui', modelIdentity: 'fake-deterministic',
-    capabilityKeys,
-    policyDocument: { authorityClass: 'read_only' },
-    manifestHash: 'e'.repeat(64),
-    runtimeManifest: {
-      schemaVersion: 1,
-      agentDefinitionKey: 'operator',
-      runtimeKind: 'coordinator',
-      runtimeType: 'copilotkit_agui',
-      modelIdentity: 'fake-deterministic',
-      capabilityKeys,
-      policyDocument: { authorityClass: 'read_only' },
-      delegation: {
-        role: 'orchestrator',
-        allowedAgentDefinitionKeys: ['sourcing'],
-        maxDepth: 1,
-        maxChildrenPerTask: 3,
-      },
-      limits: {
-        maxTurns: 20,
-        maxContextTokens: 8_192,
-        summaryTargetTokens: 512,
-      },
-      assets: {
-        prompt: {
-          path: 'agent-config/prompts/agents/manager.md',
-          sha256: 'a'.repeat(64),
-        },
-        summaryPrompt: {
-          path: 'agent-config/prompts/system/session-summary.md',
-          sha256: 'b'.repeat(64),
-        },
-        skills: [],
-        outputSchema: null,
-      },
-    },
-    activatedAt: new Date(),
-  } });
-  await prisma.agentVersion.create({ data: {
-    id: DELEGATE_VERSION_ID, agentDefinitionKey: 'sourcing', version: 1,
-    displayName: 'Sourcing', description: 'Durable acceptance delegate',
-    runtimeType: 'hermes_http', modelIdentity: 'fake-durable',
-    capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
-    policyDocument: { authorityClass: 'read_only' },
-    manifestHash: 'f'.repeat(64),
-    runtimeManifest: {
-      schemaVersion: 1,
-      agentDefinitionKey: 'sourcing',
-      runtimeKind: 'agent',
-      runtimeType: 'hermes_http',
-      modelIdentity: 'fake-durable',
-      capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
-      policyDocument: { authorityClass: 'read_only' },
-      delegation: {
-        role: 'leaf',
-        allowedAgentDefinitionKeys: [],
-        maxDepth: 0,
-        maxChildrenPerTask: 0,
-      },
-      limits: {
-        maxTurns: 20,
-        maxContextTokens: 8_192,
-        summaryTargetTokens: 512,
-      },
-      assets: {
-        prompt: {
-          path: 'agent-config/prompts/agents/manager.md',
-          sha256: 'a'.repeat(64),
-        },
-        summaryPrompt: {
-          path: 'agent-config/prompts/system/session-summary.md',
-          sha256: 'b'.repeat(64),
-        },
-        skills: [],
-        outputSchema: null,
-      },
-    },
-    activatedAt: new Date(),
-  } });
+  // ApiApplicationModule validates every published runtime manifest during
+  // bootstrap. Use the official seed rather than acceptance-only versions so
+  // the browser deletion root proves the same catalog contract as production.
+  await seedAgentOs(prisma);
+  const [operator, sourcing] = await Promise.all([
+    prisma.agentVersion.findFirstOrThrow({
+      where: { agentDefinitionKey: 'operator', activatedAt: { not: null } },
+      orderBy: { version: 'desc' },
+      select: { id: true, runtimeType: true },
+    }),
+    prisma.agentVersion.findFirstOrThrow({
+      where: { agentDefinitionKey: 'sourcing', activatedAt: { not: null } },
+      orderBy: { version: 'desc' },
+      select: { id: true, runtimeType: true },
+    }),
+  ]);
+  if (operator.runtimeType !== 'copilotkit_agui' || sourcing.runtimeType !== 'codex_cli') {
+    throw new Error('official AgentOS seed did not publish expected browser acceptance runtimes');
+  }
+  AGENT_VERSION_ID = operator.id;
+  DELEGATE_VERSION_ID = sourcing.id;
 }
 
 async function waitForUrl(url: string) {

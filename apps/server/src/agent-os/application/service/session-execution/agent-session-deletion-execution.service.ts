@@ -46,11 +46,12 @@ export class AgentSessionDeletionExecutionService implements AgentSessionDeletio
 
   async execute(
     input: ScopedDeletionAttempt & {
+      fallbackConsumedAttempts: number;
       enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
     },
   ): Promise<AgentSessionDeletionExecutionResult> {
     input.signal.throwIfAborted();
-    const loaded = await this.settle(input.signal, 0, () =>
+    const loaded = await this.settle(input.signal, input.fallbackConsumedAttempts, () =>
       this.transaction.loadFencedSnapshot(input),
     );
     if (loaded.kind === "retryable") return loaded;

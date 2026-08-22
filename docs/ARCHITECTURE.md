@@ -65,6 +65,13 @@ deletion removes the session and all owned lineage. It does not implement
 retention, legal holds, audits, tombstones, shared-object deletion, provider
 telemetry, organization removal, migrations, backfill, or a VERSION change.
 
+Hermes is an official durable runtime, but it is not an inline-artifact
+transport: production Hermes output must use a canonical `resource_ref`.
+Inline bytes and `artifact_candidate` envelopes are rejected before artifact
+materialization, storage, or canonical event persistence. Test-only deletion
+storage controls model erase confirmation only; they do not claim a production
+storage materialization capability.
+
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
 

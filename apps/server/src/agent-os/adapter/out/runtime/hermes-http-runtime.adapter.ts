@@ -10,7 +10,6 @@ import type {
   RuntimeInterruptInput,
 } from '../../../application/port/out/runtime/agent-durable-runtime.port';
 import { CanonicalResourceRefSchema } from '@kiditem/shared/agent-interaction';
-import { MAX_AGENT_SESSION_ARTIFACT_BYTES as maxArtifactBytes } from '../../../application/port/out/runtime/agent-durable-runtime.port';
 import type { RuntimeHandleCipher } from './runtime-handle-cipher';
 import type { RuntimeCredentialBroker } from './runtime-credential-broker';
 import {
@@ -23,17 +22,6 @@ export type HermesProviderItem =
   | { type: 'text_delta'; content: string }
   | { type: 'progress'; progress: number; label: string }
   | { type: 'interrupt'; interruptId: string; payload: Record<string, unknown> }
-  | {
-      type: 'artifact_candidate';
-      externalArtifactId: string;
-      artifactType: string;
-      label: string;
-      contentBase64: string;
-      mimeType: string;
-      sha256: string;
-      navigationActionId: string;
-      metadata?: Record<string, unknown>;
-    }
   | { type: 'resource_ref'; resource: unknown }
   | { type: 'terminal'; status: 'completed' | 'failed' | 'cancelled'; output?: Record<string, unknown>; errorCode?: string };
 
@@ -77,17 +65,6 @@ const providerItemSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('text_delta'), content: z.string().max(100_000) }).strict(),
   z.object({ type: z.literal('progress'), progress: z.number().min(0).max(1), label: z.string().min(1).max(500) }).strict(),
   z.object({ type: z.literal('interrupt'), interruptId: z.string().min(1).max(256), payload: z.record(z.string(), z.unknown()) }).strict(),
-  z.object({
-    type: z.literal('artifact_candidate'),
-    externalArtifactId: z.string().min(1).max(256),
-    artifactType: z.string().min(1).max(128),
-    label: z.string().min(1).max(500),
-    contentBase64: z.string().base64().max(22_369_624),
-    mimeType: z.string().min(1).max(128),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/),
-    navigationActionId: z.string().uuid(),
-    metadata: z.record(z.string(), z.unknown()).default({}),
-  }).strict(),
   z.object({ type: z.literal('resource_ref'), resource: CanonicalResourceRefSchema }).strict(),
   z.object({ type: z.literal('terminal'), status: z.enum(['completed', 'failed', 'cancelled']), output: z.record(z.string(), z.unknown()).optional(), errorCode: z.string().min(1).max(256).optional() }).strict(),
 ]);
@@ -396,31 +373,23 @@ export class HermesHttpRuntimeAdapter implements AgentDurableRuntimeAdapter {
 }
 
 export function normalizeHermesProviderItem(item: HermesProviderItem): DurableRuntimeAdapterEvent {
+  if (isInlineArtifactCandidate(item)) {
+    throw new Error('agent_session_runtime_inline_artifact_unsupported');
+  }
   const parsed = providerItemSchema.parse(item);
   switch (parsed.type) {
     case 'text_delta': return { kind: 'text_delta', content: parsed.content };
     case 'progress': return { kind: 'progress', progress: parsed.progress, label: parsed.label };
     case 'interrupt': return { kind: 'interrupt', interruptId: parsed.interruptId, payload: parsed.payload };
-    case 'artifact_candidate': {
-      const bytes = Buffer.from(parsed.contentBase64, 'base64');
-      if (bytes.byteLength > maxArtifactBytes) {
-        throw new Error('agent_session_artifact_too_large');
-      }
-      return {
-        kind: 'artifact_candidate',
-        externalArtifactId: parsed.externalArtifactId,
-        artifactType: parsed.artifactType,
-        label: parsed.label,
-        bytes,
-        mimeType: parsed.mimeType,
-        sha256: parsed.sha256,
-        navigationActionId: parsed.navigationActionId,
-        metadata: parsed.metadata,
-      };
-    }
     case 'resource_ref': return { kind: 'resource_ref', resource: parsed.resource };
     case 'terminal': return { kind: 'terminal', status: parsed.status, ...(parsed.output ? { output: parsed.output } : {}), ...(parsed.errorCode ? { errorCode: parsed.errorCode } : {}) };
   }
+}
+
+function isInlineArtifactCandidate(item: unknown): boolean {
+  return typeof item === 'object' && item !== null
+    && 'type' in item
+    && item.type === 'artifact_candidate';
 }
 
 function reconnectHeaders(reconnectSecret: string): Record<string, string> {

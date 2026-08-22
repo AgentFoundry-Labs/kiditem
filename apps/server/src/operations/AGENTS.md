@@ -23,6 +23,12 @@ and browser-runtime leases.
 - AgentSession complete deletion is one API-owned Operations definition and
   handler. Its finalizer/recovery hooks register through the existing
   post-accepting registry; do not add a deletion timer, scheduler, or worker.
+- Code-owned `ephemeral_on_success` definitions are excluded by the repository
+  query before a public-list `limit` is applied. The service's defensive filter
+  is not sufficient because newer hidden rows must not starve retained rows.
+- A retry requeue clears `deadline_at`; the next database claim establishes its
+  own attempt deadline from database time. Never carry a predecessor attempt's
+  deadline into the successor queue row.
 - The API gate progresses BOOTSTRAPPING -> ACCEPTING -> STOPPING -> STOPPED.
   Startup cleanup is fail-closed and bounded to 30s; graceful cancellation and
   handler cleanup are bounded to 5s. Startup uses

@@ -57,6 +57,8 @@ export class AgentSessionDeletionOperationService
     if (session.organization !== context.organizationId) {
       throw new Error('AGENT_SESSION_OPERATION_SCOPE_INVALID');
     }
+    const fallbackConsumedAttempts =
+      (AGENT_SESSION_DELETE_MAX_ATTEMPTS - context.maxAttempts) + context.attempts;
     let result: Awaited<ReturnType<AgentSessionDeletionExecutionPort['execute']>>;
     try {
       result = await this.execution.execute({
@@ -65,6 +67,7 @@ export class AgentSessionDeletionOperationService
         sessionId: session.session,
         operationRunId: context.runId,
         attemptToken: context.attemptToken,
+        fallbackConsumedAttempts,
         enterEphemeralFinalization: () => context.enterEphemeralFinalization(),
       });
     } catch (error) {
@@ -72,8 +75,7 @@ export class AgentSessionDeletionOperationService
       result = {
         kind: 'retryable',
         code: 'SESSION_DELETION_INVARIANT',
-        consumedAttempts:
-          (AGENT_SESSION_DELETE_MAX_ATTEMPTS - context.maxAttempts) + context.attempts,
+        consumedAttempts: fallbackConsumedAttempts,
       };
     }
     if (result.kind === 'completed') return { kind: 'completed', result: {} };

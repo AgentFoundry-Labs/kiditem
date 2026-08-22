@@ -172,6 +172,9 @@ describe('OperationRunService', () => {
       input: { source: 'naver' },
     })).resolves.toBeNull();
     await expect(service.list({ organizationId: ORG_ID })).resolves.toEqual([]);
+    expect(repository.listRuns).toHaveBeenCalledWith(expect.objectContaining({
+      excludedOperationKeys: [ephemeralDefinition.key],
+    }));
     expect(await repository.findRunById({ organizationId: ORG_ID, runId: RUN_ID }))
       .toMatchObject({ status: 'queued' });
     expect(repository.findByIdempotencyKey).not.toHaveBeenCalled();
