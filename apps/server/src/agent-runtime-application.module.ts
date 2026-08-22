@@ -1,21 +1,18 @@
 import { Module } from '@nestjs/common';
-import { EventEmitterModule } from '@nestjs/event-emitter';
 import { AgentOsCapabilityModule } from './agent-os/agent-os-capability.module';
-import { AgentOsLegacyRunModule } from './agent-os/agent-os-legacy-run.module';
 import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
-import { AiAgentRuntimeModule } from './ai/ai-agent-runtime.module';
-import { PrismaModule } from './prisma/prisma.module';
-import { SourcingAgentShadowOperationModule } from './sourcing/sourcing-agent-shadow-operation.module';
+import { AGENT_OS_MCP_TOOL_EXECUTION_PORT } from './agent-os/application/port/in/capability/agent-os-mcp-tool-execution.port';
+import { AgentOsMcpToolExecutor } from './agent-os/application/service/agent-os-mcp-tool-executor.service';
 
 @Module({
-  imports: [
-    EventEmitterModule.forRoot(),
-    PrismaModule,
-    AgentOsSessionModule,
-    AgentOsCapabilityModule,
-    AgentOsLegacyRunModule,
-    SourcingAgentShadowOperationModule,
-    AiAgentRuntimeModule,
+  imports: [AgentOsSessionModule, AgentOsCapabilityModule],
+  providers: [
+    AgentOsMcpToolExecutor,
+    {
+      provide: AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+      useExisting: AgentOsMcpToolExecutor,
+    },
   ],
+  exports: [AGENT_OS_MCP_TOOL_EXECUTION_PORT],
 })
 export class AgentRuntimeApplicationModule {}

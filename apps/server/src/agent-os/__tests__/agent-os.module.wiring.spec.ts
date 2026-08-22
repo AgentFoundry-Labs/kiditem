@@ -361,6 +361,28 @@ describe("Agent OS artifact materialization composition", () => {
     );
   });
 
+  it("composes the MCP executor only from official controller-free session seams", () => {
+    const runtime = readFileSync(
+      resolve(__dirname, "..", "..", "agent-runtime-application.module.ts"),
+      "utf8",
+    );
+    const mcp = readFileSync(
+      resolve(__dirname, "..", "..", "agent-mcp-application.module.ts"),
+      "utf8",
+    );
+    const legacy = readFileSync(
+      resolve(__dirname, "..", "agent-os-legacy-run.module.ts"),
+      "utf8",
+    );
+    const roots = `${runtime}\n${mcp}`;
+    expect(roots).not.toMatch(
+      /AgentOsLegacyRunModule|Operations(?:Http)?Module|AgentOsApiExecutionModule|AgentOsHttpModule|AGENT_API_CAPABILITY_GRANT/,
+    );
+    expect(roots).not.toMatch(/Controller|APP_GUARD|INTERACTION_.*(?:SECRET|HMAC)/);
+    expect(legacy).not.toContain("AgentOsMcpToolExecutor");
+    expect(legacy).not.toContain("AGENT_OS_MCP_TOOL_EXECUTION_PORT");
+  });
+
   it("removes lifecycle key and maintenance composition from controller-free roots", () => {
     for (const path of [
       resolve(__dirname, "..", "agent-os-api-execution.module.ts"),

@@ -4,6 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AgentExecutionContextGraph,
   AgentExecutionContextRepositoryPort,
+  AgentRuntimeCredentialExecutionGraph,
 } from '../../../application/port/out/repository/agent-execution-context.repository.port';
 
 @Injectable()
@@ -110,6 +111,104 @@ export class PrismaAgentExecutionContextRepository
         payload: currentUserEvent.payload as Prisma.JsonValue,
       },
     } as AgentExecutionContextGraph;
+  }
+
+  async loadRuntimeCredentialExecutionGraph(input: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    attemptId: string;
+    startIntentId: string;
+    runtimeCredentialGeneration: number;
+  }): Promise<AgentRuntimeCredentialExecutionGraph | null> {
+    const execution = await this.prisma.agentExecution.findFirst({
+      where: {
+        id: input.executionId,
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        attempts: {
+          some: {
+            id: input.attemptId,
+            runtimeStartIntentId: input.startIntentId,
+            runtimeCredentialGeneration: input.runtimeCredentialGeneration,
+          },
+        },
+      },
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        sessionTaskId: true,
+        agentVersionId: true,
+        runtimeType: true,
+        status: true,
+        resourceRefs: true,
+        session: { select: { createdByUserId: true, lifecycle: true } },
+        sessionTask: { select: { status: true, assignedAgentVersionId: true } },
+        agentVersion: { select: { agentDefinitionKey: true, version: true } },
+        policySnapshot: { select: { agentVersionId: true, capabilityKeys: true } },
+        attempts: {
+          where: {
+            id: input.attemptId,
+            runtimeStartIntentId: input.startIntentId,
+            runtimeCredentialGeneration: input.runtimeCredentialGeneration,
+          },
+          select: {
+            id: true,
+            state: true,
+            runtimeType: true,
+            runtimeStartIntentId: true,
+            runtimeCredentialGeneration: true,
+            operationBindings: {
+              where: {
+                operationRun: {
+                  status: 'running',
+                },
+              },
+              select: {
+                operationRunId: true,
+                operationRun: { select: { status: true, attemptToken: true } },
+              },
+              orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            },
+          },
+        },
+      },
+    });
+    const attempt = execution?.attempts[0];
+    const binding = attempt?.operationBindings[0];
+    if (
+      !execution ||
+      execution.attempts.length !== 1 ||
+      !attempt ||
+      attempt.operationBindings.length !== 1 ||
+      !binding ||
+      attempt.runtimeType !== execution.runtimeType ||
+      execution.sessionTask.assignedAgentVersionId !== execution.agentVersionId ||
+      execution.policySnapshot.agentVersionId !== execution.agentVersionId
+    ) return null;
+
+    return {
+      organizationId: execution.organizationId,
+      userId: execution.session.createdByUserId,
+      sessionId: execution.sessionId,
+      sessionLifecycle: execution.session.lifecycle,
+      sessionTaskId: execution.sessionTaskId,
+      taskStatus: execution.sessionTask.status,
+      executionId: execution.id,
+      executionStatus: execution.status,
+      attemptId: attempt.id,
+      attemptState: attempt.state,
+      startIntentId: attempt.runtimeStartIntentId,
+      runtimeCredentialGeneration: attempt.runtimeCredentialGeneration,
+      operationRunId: binding.operationRunId,
+      operationStatus: binding.operationRun.status,
+      operationAttemptToken: binding.operationRun.attemptToken,
+      agentDefinitionKey: execution.agentVersion.agentDefinitionKey,
+      agentVersion: execution.agentVersion.version,
+      policyCapabilityKeys: execution.policySnapshot.capabilityKeys,
+      currentResourceRefs: execution.resourceRefs,
+    };
   }
 }
 

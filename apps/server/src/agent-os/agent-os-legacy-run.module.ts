@@ -20,7 +20,6 @@ import {
 } from "./application/port/in/legacy-run/legacy-agent-run.port";
 import { AGENT_RUNNER_PORT } from "./application/port/in/agent-runner.port";
 import { AGENT_API_CAPABILITY_GRANT_PORT } from "./application/port/in/capability/agent-api-capability-grant.port";
-import { AGENT_OS_MCP_TOOL_EXECUTION_PORT } from "./application/port/in/capability/agent-os-mcp-tool-execution.port";
 import { AGENT_OS_LIVE_READINESS_PORT } from "./application/port/out/cross-domain/agent-os-live-readiness.port";
 import { AGENT_LOG_STORE_PORT } from "./application/port/out/storage/agent-log-store.port";
 import { AGENT_MCP_SESSION_PORT } from "./application/port/out/runtime/agent-mcp-session.port";
@@ -30,7 +29,6 @@ import { AgentApprovalService } from "./application/service/agent-approval.servi
 import { AgentConversationService } from "./application/service/agent-conversation.service";
 import { AgentInteractionService } from "./application/service/agent-interaction.service";
 import { AgentObservabilityService } from "./application/service/agent-observability.service";
-import { AgentOsMcpToolExecutor } from "./application/service/agent-os-mcp-tool-executor.service";
 import { AgentPlanValidator } from "./application/service/agent-plan-validator.service";
 import { AgentRunCoordinator } from "./application/service/agent-run-coordinator.service";
 import { AgentRunExecutor } from "./application/service/agent-run-executor.service";
@@ -70,7 +68,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentRuntimeHandlerRegistry,
     AgentTaskDelegationService,
     AgentToolRouter,
-    AgentOsMcpToolExecutor,
     KidItemMcpToolRegistry,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
@@ -94,10 +91,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     {
       provide: AGENT_API_CAPABILITY_GRANT_PORT,
       useExisting: AgentApiCapabilityGrantService,
-    },
-    {
-      provide: AGENT_OS_MCP_TOOL_EXECUTION_PORT,
-      useExisting: AgentOsMcpToolExecutor,
     },
     { provide: LEGACY_AGENT_APPROVAL_PORT, useExisting: AgentApprovalService },
     {
@@ -124,7 +117,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentRuntimeHandlerRegistry,
     AgentTaskDelegationService,
     AgentToolRouter,
-    AgentOsMcpToolExecutor,
     OperatorDecisionExecutor,
     OperatorDecisionParser,
     AGENT_INTERACTION_PORT,
@@ -133,7 +125,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AGENT_MCP_SESSION_PORT,
     AGENT_OS_LIVE_READINESS_PORT,
     AGENT_API_CAPABILITY_GRANT_PORT,
-    AGENT_OS_MCP_TOOL_EXECUTION_PORT,
     LEGACY_AGENT_APPROVAL_PORT,
     LEGACY_AGENT_CONVERSATION_PORT,
     LEGACY_AGENT_RUN_GRAPH_PORT,

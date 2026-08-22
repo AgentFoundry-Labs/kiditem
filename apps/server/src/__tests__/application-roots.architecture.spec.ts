@@ -225,14 +225,9 @@ describe('application root topology', () => {
     ).toContain("from '../../../../agent-mcp-application.module'");
   });
 
-  it('keeps the retained manager handler while sourcing and supply use official capabilities', () => {
-    for (const root of [
-      AgentWorkerApplicationModule,
-      AgentMcpApplicationModule,
-    ]) {
-      const rootProviders = providers(root);
-      expect(rootProviders).toContain(OperatorRuntimeHandler);
-    }
+  it('keeps the legacy manager handler out of the official MCP root', () => {
+    expect(providers(AgentWorkerApplicationModule)).toContain(OperatorRuntimeHandler);
+    expect(providers(AgentMcpApplicationModule)).not.toContain(OperatorRuntimeHandler);
   });
 
   it('keeps the API-owned AI direct-job poller out of Agent process roots', () => {
@@ -267,7 +262,7 @@ describe('application root topology', () => {
     expect(mcpProviders).not.toContain(SourcingCollectionOperationAdapter);
   });
 
-  it('keeps Shadow collection direct ownership in API and uses only the strict API command in Agent roots', () => {
+  it('keeps Shadow collection direct ownership in API and out of the MCP root', () => {
     const apiProviders: ProviderLike[] =
       Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingShadowOperationModule) ?? [];
     const agentProviders: ProviderLike[] =
@@ -281,15 +276,17 @@ describe('application root topology', () => {
     expect(agentProviders).toContain(MarketShadowOperationApiCommandAdapter);
     expect(agentProviders).not.toContain(MarketShadowOperationAdapter);
 
-    for (const root of [AgentWorkerApplicationModule, AgentMcpApplicationModule]) {
-      const rootProviders = providers(root);
-      expect(rootProviders).toContain(MarketShadowOperationApiCommandAdapter);
+    const workerProviders = providers(AgentWorkerApplicationModule);
+    const mcpProviders = providers(AgentMcpApplicationModule);
+    for (const rootProviders of [workerProviders, mcpProviders]) {
       expect(rootProviders).not.toContain(MarketShadowOperationAdapter);
       expect(rootProviders).not.toContain(SourcingShadowSignalService);
       expect(rootProviders).not.toContain(GoogleTrendsRssAdapter);
       expect(rootProviders).not.toContain(LinkfoxEchotikShadowAdapter);
       expect(rootProviders).not.toContain(MarketShadowSnapshotRepositoryAdapter);
     }
+    expect(mcpProviders).not.toContain(MarketShadowOperationApiCommandAdapter);
+    expect(workerProviders).not.toContain(MarketShadowOperationApiCommandAdapter);
   });
 
   it('gives Nest lifecycle ownership only to the Operations server lifecycle service', () => {

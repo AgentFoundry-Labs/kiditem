@@ -34,16 +34,19 @@ worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
 MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
 ```
 
-`AgentRuntimeApplicationModule` is the shared controller-free runtime beneath
-the worker and MCP roots. Agent OS composes controller-free catalog,
-capability, and session modules behind its small facade; its temporary
-`AgentOsLegacyRunModule` quarantines the retained generic AgentRun lane.
+`AgentRuntimeApplicationModule` is the controller-free official runtime beneath
+the MCP root. It composes only official session/capability providers and the
+credential-fenced MCP executor; it does not import the temporary
+`AgentOsLegacyRunModule`, Operations, HTTP wrappers, grants, or interaction
+secrets. `AgentOsLegacyRunModule` continues to quarantine the retained generic
+AgentRun lane for the separate worker while migration is in progress.
 `AgentOsHttpModule` is the only Agent OS HTTP/controller, gateway-secret, and
 Operations-backed interaction wrapper, while `AgentOsWorkerModule` owns only
-the legacy worker wrapper. Sourcing,
-Supply, and AI publish controller-free Agent runtime modules; only the API-side
-Sourcing collection binding imports Operations. The MCP-side binding sends a
-strict bounded command back to the API with a two-minute HMAC grant.
+the legacy worker wrapper. The MCP process derives every identity from an
+already-issued runtime credential and its exact persisted session execution and
+Operation binding. It exposes only `agent_os_read_context` plus policy-
+registered read-only capabilities; it cannot create AgentRuns, Operations, or
+owner state.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. The Agent worker is a

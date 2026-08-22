@@ -1,15 +1,7 @@
 export const AGENT_OS_MCP_TOOL_EXECUTION_PORT = Symbol('AGENT_OS_MCP_TOOL_EXECUTION_PORT');
 
 export interface AgentOsMcpExecutionContextPort {
-  organizationId: string;
-  conversationId: string;
-  requestId: string;
-  runId: string;
-  agentInstanceId: string;
-  agentType: string;
-  playbookKey: string | null;
-  planStepKey: string | null;
-  requestedByUserId?: string | null;
+  credential: string;
 }
 
 export interface AgentOsMcpToolExecutionPort {
@@ -18,5 +10,7 @@ export interface AgentOsMcpToolExecutionPort {
     toolName: string;
     arguments: Record<string, unknown>;
   }): Promise<unknown>;
-  listAvailableTools(context: AgentOsMcpExecutionContextPort): Array<{ name: string }>;
+  listAvailableTools(
+    context: AgentOsMcpExecutionContextPort,
+  ): Promise<Array<{ name: string }>>;
 }

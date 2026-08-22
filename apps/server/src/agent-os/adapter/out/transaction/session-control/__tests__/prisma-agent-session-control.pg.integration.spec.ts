@@ -174,6 +174,58 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).rejects.toMatchObject({ code: 'AGENT_RUNTIME_START_INTENT_CONFLICT' });
   });
 
+  it('recreates the exact MCP credential context only from its active persisted operation binding', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'mcp-context');
+    const startIntentId = '20000000-0000-4000-8000-000000000022';
+    const operation = await prisma!.operationRun.findUniqueOrThrow({
+      where: { id: owned.operationRunId },
+      select: { attemptToken: true },
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: owned.operationRunId,
+    });
+    const credential = await repository.persistRuntimeStartIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: owned.attemptId,
+      operationRunId: owned.operationRunId,
+      attemptToken: operation.attemptToken,
+      runtimeType: 'copilotkit_agui',
+      startIntentId,
+    });
+    await prisma!.operationRun.update({
+      where: { id: owned.operationRunId }, data: { status: 'running' },
+    });
+    const contexts = new PrismaAgentExecutionContextRepository(prisma as never);
+    const exact = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: owned.attemptId,
+      startIntentId,
+      runtimeCredentialGeneration: credential.runtimeCredentialGeneration,
+    };
+    await expect(contexts.loadRuntimeCredentialExecutionGraph(exact)).resolves.toMatchObject({
+      sessionTaskId: fixture.taskId,
+      operationRunId: owned.operationRunId,
+      attemptState: 'running',
+      operationStatus: 'running',
+    });
+    await expect(contexts.loadRuntimeCredentialExecutionGraph({
+      ...exact,
+      startIntentId: '20000000-0000-4000-8000-000000000023',
+    })).resolves.toBeNull();
+    await prisma!.operationRun.update({
+      where: { id: owned.operationRunId }, data: { status: 'cancelled' },
+    });
+    await expect(contexts.loadRuntimeCredentialExecutionGraph(exact)).resolves.toBeNull();
+  });
+
   it('rolls back every row when ownership cannot use the scoped session', async () => {
     const fixture = await createRootGraph();
     const foreignSession = await createRootGraph({

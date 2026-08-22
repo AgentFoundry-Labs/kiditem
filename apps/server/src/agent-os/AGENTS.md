@@ -164,6 +164,13 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Interaction analytics is metadata-only and non-authoritative. Never emit
   messages/model output, resource names, dashboard payloads, credentials,
   cookies, tokens, or raw organization/user identifiers.
+- MCP is an official-runtime child only: it accepts exactly one
+  `KIDITEM_RUNTIME_CREDENTIAL`, reconstructs its organization/actor/session/
+  task/execution/attempt/Operation binding from persisted authority, and never
+  accepts caller-provided lineage. Its only control tool is bounded context
+  read; policy-registered capabilities must be read-only and invoke the
+  official session capability port. MCP roots do not compose legacy AgentRun,
+  Operations, HTTP/guards, API grants, or interaction secrets.
 - A production application or adapter file over 700 lines is a non-blocking
   responsibility/cohesion review smell, not an architecture violation. Split
   only at a real capability, transaction, or adapter seam; do not accumulate
