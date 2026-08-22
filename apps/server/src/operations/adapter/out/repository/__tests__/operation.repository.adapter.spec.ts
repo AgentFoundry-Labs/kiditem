@@ -10,6 +10,10 @@ const RUN_ID = 'c2e779aa-f5bf-42c2-91f2-dc10be211c71';
 const CHILD_ID = 'c3e779aa-f5bf-42c2-91f2-dc10be211c71';
 const ATTEMPT_TOKEN = 'ced54820-ab09-4f4b-864c-2a3f873bb24d';
 const NOW = new Date('2026-08-13T01:02:03.000Z');
+const LIFECYCLE_CUTOFF = {
+  observedAt: NOW,
+  rawTimestamp: '2026-08-13 01:02:03.987654+00',
+};
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;
@@ -969,6 +973,21 @@ describe('OperationRepositoryAdapter lifecycle database boundary', () => {
     );
   });
 
+  it('reads one raw PostgreSQL cutoff alongside its JavaScript observation', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{
+      observed_at: NOW,
+      raw_timestamp: LIFECYCLE_CUTOFF.rawTimestamp,
+    }]);
+    const repository = new OperationRepositoryAdapter({ $queryRaw: queryRaw } as never);
+
+    await expect(repository.readLifecycleDatabaseCutoff()).resolves.toEqual(
+      LIFECYCLE_CUTOFF,
+    );
+    expect(sqlText(queryRaw.mock.calls[0]?.[0])).toContain(
+      'observed_at::text AS raw_timestamp',
+    );
+  });
+
   it('cancels every owner domain in the four active statuses through one bounded transaction', async () => {
     const transaction = {
       $queryRaw: vi.fn()
@@ -983,7 +1002,7 @@ describe('OperationRepositoryAdapter lifecycle database boundary', () => {
     const errorMessage = 'API process lifecycle expired';
 
     await expect(repository.cancelRunsForLifecycle({
-      cutoff: NOW,
+      cutoff: LIFECYCLE_CUTOFF,
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage,
       finishedAt: NOW,
@@ -1005,7 +1024,7 @@ describe('OperationRepositoryAdapter lifecycle database boundary', () => {
     expect(selectSql).not.toContain('owner_domain');
     expect(selectSql).toContain('FOR UPDATE SKIP LOCKED');
     expect(selectSql).toContain('LIMIT');
-    expect(selectCall).toContain(NOW);
+    expect(selectCall).toContain(LIFECYCLE_CUTOFF.rawTimestamp);
     expect(selectCall).toContain(100);
 
     const updateCall = transaction.$executeRaw.mock.calls[0] ?? [];
@@ -1083,7 +1102,7 @@ describe('OperationRepositoryAdapter lifecycle database boundary', () => {
     } as never);
 
     await expect(repository.cancelRunsForLifecycle({
-      cutoff: NOW,
+      cutoff: LIFECYCLE_CUTOFF,
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage: 'Expired lifecycle',
       finishedAt: NOW,
@@ -1104,7 +1123,7 @@ describe('OperationRepositoryAdapter lifecycle database boundary', () => {
     } as never);
 
     await expect(repository.cancelRunsForLifecycle({
-      cutoff: NOW,
+      cutoff: LIFECYCLE_CUTOFF,
       errorCode: 'operation_server_shutdown',
       errorMessage: 'API server shutdown',
       finishedAt: NOW,
@@ -1148,7 +1167,7 @@ describe('OperationRepositoryAdapter lifecycle schedule boundary', () => {
     } as never);
 
     await expect(repository.advanceSchedulesPastLifecycleCutoff({
-      cutoff: NOW,
+      cutoff: LIFECYCLE_CUTOFF,
       limit: 100,
       statementTimeoutMs: 250,
     })).resolves.toEqual({ updated: 2, remaining: false });
@@ -1190,7 +1209,7 @@ describe('OperationRepositoryAdapter lifecycle schedule boundary', () => {
     } as never);
 
     await expect(repository.advanceSchedulesPastLifecycleCutoff({
-      cutoff: NOW,
+      cutoff: LIFECYCLE_CUTOFF,
       limit: 100,
       statementTimeoutMs: 100,
     })).rejects.toThrow('operation_lifecycle_remaining_invalid');

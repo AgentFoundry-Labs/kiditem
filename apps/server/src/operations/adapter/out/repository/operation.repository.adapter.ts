@@ -16,6 +16,7 @@ import {
   cancelOperationRunsForLifecycle,
   claimNextServerRun,
   expireServerRunsPastDeadline,
+  readOperationLifecycleDatabaseCutoff,
   readOperationLifecycleDatabaseTime,
   transitionActiveServerAttempt,
 } from './operation-execution.repository';
@@ -30,6 +31,7 @@ import type {
   OperationActiveAttemptTransition,
   OperationCompositeCancellationResult,
   OperationLifecycleBatchResult,
+  OperationLifecycleCutoff,
   OperationRunRecord,
   OperationRunRepositoryPort,
   OperationRunTransition,
@@ -783,8 +785,12 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
     return readOperationLifecycleDatabaseTime(this.prisma);
   }
 
+  readLifecycleDatabaseCutoff(): Promise<OperationLifecycleCutoff> {
+    return readOperationLifecycleDatabaseCutoff(this.prisma);
+  }
+
   cancelRunsForLifecycle(input: {
-    cutoff: Date | null;
+    cutoff: OperationLifecycleCutoff | null;
     errorCode:
       | 'operation_server_shutdown'
       | 'operation_server_lifecycle_expired';
@@ -797,7 +803,7 @@ export class OperationRepositoryAdapter implements OperationRunRepositoryPort {
   }
 
   advanceSchedulesPastLifecycleCutoff(input: {
-    cutoff: Date;
+    cutoff: OperationLifecycleCutoff;
     limit: number;
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult> {

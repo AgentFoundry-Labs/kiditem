@@ -61,7 +61,7 @@ export class OperationServerLifecycleService
     try {
       const cutoff = await this.withinStartupBudget(
         startup.signal,
-        this.repository.readLifecycleDatabaseTime(),
+        this.repository.readLifecycleDatabaseCutoff(),
       );
       await this.drainBatches(
         startup.deadline,
@@ -69,7 +69,7 @@ export class OperationServerLifecycleService
           cutoff,
           errorCode: 'operation_server_lifecycle_expired',
           errorMessage: STARTUP_ERROR_MESSAGE,
-          finishedAt: cutoff,
+          finishedAt: cutoff.observedAt,
           limit: this.options.batchSize,
           statementTimeoutMs,
         }),

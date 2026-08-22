@@ -220,9 +220,9 @@ describe('operation server lifecycle PostgreSQL integration', () => {
     const gate = new OperationLifecycleGateService();
     const service = lifecycle(repository, gate, runtimes);
 
-    const cutoff = await repository.readLifecycleDatabaseTime();
+    const cutoff = await repository.readLifecycleDatabaseCutoff();
     const cutoffSpy = vi
-      .spyOn(repository, 'readLifecycleDatabaseTime')
+      .spyOn(repository, 'readLifecycleDatabaseCutoff')
       .mockResolvedValueOnce(cutoff);
     await service.onApplicationBootstrap();
 
@@ -254,7 +254,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
       expect(run).toMatchObject({
         status: 'cancelled',
         errorCode: 'operation_server_lifecycle_expired',
-        finishedAt: cutoff,
+        finishedAt: cutoff.observedAt,
         attempts: 2,
         startedAt,
         claimedBy: null,
@@ -270,7 +270,7 @@ describe('operation server lifecycle PostgreSQL integration', () => {
     });
     expect(advanced).toHaveLength(2);
     for (const schedule of advanced) {
-      expect(schedule.nextRunAt.getTime()).toBeGreaterThan(cutoff.getTime());
+      expect(schedule.nextRunAt.getTime()).toBeGreaterThan(cutoff.observedAt.getTime());
       expect(schedule.lastScheduledFor).toEqual(lastScheduledFor);
     }
     expect(await locker.operationRun.count()).toBe(

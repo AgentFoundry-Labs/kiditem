@@ -5,6 +5,10 @@ import { OperationPostAcceptingHookRegistryService } from '../operation-post-acc
 import { OperationServerLifecycleService } from '../operation-server-lifecycle.service';
 
 const STARTED_AT = new Date('2026-08-13T01:02:03.000Z');
+const STARTED_CUTOFF = {
+  observedAt: STARTED_AT,
+  rawTimestamp: '2026-08-13 01:02:03+00',
+};
 const OPTIONS = {
   batchSize: 100,
   startupTimeoutMs: 30_000,
@@ -14,7 +18,7 @@ const OPTIONS = {
 function makeDependencies() {
   const events: string[] = [];
   const repository = {
-    readLifecycleDatabaseTime: vi.fn().mockResolvedValue(STARTED_AT),
+    readLifecycleDatabaseCutoff: vi.fn().mockResolvedValue(STARTED_CUTOFF),
     cancelRunsForLifecycle: vi.fn().mockImplementation(async (input: {
       errorCode: string;
     }) => {
@@ -259,7 +263,7 @@ describe('OperationServerLifecycleService startup', () => {
     ]);
     expect(dependencies.gate.state()).toBe('ACCEPTING');
     expect(dependencies.repository.cancelRunsForLifecycle).toHaveBeenCalledWith({
-      cutoff: STARTED_AT,
+      cutoff: STARTED_CUTOFF,
       errorCode: 'operation_server_lifecycle_expired',
       errorMessage: 'Operation cancelled because its API server lifecycle expired',
       finishedAt: STARTED_AT,
@@ -268,7 +272,7 @@ describe('OperationServerLifecycleService startup', () => {
     });
     expect(dependencies.repository.advanceSchedulesPastLifecycleCutoff)
       .toHaveBeenCalledWith({
-        cutoff: STARTED_AT,
+        cutoff: STARTED_CUTOFF,
         limit: 100,
         statementTimeoutMs: 30_000,
       });
@@ -286,6 +290,11 @@ describe('OperationServerLifecycleService startup', () => {
     await bootstrap;
 
     expect(dependencies.repository.cancelRunsForLifecycle).toHaveBeenCalledTimes(2);
+    expect(dependencies.repository.cancelRunsForLifecycle.mock.calls.map(
+      ([input]) => input.cutoff,
+    )).toEqual([STARTED_CUTOFF, STARTED_CUTOFF]);
+    expect(dependencies.repository.advanceSchedulesPastLifecycleCutoff)
+      .toHaveBeenCalledWith(expect.objectContaining({ cutoff: STARTED_CUTOFF }));
     expect(dependencies.repository.cancelRunsForLifecycle.mock.calls[1]?.[0])
       .toMatchObject({ statementTimeoutMs: 29_990 });
     expect(dependencies.gate.state()).toBe('ACCEPTING');
@@ -335,8 +344,8 @@ describe('OperationServerLifecycleService startup', () => {
 
   it('fails closed when reading the database cutoff consumes the shared startup deadline', async () => {
     const dependencies = makeDependencies();
-    dependencies.repository.readLifecycleDatabaseTime.mockReturnValue(
-      new Promise<Date>(() => undefined),
+    dependencies.repository.readLifecycleDatabaseCutoff.mockReturnValue(
+      new Promise<typeof STARTED_CUTOFF>(() => undefined),
     );
     const lifecycle = makeLifecycle(dependencies, {
       ...OPTIONS,

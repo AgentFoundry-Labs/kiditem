@@ -9,6 +9,7 @@ import type { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   OperationActiveAttemptTransition,
   OperationLifecycleBatchResult,
+  OperationLifecycleCutoff,
 } from '../../../application/port/out/repository/operation.repository.port';
 import { nextOccurrence } from '../../../application/service/operation-schedule-clock';
 
@@ -192,10 +193,39 @@ export async function readOperationLifecycleDatabaseTime(
   return databaseTime;
 }
 
+export async function readOperationLifecycleDatabaseCutoff(
+  prisma: PrismaService,
+): Promise<OperationLifecycleCutoff> {
+  const rows = await prisma.$queryRaw<Array<{
+    observed_at: Date;
+    raw_timestamp: string;
+  }>>`
+    -- queryraw-tenancy-exempt: database clock only
+    WITH database_clock AS (
+      SELECT clock_timestamp() AS observed_at
+    )
+    SELECT observed_at, observed_at::text AS raw_timestamp
+    FROM database_clock
+  `;
+  const cutoff = rows[0];
+  if (
+    !(cutoff?.observed_at instanceof Date) ||
+    !Number.isFinite(cutoff.observed_at.getTime()) ||
+    typeof cutoff.raw_timestamp !== 'string' ||
+    !Number.isFinite(Date.parse(cutoff.raw_timestamp))
+  ) {
+    throw new Error('operation_lifecycle_database_time_invalid');
+  }
+  return {
+    observedAt: cutoff.observed_at,
+    rawTimestamp: cutoff.raw_timestamp,
+  };
+}
+
 export async function cancelOperationRunsForLifecycle(
   prisma: PrismaService,
   input: {
-    cutoff: Date | null;
+    cutoff: OperationLifecycleCutoff | null;
     errorCode:
       | 'operation_server_shutdown'
       | 'operation_server_lifecycle_expired';
@@ -238,7 +268,7 @@ export async function cancelOperationRunsForLifecycle(
           SELECT id, organization_id
           FROM operation_runs
           WHERE status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')
-            AND created_at <= ${input.cutoff}
+            AND created_at <= ${input.cutoff.rawTimestamp}::timestamptz
           ORDER BY created_at ASC, id ASC
           FOR UPDATE SKIP LOCKED
           LIMIT ${input.limit}
@@ -276,7 +306,7 @@ export async function cancelOperationRunsForLifecycle(
             WHERE id = ${candidate.id}::uuid
               AND organization_id = ${candidate.organization_id}::uuid
               AND status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')
-              AND created_at <= ${input.cutoff}
+              AND created_at <= ${input.cutoff.rawTimestamp}::timestamptz
           `;
     }
 
@@ -293,7 +323,7 @@ export async function cancelOperationRunsForLifecycle(
             SELECT organization_id
             FROM operation_runs
             WHERE status IN ('queued', 'waiting_runtime', 'waiting_dependency', 'running')
-              AND created_at <= ${input.cutoff}
+              AND created_at <= ${input.cutoff.rawTimestamp}::timestamptz
           ) AS remaining
         `;
     return { updated, remaining: readRemaining(remainingRows) };
@@ -303,7 +333,7 @@ export async function cancelOperationRunsForLifecycle(
 export async function advanceOperationSchedulesPastLifecycleCutoff(
   prisma: PrismaService,
   input: {
-    cutoff: Date;
+    cutoff: OperationLifecycleCutoff;
     limit: number;
     statementTimeoutMs: number;
   },
@@ -323,7 +353,7 @@ export async function advanceOperationSchedulesPastLifecycleCutoff(
       FROM operation_schedules
       WHERE enabled = TRUE
         AND next_run_at IS NOT NULL
-        AND next_run_at <= ${input.cutoff}
+        AND next_run_at <= ${input.cutoff.rawTimestamp}::timestamptz
       ORDER BY next_run_at ASC, created_at ASC, id ASC
       FOR UPDATE SKIP LOCKED
       LIMIT ${input.limit}
@@ -334,7 +364,7 @@ export async function advanceOperationSchedulesPastLifecycleCutoff(
       const nextRunAt = nextOccurrence(
         candidate.cron_expression,
         candidate.time_zone,
-        input.cutoff,
+        input.cutoff.observedAt,
       );
       updated += await transaction.$executeRaw`
         UPDATE operation_schedules
@@ -355,7 +385,7 @@ export async function advanceOperationSchedulesPastLifecycleCutoff(
         FROM operation_schedules
         WHERE enabled = TRUE
           AND next_run_at IS NOT NULL
-          AND next_run_at <= ${input.cutoff}
+          AND next_run_at <= ${input.cutoff.rawTimestamp}::timestamptz
       ) AS remaining
     `;
     return { updated, remaining: readRemaining(remainingRows) };

@@ -176,6 +176,16 @@ export interface OperationLifecycleBatchResult {
   remaining: boolean;
 }
 
+/**
+ * One PostgreSQL clock observation used for the entire startup lifecycle
+ * sweep. `rawTimestamp` remains parameterized as timestamptz so the
+ * microseconds PostgreSQL observed are never truncated through JavaScript.
+ */
+export interface OperationLifecycleCutoff {
+  observedAt: Date;
+  rawTimestamp: string;
+}
+
 export interface OperationCompositeCancellationResult {
   parent: OperationRunRecord;
   children: OperationRunRecord[];
@@ -280,8 +290,9 @@ export interface OperationRunRepositoryPort {
     signal: AbortSignal;
   }): Promise<OperationRunRecord | null>;
   readLifecycleDatabaseTime(): Promise<Date>;
+  readLifecycleDatabaseCutoff(): Promise<OperationLifecycleCutoff>;
   cancelRunsForLifecycle(input: {
-    cutoff: Date | null;
+    cutoff: OperationLifecycleCutoff | null;
     errorCode:
       | 'operation_server_shutdown'
       | 'operation_server_lifecycle_expired';
@@ -291,7 +302,7 @@ export interface OperationRunRepositoryPort {
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult>;
   advanceSchedulesPastLifecycleCutoff(input: {
-    cutoff: Date;
+    cutoff: OperationLifecycleCutoff;
     limit: number;
     statementTimeoutMs: number;
   }): Promise<OperationLifecycleBatchResult>;
