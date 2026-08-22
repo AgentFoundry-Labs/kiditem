@@ -23,6 +23,7 @@ export class OperationsAgentSessionOwnedOperationControlAdapter implements Agent
         runs: input.runs,
         reason: "agent_session_deleting",
       });
+      if (input.signal.aborted) throw input.signal.reason;
       if (
         fenced.length !== input.runs.length ||
         fenced.some((result, index) => {

@@ -149,4 +149,28 @@ describe("AgentSessionDeletionExecutionService", () => {
 
     await expect(service.execute({ ...input, signal: controller.signal })).rejects.toBe(abortReason);
   });
+
+  it("propagates the exact abort reason when operation control resolves after cancellation", async () => {
+    const controller = new AbortController();
+    const abortReason = new Error("caller_cancelled_after_operation_control");
+    const transaction = {
+      loadFencedSnapshot: vi.fn().mockResolvedValue(ready({
+        retryGeneration: 1, consumedAttempts: 2, runtimeAttempts: [], operationRuns: [], operationRunIds: [],
+        artifacts: [], closureDigest: "digest",
+      })),
+      terminalizeOwnedRun: vi.fn(),
+    };
+    const service = new AgentSessionDeletionExecutionService(
+      transaction as never,
+      { fenceAndCancel: vi.fn(async () => {
+        controller.abort(abortReason);
+        return { state: "unknown", code: "SESSION_OPERATION_OWNERSHIP_INVALID" };
+      }) } as never,
+      { cleanup: vi.fn() } as never,
+      { beginFence: vi.fn(), confirmFenced: vi.fn() } as never,
+      { abortEraseAndConfirm: vi.fn() } as never,
+    );
+
+    await expect(service.execute({ ...input, signal: controller.signal })).rejects.toBe(abortReason);
+  });
 });

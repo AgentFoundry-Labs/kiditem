@@ -488,6 +488,52 @@ describe('OperationRunService', () => {
     }
   });
 
+  it('propagates the exact abort reason when native exact-run cancellation aborts', async () => {
+    const controller = new AbortController();
+    const abortReason = new Error('session_deletion_cancelled');
+    const nativeRun = makeRecord({
+      status: 'running',
+      attemptToken: 'ced54820-ab09-4f4b-864c-2a3f873bb24d',
+      nativeRunType: 'browser',
+      nativeRunId: 'native-abort-run',
+    });
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, {
+      ...handler,
+      cancel: vi.fn(async () => {
+        controller.abort(abortReason);
+      }),
+      fenceExternalAuthority: vi.fn().mockResolvedValue('fenced'),
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(nativeRun);
+    repository.transition = vi.fn().mockResolvedValue({
+      ...nativeRun,
+      status: 'cancelled',
+      attemptToken: null,
+      claimedBy: null,
+      claimedAt: null,
+      leaseExpiresAt: null,
+    });
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.fenceAndCancel({
+      signal: controller.signal,
+      organizationId: ORG_ID,
+      reason: 'session_deleting',
+      runs: [{
+        runId: nativeRun.id,
+        operationKey: definition.key,
+        expectedAttemptToken: nativeRun.attemptToken,
+      }],
+    })).rejects.toBe(abortReason);
+  });
+
   it('returns terminal for a non-native terminal row with an exact token', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

@@ -306,6 +306,7 @@ export class OperationRunService
       }
       return { runId: requested.runId, state: 'fenced', ...coordinates };
     } catch {
+      if (input.signal.aborted) throw input.signal.reason;
       return {
         runId: requested.runId,
         state: 'unknown',

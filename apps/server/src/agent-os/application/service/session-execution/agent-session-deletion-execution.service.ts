@@ -144,7 +144,9 @@ export class AgentSessionDeletionExecutionService implements AgentSessionDeletio
   ): Promise<SettledDeletionAction<T>> {
     try {
       signal.throwIfAborted();
-      return { kind: 'value', value: await action() };
+      const value = await action();
+      if (signal.aborted) throw signal.reason;
+      return { kind: 'value', value };
     } catch (error) {
       if (signal.aborted) throw signal.reason;
       return retry(classifyDeletionFailure(error), consumedAttempts);
