@@ -383,6 +383,21 @@ describe("Agent OS artifact materialization composition", () => {
     expect(legacy).not.toContain("AGENT_OS_MCP_TOOL_EXECUTION_PORT");
   });
 
+  it('keeps legacy generic runs free of capability grants and MCP child attachment', () => {
+    const legacy = readFileSync(
+      resolve(__dirname, '..', 'agent-os-legacy-run.module.ts'),
+      'utf8',
+    );
+    const localCli = readFileSync(
+      resolve(__dirname, '..', 'adapter/out/runtime/agent-local-cli-runtime.adapter.ts'),
+      'utf8',
+    );
+
+    expect(legacy).not.toMatch(/AGENT_(?:API_CAPABILITY_GRANT|MCP_SESSION)_PORT/);
+    expect(legacy).not.toMatch(/AgentApiCapabilityGrantService|KidItemMcpSessionAdapter/);
+    expect(localCli).not.toMatch(/AGENT_MCP_SESSION_PORT|KidItemMcpSessionAdapter/);
+  });
+
   it("removes lifecycle key and maintenance composition from controller-free roots", () => {
     for (const path of [
       resolve(__dirname, "..", "agent-os-api-execution.module.ts"),

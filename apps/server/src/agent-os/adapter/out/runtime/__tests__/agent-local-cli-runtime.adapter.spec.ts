@@ -13,8 +13,6 @@ vi.mock('node:child_process', () => ({
 
 import {
   AgentLocalCliRuntimeAdapter,
-  claudeMcpConfig,
-  codexMcpConfigOverrides,
   readBoundedOutputFile,
   verifyAgentLocalCliAnswer,
   type AgentLocalCliAnswer,
@@ -125,15 +123,6 @@ function resolvedAssets() {
   };
 }
 
-function mcpDescriptor() {
-  return {
-    name: 'kiditem',
-    command: 'node',
-    args: ['mcp-server.js'],
-    env: {},
-  };
-}
-
 function childProcess(pid: number) {
   const child = new EventEmitter() as EventEmitter & {
     pid: number;
@@ -177,13 +166,9 @@ function runtimeHarness(provider: 'codex_cli' | 'claude_cli', timeoutMs: number)
   });
   const repository = lifecycleRepository();
   const assets = { resolve: vi.fn().mockResolvedValue(resolvedAssets()) };
-  const mcpSessions = {
-    prepare: vi.fn().mockResolvedValue(mcpDescriptor()),
-  };
   const adapter = new AgentLocalCliRuntimeAdapter(
     repository as never,
     assets as never,
-    mcpSessions as never,
     processes,
   );
   return {
@@ -221,18 +206,14 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
     });
     const repository = lifecycleRepository();
     const assets = {
-      resolve: vi.fn().mockResolvedValue(resolvedAssets()),
-    };
-    const mcpSessions = {
-      prepare: vi.fn().mockImplementation(async () => {
+      resolve: vi.fn().mockImplementation(async () => {
         await processes.cancel('run-1', 'user_cancelled');
-        return mcpDescriptor();
+        return resolvedAssets();
       }),
     };
     const adapter = new AgentLocalCliRuntimeAdapter(
       repository as never,
       assets as never,
-      mcpSessions as never,
       processes,
     );
 
@@ -260,13 +241,9 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
       runStatus: 'cancelled',
     });
     const assets = { resolve: vi.fn().mockResolvedValue(resolvedAssets()) };
-    const mcpSessions = {
-      prepare: vi.fn().mockResolvedValue(mcpDescriptor()),
-    };
     const adapter = new AgentLocalCliRuntimeAdapter(
       repository as never,
       assets as never,
-      mcpSessions as never,
       processes,
     );
 
@@ -283,7 +260,6 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
       runId: 'run-1',
     });
     expect(assets.resolve).not.toHaveBeenCalled();
-    expect(mcpSessions.prepare).not.toHaveBeenCalled();
     expect(spawnMock).not.toHaveBeenCalled();
     expect(processes.reasonFor('run-1')).toBeNull();
   });
@@ -376,37 +352,6 @@ describe('AgentLocalCliRuntimeAdapter verification', () => {
     await expect(access(runDirectory!)).rejects.toThrow();
     const release = await processes.acquire('run-2');
     release();
-  });
-
-  it('keeps the MCP child isolated from the operator home in both CLI configs', () => {
-    const descriptor = {
-      name: 'kiditem' as const,
-      command: 'node',
-      args: ['mcp-server.js'],
-      env: {
-        HOME: '/tmp/kiditem-run/mcp-home',
-        CODEX_HOME: '/tmp/kiditem-run/mcp-home',
-      },
-    };
-
-    const claudeConfig = claudeMcpConfig(descriptor);
-    const codexOverrides = codexMcpConfigOverrides(descriptor);
-
-    expect(claudeConfig.mcpServers.kiditem.env).toMatchObject({
-      HOME: '/tmp/kiditem-run/mcp-home',
-      CODEX_HOME: '/tmp/kiditem-run/mcp-home',
-    });
-    expect(codexOverrides).toContain(
-      'mcp_servers.kiditem.env.HOME="/tmp/kiditem-run/mcp-home"',
-    );
-    expect(codexOverrides).toContain(
-      'mcp_servers.kiditem.env.CODEX_HOME="/tmp/kiditem-run/mcp-home"',
-    );
-    expect(codexOverrides).toContain(
-      'mcp_servers.kiditem.default_tools_approval_mode="approve"',
-    );
-    expect(JSON.stringify(claudeConfig)).not.toContain('/Users/operator');
-    expect(codexOverrides.join('\n')).not.toContain('/Users/operator');
   });
 
   it('rejects an oversized final output file before parsing it', async () => {

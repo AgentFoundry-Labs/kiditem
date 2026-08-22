@@ -86,7 +86,6 @@ Also confirm the intended runtime settings before starting collection:
 | OPERATION_SCHEDULER_ENABLED | Set to 1 only for reviewed schedules; it does not make a disabled schedule active. |
 | OPERATION_RUN_LEASE_MS | Positive. Browser heartbeats occur at least once per one-third of this lease. |
 | SOURCING_PLAYWRIGHT_CDP_ENDPOINT | Required for the version-2 1688 keyword domain Operation. It accepts `http`, `https`, `ws`, or `wss`; the initial Office value is `http://kiditem-office:9444`. Image matching remains AlphaShop HTTP and opens no browser tab. |
-| API_SELF_URL and AGENT_API_CAPABILITY_GRANT_SECRET | Required only for bounded Agent-to-API sourcing commands. The grant stays in API/Agent parent env and never in browser/MCP child logs. |
 
 ## Lifecycle And Process Ownership
 

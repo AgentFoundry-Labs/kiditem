@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { APP_GUARD } from '@nestjs/core';
 import { MODULE_METADATA } from '@nestjs/common/constants';
@@ -23,15 +23,9 @@ import {
 } from '../operations/application/service/operation-server-lifecycle.service';
 import { OperatorRuntimeHandler } from '../agent-os/adapter/out/runtime/operator-runtime.handler';
 import { SourcingAgentApiCollectionModule } from '../sourcing/sourcing-agent-api-collection.module';
-import { SourcingAgentMcpCollectionModule } from '../sourcing/sourcing-agent-mcp-collection.module';
-import { SourcingAgentShadowOperationModule } from '../sourcing/sourcing-agent-shadow-operation.module';
 import { SourcingShadowOperationModule } from '../sourcing/sourcing-shadow-operation.module';
-import { InternalSourcingCollectionController } from '../sourcing/adapter/in/http/internal-sourcing-collection.controller';
-import { InternalMarketShadowOperationController } from '../sourcing/adapter/in/http/internal-market-shadow-operation.controller';
 import { SourcingCollectionOperationAdapter } from '../sourcing/adapter/out/operations/sourcing-collection-operation.adapter';
-import { SourcingCollectionApiCommandAdapter } from '../sourcing/adapter/out/http/sourcing-collection-api-command.adapter';
 import { MarketShadowOperationAdapter } from '../sourcing/adapter/out/operations/market-shadow-operation.adapter';
-import { MarketShadowOperationApiCommandAdapter } from '../sourcing/adapter/out/http/market-shadow-operation-api-command.adapter';
 import { SourcingShadowSignalService } from '../sourcing/application/service/sourcing-shadow-signal.service';
 import { GoogleTrendsRssAdapter } from '../sourcing/adapter/out/google-trends/google-trends-rss.adapter';
 import { LinkfoxEchotikShadowAdapter } from '../sourcing/adapter/out/linkfox/linkfox-echotik-shadow.adapter';
@@ -243,38 +237,25 @@ describe('application root topology', () => {
     }
   });
 
-  it('binds collection directly only in API and over HTTP only in MCP', () => {
+  it('keeps collection direct ownership controller-free in the API composition', () => {
     const apiProviders: ProviderLike[] =
       Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingAgentApiCollectionModule) ?? [];
-    const mcpProviders: ProviderLike[] =
-      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingAgentMcpCollectionModule) ?? [];
     expect(Reflect.getMetadata(
       MODULE_METADATA.CONTROLLERS,
       SourcingAgentApiCollectionModule,
-    )).toEqual([InternalSourcingCollectionController]);
-    expect(Reflect.getMetadata(
-      MODULE_METADATA.CONTROLLERS,
-      SourcingAgentMcpCollectionModule,
     ) ?? []).toEqual([]);
     expect(apiProviders).toContain(SourcingCollectionOperationAdapter);
-    expect(apiProviders).not.toContain(SourcingCollectionApiCommandAdapter);
-    expect(mcpProviders).toContain(SourcingCollectionApiCommandAdapter);
-    expect(mcpProviders).not.toContain(SourcingCollectionOperationAdapter);
   });
 
-  it('keeps Shadow collection direct ownership in API and out of the MCP root', () => {
+  it('keeps Shadow collection direct and controller-free in the API composition', () => {
     const apiProviders: ProviderLike[] =
       Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingShadowOperationModule) ?? [];
-    const agentProviders: ProviderLike[] =
-      Reflect.getMetadata(MODULE_METADATA.PROVIDERS, SourcingAgentShadowOperationModule) ?? [];
     expect(Reflect.getMetadata(
       MODULE_METADATA.CONTROLLERS,
       SourcingShadowOperationModule,
-    )).toEqual([InternalMarketShadowOperationController]);
+    ) ?? []).toEqual([]);
     expect(apiProviders).toContain(MarketShadowOperationAdapter);
     expect(apiProviders).toContain(SourcingShadowSignalService);
-    expect(agentProviders).toContain(MarketShadowOperationApiCommandAdapter);
-    expect(agentProviders).not.toContain(MarketShadowOperationAdapter);
 
     const workerProviders = providers(AgentWorkerApplicationModule);
     const mcpProviders = providers(AgentMcpApplicationModule);
@@ -285,8 +266,31 @@ describe('application root topology', () => {
       expect(rootProviders).not.toContain(LinkfoxEchotikShadowAdapter);
       expect(rootProviders).not.toContain(MarketShadowSnapshotRepositoryAdapter);
     }
-    expect(mcpProviders).not.toContain(MarketShadowOperationApiCommandAdapter);
-    expect(workerProviders).not.toContain(MarketShadowOperationApiCommandAdapter);
+  });
+
+  it('removes legacy AgentRun grants and Sourcing HTTP self-call composition', () => {
+    const retiredFiles = [
+      'agent-os/application/port/in/capability/agent-api-capability-grant.port.ts',
+      'agent-os/application/service/agent-api-capability-grant.service.ts',
+      'agent-os/adapter/in/http/agent-api-capability-grant.guard.ts',
+      'agent-os/adapter/in/http/agent-api-shadow-capability-grant.guard.ts',
+      'agent-os/adapter/out/runtime/kiditem-mcp-session.adapter.ts',
+      'agent-os/application/port/out/runtime/agent-mcp-session.port.ts',
+      'sourcing/adapter/in/http/internal-sourcing-collection.controller.ts',
+      'sourcing/adapter/in/http/internal-market-shadow-operation.controller.ts',
+      'sourcing/adapter/out/http/sourcing-collection-api-command.adapter.ts',
+      'sourcing/adapter/out/http/market-shadow-operation-api-command.adapter.ts',
+      'sourcing/sourcing-agent-mcp-collection.module.ts',
+      'sourcing/sourcing-agent-shadow-operation.module.ts',
+    ];
+
+    expect(retiredFiles.filter((file) => existsSync(join(SERVER_SRC, file)))).toEqual([]);
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, SourcingAgentApiCollectionModule) ?? [],
+    ).toEqual([]);
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.CONTROLLERS, SourcingShadowOperationModule) ?? [],
+    ).toEqual([]);
   });
 
   it('gives Nest lifecycle ownership only to the Operations server lifecycle service', () => {

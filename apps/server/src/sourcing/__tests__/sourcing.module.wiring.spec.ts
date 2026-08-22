@@ -160,7 +160,7 @@ function sourcingProviders(): unknown[] {
 // controller, a missing provider, or a route rename fails at vitest time
 // before reaching dev:server boot.
 describe("SourcingModule canonical owner wiring", () => {
-  it('imports the official API capability owner for the Shadow HTTP guard', () => {
+  it('imports the official API capability owner for direct Shadow operations', () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingShadowOperationModule) ?? [];
 
@@ -651,6 +651,28 @@ describe("SourcingModule canonical owner wiring", () => {
     const collectionImports = Reflect.getMetadata(IMPORTS_KEY, SourcingAgentApiCollectionModule) ?? [];
     expect(runtimeImports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
     expect(collectionImports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
+  });
+
+  it('keeps direct collection and Shadow operation adapters controller-free', () => {
+    const collectionProviders =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentApiCollectionModule) ?? [];
+    const shadowProviders =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingShadowOperationModule) ?? [];
+
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, SourcingAgentApiCollectionModule) ?? [])
+      .toEqual([]);
+    expect(Reflect.getMetadata(CONTROLLERS_KEY, SourcingShadowOperationModule) ?? [])
+      .toEqual([]);
+    expectBinding(
+      collectionProviders,
+      SOURCING_COLLECTION_OPERATION_PORT,
+      SourcingCollectionOperationAdapter,
+    );
+    expectBinding(
+      shadowProviders,
+      MARKET_SHADOW_OPERATION_PORT,
+      MarketShadowOperationAdapter,
+    );
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {

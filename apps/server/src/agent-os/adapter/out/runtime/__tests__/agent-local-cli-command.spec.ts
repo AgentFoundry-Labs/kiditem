@@ -26,21 +26,12 @@ function commandInput(): BuildAgentLocalCliCommandInput {
     outputSchema: { type: 'object' },
     outputSchemaFile: '/tmp/agent-run/output.schema.json',
     outputFile: '/tmp/agent-run/output.json',
-    claudeMcpConfigFile: '/tmp/agent-run/mcp.json',
-    codexMcpConfigOverrides: [
-      'mcp_servers.kiditem.command="node"',
-      'mcp_servers.kiditem.args=["server.js"]',
-    ],
-    allowedMcpToolNames: [
-      'agent_os_read_context',
-      'sourcing_retrieve_workspace_evidence',
-    ],
     claudeMaxBudgetUsd: '0.25',
   };
 }
 
 describe('agent local CLI command builders', () => {
-  it('builds an isolated Claude command with one strict MCP server and stdin prompt', () => {
+  it('builds an isolated Claude command with no tools and stdin prompt', () => {
     const input = { ...commandInput(), provider: 'claude_cli' as const };
     const command = buildClaudeCommand(input);
 
@@ -51,11 +42,6 @@ describe('agent local CLI command builders', () => {
         '',
         '--tools',
         '',
-        '--allowedTools',
-        'mcp__kiditem__agent_os_read_context,mcp__kiditem__sourcing_retrieve_workspace_evidence',
-        '--strict-mcp-config',
-        '--mcp-config',
-        input.claudeMcpConfigFile,
         '--no-chrome',
         '--no-session-persistence',
         '--disable-slash-commands',
@@ -74,6 +60,7 @@ describe('agent local CLI command builders', () => {
     expect(command.env).not.toHaveProperty('REDIS_URL');
     expect(command.env).not.toHaveProperty('COUPANG_ACCESS_KEY');
     expect(command.env).not.toHaveProperty('OPENAI_API_KEY');
+    expect(command.args.join(' ')).not.toContain('mcp_');
   });
 
   it('builds an isolated Codex command with stdin prompt and all execution surfaces disabled', () => {
@@ -146,9 +133,7 @@ describe('agent local CLI command builders', () => {
     expect(command.stdin).toBe(input.prompt);
     expect(command.args).not.toContain(input.prompt);
     expect(command.args.join(' ')).not.toContain('SOURCING_ASSISTANT');
-    expect(command.args.filter((value) => value.startsWith('mcp_servers.'))).toEqual(
-      input.codexMcpConfigOverrides,
-    );
+    expect(command.args.join(' ')).not.toContain('mcp_servers.');
   });
 
   it('forwards only the selected providers local authentication environment', () => {

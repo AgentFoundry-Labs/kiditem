@@ -1,7 +1,6 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import {
   chmod,
-  mkdir,
   mkdtemp,
   readFile,
   rm,
@@ -20,11 +19,6 @@ import {
   type AgentRuntimeAssetsPort,
   type ResolvedAgentRuntimeAssets,
 } from '../../../application/port/out/runtime/agent-runtime-assets.port';
-import {
-  AGENT_MCP_SESSION_PORT,
-  type AgentMcpSessionDescriptor,
-  type AgentMcpSessionPort,
-} from '../../../application/port/out/runtime/agent-mcp-session.port';
 import type {
   AgentRuntimeExecutionContext,
   AgentRuntimeResult,
@@ -32,10 +26,7 @@ import type {
 } from '../../../application/port/out/runtime/agent-runtime.port';
 import { resolveAgentLocalCliRuntimeConfig } from '../../../application/service/agent-runtime.config';
 import { assertAgentOsMcpExecutionActive } from '../../../application/service/agent-os-mcp-execution-fence';
-import {
-  modelFacingCapabilityKeysForContext,
-  modelFacingMcpToolNamesForAgentType,
-} from '../../../application/service/kiditem-mcp-tool-registry.service';
+import { modelFacingCapabilityKeysForContext } from '../../../application/service/kiditem-mcp-tool-registry.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import {
   AgentLocalCliAnswerSchema,
@@ -65,35 +56,9 @@ function buildPrompt(
     ...assets.skills.map(
       (skill) => `\n## Runtime skill: ${skill.key}@${skill.version}\n${skill.content.trim()}`,
     ),
-    `\n## Available KidItem MCP tools\n${allowedMcpToolNames.join('\n')}`,
+    `\n## Available KidItem MCP tools\n${allowedMcpToolNames.join('\n') || 'None'}`,
     `\n## User message\n${userMessage}`,
   ].join('\n');
-}
-
-export function claudeMcpConfig(descriptor: AgentMcpSessionDescriptor) {
-  return {
-    mcpServers: {
-      kiditem: {
-        command: descriptor.command,
-        args: descriptor.args,
-        env: descriptor.env,
-      },
-    },
-  };
-}
-
-export function codexMcpConfigOverrides(
-  descriptor: AgentMcpSessionDescriptor,
-): string[] {
-  return [
-    `mcp_servers.kiditem.command=${JSON.stringify(descriptor.command)}`,
-    `mcp_servers.kiditem.args=${JSON.stringify(descriptor.args)}`,
-    'mcp_servers.kiditem.default_tools_approval_mode="approve"',
-    ...Object.entries(descriptor.env).map(
-      ([key, value]) =>
-        `mcp_servers.kiditem.env.${key}=${JSON.stringify(value)}`,
-    ),
-  ];
 }
 
 interface ProcessOutput {
@@ -302,8 +267,6 @@ export class AgentLocalCliRuntimeAdapter {
     private readonly repository: AgentOsRepositoryPort,
     @Inject(AGENT_RUNTIME_ASSETS_PORT)
     private readonly assets: AgentRuntimeAssetsPort,
-    @Inject(AGENT_MCP_SESSION_PORT)
-    private readonly mcpSessions: AgentMcpSessionPort,
     private readonly processes: AgentLocalProcessRegistry,
   ) {}
 
@@ -341,35 +304,15 @@ export class AgentLocalCliRuntimeAdapter {
       await assertAgentOsMcpExecutionActive(this.repository, context);
       runDirectory = await mkdtemp(join(tmpdir(), 'kiditem-agent-run-'));
       await chmod(runDirectory, 0o700);
-      const mcpHomeDirectory = join(runDirectory, 'mcp-home');
-      await mkdir(mcpHomeDirectory, { mode: 0o700 });
-      const [resolvedAssets, mcp] = await Promise.all([
-        this.assets.resolve({
-          agentType: context.agentType,
-          promptPath: context.promptPath,
-          skillKeys: context.skillKeys,
-          outputSchemaPath: context.outputSchemaPath,
-        }),
-        this.mcpSessions.prepare({
-          organizationId: context.organizationId,
-          conversationId: context.conversationId,
-          requestId: context.requestId,
-          runId: context.runId,
-          agentInstanceId: context.agentInstanceId,
-          agentType: context.agentType,
-          playbookKey: context.playbookKey,
-          planStepKey: context.planStepKey,
-          requestedByUserId: context.requestedByUserId,
-          homeDirectory: mcpHomeDirectory,
-        }),
-      ]);
-      const allowedMcpToolNames = modelFacingMcpToolNamesForAgentType(
-        context.agentType,
-        {
-          playbookKey: context.playbookKey,
-          planStepKey: context.planStepKey,
-        },
-      );
+      const resolvedAssets = await this.assets.resolve({
+        agentType: context.agentType,
+        promptPath: context.promptPath,
+        skillKeys: context.skillKeys,
+        outputSchemaPath: context.outputSchemaPath,
+      });
+      // The retained generic AgentRun CLI lane is compatibility-only. It has
+      // no MCP attachment; official session credentials own MCP capabilities.
+      const allowedMcpToolNames: string[] = [];
       const capabilityKeys = modelFacingCapabilityKeysForContext({
         agentType: context.agentType,
         playbookKey: context.playbookKey,
@@ -378,12 +321,8 @@ export class AgentLocalCliRuntimeAdapter {
       const prompt = buildPrompt(resolvedAssets, userMessage, allowedMcpToolNames);
       const schemaFile = join(runDirectory, 'output.schema.json');
       const outputFile = join(runDirectory, 'output.json');
-      const claudeMcpConfigFile = join(runDirectory, 'mcp.json');
       await Promise.all([
         writeFile(schemaFile, JSON.stringify(resolvedAssets.outputSchema), {
-          mode: 0o600,
-        }),
-        writeFile(claudeMcpConfigFile, JSON.stringify(claudeMcpConfig(mcp)), {
           mode: 0o600,
         }),
         writeFile(outputFile, '', { mode: 0o600 }),
@@ -425,9 +364,6 @@ export class AgentLocalCliRuntimeAdapter {
         outputSchema: resolvedAssets.outputSchema,
         outputSchemaFile: schemaFile,
         outputFile,
-        claudeMcpConfigFile,
-        codexMcpConfigOverrides: codexMcpConfigOverrides(mcp),
-        allowedMcpToolNames,
         claudeMaxBudgetUsd: this.config.claudeMaxBudgetUsd,
       });
       const processOutput = await this.executeCommand(context.runId, command);

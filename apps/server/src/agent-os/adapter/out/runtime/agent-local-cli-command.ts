@@ -9,9 +9,6 @@ export interface BuildAgentLocalCliCommandInput {
   outputSchema: Record<string, unknown>;
   outputSchemaFile: string;
   outputFile: string;
-  claudeMcpConfigFile: string;
-  codexMcpConfigOverrides: string[];
-  allowedMcpToolNames: string[];
   claudeMaxBudgetUsd: string;
 }
 
@@ -66,11 +63,6 @@ export function buildClaudeCommand(
       '',
       '--tools',
       '',
-      '--allowedTools',
-      input.allowedMcpToolNames.map((name) => `mcp__kiditem__${name}`).join(','),
-      '--strict-mcp-config',
-      '--mcp-config',
-      input.claudeMcpConfigFile,
       '--no-chrome',
       '--no-session-persistence',
       '--permission-mode',
@@ -121,7 +113,6 @@ export function buildCodexCommand(
       '--sandbox',
       'read-only',
       ...DISABLED_CODEX_FEATURES.flatMap((feature) => ['--disable', feature]),
-      ...input.codexMcpConfigOverrides.flatMap((value) => ['--config', value]),
       '--config',
       'approval_policy="never"',
       '--config',
