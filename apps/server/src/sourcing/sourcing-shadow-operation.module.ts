@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AgentOsSessionModule } from '../agent-os/agent-os-session.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
+import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
 import { AgentApiShadowCapabilityGrantGuard } from '../agent-os/adapter/in/http/agent-api-shadow-capability-grant.guard';
 import { OperationsModule } from '../operations/operations.module';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -27,6 +28,7 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
     PrismaModule,
     AgentOsSessionModule,
     AgentOsCapabilityModule,
+    AgentOsLegacyRunModule,
     OperationsModule,
     SourcingAgentRuntimeModule,
   ],

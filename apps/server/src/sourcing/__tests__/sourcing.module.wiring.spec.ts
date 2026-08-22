@@ -3,8 +3,8 @@ import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
 import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
-import { AgentOsLegacyRunModule } from "../../agent-os/agent-os-legacy-run.module";
 import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
+import { AgentOsLegacyRunModule } from "../../agent-os/agent-os-legacy-run.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
@@ -164,6 +164,13 @@ function sourcingProviders(): unknown[] {
 // controller, a missing provider, or a route rename fails at vitest time
 // before reaching dev:server boot.
 describe("SourcingModule canonical owner wiring", () => {
+  it('imports the canonical API capability-grant owner for the Shadow HTTP guard', () => {
+    const imports: unknown[] =
+      Reflect.getMetadata(IMPORTS_KEY, SourcingShadowOperationModule) ?? [];
+
+    expect(imports).toContain(AgentOsLegacyRunModule);
+  });
+
   it("mounts extension routes before candidate workspace routes", () => {
     const controllers: unknown[] =
       Reflect.getMetadata(CONTROLLERS_KEY, SourcingModule) ?? [];
