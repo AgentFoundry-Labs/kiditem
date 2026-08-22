@@ -44,7 +44,9 @@ export class AgentSessionDeletionExecutionService implements AgentSessionDeletio
     private readonly storage: AgentSessionArtifactStoragePort,
   ) {}
 
-  async execute(input: ScopedDeletionAttempt): Promise<AgentSessionDeletionExecutionResult> {
+  async execute(input: ScopedDeletionAttempt & {
+    enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
+  }): Promise<AgentSessionDeletionExecutionResult> {
     input.signal.throwIfAborted();
     const loaded = await this.settle(input.signal, 0, () =>
       this.transaction.loadFencedSnapshot(input),
@@ -134,7 +136,50 @@ export class AgentSessionDeletionExecutionService implements AgentSessionDeletio
         );
       }
     }
-    return { kind: 'ready_for_graph_delete', closureDigest: snapshot.closureDigest };
+    const finalization = await input.enterEphemeralFinalization();
+    const finalizationInput = { ...input, signal: finalization.signal };
+    try {
+      finalization.signal.throwIfAborted();
+      await this.transaction.deleteGraphAndCheckpoint({
+        ...finalizationInput,
+        fencedClosureDigest: snapshot.closureDigest,
+      });
+      return { kind: 'completed' };
+    } catch (error) {
+      if (finalization.signal.aborted) throw finalization.signal.reason;
+      return this.reconcileGraphCommit(
+        finalizationInput,
+        snapshot.closureDigest,
+        snapshot.consumedAttempts,
+        error,
+      );
+    }
+  }
+
+  private async reconcileGraphCommit(
+    input: ScopedDeletionAttempt,
+    fencedClosureDigest: string,
+    consumedAttempts: number,
+    commitError: unknown,
+  ): Promise<AgentSessionDeletionExecutionResult> {
+    let delayMs = 25;
+    while (true) {
+      input.signal.throwIfAborted();
+      try {
+        const committed = await this.transaction.hasGraphDeletedCheckpoint({
+          ...input,
+          fencedClosureDigest,
+        });
+        if (input.signal.aborted) throw input.signal.reason;
+        return committed
+          ? { kind: 'completed' }
+          : retry(classifyDeletionFailure(commitError), consumedAttempts);
+      } catch (error) {
+        if (input.signal.aborted) throw input.signal.reason;
+        await abortableDelay(delayMs, input.signal);
+        delayMs = Math.min(delayMs * 2, 1_000);
+      }
+    }
   }
 
   private async settle<T>(
@@ -182,6 +227,25 @@ function errorCode(error: unknown): string | null {
   if (typeof error !== 'object' || error === null || !('code' in error)) return null;
   const code = error.code;
   return typeof code === 'string' ? code : null;
+}
+
+function abortableDelay(delayMs: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, delayMs);
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 export { AGENT_SESSION_DELETION_EXECUTION_PORT };

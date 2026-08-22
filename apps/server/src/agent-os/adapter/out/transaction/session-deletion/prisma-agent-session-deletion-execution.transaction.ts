@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   AgentSessionDeletionExecutionSnapshot,
+  AgentSessionDeletionFailureCode,
   AgentSessionDeletionExecutionTransactionPort,
   AgentSessionDeletionSnapshotResult,
   OwnedOperationCleanupCoordinate,
@@ -28,7 +29,13 @@ export class PrismaAgentSessionDeletionExecutionTransaction
     input: ScopedDeletionAttempt,
   ): Promise<AgentSessionDeletionSnapshotResult> {
     input.signal.throwIfAborted();
-    return this.prisma.$transaction(async (tx) => {
+    return this.prisma.$transaction((tx) => this.readFencedSnapshot(tx, input));
+  }
+
+  private async readFencedSnapshot(
+    tx: Prisma.TransactionClient,
+    input: ScopedDeletionAttempt,
+  ): Promise<AgentSessionDeletionSnapshotResult> {
       await lockDeletionScope(tx, input);
       const persistedDeletionRun = await tx.operationRun.findUnique({
         where: { id_organizationId: { id: input.operationRunId, organizationId: input.organizationId } },
@@ -279,7 +286,6 @@ export class PrismaAgentSessionDeletionExecutionTransaction
         }),
       };
       return { kind: 'ready' as const, snapshot };
-    });
   }
 
   async terminalizeOwnedRun(
@@ -349,6 +355,139 @@ export class PrismaAgentSessionDeletionExecutionTransaction
       });
     });
   }
+
+  async deleteGraphAndCheckpoint(
+    input: ScopedDeletionAttempt & { fencedClosureDigest: string },
+  ): Promise<void> {
+    input.signal.throwIfAborted();
+    await this.prisma.$transaction(async (tx) => {
+      const loaded = await this.readFencedSnapshot(tx, input);
+      if (loaded.kind !== 'ready' || loaded.snapshot.closureDigest !== input.fencedClosureDigest) {
+        throw new Error(
+          loaded.kind === 'retryable' ? loaded.code : 'SESSION_GRAPH_CHANGED',
+        );
+      }
+      if (loaded.snapshot.operationRuns.some((run) => !TERMINAL_OPERATION_STATUSES.has(run.status))) {
+        throw new Error('SESSION_GRAPH_CHANGED');
+      }
+
+      const nextSequence = await tx.operationRunCheckpoint.aggregate({
+        where: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+        },
+        _max: { sequence: true },
+      });
+      await tx.operationRunCheckpoint.create({
+        data: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+          sequence: (nextSequence._max.sequence ?? BigInt(0)) + BigInt(1),
+          kind: 'graph_deleted',
+          state: {
+            sessionId: input.sessionId,
+            retryGeneration: loaded.snapshot.retryGeneration,
+            closureDigest: input.fencedClosureDigest,
+          },
+        },
+      });
+      await deleteSessionGraph(tx, input, loaded.snapshot.operationRunIds);
+    });
+  }
+
+  async hasGraphDeletedCheckpoint(
+    input: ScopedDeletionAttempt & { fencedClosureDigest: string },
+  ): Promise<boolean> {
+    input.signal.throwIfAborted();
+    return this.prisma.$transaction(async (tx) => {
+      await lockDeletionScope(tx, input);
+      const binding = await tx.agentSessionDeletionOperationBinding.findUnique({
+        where: {
+          operationRunId_organizationId: {
+            operationRunId: input.operationRunId,
+            organizationId: input.organizationId,
+          },
+        },
+        select: {
+          sessionId: true,
+          retryGeneration: true,
+          operationRun: { select: { attemptToken: true } },
+        },
+      });
+      if (
+        !binding ||
+        binding.sessionId !== input.sessionId ||
+        binding.operationRun.attemptToken !== input.attemptToken
+      ) throw ownershipInvalid();
+      const checkpoint = await tx.operationRunCheckpoint.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          operationRunId: input.operationRunId,
+          kind: 'graph_deleted',
+        },
+        select: { state: true },
+        orderBy: { sequence: 'desc' },
+      });
+      return matchesGraphDeletedCheckpoint(checkpoint?.state, {
+        sessionId: input.sessionId,
+        retryGeneration: binding.retryGeneration,
+        closureDigest: input.fencedClosureDigest,
+      });
+    });
+  }
+
+  async markDeleteFailed(
+    input: ScopedDeletionAttempt & { failureCode: AgentSessionDeletionFailureCode },
+  ): Promise<void> {
+    input.signal.throwIfAborted();
+    await this.prisma.$transaction(async (tx) => {
+      await lockDeletionScope(tx, input);
+      const session = await lockedDeletionSession(tx, input);
+      const binding = await tx.agentSessionDeletionOperationBinding.findUnique({
+        where: {
+          operationRunId_organizationId: {
+            operationRunId: input.operationRunId,
+            organizationId: input.organizationId,
+          },
+        },
+        select: { sessionId: true, operationRun: { select: { attemptToken: true } } },
+      });
+      if (
+        !session ||
+        session.lifecycle !== 'deleting' ||
+        session.deletionOperationRunId !== input.operationRunId ||
+        !binding ||
+        binding.sessionId !== input.sessionId ||
+        binding.operationRun.attemptToken !== input.attemptToken
+      ) throw ownershipInvalid();
+      const transitioned = await tx.operationRun.updateMany({
+        where: {
+          id: input.operationRunId,
+          organizationId: input.organizationId,
+          status: 'running',
+          attemptToken: input.attemptToken,
+        },
+        data: {
+          status: 'failed',
+          errorCode: input.failureCode,
+          errorMessage: null,
+          finishedAt: new Date(),
+          claimedBy: null,
+          claimedAt: null,
+          attemptToken: null,
+          leaseExpiresAt: null,
+        },
+      });
+      if (transitioned.count !== 1) throw ownershipInvalid();
+      await tx.agentSession.update({
+        where: { id: input.sessionId },
+        data: {
+          lifecycle: 'delete_failed',
+          deletionFailureCode: input.failureCode,
+        },
+      });
+    });
+  }
 }
 
 async function lockDeletionScope(
@@ -356,7 +495,7 @@ async function lockDeletionScope(
   input: Pick<ScopedDeletionAttempt, 'organizationId' | 'sessionId'>,
 ): Promise<void> {
   await tx.$executeRaw(
-    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agent-session-delete:${input.organizationId}:${input.sessionId}`}, 0))`,
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${`agent-session-lifecycle:${input.organizationId}:${input.sessionId}`}, 0))`,
   );
 }
 
@@ -457,4 +596,114 @@ function closureDigest(value: {
 
 function ownershipInvalid(): Error {
   return new Error('SESSION_OPERATION_OWNERSHIP_INVALID');
+}
+
+async function deleteSessionGraph(
+  tx: Prisma.TransactionClient,
+  input: Pick<ScopedDeletionAttempt, 'organizationId' | 'sessionId'>,
+  closureRunIds: readonly string[],
+): Promise<void> {
+  const sessionScope = {
+    organizationId: input.organizationId,
+    sessionId: input.sessionId,
+  };
+  await tx.agentConversationOutbox.deleteMany({
+    where: { organizationId: input.organizationId, event: { is: sessionScope } },
+  });
+  await tx.agentConversationEvent.deleteMany({ where: sessionScope });
+  await tx.agentSessionApprovalContinuation.deleteMany({
+    where: { organizationId: input.organizationId, approval: { is: sessionScope } },
+  });
+  await tx.agentSessionApproval.deleteMany({ where: sessionScope });
+  await tx.agentSessionArtifactMaterialization.deleteMany({ where: sessionScope });
+  await tx.agentSessionArtifact.deleteMany({ where: sessionScope });
+  await tx.agentExecutionUsage.deleteMany({
+    where: { organizationId: input.organizationId, execution: { is: sessionScope } },
+  });
+  await tx.agentExecutionAttemptOperationBinding.deleteMany({ where: sessionScope });
+  await tx.agentSessionTaskDelegation.deleteMany({ where: sessionScope });
+  await tx.agentSessionOperationRunOwnership.deleteMany({ where: sessionScope });
+
+  if (closureRunIds.length > 0) {
+    await tx.operationRunCheckpoint.deleteMany({
+      where: { organizationId: input.organizationId, operationRunId: { in: [...closureRunIds] } },
+    });
+    const runs = await tx.operationRun.findMany({
+      where: { organizationId: input.organizationId, id: { in: [...closureRunIds] } },
+      select: { id: true, parentRunId: true },
+    });
+    if (runs.length !== closureRunIds.length) throw ownershipInvalid();
+    for (const runId of childFirstRunOrder(runs)) {
+      await tx.operationRun.delete({
+        where: {
+          id_organizationId: { id: runId, organizationId: input.organizationId },
+        },
+      });
+    }
+  }
+
+  await tx.agentExecutionAttempt.deleteMany({ where: sessionScope });
+  await tx.agentExecution.deleteMany({ where: sessionScope });
+  await tx.agentPolicySnapshot.deleteMany({ where: sessionScope });
+  await tx.agentContextEpoch.deleteMany({ where: sessionScope });
+
+  const tasks = await tx.agentSessionTask.findMany({
+    where: sessionScope,
+    select: { id: true, parentTaskId: true },
+  });
+  for (const taskId of childFirstTaskOrder(tasks)) {
+    await tx.agentSessionTask.delete({ where: { id: taskId } });
+  }
+  await tx.agentSession.delete({ where: { id: input.sessionId } });
+}
+
+function childFirstRunOrder(
+  runs: readonly { id: string; parentRunId: string | null }[],
+): readonly string[] {
+  return childFirstOrder(runs, (row) => row.parentRunId);
+}
+
+function childFirstTaskOrder(
+  tasks: readonly { id: string; parentTaskId: string | null }[],
+): readonly string[] {
+  return childFirstOrder(tasks, (row) => row.parentTaskId);
+}
+
+function childFirstOrder<T extends { id: string }>(
+  rows: readonly T[],
+  parentId: (row: T) => string | null,
+): readonly string[] {
+  const byParent = new Map<string | null, T[]>();
+  for (const row of rows) {
+    const key = parentId(row);
+    const bucket = byParent.get(key) ?? [];
+    bucket.push(row);
+    byParent.set(key, bucket);
+  }
+  for (const bucket of byParent.values()) bucket.sort((left, right) => left.id.localeCompare(right.id));
+  const ordered: string[] = [];
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (row: T) => {
+    if (visited.has(row.id)) return;
+    if (visiting.has(row.id)) throw ownershipInvalid();
+    visiting.add(row.id);
+    for (const child of byParent.get(row.id) ?? []) visit(child);
+    visiting.delete(row.id);
+    visited.add(row.id);
+    ordered.push(row.id);
+  };
+  for (const row of [...rows].sort((left, right) => left.id.localeCompare(right.id))) visit(row);
+  return ordered;
+}
+
+function matchesGraphDeletedCheckpoint(
+  state: unknown,
+  expected: { sessionId: string; retryGeneration: number; closureDigest: string },
+): boolean {
+  if (!state || typeof state !== 'object' || Array.isArray(state)) return false;
+  const candidate = state as Record<string, unknown>;
+  return candidate.sessionId === expected.sessionId &&
+    candidate.retryGeneration === expected.retryGeneration &&
+    candidate.closureDigest === expected.closureDigest;
 }

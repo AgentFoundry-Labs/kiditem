@@ -11,6 +11,7 @@ export const AGENT_SESSION_DELETION_FAILURE_CODES = [
   'ARTIFACT_WRITER_NOT_FENCED',
   'STORAGE_DELETE_PRESENT',
   'STORAGE_DELETE_UNKNOWN',
+  'SESSION_GRAPH_CHANGED',
 ] as const;
 
 export type AgentSessionDeletionFailureCode =
@@ -80,5 +81,14 @@ export interface AgentSessionDeletionExecutionTransactionPort {
   ): Promise<AgentSessionDeletionSnapshotResult>;
   terminalizeOwnedRun(
     input: ScopedDeletionAttempt & { ownedOperationRunId: string },
+  ): Promise<void>;
+  deleteGraphAndCheckpoint(
+    input: ScopedDeletionAttempt & { fencedClosureDigest: string },
+  ): Promise<void>;
+  hasGraphDeletedCheckpoint(
+    input: ScopedDeletionAttempt & { fencedClosureDigest: string },
+  ): Promise<boolean>;
+  markDeleteFailed(
+    input: ScopedDeletionAttempt & { failureCode: AgentSessionDeletionFailureCode },
   ): Promise<void>;
 }

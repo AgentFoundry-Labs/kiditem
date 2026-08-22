@@ -3,11 +3,13 @@ export const AGENT_SESSION_DELETION_EXECUTION_PORT = Symbol(
 );
 
 export type AgentSessionDeletionExecutionResult =
-  | { kind: "ready_for_graph_delete"; closureDigest: string }
+  | { kind: "completed" }
   | { kind: "retryable"; code: AgentSessionDeletionFailureCode; consumedAttempts: number };
 
 export interface AgentSessionDeletionExecutionPort {
-  execute(input: ScopedDeletionAttempt): Promise<AgentSessionDeletionExecutionResult>;
+  execute(input: ScopedDeletionAttempt & {
+    enterEphemeralFinalization(): Promise<{ signal: AbortSignal }>;
+  }): Promise<AgentSessionDeletionExecutionResult>;
 }
 import type {
   AgentSessionDeletionFailureCode,

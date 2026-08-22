@@ -4,6 +4,7 @@ import type { OperationDefinition } from '../../../common/operation-definition';
 
 export const AGENT_SESSION_DELETE_OPERATION_KEY = 'agent-os.delete-session' as const;
 export const AGENT_SESSION_DELETE_MAX_ATTEMPTS = 5;
+export const AGENT_SESSION_DELETE_RETRY_DELAYS_MS = [60_000, 120_000, 240_000, 480_000] as const;
 
 export const AgentSessionDeleteOperationInputSchema = z.object({
   session: AgentSessionNameSchema,

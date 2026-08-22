@@ -7,6 +7,9 @@ const input = {
   sessionId: "00000000-0000-4000-8000-0000dd000001",
   operationRunId: "00000000-0000-4000-8000-0000dd000002",
   attemptToken: "delete-attempt-token",
+  enterEphemeralFinalization: vi.fn().mockResolvedValue({
+    signal: new AbortController().signal,
+  }),
 };
 
 function ready(snapshot: Record<string, unknown>) {
@@ -14,6 +17,88 @@ function ready(snapshot: Record<string, unknown>) {
 }
 
 describe("AgentSessionDeletionExecutionService", () => {
+  it("enters ephemeral finalization and deletes the graph only after cleanup is confirmed", async () => {
+    const graph = vi.fn().mockResolvedValue(undefined);
+    const enterEphemeralFinalization = vi.fn().mockResolvedValue({
+      signal: new AbortController().signal,
+    });
+    const transaction = {
+      loadFencedSnapshot: vi.fn().mockResolvedValue(ready({
+        retryGeneration: 1,
+        consumedAttempts: 1,
+        runtimeAttempts: [],
+        operationRuns: [],
+        operationRunIds: [],
+        artifacts: [],
+        closureDigest: "closure-digest",
+      })),
+      terminalizeOwnedRun: vi.fn(),
+      deleteGraphAndCheckpoint: graph,
+      hasGraphDeletedCheckpoint: vi.fn(),
+    };
+    const service = new AgentSessionDeletionExecutionService(
+      transaction as never,
+      { fenceAndCancel: vi.fn().mockResolvedValue({ state: "fenced" }) } as never,
+      { cleanup: vi.fn() } as never,
+      {
+        beginFence: vi.fn(),
+        confirmFenced: vi.fn().mockResolvedValue({ state: "fenced" }),
+      } as never,
+      { abortEraseAndConfirm: vi.fn() } as never,
+    );
+
+    await expect(service.execute({ ...input, enterEphemeralFinalization } as never)).resolves.toEqual({
+      kind: "completed",
+    });
+    expect(enterEphemeralFinalization).toHaveBeenCalledOnce();
+    expect(graph).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      operationRunId: input.operationRunId,
+      attemptToken: input.attemptToken,
+      fencedClosureDigest: "closure-digest",
+    }));
+  });
+
+  it("reconciles a lost graph commit acknowledgement in the same lifecycle", async () => {
+    const graph = vi.fn().mockRejectedValue(new Error("commit_ack_lost"));
+    const checkpoint = vi.fn()
+      .mockRejectedValueOnce(new Error("transient_read_failure"))
+      .mockResolvedValueOnce(true);
+    const transaction = {
+      loadFencedSnapshot: vi.fn().mockResolvedValue(ready({
+        retryGeneration: 1,
+        consumedAttempts: 1,
+        runtimeAttempts: [],
+        operationRuns: [],
+        operationRunIds: [],
+        artifacts: [],
+        closureDigest: "closure-digest",
+      })),
+      terminalizeOwnedRun: vi.fn(),
+      deleteGraphAndCheckpoint: vi.fn(),
+      hasGraphDeletedCheckpoint: vi.fn(),
+      deleteGraphAndCheckpoint: graph,
+      hasGraphDeletedCheckpoint: checkpoint,
+    };
+    const service = new AgentSessionDeletionExecutionService(
+      transaction as never,
+      { fenceAndCancel: vi.fn().mockResolvedValue({ state: "fenced" }) } as never,
+      { cleanup: vi.fn() } as never,
+      {
+        beginFence: vi.fn(),
+        confirmFenced: vi.fn().mockResolvedValue({ state: "fenced" }),
+      } as never,
+      { abortEraseAndConfirm: vi.fn() } as never,
+    );
+
+    await expect(service.execute({
+      ...input,
+      enterEphemeralFinalization: vi.fn().mockResolvedValue({ signal: input.signal }),
+    } as never)).resolves.toEqual({ kind: "completed" });
+    expect(checkpoint).toHaveBeenCalledTimes(2);
+  });
+
   it("marks a queued owned attempt without a start intent never_started and skips runtime cleanup", async () => {
     const cleanup = { cleanup: vi.fn() };
     const transaction = {
@@ -32,6 +117,8 @@ describe("AgentSessionDeletionExecutionService", () => {
         closureDigest: "closure-digest",
       })),
       terminalizeOwnedRun: vi.fn(),
+      deleteGraphAndCheckpoint: vi.fn(),
+      hasGraphDeletedCheckpoint: vi.fn(),
     };
     const service = new AgentSessionDeletionExecutionService(
       transaction as never,
@@ -45,8 +132,7 @@ describe("AgentSessionDeletionExecutionService", () => {
     );
 
     await expect(service.execute(input)).resolves.toEqual({
-      kind: "ready_for_graph_delete",
-      closureDigest: "closure-digest",
+      kind: "completed",
     });
     expect(cleanup.cleanup).not.toHaveBeenCalled();
   });
@@ -90,7 +176,7 @@ describe("AgentSessionDeletionExecutionService", () => {
         retryGeneration: 1, consumedAttempts: 1, runtimeAttempts: [], operationRuns: [], operationRunIds: [],
         artifacts: [{ artifactId: "00000000-0000-4000-8000-0000dd000009", materializationOperationRunId: "run", providerUploadId: null }],
         closureDigest: "digest",
-      })), terminalizeOwnedRun: vi.fn() } as never,
+      })), terminalizeOwnedRun: vi.fn(), deleteGraphAndCheckpoint: vi.fn(), hasGraphDeletedCheckpoint: vi.fn() } as never,
       { fenceAndCancel: vi.fn().mockResolvedValue({ state: "fenced" }) } as never,
       { cleanup: vi.fn() } as never,
       { beginFence: vi.fn(), confirmFenced: vi.fn().mockResolvedValue({ state: "fenced" }) } as never,
