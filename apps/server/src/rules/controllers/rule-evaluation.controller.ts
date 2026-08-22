@@ -19,8 +19,8 @@ export class RuleEvaluationController {
   @Get('evaluate/status/:requestId')
   getEvaluationStatus(
     @CurrentOrganization() organizationId: string,
-    @Param('requestId') requestId: string,
+    @Param('requestId') operationId: string,
   ) {
-    return this.rulesService.getEvaluationStatus(organizationId, requestId);
+    return this.rulesService.getEvaluationStatus(organizationId, operationId);
   }
 }

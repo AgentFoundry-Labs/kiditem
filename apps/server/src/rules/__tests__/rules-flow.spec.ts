@@ -1,413 +1,197 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { RulesService } from '../services/rules.service';
 
-/**
- * rules-flow.spec.ts — end-to-end rules evaluation flow test.
- * Tests the full pipeline: evaluateAll → processEvaluationResult → healthScore update + alerts.
- *
- * Under Agent OS the @OnEvent(AGENT_EVENTS.RESULT_READY) callback is gone;
- * the runtime writes its result to AgentRun.resultJson and a bridging adapter
- * invokes RulesService.processEvaluationResult with the decoded products.
- */
+const OPERATION = {
+  id: '11111111-1111-1111-1111-111111111111',
+  organizationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+  operationKey: 'rules.evaluate',
+  status: 'queued',
+};
 
-function makePrisma() {
-  return {
-    activityEvent: { create: vi.fn(), createMany: vi.fn() },
+function makeService() {
+  const prisma = {
+    activityEvent: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
     alert: { createManyAndReturn: vi.fn().mockResolvedValue([]) },
-    masterProduct: {
-      count: vi.fn(),
-      findFirst: vi.fn(),
-      findMany: vi.fn(),
-      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
-    },
-    businessRule: { findMany: vi.fn(), update: vi.fn(), count: vi.fn() },
-    organization: { findFirst: vi.fn() },
+    masterProduct: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     $transaction: vi.fn().mockResolvedValue([]),
   };
-}
-
-function makeAgentRunner() {
-  return {
-    runByType: vi.fn(),
+  const operations = {
+    start: vi.fn().mockResolvedValue(OPERATION),
+    get: vi.fn().mockResolvedValue(OPERATION),
   };
-}
-
-function makeObservability() {
-  return {
-    findRequest: vi.fn(),
-    listRequests: vi.fn(),
-    findRun: vi.fn(),
-    listRuns: vi.fn(),
-    listRunEvents: vi.fn(),
-    listCostEvents: vi.fn(),
-    listAuthorizationEvents: vi.fn(),
-  };
-}
-
-function makeEventEmitter() {
-  return { emit: vi.fn() };
-}
-
-function makeOperationAlerts() {
-  return {
+  const judgment = { submit: vi.fn() };
+  const events = { emit: vi.fn() };
+  const alerts = {
     start: vi.fn().mockResolvedValue({}),
     succeed: vi.fn().mockResolvedValue({}),
     fail: vi.fn().mockResolvedValue({}),
-    progress: vi.fn().mockResolvedValue({}),
-    cancel: vi.fn().mockResolvedValue({}),
   };
-}
-
-function makeService() {
-  const prisma = makePrisma();
-  const agentRunner = makeAgentRunner();
-  const observability = makeObservability();
-  const eventEmitter = makeEventEmitter();
-  const operationAlerts = makeOperationAlerts();
   return {
     service: new RulesService(
       prisma as never,
-      agentRunner as never,
-      observability as never,
-      eventEmitter as never,
-      operationAlerts as never,
+      operations as never,
+      judgment as never,
+      events as never,
+      alerts as never,
     ),
     prisma,
-    agentRunner,
-    observability,
-    eventEmitter,
-    operationAlerts,
+    operations,
+    judgment,
+    events,
+    alerts,
   };
 }
 
-describe('RulesService — full evaluation flow', () => {
-  describe('evaluateAll → AGENT_RUNNER_PORT delegation', () => {
-    it('delegates rules_evaluation through AGENT_RUNNER_PORT', async () => {
-      const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({
-        ok: true,
-        requestId: 'request-1',
-        agentType: 'rules_evaluation',
-        status: 'pending',
-      });
+describe('RulesService evaluation flow', () => {
+  it('starts the Rules-owned deterministic operation with an actor-scoped idempotency key', async () => {
+    const { service, operations, alerts } = makeService();
 
-      const result = await service.evaluateAll('organization-1', null);
-
-      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_evaluation', {
-        organizationId: 'organization-1',
-        sourceType: 'rules.evaluation',
-        payload: { organization_id: 'organization-1' },
-      });
-      expect(result).toEqual({ requestId: 'request-1', status: 'pending' });
+    await expect(service.evaluateAll(OPERATION.organizationId, 'user-1')).resolves.toEqual({
+      operationId: OPERATION.id,
+      status: 'queued',
     });
 
-    it('returns requestId from runner result', async () => {
-      const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({
-        ok: true,
-        requestId: 'request-xyz',
-        agentType: 'rules_evaluation',
-        status: 'pending',
-      });
-
-      const result = await service.evaluateAll('organization-2', null);
-
-      expect(result.requestId).toBe('request-xyz');
-      expect(result.status).toBe('pending');
+    expect(operations.start).toHaveBeenCalledWith({
+      organizationId: OPERATION.organizationId,
+      operationKey: 'rules.evaluate',
+      triggerSource: 'dashboard',
+      input: {},
+      requestedByUserId: 'user-1',
+      idempotencyKey: `rules.evaluation.manual:${OPERATION.organizationId}:user-1`,
     });
+    expect(alerts.start).toHaveBeenCalledWith(expect.objectContaining({
+      operationKey: `rules.evaluation:${OPERATION.id}`,
+      sourceType: 'operation_run',
+      sourceId: OPERATION.id,
+      actorUserId: 'user-1',
+    }));
   });
 
-  describe('processEvaluationResult — full evaluation result processing', () => {
-    it('updates healthScores via bulk SQL for products with violations', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
-      prisma.alert.createManyAndReturn.mockResolvedValue([]);
+  it('applies a result only to a Rules operation in the same organization', async () => {
+    const { service, operations, prisma, alerts } = makeService();
+    const products = [{
+      masterId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
+      healthScore: 24,
+      violations: [{
+        ruleName: 'margin', field: 'margin', severity: 'critical', category: 'profitability',
+        message: 'Low margin', actionType: 'review', value: -5,
+      }],
+    }];
 
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-1',
-        products: [
-          {
-            masterId: 'p1',
-            healthScore: 75,
-            violations: [
-              {
-                ruleName: '리뷰 부족',
-                field: 'reviewCount',
-                severity: 'warning',
-                category: 'reviews',
-                message: '리뷰 5개 미만',
-                actionType: null,
-                value: 3,
-              },
-            ],
-          },
-        ],
-      });
+    await expect(service.apply({
+      organizationId: OPERATION.organizationId,
+      operationId: OPERATION.id,
+      products,
+    })).resolves.toEqual({ productCount: 1, violationCount: 1, criticalCount: 1 });
 
-      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
-      const txArg = prisma.$transaction.mock.calls[0][0];
-      expect(Array.isArray(txArg)).toBe(true);
-      expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
-        where: { id: 'p1', organizationId: 'c-1' },
-        data: expect.objectContaining({ healthScore: 75 }),
-      });
+    expect(operations.get).toHaveBeenCalledWith(OPERATION.organizationId, OPERATION.id);
+    expect(prisma.masterProduct.updateMany).toHaveBeenCalledWith({
+      where: { id: products[0].masterId, organizationId: OPERATION.organizationId },
+      data: expect.objectContaining({ healthScore: 24 }),
     });
-
-    it('creates activity events for each violation', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      prisma.alert.createManyAndReturn.mockResolvedValue([]);
-
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-2',
-        products: [
-          {
-            masterId: 'p1',
-            healthScore: 60,
-            violations: [
-              {
-                ruleName: '리뷰 부족',
-                field: 'reviewCount',
-                severity: 'warning',
-                category: 'reviews',
-                message: '리뷰 5개 미만',
-                actionType: null,
-                value: 3,
-              },
-            ],
-          },
-          {
-            masterId: 'p2',
-            healthScore: 40,
-            violations: [
-              {
-                ruleName: '이미지 없음',
-                field: 'imageCount',
-                severity: 'warning',
-                category: 'content',
-                message: '이미지가 없습니다',
-                actionType: 'add_image',
-                value: 0,
-              },
-            ],
-          },
-        ],
-      });
-
-      expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
-        data: expect.arrayContaining([
-          expect.objectContaining({ objectId: 'p1', title: '리뷰 5개 미만', eventType: 'rule_violation' }),
-          expect.objectContaining({ objectId: 'p2', title: '이미지가 없습니다', eventType: 'rule_violation' }),
-        ]),
-      });
-    });
-
-    it('creates critical alerts only for critical severity violations', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.activityEvent.createMany.mockResolvedValue({ count: 2 });
-      prisma.alert.createManyAndReturn.mockResolvedValue([
-        {
-          id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
-          organizationId: 'c-1',
-          targetType: 'product',
-          targetId: 'p2',
-          type: 'rule_violation',
-          severity: 'critical',
-          title: '순이익률 -10%',
-          message: 'review_pricing',
-          isRead: false,
-          actionTaskId: null,
-          createdAt: new Date(),
-        },
-      ]);
-
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-3',
-        products: [
-          {
-            masterId: 'p1',
-            healthScore: 85,
-            violations: [
-              {
-                ruleName: '리뷰 부족',
-                field: 'reviewCount',
-                severity: 'warning',
-                category: 'reviews',
-                message: '리뷰 5개 미만',
-                actionType: null,
-                value: 3,
-              },
-            ],
-          },
-          {
-            masterId: 'p2',
-            healthScore: 20,
-            violations: [
-              {
-                ruleName: '적자 상품',
-                field: 'profitRate',
-                severity: 'critical',
-                category: 'profitability',
-                message: '순이익률 -10%',
-                actionType: 'review_pricing',
-                value: -10,
-              },
-            ],
-          },
-        ],
-      });
-
-      // Only critical violation (p2) should create an alert
-      expect(prisma.alert.createManyAndReturn).toHaveBeenCalledWith({
-        data: [
-          expect.objectContaining({
-            targetType: 'product',
-            targetId: 'p2',
-            severity: 'critical',
-            title: '순이익률 -10%',
-            href: '/product-hub',
-          }),
-        ],
-      });
-    });
-
-    it('does not create alerts when no critical violations exist', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
-
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-4',
-        products: [
-          {
-            masterId: 'p1',
-            healthScore: 70,
-            violations: [
-              {
-                ruleName: '리뷰 부족',
-                field: 'reviewCount',
-                severity: 'warning',
-                category: 'reviews',
-                message: '리뷰 5개 미만',
-                actionType: null,
-                value: 3,
-              },
-            ],
-          },
-        ],
-      });
-
-      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
-    });
-
-    it('skips all DB operations when products array is empty', async () => {
-      const { service, prisma } = makeService();
-
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-5',
-        products: [],
-      });
-
-      expect(prisma.$transaction).not.toHaveBeenCalled();
-      expect(prisma.activityEvent.createMany).not.toHaveBeenCalled();
-      expect(prisma.alert.createManyAndReturn).not.toHaveBeenCalled();
-    });
-
-    it('does not throw when DB operations fail (error recovery)', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockRejectedValue(new Error('SQL execution failed'));
-
-      await expect(
-        service.processEvaluationResult({
-          organizationId: 'c-1',
-          runId: 'run-7',
-          products: [
-            {
-              masterId: 'p1',
-              healthScore: 50,
-              violations: [
-                {
-                  ruleName: '테스트 룰',
-                  field: 'testField',
-                  severity: 'warning',
-                  category: 'test',
-                  message: '테스트 메시지',
-                  actionType: null,
-                  value: 0,
-                },
-              ],
-            },
-          ],
-        }),
-      ).resolves.not.toThrow();
-    });
-
-    it('includes actionType in activity event data when present', async () => {
-      const { service, prisma } = makeService();
-      prisma.$transaction.mockResolvedValue([]);
-      prisma.activityEvent.createMany.mockResolvedValue({ count: 1 });
-
-      await service.processEvaluationResult({
-        organizationId: 'c-1',
-        runId: 'run-8',
-        products: [
-          {
-            masterId: 'p1',
-            healthScore: 30,
-            violations: [
-              {
-                ruleName: '가격 오류',
-                field: 'price',
-                severity: 'critical',
-                category: 'pricing',
-                message: '가격이 너무 낮습니다',
-                actionType: 'review_pricing',
-                value: 100,
-              },
-            ],
-          },
-        ],
-      });
-
-      expect(prisma.activityEvent.createMany).toHaveBeenCalledWith({
-        data: [
-          expect.objectContaining({
-            data: expect.objectContaining({
-              actionType: 'review_pricing',
-              severity: 'critical',
-            }),
-          }),
-        ],
-      });
-    });
+    expect(alerts.succeed).toHaveBeenCalledWith(
+      OPERATION.organizationId,
+      `rules.evaluation:${OPERATION.id}`,
+      expect.objectContaining({ metadata: { productCount: 1, violationCount: 1, criticalCount: 1 } }),
+    );
   });
 
-  describe('suggestThresholds → AGENT_RUNNER_PORT delegation', () => {
-    it('delegates rules_suggest through AGENT_RUNNER_PORT', async () => {
-      const { service, agentRunner } = makeService();
-      agentRunner.runByType.mockResolvedValue({
-        ok: true,
-        requestId: 'request-s1',
-        agentType: 'rules_suggest',
-        status: 'pending',
-      });
+  it('rejects a result target that is not the Rules evaluation operation', async () => {
+    const { service, operations, prisma } = makeService();
+    operations.get.mockResolvedValue({ ...OPERATION, operationKey: 'products.recalculate' });
 
-      const result = await service.suggestThresholds('organization-1', null);
+    await expect(service.apply({
+      organizationId: OPERATION.organizationId,
+      operationId: OPERATION.id,
+      products: [],
+    })).rejects.toThrow('Rules evaluation operation not found');
 
-      expect(agentRunner.runByType).toHaveBeenCalledWith('rules_suggest', {
-        organizationId: 'organization-1',
-        sourceType: 'rules.suggest',
-        payload: { organization_id: 'organization-1' },
-      });
-      expect(result).toEqual({ requestId: 'request-s1', status: 'pending' });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('fails the owner operation feedback and propagates result-write failures for retry', async () => {
+    const { service, prisma, alerts } = makeService();
+    prisma.$transaction.mockRejectedValue(new Error('write failed'));
+
+    await expect(service.apply({
+      organizationId: OPERATION.organizationId,
+      operationId: OPERATION.id,
+      products: [{ masterId: 'p1', healthScore: 1, violations: [] }],
+    })).rejects.toThrow('write failed');
+
+    expect(alerts.fail).toHaveBeenCalledWith(
+      OPERATION.organizationId,
+      `rules.evaluation:${OPERATION.id}`,
+      { message: 'write failed' },
+    );
+  });
+
+  it('uses the same owner-Operation idempotency key for an exact retry', async () => {
+    const { service, operations } = makeService();
+
+    await service.evaluateAll(OPERATION.organizationId, 'user-1');
+    await service.evaluateAll(OPERATION.organizationId, 'user-1');
+
+    expect(operations.start).toHaveBeenCalledTimes(2);
+    expect(operations.start.mock.calls.map(([command]) => command.idempotencyKey)).toEqual([
+      `rules.evaluation.manual:${OPERATION.organizationId}:user-1`,
+      `rules.evaluation.manual:${OPERATION.organizationId}:user-1`,
+    ]);
+  });
+
+  it('keeps a large critical-alert result to one panel summary emit', async () => {
+    const { service, prisma, events } = makeService();
+    const inserted = Array.from({ length: 51 }, (_, index) => ({
+      id: `11111111-1111-1111-1111-${String(index).padStart(12, '0')}`,
+      organizationId: OPERATION.organizationId,
+      targetType: 'product', targetId: `product-${index}`, kind: 'signal', status: 'open',
+      type: 'rule_violation', severity: 'critical', title: `Violation ${index}`, message: null,
+      operationKey: null, sourceType: null, sourceId: null, actorUserId: null, href: null,
+      progress: null, metadata: {}, isRead: false, readAt: null, actionTaskId: null,
+      startedAt: null, finishedAt: null, createdAt: new Date(), updatedAt: new Date(),
+    }));
+    prisma.alert.createManyAndReturn.mockResolvedValue(inserted);
+
+    await service.apply({
+      organizationId: OPERATION.organizationId,
+      operationId: OPERATION.id,
+      products: Array.from({ length: 51 }, (_, index) => ({
+        masterId: `product-${index}`, healthScore: 1,
+        violations: [{
+          ruleName: 'margin', field: 'margin', severity: 'critical', category: 'profitability',
+          message: `Violation ${index}`, actionType: null, value: -1,
+        }],
+      })),
     });
+
+    expect(events.emit).toHaveBeenCalledTimes(1);
+    expect(events.emit.mock.calls[0][1].item).toEqual(expect.objectContaining({
+      type: 'batch_summary', title: '51건의 새 알림',
+    }));
+  });
+
+  it('submits threshold judgment through the owner-local port and returns canonical resources', async () => {
+    const { service, judgment, alerts } = makeService();
+    const submission = {
+      session: 'organizations/org/agentSessions/session',
+      task: 'organizations/org/agentSessions/session/tasks/task',
+      execution: 'organizations/org/agentSessions/session/executions/execution',
+      operation: 'organizations/org/operations/operation',
+    };
+    judgment.submit.mockResolvedValue(submission);
+
+    await expect(service.suggestThresholds('org', 'user')).resolves.toEqual({
+      ...submission,
+      status: 'pending',
+    });
+    expect(judgment.submit).toHaveBeenCalledWith({
+      organizationId: 'org',
+      actorUserId: 'user',
+      objective: 'Suggest business-rule thresholds using the organization data.',
+      idempotencyKey: 'rules.suggest.manual:org:user',
+    });
+    expect(alerts.start).toHaveBeenCalledWith(expect.objectContaining({
+      sourceType: 'operation_run', sourceId: submission.operation,
+    }));
   });
 });

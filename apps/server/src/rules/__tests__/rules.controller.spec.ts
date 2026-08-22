@@ -10,6 +10,13 @@ import { RulesModule } from '../rules.module';
 import { RuleEvaluationController } from '../controllers/rule-evaluation.controller';
 import { RuleSuggestionsController } from '../controllers/rule-suggestions.controller';
 import { RulesManagementController } from '../controllers/rules-management.controller';
+import { AgentOsApiExecutionModule } from '../../agent-os/agent-os-api-execution.module';
+import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.module';
+import { OperationsModule } from '../../operations/operations.module';
+import { AutomationModule } from '../../automation/automation.module';
+import { AgentOsRulesJudgmentAdapter } from '../adapter/out/agent-os/agent-os-rules-judgment.adapter';
+import { RulesEvaluationOperationHandler } from '../adapter/in/operation/rules-evaluation.operation-handler';
+import { RulesEvaluationCapabilityAdapter } from '../adapter/in/agent/rules-evaluation-capability.adapter';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RULE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -55,6 +62,21 @@ describe('Rules route-family controllers', () => {
     expect(controllers).toContain(RuleSuggestionsController);
   });
 
+  it('composes the controller-free Operations and AgentOS execution modules', () => {
+    const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, RulesModule) as unknown[];
+    const providers = Reflect.getMetadata(MODULE_METADATA.PROVIDERS, RulesModule) as unknown[];
+
+    expect(imports).toEqual([
+      AgentOsApiExecutionModule,
+      AgentOsCapabilityModule,
+      AutomationModule,
+      OperationsModule,
+    ]);
+    expect(providers).toContain(AgentOsRulesJudgmentAdapter);
+    expect(providers).toContain(RulesEvaluationOperationHandler);
+    expect(providers).toContain(RulesEvaluationCapabilityAdapter);
+  });
+
   it('preserves the existing route URLs by route family', () => {
     expect(controllerPath(RuleEvaluationController)).toBe('rules');
     expect(route(RuleEvaluationController, 'evaluate')).toEqual({
@@ -92,25 +114,24 @@ describe('RuleEvaluationController evaluation routes', () => {
   it('forwards evaluate to RulesService.evaluateAll with @CurrentOrganization + actor', async () => {
     const rulesService = makeRulesService();
     const controller = new RuleEvaluationController(rulesService as never);
-    rulesService.evaluateAll.mockResolvedValue({ requestId: 'request-1', status: 'pending' });
+    rulesService.evaluateAll.mockResolvedValue({ operationId: 'operation-1', status: 'queued' });
 
     await expect(controller.evaluate(ORGANIZATION_ID, USER)).resolves.toEqual({
-      requestId: 'request-1',
-      status: 'pending',
+      operationId: 'operation-1',
+      status: 'queued',
     });
 
     expect(rulesService.evaluateAll).toHaveBeenCalledWith(ORGANIZATION_ID, USER.id);
   });
 
-  it('forwards getEvaluationStatus to RulesService with (organizationId, requestId)', () => {
+  it('forwards getEvaluationStatus to RulesService with the owner operation identity', () => {
     const rulesService = makeRulesService();
     const controller = new RuleEvaluationController(rulesService as never);
 
     controller.getEvaluationStatus(ORGANIZATION_ID, 'request-1');
 
-    // The status read goes through AgentObservabilityService inside the
-    // service; the controller must scope by both organizationId (IDOR-safe)
-    // and the requestId path param.
+    // The stable route parameter is interpreted as an owner Operation id;
+    // the controller must scope every status read by organization.
     expect(rulesService.getEvaluationStatus).toHaveBeenCalledWith(ORGANIZATION_ID, 'request-1');
   });
 });
@@ -156,12 +177,18 @@ describe('RuleSuggestionsController suggestion routes', () => {
     const rulesService = makeRulesService();
     const controller = new RuleSuggestionsController(rulesService as never);
     rulesService.suggestThresholds.mockResolvedValue({
-      requestId: 'request-2',
+      session: 'organizations/org/agentSessions/session',
+      task: 'organizations/org/agentSessions/session/tasks/task',
+      execution: 'organizations/org/agentSessions/session/executions/execution',
+      operation: 'organizations/org/operations/operation',
       status: 'pending',
     });
 
     await expect(controller.suggestThresholds(ORGANIZATION_ID, USER)).resolves.toEqual({
-      requestId: 'request-2',
+      session: 'organizations/org/agentSessions/session',
+      task: 'organizations/org/agentSessions/session/tasks/task',
+      execution: 'organizations/org/agentSessions/session/executions/execution',
+      operation: 'organizations/org/operations/operation',
       status: 'pending',
     });
 

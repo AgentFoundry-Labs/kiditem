@@ -3,56 +3,40 @@ import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../agent-os/application/port/in/agent-runner.port';
-import { AgentObservabilityService } from '../../agent-os/application/service/agent-observability.service';
+  OPERATION_RUNNER_PORT,
+  type OperationRunnerPort,
+} from '../../operations/application/port/in/operation-runner.port';
 import { PANEL_EVENTS } from '../../automation/adapter/out/panel-event/panel-events';
 import { alertPanelMapper } from '../../automation/mapper/panel-event/alert.mapper';
 import {
   RULES_OPERATION_ALERT_PORT,
   type OperationAlertPort,
 } from '../application/port/out/cross-domain/operation-alert.port';
+import {
+  RULES_JUDGMENT_PORT,
+  type RulesJudgmentPort,
+} from '../application/port/out/cross-domain/rules-judgment.port';
+import {
+  RULES_EVALUATION_OPERATION_KEY,
+} from '../domain/operation/rules.operations';
+import type { ApplyRulesEvaluationPort } from '../application/port/in/apply-rules-evaluation.port';
 import type { RuleItem } from '@kiditem/shared/rules';
-import type { EvaluationResult, ProductEvalResult } from './types';
+import type { EvaluationResult } from './types';
 
-const RULES_EVALUATION_AGENT_TYPE = 'rules_evaluation';
-const RULES_SUGGEST_AGENT_TYPE = 'rules_suggest';
-const RULES_EVALUATION_SOURCE = 'rules.evaluation';
-const RULES_SUGGEST_SOURCE = 'rules.suggest';
-
-/**
- * Public payload describing a rules-evaluation result that the rules domain
- * post-processes (healthScore bulk update + activity events + critical
- * alerts + panel emission).
- *
- * Under Agent OS the run runtime writes its `resultJson` to the
- * `AgentRun` row. Adapters that bridge Agent OS run completion back to the
- * rules domain pass this shape into `RulesService.processEvaluationResult`.
- */
-export interface RulesEvaluationResultPayload {
-  organizationId: string;
-  runId: string;
-  /**
-   * Optional identity of the originating `AgentRunRequest`. When the bridging
-   * adapter passes this, the rules domain closes the user-triggered operation
-   * alert keyed by `rules.evaluation:<requestId>`.
-   */
-  requestId?: string;
-  products: ProductEvalResult[];
-}
+const RULES_SUGGEST_AGENT_DEFINITION = 'rules_suggest';
 
 @Injectable()
-export class RulesService {
+export class RulesService implements ApplyRulesEvaluationPort {
   private readonly logger = new Logger(RulesService.name);
 
   private static readonly PANEL_EMIT_BATCH_CAP = 50;
 
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AGENT_RUNNER_PORT)
-    private readonly agentRunner: AgentRunnerPort,
-    private readonly observability: AgentObservabilityService,
+    @Inject(OPERATION_RUNNER_PORT)
+    private readonly operations: OperationRunnerPort,
+    @Inject(RULES_JUDGMENT_PORT)
+    private readonly judgment: RulesJudgmentPort,
     private readonly eventEmitter: EventEmitter2,
     @Inject(RULES_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
@@ -62,56 +46,43 @@ export class RulesService {
     organizationId: string,
     triggeredByUserId: string | null,
   ): Promise<EvaluationResult> {
-    const result = await this.agentRunner.runByType(RULES_EVALUATION_AGENT_TYPE, {
+    if (!triggeredByUserId) {
+      throw new Error('RULES_EVALUATION_ACTOR_REQUIRED');
+    }
+
+    const operation = await this.operations.start({
       organizationId,
-      sourceType: RULES_EVALUATION_SOURCE,
-      payload: { organization_id: organizationId },
-      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
+      operationKey: RULES_EVALUATION_OPERATION_KEY,
+      triggerSource: 'dashboard',
+      input: {},
+      requestedByUserId: triggeredByUserId,
+      idempotencyKey: `rules.evaluation.manual:${organizationId}:${triggeredByUserId}`,
+    });
+    await this.operationAlerts.start({
+      organizationId,
+      operationKey: `rules.evaluation:${operation.id}`,
+      type: 'rules_evaluation',
+      title: '룰 평가 진행 중',
+      sourceType: 'operation_run',
+      sourceId: operation.id,
+      actorUserId: triggeredByUserId,
+      href: '/dashboard',
+      metadata: { operationKey: RULES_EVALUATION_OPERATION_KEY },
     });
 
-    if (!result.ok) {
-      this.logger.warn(
-        `Rules evaluation could not be queued (reason=${result.reason ?? 'unknown'})`,
-      );
-      return { requestId: undefined, status: result.status ?? 'unavailable' };
-    }
-
-    // Operation alert: surface the queued evaluation in the dashboard
-    // notification ledger. The closing transition (succeed/fail) lands when
-    // the bridging adapter calls `processEvaluationResult` with `requestId`.
-    if (result.requestId) {
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey: `rules.evaluation:${result.requestId}`,
-        type: 'rules_evaluation',
-        title: '룰 평가 진행 중',
-        sourceType: 'agent_run_request',
-        sourceId: result.requestId,
-        actorUserId: triggeredByUserId,
-        href: '/dashboard',
-        metadata: { agentType: RULES_EVALUATION_AGENT_TYPE },
-      });
-    }
-
-    this.logger.log(`Rules evaluation queued: requestId=${result.requestId}`);
-    return { requestId: result.requestId, status: result.status ?? 'pending' };
+    this.logger.log(`Rules evaluation queued: operationId=${operation.id}`);
+    return { operationId: operation.id, status: operation.status };
   }
 
-  /**
-   * Post-process a rules-evaluation run result. Replaces the legacy
-   * `@OnEvent(AGENT_EVENTS.RESULT_READY)` callback. Agent OS writes the
-   * result to `AgentRun.resultJson` on completion; the bridging adapter
-   * invokes this method with the parsed product list.
-   */
-  async processEvaluationResult(payload: RulesEvaluationResultPayload): Promise<void> {
-    const { organizationId, runId, requestId, products } = payload;
-    if (!organizationId || products.length === 0) {
-      return;
+  async apply(input: Parameters<ApplyRulesEvaluationPort['apply']>[0]) {
+    const { organizationId, operationId, products } = input;
+    const operation = await this.operations.get(organizationId, operationId);
+    if (operation.operationKey !== RULES_EVALUATION_OPERATION_KEY) {
+      throw new NotFoundException('Rules evaluation operation not found');
     }
 
     try {
-      // 1. KidItem 운영 상품별 healthScore 일괄 업데이트.
-      // Agent payload의 masterId는 Products 소유 MasterProduct ID다.
+      // KidItem 운영 상품별 healthScore 일괄 업데이트.
       const now = new Date();
       await this.prisma.$transaction(
         products.map((r) =>
@@ -210,54 +181,37 @@ export class RulesService {
         }
       }
     } catch (err) {
-      this.logger.error(`Rules post-processing failed for run ${runId}: ${err}`);
-      if (requestId) {
-        await this.operationAlerts.fail(
-          organizationId,
-          `rules.evaluation:${requestId}`,
-          { message: err instanceof Error ? err.message : String(err) },
-        );
-      }
-      const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
-      this.logger.log(
-        `Rules evaluation complete: ${products.length} products, ${violationCount} violations`,
+      this.logger.error(`Rules evaluation result application failed for operation ${operationId}: ${err}`);
+      await this.operationAlerts.fail(
+        organizationId,
+        `rules.evaluation:${operationId}`,
+        { message: err instanceof Error ? err.message : String(err) },
       );
-      return;
+      throw err;
     }
 
     const violationCount = products.reduce((sum, r) => sum + r.violations.length, 0);
-    if (requestId) {
-      await this.operationAlerts.succeed(
-        organizationId,
-        `rules.evaluation:${requestId}`,
-        {
-          metadata: {
-            productCount: products.length,
-            violationCount,
-            criticalCount: products.reduce(
-              (sum, r) => sum + r.violations.filter((v) => v.severity === 'critical').length,
-              0,
-            ),
-            runId,
-          },
-        },
-      );
-    }
+    const criticalCount = products.reduce(
+      (sum, r) => sum + r.violations.filter((v) => v.severity === 'critical').length,
+      0,
+    );
+    await this.operationAlerts.succeed(
+      organizationId,
+      `rules.evaluation:${operationId}`,
+      { metadata: { productCount: products.length, violationCount, criticalCount } },
+    );
     this.logger.log(
       `Rules evaluation complete: ${products.length} products, ${violationCount} violations`,
     );
+    return { productCount: products.length, violationCount, criticalCount };
   }
 
-  /**
-   * Read run-request status from Agent OS observability. Replaces the legacy
-   * direct AgentTask row lookup.
-   */
-  async getEvaluationStatus(organizationId: string, requestId: string) {
-    const request = await this.observability.findRequest({ organizationId, requestId });
-    if (!request) {
-      throw new NotFoundException('Rules evaluation request not found');
+  async getEvaluationStatus(organizationId: string, operationId: string) {
+    const operation = await this.operations.get(organizationId, operationId);
+    if (operation.operationKey !== RULES_EVALUATION_OPERATION_KEY) {
+      throw new NotFoundException('Rules evaluation operation not found');
     }
-    return request;
+    return operation;
   }
 
   async getSummary(organizationId: string): Promise<{
@@ -396,32 +350,33 @@ export class RulesService {
   async suggestThresholds(
     organizationId: string,
     triggeredByUserId: string | null,
-  ): Promise<{ requestId: string | undefined; status: string }> {
-    const result = await this.agentRunner.runByType(RULES_SUGGEST_AGENT_TYPE, {
+  ): Promise<{
+    session: string;
+    task: string;
+    execution: string;
+    operation: string;
+    status: 'pending';
+  }> {
+    if (!triggeredByUserId) {
+      throw new Error('RULES_SUGGEST_JUDGMENT_ACTOR_REQUIRED');
+    }
+    const result = await this.judgment.submit({
       organizationId,
-      sourceType: RULES_SUGGEST_SOURCE,
-      payload: { organization_id: organizationId },
-      ...(triggeredByUserId ? { requestedByUserId: triggeredByUserId } : {}),
+      actorUserId: triggeredByUserId,
+      objective: 'Suggest business-rule thresholds using the organization data.',
+      idempotencyKey: `rules.suggest.manual:${organizationId}:${triggeredByUserId}`,
     });
-
-    if (!result.ok) {
-      return { requestId: undefined, status: result.status ?? 'unavailable' };
-    }
-
-    if (result.requestId) {
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey: `rules.suggest:${result.requestId}`,
-        type: 'rules_suggest',
-        title: '룰 임계값 제안 진행 중',
-        sourceType: 'agent_run_request',
-        sourceId: result.requestId,
-        actorUserId: triggeredByUserId,
-        href: '/dashboard',
-        metadata: { agentType: RULES_SUGGEST_AGENT_TYPE },
-      });
-    }
-
-    return { requestId: result.requestId, status: result.status ?? 'pending' };
+    await this.operationAlerts.start({
+      organizationId,
+      operationKey: `rules.suggest:${result.operation}`,
+      type: 'rules_suggest',
+      title: '룰 임계값 제안 진행 중',
+      sourceType: 'operation_run',
+      sourceId: result.operation,
+      actorUserId: triggeredByUserId,
+      href: '/dashboard',
+      metadata: { agentDefinition: RULES_SUGGEST_AGENT_DEFINITION },
+    });
+    return { ...result, status: 'pending' };
   }
 }

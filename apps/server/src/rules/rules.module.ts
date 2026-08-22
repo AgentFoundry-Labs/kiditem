@@ -3,25 +3,25 @@ import { RuleEvaluationController } from './controllers/rule-evaluation.controll
 import { RuleSuggestionsController } from './controllers/rule-suggestions.controller';
 import { RulesManagementController } from './controllers/rules-management.controller';
 import { RulesService } from './services/rules.service';
-import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
+import { AgentOsApiExecutionModule } from '../agent-os/agent-os-api-execution.module';
+import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { AutomationModule } from '../automation/automation.module';
+import { OperationsModule } from '../operations/operations.module';
 import { RulesOperationAlertAdapter } from './adapter/out/automation/operation-alert.adapter';
 import { RULES_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/operation-alert.port';
+import { AgentOsRulesJudgmentAdapter } from './adapter/out/agent-os/agent-os-rules-judgment.adapter';
+import { RULES_JUDGMENT_PORT } from './application/port/out/cross-domain/rules-judgment.port';
+import { APPLY_RULES_EVALUATION_PORT } from './application/port/in/apply-rules-evaluation.port';
+import { RulesEvaluationOperationHandler } from './adapter/in/operation/rules-evaluation.operation-handler';
+import { RulesEvaluationCapabilityAdapter } from './adapter/in/agent/rules-evaluation-capability.adapter';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
-//
-// Agent OS wiring (post-`agent-registry` deletion):
-// - `AGENT_RUNNER_PORT` (kicks off `rules_evaluation` / `rules_suggest`) and
-//   `AgentObservabilityService` (run-request / run status reads) are both
-//   provided by `AgentOsModule`. The legacy `AgentScheduleControlPort` was
-//   deleted with the old schedule endpoints. Reintroduce scheduling as a new
-//   Agent OS surface rather than keeping a 503 compatibility stub.
 //
 // The /api/alerts/* HTTP surface and `AlertsService` were folded into the
 // `automation/` owner domain in Wave H3 AO-2 — they are no longer registered
 // here. Rules now owns only `/api/rules/*` evaluation + rule CRUD.
 @Module({
-  imports: [AgentOsLegacyRunModule, AutomationModule],
+  imports: [AgentOsApiExecutionModule, AgentOsCapabilityModule, AutomationModule, OperationsModule],
   controllers: [
     RuleEvaluationController,
     RulesManagementController,
@@ -30,7 +30,12 @@ import { RULES_OPERATION_ALERT_PORT } from './application/port/out/cross-domain/
   providers: [
     RulesService,
     RulesOperationAlertAdapter,
+    AgentOsRulesJudgmentAdapter,
+    RulesEvaluationOperationHandler,
+    RulesEvaluationCapabilityAdapter,
     { provide: RULES_OPERATION_ALERT_PORT, useExisting: RulesOperationAlertAdapter },
+    { provide: RULES_JUDGMENT_PORT, useExisting: AgentOsRulesJudgmentAdapter },
+    { provide: APPLY_RULES_EVALUATION_PORT, useExisting: RulesService },
   ],
 })
 export class RulesModule {}
