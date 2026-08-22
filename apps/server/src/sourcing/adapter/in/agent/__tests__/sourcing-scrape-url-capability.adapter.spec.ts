@@ -1,193 +1,91 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityRegistry } from '../../../../../agent-os/application/service/agent-capability-registry.service';
-import type { SourcingPlaywrightRuntimeHandler } from '../../../out/runtime/sourcing-playwright-runtime.handler';
-import type { SourcingService } from '../../../../application/service/sourcing.service';
+import type { SourcingScrapeOperationPort } from '../../../../application/port/out/cross-domain/sourcing-scrape-operation.port';
 import { SourcingScrapeUrlCapabilityAdapter } from '../sourcing-scrape-url-capability.adapter';
 
+const officialExecution = (input: Record<string, unknown>) => ({
+  organization: 'organizations/org-1',
+  actor: 'users/user-1',
+  agentVersion: 'agentDefinitions/sourcing/versions/1',
+  session: 'organizations/org-1/agentSessions/session-1',
+  task: 'organizations/org-1/agentSessions/session-1/tasks/task-1',
+  execution: 'organizations/org-1/agentSessions/session-1/executions/execution-1',
+  attempt: 'organizations/org-1/agentSessions/session-1/executions/execution-1/attempts/attempt-1',
+  operation: 'organizations/org-1/operations/operation-1',
+  requestId: '00000000-0000-4000-8000-000000000001',
+  input,
+});
+
 describe('SourcingScrapeUrlCapabilityAdapter', () => {
-  it('registers scrapeUrlWorkflow as a sourcing capability that executes the current Leaf scrape', async () => {
-    const registry = {
-      register: vi.fn(),
-    } as unknown as AgentCapabilityRegistry;
-    const workflow = {
-      scrapeUrl: vi.fn(),
-    } as unknown as SourcingService;
-    const playwright = {
-      execute: vi.fn().mockResolvedValue({
-        provider: 'ts-playwright',
-      output: {
-        ok: true,
-        scraped_data: {
-          product_id: '123',
-          source_url: 'https://detail.1688.com/offer/123.html',
-          title: 'Off-road toy car',
-          images: ['https://cdn.example.com/car.jpg'],
-          },
-          source_url: 'https://detail.1688.com/offer/123.html',
-          platform: '1688',
-        },
-      }),
-    } as unknown as SourcingPlaywrightRuntimeHandler;
-    const adapter = new SourcingScrapeUrlCapabilityAdapter(
-      registry,
-      workflow,
-      playwright,
-    );
-    adapter.onModuleInit();
-
-    const handler = vi
-      .mocked(registry.register)
-      .mock.calls.map(([registered]) => registered)
-      .find((registered) => registered.key === 'sourcing.scrapeProductUrl');
-    expect(handler).toMatchObject({
-      key: 'sourcing.scrapeProductUrl',
-      ownerDomain: 'sourcing',
-      executionKind: 'tool',
-      sideEffects: ['browser', 'external_io'],
-      approvalRisk: 'low',
-    });
-
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      conversationId: 'conversation-1',
-      agentInstanceId: 'agent-sourcing-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: {
-        sourceUrl: 'https://detail.1688.com/offer/123.html',
-      },
-    });
-
-    expect(workflow.scrapeUrl).not.toHaveBeenCalled();
-    expect(playwright.execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        organizationId: 'org-1',
-        agentInstanceId: 'agent-sourcing-1',
-        agentType: 'sourcing',
-        requestId: 'request-1',
-        runId: 'run-1',
-        playbookKey: null,
-        planStepKey: null,
-        input: {
-          action: 'scrape_url',
-          url: 'https://detail.1688.com/offer/123.html',
-        },
-      }),
-    );
-    expect(result).toMatchObject({
-      resourceType: 'sourcing_scrape_url',
-      resourceId: 'https://detail.1688.com/offer/123.html',
-      outputSummary: {
-        ok: true,
-        source_url: 'https://detail.1688.com/offer/123.html',
-        platform: '1688',
-      },
-      artifacts: [
-        expect.objectContaining({
-          artifactType: 'sourcing_scrape_snapshot',
-          targetDomain: 'sourcing',
-          targetModel: 'SourcingScrapeSnapshot',
-          targetId: 'https://detail.1688.com/offer/123.html',
-          title: '1688 scrape snapshot',
-        }),
-        expect.objectContaining({
-          artifactType: 'sourcing_candidate',
-          targetDomain: 'sourcing',
-          targetModel: 'SourcingCandidateDraft',
-          targetId: '123',
-          title: 'Off-road toy car 소싱 후보',
-          summary: expect.objectContaining({
-            candidateSource: 'sourcing.scrapeProductUrl',
-            scraped_data: expect.objectContaining({
-              title: 'Off-road toy car',
-            }),
-          }),
-        }),
-      ],
-    });
-  });
-
-  it('uses equivalent idempotency keys for sourceUrl and url aliases', () => {
-    const registry = {
-      register: vi.fn(),
-    } as unknown as AgentCapabilityRegistry;
-    const sourcing = {
-      scrapeUrl: vi.fn(),
-    } as unknown as SourcingService;
-    const playwright = {
-      execute: vi.fn(),
-    } as unknown as SourcingPlaywrightRuntimeHandler;
-    const adapter = new SourcingScrapeUrlCapabilityAdapter(
-      registry,
-      sourcing,
-      playwright,
-    );
-    adapter.onModuleInit();
-
-    const handler = vi
-      .mocked(registry.register)
-      .mock.calls.map(([registered]) => registered)
-      .find((registered) => registered.key === 'sourcing.scrapeProductUrl');
-    const bySourceUrl = handler.idempotencyKey({
-      organizationId: 'org-1',
-      input: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
-    });
-    const byUrl = handler.idempotencyKey({
-      organizationId: 'org-1',
-      input: { url: ' https://detail.1688.com/offer/123.html ' },
-    });
-
-    expect(byUrl).toBe(bySourceUrl);
-  });
-
-  it('returns a canonical candidate artifact only after the workflow has one', async () => {
+  it.each([
+    ['sourcing.scrapeUrlWorkflow', 'workflow'],
+    ['sourcing.scrapeProductUrl', 'tool'],
+  ])('routes %s through the official owned Operation port', async (key, executionKind) => {
     const registry = { register: vi.fn() } as unknown as AgentCapabilityRegistry;
-    const sourcing = {
-      scrapeUrl: vi.fn().mockResolvedValue({
-        skipped: false,
-        candidateId: 'candidate-1',
-        href: '/product-pipeline/collected-products/candidate-1',
-        operationKey: 'sourcing.scrape-url',
-        taskId: null,
+    const operations = {
+      startDirect: vi.fn(),
+      startOfficial: vi.fn().mockResolvedValue({ operationRunId: 'operation-child-1', status: 'queued' }),
+    } as unknown as SourcingScrapeOperationPort;
+    const adapter = new SourcingScrapeUrlCapabilityAdapter(registry, operations);
+    adapter.onModuleInit();
+    const handler = vi.mocked(registry.register).mock.calls
+      .map(([registered]) => registered)
+      .find((registered) => registered.key === key)!;
+
+    const result = await handler.execute(officialExecution({
+      sourceUrl: 'https://detail.1688.com/offer/123.html',
+    }) as never);
+
+    expect(handler.executionKind).toBe(executionKind);
+    expect(operations.startOfficial).toHaveBeenCalledWith(expect.objectContaining({
+      execution: expect.objectContaining({
+        session: 'organizations/org-1/agentSessions/session-1',
+        operation: 'organizations/org-1/operations/operation-1',
       }),
-    } as unknown as SourcingService;
-    const adapter = new SourcingScrapeUrlCapabilityAdapter(
-      registry,
-      sourcing,
-      { execute: vi.fn() } as unknown as SourcingPlaywrightRuntimeHandler,
-    );
+      sourceUrl: 'https://detail.1688.com/offer/123.html',
+    }));
+    expect(operations.startDirect).not.toHaveBeenCalled();
+    expect(result.resourceId).toBe('operation-child-1');
+  });
+
+  it('uses request identity plus URL owner key for equivalent sourceUrl and url aliases', () => {
+    const registry = { register: vi.fn() } as unknown as AgentCapabilityRegistry;
+    const operations = { startDirect: vi.fn(), startOfficial: vi.fn() } as unknown as SourcingScrapeOperationPort;
+    const adapter = new SourcingScrapeUrlCapabilityAdapter(registry, operations);
     adapter.onModuleInit();
     const handler = vi.mocked(registry.register).mock.calls
       .map(([registered]) => registered)
       .find((registered) => registered.key === 'sourcing.scrapeUrlWorkflow')!;
 
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      conversationId: 'conversation-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
-    });
+    const bySourceUrl = handler.idempotencyKey(officialExecution({
+      sourceUrl: 'https://detail.1688.com/offer/123.html',
+    }) as never);
+    const byUrl = handler.idempotencyKey(officialExecution({
+      url: ' https://detail.1688.com/offer/123.html ',
+    }) as never);
 
-    expect(result.artifacts).toEqual([
-      expect.objectContaining({ artifactType: 'sourcing_scrape_request' }),
-      expect.objectContaining({
-        artifactType: 'sourcing_candidate',
-        targetModel: 'SourcingCandidate',
-        targetId: 'candidate-1',
-      }),
-    ]);
-    expect(handler.idempotencyKey({
+    expect(byUrl).toBe(bySourceUrl);
+    expect(byUrl).toContain('00000000-0000-4000-8000-000000000001');
+  });
+
+  it('routes direct workflow callers through the generic owner Operation', async () => {
+    const registry = { register: vi.fn() } as unknown as AgentCapabilityRegistry;
+    const operations = {
+      startDirect: vi.fn().mockResolvedValue({ operationRunId: 'operation-direct-1', status: 'queued' }),
+      startOfficial: vi.fn(),
+    } as unknown as SourcingScrapeOperationPort;
+    const adapter = new SourcingScrapeUrlCapabilityAdapter(registry, operations);
+
+    await expect(adapter.scrapeUrlWorkflow({
       organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      input: { sourceUrl: 'https://detail.1688.com/offer/123.html' },
-    })).toContain('request-1');
+      triggeredByUserId: 'user-1',
+      sourceUrl: 'https://detail.1688.com/offer/123.html',
+    })).resolves.toMatchObject({ taskId: 'operation-direct-1' });
+
+    expect(operations.startDirect).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+    }));
+    expect(operations.startOfficial).not.toHaveBeenCalled();
   });
 });

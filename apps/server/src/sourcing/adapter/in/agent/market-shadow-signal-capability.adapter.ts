@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import { kstBusinessDate } from '../../../../common/kst';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import type {
   MarketShadowCollectionCapabilityInput,
   MarketShadowCollectionCapabilityPort,
@@ -54,13 +55,21 @@ export class MarketShadowSignalCapabilityAdapter
       outputSchema: OutputSchema,
       sideEffects: ['db_write', 'external_io', 'job_enqueue'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId }) => [
-        organizationId,
-        CAPABILITY_KEY,
-        kstBusinessDate(new Date()).toISOString().slice(0, 10),
-      ].join(':'),
-      execute: async ({ organizationId }) => {
-        const result = await this.collectShadowSignals({ organizationId });
+      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
+        execution,
+        `${CAPABILITY_KEY}:${kstBusinessDate(new Date()).toISOString().slice(0, 10)}`,
+      ),
+      execute: async (execution) => {
+        const owner = ownerCapabilityContext(execution);
+        const result = await this.operations.startShadowCollection({
+          organizationId: owner.organizationId,
+          requestedByUserId: owner.actorId,
+          triggerSource: 'agent',
+          idempotencyKey: ownerCapabilityIdempotencyKey(
+            execution,
+            `${CAPABILITY_KEY}:${kstBusinessDate(new Date()).toISOString().slice(0, 10)}`,
+          ),
+        });
         return {
           resourceType: 'operation_run',
           resourceId: result.operationRunId,

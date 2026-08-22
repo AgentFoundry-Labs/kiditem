@@ -17,9 +17,6 @@ import { RULES_OPERATION_ALERT_PORT } from '../../rules/application/port/out/cro
 import { TrafficModule } from '../../analytics/traffic/traffic.module';
 import { TrafficOperationAlertAdapter } from '../../analytics/traffic/adapter/out/automation/operation-alert.adapter';
 import { TRAFFIC_OPERATION_ALERT_PORT } from '../../analytics/traffic/application/port/out/cross-domain/operation-alert.port';
-import { SourcingAgentRuntimeModule } from '../../sourcing/sourcing-agent-runtime.module';
-import { SourcingOperationAlertAdapter } from '../../sourcing/adapter/out/automation/operation-alert.adapter';
-import { SOURCING_OPERATION_ALERT_PORT } from '../../sourcing/application/port/out/cross-domain/operation-alert.port';
 import { InventoryFreshnessRuntimeModule } from '../../inventory/inventory-freshness-runtime.module';
 import { InventoryOperationAlertAdapter } from '../../inventory/adapter/out/automation/operation-alert.adapter';
 import { INVENTORY_OPERATION_ALERT_PORT } from '../../inventory/application/port/out/cross-domain/operation-alert.port';
@@ -76,13 +73,6 @@ const consumers = [
     alertRuntimeModule: AutomationModule,
     adapter: TrafficOperationAlertAdapter,
     token: TRAFFIC_OPERATION_ALERT_PORT,
-  },
-  {
-    name: 'SourcingAgentRuntimeModule',
-    module: SourcingAgentRuntimeModule,
-    alertRuntimeModule: OperationAlertRuntimeModule,
-    adapter: SourcingOperationAlertAdapter,
-    token: SOURCING_OPERATION_ALERT_PORT,
   },
 ];
 

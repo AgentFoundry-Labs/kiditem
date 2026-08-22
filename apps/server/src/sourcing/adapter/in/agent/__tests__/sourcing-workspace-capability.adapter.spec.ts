@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
 import { SourcingWorkspaceCapabilityAdapter } from '../sourcing-workspace-capability.adapter';
 
 describe('SourcingWorkspaceCapabilityAdapter', () => {
@@ -51,15 +52,9 @@ describe('SourcingWorkspaceCapabilityAdapter', () => {
     const evidence = handlers.find(
       (handler) => handler.key === 'sourcing.retrieveWorkspaceEvidence',
     )!;
-    const result = await evidence.execute({
-      organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: { query: '실리콘 식판' },
-    });
+    const result = await evidence.execute(
+      officialCapabilityExecution({ query: '실리콘 식판' }) as never,
+    );
 
     expect(result.outputSummary).toEqual({
       inputHash: 'a'.repeat(64),

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import type { SourcingService } from '../../../application/service/sourcing.service';
+import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
 import { SourcingListingPrepCapabilityAdapter } from '../sourcing-listing-prep-capability.adapter';
 
 describe('SourcingListingPrepCapabilityAdapter', () => {
@@ -31,22 +32,13 @@ describe('SourcingListingPrepCapabilityAdapter', () => {
       approvalRisk: 'low',
     });
 
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      conversationId: 'conversation-1',
-      agentInstanceId: 'agent-sourcing-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: {
+    const result = await handler.execute(officialCapabilityExecution({
         productName: '실리콘 흡착 식판',
         category: '유아식기',
         description: '흡착형 신제품',
         imageUrls: ['https://cdn.example.com/plate.jpg'],
         optionNames: ['베이지'],
-      },
-    });
+      }) as never);
 
     expect(sourcing.createProductGeneration).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -101,18 +93,9 @@ describe('SourcingListingPrepCapabilityAdapter', () => {
       optionNames: ['베이지'],
     };
 
-    const defaultKey = handler.idempotencyKey({
-      organizationId: 'org-1',
-      input: base,
-    });
-    const templateKey = handler.idempotencyKey({
-      organizationId: 'org-1',
-      input: { ...base, templateId: 'kids-playful' },
-    });
-    const categoryKey = handler.idempotencyKey({
-      organizationId: 'org-1',
-      input: { ...base, category: '유아식기' },
-    });
+    const defaultKey = handler.idempotencyKey(officialCapabilityExecution(base) as never);
+    const templateKey = handler.idempotencyKey(officialCapabilityExecution({ ...base, templateId: 'kids-playful' }) as never);
+    const categoryKey = handler.idempotencyKey(officialCapabilityExecution({ ...base, category: '유아식기' }) as never);
 
     expect(templateKey).not.toBe(defaultKey);
     expect(categoryKey).not.toBe(defaultKey);

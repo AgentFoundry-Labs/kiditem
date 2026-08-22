@@ -1,12 +1,10 @@
 import { Module } from '@nestjs/common';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
-import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
 import { InventoryFreshnessRuntimeModule } from '../inventory/inventory-freshness-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SupplyAgentCapabilityAdapter } from './adapter/in/agent/supply-agent-capability.adapter';
 import { ProcurementRepositoryAdapter } from './adapter/out/repository/procurement.repository.adapter';
 import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
-import { OrderAgentRuntimeHandler } from './adapter/out/runtime/order-agent-runtime.handler';
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
@@ -21,7 +19,6 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
   imports: [
     PrismaModule,
     AgentOsCapabilityModule,
-    AgentOsLegacyRunModule,
     InventoryFreshnessRuntimeModule,
   ],
   providers: [
@@ -30,7 +27,6 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
     PurchaseOrderSubmissionService,
     SupplyAgentCapabilityAdapter,
     Alibaba1688CheckoutRuntimeAdapter,
-    OrderAgentRuntimeHandler,
     ProcurementRepositoryAdapter,
     PurchaseOrderSubmissionTransactionAdapter,
     { provide: PURCHASE_ORDER_DRAFT_PORT, useExisting: PurchaseOrderDraftService },

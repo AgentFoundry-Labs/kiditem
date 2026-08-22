@@ -5,11 +5,6 @@ import { join, resolve } from 'node:path';
 import { Injectable, Logger } from '@nestjs/common';
 import { chromium, type BrowserContext, type Page } from 'playwright';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
-import type {
-  AgentRuntimeExecutionContext,
-  AgentRuntimeResult,
-} from '../../../../agent-os/application/port/out/runtime/agent-runtime.port';
-import type { AgentTypeRuntimeHandler } from '../../../../agent-os/application/port/out/runtime/agent-runtime-handler.port';
 import { detectSourcingScrapePlatform } from '../../../domain/sourcing-url';
 import {
   isAllowedSupplierUrl,
@@ -158,35 +153,15 @@ interface PersistentContextLaunch {
 }
 
 @Injectable()
-export class SourcingPlaywrightRuntimeHandler implements AgentTypeRuntimeHandler {
+export class SourcingPlaywrightRuntimeHandler {
   private readonly logger = new Logger(SourcingPlaywrightRuntimeHandler.name);
 
-  async execute(context: AgentRuntimeExecutionContext): Promise<AgentRuntimeResult> {
-    const action = stringField(context.input.action);
-    if (action !== 'scrape_url') {
-      throw new AgentOsRuntimeError(
-        'sourcing_unknown_action',
-        `Unknown sourcing action: ${action ?? '(missing)'}`,
-      );
-    }
-
-    const url = stringField(context.input.url);
-    if (!url) {
-      throw new AgentOsRuntimeError('sourcing_missing_url', 'url is required for sourcing scrape_url.');
-    }
-
-    const result = await this.scrapeProductUrl(url, context.runtimeConfig);
-    this.logger.debug(`sourcing playwright runtime completed run=${context.runId}`);
-    return {
-      provider: 'ts-playwright',
-      output: result,
-    };
-  }
-
-  private async scrapeProductUrl(
-    url: string,
-    runtimeConfig: Record<string, unknown>,
-  ): Promise<Record<string, unknown>> {
+  async scrapeProductUrl(input: {
+    sourceUrl: string;
+    runtimeConfig?: Record<string, unknown>;
+  }): Promise<Record<string, unknown>> {
+    const url = input.sourceUrl;
+    const runtimeConfig = input.runtimeConfig ?? {};
     let supplierUrl: string;
     try {
       supplierUrl = parseAllowedSupplierUrl(url).normalizedUrl;

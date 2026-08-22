@@ -2,7 +2,6 @@ import 'reflect-metadata';
 import { describe, it, expect } from 'vitest';
 import { SupplyModule } from '../supply.module';
 import { SupplyAgentRuntimeModule } from '../supply-agent-runtime.module';
-import { AgentOsLegacyRunModule } from '../../agent-os/agent-os-legacy-run.module';
 import { SuppliersController } from '../adapter/in/http/suppliers.controller';
 import { ProcurementController } from '../adapter/in/http/procurement.controller';
 import { ProcurementTestIntentsController } from '../adapter/in/http/procurement-test-intents.controller';
@@ -14,7 +13,6 @@ import { PurchaseOrderDraftService } from '../application/service/purchase-order
 import { PurchaseOrderSubmissionService } from '../application/service/purchase-order-submission.service';
 import { SupplyAgentCapabilityAdapter } from '../adapter/in/agent/supply-agent-capability.adapter';
 import { Alibaba1688CheckoutRuntimeAdapter } from '../adapter/out/runtime/alibaba-1688-checkout-runtime.adapter';
-import { OrderAgentRuntimeHandler } from '../adapter/out/runtime/order-agent-runtime.handler';
 import { SupplierRepositoryAdapter } from '../adapter/out/repository/supplier.repository.adapter';
 import { ProcurementRepositoryAdapter } from '../adapter/out/repository/procurement.repository.adapter';
 import { SupplySourcingProcurementRepositoryAdapter } from '../adapter/out/repository/supply-sourcing-procurement.repository.adapter';
@@ -109,7 +107,6 @@ describe('SupplyModule owner wiring', () => {
     expect(providers).toContain(SupplySourcingProcurementRepositoryAdapter);
     expect(providers).toContain(SupplyAgentCapabilityAdapter);
     expect(providers).toContain(Alibaba1688CheckoutRuntimeAdapter);
-    expect(providers).toContain(OrderAgentRuntimeHandler);
     expect(providers).toContain(PurchaseOrderSubmissionTransactionAdapter);
     expect(providers).toContain(RocketPurchaseConfirmationTransactionAdapter);
     expect(providers).toContain(RocketFinalOrderReconciliationTransactionAdapter);
@@ -176,7 +173,6 @@ describe('SupplyModule owner wiring', () => {
       .toEqual([]);
     for (const provider of [
       SupplyAgentCapabilityAdapter,
-      OrderAgentRuntimeHandler,
       PurchaseOrderDraftService,
       PurchaseOrderSubmissionService,
     ]) {
@@ -185,13 +181,9 @@ describe('SupplyModule owner wiring', () => {
     }
   });
 
-  it('imports the generic-run contract owner directly for the order handler', () => {
-    expect(
-      Reflect.getMetadata(PROVIDERS_KEY, SupplyAgentRuntimeModule) ?? [],
-    ).toContain(OrderAgentRuntimeHandler);
-    expect(
-      Reflect.getMetadata('imports', SupplyAgentRuntimeModule) ?? [],
-    ).toContain(AgentOsLegacyRunModule);
+  it('does not retain generic-run wiring for the removed order runtime handler', () => {
+    const imports = Reflect.getMetadata('imports', SupplyAgentRuntimeModule) ?? [];
+    expect(imports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
   });
 
   it('keeps public /api route prefixes', () => {

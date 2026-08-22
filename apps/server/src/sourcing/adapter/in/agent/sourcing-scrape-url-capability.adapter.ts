@@ -1,14 +1,17 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import type {
   SourcingScrapeUrlWorkflowInput,
   SourcingScrapeUrlWorkflowPort,
   SourcingScrapeUrlWorkflowResult,
 } from '../../../application/port/in/capability/sourcing-capability.ports';
-import { SourcingAgentCommandService } from '../../../application/service/sourcing-agent-command.service';
-import { SourcingPlaywrightRuntimeHandler } from '../../out/runtime/sourcing-playwright-runtime.handler';
+import {
+  SOURCING_SCRAPE_OPERATION_PORT,
+  type SourcingScrapeOperationPort,
+} from '../../../application/port/out/cross-domain/sourcing-scrape-operation.port';
 
 const SCRAPE_URL_WORKFLOW_KEY = 'sourcing.scrapeUrlWorkflow';
 const SCRAPE_PRODUCT_URL_KEY = 'sourcing.scrapeProductUrl';
@@ -129,8 +132,8 @@ export class SourcingScrapeUrlCapabilityAdapter
 {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    private readonly sourcing: SourcingAgentCommandService,
-    private readonly playwright: SourcingPlaywrightRuntimeHandler,
+    @Inject(SOURCING_SCRAPE_OPERATION_PORT)
+    private readonly operations: SourcingScrapeOperationPort,
   ) {}
 
   onModuleInit(): void {
@@ -145,22 +148,18 @@ export class SourcingScrapeUrlCapabilityAdapter
     if (!sourceUrl) {
       throw new Error('sourceUrl or url is required');
     }
-    const result = await this.sourcing.scrapeUrl(
+    const result = await this.operations.startDirect({
+      organizationId: input.organizationId,
+      requestedByUserId: input.triggeredByUserId ?? null,
       sourceUrl,
-      input.organizationId,
-      input.triggeredByUserId ?? null,
-      {
-        conversationId: input.conversationId ?? null,
-        parentRequestId: input.parentRequestId ?? null,
-        delegatedByRunId: input.delegatedByRunId ?? null,
-      },
-    );
+      idempotencyKey: `sourcing.scrape_url:${sourceUrl}`,
+    });
     return {
-      skipped: Boolean(result.skipped),
-      candidateId: result.candidateId ?? null,
-      href: result.href ?? null,
-      operationKey: result.operationKey ?? null,
-      taskId: result.taskId ?? null,
+      skipped: false,
+      candidateId: null,
+      href: null,
+      operationKey: SCRAPE_URL_WORKFLOW_KEY,
+      taskId: result.operationRunId,
     };
   }
 
@@ -173,48 +172,42 @@ export class SourcingScrapeUrlCapabilityAdapter
       outputSchema: ScrapeUrlOutputSchema,
       sideEffects: ['browser', 'external_io', 'db_write', 'job_enqueue'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId, requestId, input }) => {
+      idempotencyKey: (execution) => {
+        const { input } = execution;
         const sourceUrl = sourceUrlOf(input);
-        return sourceUrl && requestId
-          ? [organizationId, requestId, SCRAPE_URL_WORKFLOW_KEY, sourceUrl].join(':')
+        return sourceUrl
+          ? ownerCapabilityIdempotencyKey(execution, `${SCRAPE_URL_WORKFLOW_KEY}:${sourceUrl}`)
           : null;
       },
       execute: async (executionInput) => {
-        const { organizationId, requestedByUserId, input } = executionInput;
-        const result = await this.scrapeUrlWorkflow({
-          organizationId,
-          triggeredByUserId: requestedByUserId ?? null,
-          sourceUrl: sourceUrlOf(input) ?? '',
-          conversationId: executionInput.conversationId ?? null,
-          parentRequestId: executionInput.requestId ?? null,
-          delegatedByRunId: executionInput.runId ?? null,
+        const sourceUrl = sourceUrlOf(executionInput.input);
+        if (!sourceUrl) throw new Error('sourceUrl or url is required');
+        const result = await this.operations.startOfficial({
+          execution: executionInput,
+          sourceUrl,
         });
-        const targetId = result.candidateId ?? result.taskId ?? result.operationKey;
+        const targetId = result.operationRunId;
+        const summary = {
+          skipped: false,
+          candidateId: null,
+          href: null,
+          operationKey: SCRAPE_URL_WORKFLOW_KEY,
+          taskId: result.operationRunId,
+        };
         return {
-          resourceType: 'sourcing_scrape_url_workflow',
+          resourceType: 'operation_run',
           resourceId: targetId,
-          outputSummary: outputSummaryOf(result),
+          outputSummary: summary,
           artifacts: [
             {
-              artifactType: 'sourcing_scrape_request',
-              targetDomain: 'sourcing',
-              targetModel: 'SourcingScrapeUrlWorkflow',
+              artifactType: 'operation_run',
+              targetDomain: 'operations',
+              targetModel: 'OperationRun',
               targetId,
-              title: result.skipped ? '기존 소싱 상품' : '소싱 URL 수집 요청',
-              href: result.href ?? COLLECTED_PRODUCTS_HREF,
-              summary: outputSummaryOf(result),
+              title: '소싱 URL 수집 요청',
+              href: COLLECTED_PRODUCTS_HREF,
+              summary,
             },
-            ...(result.candidateId
-              ? [{
-                  artifactType: 'sourcing_candidate',
-                  targetDomain: 'sourcing',
-                  targetModel: 'SourcingCandidate',
-                  targetId: result.candidateId,
-                  title: '소싱 후보',
-                  href: result.href,
-                  summary: outputSummaryOf(result),
-                }]
-              : []),
           ],
         };
       },
@@ -230,15 +223,14 @@ export class SourcingScrapeUrlCapabilityAdapter
       outputSchema: ScrapeProductUrlOutputSchema,
       sideEffects: ['browser', 'external_io'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId, input }) => {
+      idempotencyKey: (execution) => {
+        const { input } = execution;
         const sourceUrl = sourceUrlOf(input);
         return sourceUrl
-          ? [
-              organizationId,
-              SCRAPE_PRODUCT_URL_KEY,
-              SCRAPE_PRODUCT_ARTIFACT_CONTRACT_VERSION,
-              sourceUrl,
-            ].join(':')
+          ? ownerCapabilityIdempotencyKey(
+              execution,
+              `${SCRAPE_PRODUCT_URL_KEY}:${SCRAPE_PRODUCT_ARTIFACT_CONTRACT_VERSION}:${sourceUrl}`,
+            )
           : null;
       },
       execute: async (executionInput) => {
@@ -246,70 +238,33 @@ export class SourcingScrapeUrlCapabilityAdapter
         if (!sourceUrl) {
           throw new Error('sourceUrl or url is required');
         }
-        const result = await this.playwright.execute({
-          organizationId: executionInput.organizationId,
-          agentInstanceId: executionInput.agentInstanceId,
-          agentType: executionInput.agentType,
-          requestId: executionInput.requestId ?? 'mcp-sourcing-scrape-url',
-          runId: executionInput.runId ?? 'mcp-sourcing-scrape-url',
-          taskSessionId: 'mcp-sourcing-scrape-url',
-          taskKey: 'sourcing_scrape_url',
-          adapterType: 'playwright',
-          model: 'deterministic',
-          modelPlan: { primary: 'deterministic' },
-          promptPath: 'agent-config/prompts/agents/sourcing.md',
-          conversationId: executionInput.conversationId ?? null,
-          requestedByUserId: executionInput.requestedByUserId ?? null,
-          playbookKey: null,
-          planStepKey: null,
-          skillKeys: [],
-          outputSchemaPath: null,
-          input: {
-            action: 'scrape_url',
-            url: sourceUrl,
-          },
-          trustLevel: 1,
-          runtimeConfig: {},
+        const result = await this.operations.startOfficial({
+          execution: executionInput,
+          sourceUrl,
         });
         const output = {
-          ...result.output,
-          source_url:
-            typeof result.output.source_url === 'string'
-              ? result.output.source_url
-              : sourceUrl,
-          platform:
-            typeof result.output.platform === 'string'
-              ? result.output.platform
-              : null,
+          ok: true,
+          source_url: sourceUrl,
+          platform: null,
+          operationRunId: result.operationRunId,
+          requiresRecovery: false,
         };
         return {
-          resourceType: 'sourcing_scrape_url',
-          resourceId: sourceUrl,
+          resourceType: 'operation_run',
+          resourceId: result.operationRunId,
           outputSummary: output,
           artifacts: [
             {
               artifactType: 'sourcing_scrape_snapshot',
               targetDomain: 'sourcing',
               targetModel: 'SourcingScrapeSnapshot',
-              targetId: sourceUrl,
+              targetId: result.operationRunId,
               title:
                 typeof output.platform === 'string' && output.platform
                   ? `${output.platform} scrape snapshot`
                   : 'Sourcing scrape snapshot',
               href: null,
               summary: output,
-            },
-            {
-              artifactType: 'sourcing_candidate',
-              targetDomain: 'sourcing',
-              targetModel: 'SourcingCandidateDraft',
-              targetId: candidateTargetIdOf(output, sourceUrl),
-              title: candidateTitleOf(output),
-              href: null,
-              summary: {
-                ...output,
-                candidateSource: SCRAPE_PRODUCT_URL_KEY,
-              },
             },
           ],
         };

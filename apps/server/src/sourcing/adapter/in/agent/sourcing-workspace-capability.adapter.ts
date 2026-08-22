@@ -5,6 +5,7 @@ import type {
   AgentCapabilityExecutionInput,
   AgentCapabilityHandler,
 } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import {
@@ -105,7 +106,9 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       sideEffects: ['read'],
       approvalRisk: 'none',
       idempotencyKey: () => null,
-      execute: async ({ organizationId, input }) => {
+      execute: async (execution) => {
+        const { organizationId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.workspace.retrieveWorkspaceEvidence({
           organizationId,
           ...input,
@@ -142,7 +145,9 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       sideEffects: ['read'],
       approvalRisk: 'none',
       idempotencyKey: () => null,
-      execute: async ({ organizationId, input }) => {
+      execute: async (execution) => {
+        const { organizationId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.workspace.inspectRecommendationRun({
           organizationId,
           recommendationRunId: input.recommendationRunId ?? null,
@@ -173,10 +178,12 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       outputSchema: ValidationOutput,
       sideEffects: ['db_write'],
       approvalRisk: 'none',
-      idempotencyKey: (execution) => execution.requestId
-        ? `${execution.organizationId}:${execution.requestId}:sourcing.refreshValidation:${execution.input.recommendationRunId}`
-        : null,
-      execute: async ({ organizationId, input }) => {
+      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
+        execution, `sourcing.refreshValidation:${execution.input.recommendationRunId}`,
+      ),
+      execute: async (execution) => {
+        const { organizationId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.workspace.refreshValidation({ organizationId, ...input });
         return {
           resourceType: 'sourcing_validation',
@@ -209,7 +216,8 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       approvalRisk: 'low',
       idempotencyKey: (execution) => this.reviewIdempotencyKey(execution),
       execute: async (execution) => {
-        if (!execution.requestedByUserId) {
+        const { organizationId, actorId } = ownerCapabilityContext(execution);
+        if (!actorId) {
           throw new AgentOsRuntimeError(
             'requested_user_required',
             'Sourcing review handoff requires an authenticated user.',
@@ -217,8 +225,8 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
         }
         const items = normalizeReviewItems(execution.input.items);
         const result = await this.workspace.createReviewBatch({
-          organizationId: execution.organizationId,
-          requestedByUserId: execution.requestedByUserId,
+          organizationId,
+          requestedByUserId: actorId,
           recommendationRunId: execution.input.recommendationRunId,
           workspaceKey: execution.input.workspaceKey,
           items,
@@ -246,7 +254,6 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
   private reviewIdempotencyKey(
     execution: AgentCapabilityExecutionInput<ReviewInputType>,
   ): string | null {
-    if (!execution.requestId) return null;
     const digest = createHash('sha256')
       .update(canonicalJson({
         recommendationRunId: execution.input.recommendationRunId,
@@ -254,7 +261,9 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
         items: normalizeReviewItems(execution.input.items),
       }))
       .digest('hex');
-    return `${execution.organizationId}:${execution.requestId}:sourcing.createReviewBatch:${digest}`;
+    return ownerCapabilityIdempotencyKey(
+      execution, `sourcing.createReviewBatch:${digest}`,
+    );
   }
 }
 

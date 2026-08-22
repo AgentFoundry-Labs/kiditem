@@ -38,6 +38,10 @@ import {
 } from '../../domain/sourcing-candidate-identity';
 import { buildProductBasics } from './product-basics.presenter';
 import { SourcingAgentCommandService } from './sourcing-agent-command.service';
+import {
+  SOURCING_SCRAPE_OPERATION_PORT,
+  type SourcingScrapeOperationPort,
+} from '../port/out/cross-domain/sourcing-scrape-operation.port';
 
 const PLATFORM_MAP: Record<string, string> = {
   '1688': 'ALIBABA_1688',
@@ -82,6 +86,8 @@ export class SourcingService {
     @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
     private readonly registrationContentWorkspaces: RegistrationContentWorkspacePort,
     private readonly agentCommands: SourcingAgentCommandService,
+    @Inject(SOURCING_SCRAPE_OPERATION_PORT)
+    private readonly scrapes: SourcingScrapeOperationPort,
   ) {}
 
   async receiveExtensionData(
@@ -257,13 +263,39 @@ export class SourcingService {
     url: string,
     organizationId: string,
     triggeredByUserId: string | null,
-    lineage?: {
-      conversationId?: string | null;
-      parentRequestId?: string | null;
-      delegatedByRunId?: string | null;
-    },
   ) {
-    return this.agentCommands.scrapeUrl(url, organizationId, triggeredByUserId, lineage);
+    const existing = await this.candidates.findActiveBySourceUrl({
+      organizationId,
+      sourceUrl: url,
+    });
+    if (existing) {
+      return {
+        ok: true,
+        skipped: true,
+        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
+        taskId: null,
+        candidateId: existing.id,
+        product_id: existing.id,
+        href: collectedCandidateHref(existing.id),
+        operationKey: null,
+      };
+    }
+    const operation = await this.scrapes.startDirect({
+      organizationId,
+      requestedByUserId: triggeredByUserId,
+      sourceUrl: url,
+      idempotencyKey: `sourcing.scrape_url:${url}`,
+    });
+    return {
+      ok: true,
+      skipped: false,
+      message: '스크래핑 작업이 대기열에 등록되었습니다.',
+      taskId: operation.operationRunId,
+      candidateId: null,
+      product_id: null,
+      href: null,
+      operationKey: 'sourcing.scrape_url',
+    };
   }
 
   async scrapeUrlStatus(url: string, organizationId: string) {

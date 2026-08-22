@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsLegacyRunModule } from "../agent-os/agent-os-legacy-run.module";
 import { AiModule } from "../ai/ai.module";
 import { AdvertisingModule } from "../advertising/advertising.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -128,9 +127,8 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
  * during issue #192 follow-up Track A PR 1). `supplier-payments` is a finance
  * capability.
  *
- * Agent delegation goes through `AGENT_RUNNER_PORT` (exported by
- * `AgentOsModule`). `SourcingAgentGatewayAdapter` is the only seam that calls
- * the runner; `SourcingService` consumes `SOURCING_AGENT_GATEWAY_PORT`.
+ * Deterministic URL scraping is a Sourcing-owned Operation. Product generation
+ * uses the direct AI owner port; neither path creates a generic AgentRun.
  *
  * Sourcing ingest writes `SourcingCandidate` + `CandidateImage` rows via
  * `SOURCING_CANDIDATE_REPOSITORY_PORT`. Registration is account-scoped and
@@ -139,7 +137,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
 @Module({
   imports: [
     PrismaModule,
-    AgentOsLegacyRunModule,
     SourcingAgentRuntimeModule,
     SourcingAgentApiCollectionModule,
     SourcingShadowOperationModule,

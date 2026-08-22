@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
+import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
 import { ThumbnailWingService } from '../../../../application/service/thumbnail-wing.service';
 import { AiWingRegistrationCapabilityAdapter } from '../ai-wing-registration-capability.adapter';
 
@@ -29,27 +30,12 @@ describe('AiWingRegistrationCapabilityAdapter', () => {
       approvalRisk: 'high',
     });
     expect(
-      handler.idempotencyKey({
-        organizationId: 'org-1',
-        conversationId: 'conversation-1',
-        agentInstanceId: 'agent-1',
-        agentType: 'sourcing',
-        requestId: 'request-1',
-        runId: 'run-1',
-        input: { generationId: GENERATION_ID },
-      }),
-    ).toBe(`org-1:product_listing.submit_wing_thumbnail:${GENERATION_ID}`);
+      handler.idempotencyKey(officialCapabilityExecution({ generationId: GENERATION_ID }) as never),
+    ).toBe(`00000000-0000-4000-8000-000000000001:product_listing.submit_wing_thumbnail:${GENERATION_ID}`);
 
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      conversationId: 'conversation-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      requestId: 'request-1',
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: { generationId: GENERATION_ID },
-    });
+    const result = await handler.execute(
+      officialCapabilityExecution({ generationId: GENERATION_ID }) as never,
+    );
 
     expect(wing.registerToWing).toHaveBeenCalledWith(GENERATION_ID, 'org-1');
     expect(result).toEqual({
@@ -93,12 +79,7 @@ describe('AiWingRegistrationCapabilityAdapter', () => {
     const handler = register.mock.calls[0][0];
 
     await expect(
-      handler.execute({
-        organizationId: 'org-1',
-        agentInstanceId: 'agent-1',
-        agentType: 'sourcing',
-        input: { generationId: GENERATION_ID },
-      }),
+      handler.execute(officialCapabilityExecution({ generationId: GENERATION_ID }) as never),
     ).rejects.toThrow('Wing upload failed');
   });
 });

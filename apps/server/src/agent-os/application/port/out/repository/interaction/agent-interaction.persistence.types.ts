@@ -178,11 +178,14 @@ export interface AgentExecutionRuntimeContext {
   sessionTaskId: string;
   executionId: string;
   attemptId: string;
+  operationRunId: string;
+  operationAttemptToken: string;
   startIntentId: string;
   runtimeCredentialGeneration: number;
   copilotThreadId: string;
   aguiRunId: string;
   agentVersionId: string;
+  agentVersion: number;
   runtimeType: string;
   modelIdentity: string;
   policySnapshotId: string;

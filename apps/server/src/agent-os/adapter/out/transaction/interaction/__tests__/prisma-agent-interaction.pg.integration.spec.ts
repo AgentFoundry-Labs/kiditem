@@ -242,6 +242,7 @@ describe("Prisma interaction persistence seams", () => {
   });
 
   it("loads canonical runtime authority, bounded model history, and exact current execution", async () => {
+    if (!prisma) throw new Error("Prisma test client was not initialized");
     const authorized = await repository.authorizeExecution(
       firstRunInput({
         copilotThreadId: "thread-runtime-context",
@@ -249,6 +250,47 @@ describe("Prisma interaction persistence seams", () => {
         externalEventId: "message-runtime-context",
       }),
     );
+
+    // An active Agent execution is not a capability authority until its exact
+    // runtime attempt is bound to one active Operation envelope.
+    await expect(
+      repository.loadExecutionRuntimeContext({ executionId: authorized.execution.id }),
+    ).resolves.toBeNull();
+
+    const attempt = await prisma.agentExecutionAttempt.findFirstOrThrow({
+      where: { executionId: authorized.execution.id },
+      select: { id: true },
+    });
+    const foreignOperation = await prisma.operationRun.create({
+      data: activeRuntimeOperation(OTHER_ORGANIZATION_ID, 'foreign-runtime-operation'),
+    });
+    await expect(prisma.agentExecutionAttemptOperationBinding.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: attempt.id,
+        executionId: authorized.execution.id,
+        sessionId: authorized.session.id,
+        operationRunId: foreignOperation.id,
+        continuationKey: 'foreign-operation-must-not-bind',
+      },
+    })).rejects.toMatchObject({ code: 'P2003' });
+    await expect(
+      repository.loadExecutionRuntimeContext({ executionId: authorized.execution.id }),
+    ).resolves.toBeNull();
+
+    const operation = await prisma.operationRun.create({
+      data: activeRuntimeOperation(TEST_ORGANIZATION_ID, 'runtime-operation'),
+    });
+    await prisma.agentExecutionAttemptOperationBinding.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: attempt.id,
+        executionId: authorized.execution.id,
+        sessionId: authorized.session.id,
+        operationRunId: operation.id,
+        continuationKey: 'runtime-capability-envelope',
+      },
+    });
 
     await expect(
       repository.loadExecutionRuntimeContext({
@@ -266,6 +308,8 @@ describe("Prisma interaction persistence seams", () => {
       runtimeType: "copilotkit_agui",
       modelIdentity: "gpt-5.4",
       attemptId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      operationRunId: operation.id,
+      operationAttemptToken: operation.attemptToken,
       startIntentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
       runtimeCredentialGeneration: 0,
       capabilityKeys: ["catalog.read"],
@@ -1711,6 +1755,31 @@ describe("Prisma interaction persistence seams", () => {
     }
   });
 });
+
+function activeRuntimeOperation(organizationId: string, idempotencyKey: string) {
+  return {
+    organizationId,
+    operationKey: 'agent.runtime.capability-envelope',
+    definitionVersion: 1,
+    ownerDomain: 'agent-os',
+    title: 'Agent runtime capability envelope',
+    engineType: 'server',
+    resourceClass: 'default',
+    executionTimeoutMs: 60_000,
+    status: 'running',
+    triggerSource: 'agent',
+    input: {},
+    idempotencyKey,
+    attempts: 1,
+    maxAttempts: 1,
+    claimedBy: 'agent-os:integration-test',
+    attemptToken: '00000000-0000-4000-8000-000000000071',
+    claimedAt: new Date(),
+    leaseExpiresAt: new Date(Date.now() + 60_000),
+    deadlineAt: new Date(Date.now() + 60_000),
+    startedAt: new Date(),
+  };
+}
 
 async function seedInteractionFixture(client: PrismaClient): Promise<void> {
   await client.user.create({

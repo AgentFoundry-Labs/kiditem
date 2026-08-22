@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
   type SourcingListingPrepCapabilityInput,
@@ -134,16 +135,15 @@ export class SourcingListingPrepCapabilityAdapter
       outputSchema: ListingPrepOutputSchema,
       sideEffects: ['db_write', 'job_enqueue'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId, input }) =>
-        [
-          organizationId,
-          PRODUCT_LISTING_PREP_KEY,
-          stableHash(input),
-        ].join(':'),
-      execute: async ({ organizationId, requestedByUserId, input }) => {
+      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
+        execution, `${PRODUCT_LISTING_PREP_KEY}:${stableHash(execution.input)}`,
+      ),
+      execute: async (execution) => {
+        const { organizationId, actorId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.createGenerationPackage({
           organizationId,
-          triggeredByUserId: requestedByUserId ?? null,
+          triggeredByUserId: actorId,
           ...input,
         });
         const outputSummary: Record<string, unknown> = { ...result };

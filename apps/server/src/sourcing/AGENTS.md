@@ -17,7 +17,6 @@ sourcing/
 ├── adapter/out/
 │   ├── agent/              # sourcing Agent OS gateway adapter
 │   ├── ai/                 # AI archive/workspace and registration-content adapters
-│   ├── automation/         # operation-alert adapter
 │   ├── channels/           # account-scoped marketplace registration bridge
 │   ├── products/           # legacy products compatibility bridge
 │   ├── supply/             # Supply incoming-port bridge; never direct model writes
@@ -77,8 +76,8 @@ catches single-segment paths and fails as a bad candidate UUID.
 
 ## Cross-Domain Ports
 
-- Sourcing delegates scrape/product-generation work through
-  `SOURCING_AGENT_GATEWAY_PORT`.
+- Sourcing starts URL scraping through `SOURCING_SCRAPE_OPERATION_PORT` and
+  delegates deterministic AI product generation through `SOURCING_AGENT_GATEWAY_PORT`.
 - Product registration calls Channels through
   `CHANNEL_PRODUCT_REGISTRATION_PORT` and branches AI content through
   `REGISTRATION_CONTENT_WORKSPACE_PORT`.
@@ -86,8 +85,6 @@ catches single-segment paths and fails as a bad candidate UUID.
   registration flows must not call it.
 - Generated-content archive/delete calls AI through
   `SOURCING_AI_WORKSPACE_ARCHIVE_PORT`.
-- Operation-alert lifecycle writes go through
-  `SOURCING_OPERATION_ALERT_PORT`.
 - Supplier-offer reads and RFQ/sample/test-order intent creation use
   `SOURCING_SUPPLY_INTELLIGENCE_PORT`, backed only by Supply's exported
   `SUPPLY_SOURCING_PROCUREMENT_PORT`; sourcing must not mutate supply models
@@ -101,13 +98,14 @@ No direct/1688/status/read-or-compute paths. Cancellation never reactivates.
 
 ## Scrape Runtime
 
-`/api/sourcing/scrape-url` enqueues a `sourcing` Agent OS request. Handler
-`SourcingPlaywrightRuntimeHandler` opens Playwright Chromium with a persistent
+`/api/sourcing/scrape-url` starts the Sourcing-owned `sourcing.scrape_url`
+Operation. Official AgentSession capabilities create one session-owned child
+Operation through `AGENT_SESSION_OWNED_OPERATION_PORT`; they never manufacture
+an AgentRun or fall back to the generic runner. The Operation handler calls
+`SourcingPlaywrightRuntimeHandler`, which opens Playwright Chromium with a persistent
 profile and runs approved deterministic extractors, reusing
 `extensions/kiditem-os/content/sourcing/extractors/*` as reviewed reference
-scripts; retired extension paths are not fallbacks. Develop new scrapers via the
-Codex-global `$magic-scraper` skill, then promote them into reviewed
-extractor/runtime code with fixtures and tests.
+scripts; retired extension paths are not fallbacks.
 
 The version-2 1688 keyword Operation is server-domain owned and attaches only
 through `SOURCING_PLAYWRIGHT_CDP_ENDPOINT` to authenticated Office Chrome. It
@@ -115,12 +113,10 @@ has no extension, anonymous-browser, or fresh-profile fallback. The adapter
 closes only its page; host Chrome, login, and unrelated tabs survive. Login or
 security challenges are truthful attention states, never bypassed.
 
-`magic-scraper` is development-only: never expose arbitrary browser JS, CDN
-scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
+Never expose arbitrary browser JS, CDN scripts, or raw CDP as Agent OS/MCP tools. For the direct `scrape_url` action,
 `SourcingScrapeResultService` validates and upserts the canonical candidate
-synchronously before the runtime returns success. Agent OS finalized listeners
-are non-authoritative alert/audit projections and never write canonical sourcing
-rows.
+synchronously before the Operation completes. Agent OS projections are
+non-authoritative and never write canonical sourcing rows.
 
 Supplier URLs are an SSRF boundary. `supplier-source-url-policy.ts` is the
 single parser for extension ingest, scrape DTO validation, and Playwright
@@ -159,8 +155,9 @@ The manifest lives in `domain/capability/sourcing.capabilities.ts`:
 - `sourcing.scrapeProductUrl` (`tool`) is an internal deterministic bridge for
   reviewed scrape workflows; it is not exposed to the Sourcing model.
 - `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
-- `sourcing.scrapeUrlWorkflow` (`workflow`) composes duplicate-check, scrape,
-  sink, alerting, and candidate-detail routing deterministically.
+- `sourcing.scrapeUrlWorkflow` (`workflow`) and `sourcing.scrapeProductUrl`
+  create the same Sourcing-owned scrape Operation; official callers create one
+  immutable session ownership edge.
 - `sourcing.retrieveWorkspaceEvidence`, `sourcing.inspectRecommendationRun`,
   `sourcing.refreshCollection`, and `sourcing.refreshValidation` are the direct
   dashboard model's bounded evidence/run capabilities.

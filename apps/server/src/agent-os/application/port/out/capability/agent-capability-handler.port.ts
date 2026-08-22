@@ -1,5 +1,16 @@
 import type { z } from 'zod';
 import type { InteractionUiResult } from '@kiditem/shared/agent-interaction';
+import type {
+  AgentExecutionAttemptName,
+  AgentExecutionName,
+  AgentSessionName,
+  AgentSessionTaskName,
+  AgentVersionName,
+  OrganizationName,
+  OperationRunName,
+  RequestId,
+  UserName,
+} from '@kiditem/shared/identifiers';
 
 export type AgentCapabilityExecutionKind =
   | 'tool'
@@ -30,13 +41,15 @@ export interface AgentCapabilityArtifactOutput {
 export interface AgentCapabilityExecutionInput<
   TInput extends Record<string, unknown> = Record<string, unknown>,
 > {
-  organizationId: string;
-  conversationId?: string | null;
-  agentInstanceId: string;
-  agentType: string;
-  requestId?: string | null;
-  runId?: string | null;
-  requestedByUserId?: string | null;
+  organization: OrganizationName;
+  actor: UserName | null;
+  agentVersion: AgentVersionName;
+  session: AgentSessionName;
+  task: AgentSessionTaskName;
+  execution: AgentExecutionName;
+  attempt: AgentExecutionAttemptName;
+  operation: OperationRunName;
+  requestId: RequestId;
   input: TInput;
 }
 

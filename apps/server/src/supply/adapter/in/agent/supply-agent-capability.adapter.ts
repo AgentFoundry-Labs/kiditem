@@ -13,6 +13,7 @@ import type {
   AgentCapabilityExecutionInput,
   AgentCapabilityHandler,
 } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
@@ -59,35 +60,29 @@ function recommendationFromInput(input: Record<string, unknown>) {
 }
 
 function purchaseOrderDraftIdempotencyKey(input: {
-  organizationId: string;
-  requestId?: string | null;
+  requestId: string;
   input: Record<string, unknown>;
 }): string {
   const source =
     typeof input.input.recommendationArtifactId === 'string'
       ? `recommendation_artifact:${input.input.recommendationArtifactId}`
-      : input.requestId
-        ? `request:${input.requestId}`
-        : [
-            'content',
-            String(input.input.productName),
-            String(input.input.supplierName ?? input.input.supplierId ?? 'unknown-supplier'),
-            String(input.input.testQuantity ?? input.input.moq),
-          ].join(':');
+       : [
+           'content',
+           String(input.input.productName),
+           String(input.input.supplierName ?? input.input.supplierId ?? 'unknown-supplier'),
+           String(input.input.testQuantity ?? input.input.moq),
+         ].join(':');
 
-  return [input.organizationId, 'supply.create_purchase_order_draft', source].join(
-    ':',
-  );
+  return `${input.requestId}:supply.create_purchase_order_draft:${source}`;
 }
 
 export function purchaseOrderSubmissionIdempotencyKey(
   executionInput: AgentCapabilityExecutionInput,
 ): string {
-  return [
-    executionInput.organizationId,
-    'supply.submit_purchase_order',
-    String(executionInput.input.purchaseOrderId),
-  ].join(':');
+  return ownerCapabilityIdempotencyKey(
+    executionInput,
+    `supply.submit_purchase_order:${String(executionInput.input.purchaseOrderId)}`,
+  );
 }
 
 @Injectable()
@@ -110,7 +105,9 @@ export class SupplyAgentCapabilityAdapter implements OnModuleInit {
       sideEffects: ['db_write'],
       approvalRisk: 'low',
       idempotencyKey: purchaseOrderDraftIdempotencyKey,
-      execute: async ({ organizationId, input }) => {
+      execute: async (execution) => {
+        const { organizationId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.drafts.createFromRecommendation({
           organizationId,
           recommendation: recommendationFromInput(input),
@@ -143,12 +140,9 @@ export class SupplyAgentCapabilityAdapter implements OnModuleInit {
       approvalRisk: 'high',
       idempotencyKey: purchaseOrderSubmissionIdempotencyKey,
       execute: async (executionInput) => {
-        const {
-          organizationId,
-          input,
-          requestedByUserId,
-        } = executionInput;
-        if (!requestedByUserId) {
+        const { organizationId, actorId } = ownerCapabilityContext(executionInput);
+        const { input } = executionInput;
+        if (!actorId) {
           throw new UnauthorizedException(
             'Purchase submission requires an authenticated actor.',
           );
@@ -158,7 +152,7 @@ export class SupplyAgentCapabilityAdapter implements OnModuleInit {
           organizationId,
           purchaseOrderId: parsed.purchaseOrderId,
           idempotencyKey: purchaseOrderSubmissionIdempotencyKey(executionInput),
-          userId: requestedByUserId,
+          userId: actorId,
           ...(parsed.externalOrderPlatform !== undefined && {
             externalOrderPlatform: parsed.externalOrderPlatform,
           }),

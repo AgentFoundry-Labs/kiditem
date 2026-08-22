@@ -1,8 +1,26 @@
 import { Inject, Injectable } from "@nestjs/common";
 import {
+  AgentExecutionAttemptIdSchema,
+  AgentExecutionIdSchema,
+  AgentDefinitionKeySchema,
+  AgentSessionIdSchema,
+  AgentSessionTaskIdSchema,
+  AgentVersionKeySchema,
+  formatAgentExecutionName,
   parseAgentExecutionName,
+  formatAgentSessionName,
   parseAgentSessionName,
+  formatAgentSessionTaskName,
   parseAgentSessionTaskName,
+  RequestIdSchema,
+  formatAgentExecutionAttemptName,
+  formatAgentVersionName,
+  formatOperationRunName,
+  formatOrganizationName,
+  formatUserName,
+  OperationRunIdSchema,
+  OrganizationIdSchema,
+  UserIdSchema,
 } from "@kiditem/shared/identifiers";
 import {
   AGENT_EXECUTION_QUERY_REPOSITORY,
@@ -92,23 +110,41 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
     });
     if (!allowed) throw denied();
 
-    const executionInput = {
-      organizationId: context.organizationId,
-      // Legacy handler fields are deliberately null/derived only; they never
-      // admit a generic AgentRun identity into this official invocation path.
-      conversationId: null,
-      agentInstanceId: context.agentVersionId,
-      agentType: context.agentDefinitionKey,
-      requestId: null,
-      runId: null,
-      requestedByUserId: context.userId,
-      sessionId: context.sessionId,
-      sessionTaskId: context.sessionTaskId,
-      executionId: context.executionId,
-      agentVersionId: context.agentVersionId,
-      policySnapshotId: context.policySnapshotId,
-      input: parsedInput.data,
-    };
+    let executionInput;
+    try {
+      const organizationId = OrganizationIdSchema.parse(context.organizationId);
+      const organization = formatOrganizationName(organizationId);
+      executionInput = {
+        organization,
+        actor: context.userId ? formatUserName(UserIdSchema.parse(context.userId)) : null,
+        agentVersion: formatAgentVersionName(
+          AgentDefinitionKeySchema.parse(context.agentDefinitionKey),
+          AgentVersionKeySchema.parse(String(context.agentVersion)),
+        ),
+        session: formatAgentSessionName(organizationId, AgentSessionIdSchema.parse(context.sessionId)),
+        task: formatAgentSessionTaskName(
+          organizationId,
+          AgentSessionIdSchema.parse(context.sessionId),
+          AgentSessionTaskIdSchema.parse(context.sessionTaskId),
+        ),
+        execution: formatAgentExecutionName(
+          organizationId,
+          AgentSessionIdSchema.parse(context.sessionId),
+          AgentExecutionIdSchema.parse(context.executionId),
+        ),
+        attempt: formatAgentExecutionAttemptName(
+          organizationId,
+          AgentSessionIdSchema.parse(context.sessionId),
+          AgentExecutionIdSchema.parse(context.executionId),
+          AgentExecutionAttemptIdSchema.parse(context.attemptId),
+        ),
+        operation: formatOperationRunName(organizationId, OperationRunIdSchema.parse(context.operationRunId)),
+        requestId: RequestIdSchema.parse(context.startIntentId),
+        input: parsedInput.data,
+      };
+    } catch {
+      throw denied();
+    }
     const result = await handler.execute(executionInput);
     if (result.outputSummary) handler.outputSchema.parse(result.outputSummary);
     return result;

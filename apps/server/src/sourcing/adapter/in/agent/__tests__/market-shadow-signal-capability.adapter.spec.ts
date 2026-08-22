@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { MarketShadowSignalCapabilityAdapter } from '../market-shadow-signal-capability.adapter';
 import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import type { AgentCapabilityRegistry } from '../../../../../agent-os/application/service/agent-capability-registry.service';
+import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
 
 describe('MarketShadowSignalCapabilityAdapter', () => {
   it('registers a guarded deterministic shadow operation capability without provider access', async () => {
@@ -31,25 +32,16 @@ describe('MarketShadowSignalCapabilityAdapter', () => {
       sideEffects: ['db_write', 'external_io', 'job_enqueue'],
       approvalRisk: 'low',
     });
-    expect(handler.idempotencyKey({
-      organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      input: {},
-    })).toBe('org-1:market.collect_shadow_signals:2026-07-16');
+    expect(handler.idempotencyKey(officialCapabilityExecution({}) as never))
+      .toBe('00000000-0000-4000-8000-000000000001:market.collect_shadow_signals:2026-07-16');
 
-    const result = await handler.execute({
-      organizationId: 'org-1',
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      input: {},
-    });
+    const result = await handler.execute(officialCapabilityExecution({}) as never);
 
     expect(operations.startShadowCollection).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      requestedByUserId: null,
+      requestedByUserId: 'user-1',
       triggerSource: 'agent',
-      idempotencyKey: 'org-1:market.collect_shadow_signals:2026-07-16',
+      idempotencyKey: '00000000-0000-4000-8000-000000000001:market.collect_shadow_signals:2026-07-16',
     });
     expect(result.outputSummary).toEqual({
       operationRunId: 'run-1',

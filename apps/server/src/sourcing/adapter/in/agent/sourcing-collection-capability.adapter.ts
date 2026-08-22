@@ -4,6 +4,7 @@ import type {
   AgentCapabilityExecutionInput,
   AgentCapabilityHandler,
 } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import {
@@ -52,8 +53,8 @@ export class SourcingCollectionCapabilityAdapter implements OnModuleInit {
         const sources = [...new Set(execution.input.sources)].sort() as
           CollectionInputType['sources'];
         const result = await this.collections.startCollection({
-          organizationId: execution.organizationId,
-          requestedByUserId: execution.requestedByUserId ?? null,
+          organizationId: ownerCapabilityContext(execution).organizationId,
+          requestedByUserId: ownerCapabilityContext(execution).actorId,
           sources,
           idempotencyKey: requireIdempotencyKey(
             this.idempotencyKey(execution),
@@ -85,13 +86,10 @@ export class SourcingCollectionCapabilityAdapter implements OnModuleInit {
   private idempotencyKey(
     execution: AgentCapabilityExecutionInput<CollectionInputType>,
   ): string | null {
-    if (!execution.requestId) return null;
-    return [
-      execution.organizationId,
-      execution.requestId,
-      'sourcing.refreshCollection',
-      [...execution.input.sources].sort().join(','),
-    ].join(':');
+    return ownerCapabilityIdempotencyKey(
+      execution,
+      `sourcing.refreshCollection:${[...execution.input.sources].sort().join(',')}`,
+    );
   }
 }
 

@@ -33,13 +33,35 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
         modelIdentity: true,
         policySnapshotId: true,
         attempts: {
-          where: { attemptNumber: 1 },
+          where: {
+            state: 'running',
+            operationBindings: {
+              some: {
+                operationRun: {
+                  status: 'running',
+                  attemptToken: { not: null },
+                },
+              },
+            },
+          },
           select: {
             id: true,
             runtimeType: true,
             runtimeStartIntentId: true,
             runtimeCredentialGeneration: true,
             state: true,
+            operationBindings: {
+              where: {
+                operationRun: {
+                  status: 'running',
+                  attemptToken: { not: null },
+                },
+              },
+              select: {
+                operationRunId: true,
+                operationRun: { select: { attemptToken: true } },
+              },
+            },
           },
         },
         session: {
@@ -50,15 +72,19 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
           },
         },
         policySnapshot: { select: { capabilityKeys: true, policyHash: true } },
-        agentVersion: { select: { agentDefinitionKey: true } },
+        agentVersion: { select: { agentDefinitionKey: true, version: true } },
       },
     });
     if (!execution || execution.attempts.length !== 1) return null;
     const attempt = execution.attempts[0]!;
+    const binding = attempt.operationBindings[0];
     if (
       attempt.runtimeType !== execution.runtimeType ||
       attempt.state !== "running" ||
-      !attempt.runtimeStartIntentId
+      !attempt.runtimeStartIntentId ||
+      attempt.operationBindings.length !== 1 ||
+      !binding ||
+      !binding.operationRun.attemptToken
     )
       return null;
     const initialUserEvent = await this.prisma.agentConversationEvent.findFirst(
@@ -83,11 +109,14 @@ export class PrismaAgentExecutionQueryRepository implements AgentExecutionQueryR
       sessionTaskId: execution.sessionTaskId,
       executionId: execution.id,
       attemptId: attempt.id,
+      operationRunId: binding.operationRunId,
+      operationAttemptToken: binding.operationRun.attemptToken,
       startIntentId: attempt.runtimeStartIntentId,
       runtimeCredentialGeneration: attempt.runtimeCredentialGeneration,
       copilotThreadId: execution.copilotThreadId,
       aguiRunId: execution.aguiRunId,
       agentVersionId: execution.agentVersionId,
+      agentVersion: execution.agentVersion.version,
       runtimeType: execution.runtimeType,
       modelIdentity: execution.modelIdentity,
       policySnapshotId: execution.policySnapshotId,

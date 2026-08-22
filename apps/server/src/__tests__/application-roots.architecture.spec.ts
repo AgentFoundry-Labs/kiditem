@@ -22,8 +22,6 @@ import {
   OperationServerLifecycleService,
 } from '../operations/application/service/operation-server-lifecycle.service';
 import { OperatorRuntimeHandler } from '../agent-os/adapter/out/runtime/operator-runtime.handler';
-import { SourcingRuntimeHandler } from '../sourcing/adapter/out/runtime/sourcing-runtime.handler';
-import { OrderAgentRuntimeHandler } from '../supply/adapter/out/runtime/order-agent-runtime.handler';
 import { SourcingAgentApiCollectionModule } from '../sourcing/sourcing-agent-api-collection.module';
 import { SourcingAgentMcpCollectionModule } from '../sourcing/sourcing-agent-mcp-collection.module';
 import { SourcingAgentShadowOperationModule } from '../sourcing/sourcing-agent-shadow-operation.module';
@@ -227,15 +225,13 @@ describe('application root topology', () => {
     ).toContain("from '../../../../agent-mcp-application.module'");
   });
 
-  it('keeps the real manager, sourcing/listing, and order handlers in both Agent roots', () => {
+  it('keeps the retained manager handler while sourcing and supply use official capabilities', () => {
     for (const root of [
       AgentWorkerApplicationModule,
       AgentMcpApplicationModule,
     ]) {
       const rootProviders = providers(root);
       expect(rootProviders).toContain(OperatorRuntimeHandler);
-      expect(rootProviders).toContain(SourcingRuntimeHandler);
-      expect(rootProviders).toContain(OrderAgentRuntimeHandler);
     }
   });
 

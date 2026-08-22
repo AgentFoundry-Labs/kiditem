@@ -6,6 +6,7 @@ import {
 } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
 import { AGENT_CAPABILITY_REGISTRY_PORT, type AgentCapabilityRegistryPort } from '../../../application/port/in/capability/agent-capability-registry.port';
 import type { AgentCapabilityHandler } from '../../../application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext } from '../../../application/port/out/capability/agent-capability-owner-context';
 
 const InputSchema = z.object({ period: z.enum(['today', 'month']).optional() }).strict();
 const OutputSchema = z.object({
@@ -34,10 +35,11 @@ export class AnalyticsOverviewAgentCapabilityAdapter implements OnModuleInit {
       key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
       inputSchema: InputSchema, outputSchema: OutputSchema,
       sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-      execute: async ({ organizationId, input }) => ({
+      execute: async (execution) => ({
         resourceType: 'analytics_overview',
         outputSummary: await this.analytics.readOverview({
-          organizationId, now: new Date(), period: input.period,
+          organizationId: ownerCapabilityContext(execution).organizationId,
+          now: new Date(), period: execution.input.period,
         }),
       }),
     };

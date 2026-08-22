@@ -1,6 +1,7 @@
 import { Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
   type AiWingRegistrationCapabilityPort,
@@ -60,13 +61,16 @@ export class AiWingRegistrationCapabilityAdapter
       outputSchema: WingRegistrationOutputSchema,
       sideEffects: ['external_write', 'browser', 'db_write'],
       approvalRisk: 'high',
-      idempotencyKey: ({ organizationId, input }) =>
-        [organizationId, WING_THUMBNAIL_SUBMIT_KEY, input.generationId].join(':'),
-      execute: async ({ organizationId, requestedByUserId, input }) => {
+      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
+        execution, `${WING_THUMBNAIL_SUBMIT_KEY}:${execution.input.generationId}`,
+      ),
+      execute: async (execution) => {
+        const { organizationId, actorId } = ownerCapabilityContext(execution);
+        const { input } = execution;
         const result = await this.submitWingThumbnail({
           organizationId,
           generationId: input.generationId,
-          triggeredByUserId: requestedByUserId ?? null,
+          triggeredByUserId: actorId,
         });
         const outputSummary: Record<string, unknown> = {
           success: result.success,

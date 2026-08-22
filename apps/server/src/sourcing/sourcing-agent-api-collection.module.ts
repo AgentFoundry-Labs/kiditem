@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { AgentOsLegacyRunModule } from '../agent-os/agent-os-legacy-run.module';
 import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { OperationsModule } from '../operations/operations.module';
 import { AgentApiCapabilityGrantGuard } from '../agent-os/adapter/in/http/agent-api-capability-grant.guard';
@@ -9,7 +8,7 @@ import { SourcingCollectionOperationAdapter } from './adapter/out/operations/sou
 import { SOURCING_COLLECTION_OPERATION_PORT } from './application/port/out/cross-domain/sourcing-collection-operation.port';
 
 @Module({
-  imports: [AgentOsLegacyRunModule, AgentOsCapabilityModule, OperationsModule],
+  imports: [AgentOsCapabilityModule, OperationsModule],
   controllers: [InternalSourcingCollectionController],
   providers: [
     AgentApiCapabilityGrantGuard,

@@ -19,10 +19,15 @@ const graph = (overrides: Record<string, unknown> = {}) => ({
   sessionId: 'session-1',
   sessionTaskId: 'task-1',
   executionId: 'execution-1',
+  attemptId: 'attempt-1',
+  operationRunId: 'operation-1',
+  operationAttemptToken: '00000000-0000-4000-8000-000000000003',
   copilotThreadId: 'thread-1',
   aguiRunId: 'run-1',
   agentVersionId: 'version-1',
+  agentVersion: 1,
   runtimeType: 'copilotkit_agui',
+  startIntentId: '00000000-0000-4000-8000-000000000002',
   modelIdentity: 'gpt-5.2',
   policySnapshotId: 'policy-1',
   policyHash: 'a'.repeat(64),
@@ -117,12 +122,15 @@ describe('AgentSessionCapabilityInvocationService', () => {
       capabilityKey: 'analytics.readOverview',
     });
     expect(execute).toHaveBeenCalledWith(expect.objectContaining({
-      organizationId: 'org-1',
-      sessionId: 'session-1',
-      sessionTaskId: 'task-1',
-      executionId: 'execution-1',
-      agentVersionId: 'version-1',
-      policySnapshotId: 'policy-1',
+      organization: 'organizations/org-1',
+      actor: 'users/user-1',
+      agentVersion: 'agentDefinitions/operator/versions/1',
+      session: 'organizations/org-1/agentSessions/session-1',
+      task: 'organizations/org-1/agentSessions/session-1/tasks/task-1',
+      execution: 'organizations/org-1/agentSessions/session-1/executions/execution-1',
+      attempt: 'organizations/org-1/agentSessions/session-1/executions/execution-1/attempts/attempt-1',
+      operation: 'organizations/org-1/operations/operation-1',
+      requestId: '00000000-0000-4000-8000-000000000002',
       input: { period: 'week' },
     }));
   });
@@ -135,12 +143,15 @@ describe('AgentSessionCapabilityInvocationService', () => {
         AgentSessionIdSchema.parse('other-session'),
       ),
     })],
+    ['missing or foreign bound operation', input()],
     ['archived session', input()],
     ['capability absent from the immutable policy', input()],
   ])('rejects %s without calling an owner adapter', async (label, invocation) => {
     const overrides =
       label === 'archived session'
         ? { runtimeContext: graph({ lifecycle: 'archived' }) }
+        : label === 'missing or foreign bound operation'
+          ? { runtimeContext: null }
         : label === 'capability absent from the immutable policy'
           ? { runtimeContext: graph({ capabilityKeys: [] }) }
           : {};

@@ -5,10 +5,6 @@ import type {
   RegisterManualProductCommand,
 } from '../port/in/sourcing.commands';
 import {
-  SOURCING_OPERATION_ALERT_PORT,
-  type OperationAlertPort,
-} from '../port/out/cross-domain/operation-alert.port';
-import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-candidate.repository.port';
@@ -34,8 +30,6 @@ export class SourcingAgentCommandService {
     private readonly candidates: SourcingCandidateRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
-    @Inject(SOURCING_OPERATION_ALERT_PORT)
-    private readonly operationAlerts: OperationAlertPort,
   ) {}
 
   async registerManualProduct(
@@ -164,63 +158,4 @@ export class SourcingAgentCommandService {
     };
   }
 
-  async scrapeUrl(
-    url: string,
-    organizationId: string,
-    triggeredByUserId: string | null,
-    lineage?: {
-      conversationId?: string | null;
-      parentRequestId?: string | null;
-      delegatedByRunId?: string | null;
-    },
-  ) {
-    const existing = await this.candidates.findActiveBySourceUrl({
-      organizationId,
-      sourceUrl: url,
-    });
-    if (existing) {
-      return {
-        ok: true,
-        skipped: true,
-        message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
-        taskId: null,
-        candidateId: existing.id,
-        product_id: existing.id,
-        href: collectedCandidateHref(existing.id),
-        operationKey: null,
-      };
-    }
-
-    const result = await this.agentGateway.scrapeUrl({
-      organizationId,
-      url,
-      triggeredByUserId,
-      conversationId: lineage?.conversationId ?? null,
-      parentRequestId: lineage?.parentRequestId ?? null,
-      delegatedByRunId: lineage?.delegatedByRunId ?? null,
-    });
-    if (result.requestId) {
-      await this.operationAlerts.start({
-        organizationId,
-        operationKey: `sourcing-scrape:${result.requestId}`,
-        type: 'sourcing_scrape_url',
-        title: '소싱 URL 스크래핑 진행 중',
-        sourceType: 'agent_run_request',
-        sourceId: result.requestId,
-        actorUserId: triggeredByUserId,
-        href: '/product-pipeline/collected-products',
-        metadata: { agentType: 'sourcing', url },
-      });
-    }
-    return {
-      ok: true,
-      skipped: false,
-      message: '스크래핑 작업이 대기열에 등록되었습니다.',
-      taskId: result.taskId,
-      candidateId: null,
-      product_id: null,
-      href: null,
-      operationKey: result.requestId ? `sourcing-scrape:${result.requestId}` : null,
-    };
-  }
 }

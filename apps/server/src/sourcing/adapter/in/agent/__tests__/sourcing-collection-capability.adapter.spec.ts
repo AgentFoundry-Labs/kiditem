@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
 import { SourcingCollectionCapabilityAdapter } from '../sourcing-collection-capability.adapter';
 
 const ORG_ID = 'df3b198e-5b31-4f86-b054-bbf4852536a5';
@@ -41,34 +42,24 @@ describe('SourcingCollectionCapabilityAdapter', () => {
       }),
     ).toThrow();
     expect(
-      handler.idempotencyKey({
-        organizationId: ORG_ID,
-        agentInstanceId: 'agent-1',
-        agentType: 'sourcing',
-        requestId: REQUEST_ID,
-        runId: 'run-1',
-        requestedByUserId: 'user-1',
-        input: { sources: ['naver', '1688'] },
-      }),
+      handler.idempotencyKey(officialCapabilityExecution(
+        { sources: ['naver', '1688'] },
+        { organizationId: ORG_ID, actor: 'users/user-1', requestId: REQUEST_ID },
+      ) as never),
     ).toBe(
-      `${ORG_ID}:${REQUEST_ID}:sourcing.refreshCollection:1688,naver`,
+      `${REQUEST_ID}:sourcing.refreshCollection:1688,naver`,
     );
 
-    const result = await handler.execute({
-      organizationId: ORG_ID,
-      agentInstanceId: 'agent-1',
-      agentType: 'sourcing',
-      requestId: REQUEST_ID,
-      runId: 'run-1',
-      requestedByUserId: 'user-1',
-      input: { sources: ['naver', '1688', 'naver'] },
-    });
+    const result = await handler.execute(officialCapabilityExecution(
+      { sources: ['naver', '1688', 'naver'] },
+      { organizationId: ORG_ID, actor: 'users/user-1', requestId: REQUEST_ID },
+    ) as never);
 
     expect(collections.startCollection).toHaveBeenCalledWith({
       organizationId: ORG_ID,
       requestedByUserId: 'user-1',
       sources: ['1688', 'naver'],
-      idempotencyKey: `${ORG_ID}:${REQUEST_ID}:sourcing.refreshCollection:1688,naver,naver`,
+      idempotencyKey: `${REQUEST_ID}:sourcing.refreshCollection:1688,naver,naver`,
     });
     expect(result).toEqual({
       resourceType: 'operation_run',
@@ -94,24 +85,17 @@ describe('SourcingCollectionCapabilityAdapter', () => {
     });
   });
 
-  it('requires persisted Agent request context for the mutating handler', async () => {
+  it('uses its persisted official request context for the mutating handler', async () => {
     const handlers: AgentCapabilityHandler[] = [];
     const adapter = new SourcingCollectionCapabilityAdapter(
       { register: (handler: AgentCapabilityHandler) => handlers.push(handler) } as never,
-      { startCollection: vi.fn() } as never,
+      { startCollection: vi.fn().mockResolvedValue({ operationRunId: 'operation-2', status: 'queued' }) } as never,
     );
     adapter.onModuleInit();
 
-    await expect(
-      handlers[0]!.execute({
-        organizationId: ORG_ID,
-        agentInstanceId: 'agent-1',
-        agentType: 'sourcing',
-        requestId: null,
-        runId: null,
-        requestedByUserId: null,
-        input: { sources: ['naver'] },
-      }),
-    ).rejects.toMatchObject({ code: 'agent_request_context_required' });
+    await expect(handlers[0]!.execute(officialCapabilityExecution(
+      { sources: ['naver'] },
+      { organizationId: ORG_ID, actor: null, requestId: REQUEST_ID },
+    ) as never)).resolves.toBeDefined();
   });
 });

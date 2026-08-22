@@ -4,7 +4,6 @@ import { SourcingModule } from "../sourcing.module";
 import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
-import { AgentOsLegacyRunModule } from "../../agent-os/agent-os-legacy-run.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
 import { Sourcing1688KeywordSearchService } from "../application/service/sourcing-1688-keyword-search.service";
 import { Sourcing1688SearchResultService } from "../application/service/sourcing-1688-search-result.service";
@@ -54,7 +53,6 @@ import { NaverAutocompleteKeywordAdapter } from "../adapter/out/naver/naver-auto
 import { NaverSearchAdKeywordAdapter } from "../adapter/out/naver/naver-search-ad-keyword.adapter";
 import { SourcingAgentGatewayAdapter } from "../adapter/out/agent/sourcing-agent.gateway.adapter";
 import { SourcingAiWorkspaceArchiveAdapter } from "../adapter/out/ai/workspace-archive.adapter";
-import { SourcingOperationAlertAdapter } from "../adapter/out/automation/operation-alert.adapter";
 import { SourcingCandidateRepositoryAdapter } from "../adapter/out/repository/sourcing-candidate.repository.adapter";
 import { SourcingCollectionSourceControlRepositoryAdapter } from "../adapter/out/repository/sourcing-collection-source-control.repository.adapter";
 import { SourcingInterestTargetRepositoryAdapter } from "../adapter/out/repository/sourcing-interest-target.repository.adapter";
@@ -88,7 +86,6 @@ import { ShortstrendTrendAdapter } from "../adapter/out/shortstrend/shortstrend-
 import { TrendCollectionRepositoryAdapter } from "../adapter/out/repository/trend-collection.repository.adapter";
 import { LiveCommerceRepositoryAdapter } from "../adapter/out/repository/live-commerce.repository.adapter";
 import { TaobaoLiveAdapter } from "../adapter/out/taobao/taobao-live.adapter";
-import { SourcingRuntimeHandler } from "../adapter/out/runtime/sourcing-runtime.handler";
 import { MARKET_SHADOW_COLLECTION_CAPABILITY_PORT } from "../application/port/in/capability/market-shadow-capability.port";
 import { MARKET_SHADOW_OPERATION_PORT } from "../application/port/out/cross-domain/market-shadow-operation.port";
 import {
@@ -109,7 +106,6 @@ import {
 } from "../application/port/out/provider/naver-keyword-research.port";
 import { SOURCING_AGENT_GATEWAY_PORT } from "../application/port/out/runtime/sourcing-agent.gateway.port";
 import { SOURCING_AI_WORKSPACE_ARCHIVE_PORT } from "../application/port/out/cross-domain/ai-workspace-archive.port";
-import { SOURCING_OPERATION_ALERT_PORT } from "../application/port/out/cross-domain/operation-alert.port";
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-candidate.repository.port";
 import { SOURCING_COLLECTION_SOURCE_CONTROL_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-collection-source-control.repository.port";
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from "../application/port/out/repository/sourcing-interest-target.repository.port";
@@ -164,11 +160,11 @@ function sourcingProviders(): unknown[] {
 // controller, a missing provider, or a route rename fails at vitest time
 // before reaching dev:server boot.
 describe("SourcingModule canonical owner wiring", () => {
-  it('imports the canonical API capability-grant owner for the Shadow HTTP guard', () => {
+  it('imports the official API capability owner for the Shadow HTTP guard', () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingShadowOperationModule) ?? [];
 
-    expect(imports).toContain(AgentOsLegacyRunModule);
+    expect(imports.map((item: { name?: string }) => item.name)).toContain('AgentOsSessionModule');
   });
 
   it("mounts extension routes before candidate workspace routes", () => {
@@ -274,7 +270,6 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(NaverSearchAdKeywordAdapter);
     expect(providers).toContain(SourcingAgentGatewayAdapter);
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
-    expect(providers).toContain(SourcingOperationAlertAdapter);
     expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingCollectionSourceControlRepositoryAdapter);
     expect(providers).toContain(SourcingInterestTargetRepositoryAdapter);
@@ -307,7 +302,6 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(TrendCollectionRepositoryAdapter);
     expect(providers).toContain(LiveCommerceRepositoryAdapter);
     expect(providers).toContain(TaobaoLiveAdapter);
-    expect(providers).toContain(SourcingRuntimeHandler);
     expect(providers).toContain(ProductPreparationRepositoryAdapter);
     expect(providers).toContain(ChannelProductRegistrationAdapter);
     expect(providers).toContain(RegistrationContentWorkspaceAdapter);
@@ -381,14 +375,6 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(scrapeUrlBinding!.useExisting).toBe(
       SourcingScrapeUrlCapabilityAdapter,
     );
-    const alertBinding = providers.find(
-      (p): p is { provide: symbol; useExisting: unknown } =>
-        typeof p === "object" &&
-        p !== null &&
-        (p as any).provide === SOURCING_OPERATION_ALERT_PORT,
-    );
-    expect(alertBinding).toBeDefined();
-    expect(alertBinding!.useExisting).toBe(SourcingOperationAlertAdapter);
     const aiArchiveBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
@@ -654,20 +640,17 @@ describe("SourcingModule canonical owner wiring", () => {
       SourcingListingPrepCapabilityAdapter,
       SourcingScrapeUrlCapabilityAdapter,
       SourcingWorkspaceCapabilityAdapter,
-      SourcingRuntimeHandler,
     ]) {
       expect(runtimeProviders).toContain(provider);
       expect(ownerProviders).not.toContain(provider);
     }
   });
 
-  it("imports the generic-run contract owner directly for runtime and API grant providers", () => {
-    expect(
-      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentRuntimeModule) ?? [],
-    ).toContain(AgentOsLegacyRunModule);
-    expect(
-      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentApiCollectionModule) ?? [],
-    ).toContain(AgentOsLegacyRunModule);
+  it("does not import the generic-run contract owner for official capability providers", () => {
+    const runtimeImports = Reflect.getMetadata(IMPORTS_KEY, SourcingAgentRuntimeModule) ?? [];
+    const collectionImports = Reflect.getMetadata(IMPORTS_KEY, SourcingAgentApiCollectionModule) ?? [];
+    expect(runtimeImports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
+    expect(collectionImports.map((item: { name?: string }) => item.name)).not.toContain('AgentOsLegacyRunModule');
   });
 
   it("keeps public /api route prefix on every route-family controller", () => {

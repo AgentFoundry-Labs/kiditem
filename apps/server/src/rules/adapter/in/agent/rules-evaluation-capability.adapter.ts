@@ -5,6 +5,7 @@ import {
   type AgentCapabilityRegistryPort,
 } from '../../../../agent-os/application/port/in/capability/agent-capability-registry.port';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
+import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import {
   APPLY_RULES_EVALUATION_PORT,
   type ApplyRulesEvaluationPort,
@@ -52,16 +53,17 @@ export class RulesEvaluationCapabilityAdapter implements OnModuleInit {
       outputSchema: EvaluationResultOutputSchema,
       sideEffects: ['db_write'],
       approvalRisk: 'low',
-      idempotencyKey: ({ organizationId, input }) =>
-        `${organizationId}:rules.apply_evaluation_result:${input.operationId}`,
-      execute: async ({ organizationId, input }) => ({
+      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
+        execution, `rules.apply_evaluation_result:${execution.input.operationId}`,
+      ),
+      execute: async (execution) => ({
         outputSummary: await this.results.apply({
-          organizationId,
-          operationId: input.operationId,
-          products: input.products,
+          organizationId: ownerCapabilityContext(execution).organizationId,
+          operationId: execution.input.operationId,
+          products: execution.input.products,
         }),
         resourceType: 'operation_run',
-        resourceId: input.operationId,
+        resourceId: execution.input.operationId,
       }),
     };
     this.registry.register(handler);
