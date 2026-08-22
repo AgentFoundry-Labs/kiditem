@@ -73,13 +73,9 @@ import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credentia
     {
       provide: RuntimeCredentialBroker,
       useFactory: () => {
-        const secret = process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY?.trim();
-        return {
-          verify: (...args: Parameters<RuntimeCredentialBroker["verify"]>) => {
-            if (!secret) throw new Error("AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED");
-            return new RuntimeCredentialBroker({ secret }).verify(...args);
-          },
-        } as RuntimeCredentialBroker;
+        return new RuntimeCredentialBroker({
+          secretResolver: () => process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY,
+        });
       },
     },
     { provide: AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY, useExisting: PrismaAgentRuntimeCredentialAuthorityRepository },

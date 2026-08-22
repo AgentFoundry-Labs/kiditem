@@ -12,7 +12,7 @@ import {
 import {
   AGENT_DURABLE_RUNTIME_ASSETS_PORT,
   type AgentDurableRuntimeAssetsPort,
-  type AgentDurableRuntimeExecutionContext,
+  type AgentDurableRuntimePreStartContext,
 } from '../port/out/runtime/agent-durable-runtime.port';
 import { AgentRuntimeManifestSchema } from '../../domain/agent-runtime-manifest';
 import { AgentOsRuntimeError } from '../../domain/agent-os.errors';
@@ -48,7 +48,7 @@ export class AgentExecutionContextBuilder {
     sessionTaskId: string;
     executionId: string;
     attemptId: string;
-  }): Promise<AgentDurableRuntimeExecutionContext> {
+  }): Promise<AgentDurableRuntimePreStartContext> {
     const graph = await this.repository.loadExecutionGraph(input);
     if (
       !graph ||

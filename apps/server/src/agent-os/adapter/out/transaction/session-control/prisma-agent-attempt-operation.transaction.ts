@@ -252,7 +252,7 @@ export class PrismaAgentAttemptOperationTransaction implements AgentAttemptOpera
       const attempt = binding.attempt;
       if (attempt.runtimeStartIntentId) {
         if (attempt.runtimeStartIntentId !== input.startIntentId) {
-          throw conflict("AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT");
+          throw conflict("AGENT_RUNTIME_START_INTENT_CONFLICT");
         }
         return {
           startIntentId: attempt.runtimeStartIntentId,

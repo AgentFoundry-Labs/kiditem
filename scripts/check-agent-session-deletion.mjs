@@ -79,6 +79,8 @@ const OWNED_OPERATION_CREATE_OWNER = /(?:owned-operation|session-deletion|contin
 const EPHEMERAL_SUCCESS_ASSIGNMENT = /\bsuccessPersistence\s*:\s*['"]ephemeral_on_success['"]/g;
 const AGENT_SESSION_DELETE_OPERATION_KEY = 'AGENT_SESSION_DELETE_OPERATION_KEY';
 const TYPESCRIPT_OR_JAVASCRIPT_SOURCE = /\.[cm]?[jt]sx?$/;
+const RUNTIME_CREDENTIAL_VERIFICATION_SERVICE =
+  'apps/server/src/agent-os/application/service/session-execution/agent-runtime-credential-verification.service.ts';
 
 function toRepoPath(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -252,6 +254,56 @@ function firstCalledPropertyPosition(sourceFile, propertyName) {
   };
   ts.forEachChild(sourceFile, visit);
   return position;
+}
+
+function runtimeCredentialBrokerVerificationViolations(relativePath, source) {
+  if (relativePath === RUNTIME_CREDENTIAL_VERIFICATION_SERVICE) return [];
+  const sourceFile = sourceFileFor(relativePath, source);
+  if (!sourceFile) return [];
+
+  const brokerBindings = new Set();
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement) || statement.importClause?.isTypeOnly) continue;
+    const bindings = statement.importClause?.namedBindings;
+    if (!bindings || !ts.isNamedImports(bindings)) continue;
+    for (const element of bindings.elements) {
+      if (!element.isTypeOnly && (element.propertyName?.text ?? element.name.text) === 'RuntimeCredentialBroker') {
+        brokerBindings.add(element.name.text);
+      }
+    }
+  }
+  if (brokerBindings.size === 0) return [];
+
+  const brokerInstances = new Set();
+  const isBrokerConstruction = (node) => ts.isNewExpression(node)
+    && ts.isIdentifier(node.expression)
+    && brokerBindings.has(node.expression.text);
+  const visitBindings = (node) => {
+    if (ts.isVariableDeclaration(node) && ts.isIdentifier(node.name) && node.initializer && isBrokerConstruction(node.initializer)) {
+      brokerInstances.add(node.name.text);
+    }
+    ts.forEachChild(node, visitBindings);
+  };
+  ts.forEachChild(sourceFile, visitBindings);
+
+  const violations = [];
+  const isBrokerExpression = (node) => isBrokerConstruction(node)
+    || (ts.isIdentifier(node) && brokerInstances.has(node.text));
+  const visitCalls = (node) => {
+    if (
+      ts.isCallExpression(node)
+      && ts.isPropertyAccessExpression(node.expression)
+      && node.expression.name.text === 'verify'
+      && isBrokerExpression(node.expression.expression)
+    ) {
+      violations.push(
+        `${relativePath}:${lineNumberOfNode(sourceFile, node)}: RuntimeCredentialBroker verification must use AgentRuntimeCredentialVerificationService`,
+      );
+    }
+    ts.forEachChild(node, visitCalls);
+  };
+  ts.forEachChild(sourceFile, visitCalls);
+  return violations;
 }
 
 function isDeletionSchedulerContext(relativePath, sourceFile, node) {
@@ -428,6 +480,7 @@ export function checkAgentSessionDeletion(rootDir) {
     violations.push(...schedulerViolations(relativePath, source));
     violations.push(...ownershipViolations(relativePath, source));
     violations.push(...ephemeralSuccessViolations(relativePath, source));
+    violations.push(...runtimeCredentialBrokerVerificationViolations(relativePath, source));
   }
 
   const agentSchemaPath = path.join(rootDir, 'prisma/models/agents.prisma');

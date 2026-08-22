@@ -3,6 +3,8 @@ import { z } from 'zod';
 import type {
   AgentDurableRuntimeAdapter,
   AgentDurableRuntimeExecutionContext,
+  AgentSessionRuntimeCleanupInput,
+  AgentSessionRuntimeCleanupResult,
   DurableRuntimeAdapterEvent,
   RuntimeHandle,
   RuntimeInspection,
@@ -13,8 +15,9 @@ import {
   parseRunScopedMcpConfig,
   type RunScopedMcpConfig,
 } from './run-scoped-mcp-config';
+import type { IsolatedCliFilesystemPort } from '../../../application/port/out/runtime/isolated-cli-filesystem.port';
 
-export interface IsolatedCliFilesystem {
+export interface IsolatedCliFilesystem extends IsolatedCliFilesystemPort {
   mkdir(path: string, options: { recursive: true; mode: number }): Promise<unknown>;
   writeFile(path: string, value: string, options: { encoding: 'utf8'; mode: number }): Promise<unknown>;
   chmod(path: string, mode: number): Promise<unknown>;
@@ -56,6 +59,18 @@ export interface IsolatedCliTransport {
   interrupt(handle: IsolatedCliNativeHandle, input: RuntimeInterruptInput): Promise<void>;
   cancel(handle: IsolatedCliNativeHandle): Promise<void>;
   readProcessStartIdentity(pid: number): Promise<string | null>;
+  superviseStartIntent(input: IsolatedCliStartIntent): Promise<void>;
+  inspectStartIntent(input: IsolatedCliStartIntent): Promise<RuntimeInspection>;
+  cancelStartIntent(input: IsolatedCliStartIntent): Promise<void>;
+  revokeStartIntent(input: IsolatedCliStartIntent): Promise<void>;
+}
+
+export interface IsolatedCliStartIntent {
+  organizationId: string;
+  sessionId: string;
+  executionId: string;
+  attemptId: string;
+  startIntentId: string;
 }
 
 export interface IsolatedCliRuntimeOptions {
@@ -182,6 +197,9 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       paths.mcpConfig,
       JSON.stringify(mcpConfig),
     );
+    const startIntent = exactStartIntent(context);
+    await this.writeOwnerOnly(paths.startIntent, JSON.stringify(startIntent));
+    await this.options.transport.superviseStartIntent(startIntent);
     const env = this.childEnvironment(paths.home, paths.mcpConfig, credential, context.startIntentId);
     const started = await this.options.transport.start({
       binary: this.options.binary,
@@ -270,6 +288,35 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     return pending;
   }
 
+  async cleanup(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult> {
+    if (!this.hasExactCleanupAuthority(input)) return unknownCleanup();
+    const startIntent = cleanupStartIntent(input);
+    try {
+      let inspection = await this.options.transport.inspectStartIntent(startIntent);
+      if (inspection.status === 'running') {
+        await this.options.transport.cancelStartIntent(startIntent);
+        inspection = await this.options.transport.inspectStartIntent(startIntent);
+      }
+      await this.options.transport.revokeStartIntent(startIntent);
+      if (inspection.status === 'running' || inspection.status === 'unknown') return unknownCleanup();
+      const scoped = { executionId: input.executionId, attemptId: input.attemptId };
+      const owned = await this.options.filesystem.exists(scoped);
+      if (owned) {
+        await this.options.filesystem.removeTree(scoped);
+        if (await this.options.filesystem.exists(scoped)) return unknownCleanup();
+      }
+      return {
+        state: 'clean',
+        executionAuthority: 'process_exited',
+        credentials: 'irrevocably_revoked',
+        handle: 'removed',
+        filesystem: owned ? 'removed' : 'not_owned',
+      };
+    } catch {
+      return unknownCleanup();
+    }
+  }
+
   private async cancelVerified(handle: RuntimeHandle): Promise<void> {
     const native = await this.validatedNativeHandle(handle);
     await this.options.transport.cancel(native);
@@ -323,6 +370,7 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       stateDirectory: join(root, 'state'),
       mcpConfig: join(root, 'state', 'mcp.json'),
       state: join(root, 'state', 'runtime.json'),
+      startIntent: join(root, 'state', 'start-intent.json'),
     };
   }
 
@@ -348,6 +396,46 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     });
     await this.options.filesystem.chmod(path, 0o600);
   }
+
+  private hasExactCleanupAuthority(input: AgentSessionRuntimeCleanupInput): boolean {
+    if (input.runtimeType !== this.runtimeType) return false;
+    try {
+      z.string().uuid().parse(input.executionId);
+      z.string().uuid().parse(input.attemptId);
+      z.string().uuid().parse(input.startIntentId);
+    } catch {
+      return false;
+    }
+    return !input.handle || (
+      input.handle.runtimeType === this.runtimeType
+      && input.handle.executionId === input.executionId
+      && input.handle.attemptId === input.attemptId
+    );
+  }
+}
+
+function exactStartIntent(context: AgentDurableRuntimeExecutionContext): IsolatedCliStartIntent {
+  return {
+    organizationId: context.organizationId,
+    sessionId: context.sessionId,
+    executionId: context.executionId,
+    attemptId: context.attemptId,
+    startIntentId: context.startIntentId,
+  };
+}
+
+function cleanupStartIntent(input: AgentSessionRuntimeCleanupInput): IsolatedCliStartIntent {
+  return {
+    organizationId: input.organizationId,
+    sessionId: input.sessionId,
+    executionId: input.executionId,
+    attemptId: input.attemptId,
+    startIntentId: input.startIntentId,
+  };
+}
+
+function unknownCleanup(): AgentSessionRuntimeCleanupResult {
+  return { state: 'unknown', code: 'RUNTIME_CLEANUP_UNKNOWN' };
 }
 
 function snapshotMcpToolSet(config: RunScopedMcpConfig) {

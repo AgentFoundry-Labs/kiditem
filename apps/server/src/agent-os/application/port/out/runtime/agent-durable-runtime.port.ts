@@ -43,16 +43,12 @@ export interface VersionedConversationSummary {
   content: string;
 }
 
-export interface AgentDurableRuntimeExecutionContext {
+export interface AgentDurableRuntimePreStartContext {
   organizationId: string;
   sessionId: string;
   sessionTaskId: string;
   executionId: string;
   attemptId: string;
-  /** Immutable ownership marker persisted before any external runtime start. */
-  startIntentId?: string;
-  /** Session-deletion fence generation; no runtime may invent a default. */
-  runtimeCredentialGeneration?: number;
   agentDefinitionKey: string;
   agentVersionId: string;
   runtimeType: string;
@@ -67,6 +63,14 @@ export interface AgentDurableRuntimeExecutionContext {
   };
   currentInput: Record<string, unknown>;
   currentResourceRefs: CanonicalResourceRef[];
+}
+
+export interface AgentDurableRuntimeExecutionContext
+  extends AgentDurableRuntimePreStartContext {
+  /** Immutable ownership marker persisted before any external runtime start. */
+  startIntentId: string;
+  /** Session-deletion fence generation; no runtime may invent a default. */
+  runtimeCredentialGeneration: number;
 }
 
 export interface RuntimeHandle {

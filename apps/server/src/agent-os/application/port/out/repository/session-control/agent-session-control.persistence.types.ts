@@ -3,6 +3,7 @@ export class AgentSessionControlRepositoryError extends Error {
     readonly code:
       | 'AGENT_SESSION_CONTROL_SCOPE_INVALID'
       | 'AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT'
+      | 'AGENT_RUNTIME_START_INTENT_CONFLICT'
       | 'AGENT_SESSION_CONTROL_STATE_CONFLICT'
       | 'AGENT_SESSION_ARTIFACT_REFERENCE_INVALID'
       | 'AGENT_SESSION_ARTIFACT_REFERENCE_ERASING'
@@ -44,8 +45,8 @@ export interface ExecutionAttemptRecord {
   externalRunId: string | null;
   encryptedHandleRef: string | null;
   runtimeGeneration: number;
-  runtimeStartIntentId?: string | null;
-  runtimeCredentialGeneration?: number;
+  runtimeStartIntentId: string | null;
+  runtimeCredentialGeneration: number;
   state: string;
 }
 

@@ -55,6 +55,9 @@ function transport(): HermesRuntimeTransport {
     inspect: vi.fn().mockResolvedValue({ status: 'running' }),
     interrupt: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
+    inspectStartIntent: vi.fn().mockResolvedValue({ status: 'running' }),
+    cancelStartIntent: vi.fn().mockResolvedValue(undefined),
+    revokeStartIntent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
@@ -229,6 +232,47 @@ describe('Hermes durable runtime trust boundary', () => {
     await Promise.all([recreated.cancel(handle), recreated.cancel(handle)]);
     expect(fake.cancel).toHaveBeenCalledTimes(1);
     expect(JSON.stringify(handle)).not.toContain('secret-1');
+  });
+
+  it.each([true, false])('cleans the exact persisted start intent even when handle is %s', async (withHandle) => {
+    const fake = transport();
+    vi.mocked(fake.inspectStartIntent)
+      .mockResolvedValueOnce({ status: 'running' })
+      .mockResolvedValueOnce({ status: 'cancelled' });
+    const adapter = new HermesHttpRuntimeAdapter({
+      transport: fake,
+      credentialBroker: new RuntimeCredentialBroker({ secret: 'test-secret-at-least-32-characters-long' }),
+      handleCipher: { encrypt: () => 'vault://reconnect/1', decrypt: () => 'secret-1' },
+      toolRegistry: new Map([['analytics.readOverview', { serverKey: 'kiditem', toolName: 'analytics_read_overview' }]]),
+    });
+    const handle = withHandle ? await adapter.start(context()) : null;
+
+    await expect(adapter.cleanup({
+      signal: new AbortController().signal,
+      organizationId: context().organizationId,
+      sessionId: context().sessionId,
+      runtimeType: 'hermes_http',
+      executionId: EXECUTION_ID,
+      attemptId: ATTEMPT_ID,
+      startIntentId: context().startIntentId,
+      handle,
+    })).resolves.toEqual({
+      state: 'clean',
+      executionAuthority: 'irrevocably_revoked',
+      credentials: 'irrevocably_revoked',
+      handle: 'removed',
+      filesystem: 'not_owned',
+    });
+    const exact = {
+      organizationId: context().organizationId,
+      sessionId: context().sessionId,
+      executionId: EXECUTION_ID,
+      attemptId: ATTEMPT_ID,
+      startIntentId: context().startIntentId,
+    };
+    expect(fake.inspectStartIntent).toHaveBeenLastCalledWith(exact);
+    expect(fake.cancelStartIntent).toHaveBeenCalledWith(exact);
+    expect(fake.revokeStartIntent).toHaveBeenCalledWith(exact);
   });
 
   it('normalizes only a bounded base64 artifact envelope and rejects raw provider references', () => {

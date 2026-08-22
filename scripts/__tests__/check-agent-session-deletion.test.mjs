@@ -146,6 +146,22 @@ test('permits an ordinary interval outside Agent OS', () => {
   );
 });
 
+test('rejects direct RuntimeCredentialBroker verification outside the verification service', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/adapter/out/runtime/unsafe-runtime-credential.ts': [
+        "import { RuntimeCredentialBroker } from './runtime-credential-broker';",
+        "const broker = new RuntimeCredentialBroker({ secret: 'test-secret-at-least-32-characters-long' });",
+        "broker.verify('credential');",
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /RuntimeCredentialBroker verification must use AgentRuntimeCredentialVerificationService/);
+    },
+  );
+});
+
 test('rejects Agent OS application and capability OperationRun repository bypasses', () => {
   withFixture(
     withRequiredLifecycleLocks({

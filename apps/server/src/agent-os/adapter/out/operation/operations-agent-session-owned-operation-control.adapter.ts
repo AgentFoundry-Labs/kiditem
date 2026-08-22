@@ -1,43 +1,56 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import type { AgentSessionOwnedOperationControlPort } from "../../../application/port/out/operation/agent-session-owned-operation-control.port";
-import type { OperationExactRunControlPort } from "../../../../operations/application/port/in/operation-exact-run-control.port";
-
-interface OwnershipValidator {
-  validateOwnedClosure(input: { organizationId: string; sessionId: string; operationRunIds: readonly string[] }): Promise<ReadonlyArray<{
-    runId: string;
-    operationKey: string;
-    expectedAttemptToken: string | null;
-  }>>;
-}
+import {
+  OPERATION_EXACT_RUN_CONTROL_PORT,
+  type OperationExactRunControlPort,
+} from "../../../../operations/application/port/in/operation-exact-run-control.port";
 
 @Injectable()
 export class OperationsAgentSessionOwnedOperationControlAdapter implements AgentSessionOwnedOperationControlPort {
-  constructor(private readonly ownership: OwnershipValidator, private readonly exact: OperationExactRunControlPort) {}
+  constructor(
+    @Inject(OPERATION_EXACT_RUN_CONTROL_PORT)
+    private readonly exact: OperationExactRunControlPort,
+  ) {}
 
-  async fenceAndCancel(input: { signal: AbortSignal; organizationId: string; sessionId: string; operationRunIds: readonly string[] }) {
-    let runs: Awaited<ReturnType<OwnershipValidator["validateOwnedClosure"]>>;
-    try {
-      runs = await this.ownership.validateOwnedClosure(input);
-    } catch {
+  async fenceAndCancel(input: Parameters<AgentSessionOwnedOperationControlPort["fenceAndCancel"]>[0]) {
+    if (!validCoordinates(input.runs)) {
       return { state: "unknown" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID" as const };
     }
-    if (runs.length !== input.operationRunIds.length || runs.some((run, index) => run.runId !== input.operationRunIds[index])) {
-      return { state: "unknown" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID" as const };
-    }
-    let fenced: Awaited<ReturnType<OperationExactRunControlPort["fenceAndCancel"]>>;
     try {
-      fenced = await this.exact.fenceAndCancel({
+      const fenced = await this.exact.fenceAndCancel({
         signal: input.signal,
         organizationId: input.organizationId,
-        runs,
+        runs: input.runs,
         reason: "agent_session_deleting",
       });
+      if (
+        fenced.length !== input.runs.length ||
+        fenced.some((result, index) => {
+          const requested = input.runs[index];
+          return !requested ||
+            result.runId !== requested.runId ||
+            result.nativeRunType !== requested.nativeRunType ||
+            result.nativeRunId !== requested.nativeRunId ||
+            result.state === "unknown";
+        })
+      ) {
+        return { state: "unknown" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID" as const };
+      }
     } catch {
-      return { state: "unknown" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID" as const };
-    }
-    if (fenced.length !== runs.length || fenced.some((run, index) => run.runId !== runs[index]?.runId || run.state === "unknown")) {
+      if (input.signal.aborted) throw input.signal.reason;
       return { state: "unknown" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID" as const };
     }
     return { state: "fenced" as const };
   }
+}
+
+function validCoordinates(
+  runs: Parameters<AgentSessionOwnedOperationControlPort["fenceAndCancel"]>[0]["runs"],
+): boolean {
+  const runIds = new Set<string>();
+  return runs.every((run) => {
+    if (!run.runId || !run.operationKey || !run.status || runIds.has(run.runId)) return false;
+    runIds.add(run.runId);
+    return typeof run.expectedAttemptToken === "string" || run.expectedAttemptToken === null;
+  });
 }

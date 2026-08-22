@@ -49,6 +49,8 @@ function memoryFs(): IsolatedCliFilesystem & {
     mkdir: vi.fn(async (path, options) => { directories.push({ path, mode: options.mode }); }),
     writeFile: vi.fn(async (path, value, options) => { writes.set(path, { value, mode: options.mode }); }),
     chmod: vi.fn(async () => undefined),
+    removeTree: vi.fn(async () => undefined),
+    exists: vi.fn().mockResolvedValue(false),
   };
 }
 
@@ -66,10 +68,59 @@ function transport(version = 'codex-cli 1.2.3'): IsolatedCliTransport {
     interrupt: vi.fn().mockResolvedValue(undefined),
     cancel: vi.fn().mockResolvedValue(undefined),
     readProcessStartIdentity: vi.fn().mockResolvedValue('proc-start-42'),
+    superviseStartIntent: vi.fn().mockResolvedValue(undefined),
+    inspectStartIntent: vi.fn().mockResolvedValue({ status: 'running' }),
+    cancelStartIntent: vi.fn().mockResolvedValue(undefined),
+    revokeStartIntent: vi.fn().mockResolvedValue(undefined),
   };
 }
 
 describe('isolated CLI durable runtime', () => {
+  it.each(['codex_cli', 'claude_cli'])('persists and cleans only the exact supervised %s start intent after recreation', async (runtimeType) => {
+    const fs = memoryFs();
+    vi.mocked(fs.exists).mockResolvedValueOnce(true).mockResolvedValueOnce(false);
+    const cli = transport(runtimeType === 'claude_cli' ? 'claude 2.3.4' : 'codex-cli 1.2.3');
+    vi.mocked(cli.inspectStartIntent)
+      .mockResolvedValueOnce({ status: 'running' })
+      .mockResolvedValueOnce({ status: 'cancelled' });
+    const common = {
+      filesystem: fs, transport: cli, runRoot: '/tmp/runs', ambientEnv: { PATH: '/bin' },
+      handleCipher: { encrypt: () => 'vault://cli/1', decrypt: () => '' },
+      runtimeCredential: () => 'runtime-token',
+      mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
+    };
+    const adapter = runtimeType === 'claude_cli'
+      ? new ClaudeCliRuntimeAdapter(common)
+      : new CodexCliRuntimeAdapter(common);
+    await adapter.assertReady();
+    await adapter.start(context(ATTEMPT_ID, runtimeType));
+    expect(cli.superviseStartIntent).toHaveBeenCalledBefore(cli.start as never);
+
+    const recreated = runtimeType === 'claude_cli'
+      ? new ClaudeCliRuntimeAdapter(common)
+      : new CodexCliRuntimeAdapter(common);
+    await expect(recreated.cleanup({
+      signal: new AbortController().signal,
+      organizationId: context().organizationId,
+      sessionId: context().sessionId,
+      runtimeType,
+      executionId: EXECUTION_ID,
+      attemptId: ATTEMPT_ID,
+      startIntentId: context().startIntentId,
+      handle: null,
+    })).resolves.toEqual({
+      state: 'clean', executionAuthority: 'process_exited', credentials: 'irrevocably_revoked',
+      handle: 'removed', filesystem: 'removed',
+    });
+    const exact = {
+      organizationId: context().organizationId, sessionId: context().sessionId,
+      executionId: EXECUTION_ID, attemptId: ATTEMPT_ID, startIntentId: context().startIntentId,
+    };
+    expect(cli.cancelStartIntent).toHaveBeenCalledWith(exact);
+    expect(cli.revokeStartIntent).toHaveBeenCalledWith(exact);
+    expect(fs.removeTree).toHaveBeenCalledWith({ executionId: EXECUTION_ID, attemptId: ATTEMPT_ID });
+    expect(fs.exists).toHaveBeenLastCalledWith({ executionId: EXECUTION_ID, attemptId: ATTEMPT_ID });
+  });
   it('creates attempt-isolated owner-only homes and strips ambient authority', async () => {
     const fs = memoryFs();
     const cli = transport();

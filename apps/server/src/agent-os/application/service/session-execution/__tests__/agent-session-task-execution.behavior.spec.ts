@@ -316,6 +316,65 @@ describe("AgentSessionTaskExecutionService", () => {
     );
   });
 
+  it("reuses the persisted start intent after a crash before runtime_starting without a duplicate start", async () => {
+    const { handler, controls, checkpoints, runtime } = harness();
+    let durableIntentId: string | null = null;
+
+    controls.activateAttemptForOperation.mockImplementation(async () => ({
+      id: ATTEMPT_ID,
+      executionId: EXECUTION_ID,
+      attemptNumber: 1,
+      runtimeType: "hermes_http",
+      externalRunId: null,
+      encryptedHandleRef: null,
+      runtimeGeneration: 0,
+      runtimeStartIntentId: durableIntentId,
+      runtimeCredentialGeneration: 4,
+      state: "running",
+    }));
+    controls.persistRuntimeStartIntent.mockImplementation(async (input) => {
+      if (!durableIntentId) {
+        durableIntentId = input.startIntentId;
+        return {
+          startIntentId: durableIntentId,
+          runtimeCredentialGeneration: 4,
+        };
+      }
+      if (input.startIntentId !== durableIntentId) {
+        throw new Error("AGENT_RUNTIME_START_INTENT_CONFLICT");
+      }
+      return {
+        startIntentId: durableIntentId,
+        runtimeCredentialGeneration: 4,
+      };
+    });
+    checkpoints.append.mockImplementationOnce(async () => {
+      throw new Error("simulated_crash_before_runtime_starting_checkpoint");
+    });
+
+    await expect(handler.execute(operation)).rejects.toThrow(
+      "simulated_crash_before_runtime_starting_checkpoint",
+    );
+    expect(runtime.start).not.toHaveBeenCalled();
+
+    const persistedIntentId = durableIntentId;
+    if (!persistedIntentId) throw new Error("missing_persisted_start_intent");
+    await expect(handler.execute(operation)).resolves.toMatchObject({
+      kind: "completed",
+    });
+
+    expect(controls.persistRuntimeStartIntent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ startIntentId: persistedIntentId }),
+    );
+    expect(runtime.start).toHaveBeenCalledTimes(1);
+    expect(runtime.start).toHaveBeenCalledWith(
+      expect.objectContaining({
+        startIntentId: persistedIntentId,
+        runtimeCredentialGeneration: 4,
+      }),
+    );
+  });
+
   it("registers a finite API-owned Operations resource policy", () => {
     expect(AGENT_OS_OPERATIONS[0]).toMatchObject({
       resourceClass: "default",

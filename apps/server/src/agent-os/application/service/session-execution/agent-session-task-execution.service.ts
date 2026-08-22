@@ -241,6 +241,22 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       context.runtimeType,
       durableRequirements,
     );
+    const checkpointStartAuthority =
+      latest?.kind === "runtime_starting"
+        ? startAuthorityFromState(latest.state, input.executionId, attempt.id)
+        : null;
+    if (latest?.kind === "runtime_starting" && !checkpointStartAuthority) {
+      return failure("AGENT_RUNTIME_START_INTENT_CORRELATION_INVALID");
+    }
+    if (
+      checkpointStartAuthority &&
+      (!attempt.runtimeStartIntentId ||
+        attempt.runtimeStartIntentId !== checkpointStartAuthority.startIntentId ||
+        attempt.runtimeCredentialGeneration !==
+          checkpointStartAuthority.runtimeCredentialGeneration)
+    ) {
+      return failure("AGENT_RUNTIME_START_INTENT_CONFLICT");
+    }
     const checkpointHandle = latest ? handleFromState(latest.state) : null;
     let handle: RuntimeHandle;
     if (checkpointHandle) {
@@ -273,9 +289,6 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         return this.finalize(operation, input, attempt.id, handle, "cancelled");
       }
     } else {
-      const persistedStart = latest
-        ? startAuthorityFromState(latest.state, input.executionId, attempt.id)
-        : null;
       const startAuthority = await this.attempts.persistRuntimeStartIntent({
         organizationId: operation.organizationId,
         sessionId: input.sessionId,
@@ -284,8 +297,14 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         operationRunId: operation.runId,
         attemptToken: operation.attemptToken,
         runtimeType: context.runtimeType,
-        startIntentId: persistedStart?.startIntentId ?? randomUUID(),
+        startIntentId: attempt.runtimeStartIntentId ?? randomUUID(),
       });
+      if (
+        attempt.runtimeStartIntentId &&
+        attempt.runtimeStartIntentId !== startAuthority.startIntentId
+      ) {
+        return failure("AGENT_RUNTIME_START_INTENT_CONFLICT");
+      }
       await this.checkpoint(operation, "runtime_starting", {
         attemptId: attempt.id,
         runtimeType: context.runtimeType,
@@ -848,10 +867,11 @@ function startAuthorityFromState(
   state: Record<string, unknown>,
   executionId: string,
   attemptId: string,
-): { startIntentId: string } | null {
+): { startIntentId: string; runtimeCredentialGeneration: number } | null {
   const parsed = z
     .object({
       startIntentId: z.string().uuid(),
+      runtimeCredentialGeneration: z.number().int().nonnegative(),
       executionId: z.string().min(1),
       attemptId: z.string().min(1),
     })
@@ -864,7 +884,10 @@ function startAuthorityFromState(
   ) {
     throw new Error("AGENT_RUNTIME_START_INTENT_CORRELATION_INVALID");
   }
-  return { startIntentId: parsed.data.startIntentId };
+  return {
+    startIntentId: parsed.data.startIntentId,
+    runtimeCredentialGeneration: parsed.data.runtimeCredentialGeneration,
+  };
 }
 
 function checkpointRuntimeHandle(handle: RuntimeHandle): RuntimeHandle {

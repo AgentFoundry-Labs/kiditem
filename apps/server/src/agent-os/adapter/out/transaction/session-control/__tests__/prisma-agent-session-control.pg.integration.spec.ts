@@ -14,6 +14,7 @@ import { PrismaAgentExecutionContextRepository } from '../../../repository/prism
 import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
 import { PrismaAgentSessionDeletionCommandTransaction } from '../../session-deletion/prisma-agent-session-deletion-command.transaction';
 import { PrismaAgentSessionDeletionQueryRepository } from '../../../repository/session-deletion/prisma-agent-session-deletion-query.repository';
+import { PrismaAgentSessionDeletionExecutionTransaction } from '../../session-deletion/prisma-agent-session-deletion-execution.transaction';
 import {
   AGENT_SESSION_DELETE_OPERATION,
   AGENT_SESSION_DELETE_OPERATION_KEY,
@@ -35,6 +36,7 @@ let repository: SessionControlAdapterSet;
 let ownedOperations: PrismaAgentSessionOwnedOperationTransaction;
 let deletionCommands: PrismaAgentSessionDeletionCommandTransaction;
 let deletionQueries: PrismaAgentSessionDeletionQueryRepository;
+let deletionExecutions: PrismaAgentSessionDeletionExecutionTransaction;
 
 const sessionTaskDefinition = {
   key: 'agent-os.execute-session-task',
@@ -66,6 +68,7 @@ beforeEach(async () => {
   ownedOperations = new PrismaAgentSessionOwnedOperationTransaction(prisma as never);
   deletionCommands = new PrismaAgentSessionDeletionCommandTransaction(prisma as never);
   deletionQueries = new PrismaAgentSessionDeletionQueryRepository(prisma as never);
+  deletionExecutions = new PrismaAgentSessionDeletionExecutionTransaction(prisma as never);
 });
 
 describe('Prisma Agent session-control transaction seams', () => {
@@ -98,6 +101,77 @@ describe('Prisma Agent session-control transaction seams', () => {
       where: { operationRunId: result.operationRunId },
     })).resolves.toBe(1);
     await expect(prisma!.operationRun.count({ where: { idempotencyKey } })).resolves.toBe(1);
+  });
+
+  it('reuses the persisted start intent after a crash before runtime_starting and rejects a replacement UUID', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'start-intent-crash');
+    const startIntentId = '20000000-0000-4000-8000-000000000010';
+    const replacementIntentId = '20000000-0000-4000-8000-000000000011';
+    const operation = await prisma!.operationRun.findUniqueOrThrow({
+      where: { id: owned.operationRunId },
+      select: { attemptToken: true },
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: owned.operationRunId,
+    });
+
+    const first = await repository.persistRuntimeStartIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: owned.attemptId,
+      operationRunId: owned.operationRunId,
+      attemptToken: operation.attemptToken,
+      runtimeType: 'copilotkit_agui',
+      startIntentId,
+    });
+
+    // Simulate process recreation after the transaction commits but before
+    // the OperationRun runtime_starting checkpoint is written.
+    const recreatedRepository = new SessionControlAdapterSet(prisma as never);
+    const replay = await recreatedRepository.persistRuntimeStartIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: owned.attemptId,
+      operationRunId: owned.operationRunId,
+      attemptToken: operation.attemptToken,
+      runtimeType: 'copilotkit_agui',
+      startIntentId,
+    });
+
+    expect(replay).toEqual(first);
+    await expect(prisma!.operationRunCheckpoint.count({
+      where: { operationRunId: owned.operationRunId },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentExecutionAttempt.findUniqueOrThrow({
+      where: { id: owned.attemptId },
+      select: {
+        runtimeStartIntentId: true,
+        runtimeCredentialGeneration: true,
+        externalRunId: true,
+        encryptedHandleRef: true,
+      },
+    })).resolves.toEqual({
+      runtimeStartIntentId: startIntentId,
+      runtimeCredentialGeneration: first.runtimeCredentialGeneration,
+      externalRunId: null,
+      encryptedHandleRef: null,
+    });
+    await expect(recreatedRepository.persistRuntimeStartIntent({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: owned.attemptId,
+      operationRunId: owned.operationRunId,
+      attemptToken: operation.attemptToken,
+      runtimeType: 'copilotkit_agui',
+      startIntentId: replacementIntentId,
+    })).rejects.toMatchObject({ code: 'AGENT_RUNTIME_START_INTENT_CONFLICT' });
   });
 
   it('rolls back every row when ownership cannot use the scoped session', async () => {
@@ -184,6 +258,244 @@ describe('Prisma Agent session-control transaction seams', () => {
       where: { id: owned.attemptId },
       select: { runtimeCredentialGeneration: true },
     })).resolves.toEqual({ runtimeCredentialGeneration: 1 });
+  });
+
+  it('classifies no runtime evidence as never_started and a persisted runtime_starting CLI attempt without a handle as started', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'deletion-runtime-starting');
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    await deletionCommands.begin(deletionInput(session));
+    const deletion = await prisma!.operationRun.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: AGENT_SESSION_DELETE_OPERATION_KEY,
+      },
+      select: { id: true },
+    });
+    const attemptToken = '20000000-0000-4000-8000-000000000012';
+    await prisma!.operationRun.update({
+      where: { id: deletion.id },
+      data: { status: 'running', attempts: 2, attemptToken },
+    });
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.id,
+      attemptToken,
+    })).resolves.toMatchObject({
+      kind: 'ready',
+      snapshot: { runtimeAttempts: [{ attemptId: owned.attemptId, state: 'never_started' }] },
+    });
+
+    await prisma!.$transaction([
+      prisma!.operationRun.update({
+        where: { id: owned.operationRunId },
+        data: { status: 'running', attemptToken: '20000000-0000-4000-8000-000000000014' },
+      }),
+      prisma!.agentExecutionAttempt.update({
+        where: { id: owned.attemptId },
+        data: {
+          runtimeType: 'codex_cli',
+          runtimeStartIntentId: '20000000-0000-4000-8000-000000000013',
+        },
+      }),
+      prisma!.operationRunCheckpoint.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          operationRunId: owned.operationRunId,
+          sequence: 1n,
+          kind: 'runtime_starting',
+          state: {},
+        },
+      }),
+    ]);
+
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.id,
+      attemptToken,
+    })).resolves.toMatchObject({
+      kind: 'ready',
+      snapshot: {
+        consumedAttempts: 2,
+        runtimeAttempts: [{
+          attemptId: owned.attemptId,
+          runtimeType: 'codex_cli',
+          state: 'started',
+          startIntentId: '20000000-0000-4000-8000-000000000013',
+          handle: null,
+        }],
+        operationRuns: [expect.objectContaining({
+          runId: owned.operationRunId,
+          operationKey: sessionTaskDefinition.key,
+        })],
+      },
+    });
+  });
+
+  it('closes recursively connected owned runs and preserves their exact control coordinates', async () => {
+    const fixture = await createRootGraph();
+    const root = await createOwnedExecutionOperation(fixture, 'deletion-closure-root');
+    const child = await createOwnedChildOperation(fixture, root.operationRunId, 'deletion-closure-child');
+    const grandchild = await createOwnedChildOperation(fixture, child.id, 'deletion-closure-grandchild');
+    await prisma!.agentExecutionAttemptOperationBinding.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: root.attemptId,
+        executionId: fixture.executionId,
+        sessionId: fixture.sessionId,
+        operationRunId: child.id,
+        predecessorOperationRunId: root.operationRunId,
+        continuationKey: `deletion-closure:${child.id}`,
+      },
+    });
+    const deletion = await startDeletionExecution(fixture.sessionId);
+
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.operationRunId,
+      attemptToken: deletion.attemptToken,
+    })).resolves.toMatchObject({
+      kind: 'ready',
+      snapshot: {
+        operationRuns: expect.arrayContaining([
+          expect.objectContaining({
+            runId: root.operationRunId,
+            operationKey: sessionTaskDefinition.key,
+            status: 'queued',
+            expectedAttemptToken: null,
+            nativeRunType: null,
+            nativeRunId: null,
+          }),
+          expect.objectContaining({ runId: child.id, operationKey: sessionTaskDefinition.key }),
+          expect.objectContaining({ runId: grandchild.id, operationKey: sessionTaskDefinition.key }),
+        ]),
+      },
+    });
+  });
+
+  it('includes active artifacts without a transient multipart upload alongside materializing artifacts', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'deletion-active-artifact');
+    const active = await prisma!.agentSessionArtifact.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        artifactType: 'report',
+        materializationOperationRunId: owned.operationRunId,
+        sha256: 'a'.repeat(64),
+        lifecycle: 'active',
+        idempotencyKey: `deletion-active-artifact:${fixture.executionId}`,
+      },
+    });
+    const deletion = await startDeletionExecution(fixture.sessionId);
+
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.operationRunId,
+      attemptToken: deletion.attemptToken,
+    })).resolves.toMatchObject({
+      kind: 'ready',
+      snapshot: {
+        artifacts: [{
+          artifactId: active.id,
+          materializationOperationRunId: owned.operationRunId,
+          providerUploadId: null,
+        }],
+      },
+    });
+  });
+
+  it('rejects a scheduled or foreign-owned closure before issuing a partial snapshot', async () => {
+    const scheduledFixture = await createRootGraph();
+    const scheduled = await createOwnedExecutionOperation(scheduledFixture, 'deletion-scheduled');
+    const schedule = await prisma!.operationSchedule.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: `test-deletion-schedule:${scheduled.operationRunId}`,
+        cronExpression: '0 * * * *',
+        input: {},
+        createdByUserId: TEST_USER_ID,
+      },
+    });
+    await prisma!.operationRun.update({
+      where: { id: scheduled.operationRunId },
+      data: { scheduleId: schedule.id },
+    });
+    const scheduledDeletion = await startDeletionExecution(scheduledFixture.sessionId);
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: scheduledFixture.sessionId,
+      operationRunId: scheduledDeletion.operationRunId,
+      attemptToken: scheduledDeletion.attemptToken,
+    })).resolves.toEqual({
+      kind: 'retryable',
+      code: 'SESSION_OPERATION_OWNERSHIP_INVALID',
+      consumedAttempts: 2,
+    });
+
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'deletion-foreign-owner');
+    const foreign = await createRootGraph();
+    await createOwnedChildOperation(foreign, owned.operationRunId, 'deletion-foreign-child');
+    const foreignDeletion = await startDeletionExecution(fixture.sessionId);
+    await expect(deletionExecutions.loadFencedSnapshot({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: foreignDeletion.operationRunId,
+      attemptToken: foreignDeletion.attemptToken,
+    })).resolves.toEqual({
+      kind: 'retryable',
+      code: 'SESSION_OPERATION_OWNERSHIP_INVALID',
+      consumedAttempts: 2,
+    });
+  });
+
+  it('does not mutate an owned run for stale deletion tokens or a cross-session terminalization request', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'deletion-terminal-fence');
+    const deletion = await startDeletionExecution(fixture.sessionId);
+    const stale = '20000000-0000-4000-8000-000000000015';
+
+    await expect(deletionExecutions.terminalizeOwnedRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.operationRunId,
+      attemptToken: stale,
+      ownedOperationRunId: owned.operationRunId,
+    })).rejects.toThrow('SESSION_OPERATION_OWNERSHIP_INVALID');
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: owned.operationRunId }, select: { status: true },
+    })).resolves.toEqual({ status: 'queued' });
+
+    const other = await createRootGraph();
+    const otherOwned = await createOwnedExecutionOperation(other, 'deletion-terminal-cross-session');
+    await expect(deletionExecutions.terminalizeOwnedRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: deletion.operationRunId,
+      attemptToken: deletion.attemptToken,
+      ownedOperationRunId: otherOwned.operationRunId,
+    })).rejects.toThrow('SESSION_OPERATION_OWNERSHIP_INVALID');
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: otherOwned.operationRunId }, select: { status: true },
+    })).resolves.toEqual({ status: 'queued' });
   });
 
   it('rolls back the deletion lifecycle fence when immutable binding creation fails', async () => {
@@ -1424,6 +1736,61 @@ async function createUnownedContinuationPredecessor(
     },
   });
   return { operationRunId: operation.id, attemptId: attempt.id };
+}
+
+async function createOwnedChildOperation(
+  fixture: { sessionId: string; taskId: string; executionId: string },
+  parentRunId: string,
+  suffix: string,
+) {
+  const operation = await prisma!.operationRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationKey: sessionTaskDefinition.key,
+      definitionVersion: sessionTaskDefinition.version,
+      ownerDomain: sessionTaskDefinition.ownerDomain,
+      title: sessionTaskDefinition.title,
+      engineType: sessionTaskDefinition.engineType,
+      resourceClass: sessionTaskDefinition.resourceClass,
+      executionTimeoutMs: sessionTaskDefinition.executionTimeoutMs,
+      status: 'queued',
+      triggerSource: 'agent',
+      requestedByUserId: TEST_USER_ID,
+      parentRunId,
+      idempotencyKey: `deletion-closure:${suffix}:${fixture.executionId}`,
+      input: { execution: fixture.executionId },
+      maxAttempts: sessionTaskDefinition.maxAttempts,
+    },
+  });
+  await prisma!.agentSessionOperationRunOwnership.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      operationRunId: operation.id,
+    },
+  });
+  return operation;
+}
+
+async function startDeletionExecution(sessionId: string): Promise<{
+  operationRunId: string;
+  attemptToken: string;
+}> {
+  const session = formatAgentSessionName(
+    OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+    AgentSessionIdSchema.parse(sessionId),
+  );
+  await deletionCommands.begin(deletionInput(session));
+  const deletion = await prisma!.operationRun.findFirstOrThrow({
+    where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    select: { id: true },
+  });
+  const attemptToken = crypto.randomUUID();
+  await prisma!.operationRun.update({
+    where: { id: deletion.id },
+    data: { status: 'running', attempts: 2, attemptToken },
+  });
+  return { operationRunId: deletion.id, attemptToken };
 }
 
 function deletionInput(

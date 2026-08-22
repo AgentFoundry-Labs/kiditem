@@ -2,6 +2,8 @@ import { z } from 'zod';
 import type {
   AgentDurableRuntimeAdapter,
   AgentDurableRuntimeExecutionContext,
+  AgentSessionRuntimeCleanupInput,
+  AgentSessionRuntimeCleanupResult,
   DurableRuntimeAdapterEvent,
   RuntimeHandle,
   RuntimeInspection,
@@ -45,6 +47,17 @@ export interface HermesRuntimeTransport {
   inspect(input: { externalRunId: string; reconnectSecret: string; generation: number }): Promise<RuntimeInspection>;
   interrupt(input: { externalRunId: string; reconnectSecret: string; generation: number; interrupt: RuntimeInterruptInput }): Promise<void>;
   cancel(input: { externalRunId: string; reconnectSecret: string; generation: number }): Promise<void>;
+  inspectStartIntent(input: RuntimeStartIntent): Promise<RuntimeInspection>;
+  cancelStartIntent(input: RuntimeStartIntent): Promise<void>;
+  revokeStartIntent(input: RuntimeStartIntent): Promise<void>;
+}
+
+export interface RuntimeStartIntent {
+  organizationId: string;
+  sessionId: string;
+  executionId: string;
+  attemptId: string;
+  startIntentId: string;
 }
 
 export interface HermesFetchRuntimeTransportOptions {
@@ -227,6 +240,25 @@ export class HermesFetchRuntimeTransport implements HermesRuntimeTransport {
     );
   }
 
+  async inspectStartIntent(input: RuntimeStartIntent): Promise<RuntimeInspection> {
+    const response = await this.request(`start-intents/${encodeURIComponent(input.startIntentId)}`, {
+      headers: startIntentHeaders(input),
+    });
+    return inspectionSchema.parse(await json(response));
+  }
+
+  async cancelStartIntent(input: RuntimeStartIntent): Promise<void> {
+    await this.request(`start-intents/${encodeURIComponent(input.startIntentId)}/cancel`, {
+      method: 'POST', headers: startIntentHeaders(input),
+    });
+  }
+
+  async revokeStartIntent(input: RuntimeStartIntent): Promise<void> {
+    await this.request(`start-intents/${encodeURIComponent(input.startIntentId)}/revoke`, {
+      method: 'POST', headers: startIntentHeaders(input),
+    });
+  }
+
   private async request(path: string, init: RequestInit): Promise<Response> {
     let response: Response;
     try {
@@ -318,18 +350,18 @@ export class HermesHttpRuntimeAdapter implements AgentDurableRuntimeAdapter {
     return pending;
   }
 
-  async cleanup(input: import('../../../application/port/out/runtime/agent-durable-runtime.port').AgentSessionRuntimeCleanupInput) {
-    if (input.runtimeType !== this.runtimeType || !input.startIntentId) {
-      return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
-    }
-    if (!input.handle) {
-      // Hermes cannot prove a terminal/revoked remote process without the
-      // persisted reconnect handle. Missing authority is deliberately retryable.
+  async cleanup(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult> {
+    if (!this.hasExactCleanupAuthority(input)) {
       return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
     }
     try {
-      await this.cancel(input.handle);
-      const inspection = await this.inspect(input.handle);
+      const startIntent = cleanupStartIntent(input);
+      let inspection = await this.options.transport.inspectStartIntent(startIntent);
+      if (inspection.status === 'running') {
+        await this.options.transport.cancelStartIntent(startIntent);
+        inspection = await this.options.transport.inspectStartIntent(startIntent);
+      }
+      await this.options.transport.revokeStartIntent(startIntent);
       if (inspection.status === 'running' || inspection.status === 'unknown') {
         return { state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const };
       }
@@ -352,6 +384,14 @@ export class HermesHttpRuntimeAdapter implements AgentDurableRuntimeAdapter {
       reconnectSecret: this.options.handleCipher.decrypt(handle.encryptedHandleRef),
       generation: handle.generation,
     };
+  }
+
+  private hasExactCleanupAuthority(input: AgentSessionRuntimeCleanupInput): boolean {
+    if (!input.startIntentId || input.runtimeType !== this.runtimeType) return false;
+    if (!input.handle) return true;
+    return input.handle.runtimeType === this.runtimeType
+      && input.handle.executionId === input.executionId
+      && input.handle.attemptId === input.attemptId;
   }
 }
 
@@ -385,6 +425,25 @@ export function normalizeHermesProviderItem(item: HermesProviderItem): DurableRu
 
 function reconnectHeaders(reconnectSecret: string): Record<string, string> {
   return { 'x-hermes-reconnect-secret': reconnectSecret };
+}
+
+function cleanupStartIntent(input: AgentSessionRuntimeCleanupInput): RuntimeStartIntent {
+  return {
+    organizationId: input.organizationId,
+    sessionId: input.sessionId,
+    executionId: input.executionId,
+    attemptId: input.attemptId,
+    startIntentId: input.startIntentId,
+  };
+}
+
+function startIntentHeaders(input: RuntimeStartIntent): Record<string, string> {
+  return {
+    'x-hermes-organization-id': input.organizationId,
+    'x-hermes-session-id': input.sessionId,
+    'x-hermes-execution-id': input.executionId,
+    'x-hermes-attempt-id': input.attemptId,
+  };
 }
 
 async function json(response: Response): Promise<unknown> {

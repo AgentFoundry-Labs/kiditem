@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Inject, Injectable, OnModuleInit, Optional } from '@nestjs/common';
 import { EventType, type BaseEvent } from '@ag-ui/core';
 import { z } from 'zod';
 import type {
@@ -9,6 +9,23 @@ import type {
 import { AgentAguiRuntimeRegistry } from '../../../application/service/agent-agui-runtime-registry.service';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 import { OpenAiResponsesOperatorRuntimeAdapter } from './openai-responses-operator-runtime.adapter';
+import type { AgentSessionRuntimeCleanupInput, AgentSessionRuntimeCleanupResult, RuntimeHandle, RuntimeInspection } from '../../../application/port/out/runtime/agent-durable-runtime.port';
+import { AgentRuntimeAdapterRegistry } from '../../../application/service/agent-runtime-adapter.registry';
+
+export const AGUI_RUNTIME_CLEANUP_DEPENDENCIES = Symbol('AGUI_RUNTIME_CLEANUP_DEPENDENCIES');
+
+export interface AguiRuntimeCleanupDependencies {
+  invalidate(input: AguiStartIntent): Promise<void>;
+  stop(input: AguiStartIntent & { handle: RuntimeHandle | null }): Promise<RuntimeInspection>;
+}
+
+interface AguiStartIntent {
+  organizationId: string;
+  sessionId: string;
+  executionId: string;
+  attemptId: string;
+  startIntentId: string;
+}
 
 const MAX_STEPS = 8;
 const RawDecisionSchema = z.discriminatedUnion('kind', [
@@ -41,13 +58,43 @@ const OUTPUT_SCHEMA = {
 @Injectable()
 export class OpenAiResponsesAguiRuntimeAdapter
 implements AgentAguiRuntimeAdapter, OnModuleInit {
+  readonly runtimeType = 'copilotkit_agui';
   constructor(
     private readonly registry: AgentAguiRuntimeRegistry,
     private readonly responses: OpenAiResponsesOperatorRuntimeAdapter,
+    @Optional() @Inject(AGUI_RUNTIME_CLEANUP_DEPENDENCIES)
+    private readonly cleanupDependencies?: AguiRuntimeCleanupDependencies,
+    @Optional() private readonly durableRuntimes?: AgentRuntimeAdapterRegistry,
   ) {}
 
   onModuleInit(): void {
-    this.registry.register('copilotkit_agui', this);
+    this.registry.register(this.runtimeType, this);
+    this.durableRuntimes?.registerCleanup(this);
+  }
+
+  async cleanup(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult> {
+    if (!this.cleanupDependencies || !this.hasExactCleanupAuthority(input)) return unknownCleanup();
+    const startIntent: AguiStartIntent = {
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      executionId: input.executionId,
+      attemptId: input.attemptId,
+      startIntentId: input.startIntentId,
+    };
+    try {
+      await this.cleanupDependencies.invalidate(startIntent);
+      const stopped = await this.cleanupDependencies.stop({ ...startIntent, handle: input.handle });
+      if (stopped.status === 'running' || stopped.status === 'unknown') return unknownCleanup();
+      return {
+        state: 'clean',
+        executionAuthority: 'irrevocably_revoked',
+        credentials: 'irrevocably_revoked',
+        handle: 'removed',
+        filesystem: 'not_owned',
+      };
+    } catch {
+      return unknownCleanup();
+    }
   }
 
   async *run(input: AgentAguiRuntimeInput): AsyncIterable<BaseEvent> {
@@ -136,6 +183,20 @@ implements AgentAguiRuntimeAdapter, OnModuleInit {
       'The Operator exceeded the bounded capability loop.',
     );
   }
+
+  private hasExactCleanupAuthority(input: AgentSessionRuntimeCleanupInput): boolean {
+    return input.runtimeType === this.runtimeType && input.startIntentId.length > 0 && (
+      !input.handle || (
+        input.handle.runtimeType === this.runtimeType
+        && input.handle.executionId === input.executionId
+        && input.handle.attemptId === input.attemptId
+      )
+    );
+  }
+}
+
+function unknownCleanup(): AgentSessionRuntimeCleanupResult {
+  return { state: 'unknown', code: 'RUNTIME_CLEANUP_UNKNOWN' };
 }
 
 function renderPrompt(

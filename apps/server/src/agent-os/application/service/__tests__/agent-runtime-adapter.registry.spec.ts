@@ -61,6 +61,18 @@ describe('AgentRuntimeAdapterRegistry', () => {
     expect(registry).not.toHaveProperty('resolveFallback');
   });
 
+  it('exposes cleanup only through an exact registered runtime type', () => {
+    const registry = new AgentRuntimeAdapterRegistry();
+    const hermes = {
+      ...adapter('hermes_http'),
+      cleanup: async () => ({ state: 'unknown' as const, code: 'RUNTIME_CLEANUP_UNKNOWN' as const }),
+    };
+    registry.register(hermes);
+
+    expect(registry.requireExactCleanup('hermes_http')).toBe(hermes);
+    expect(() => registry.requireExactCleanup('claude_cli')).toThrow(/AGENT_RUNTIME_NOT_CONFIGURED/);
+  });
+
   it('reports each missing durable capability', () => {
     const registry = new AgentRuntimeAdapterRegistry();
     registry.register(adapter('limited', { reconnect: false, inspect: false }));

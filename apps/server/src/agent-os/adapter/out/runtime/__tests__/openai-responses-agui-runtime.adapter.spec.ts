@@ -4,6 +4,37 @@ import { AgentAguiRuntimeRegistry } from '../../../../application/service/agent-
 import { OpenAiResponsesAguiRuntimeAdapter } from '../openai-responses-agui-runtime.adapter';
 
 describe('OpenAiResponsesAguiRuntimeAdapter', () => {
+  it.each([true, false])('invalidates the exact AG-UI grant and stops it by handle or start intent (%s)', async (withHandle) => {
+    const registry = new AgentAguiRuntimeRegistry();
+    const cleanup = {
+      invalidate: vi.fn().mockResolvedValue(undefined),
+      stop: vi.fn().mockResolvedValue({ status: 'cancelled' as const }),
+    };
+    const runtime = new OpenAiResponsesAguiRuntimeAdapter(
+      registry,
+      { decide: vi.fn() } as never,
+      cleanup,
+    );
+    await expect(runtime.cleanup({
+      signal: new AbortController().signal,
+      organizationId: 'org-1', sessionId: 'session-1', runtimeType: 'copilotkit_agui',
+      executionId: 'execution-1', attemptId: 'attempt-1', startIntentId: 'intent-1',
+      handle: withHandle ? {
+        runtimeType: 'copilotkit_agui', executionId: 'execution-1', attemptId: 'attempt-1',
+        externalRunId: 'run-1', encryptedHandleRef: 'grant-1', generation: 2,
+      } : null,
+    })).resolves.toEqual({
+      state: 'clean', executionAuthority: 'irrevocably_revoked', credentials: 'irrevocably_revoked',
+      handle: 'removed', filesystem: 'not_owned',
+    });
+    expect(cleanup.invalidate).toHaveBeenCalledWith({
+      organizationId: 'org-1', sessionId: 'session-1', executionId: 'execution-1',
+      attemptId: 'attempt-1', startIntentId: 'intent-1',
+    });
+    expect(cleanup.stop).toHaveBeenCalledWith(expect.objectContaining({
+      startIntentId: 'intent-1', handle: withHandle ? expect.anything() : null,
+    }));
+  });
   it('registers the production AG-UI runtime and completes a policy-routed read loop', async () => {
     const registry = new AgentAguiRuntimeRegistry();
     const responses = {

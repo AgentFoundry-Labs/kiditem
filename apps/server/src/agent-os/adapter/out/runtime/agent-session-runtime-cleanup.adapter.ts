@@ -5,14 +5,16 @@ import { AgentRuntimeAdapterRegistry } from "../../../application/service/agent-
 
 @Injectable()
 export class AgentSessionRuntimeCleanupAdapter implements AgentSessionRuntimeCleanupPort {
-  constructor(@Inject(AgentRuntimeAdapterRegistry) private readonly runtimes: Pick<AgentRuntimeAdapterRegistry, "requireExact">) {}
+  constructor(@Inject(AgentRuntimeAdapterRegistry) private readonly runtimes: Pick<AgentRuntimeAdapterRegistry, "requireExactCleanup">) {}
 
   async cleanup(input: AgentSessionRuntimeCleanupInput): Promise<AgentSessionRuntimeCleanupResult> {
     try {
-      const runtime = this.runtimes.requireExact(input.runtimeType);
-      if (!runtime.cleanup) return { state: "unknown", code: "RUNTIME_CLEANUP_UNKNOWN" };
+      const runtime = this.runtimes.requireExactCleanup(input.runtimeType);
       return await runtime.cleanup(input);
     } catch {
+      if (input.signal.aborted) {
+        throw input.signal.reason;
+      }
       return { state: "unknown", code: "RUNTIME_CLEANUP_UNKNOWN" };
     }
   }

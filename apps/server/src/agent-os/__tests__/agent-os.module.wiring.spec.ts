@@ -63,6 +63,8 @@ import { AgentAguiProducerCoordinator } from '../application/service/agent-agui-
 import { AgentOsApiExecutionModule } from '../agent-os-api-execution.module';
 import { AgentOsHttpModule } from '../agent-os-http.module';
 import { AgentOsSessionModule } from '../agent-os-session.module';
+import { RuntimeCredentialBroker } from '../adapter/out/runtime/runtime-credential-broker';
+import { AgentRuntimeCredentialVerificationService } from '../application/service/session-execution/agent-runtime-credential-verification.service';
 
 const imports = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.IMPORTS, module) ?? [];
 const providers = (module: unknown) => Reflect.getMetadata(MODULE_METADATA.PROVIDERS, module) ?? [];
@@ -278,6 +280,35 @@ describe('Agent OS artifact materialization composition', () => {
     expect(sessionProviders).toContain(AgentSessionCapabilityInvocationService);
   });
 
+  it('defers a missing runtime credential key until the injected verifier is invoked', async () => {
+    const originalSecret = process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
+    delete process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
+    try {
+      const brokerProvider = providers(AgentOsSessionModule).find(
+        (provider: unknown): provider is { provide: unknown; useFactory: () => RuntimeCredentialBroker } =>
+          typeof provider === 'object'
+          && provider !== null
+          && 'provide' in provider
+          && provider.provide === RuntimeCredentialBroker
+          && 'useFactory' in provider
+          && typeof provider.useFactory === 'function',
+      );
+      expect(brokerProvider).toBeDefined();
+      const broker = brokerProvider!.useFactory();
+      expect(broker).toBeInstanceOf(RuntimeCredentialBroker);
+
+      const verifier = new AgentRuntimeCredentialVerificationService(broker, {
+        loadRuntimeCredentialAuthority: async () => null,
+      });
+      await expect(verifier.verify({ token: 'e30.signature' })).rejects.toThrow(
+        'AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED',
+      );
+    } finally {
+      if (originalSecret === undefined) delete process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY;
+      else process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY = originalSecret;
+    }
+  });
+
   it('keeps catalog and capability ownership in their focused modules', () => {
     expect(providers(AgentOsCatalogModule)).toContain(AgentCatalogService);
     expect(providers(AgentOsCatalogModule)).toContainEqual(
@@ -312,6 +343,20 @@ describe('Agent OS artifact materialization composition', () => {
     );
     expect(exportsOf(AgentOsApiExecutionModule)).toContain(AGENT_SESSION_DELETION_EXECUTION_PORT);
     expect(imports(AgentOsSessionModule)).not.toContain(StorageModule);
+  });
+
+  it('does not invent operation authority or expose local CLI start/cleanup providers from session and API roots', () => {
+    const api = readFileSync(resolve(__dirname, '..', 'agent-os-api-execution.module.ts'), 'utf8');
+    const session = readFileSync(resolve(__dirname, '..', 'agent-os-session.module.ts'), 'utf8');
+    const roots = `${api}\n${session}`;
+
+    expect(api).not.toContain('validated-by-deletion-snapshot');
+    expect(api).not.toContain('validateOwnedClosure');
+    expect(api).not.toContain('useFactory');
+    expect(roots).not.toContain('CodexCliRuntimeAdapter');
+    expect(roots).not.toContain('ClaudeCliRuntimeAdapter');
+    expect(roots).not.toMatch(/(?:Codex|Claude).*Runtime.*(?:Provider|Adapter)/);
+    expect(roots).not.toMatch(/(?:Codex|Claude).*Cleanup/);
   });
 
   it('quarantines generic AgentRun providers in the legacy module', () => {

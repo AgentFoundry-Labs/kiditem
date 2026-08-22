@@ -18,19 +18,34 @@ export interface RuntimeCredentialBrokerOptions {
   now?: () => Date;
 }
 
+export interface LazyRuntimeCredentialBrokerOptions {
+  secretResolver: () => string | undefined;
+  ttlMs?: number;
+  now?: () => Date;
+}
+
 export interface RuntimeCredentialBrokerEnvironment {
   AGENT_RUNTIME_CREDENTIAL_HMAC_KEY?: string;
   AGENT_RUNTIME_CREDENTIAL_TTL_MS?: string;
 }
 
 export class RuntimeCredentialBroker {
-  private readonly secret: string;
+  private readonly resolveSecret: () => string;
   private readonly ttlMs: number;
   private readonly now: () => Date;
 
-  constructor(options: RuntimeCredentialBrokerOptions) {
-    if (options.secret.length < 32) throw new Error('RUNTIME_CREDENTIAL_SECRET_TOO_SHORT');
-    this.secret = options.secret;
+  constructor(options: RuntimeCredentialBrokerOptions | LazyRuntimeCredentialBrokerOptions) {
+    if ('secret' in options) {
+      if (options.secret.length < 32) throw new Error('RUNTIME_CREDENTIAL_SECRET_TOO_SHORT');
+      this.resolveSecret = () => options.secret;
+    } else {
+      this.resolveSecret = () => {
+        const secret = options.secretResolver()?.trim();
+        if (!secret) throw new Error('AGENT_RUNTIME_CREDENTIAL_HMAC_KEY_REQUIRED');
+        if (secret.length < 32) throw new Error('RUNTIME_CREDENTIAL_SECRET_TOO_SHORT');
+        return secret;
+      };
+    }
     this.ttlMs = options.ttlMs ?? 5 * 60_000;
     this.now = options.now ?? (() => new Date());
     if (!Number.isSafeInteger(this.ttlMs) || this.ttlMs < 1_000 || this.ttlMs > 15 * 60_000) {
@@ -86,7 +101,7 @@ export class RuntimeCredentialBroker {
   }
 
   private sign(value: string): string {
-    return createHmac('sha256', this.secret).update(value).digest('base64url');
+    return createHmac('sha256', this.resolveSecret()).update(value).digest('base64url');
   }
 }
 

@@ -1,29 +1,33 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable } from '@nestjs/common';
 import {
   AGENT_SESSION_DELETION_EXECUTION_PORT,
   type AgentSessionDeletionExecutionPort,
-} from "../../port/in/session-execution/agent-session-deletion-execution.port";
+  type AgentSessionDeletionExecutionResult,
+} from '../../port/in/session-execution/agent-session-deletion-execution.port';
 import {
   AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
+  AGENT_SESSION_DELETION_FAILURE_CODES,
   type AgentSessionDeletionExecutionTransactionPort,
-} from "../../port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
+  type AgentSessionDeletionFailureCode,
+  type ScopedDeletionAttempt,
+} from '../../port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port';
 import {
   AGENT_SESSION_OWNED_OPERATION_CONTROL_PORT,
   type AgentSessionOwnedOperationControlPort,
-} from "../../port/out/operation/agent-session-owned-operation-control.port";
+} from '../../port/out/operation/agent-session-owned-operation-control.port';
 import {
   AGENT_SESSION_RUNTIME_CLEANUP_PORT,
   type AgentSessionRuntimeCleanupPort,
-} from "../../port/out/runtime/agent-session-runtime-cleanup.port";
+} from '../../port/out/runtime/agent-session-runtime-cleanup.port';
 import {
   AGENT_SESSION_ARTIFACT_WRITER_PORT,
   type AgentSessionArtifactWriterPort,
-} from "../../port/in/session-execution/agent-session-artifact-writer.port";
+} from '../../port/in/session-execution/agent-session-artifact-writer.port';
 import {
   AGENT_SESSION_ARTIFACT_STORAGE_PORT,
   type AgentSessionArtifactStoragePort,
-} from "../../port/out/storage/agent-session-artifact-storage.port";
-import { deriveAgentSessionArtifactKey } from "../../../domain/session/agent-session-artifact-key";
+} from '../../port/out/storage/agent-session-artifact-storage.port';
+import { deriveAgentSessionArtifactKey } from '../../../domain/session/agent-session-artifact-key';
 
 @Injectable()
 export class AgentSessionDeletionExecutionService implements AgentSessionDeletionExecutionPort {
@@ -40,78 +44,142 @@ export class AgentSessionDeletionExecutionService implements AgentSessionDeletio
     private readonly storage: AgentSessionArtifactStoragePort,
   ) {}
 
-  async execute(input: {
-    signal: AbortSignal; organizationId: string; sessionId: string;
-    operationRunId: string; attemptToken: string;
-  }) {
+  async execute(input: ScopedDeletionAttempt): Promise<AgentSessionDeletionExecutionResult> {
     input.signal.throwIfAborted();
-    let snapshot: Awaited<ReturnType<AgentSessionDeletionExecutionTransactionPort["loadFencedSnapshot"]>>;
-    try {
-      snapshot = await this.transaction.loadFencedSnapshot(input);
-    } catch (error) {
-      if (input.signal.aborted) throw error;
-      return { kind: "retryable" as const, code: "SESSION_DELETION_INVARIANT", consumedAttempts: 1 };
-    }
-    if ("kind" in snapshot) return snapshot;
-    const fence = await this.operations.fenceAndCancel({
-      signal: input.signal, organizationId: input.organizationId,
-      sessionId: input.sessionId, operationRunIds: snapshot.operationRunIds,
-    });
-    if (fence.state !== "fenced") {
-      return { kind: "retryable" as const, code: "SESSION_OPERATION_OWNERSHIP_INVALID", consumedAttempts: snapshot.consumedAttempts };
-    }
-    await this.artifacts.beginFence({
-      organizationId: input.organizationId, sessionId: input.sessionId,
-      operationRunIds: snapshot.operationRunIds,
-    });
+    const loaded = await this.settle(input.signal, 0, () =>
+      this.transaction.loadFencedSnapshot(input),
+    );
+    if (loaded.kind === 'retryable') return loaded;
+    if (loaded.value.kind === 'retryable') return loaded.value;
+    const snapshot = loaded.value.snapshot;
+
+    const fenced = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+      this.operations.fenceAndCancel({
+        signal: input.signal,
+        organizationId: input.organizationId,
+        runs: snapshot.operationRuns,
+      }),
+    );
+    if (fenced.kind === 'retryable') return fenced;
+    if (fenced.value.state !== 'fenced') return retry(
+      'SESSION_OPERATION_OWNERSHIP_INVALID',
+      snapshot.consumedAttempts,
+    );
+
+    const beganFence = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+      this.artifacts.beginFence({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        operationRunIds: snapshot.operationRunIds,
+      }),
+    );
+    if (beganFence.kind === 'retryable') return beganFence;
+
     for (const attempt of snapshot.runtimeAttempts) {
-      if (attempt.state === "never_started") continue;
-      if (!attempt.startIntentId) {
-        return { kind: "retryable" as const, code: "SESSION_DELETION_INVARIANT", consumedAttempts: snapshot.consumedAttempts };
-      }
-      const result = await this.runtimes.cleanup({
-        signal: input.signal, organizationId: input.organizationId,
-        sessionId: input.sessionId, runtimeType: attempt.runtimeType,
-        executionId: attempt.executionId, attemptId: attempt.attemptId,
-        startIntentId: attempt.startIntentId, handle: attempt.handle ?? null,
-      });
-      if (result.state === "unknown") {
-        return { kind: "retryable" as const, code: "RUNTIME_CLEANUP_UNKNOWN", consumedAttempts: snapshot.consumedAttempts };
-      }
-    }
-    const writer = await this.artifacts.confirmFenced({
-      organizationId: input.organizationId, sessionId: input.sessionId,
-      operationRunIds: snapshot.operationRunIds,
-    });
-    if (writer.state !== "fenced") {
-      return { kind: "retryable" as const, code: "ARTIFACT_WRITER_NOT_FENCED", consumedAttempts: snapshot.consumedAttempts };
-    }
-    for (const artifact of snapshot.artifacts) {
-      await this.transaction.terminalizeOwnedRun({
-        organizationId: input.organizationId, sessionId: input.sessionId,
-        operationRunId: artifact.materializationOperationRunId,
-        deletionOperationRunId: input.operationRunId,
-        attemptToken: input.attemptToken,
-      });
-      const erased = await this.storage.abortEraseAndConfirm({
-        key: deriveAgentSessionArtifactKey({
+      if (attempt.state === 'never_started') continue;
+      const cleaned = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+        this.runtimes.cleanup({
+          signal: input.signal,
           organizationId: input.organizationId,
           sessionId: input.sessionId,
-          artifactId: artifact.artifactId,
+          runtimeType: attempt.runtimeType,
+          executionId: attempt.executionId,
+          attemptId: attempt.attemptId,
+          startIntentId: attempt.startIntentId,
+          handle: attempt.handle,
         }),
-        uploadId: artifact.providerUploadId,
-        signal: input.signal,
-      });
-      if (erased.state !== "erased") {
-        return {
-          kind: "retryable" as const,
-          code: erased.state === "present" ? "STORAGE_DELETE_PRESENT" : "STORAGE_DELETE_UNKNOWN",
-          consumedAttempts: snapshot.consumedAttempts,
-        };
+      );
+      if (cleaned.kind === 'retryable') return cleaned;
+      if (cleaned.value.state === 'unknown') {
+        return retry('RUNTIME_CLEANUP_UNKNOWN', snapshot.consumedAttempts);
       }
     }
-    return { kind: "ready_for_graph_delete" as const, closureDigest: snapshot.closureDigest };
+
+    const confirmed = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+      this.artifacts.confirmFenced({
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        operationRunIds: snapshot.operationRunIds,
+      }),
+    );
+    if (confirmed.kind === 'retryable') return confirmed;
+    if (confirmed.value.state !== 'fenced') {
+      return retry('ARTIFACT_WRITER_NOT_FENCED', snapshot.consumedAttempts);
+    }
+
+    for (const artifact of snapshot.artifacts) {
+      const terminalized = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+        this.transaction.terminalizeOwnedRun({
+          ...input,
+          ownedOperationRunId: artifact.materializationOperationRunId,
+        }),
+      );
+      if (terminalized.kind === 'retryable') return terminalized;
+      const erased = await this.settle(input.signal, snapshot.consumedAttempts, () =>
+        this.storage.abortEraseAndConfirm({
+          key: deriveAgentSessionArtifactKey({
+            organizationId: input.organizationId,
+            sessionId: input.sessionId,
+            artifactId: artifact.artifactId,
+          }),
+          uploadId: artifact.providerUploadId,
+          signal: input.signal,
+        }),
+      );
+      if (erased.kind === 'retryable') return erased;
+      if (erased.value.state !== 'erased') {
+        return retry(
+          erased.value.state === 'present' ? 'STORAGE_DELETE_PRESENT' : 'STORAGE_DELETE_UNKNOWN',
+          snapshot.consumedAttempts,
+        );
+      }
+    }
+    return { kind: 'ready_for_graph_delete', closureDigest: snapshot.closureDigest };
   }
+
+  private async settle<T>(
+    signal: AbortSignal,
+    consumedAttempts: number,
+    action: () => Promise<T>,
+  ): Promise<SettledDeletionAction<T>> {
+    try {
+      signal.throwIfAborted();
+      return { kind: 'value', value: await action() };
+    } catch (error) {
+      if (signal.aborted) throw signal.reason;
+      return retry(classifyDeletionFailure(error), consumedAttempts);
+    }
+  }
+}
+
+type RetryableDeletionResult = Extract<
+  AgentSessionDeletionExecutionResult,
+  { kind: 'retryable' }
+>;
+
+type SettledDeletionAction<T> =
+  | { kind: 'value'; value: T }
+  | RetryableDeletionResult;
+
+export function classifyDeletionFailure(error: unknown): AgentSessionDeletionFailureCode {
+  const candidate = errorCode(error);
+  return AGENT_SESSION_DELETION_FAILURE_CODES.includes(
+    candidate as AgentSessionDeletionFailureCode,
+  ) ? candidate as AgentSessionDeletionFailureCode : 'SESSION_DELETION_INVARIANT';
+}
+
+function retry(
+  code: AgentSessionDeletionFailureCode,
+  consumedAttempts: number,
+): Extract<AgentSessionDeletionExecutionResult, { kind: 'retryable' }> {
+  return { kind: 'retryable', code, consumedAttempts };
+}
+
+function errorCode(error: unknown): string | null {
+  if (error instanceof Error) return error.message;
+  if (typeof error !== 'object' || error === null || !('code' in error)) return null;
+  const code = error.code;
+  return typeof code === 'string' ? code : null;
 }
 
 export { AGENT_SESSION_DELETION_EXECUTION_PORT };
