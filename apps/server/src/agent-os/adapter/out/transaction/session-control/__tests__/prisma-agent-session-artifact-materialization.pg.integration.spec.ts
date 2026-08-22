@@ -151,7 +151,7 @@ describe('AgentSession artifact materialization transaction', () => {
     ['OperationRun', async (graph: Awaited<ReturnType<typeof loadGraph>>) => {
       await prisma!.operationRun.update({
         where: { id: graph.operationRunId },
-        data: { status: 'completed', finishedAt: new Date() },
+        data: { status: 'succeeded', finishedAt: new Date() },
       });
     }],
     ['execution attempt', async (graph: Awaited<ReturnType<typeof loadGraph>>) => {

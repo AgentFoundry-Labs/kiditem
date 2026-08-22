@@ -425,6 +425,22 @@ function ownershipViolations(relativePath, source) {
   return violations;
 }
 
+function incomingOperationAdapterViolations(relativePath, source) {
+  if (!relativePath.startsWith('apps/server/src/agent-os/adapter/in/operation/')) return [];
+  const sourceFile = sourceFileFor(relativePath, source);
+  if (!sourceFile) return [];
+  for (const statement of sourceFile.statements) {
+    if (!ts.isImportDeclaration(statement)) continue;
+    const moduleSpecifier = staticLiteralText(statement.moduleSpecifier);
+    if (moduleSpecifier?.includes('/application/port/out/')) {
+      return [
+        `${relativePath}:${lineNumberOfNode(sourceFile, statement)}: incoming operation adapter must not import application/port/out`,
+      ];
+    }
+  }
+  return [];
+}
+
 function ephemeralSuccessViolations(relativePath, source) {
   const violations = [];
   const sourceFile = sourceFileFor(relativePath, source);
@@ -479,6 +495,7 @@ export function checkAgentSessionDeletion(rootDir) {
     violations.push(...retiredInteractionSourceViolations(relativePath, source));
     violations.push(...schedulerViolations(relativePath, source));
     violations.push(...ownershipViolations(relativePath, source));
+    violations.push(...incomingOperationAdapterViolations(relativePath, source));
     violations.push(...ephemeralSuccessViolations(relativePath, source));
     violations.push(...runtimeCredentialBrokerVerificationViolations(relativePath, source));
   }

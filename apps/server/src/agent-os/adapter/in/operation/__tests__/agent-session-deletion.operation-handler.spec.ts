@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentSessionDeletionOperationHandler } from '../agent-session-deletion.operation-handler';
 
 describe('AgentSessionDeletionOperationHandler', () => {
-  it('converts an unexpected execution exception to the safe retryable exhaustion path', async () => {
-    const markDeleteFailed = vi.fn().mockResolvedValue(undefined);
+  it('delegates execution and terminal hooks to the deletion operation use case', async () => {
+    const deletion = {
+      execute: vi.fn().mockResolvedValue({ kind: 'retryable', code: 'SESSION_DELETION_INVARIANT', message: 'safe', retryAfterMs: 0 }),
+      exhaustRetry: vi.fn().mockResolvedValue(undefined),
+      finalizeEphemeralSuccess: vi.fn().mockResolvedValue(undefined),
+    };
     const handler = new AgentSessionDeletionOperationHandler(
-      { execute: vi.fn().mockRejectedValue(new Error('provider_snapshot_error')) } as never,
-      { markDeleteFailed } as never,
-      { purgeGraphDeletedLineage: vi.fn() } as never,
+      deletion as never,
     );
     const context = {
       signal: new AbortController().signal,
@@ -28,18 +30,29 @@ describe('AgentSessionDeletionOperationHandler', () => {
       code: 'SESSION_DELETION_INVARIANT',
       retryAfterMs: 0,
     });
-    await handler.exhaustRetry(context as never, { code: 'SESSION_DELETION_INVARIANT' });
-    expect(markDeleteFailed).toHaveBeenCalledOnce();
+    await handler.exhaustRetry(context as never, {
+      code: 'SESSION_DELETION_INVARIANT',
+      message: 'safe',
+    });
+    await handler.finalizeEphemeralSuccess(context as never, { retained: false });
+    expect(deletion.execute).toHaveBeenCalledWith(context);
+    expect(deletion.exhaustRetry).toHaveBeenCalledWith(context, {
+      code: 'SESSION_DELETION_INVARIANT',
+      message: 'safe',
+    });
+    expect(deletion.finalizeEphemeralSuccess).toHaveBeenCalledWith(context, { retained: false });
   });
 
-  it('propagates the exact lifecycle abort reason instead of reclassifying it', async () => {
+  it('does not classify lifecycle aborts itself', async () => {
     const controller = new AbortController();
     const lifecycleReason = new Error('operation_server_shutdown');
     controller.abort(lifecycleReason);
     const handler = new AgentSessionDeletionOperationHandler(
-      { execute: vi.fn().mockRejectedValue(new Error('provider_error_after_abort')) } as never,
-      { markDeleteFailed: vi.fn() } as never,
-      { purgeGraphDeletedLineage: vi.fn() } as never,
+      {
+        execute: vi.fn().mockRejectedValue(lifecycleReason),
+        exhaustRetry: vi.fn(),
+        finalizeEphemeralSuccess: vi.fn(),
+      } as never,
     );
 
     await expect(handler.execute({

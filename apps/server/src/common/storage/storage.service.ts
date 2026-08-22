@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   Injectable,
   Logger,
@@ -19,7 +20,6 @@ import {
   GetObjectCommand,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { createHash } from 'node:crypto';
 // Nest dev/runtime compiles this service as CommonJS; sharp exports the callable
 // module itself, not a callable `.default` value in that execution path.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -27,10 +27,14 @@ const sharp: typeof import('sharp')['default'] = require('sharp');
 
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
-type OwnedMultipartGate = {
-  fenced: boolean;
-  pending: Set<Promise<'completion' | 'settled'>>;
-};
+export type AgentSessionMultipartCleanupCapability =
+  'unsupported';
+
+export interface StorageServiceOptions {
+  client?: S3Client;
+  bucket?: string;
+  publicUrl?: string;
+}
 
 /**
  * S3-호환 객체 스토리지 (로컬: MinIO, 운영: S3/R2)
@@ -51,25 +55,22 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicUrl: string;
-  private readonly ownedMultipartGates = new Map<string, OwnedMultipartGate>();
-
-  constructor() {
+  constructor(options: StorageServiceOptions = {}) {
     const isDev = process.env.NODE_ENV !== 'production';
     const endpoint = process.env.S3_ENDPOINT || (isDev ? 'http://localhost:9000' : '');
     const accessKeyId = process.env.S3_ACCESS_KEY || (isDev ? 'minioadmin' : '');
     const secretAccessKey = process.env.S3_SECRET_KEY || (isDev ? 'minioadmin' : '');
-    this.bucket = process.env.S3_BUCKET || (isDev ? 'kiditem' : '');
+    this.bucket = options.bucket || process.env.S3_BUCKET || (isDev ? 'kiditem' : '');
 
-    if (!endpoint || !accessKeyId || !secretAccessKey || !this.bucket) {
+    if ((!options.client && (!endpoint || !accessKeyId || !secretAccessKey)) || !this.bucket) {
       throw new Error(
         'StorageService: S3_ENDPOINT / S3_ACCESS_KEY / S3_SECRET_KEY / S3_BUCKET env가 필요합니다 (production은 필수, dev는 기본값 있음)',
       );
     }
 
-    this.publicUrl =
-      process.env.S3_PUBLIC_URL || `${endpoint.replace(/\/$/, '')}/${this.bucket}`;
+    this.publicUrl = options.publicUrl || process.env.S3_PUBLIC_URL || `${endpoint.replace(/\/$/, '')}/${this.bucket}`;
 
-    this.client = new S3Client({
+    this.client = options.client ?? new S3Client({
       endpoint,
       region: process.env.S3_REGION || 'us-east-1',
       credentials: { accessKeyId, secretAccessKey },
@@ -138,18 +139,16 @@ export class StorageService implements OnModuleInit {
     mimeType: string;
     signal: AbortSignal;
   }): Promise<{ uploadId: string }> {
-    return this.runOwnedMultipartInvocation(input.key, 'other', async () => {
-      const result = await this.client.send(
-        new CreateMultipartUploadCommand({
-          Bucket: this.bucket,
-          Key: input.key,
-          ContentType: input.mimeType,
-        }),
-        { abortSignal: input.signal },
-      );
-      if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
-      return { uploadId: result.UploadId };
-    });
+    const result = await this.client.send(
+      new CreateMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        ContentType: input.mimeType,
+      }),
+      { abortSignal: input.signal },
+    );
+    if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
+    return { uploadId: result.UploadId };
   }
 
   /** Internal AgentSession writer primitive. One bounded part is completed atomically. */
@@ -159,45 +158,35 @@ export class StorageService implements OnModuleInit {
     bytes: Uint8Array;
     signal: AbortSignal;
   }): Promise<void> {
-    await this.runOwnedMultipartInvocation(input.key, 'completion', async () => {
-      const part = await this.client.send(
-        new UploadPartCommand({
-          Bucket: this.bucket,
-          Key: input.key,
-          UploadId: input.uploadId,
-          PartNumber: 1,
-          Body: input.bytes,
-        }),
-        { abortSignal: input.signal },
-      );
-      if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
-      await this.client.send(
-        new CompleteMultipartUploadCommand({
-          Bucket: this.bucket,
-          Key: input.key,
-          UploadId: input.uploadId,
-          MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
-        }),
-        { abortSignal: input.signal },
-      );
-    });
+    const part = await this.client.send(
+      new UploadPartCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        PartNumber: 1,
+        Body: input.bytes,
+      }),
+      { abortSignal: input.signal },
+    );
+    if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
+    await this.client.send(
+      new CompleteMultipartUploadCommand({
+        Bucket: this.bucket,
+        Key: input.key,
+        UploadId: input.uploadId,
+        MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
+        IfNoneMatch: '*',
+      }),
+      { abortSignal: input.signal },
+    );
   }
 
   /**
-   * Fences this provider instance's exact-key multipart calls before cleanup.
-   * A successful completion which was already in flight when the fence landed
-   * is deliberately ambiguous: callers must retry rather than claim erasure.
+   * Generic S3-compatible storage cannot prove exact-key multipart ordering
+   * across process recreation, so deletion must treat cleanup as unknown.
    */
-  async fenceOwnedMultipartOperations(input: {
-    key: string;
-    signal: AbortSignal;
-  }): Promise<'quiescent' | 'completion_raced'> {
-    input.signal.throwIfAborted();
-    const gate = this.ownedMultipartGateFor(input.key);
-    gate.fenced = true;
-    const outcomes = await Promise.all([...gate.pending]);
-    input.signal.throwIfAborted();
-    return outcomes.includes('completion') ? 'completion_raced' : 'quiescent';
+  agentSessionMultipartCleanupCapability(): AgentSessionMultipartCleanupCapability {
+    return 'unsupported';
   }
 
   async verifyOwnedObjectSha256(input: {
@@ -312,40 +301,6 @@ export class StorageService implements OnModuleInit {
       if (isMissingObject(error)) return 'erased';
       throw error;
     }
-  }
-
-  private async runOwnedMultipartInvocation<T>(
-    key: string,
-    kind: 'completion' | 'other',
-    invoke: () => Promise<T>,
-  ): Promise<T> {
-    const gate = this.ownedMultipartGateFor(key);
-    if (gate.fenced) throw new Error('STORAGE_ARTIFACT_KEY_FENCED');
-    let settle!: (outcome: 'completion' | 'settled') => void;
-    const pending = new Promise<'completion' | 'settled'>((resolve) => {
-      settle = resolve;
-    });
-    gate.pending.add(pending);
-    let outcome: 'completion' | 'settled' = 'settled';
-    try {
-      // Register synchronously before the first provider await so a fence can
-      // never overlook a request that was admitted first.
-      if (gate.fenced) throw new Error('STORAGE_ARTIFACT_KEY_FENCED');
-      const result = await invoke();
-      if (kind === 'completion') outcome = 'completion';
-      return result;
-    } finally {
-      gate.pending.delete(pending);
-      settle(outcome);
-    }
-  }
-
-  private ownedMultipartGateFor(key: string): OwnedMultipartGate {
-    const existing = this.ownedMultipartGates.get(key);
-    if (existing) return existing;
-    const gate: OwnedMultipartGate = { fenced: false, pending: new Set() };
-    this.ownedMultipartGates.set(key, gate);
-    return gate;
   }
 
   /** 브라우저가 서버를 경유하지 않고 고정 key에 JPEG를 업로드할 수 있는 서명 URL 발급 */

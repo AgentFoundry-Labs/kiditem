@@ -1,4 +1,5 @@
 import type { RuntimeHandle } from '../../runtime/agent-durable-runtime.port';
+import type { OperationStatus } from '@kiditem/shared/operations';
 
 export const AGENT_SESSION_DELETION_EXECUTION_TRANSACTION = Symbol(
   'AGENT_SESSION_DELETION_EXECUTION_TRANSACTION',
@@ -44,7 +45,7 @@ export type RuntimeCleanupCoordinate =
 export interface OwnedOperationCleanupCoordinate {
   runId: string;
   operationKey: string;
-  status: string;
+  status: OperationStatus;
   expectedAttemptToken: string | null;
   nativeRunType: string | null;
   nativeRunId: string | null;

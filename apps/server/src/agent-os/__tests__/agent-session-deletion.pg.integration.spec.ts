@@ -1,5 +1,4 @@
 import { createHash, randomUUID } from 'node:crypto';
-import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
@@ -11,6 +10,7 @@ import {
 import { PrismaAgentSessionDeletionExecutionTransaction } from '../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction';
 import { PrismaAgentSessionDeletionFinalizationTransaction } from '../adapter/out/transaction/session-deletion/prisma-agent-session-deletion-finalization.transaction';
 import { AgentSessionDeletionExecutionService } from '../application/service/session-execution/agent-session-deletion-execution.service';
+import type { PrismaClient } from '@prisma/client';
 
 const VERSION_ID = '00000000-0000-4000-8000-000000000101';
 const AUTHORITY_VERSION_ID = '00000000-0000-4000-8000-000000000102';
@@ -98,6 +98,93 @@ describe('AgentSession deletion graph finalization (PostgreSQL)', () => {
       prisma!.agentSessionDeletionOperationBinding.count({ where: { sessionId: fixture.sessionId } }),
       prisma!.operationRun.findUnique({ where: { id: fixture.deletionRunId } }),
     ])).resolves.toEqual([null, 0, null]);
+  });
+
+  it('preserves succeeded owned and artifact runs through terminalization, graph checkpoint, and purge', async () => {
+    const fixture = await createFencedDeletionFixture();
+    const execution = new PrismaAgentSessionDeletionExecutionTransaction(prisma as never);
+    await prisma!.operationRun.updateMany({
+      where: { id: { in: [fixture.ownedRunId, fixture.artifactRunId] } },
+      data: { status: 'succeeded', finishedAt: new Date() },
+    });
+
+    await execution.terminalizeOwnedRun({
+      ...fixture.attempt,
+      ownedOperationRunId: fixture.artifactRunId,
+    });
+    await expect(prisma!.operationRun.findUniqueOrThrow({
+      where: { id: fixture.artifactRunId },
+      select: { status: true },
+    })).resolves.toEqual({ status: 'succeeded' });
+
+    const snapshot = await execution.loadFencedSnapshot(fixture.attempt);
+    if (snapshot.kind !== 'ready') throw new Error('expected fenced deletion snapshot');
+    await execution.deleteGraphAndCheckpoint({
+      ...fixture.attempt,
+      fencedClosureDigest: snapshot.snapshot.closureDigest,
+    });
+    await new PrismaAgentSessionDeletionFinalizationTransaction(prisma as never)
+      .purgeGraphDeletedLineage({
+        signal: fixture.attempt.signal,
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        currentOperationRunId: fixture.deletionRunId,
+        expectedAttemptToken: DELETE_ATTEMPT_TOKEN,
+      });
+    await expect(Promise.all([
+      prisma!.agentSession.findUnique({ where: { id: fixture.sessionId } }),
+      prisma!.operationRun.findMany({
+        where: { id: { in: [fixture.deletionRunId, fixture.ownedRunId, fixture.artifactRunId] } },
+      }),
+    ])).resolves.toEqual([null, []]);
+  });
+
+  it('sums attempts across a predecessor and current deletion run in one retry generation', async () => {
+    const fixture = await createFencedDeletionFixture();
+    const predecessor = await prisma!.operationRun.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: 'agent-os.delete-session',
+        definitionVersion: 1,
+        ownerDomain: 'agent-os',
+        title: 'Delete session predecessor',
+        engineType: 'agent_os',
+        resourceClass: 'default',
+        executionTimeoutMs: 1,
+        status: 'cancelled',
+        triggerSource: 'system',
+        input: {},
+        attempts: 1,
+        maxAttempts: 5,
+      },
+    });
+    await prisma!.$transaction([
+      prisma!.agentSessionDeletionOperationBinding.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: fixture.sessionId,
+          sessionCreatorUserId: TEST_USER_ID,
+          deletionRequestedByUserId: TEST_USER_ID,
+          retryGeneration: 1,
+          operationRunId: predecessor.id,
+        },
+      }),
+      prisma!.agentSessionDeletionOperationBinding.update({
+        where: {
+          operationRunId_organizationId: {
+            operationRunId: fixture.deletionRunId,
+            organizationId: TEST_ORGANIZATION_ID,
+          },
+        },
+        data: { predecessorOperationRunId: predecessor.id },
+      }),
+    ]);
+
+    await expect(new PrismaAgentSessionDeletionExecutionTransaction(prisma as never)
+      .loadFencedSnapshot(fixture.attempt)).resolves.toMatchObject({
+      kind: 'ready',
+      snapshot: { consumedAttempts: 2 },
+    });
   });
 
   it('reconciles a lost graph commit acknowledgement and purges in the same lifecycle', async () => {
@@ -220,7 +307,7 @@ describe('AgentSession deletion graph finalization (PostgreSQL)', () => {
         organizationId: TEST_ORGANIZATION_ID,
         operationKey: 'unrelated', definitionVersion: 1, ownerDomain: 'test', title: 'unrelated',
         engineType: 'agent_os', resourceClass: 'default', executionTimeoutMs: 1,
-        status: 'completed', triggerSource: 'system', input: {},
+        status: 'succeeded', triggerSource: 'system', input: {},
       },
     });
     await prisma!.operationRun.update({
@@ -287,6 +374,7 @@ async function createFencedDeletionFixture(): Promise<{
   sessionId: string;
   deletionRunId: string;
   ownedRunId: string;
+  artifactRunId: string;
   attempt: {
     signal: AbortSignal;
     organizationId: string;
@@ -527,6 +615,7 @@ async function createFencedDeletionFixture(): Promise<{
     sessionId: session.id,
     deletionRunId: deletionRun.id,
     ownedRunId: ownedRun.id,
+    artifactRunId: artifactRun.id,
     attempt: {
       signal: new AbortController().signal,
       organizationId: TEST_ORGANIZATION_ID,

@@ -1,5 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   AGENT_SESSION_ARTIFACT_WRITER_PORT,
   type AgentSessionArtifactMaterializationInput,
@@ -31,6 +31,7 @@ export class AgentSessionArtifactWriterService
   implements AgentSessionArtifactWriterPort
 {
   private readonly activePuts = new Map<string, ActivePut>();
+  private readonly activeAdmissions = new Map<string, Promise<ReturnType<typeof artifactEvent>>>();
 
   constructor(
     @Inject(AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION)
@@ -39,17 +40,37 @@ export class AgentSessionArtifactWriterService
     private readonly storage: AgentSessionArtifactStoragePort,
   ) {}
 
-  async materialize(input: AgentSessionArtifactMaterializationInput) {
-    input.signal.throwIfAborted();
-    if (input.bytes.byteLength > MAX_AGENT_SESSION_ARTIFACT_BYTES) {
-      throw new Error('AGENT_SESSION_ARTIFACT_TOO_LARGE');
+  materialize(input: AgentSessionArtifactMaterializationInput): Promise<ReturnType<typeof artifactEvent>> {
+    try {
+      input.signal.throwIfAborted();
+      if (input.bytes.byteLength > MAX_AGENT_SESSION_ARTIFACT_BYTES) {
+        throw new Error('AGENT_SESSION_ARTIFACT_TOO_LARGE');
+      }
+      if (createHash('sha256').update(input.bytes).digest('hex') !== input.sha256) {
+        throw new Error('AGENT_SESSION_ARTIFACT_SHA256_MISMATCH');
+      }
+    } catch (error) {
+      return Promise.reject(error);
     }
-    if (createHash('sha256').update(input.bytes).digest('hex') !== input.sha256) {
-      throw new Error('AGENT_SESSION_ARTIFACT_SHA256_MISMATCH');
+    const admissionKey = materializationRequestKey(input);
+    const existingAdmission = this.activeAdmissions.get(admissionKey);
+    if (existingAdmission) return existingAdmission;
+    if (this.activeAdmissions.size >= MAX_ACTIVE_AGENT_SESSION_ARTIFACT_PUTS) {
+      return Promise.reject(new Error('AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED'));
     }
-    if (this.activePuts.size >= MAX_ACTIVE_AGENT_SESSION_ARTIFACT_PUTS) {
-      throw new Error('AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED');
-    }
+    const admission = Promise.resolve().then(() => this.materializeAdmitted(input));
+    const trackedAdmission = admission.finally(() => {
+      if (this.activeAdmissions.get(admissionKey) === trackedAdmission) {
+        this.activeAdmissions.delete(admissionKey);
+      }
+    });
+    this.activeAdmissions.set(admissionKey, trackedAdmission);
+    return trackedAdmission;
+  }
+
+  private async materializeAdmitted(
+    input: AgentSessionArtifactMaterializationInput,
+  ): Promise<ReturnType<typeof artifactEvent>> {
     const prepared = await this.transactions.prepare(input);
     input.signal.throwIfAborted();
     const key = deriveAgentSessionArtifactKey({
@@ -194,6 +215,18 @@ function putKey(
   artifactId: string,
 ): string {
   return `${input.organizationId}/${input.sessionId}/${input.operationRunId}/${artifactId}`;
+}
+
+function materializationRequestKey(input: AgentSessionArtifactMaterializationInput): string {
+  return [
+    input.organizationId,
+    input.sessionId,
+    input.taskId,
+    input.executionId,
+    input.operationRunId,
+    input.attemptToken,
+    input.externalArtifactId,
+  ].join('/');
 }
 
 function artifactEvent(

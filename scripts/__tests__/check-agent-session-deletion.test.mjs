@@ -100,6 +100,21 @@ test('rejects raw artifact references and a second deletion worker', () => {
   );
 });
 
+test('rejects outgoing application-port imports from official incoming operation adapters', () => {
+  withFixture(
+    withRequiredLifecycleLocks({
+      'apps/server/src/agent-os/adapter/in/operation/unsafe.operation-adapter.ts': [
+        "import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from '../../../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port';",
+        'AGENT_SESSION_DELETION_EXECUTION_TRANSACTION;',
+      ].join('\n'),
+    }),
+    (result) => {
+      assert.equal(result.status, 1);
+      assert.match(result.stderr, /incoming operation adapter must not import application\/port\/out/);
+    },
+  );
+});
+
 test('rejects arrow and decorated retention schedulers without relying on callback names', () => {
   withFixture(
     withRequiredLifecycleLocks({

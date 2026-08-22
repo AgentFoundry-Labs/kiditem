@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { OperationStatusSchema, type OperationStatus } from '@kiditem/shared/operations';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   AgentSessionDeletionExecutionSnapshot,
@@ -13,7 +14,11 @@ import type {
 } from '../../../../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port';
 
 const MAX_OPERATION_CLOSURE_SIZE = 1_024;
-const TERMINAL_OPERATION_STATUSES = new Set(['completed', 'failed', 'cancelled']);
+const TERMINAL_OPERATION_STATUSES = new Set<OperationStatus>([
+  'succeeded',
+  'failed',
+  'cancelled',
+]);
 
 /**
  * Owns the short, fenced database portion of session deletion. It deliberately
@@ -41,10 +46,11 @@ export class PrismaAgentSessionDeletionExecutionTransaction
         where: { id_organizationId: { id: input.operationRunId, organizationId: input.organizationId } },
         select: { attempts: true },
       });
+      let consumedAttempts = persistedDeletionRun?.attempts ?? 0;
       const fail = (code: 'SESSION_DELETION_INVARIANT' | 'SESSION_OPERATION_OWNERSHIP_INVALID') => ({
         kind: 'retryable' as const,
         code,
-        consumedAttempts: persistedDeletionRun?.attempts ?? 0,
+        consumedAttempts,
       });
 
       const session = await lockedDeletionSession(tx, input);
@@ -72,6 +78,18 @@ export class PrismaAgentSessionDeletionExecutionTransaction
         deletion.sessionId !== input.sessionId ||
         deletion.operationRun.attemptToken !== input.attemptToken
       ) return fail('SESSION_OPERATION_OWNERSHIP_INVALID');
+      const retryGenerationBindings = await tx.agentSessionDeletionOperationBinding.findMany({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          retryGeneration: deletion.retryGeneration,
+        },
+        select: { operationRun: { select: { attempts: true } } },
+      });
+      consumedAttempts = retryGenerationBindings.reduce(
+        (total, binding) => total + binding.operationRun.attempts,
+        0,
+      );
 
       const sessionOwnership = await tx.agentSessionOperationRunOwnership.findMany({
         where: { organizationId: input.organizationId, sessionId: input.sessionId },
@@ -250,14 +268,14 @@ export class PrismaAgentSessionDeletionExecutionTransaction
       const operationCoordinates: OwnedOperationCleanupCoordinate[] = operationRuns.map((run) => ({
         runId: run.id,
         operationKey: run.operationKey,
-        status: run.status,
+        status: operationStatus(run.status),
         expectedAttemptToken: run.attemptToken,
         nativeRunType: run.nativeRunType,
         nativeRunId: run.nativeRunId,
       }));
       const snapshot: AgentSessionDeletionExecutionSnapshot = {
         retryGeneration: deletion.retryGeneration,
-        consumedAttempts: deletion.operationRun.attempts,
+        consumedAttempts,
         runtimeAttempts,
         operationRuns: operationCoordinates,
         operationRunIds: operationCoordinates.map((run) => run.runId),
@@ -344,7 +362,7 @@ export class PrismaAgentSessionDeletionExecutionTransaction
       if (!ownership || ownership.sessionId !== input.sessionId || !artifact || !operationRun) {
         throw ownershipInvalid();
       }
-      if (TERMINAL_OPERATION_STATUSES.has(operationRun.status)) return;
+      if (TERMINAL_OPERATION_STATUSES.has(operationStatus(operationRun.status))) return;
       await tx.operationRun.update({
         where: { id: operationRun.id },
         data: {
@@ -592,6 +610,10 @@ function closureDigest(value: {
   artifacts: Array<{ artifactId: string; materializationOperationRunId: string }>;
 }): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
+}
+
+function operationStatus(status: string): OperationStatus {
+  return OperationStatusSchema.parse(status);
 }
 
 function ownershipInvalid(): Error {

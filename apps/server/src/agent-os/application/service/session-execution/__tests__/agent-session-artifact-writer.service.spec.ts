@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
 import { createHash } from 'node:crypto';
+import { describe, expect, it, vi } from 'vitest';
 import { MAX_AGENT_SESSION_ARTIFACT_BYTES } from '../../../port/out/runtime/agent-durable-runtime.port';
 import { AgentSessionArtifactWriterService } from '../agent-session-artifact-writer.service';
 
@@ -190,5 +190,36 @@ describe('AgentSessionArtifactWriterService', () => {
       externalArtifactId: 'runtime-artifact-over-capacity',
     })).rejects.toThrow('AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED');
     expect(transactions.prepare).toHaveBeenCalledTimes(128);
+  });
+
+  it('reserves writer capacity synchronously before deferred prepares can begin', async () => {
+    const { writer, transactions } = harness();
+    let releasePrepares!: () => void;
+    const prepares = new Promise<void>((resolve) => {
+      releasePrepares = resolve;
+    });
+    transactions.prepare.mockImplementation(async (_input: unknown) => {
+      await prepares;
+      return { artifactId: crypto.randomUUID(), lifecycle: 'materializing' as const };
+    });
+
+    const materializations = Array.from({ length: 129 }, (_, index) =>
+      writer.materialize({
+        ...materializeInput(),
+        externalArtifactId: `deferred-admission-${index}`,
+      }),
+    );
+    let lastAdmissionError: unknown = 'pending';
+    void materializations[128]!.catch((error) => {
+      lastAdmissionError = error;
+    });
+    await Promise.resolve();
+
+    expect(transactions.prepare).toHaveBeenCalledTimes(128);
+    expect(lastAdmissionError).toMatchObject({
+      message: 'AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED',
+    });
+
+    releasePrepares();
   });
 });
