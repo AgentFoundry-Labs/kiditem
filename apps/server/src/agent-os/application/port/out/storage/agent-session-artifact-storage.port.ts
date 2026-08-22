@@ -14,6 +14,13 @@ export interface AgentSessionArtifactStoragePort {
     bytes: Uint8Array;
     signal: AbortSignal;
   }): Promise<void>;
+  verifyCompleted(input: {
+    key: string;
+    expectedSha256: string;
+    expectedByteLength: number;
+    maxByteLength: number;
+    signal: AbortSignal;
+  }): Promise<void>;
   abortEraseAndConfirm(input: {
     key: string;
     uploadId: string | null;

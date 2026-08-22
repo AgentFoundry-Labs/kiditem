@@ -27,6 +27,11 @@ const sharp: typeof import('sharp')['default'] = require('sharp');
 
 const IMMUTABLE_ASSET_CACHE_CONTROL = 'public, max-age=31536000, immutable';
 
+type OwnedMultipartGate = {
+  fenced: boolean;
+  pending: Set<Promise<'completion' | 'settled'>>;
+};
+
 /**
  * S3-호환 객체 스토리지 (로컬: MinIO, 운영: S3/R2)
  *
@@ -46,6 +51,7 @@ export class StorageService implements OnModuleInit {
   private readonly client: S3Client;
   private readonly bucket: string;
   private readonly publicUrl: string;
+  private readonly ownedMultipartGates = new Map<string, OwnedMultipartGate>();
 
   constructor() {
     const isDev = process.env.NODE_ENV !== 'production';
@@ -132,16 +138,18 @@ export class StorageService implements OnModuleInit {
     mimeType: string;
     signal: AbortSignal;
   }): Promise<{ uploadId: string }> {
-    const result = await this.client.send(
-      new CreateMultipartUploadCommand({
-        Bucket: this.bucket,
-        Key: input.key,
-        ContentType: input.mimeType,
-      }),
-      { abortSignal: input.signal },
-    );
-    if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
-    return { uploadId: result.UploadId };
+    return this.runOwnedMultipartInvocation(input.key, 'other', async () => {
+      const result = await this.client.send(
+        new CreateMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: input.key,
+          ContentType: input.mimeType,
+        }),
+        { abortSignal: input.signal },
+      );
+      if (!result.UploadId) throw new Error('STORAGE_MULTIPART_UPLOAD_ID_MISSING');
+      return { uploadId: result.UploadId };
+    });
   }
 
   /** Internal AgentSession writer primitive. One bounded part is completed atomically. */
@@ -151,26 +159,91 @@ export class StorageService implements OnModuleInit {
     bytes: Uint8Array;
     signal: AbortSignal;
   }): Promise<void> {
-    const part = await this.client.send(
-      new UploadPartCommand({
+    await this.runOwnedMultipartInvocation(input.key, 'completion', async () => {
+      const part = await this.client.send(
+        new UploadPartCommand({
+          Bucket: this.bucket,
+          Key: input.key,
+          UploadId: input.uploadId,
+          PartNumber: 1,
+          Body: input.bytes,
+        }),
+        { abortSignal: input.signal },
+      );
+      if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
+      await this.client.send(
+        new CompleteMultipartUploadCommand({
+          Bucket: this.bucket,
+          Key: input.key,
+          UploadId: input.uploadId,
+          MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
+        }),
+        { abortSignal: input.signal },
+      );
+    });
+  }
+
+  /**
+   * Fences this provider instance's exact-key multipart calls before cleanup.
+   * A successful completion which was already in flight when the fence landed
+   * is deliberately ambiguous: callers must retry rather than claim erasure.
+   */
+  async fenceOwnedMultipartOperations(input: {
+    key: string;
+    signal: AbortSignal;
+  }): Promise<'quiescent' | 'completion_raced'> {
+    input.signal.throwIfAborted();
+    const gate = this.ownedMultipartGateFor(input.key);
+    gate.fenced = true;
+    const outcomes = await Promise.all([...gate.pending]);
+    input.signal.throwIfAborted();
+    return outcomes.includes('completion') ? 'completion_raced' : 'quiescent';
+  }
+
+  async verifyOwnedObjectSha256(input: {
+    key: string;
+    expectedSha256: string;
+    expectedByteLength: number;
+    maxByteLength: number;
+    signal: AbortSignal;
+  }): Promise<void> {
+    if (
+      input.expectedByteLength < 0
+      || input.expectedByteLength > input.maxByteLength
+    ) throw new Error('STORAGE_OBJECT_VERIFICATION_BOUND_INVALID');
+    const head = await this.client.send(
+      new HeadObjectCommand({ Bucket: this.bucket, Key: input.key }),
+      { abortSignal: input.signal },
+    );
+    if (head.ContentLength !== input.expectedByteLength) {
+      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+    }
+    const object = await this.client.send(
+      new GetObjectCommand({
         Bucket: this.bucket,
         Key: input.key,
-        UploadId: input.uploadId,
-        PartNumber: 1,
-        Body: input.bytes,
+        // Request one byte beyond the accepted maximum. This bounds the SDK
+        // body even if the object is replaced between HEAD and GET, while
+        // still making an overflow observable before hashing.
+        Range: `bytes=0-${input.maxByteLength}`,
       }),
       { abortSignal: input.signal },
     );
-    if (!part.ETag) throw new Error('STORAGE_MULTIPART_PART_ETAG_MISSING');
-    await this.client.send(
-      new CompleteMultipartUploadCommand({
-        Bucket: this.bucket,
-        Key: input.key,
-        UploadId: input.uploadId,
-        MultipartUpload: { Parts: [{ ETag: part.ETag, PartNumber: 1 }] },
-      }),
-      { abortSignal: input.signal },
-    );
+    if (!object.Body) throw new Error('STORAGE_OBJECT_BODY_MISSING');
+    if (
+      object.ContentLength !== undefined
+      && object.ContentLength !== input.expectedByteLength
+    ) {
+      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+    }
+    const bytes = await object.Body.transformToByteArray();
+    if (bytes.byteLength !== input.expectedByteLength) {
+      throw new Error('STORAGE_OBJECT_LENGTH_MISMATCH');
+    }
+    const sha256 = createHash('sha256').update(bytes).digest('hex');
+    if (sha256 !== input.expectedSha256) {
+      throw new Error('STORAGE_OBJECT_SHA256_MISMATCH');
+    }
   }
 
   async listExactMultipartUploads(
@@ -239,6 +312,40 @@ export class StorageService implements OnModuleInit {
       if (isMissingObject(error)) return 'erased';
       throw error;
     }
+  }
+
+  private async runOwnedMultipartInvocation<T>(
+    key: string,
+    kind: 'completion' | 'other',
+    invoke: () => Promise<T>,
+  ): Promise<T> {
+    const gate = this.ownedMultipartGateFor(key);
+    if (gate.fenced) throw new Error('STORAGE_ARTIFACT_KEY_FENCED');
+    let settle!: (outcome: 'completion' | 'settled') => void;
+    const pending = new Promise<'completion' | 'settled'>((resolve) => {
+      settle = resolve;
+    });
+    gate.pending.add(pending);
+    let outcome: 'completion' | 'settled' = 'settled';
+    try {
+      // Register synchronously before the first provider await so a fence can
+      // never overlook a request that was admitted first.
+      if (gate.fenced) throw new Error('STORAGE_ARTIFACT_KEY_FENCED');
+      const result = await invoke();
+      if (kind === 'completion') outcome = 'completion';
+      return result;
+    } finally {
+      gate.pending.delete(pending);
+      settle(outcome);
+    }
+  }
+
+  private ownedMultipartGateFor(key: string): OwnedMultipartGate {
+    const existing = this.ownedMultipartGates.get(key);
+    if (existing) return existing;
+    const gate: OwnedMultipartGate = { fenced: false, pending: new Set() };
+    this.ownedMultipartGates.set(key, gate);
+    return gate;
   }
 
   /** 브라우저가 서버를 경유하지 않고 고정 key에 JPEG를 업로드할 수 있는 서명 URL 발급 */

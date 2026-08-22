@@ -141,9 +141,10 @@ async function assertExactMaterializationOwner(
       organizationId: input.organizationId,
       attemptToken: input.attemptToken,
     },
-    select: { id: true },
+    select: { id: true, status: true },
   });
   if (!run) throw state();
+  if (run.status !== 'running') throw state();
   const ownership = await tx.agentSessionOperationRunOwnership.findFirst({
     where: {
       organizationId: input.organizationId,
@@ -161,9 +162,35 @@ async function assertExactMaterializationOwner(
         sessionId: input.sessionId,
         sessionTaskId: input.taskId,
       },
-      select: { id: true },
+      select: { id: true, status: true },
     });
     if (!execution) throw scope();
+    if (execution.status !== 'running') throw state();
+    const binding = await tx.agentExecutionAttemptOperationBinding.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        executionId: input.executionId,
+        operationRunId: input.operationRunId,
+      },
+      include: {
+        attempt: {
+          select: {
+            organizationId: true,
+            sessionId: true,
+            executionId: true,
+            state: true,
+          },
+        },
+      },
+    });
+    if (
+      !binding
+      || binding.attempt.organizationId !== input.organizationId
+      || binding.attempt.sessionId !== input.sessionId
+      || binding.attempt.executionId !== input.executionId
+    ) throw scope();
+    if (binding.attempt.state !== 'running') throw state();
   }
 }
 

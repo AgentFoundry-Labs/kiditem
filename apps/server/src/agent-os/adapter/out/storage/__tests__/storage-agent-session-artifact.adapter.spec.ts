@@ -8,6 +8,7 @@ describe('StorageAgentSessionArtifactAdapter', () => {
     const storage = {
       openMultipart: vi.fn(),
       uploadAndCompleteMultipart: vi.fn(),
+      fenceOwnedMultipartOperations: vi.fn(async () => 'quiescent' as const),
       listExactMultipartUploads: vi.fn(async () => [...uploads].map((uploadId) => ({ key, uploadId }))),
       abortMultipartUpload: vi.fn(async ({ uploadId }: { uploadId: string }) => uploads.delete(uploadId)),
       deleteOwnedObject: vi.fn(async () => undefined),
@@ -28,6 +29,7 @@ describe('StorageAgentSessionArtifactAdapter', () => {
     const key = 'agent-artifacts/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/33333333-3333-4333-3333-333333333333';
     const storage = {
       listExactMultipartUploads: vi.fn(async () => [{ key, uploadId: 'stuck-upload' }]),
+      fenceOwnedMultipartOperations: vi.fn(async () => 'quiescent' as const),
       abortMultipartUpload: vi.fn(async () => undefined),
       deleteOwnedObject: vi.fn(),
       headOwnedObject: vi.fn(),
@@ -41,4 +43,5 @@ describe('StorageAgentSessionArtifactAdapter', () => {
     })).resolves.toEqual({ state: 'unknown' });
     expect(storage.deleteOwnedObject).not.toHaveBeenCalled();
   });
+
 });

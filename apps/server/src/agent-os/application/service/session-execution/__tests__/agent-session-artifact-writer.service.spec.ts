@@ -44,6 +44,7 @@ function harness() {
   const storage = {
     openMultipart: vi.fn().mockResolvedValue({ uploadId: 'upload-1' }),
     uploadAndComplete: vi.fn().mockResolvedValue(undefined),
+    verifyCompleted: vi.fn().mockResolvedValue(undefined),
     abortEraseAndConfirm: vi.fn().mockResolvedValue({ state: 'erased' }),
     inspect: vi.fn().mockResolvedValue('erased'),
   };
@@ -113,6 +114,48 @@ describe('AgentSessionArtifactWriterService', () => {
     await writer.materialize(materializeInput());
 
     expect(transactions.bindUpload).toHaveBeenCalledBefore(storage.uploadAndComplete);
+  });
+
+  it('binds the upload to the exact task execution before bytes can be sent', async () => {
+    const { writer, transactions } = harness();
+
+    await writer.materialize(materializeInput());
+
+    expect(transactions.bindUpload).toHaveBeenCalledWith(expect.objectContaining({
+      taskId,
+      executionId,
+      operationRunId,
+    }));
+  });
+
+  it('does not open multipart storage when prepare aborts the input before resolving', async () => {
+    const { writer, transactions, storage } = harness();
+    const controller = new AbortController();
+    transactions.prepare.mockImplementationOnce(async () => {
+      controller.abort(new Error('prepare_aborted'));
+      return { artifactId, lifecycle: 'materializing' as const };
+    });
+
+    await expect(writer.materialize({
+      ...materializeInput(),
+      signal: controller.signal,
+    })).rejects.toThrow('prepare_aborted');
+    expect(storage.openMultipart).not.toHaveBeenCalled();
+    expect(storage.uploadAndComplete).not.toHaveBeenCalled();
+    expect(transactions.activate).not.toHaveBeenCalled();
+  });
+
+  it('erases a corrupt completed object and never activates its artifact row', async () => {
+    const { writer, storage, transactions } = harness();
+    storage.verifyCompleted.mockRejectedValueOnce(
+      new Error('STORAGE_OBJECT_SHA256_MISMATCH'),
+    );
+
+    await expect(writer.materialize(materializeInput())).rejects.toThrow(
+      'STORAGE_OBJECT_SHA256_MISMATCH',
+    );
+    expect(transactions.activate).not.toHaveBeenCalled();
+    expect(storage.abortEraseAndConfirm).toHaveBeenCalledOnce();
   });
 
   it('leaves an open-before-bind multipart orphan for exact-key discovery after a bind crash', async () => {

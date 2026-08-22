@@ -51,6 +51,7 @@ export class AgentSessionArtifactWriterService
       throw new Error('AGENT_SESSION_ARTIFACT_PUT_CAPACITY_EXCEEDED');
     }
     const prepared = await this.transactions.prepare(input);
+    input.signal.throwIfAborted();
     const key = deriveAgentSessionArtifactKey({
       organizationId: input.organizationId,
       sessionId: input.sessionId,
@@ -143,6 +144,8 @@ export class AgentSessionArtifactWriterService
       await this.transactions.bindUpload({
         organizationId: input.input.organizationId,
         sessionId: input.input.sessionId,
+        taskId: input.input.taskId,
+        executionId: input.input.executionId,
         artifactId: input.artifactId,
         operationRunId: input.input.operationRunId,
         attemptToken: input.input.attemptToken,
@@ -153,6 +156,13 @@ export class AgentSessionArtifactWriterService
         key: input.key,
         uploadId,
         bytes: input.input.bytes,
+        signal,
+      });
+      await this.storage.verifyCompleted({
+        key: input.key,
+        expectedSha256: input.input.sha256,
+        expectedByteLength: input.input.bytes.byteLength,
+        maxByteLength: MAX_AGENT_SESSION_ARTIFACT_BYTES,
         signal,
       });
       await this.transactions.activate({

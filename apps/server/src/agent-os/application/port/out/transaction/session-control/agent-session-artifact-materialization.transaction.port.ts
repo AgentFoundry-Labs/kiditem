@@ -17,6 +17,8 @@ export interface AgentSessionArtifactMaterializationTransactionPort {
   bindUpload(input: {
     organizationId: string;
     sessionId: string;
+    taskId: string;
+    executionId: string;
     artifactId: string;
     operationRunId: string;
     attemptToken: string;

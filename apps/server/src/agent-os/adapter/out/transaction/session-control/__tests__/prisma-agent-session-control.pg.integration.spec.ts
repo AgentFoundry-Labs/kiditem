@@ -1,265 +1,1501 @@
+import { createHash } from 'node:crypto';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
+  OTHER_USER_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../../../../../test-helpers/real-prisma';
-import { PrismaAgentSessionArtifactMaterializationTransaction } from '../prisma-agent-session-artifact-materialization.transaction';
+import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
+import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
+import { PrismaAgentSessionDeletionCommandTransaction } from '../../session-deletion/prisma-agent-session-deletion-command.transaction';
+import { PrismaAgentSessionDeletionQueryRepository } from '../../../repository/session-deletion/prisma-agent-session-deletion-query.repository';
+import {
+  AGENT_SESSION_DELETE_OPERATION,
+  AGENT_SESSION_DELETE_OPERATION_KEY,
+} from '../../../../../domain/operation/agent-session-deletion.operations';
+import {
+  AgentSessionIdSchema,
+  formatAgentSessionName,
+  OrganizationIdSchema,
+} from '@kiditem/shared/identifiers';
+import { SessionControlAdapterSet } from './session-control-adapter-set';
 
-const VERSION_ID = '10000000-0000-4000-8000-000000000001';
-const PROFILE_ID = 'artifact-materialization:v1';
-const ATTEMPT_TOKEN = '20000000-0000-4000-8000-000000000001';
+const VERSION_FROM = '20000000-0000-4000-8000-000000000001';
+const VERSION_TO = '20000000-0000-4000-8000-000000000002';
+const AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000003';
+const OTHER_AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000004';
 
 let prisma: PrismaClient | null = null;
-let materializations: PrismaAgentSessionArtifactMaterializationTransaction;
+let repository: SessionControlAdapterSet;
+let ownedOperations: PrismaAgentSessionOwnedOperationTransaction;
+let deletionCommands: PrismaAgentSessionDeletionCommandTransaction;
+let deletionQueries: PrismaAgentSessionDeletionQueryRepository;
+
+const sessionTaskDefinition = {
+  key: 'agent-os.execute-session-task',
+  version: 1,
+  title: 'Execute session task',
+  ownerDomain: 'agent-os',
+  engineType: 'agent_os' as const,
+  resourceClass: 'default' as const,
+  executionTimeoutMs: 900_000,
+  maxAttempts: 3,
+  successPersistence: 'retained' as const,
+};
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
-  materializations = new PrismaAgentSessionArtifactMaterializationTransaction(
-    prisma as never,
-  );
+  repository = new SessionControlAdapterSet(prisma as never);
   await prisma.$connect();
 });
 
-afterAll(async () => prisma?.$disconnect());
+afterAll(async () => {
+  await prisma?.$disconnect();
+});
 
 beforeEach(async () => {
   if (!prisma) throw new Error('Prisma test client was not initialized');
   await resetDb(prisma);
   await seedBaseFixture(prisma);
-  await seedGraph(prisma);
+  await seedControlFixture(prisma);
+  ownedOperations = new PrismaAgentSessionOwnedOperationTransaction(prisma as never);
+  deletionCommands = new PrismaAgentSessionDeletionCommandTransaction(prisma as never);
+  deletionQueries = new PrismaAgentSessionDeletionQueryRepository(prisma as never);
 });
 
-describe('AgentSession artifact materialization transaction', () => {
-  it('keeps materializing rows out of normal active reads, binds an opaque upload ID, and replays the same artifact ID', async () => {
-    const sessionGraph = await loadGraph();
-    const input = materializationInput(sessionGraph);
+describe('Prisma Agent session-control transaction seams', () => {
+  it('creates the run, ownership, attempt, and attempt binding in one transaction', async () => {
+    const fixture = await createRootGraph();
+    const idempotencyKey = `session-execution:${fixture.executionId}`;
+    const input = {
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    };
 
-    const first = await materializations.prepare(input);
-    const replay = await materializations.prepare(input);
+    const result = await ownedOperations.createExecutionRun(input);
+    const replay = await ownedOperations.createExecutionRun(input);
 
-    expect(replay).toEqual(first);
-    await expect(prisma!.agentSessionArtifact.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: sessionGraph.sessionId, lifecycle: 'active' },
+    expect(replay).toEqual(result);
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: result.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+    await expect(prisma!.agentExecutionAttemptOperationBinding.count({
+      where: { operationRunId: result.operationRunId },
+    })).resolves.toBe(1);
+    await expect(prisma!.operationRun.count({ where: { idempotencyKey } })).resolves.toBe(1);
+  });
+
+  it('rolls back every row when ownership cannot use the scoped session', async () => {
+    const fixture = await createRootGraph();
+    const foreignSession = await createRootGraph({
+      organizationId: OTHER_ORGANIZATION_ID,
+      userId: OTHER_USER_ID,
+      authorityProfileVersionId: OTHER_AUTHORITY_VERSION,
+    });
+    const idempotencyKey = `session-execution:foreign:${fixture.executionId}`;
+
+    await expect(ownedOperations.createExecutionRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: foreignSession.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+
+    await expect(prisma!.operationRun.count({ where: { idempotencyKey } })).resolves.toBe(0);
+    await expect(prisma!.agentSessionOperationRunOwnership.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
     })).resolves.toBe(0);
-    await expect(prisma!.agentSessionArtifactMaterialization.findFirst({
-      where: { artifactId: first.artifactId, organizationId: TEST_ORGANIZATION_ID },
-    })).resolves.toMatchObject({ providerUploadId: null });
-
-    await materializations.bindUpload({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: sessionGraph.sessionId,
-      artifactId: first.artifactId,
-      operationRunId: sessionGraph.operationRunId,
-      attemptToken: ATTEMPT_TOKEN,
-      uploadId: 'provider-opaque-upload-1',
-    });
-    await materializations.activate({
-      organizationId: TEST_ORGANIZATION_ID,
-      sessionId: sessionGraph.sessionId,
-      taskId: sessionGraph.taskId,
-      executionId: sessionGraph.executionId,
-      artifactId: first.artifactId,
-      operationRunId: sessionGraph.operationRunId,
-      attemptToken: ATTEMPT_TOKEN,
-      sha256: 'a'.repeat(64),
-      metadata: { source: 'test' },
-    });
-
-    await expect(prisma!.agentSessionArtifact.findMany({
-      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: sessionGraph.sessionId, lifecycle: 'active' },
-    })).resolves.toMatchObject([{ id: first.artifactId, metadata: { source: 'test' } }]);
-    await expect(prisma!.agentSessionArtifactMaterialization.count({
-      where: { artifactId: first.artifactId },
+    await expect(prisma!.agentExecutionAttempt.count({
+      where: { executionId: fixture.executionId },
     })).resolves.toBe(0);
   });
 
-  it('rejects a foreign OperationRun even with a valid attempt token', async () => {
-    const sessionGraph = await loadGraph();
-    const foreignRun = await prisma!.operationRun.create({
-      data: operationRunData({ idempotencyKey: 'foreign-artifact-run', attemptToken: '20000000-0000-4000-8000-000000000002' }),
+  it('creates exactly one system-only deletion run and immutable binding under concurrent canonical requests', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'credential-generation');
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    const input = deletionInput(session);
+
+    const [first, second] = await Promise.all([
+      deletionCommands.begin(input),
+      deletionCommands.begin(input),
+    ]);
+
+    expect(first).toEqual({ state: 'deleting', failureCode: null });
+    expect(second).toEqual({ state: 'deleting', failureCode: null });
+    const run = await prisma!.operationRun.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        operationKey: AGENT_SESSION_DELETE_OPERATION_KEY,
+      },
+      select: { id: true, triggerSource: true, requestedByUserId: true, input: true, maxAttempts: true },
+    });
+    expect(run).toMatchObject({
+      triggerSource: 'system',
+      requestedByUserId: TEST_USER_ID,
+      input: { session, retryGeneration: 1 },
+      maxAttempts: 5,
+    });
+    await expect(prisma!.agentSessionDeletionOperationBinding.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: run.id,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({
+      sessionId: fixture.sessionId,
+      sessionCreatorUserId: TEST_USER_ID,
+      deletionRequestedByUserId: TEST_USER_ID,
+      retryGeneration: 1,
+      predecessorOperationRunId: null,
+    });
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: fixture.sessionId },
+      select: { lifecycle: true, deletionOperationRunId: true, deletionFailureCode: true },
+    })).resolves.toEqual({
+      lifecycle: 'deleting', deletionOperationRunId: run.id, deletionFailureCode: null,
+    });
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(1);
+    await expect(prisma!.agentExecutionAttempt.findUniqueOrThrow({
+      where: { id: owned.attemptId },
+      select: { runtimeCredentialGeneration: true },
+    })).resolves.toEqual({ runtimeCredentialGeneration: 1 });
+  });
+
+  it('rolls back the deletion lifecycle fence when immutable binding creation fails', async () => {
+    const fixture = await createRootGraph();
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    const failingPrisma = new Proxy(prisma!, {
+      get(target, key, receiver) {
+        if (key !== '$transaction') return Reflect.get(target, key, receiver);
+        return async (callback: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
+          target.$transaction(async (transaction) => callback(new Proxy(transaction, {
+            get(transactionTarget, transactionKey, transactionReceiver) {
+              if (transactionKey !== 'agentSessionDeletionOperationBinding') {
+                return Reflect.get(transactionTarget, transactionKey, transactionReceiver);
+              }
+              return new Proxy(transactionTarget.agentSessionDeletionOperationBinding, {
+                get(bindingTarget, bindingKey, bindingReceiver) {
+                  if (bindingKey === 'create') return async () => { throw new Error('binding_fault'); };
+                  return Reflect.get(bindingTarget, bindingKey, bindingReceiver);
+                },
+              });
+            },
+          }) as Prisma.TransactionClient));
+      },
+    });
+    const commands = new PrismaAgentSessionDeletionCommandTransaction(failingPrisma as never);
+
+    await expect(commands.begin(deletionInput(session))).rejects.toThrow('binding_fault');
+    await expect(prisma!.agentSession.findUniqueOrThrow({
+      where: { id: fixture.sessionId },
+      select: { lifecycle: true, deletionOperationRunId: true },
+    })).resolves.toEqual({ lifecycle: 'active', deletionOperationRunId: null });
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(0);
+  });
+
+  it('returns null without a typed scope leak for unknown and cross-organization begins and retries', async () => {
+    const fixture = await createRootGraph();
+    const unknown = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse('00000000-0000-4000-8000-000000000099'),
+    );
+    const foreign = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+
+    await expect(deletionCommands.begin(deletionInput(unknown))).resolves.toBeNull();
+    await expect(deletionCommands.retry(deletionRetryInput(unknown))).resolves.toBeNull();
+    await expect(deletionCommands.begin(deletionInput(foreign, OTHER_ORGANIZATION_ID, OTHER_USER_ID)))
+      .resolves.toBeNull();
+    await expect(deletionCommands.retry(deletionRetryInput(foreign, OTHER_ORGANIZATION_ID, OTHER_USER_ID)))
+      .resolves.toBeNull();
+    await expect(prisma!.operationRun.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, operationKey: AGENT_SESSION_DELETE_OPERATION_KEY },
+    })).resolves.toBe(0);
+  });
+
+  it('does not expose retry lifecycle state to an active ordinary member', async () => {
+    const fixture = await createRootGraph();
+    const ordinaryUserId = 'c1234567-89ab-4cde-8f01-23456789abcd';
+    await prisma!.user.create({
+      data: {
+        id: ordinaryUserId,
+        email: 'ordinary-deletion-member@test.local',
+        name: 'Ordinary deletion member',
+        role: 'member',
+        type: 'human',
+      },
+    });
+    await prisma!.organizationMembership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: ordinaryUserId,
+        role: 'member',
+        status: 'active',
+      },
+    });
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+
+    await expect(deletionCommands.retry(
+      deletionRetryInput(session, TEST_ORGANIZATION_ID, ordinaryUserId),
+    )).resolves.toBeNull();
+  });
+
+  it('does not retain status access for a deletion requester demoted from administrator', async () => {
+    const fixture = await createRootGraph();
+    const adminUserId = 'd1234567-89ab-4cde-8f01-23456789abcd';
+    await prisma!.user.create({
+      data: {
+        id: adminUserId,
+        email: 'demoted-deletion-admin@test.local',
+        name: 'Demoted deletion admin',
+        role: 'admin',
+        type: 'human',
+      },
+    });
+    await prisma!.organizationMembership.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        userId: adminUserId,
+        role: 'admin',
+        status: 'active',
+      },
+    });
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    await deletionCommands.begin(deletionInput(session, TEST_ORGANIZATION_ID, adminUserId));
+    await prisma!.organizationMembership.updateMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, userId: adminUserId },
+      data: { role: 'member' },
     });
 
-    await expect(materializations.prepare({
-      ...materializationInput(sessionGraph),
-      operationRunId: foreignRun.id,
-      attemptToken: foreignRun.attemptToken!,
+    await expect(deletionQueries.findAuthorizedStatus({
+      organizationId: TEST_ORGANIZATION_ID,
+      actorUserId: adminUserId,
+      session,
+    })).resolves.toBeNull();
+  });
+
+  it.each(['deleting', 'delete_failed'] as const)(
+    'hides %s sessions from ordinary task execution inspection',
+    async (lifecycle) => {
+      const fixture = await createRootGraph();
+      await prisma!.agentSession.update({
+        where: { id: fixture.sessionId },
+        data: { lifecycle },
+      });
+
+      await expect(repository.loadTaskExecution({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        actorId: TEST_USER_ID,
+      })).resolves.toBeNull();
+    },
+  );
+
+  it('uses one fixed deletion attempt budget across lifecycle successors in the same generation', async () => {
+    const fixture = await createRootGraph();
+    const session = formatAgentSessionName(
+      OrganizationIdSchema.parse(TEST_ORGANIZATION_ID),
+      AgentSessionIdSchema.parse(fixture.sessionId),
+    );
+    const first = await prisma!.operationRun.create({
+      data: deletionOperationRun({
+        idempotencyKey: `agent-session-delete:${fixture.sessionId}:generation:1:first`,
+        attempts: 2,
+      }),
+    });
+    const second = await prisma!.operationRun.create({
+      data: deletionOperationRun({
+        idempotencyKey: `agent-session-delete:${fixture.sessionId}:generation:1:second`,
+        attempts: 3,
+      }),
+    });
+    await prisma!.$transaction([
+      prisma!.agentSessionDeletionOperationBinding.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: fixture.sessionId,
+          sessionCreatorUserId: TEST_USER_ID,
+          deletionRequestedByUserId: TEST_USER_ID,
+          retryGeneration: 1,
+          operationRunId: first.id,
+          predecessorOperationRunId: null,
+        },
+      }),
+      prisma!.agentSessionDeletionOperationBinding.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          sessionId: fixture.sessionId,
+          sessionCreatorUserId: TEST_USER_ID,
+          deletionRequestedByUserId: TEST_USER_ID,
+          retryGeneration: 1,
+          operationRunId: second.id,
+          predecessorOperationRunId: first.id,
+        },
+      }),
+      prisma!.agentSession.update({
+        where: { id: fixture.sessionId },
+        data: {
+          lifecycle: 'delete_failed',
+          deletionOperationRunId: second.id,
+          deletionFailureCode: 'RUNTIME_CLEANUP_UNKNOWN',
+        },
+      }),
+    ]);
+
+    await expect(deletionCommands.retry(deletionRetryInput(session))).resolves.toEqual({
+      state: 'deleting',
+      failureCode: null,
+    });
+    await expect(prisma!.agentSessionDeletionOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        retryGeneration: 2,
+      },
+      select: {
+        predecessorOperationRunId: true,
+        operationRun: { select: { maxAttempts: true } },
+      },
+    })).resolves.toEqual({
+      predecessorOperationRunId: second.id,
+      operationRun: { maxAttempts: 5 },
+    });
+  });
+
+  it('keeps a successor OperationRun owned by the same session', async () => {
+    const fixture = await createRootGraph();
+    const initial = await ownedOperations.createExecutionRun({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      requestedByUserId: TEST_USER_ID,
+      idempotencyKey: `session-execution:${fixture.executionId}`,
+      definition: sessionTaskDefinition,
+      parsedInput: { execution: fixture.executionId },
+    });
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: initial.operationRunId,
+    });
+    await repository.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: initial.attemptId,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'owned-continuation-runtime',
+      encryptedHandleRef: 'vault://owned-continuation-runtime',
+      runtimeGeneration: 1,
+    });
+    await prisma!.operationRun.update({
+      where: { id: initial.operationRunId },
+      data: {
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+        finishedAt: new Date(),
+      },
+    });
+
+    const successor = await repository.continueOperationAttempt({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: initial.attemptId,
+      predecessorOperationRunId: initial.operationRunId,
+      continuationKey: `lifecycle:${initial.operationRunId}`,
+    });
+
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: successor.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+    await expect(prisma!.agentSessionOperationRunOwnership.findUnique({
+      where: { operationRunId_organizationId: {
+        operationRunId: initial.operationRunId,
+        organizationId: TEST_ORGANIZATION_ID,
+      } },
+    })).resolves.toMatchObject({ sessionId: fixture.sessionId });
+  });
+
+  it.each([
+    ['missing successor owner', async (operationRunId: string) => {
+      await prisma!.agentSessionOperationRunOwnership.delete({
+        where: { operationRunId_organizationId: {
+          operationRunId,
+          organizationId: TEST_ORGANIZATION_ID,
+        } },
+      });
+    }],
+    ['drifted successor input', async (operationRunId: string) => {
+      await prisma!.operationRun.update({
+        where: { id: operationRunId },
+        data: { input: { drifted: true } },
+      });
+    }],
+  ] as const)(
+    'rejects an exact continuation replay with %s',
+    async (_scenario, corrupt) => {
+      const fixture = await createRootGraph();
+      const initial = await createOwnedExecutionOperation(fixture, `continuation-replay:${_scenario}`);
+      await repository.activateAttemptForOperation({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        operationRunId: initial.operationRunId,
+      });
+      await repository.persistAttemptHandle({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        attemptId: initial.attemptId,
+        runtimeType: 'copilotkit_agui',
+        externalRunId: `continuation-replay:${_scenario}`,
+        encryptedHandleRef: `vault://continuation-replay:${_scenario}`,
+        runtimeGeneration: 1,
+      });
+      await prisma!.operationRun.update({
+        where: { id: initial.operationRunId },
+        data: {
+          status: 'cancelled',
+          errorCode: 'operation_server_lifecycle_expired',
+          finishedAt: new Date(),
+        },
+      });
+      const continuationKey = `lifecycle:${initial.operationRunId}`;
+      const successor = await repository.continueOperationAttempt({
+        signal: new AbortController().signal,
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: initial.attemptId,
+        predecessorOperationRunId: initial.operationRunId,
+        continuationKey,
+      });
+      await corrupt(successor.operationRunId);
+
+      await expect(repository.continueOperationAttempt({
+        signal: new AbortController().signal,
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: initial.attemptId,
+        predecessorOperationRunId: initial.operationRunId,
+        continuationKey,
+      })).rejects.toMatchObject({
+        code: 'AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT',
+      });
+    },
+  );
+
+  it('fails closed when a direct continuation has an unowned predecessor', async () => {
+    const fixture = await createRootGraph();
+    const predecessor = await createUnownedContinuationPredecessor(fixture);
+    const continuationKey = `lifecycle:${predecessor.operationRunId}`;
+
+    await expect(repository.continueOperationAttempt({
+      signal: new AbortController().signal,
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: predecessor.attemptId,
+      predecessorOperationRunId: predecessor.operationRunId,
+      continuationKey,
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+
+    await expect(prisma!.operationRun.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        idempotencyKey: `agent-session-continuation:${predecessor.attemptId}:${continuationKey}`,
+      },
+    })).resolves.toBe(0);
+    await expect(prisma!.agentExecutionAttemptOperationBinding.count({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: predecessor.attemptId,
+        continuationKey,
+      },
+    })).resolves.toBe(0);
+    await expect(prisma!.operationRunCheckpoint.count({
+      where: { organizationId: TEST_ORGANIZATION_ID },
+    })).resolves.toBe(0);
+  });
+
+  it('creates one idempotent delegated child and fences organization ownership', async () => {
+    const fixture = await createRootGraph();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      objective: '상품 근거를 검증한다',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      idempotencyKey: 'delegate:sourcing:1',
+    };
+
+    const first = await repository.createDelegatedTask(input);
+    const retry = await repository.createDelegatedTask(input);
+
+    expect(retry).toEqual(first);
+    await expect(repository.createDelegatedTask({
+      ...input,
+      organizationId: OTHER_ORGANIZATION_ID,
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+    await expect(prisma!.agentSessionTask.count({
+      where: { sessionId: fixture.sessionId, isRoot: false },
+    })).resolves.toBe(1);
+    await expect(prisma!.agentSessionTaskDelegation.count({
+      where: { sessionId: fixture.sessionId },
+    })).resolves.toBe(1);
+  });
+
+  it.each([
+    ['delegation', async () => {
+      const fixture = await createRootGraph();
+      await markDeleting(fixture.sessionId);
+      return repository.createDelegatedTask({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        parentTaskId: fixture.taskId,
+        fromAgentVersionId: VERSION_FROM,
+        toAgentVersionId: VERSION_TO,
+        objective: 'must not delegate after deletion begins',
+        authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+        depth: 1,
+        idempotencyKey: 'deleting:delegation',
+      });
+    }],
+    ['approval', async () => {
+      const fixture = await createRootGraph();
+      const owned = await createOwnedExecutionOperation(fixture, 'deleting-approval');
+      await repository.activateAttemptForOperation({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        operationRunId: owned.operationRunId,
+      });
+      await repository.persistAttemptHandle({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        attemptId: owned.attemptId,
+        runtimeType: 'copilotkit_agui',
+        externalRunId: 'deleting-approval-runtime',
+        encryptedHandleRef: 'vault://deleting-approval-runtime',
+        runtimeGeneration: 1,
+      });
+      await markDeleting(fixture.sessionId);
+      return repository.requestApproval({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: owned.attemptId,
+        operationRunId: owned.operationRunId,
+        capabilityKey: 'supply.submit_purchase_order',
+        argumentsHash: 'a'.repeat(64),
+        resourceSnapshot: [],
+        expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+        idempotencyKey: 'deleting:approval',
+      });
+    }],
+    ['attempt', async () => {
+      const fixture = await createRootGraph();
+      await markDeleting(fixture.sessionId);
+      return repository.startAttempt({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        executionId: fixture.executionId,
+        runtimeType: 'copilotkit_agui',
+        idempotencyKey: 'deleting:attempt',
+      });
+    }],
+    ['retry', async () => {
+      const fixture = await createRootGraph();
+      await repository.transitionTask({
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        expectedState: 'running',
+        state: 'failed',
+      });
+      await prisma!.agentExecution.update({
+        where: { id: fixture.executionId },
+        data: { status: 'failed', finishedAt: new Date() },
+      });
+      await markDeleting(fixture.sessionId);
+      return repository.createRetryExecution({
+        organizationId: TEST_ORGANIZATION_ID,
+        actorId: TEST_USER_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        expectedStatus: 'failed',
+        idempotencyKey: 'deleting:retry',
+      });
+    }],
+  ])('rejects %s after the deletion fence', async (_kind, mutate) => {
+    await expect(mutate()).rejects.toMatchObject({
+      code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT',
+    });
+  });
+
+  it('anchors an official child execution to the canonical parent user event without copying a conversation turn', async () => {
+    const fixture = await createRootGraph();
+
+    const delegated = await repository.createDelegatedTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      parentExecutionId: fixture.executionId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      targetAgentDefinitionKey: 'sourcing',
+      objective: '상품 근거를 검증한다',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      maxDepth: 2,
+      maxChildrenPerTask: 5,
+      idempotencyKey: 'delegate:official:1',
+    });
+
+    const childExecution = await prisma!.agentExecution.findUniqueOrThrow({
+      where: { id: delegated.childExecutionId },
+      select: { currentInput: true, resourceRefs: true },
+    });
+    expect(childExecution.currentInput).toMatchObject({
+      userEvent: {
+        externalEventId: expect.stringMatching(/^user-event:/),
+        payload: { content: 'canonical root request' },
+      },
+      delegation: {
+        objective: '상품 근거를 검증한다',
+        parentExecutionId: fixture.executionId,
+      },
+    });
+    await expect(prisma!.agentConversationEvent.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(1);
+    const attempt = await repository.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: delegated.childExecutionId,
+      runtimeType: 'codex_cli',
+      idempotencyKey: 'operation:official-child',
+    });
+    const contextRepository = new PrismaAgentExecutionContextRepository(
+      prisma as never,
+    );
+    await expect(contextRepository.loadExecutionGraph({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      attemptId: attempt.id,
+    })).resolves.toMatchObject({
+      currentUserEvent: {
+        eventType: 'user_message',
+        payload: { content: 'canonical root request' },
+      },
+    });
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(true);
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: fixture.taskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(false);
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: delegated.childTaskId,
+      executionId: delegated.childExecutionId,
+      capabilityKey: 'supply.submit_purchase_order',
+    })).resolves.toBe(false);
+  });
+
+  it('allows an active official execution to invoke a declared read capability while its root task is interpreting', async () => {
+    const fixture = await createRootGraph();
+    await prisma!.$transaction([
+      prisma!.agentSessionTask.update({
+        where: { id: fixture.taskId },
+        data: { status: 'interpreting', assignedAgentVersionId: VERSION_TO },
+      }),
+      prisma!.agentPolicySnapshot.update({
+        where: { id: fixture.policyId },
+        data: { agentVersionId: VERSION_TO },
+      }),
+      prisma!.agentExecution.update({
+        where: { id: fixture.executionId },
+        data: { agentVersionId: VERSION_TO },
+      }),
+    ]);
+
+    await expect(repository.isExecutionCapabilityAllowed({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      sessionTaskId: fixture.taskId,
+      executionId: fixture.executionId,
+      capabilityKey: 'sourcing.retrieveWorkspaceEvidence',
+    })).resolves.toBe(true);
+  });
+
+  it('rejects an idempotency key reused with different delegated input', async () => {
+    const fixture = await createRootGraph();
+    const input = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      objective: '근거 확인',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      idempotencyKey: 'delegate:conflict:1',
+    };
+    await repository.createDelegatedTask(input);
+
+    await expect(repository.createDelegatedTask({
+      ...input,
+      objective: '다른 목표',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_IDEMPOTENCY_CONFLICT' });
+  });
+
+  it('serializes distinct child keys against the immutable max-children bound', async () => {
+    const fixture = await createRootGraph();
+    const base = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      parentTaskId: fixture.taskId,
+      parentExecutionId: fixture.executionId,
+      fromAgentVersionId: VERSION_FROM,
+      toAgentVersionId: VERSION_TO,
+      targetAgentDefinitionKey: 'sourcing',
+      objective: '근거 확인',
+      authoritySubset: ['sourcing.retrieveWorkspaceEvidence'],
+      depth: 1,
+      maxDepth: 2,
+      maxChildrenPerTask: 1,
+    };
+
+    const outcomes = await Promise.allSettled([
+      repository.createDelegatedTask({ ...base, idempotencyKey: 'delegate:limit:a' }),
+      repository.createDelegatedTask({ ...base, idempotencyKey: 'delegate:limit:b' }),
+    ]);
+
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(outcomes.filter((outcome) => outcome.status === 'rejected')).toHaveLength(1);
+    await expect(prisma!.agentSessionTask.count({
+      where: { sessionId: fixture.sessionId, parentTaskId: fixture.taskId },
+    })).resolves.toBe(1);
+  });
+
+  it('assigns an immutable sequential attempt number and terminals once', async () => {
+    const fixture = await createRootGraph();
+    const first = await repository.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      runtimeType: 'codex_cli',
+      idempotencyKey: 'attempt:first',
+    });
+    expect((await repository.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      runtimeType: 'codex_cli',
+      idempotencyKey: 'attempt:first',
+    })).id).toBe(first.id);
+    const second = await repository.startAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      runtimeType: 'codex_cli',
+      idempotencyKey: 'attempt:second',
+    });
+    expect([first.attemptNumber, second.attemptNumber]).toEqual([1, 2]);
+
+    await repository.finishAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: second.id,
+      expectedState: 'running',
+      state: 'succeeded',
+    });
+    await expect(repository.finishAttempt({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: second.id,
+      expectedState: 'succeeded',
+      state: 'failed',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
+  });
+
+  it('links one active execution attempt to its exact organization-scoped Operation run for cancellation', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'cancel-link');
+    const operation = { id: owned.operationRunId };
+    const reserved = { id: owned.attemptId };
+    await expect(repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+    })).resolves.toMatchObject({ id: reserved.id, state: 'running' });
+    await expect(prisma!.agentExecutionAttemptOperationBinding.findFirstOrThrow({
+      where: {
+        organizationId: TEST_ORGANIZATION_ID,
+        executionAttemptId: reserved.id,
+        operationRunId: operation.id,
+      },
+      select: { operationRunId: true },
+    })).resolves.toEqual({ operationRunId: operation.id });
+    await expect(repository.loadCancelableTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      actorId: TEST_USER_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedStatus: 'running',
+    })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
+  });
+
+  it('recovers the true latest lifecycle envelope after more than one bounded batch of historical bindings', async () => {
+    const fixture = await createRootGraph();
+    const initial = await createOwnedExecutionOperation(fixture, 'latest-envelope');
+    const attempt = { id: initial.attemptId };
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: initial.operationRunId,
+    });
+    await repository.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'runtime-latest-binding',
+      encryptedHandleRef: 'vault://runtime-latest-binding',
+      runtimeGeneration: 1,
+    });
+
+    let predecessorOperationRunId = initial.operationRunId;
+    for (let index = 0; index <= 100; index += 1) {
+      await prisma!.operationRun.update({
+        where: { id: predecessorOperationRunId },
+        data: {
+          status: 'cancelled',
+          errorCode: 'operation_server_lifecycle_expired',
+          finishedAt: new Date(),
+        },
+      });
+      const successor = await repository.continueOperationAttempt({
+        signal: new AbortController().signal,
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: attempt.id,
+        predecessorOperationRunId,
+        continuationKey: `lifecycle:${predecessorOperationRunId}`,
+      });
+      predecessorOperationRunId = successor.operationRunId;
+    }
+    await prisma!.operationRun.update({
+      where: { id: predecessorOperationRunId },
+      data: {
+        status: 'cancelled',
+        errorCode: 'operation_server_lifecycle_expired',
+        finishedAt: new Date(),
+      },
+    });
+
+    await expect(repository.listLifecycleRecoveryCandidates({ limit: 100 })).resolves.toEqual([
+      {
+        organizationId: TEST_ORGANIZATION_ID,
+        sessionId: fixture.sessionId,
+        taskId: fixture.taskId,
+        executionId: fixture.executionId,
+        attemptId: attempt.id,
+        predecessorOperationRunId,
+      },
+    ]);
+  });
+
+  it('creates a queued owned attempt before worker claim so explicit cancellation has an exact Operation run', async () => {
+    const fixture = await createRootGraph();
+    await prisma!.agentSessionTask.update({
+      where: { id: fixture.taskId },
+      data: { status: 'queued' },
+    });
+    const created = await createOwnedExecutionOperation(fixture, 'queued-cancellation');
+    const operation = { id: created.operationRunId };
+    const reserved = { id: created.attemptId, state: 'queued' };
+
+    expect(reserved.state).toBe('queued');
+    await expect(repository.loadCancelableTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      actorId: TEST_USER_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedStatus: 'queued',
+    })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
+    await expect(repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+    })).resolves.toMatchObject({ id: reserved.id, state: 'running' });
+  });
+
+  it('binds an approval to one invocation attempt and decides it idempotently', async () => {
+    const fixture = await createRootGraph();
+    const created = await createOwnedExecutionOperation(fixture, 'approval');
+    const operation = { id: created.operationRunId };
+    const attempt = { id: created.attemptId };
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: operation.id,
+    });
+    await expect(repository.persistAttemptHandle({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'runtime-approval-1',
+      encryptedHandleRef: 'vault://runtime-approval-1',
+      runtimeGeneration: 4,
+    })).resolves.toMatchObject({ runtimeGeneration: 4 });
+    const approval = await repository.requestApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      operationRunId: operation.id,
+      capabilityKey: 'supply.submit_purchase_order',
+      argumentsHash: 'a'.repeat(64),
+      resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      idempotencyKey: 'approval:submit:1',
+    });
+    await expect(repository.requestApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      operationRunId: operation.id,
+      capabilityKey: 'supply.submit_purchase_order',
+      argumentsHash: 'b'.repeat(64),
+      resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      idempotencyKey: 'approval:submit:2',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
+    const decision = await repository.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      approvalId: approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'user',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval-decision:1',
+    });
+    const detail = await repository.loadApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      approvalId: approval.id,
+    });
+    expect(detail).toMatchObject({
+      runtimeGeneration: 4,
+      operationRunId: operation.id,
+      operationBindingId: expect.any(String),
+    });
+    await expect(prisma!.agentSessionApprovalContinuation.findFirstOrThrow({
+      where: { organizationId: TEST_ORGANIZATION_ID, approvalId: approval.id },
+      select: { state: true, successorOperationRunId: true },
+    })).resolves.toEqual({ state: 'pending', successorOperationRunId: null });
+    await expect(repository.decideApproval({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      approvalId: approval.id,
+      expectedState: 'pending',
+      decision: 'approved',
+      actorType: 'user',
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'approval-decision:1',
+    })).resolves.toEqual({ ...decision, changed: false });
+    expect(decision.state).toBe('approved');
+    await expect(repository.requestApproval({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      executionId: fixture.executionId,
+      attemptId: attempt.id,
+      operationRunId: operation.id,
+      capabilityKey: 'supply.submit_purchase_order',
+      argumentsHash: 'a'.repeat(64),
+      resourceSnapshot: [{ kind: 'purchase_order', id: 'po-1', version: '4' }],
+      expiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      idempotencyKey: 'approval:submit:1',
     })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
   });
 
-  it('rejects a late activation after the lifecycle fence and preserves the transient row for erasure', async () => {
-    const sessionGraph = await loadGraph();
-    const prepared = await materializations.prepare(materializationInput(sessionGraph));
-    await materializations.bindUpload({
+  it('reuses an exact retry after the first retry moves the task back to queued', async () => {
+    const fixture = await createRootGraph();
+    await repository.transitionTask({
       organizationId: TEST_ORGANIZATION_ID,
-      sessionId: sessionGraph.sessionId,
-      artifactId: prepared.artifactId,
-      operationRunId: sessionGraph.operationRunId,
-      attemptToken: ATTEMPT_TOKEN,
-      uploadId: 'provider-opaque-upload-race',
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedState: 'running',
+      state: 'failed',
     });
-    await prisma!.agentSession.update({
-      where: { id: sessionGraph.sessionId },
-      data: { lifecycle: 'deleting' },
+    await prisma!.agentExecution.update({
+      where: { id: fixture.executionId },
+      data: { status: 'failed', finishedAt: new Date('2026-08-14T00:00:00.000Z') },
     });
 
-    await expect(materializations.activate({
+    const input = {
       organizationId: TEST_ORGANIZATION_ID,
-      sessionId: sessionGraph.sessionId,
-      taskId: sessionGraph.taskId,
-      executionId: sessionGraph.executionId,
-      artifactId: prepared.artifactId,
-      operationRunId: sessionGraph.operationRunId,
-      attemptToken: ATTEMPT_TOKEN,
-      sha256: 'a'.repeat(64),
-      metadata: {},
-    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
-    await expect(prisma!.agentSessionArtifactMaterialization.findFirst({
-      where: { artifactId: prepared.artifactId },
-    })).resolves.toMatchObject({ providerUploadId: 'provider-opaque-upload-race' });
+      actorId: TEST_USER_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedStatus: 'failed' as const,
+      idempotencyKey: 'retry:root:one',
+    };
+    const first = await repository.createRetryExecution(input);
+    const repeated = await repository.createRetryExecution(input);
+
+    expect(repeated).toEqual(first);
+    expect(first.taskStatus).toBe('queued');
+    await expect(prisma!.agentExecution.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, sessionId: fixture.sessionId },
+    })).resolves.toBe(2);
   });
+
+  it('enforces one-way terminal task and session transitions', async () => {
+    const fixture = await createRootGraph();
+    await repository.transitionTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedState: 'running',
+      state: 'completed',
+    });
+    await expect(repository.transitionTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedState: 'completed',
+      state: 'running',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
+    await repository.transitionSession({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      expectedState: 'active',
+      state: 'completed',
+    });
+    await expect(repository.transitionSession({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      expectedState: 'completed',
+      state: 'active',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
+
+    const archived = await createRootGraph();
+    await repository.transitionSession({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: archived.sessionId,
+      expectedState: 'active',
+      state: 'archived',
+    });
+    await expect(repository.transitionSession({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: archived.sessionId,
+      expectedState: 'archived',
+      state: 'active',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_STATE_CONFLICT' });
+
+    await expect(repository.findTask({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+    })).resolves.toBeNull();
+    await expect(repository.findSession({
+      organizationId: OTHER_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+    })).resolves.toBeNull();
+  });
+
 });
 
-async function loadGraph(): Promise<{
+async function seedControlFixture(client: PrismaClient): Promise<void> {
+  const baseManifest = {
+    schemaVersion: 1,
+    runtimeKind: 'agent',
+    runtimeType: 'codex_cli',
+    modelIdentity: 'gpt-test',
+    capabilityKeys: [],
+    policyDocument: {},
+    delegation: { role: 'leaf', allowedAgentDefinitionKeys: [], maxDepth: 0, maxChildrenPerTask: 0 },
+    limits: { maxTurns: 20, maxContextTokens: 8_192, summaryTargetTokens: 512 },
+    assets: {
+      prompt: { path: 'agent-config/prompts/agents/sourcing.md', sha256: 'a'.repeat(64) },
+      summaryPrompt: { path: 'agent-config/prompts/system/session-summary.md', sha256: 'b'.repeat(64) },
+      skills: [],
+      outputSchema: null,
+    },
+  };
+  await client.agentVersion.createMany({
+    data: [
+      {
+        id: VERSION_FROM,
+        agentDefinitionKey: 'manager',
+        version: 1,
+        displayName: 'Operator',
+        description: 'Operator',
+        runtimeType: 'copilotkit_agui',
+        modelIdentity: 'gpt-test',
+        capabilityKeys: [],
+        policyDocument: {},
+        manifestHash: '1'.repeat(64),
+        runtimeManifest: { ...baseManifest, agentDefinitionKey: 'manager', runtimeKind: 'coordinator' },
+        activatedAt: new Date('2026-08-14T00:00:00.000Z'),
+      },
+      {
+        id: VERSION_TO,
+        agentDefinitionKey: 'sourcing',
+        version: 1,
+        displayName: 'Sourcing',
+        description: 'Sourcing',
+        runtimeType: 'codex_cli',
+        modelIdentity: 'gpt-test',
+        capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+        policyDocument: {},
+        manifestHash: '2'.repeat(64),
+        runtimeManifest: {
+          ...baseManifest,
+          agentDefinitionKey: 'sourcing',
+          capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+        },
+        activatedAt: new Date('2026-08-14T00:00:00.000Z'),
+      },
+    ],
+  });
+  await client.agentAuthorityProfileVersion.createMany({
+    data: [
+      {
+        id: AUTHORITY_VERSION,
+        organizationId: TEST_ORGANIZATION_ID,
+        profileKey: 'foundation_read_only_probe',
+        version: 1,
+        capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+        policyDocument: { sideEffects: ['read'] },
+        policyHash: '3'.repeat(64),
+      },
+      {
+        id: OTHER_AUTHORITY_VERSION,
+        organizationId: OTHER_ORGANIZATION_ID,
+        profileKey: 'foundation_read_only_probe',
+        version: 1,
+        capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+        policyDocument: { sideEffects: ['read'] },
+        policyHash: '4'.repeat(64),
+      },
+    ],
+  });
+}
+
+async function createRootGraph(input: {
+  organizationId?: string;
+  userId?: string;
+  authorityProfileVersionId?: string;
+} = {}): Promise<{
   sessionId: string;
   taskId: string;
+  policyId: string;
   executionId: string;
-  operationRunId: string;
 }> {
-  const session = await prisma!.agentSession.findFirstOrThrow({
-    where: { organizationId: TEST_ORGANIZATION_ID },
-  });
-  const task = await prisma!.agentSessionTask.findFirstOrThrow({
-    where: { sessionId: session.id, organizationId: TEST_ORGANIZATION_ID },
-  });
-  const execution = await prisma!.agentExecution.findFirstOrThrow({
-    where: { sessionId: session.id, sessionTaskId: task.id, organizationId: TEST_ORGANIZATION_ID },
-  });
-  const ownership = await prisma!.agentSessionOperationRunOwnership.findFirstOrThrow({
-    where: { sessionId: session.id, organizationId: TEST_ORGANIZATION_ID },
-  });
-  return {
-    sessionId: session.id,
-    taskId: task.id,
-    executionId: execution.id,
-    operationRunId: ownership.operationRunId,
-  };
-}
-
-function materializationInput(graph: Awaited<ReturnType<typeof loadGraph>>) {
-  return {
-    organizationId: TEST_ORGANIZATION_ID,
-    sessionId: graph.sessionId,
-    taskId: graph.taskId,
-    executionId: graph.executionId,
-    operationRunId: graph.operationRunId,
-    attemptToken: ATTEMPT_TOKEN,
-    externalArtifactId: 'runtime-artifact-1',
-    artifactType: 'report',
-    sha256: 'a'.repeat(64),
-  };
-}
-
-async function seedGraph(client: PrismaClient): Promise<void> {
-  await client.agentVersion.create({
+  if (!prisma) throw new Error('Prisma test client was not initialized');
+  const organizationId = input.organizationId ?? TEST_ORGANIZATION_ID;
+  const userId = input.userId ?? TEST_USER_ID;
+  const authorityProfileVersionId = input.authorityProfileVersionId ?? AUTHORITY_VERSION;
+  const session = await prisma.agentSession.create({
     data: {
-      id: VERSION_ID,
-      agentDefinitionKey: 'artifact-materialization',
-      version: 1,
-      displayName: 'Artifact materialization',
-      description: 'Artifact materialization',
-      runtimeType: 'hermes_http',
-      modelIdentity: 'gpt-test',
-      capabilityKeys: [],
-      policyDocument: {},
-      manifestHash: '1'.repeat(64),
-      runtimeManifest: {},
-      activatedAt: new Date('2026-08-22T00:00:00.000Z'),
-    },
-  });
-  await client.agentAuthorityProfileVersion.create({
-    data: {
-      id: PROFILE_ID,
-      organizationId: TEST_ORGANIZATION_ID,
-      profileKey: 'artifact_materialization',
-      version: 1,
-      capabilityKeys: [],
-      policyDocument: {},
-      policyHash: '2'.repeat(64),
-    },
-  });
-  const session = await client.agentSession.create({
-    data: {
-      organizationId: TEST_ORGANIZATION_ID,
-      createdByUserId: TEST_USER_ID,
-      copilotThreadId: crypto.randomUUID(),
-      primaryAgentVersionId: VERSION_ID,
-      authorityProfileVersionId: PROFILE_ID,
+      organizationId,
+      createdByUserId: userId,
+      copilotThreadId: `control-${crypto.randomUUID()}`,
+      primaryAgentVersionId: VERSION_FROM,
+      authorityProfileVersionId,
       lifecycle: 'active',
     },
   });
-  const task = await client.agentSessionTask.create({
+  const task = await prisma.agentSessionTask.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
-      assignedAgentVersionId: VERSION_ID,
+      assignedAgentVersionId: VERSION_FROM,
       isRoot: true,
       status: 'running',
       idempotencyKey: 'root',
     },
   });
-  const policy = await client.agentPolicySnapshot.create({
+  const policy = await prisma.agentPolicySnapshot.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
-      agentVersionId: VERSION_ID,
-      authorityProfileVersionId: PROFILE_ID,
-      capabilityKeys: [],
-      policyHash: '3'.repeat(64),
+      agentVersionId: VERSION_FROM,
+      authorityProfileVersionId,
+      capabilityKeys: ['sourcing.retrieveWorkspaceEvidence'],
+      policyHash: '5'.repeat(64),
     },
   });
-  await client.agentExecution.create({
+  const userEvent = {
+    externalEventId: `user-event:${crypto.randomUUID()}`,
+    schemaVersion: 1,
+    payload: {
+      phase: 'complete',
+      messageId: `message-${crypto.randomUUID()}`,
+      content: 'canonical root request',
+    },
+  };
+  const currentInput = { userEvent };
+  const execution = await prisma.agentExecution.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
       sessionTaskId: task.id,
       copilotThreadId: session.copilotThreadId,
-      aguiRunId: crypto.randomUUID(),
-      agentVersionId: VERSION_ID,
-      runtimeType: 'hermes_http',
+      aguiRunId: `run-${crypto.randomUUID()}`,
+      agentVersionId: VERSION_FROM,
+      runtimeType: 'copilotkit_agui',
       modelIdentity: 'gpt-test',
       policySnapshotId: policy.id,
-      inputHash: '4'.repeat(64),
+      inputHash: createHash('sha256')
+        .update(canonicalJson(currentInput))
+        .digest('hex'),
+      currentInput,
+      resourceRefs: [],
       status: 'running',
     },
   });
-  const operation = await client.operationRun.create({
-    data: operationRunData({ idempotencyKey: 'artifact-materialization', attemptToken: ATTEMPT_TOKEN }),
-  });
-  await client.agentSessionOperationRunOwnership.create({
+  await prisma.agentConversationEvent.create({
     data: {
-      organizationId: TEST_ORGANIZATION_ID,
+      organizationId,
       sessionId: session.id,
-      operationRunId: operation.id,
+      executionId: execution.id,
+      externalEventId: userEvent.externalEventId,
+      sequence: 1n,
+      eventType: 'user_message',
+      schemaVersion: userEvent.schemaVersion,
+      payload: userEvent.payload,
     },
+  });
+  await prisma.agentSession.update({
+    where: { id: session.id },
+    data: { lastEventSequence: 1n },
+  });
+  return { sessionId: session.id, taskId: task.id, policyId: policy.id, executionId: execution.id };
+}
+
+async function createOwnedExecutionOperation(
+  fixture: { sessionId: string; taskId: string; executionId: string },
+  suffix: string,
+): Promise<{ operationRunId: string; attemptId: string }> {
+  return ownedOperations.createExecutionRun({
+    signal: new AbortController().signal,
+    organizationId: TEST_ORGANIZATION_ID,
+    sessionId: fixture.sessionId,
+    taskId: fixture.taskId,
+    executionId: fixture.executionId,
+    requestedByUserId: TEST_USER_ID,
+    idempotencyKey: `session-execution:${suffix}:${fixture.executionId}`,
+    definition: sessionTaskDefinition,
+    parsedInput: { execution: fixture.executionId },
   });
 }
 
-function operationRunData(input: { idempotencyKey: string; attemptToken: string }) {
+async function createUnownedContinuationPredecessor(
+  fixture: { sessionId: string; taskId: string; executionId: string },
+): Promise<{ operationRunId: string; attemptId: string }> {
+  const operation = await prisma!.operationRun.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      operationKey: sessionTaskDefinition.key,
+      definitionVersion: sessionTaskDefinition.version,
+      ownerDomain: sessionTaskDefinition.ownerDomain,
+      title: sessionTaskDefinition.title,
+      engineType: sessionTaskDefinition.engineType,
+      resourceClass: sessionTaskDefinition.resourceClass,
+      executionTimeoutMs: sessionTaskDefinition.executionTimeoutMs,
+      status: 'attention_required',
+      triggerSource: 'agent',
+      requestedByUserId: TEST_USER_ID,
+      input: { execution: fixture.executionId },
+      maxAttempts: sessionTaskDefinition.maxAttempts,
+    },
+  });
+  const attempt = await prisma!.agentExecutionAttempt.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      attemptNumber: 1,
+      idempotencyKey: `unowned-continuation:${fixture.executionId}`,
+      runtimeType: 'copilotkit_agui',
+      externalRunId: 'unowned-continuation-runtime',
+      encryptedHandleRef: 'vault://unowned-continuation-runtime',
+      runtimeGeneration: 1,
+      state: 'running',
+    },
+  });
+  await prisma!.agentExecutionAttemptOperationBinding.create({
+    data: {
+      organizationId: TEST_ORGANIZATION_ID,
+      executionAttemptId: attempt.id,
+      executionId: fixture.executionId,
+      sessionId: fixture.sessionId,
+      operationRunId: operation.id,
+      continuationKey: `initial:${operation.id}`,
+    },
+  });
+  return { operationRunId: operation.id, attemptId: attempt.id };
+}
+
+function deletionInput(
+  session: string,
+  organizationId = TEST_ORGANIZATION_ID,
+  actorUserId = TEST_USER_ID,
+) {
+  return {
+    organizationId,
+    actorUserId,
+    session: session as never,
+    signal: new AbortController().signal,
+    definition: AGENT_SESSION_DELETE_OPERATION,
+    parsedInput: { session, retryGeneration: 1 },
+  };
+}
+
+function deletionRetryInput(
+  session: string,
+  organizationId = TEST_ORGANIZATION_ID,
+  actorUserId = TEST_USER_ID,
+) {
+  return {
+    organizationId,
+    actorUserId,
+    session: session as never,
+    signal: new AbortController().signal,
+    definition: AGENT_SESSION_DELETE_OPERATION,
+  };
+}
+
+function deletionOperationRun(input: {
+  idempotencyKey: string;
+  attempts: number;
+}) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
-    operationKey: 'agent-os.execute-session-task',
-    definitionVersion: 1,
-    ownerDomain: 'agent-os',
-    title: 'Materialize artifact',
-    engineType: 'node',
-    triggerSource: 'agent',
+    operationKey: AGENT_SESSION_DELETE_OPERATION_KEY,
+    definitionVersion: AGENT_SESSION_DELETE_OPERATION.version,
+    ownerDomain: AGENT_SESSION_DELETE_OPERATION.ownerDomain,
+    title: AGENT_SESSION_DELETE_OPERATION.title,
+    engineType: AGENT_SESSION_DELETE_OPERATION.engineType,
+    resourceClass: AGENT_SESSION_DELETE_OPERATION.resourceClass,
+    executionTimeoutMs: AGENT_SESSION_DELETE_OPERATION.executionTimeoutMs,
+    status: 'failed',
+    triggerSource: 'system',
     requestedByUserId: TEST_USER_ID,
     idempotencyKey: input.idempotencyKey,
-    input: {},
-    attemptToken: input.attemptToken,
+    input: { session: 'test', retryGeneration: 1 },
+    attempts: input.attempts,
+    maxAttempts: AGENT_SESSION_DELETE_OPERATION.maxAttempts,
+    finishedAt: new Date(),
   };
+}
+
+function canonicalJson(value: unknown): string {
+  if (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'boolean' ||
+    typeof value === 'number'
+  ) return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  return `{${Object.entries(value as Record<string, unknown>)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
+    .join(',')}}`;
+}
+
+async function markDeleting(sessionId: string): Promise<void> {
+  await prisma!.agentSession.update({
+    where: { id: sessionId },
+    data: { lifecycle: 'deleting' },
+  });
 }

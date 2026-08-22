@@ -48,6 +48,30 @@ vi.mock('@aws-sdk/client-s3', () => ({
       Object.assign(this, args);
     }
   },
+  CreateMultipartUploadCommand: class MockCreateMultipartUploadCommand {
+    __type = 'CreateMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  UploadPartCommand: class MockUploadPartCommand {
+    __type = 'UploadPart';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  CompleteMultipartUploadCommand: class MockCompleteMultipartUploadCommand {
+    __type = 'CompleteMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
+  AbortMultipartUploadCommand: class MockAbortMultipartUploadCommand {
+    __type = 'AbortMultipartUpload';
+    constructor(args: Record<string, unknown>) {
+      Object.assign(this, args);
+    }
+  },
   ListMultipartUploadsCommand: class MockListMultipartUploadsCommand {
     __type = 'ListMultipartUploads';
     constructor(args: Record<string, unknown>) {
@@ -62,6 +86,17 @@ vi.mock('@aws-sdk/s3-request-presigner', () => ({
 
 import sharp from 'sharp';
 import { StorageService } from '../storage.service';
+import { StorageAgentSessionArtifactAdapter } from '../../../agent-os/adapter/out/storage/storage-agent-session-artifact.adapter';
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 // ── Env snapshot helpers ────────────────────────────────────────────────────
 
@@ -226,6 +261,148 @@ describe('StorageService', () => {
           UploadIdMarker: 'upload-1',
         }),
       ]);
+    });
+  });
+
+  describe('verifyOwnedObjectSha256', () => {
+    it('reads the bounded exact key and rejects a completed object with a corrupt digest', async () => {
+      const bytes = Buffer.from('corrupt');
+      mockSend
+        .mockResolvedValueOnce({ ContentLength: bytes.byteLength })
+        .mockResolvedValueOnce({
+          Body: { transformToByteArray: async () => bytes },
+        });
+      const service = new StorageService();
+
+      await expect(service.verifyOwnedObjectSha256({
+        key: 'agent-artifacts/org/session/artifact',
+        expectedSha256: 'a'.repeat(64),
+        expectedByteLength: bytes.byteLength,
+        maxByteLength: 16 * 1024 * 1024,
+        signal: AbortSignal.timeout(1_000),
+      })).rejects.toThrow('STORAGE_OBJECT_SHA256_MISMATCH');
+      expect(mockSend.mock.calls.map(([command]) => command.__type)).toEqual([
+        'HeadObject',
+        'GetObject',
+      ]);
+    });
+
+    it('bounds the verification read even when a replaced object grows after HEAD', async () => {
+      const headBytes = Buffer.from('exact');
+      const overflowBytes = Buffer.alloc(17, 1);
+      mockSend
+        .mockResolvedValueOnce({ ContentLength: headBytes.byteLength })
+        .mockResolvedValueOnce({
+          Body: { transformToByteArray: async () => overflowBytes },
+        });
+      const service = new StorageService();
+
+      await expect(service.verifyOwnedObjectSha256({
+        key: 'agent-artifacts/org/session/artifact',
+        expectedSha256: 'a'.repeat(64),
+        expectedByteLength: headBytes.byteLength,
+        maxByteLength: 16,
+        signal: AbortSignal.timeout(1_000),
+      })).rejects.toThrow('STORAGE_OBJECT_LENGTH_MISMATCH');
+      expect(mockSend.mock.calls[1][0]).toMatchObject({
+        __type: 'GetObject',
+        Range: 'bytes=0-16',
+      });
+    });
+  });
+
+  describe('AgentSession exact-key multipart barrier', () => {
+    it('uses provider abort ordering from a recreated storage instance so a released old completion cannot recreate after head', async () => {
+      const key = 'agent-artifacts/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333';
+      const complete = deferred<void>();
+      let pendingUpload = true;
+      let uploadAborted = false;
+      let objectExists = false;
+      mockSend.mockImplementation(async (command: { __type: string }) => {
+        switch (command.__type) {
+          case 'UploadPart':
+            return { ETag: 'part-etag' };
+          case 'CompleteMultipartUpload':
+            await complete.promise;
+            if (uploadAborted) {
+              throw Object.assign(new Error('aborted upload'), { name: 'NoSuchUpload' });
+            }
+            pendingUpload = false;
+            objectExists = true;
+            return {};
+          case 'ListMultipartUploads':
+            return {
+              Uploads: pendingUpload ? [{ Key: key, UploadId: 'old-upload' }] : [],
+            };
+          case 'AbortMultipartUpload':
+            uploadAborted = true;
+            pendingUpload = false;
+            return {};
+          case 'DeleteObject':
+            objectExists = false;
+            return {};
+          case 'HeadObject':
+            if (objectExists) return {};
+            throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+          default:
+            throw new Error(`unexpected command ${command.__type}`);
+        }
+      });
+      const originalAdapter = new StorageAgentSessionArtifactAdapter(new StorageService());
+      // A real process recreation has a fresh service and therefore no
+      // in-memory barrier state from the original sender.
+      const recreatedAdapter = new StorageAgentSessionArtifactAdapter(new StorageService());
+
+      const oldComplete = originalAdapter.uploadAndComplete({
+        key,
+        uploadId: 'old-upload',
+        bytes: new Uint8Array([1]),
+        signal: AbortSignal.timeout(1_000),
+      });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      const cleanup = recreatedAdapter.abortEraseAndConfirm({
+        key,
+        uploadId: 'old-upload',
+        signal: AbortSignal.timeout(1_000),
+      });
+      await expect(cleanup).resolves.toEqual({ state: 'erased' });
+      expect(mockSend.mock.calls.map(([command]) => command.__type)).toEqual(expect.arrayContaining([
+        'AbortMultipartUpload',
+        'DeleteObject',
+        'HeadObject',
+      ]));
+      complete.resolve();
+      await expect(oldComplete).rejects.toMatchObject({ name: 'NoSuchUpload' });
+      expect(objectExists).toBe(false);
+    });
+
+    it('deletes and confirms when a recreated instance observes provider completion before AbortMultipartUpload', async () => {
+      const key = 'agent-artifacts/11111111-1111-4111-8111-111111111111/22222222-2222-4222-8222-222222222222/33333333-3333-4333-8333-333333333333';
+      let objectExists = true;
+      mockSend.mockImplementation(async (command: { __type: string }) => {
+        switch (command.__type) {
+          case 'AbortMultipartUpload':
+            throw Object.assign(new Error('already complete'), { name: 'NoSuchUpload' });
+          case 'ListMultipartUploads':
+            return { Uploads: [] };
+          case 'DeleteObject':
+            objectExists = false;
+            return {};
+          case 'HeadObject':
+            if (objectExists) return {};
+            throw Object.assign(new Error('missing'), { name: 'NoSuchKey' });
+          default:
+            throw new Error(`unexpected command ${command.__type}`);
+        }
+      });
+      const recreatedAdapter = new StorageAgentSessionArtifactAdapter(new StorageService());
+
+      await expect(recreatedAdapter.abortEraseAndConfirm({
+        key,
+        uploadId: 'completed-upload',
+        signal: AbortSignal.timeout(1_000),
+      })).resolves.toEqual({ state: 'erased' });
+      expect(objectExists).toBe(false);
     });
   });
 
