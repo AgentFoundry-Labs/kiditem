@@ -46,7 +46,6 @@ import { AgentInteractionBootstrapService } from "./application/service/interact
 import { AgentInteractionLiveEventsService } from "./application/service/interaction/agent-interaction-live-events.service";
 import { InteractionAllowedVersionResolver } from "./application/service/interaction/interaction-allowed-version-resolver";
 import { AgentSessionApprovalService } from "./application/service/session-control/agent-session-approval.service";
-import { AgentSessionCancellationService } from "./application/service/session-control/agent-session-cancellation.service";
 import { AgentSessionDelegationService } from "./application/service/session-control/agent-session-delegation.service";
 import { AgentSessionExecutionService } from "./application/service/session-control/agent-session-execution.service";
 import { AgentSessionOperationContinuationService } from "./application/service/session-control/agent-session-operation-continuation.service";
@@ -107,7 +106,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentSessionRuntimeControlService,
     AgentSessionOperationContinuationService,
     AgentSessionApprovalService,
-    AgentSessionCancellationService,
     AgentSessionExecutionService,
     AgentSessionTaskControlService,
     AgentSessionTaskDispatchService,

@@ -36,6 +36,8 @@ import { PrismaAgentJudgmentSubmissionTransaction } from './adapter/out/transact
 import { PrismaAgentJudgmentDispatchOutboxTransaction } from './adapter/out/transaction/session-control/prisma-agent-judgment-dispatch-outbox.transaction';
 import { AGENT_JUDGMENT_SUBMISSION_TRANSACTION } from './application/port/out/transaction/session-control/agent-judgment-submission.transaction.port';
 import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/out/transaction/session-control/agent-judgment-dispatch-outbox.transaction.port';
+import { AgentSessionCancellationService } from './application/service/session-control/agent-session-cancellation.service';
+import { AGENT_SESSION_CANCELLATION_PORT } from './application/port/in/session-control/agent-session-cancellation.port';
 
 /** API-only composition for Operations-backed AgentSession execution creation. */
 @Module({
@@ -43,6 +45,7 @@ import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/o
   providers: [
     OperationDefinitionSnapshotAdapter,
     AgentSessionOwnedOperationService,
+    AgentSessionCancellationService,
     AgentSessionTaskDispatchService,
     AgentJudgmentDispatchService,
     AgentJudgmentSubmissionService,
@@ -67,6 +70,10 @@ import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/o
     {
       provide: AGENT_SESSION_OWNED_OPERATION_PORT,
       useExisting: AgentSessionOwnedOperationService,
+    },
+    {
+      provide: AGENT_SESSION_CANCELLATION_PORT,
+      useExisting: AgentSessionCancellationService,
     },
     { provide: AGENT_JUDGMENT_SUBMISSION_PORT, useExisting: AgentJudgmentSubmissionService },
     {
@@ -98,6 +105,7 @@ import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/o
   ],
   exports: [
     AGENT_SESSION_OWNED_OPERATION_PORT,
+    AGENT_SESSION_CANCELLATION_PORT,
     AGENT_JUDGMENT_SUBMISSION_PORT,
     AGENT_SESSION_ARTIFACT_WRITER_PORT,
     AGENT_SESSION_DELETION_EXECUTION_PORT,

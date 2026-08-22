@@ -22,7 +22,7 @@ const makeAlertItem = (overrides: Partial<PanelItem> = {}): PanelItem => ({
   targetType: null,
   targetId: null,
   operationKey: 'op-1',
-  sourceType: 'agent_run_request',
+  sourceType: 'agent_session_task',
   sourceId: '22222222-2222-2222-2222-222222222222',
   isRead: false,
   actionTaskId: null,

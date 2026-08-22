@@ -166,7 +166,7 @@ export class OperationAlertService implements OperationAlertPort {
 
   /**
    * Close any operation alert linked to a specific (sourceType, sourceId)
-   * tuple. Used by cross-domain bridges (eg. AgentRun finalize) that know the
+   * tuple. Used by cross-domain finalized-event bridges that know the
    * upstream identity but not which producer set up the operationKey.
    */
   async closeBySource(

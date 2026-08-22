@@ -19,7 +19,6 @@ import {
 import type { AgentRunRequestStatus } from '../../domain/agent-os.types';
 import { AgentOsCatalogError } from '../../domain/agent-os.errors';
 import { AgentRunExecutor } from './agent-run-executor.service';
-import { operationCancellationAudit } from '../../../common/operation-cancellation-audit';
 import { findAgentDefinitionByType } from '../../domain/agent-definition.registry';
 
 const CANCELLABLE_REQUEST_STATUSES: AgentRunRequestStatus[] = [
@@ -237,13 +236,6 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       errorMessage: cancelReason(input.reason),
       payload: {
         ...request.payload,
-        operationCancellation: operationCancellationAudit({
-          requestedByUserId: input.actorUserId ?? null,
-          reason: cancelReason(input.reason),
-          target: { targetType: 'agent_run_request', requestId: request.id },
-          affected: { agentRunRequestIds: [request.id] },
-          result: 'cancelled',
-        }),
       },
     });
     if (!cancelled) {
@@ -262,16 +254,6 @@ export class AgentRunCoordinator implements AgentRunnerPort {
         data: {
           requestId: request.id,
           reason: input.reason ? input.reason : null,
-          operationCancellation: operationCancellationAudit({
-            requestedByUserId: input.actorUserId ?? null,
-            reason: cancelReason(input.reason),
-            target: { targetType: 'agent_run_request', requestId: request.id },
-            affected: {
-              agentRunRequestIds: [request.id],
-              agentRunIds: [cancelled.run.id],
-            },
-            result: 'cancelled',
-          }),
         },
       }).catch(() => undefined);
       await this.executor
@@ -319,16 +301,6 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       errorMessage: cancelReason(input.reason),
       payload: {
         ...request.payload,
-        operationCancellation: operationCancellationAudit({
-          requestedByUserId: input.actorUserId ?? null,
-          reason: cancelReason(input.reason),
-          target: { targetType: 'agent_run', runId: run.id },
-          affected: {
-            agentRunRequestIds: [request.id],
-            agentRunIds: [run.id],
-          },
-          result: 'cancelled',
-        }),
       },
     });
     if (!cancelled || !cancelled.run) {
@@ -344,16 +316,6 @@ export class AgentRunCoordinator implements AgentRunnerPort {
       data: {
         requestId: run.requestId,
         reason: input.reason ? input.reason : null,
-        operationCancellation: operationCancellationAudit({
-          requestedByUserId: input.actorUserId ?? null,
-          reason: cancelReason(input.reason),
-          target: { targetType: 'agent_run', runId: run.id },
-          affected: {
-            agentRunIds: [run.id],
-            agentRunRequestIds: [run.requestId],
-          },
-          result: 'cancelled',
-        }),
       },
     }).catch(() => undefined);
     await this.executor

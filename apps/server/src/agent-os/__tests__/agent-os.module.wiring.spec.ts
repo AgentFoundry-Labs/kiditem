@@ -25,6 +25,7 @@ import { AGENT_SESSION_ARTIFACT_WRITER_PORT } from "../application/port/in/sessi
 import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from "../application/port/in/session-execution/agent-runtime-credential-verification.port";
 import { AGENT_SESSION_DELETION_EXECUTION_PORT } from "../application/port/in/session-execution/agent-session-deletion-execution.port";
 import { AGENT_SESSION_DELETION_PORT } from "../application/port/in/session-control/agent-session-deletion.port";
+import { AGENT_SESSION_CANCELLATION_PORT } from "../application/port/in/session-control/agent-session-cancellation.port";
 import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "../application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port";
 import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "../application/port/out/runtime/agent-session-runtime-cleanup.port";
 import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "../application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
@@ -57,6 +58,7 @@ import { AgentConversationService } from "../application/service/agent-conversat
 import { AgentObservabilityService } from "../application/service/agent-observability.service";
 import { AgentSessionArtifactWriterService } from "../application/service/session-execution/agent-session-artifact-writer.service";
 import { AgentSessionOwnedOperationService } from "../application/service/session-control/agent-session-owned-operation.service";
+import { AgentSessionCancellationService } from "../application/service/session-control/agent-session-cancellation.service";
 import { AgentSessionTaskExecutionService } from "../application/service/session-execution/agent-session-task-execution.service";
 import { AgentSessionTaskOperationAdapter } from "../adapter/in/operation/session-execution/agent-session-task.operation-adapter";
 import { AgentInlineRunReconciler } from "../application/service/agent-inline-run-reconciler.service";
@@ -241,12 +243,19 @@ describe("Agent OS artifact materialization composition", () => {
     );
     expect(exportsOf(AgentOsApiExecutionModule)).toEqual([
       AGENT_SESSION_OWNED_OPERATION_PORT,
+      AGENT_SESSION_CANCELLATION_PORT,
       AGENT_JUDGMENT_SUBMISSION_PORT,
       AGENT_SESSION_ARTIFACT_WRITER_PORT,
       AGENT_SESSION_DELETION_EXECUTION_PORT,
       AGENT_SESSION_DELETION_PORT,
     ]);
     expect(imports(AgentOsHttpModule)).toContain(AgentOsApiExecutionModule);
+    expect(providers(AgentOsApiExecutionModule)).toContain(
+      AgentSessionCancellationService,
+    );
+    expect(providers(AgentOsHttpModule)).not.toContain(
+      AgentSessionCancellationService,
+    );
   });
 
   it("composes the deletion HTTP controller only in the API HTTP wrapper", () => {

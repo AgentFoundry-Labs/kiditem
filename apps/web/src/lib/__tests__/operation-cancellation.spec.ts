@@ -41,8 +41,7 @@ describe('operation cancellation client', () => {
       operationKey: 'workflow:run-1',
       affected: {
         workflowRunIds: ['run-1'],
-        agentRunRequestIds: [],
-        agentRunIds: [],
+        agentSessionTaskNames: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
         directAiJobIds: [],
@@ -78,8 +77,7 @@ describe('operation cancellation client', () => {
       operationKey: 'workflow:run-1',
       affected: {
         workflowRunIds: ['run-1'],
-        agentRunRequestIds: [],
-        agentRunIds: [],
+        agentSessionTaskNames: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
         directAiJobIds: [],
@@ -113,8 +111,7 @@ describe('operation cancellation client', () => {
         operationKey: null,
         affected: {
           workflowRunIds: [],
-          agentRunRequestIds: [],
-          agentRunIds: [],
+          agentSessionTaskNames: [],
           contentGenerationIds: [],
           thumbnailGenerationIds: [],
           directAiJobIds: [],

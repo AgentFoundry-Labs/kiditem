@@ -1,10 +1,12 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
+import { AgentOsApiExecutionModule } from '../../agent-os/agent-os-api-execution.module';
 import { AiModule } from '../../ai/ai.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { OperationCancellationController } from '../adapter/in/http/operation-cancellation.controller';
 import { OperationCancellationService } from '../application/service/operation-cancellation.service';
+import { AgentSessionTaskCancellationAdapter } from '../adapter/out/agent-os/agent-session-task-cancellation.adapter';
+import { OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT } from '../application/port/out/cross-domain/agent-session-task-cancellation.port';
 import { OperationCancellationModule } from '../operation-cancellation.module';
 
 const IMPORTS_KEY = 'imports';
@@ -17,7 +19,7 @@ describe('OperationCancellationModule wiring', () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, OperationCancellationModule) ?? [];
     expect(new Set(imports)).toEqual(
-      new Set([AutomationModule, AgentOsModule, AiModule]),
+      new Set([AutomationModule, AgentOsApiExecutionModule, AiModule]),
     );
   });
 
@@ -30,9 +32,16 @@ describe('OperationCancellationModule wiring', () => {
     );
   });
 
-  it('declares only the platform orchestration service locally', () => {
+  it('binds its owner-local AgentSession cancellation adapter without legacy AgentRun composition', () => {
     const providers: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, OperationCancellationModule) ?? [];
-    expect(providers).toEqual([OperationCancellationService]);
+    expect(providers).toEqual([
+      OperationCancellationService,
+      AgentSessionTaskCancellationAdapter,
+      {
+        provide: OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT,
+        useExisting: AgentSessionTaskCancellationAdapter,
+      },
+    ]);
   });
 });

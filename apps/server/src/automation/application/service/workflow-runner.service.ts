@@ -97,16 +97,12 @@ export class WorkflowRunnerService implements WorkflowRunCancellationPort {
       return {
         status: 'not_found',
         workflowRunId: input.runId,
-        cancelledAgentRunRequests: 0,
-        cancelledAgentRuns: 0,
       };
     }
     if (WORKFLOW_TERMINAL_STATUSES.has(run.status)) {
       return {
         status: 'already_terminal',
         workflowRunId: input.runId,
-        cancelledAgentRunRequests: 0,
-        cancelledAgentRuns: 0,
       };
     }
 
@@ -143,16 +139,12 @@ export class WorkflowRunnerService implements WorkflowRunCancellationPort {
       return {
         status: 'already_terminal',
         workflowRunId: input.runId,
-        cancelledAgentRunRequests: 0,
-        cancelledAgentRuns: 0,
       };
     }
 
     return {
       status: 'cancelled',
       workflowRunId: input.runId,
-      cancelledAgentRunRequests: 0,
-      cancelledAgentRuns: 0,
     };
   }
 

@@ -1230,6 +1230,32 @@ describe('Prisma Agent session-control transaction seams', () => {
     })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
   });
 
+  it('does not enumerate a cancellable task through a foreign organization or actor scope', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'foreign-cancellation');
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: owned.operationRunId,
+    });
+
+    await expect(repository.loadCancelableTask({
+      organizationId: OTHER_ORGANIZATION_ID,
+      actorId: OTHER_USER_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedStatus: 'running',
+    })).resolves.toBeNull();
+    await expect(repository.loadCancelableTask({
+      organizationId: TEST_ORGANIZATION_ID,
+      actorId: OTHER_USER_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      expectedStatus: 'running',
+    })).resolves.toBeNull();
+  });
+
   it('recovers the true latest lifecycle envelope after more than one bounded batch of historical bindings', async () => {
     const fixture = await createRootGraph();
     const initial = await createOwnedExecutionOperation(fixture, 'latest-envelope');

@@ -1,6 +1,9 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import type { AgentSessionTaskControlPort } from '../../port/in/session-control/agent-session-task-control.port';
-import { AgentSessionCancellationService } from './agent-session-cancellation.service';
+import {
+  AGENT_SESSION_CANCELLATION_PORT,
+  type AgentSessionCancellationPort,
+} from '../../port/in/session-control/agent-session-cancellation.port';
 import { AgentSessionExecutionService } from './agent-session-execution.service';
 
 /** Composes execution and cancellation into the single HTTP task-control use case. */
@@ -8,7 +11,8 @@ import { AgentSessionExecutionService } from './agent-session-execution.service'
 export class AgentSessionTaskControlService implements AgentSessionTaskControlPort {
   constructor(
     private readonly execution: AgentSessionExecutionService,
-    private readonly cancellation: AgentSessionCancellationService,
+    @Inject(AGENT_SESSION_CANCELLATION_PORT)
+    private readonly cancellation: AgentSessionCancellationPort,
   ) {}
 
   inspect(input: Parameters<AgentSessionExecutionService['inspect']>[0]) {
@@ -23,7 +27,7 @@ export class AgentSessionTaskControlService implements AgentSessionTaskControlPo
     return this.execution.resume(input);
   }
 
-  cancel(input: Parameters<AgentSessionCancellationService['cancel']>[0]) {
+  cancel(input: Parameters<AgentSessionCancellationPort['cancel']>[0]) {
     return this.cancellation.cancel(input);
   }
 }

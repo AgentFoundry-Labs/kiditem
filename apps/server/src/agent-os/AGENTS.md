@@ -41,8 +41,9 @@ progress.
   generic AgentRun providers. `AgentOsHttpModule` owns the HTTP
   controllers, guards, secrets, AG-UI producers, and Operations-backed session
   controls. Worker and MCP roots must not reach that HTTP wrapper transitively.
-- Complete AgentSession deletion is API-root-only: `AgentOsApiExecutionModule`
-  owns its execution service, one Operations handler, and the two
+- Complete AgentSession deletion and canonical session-task cancellation are
+  API-root-only: `AgentOsApiExecutionModule` owns their controller-free input
+  ports, deletion execution service, one Operations handler, and the two
   post-accepting recovery hooks; `AgentOsHttpModule` owns the controller.
   `AgentOsSessionModule` exports only controller-free transaction seams.
   Worker and MCP may verify fenced credentials but never compose deletion HTTP,

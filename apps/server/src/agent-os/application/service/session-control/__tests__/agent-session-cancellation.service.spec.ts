@@ -119,4 +119,21 @@ describe('AgentSessionCancellationService', () => {
     })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
     expect(operations.cancel).not.toHaveBeenCalled();
   });
+
+  it('fails closed without enumerating a same-organization task owned by another actor', async () => {
+    const controls = { loadCancelableTask: vi.fn().mockResolvedValue(null) };
+    const operations = { cancel: vi.fn() };
+    const service = new AgentSessionCancellationService(controls as never, operations as never);
+
+    await expect(service.cancel({
+      organizationId: ORGANIZATION_ID,
+      session,
+      task,
+      actorId: 'foreign-user',
+      idempotencyKey: 'cancel:foreign',
+      expectedStatus: 'running',
+      reason: null,
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+    expect(operations.cancel).not.toHaveBeenCalled();
+  });
 });

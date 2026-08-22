@@ -4,10 +4,6 @@ import type { NextFunction, Request, Response } from 'express';
 import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
-  AGENT_RUNNER_PORT,
-  type AgentRunnerPort,
-} from '../../../../../agent-os/application/port/in/agent-runner.port';
-import {
   AI_GENERATION_CANCELLATION_PORT,
   type AiGenerationCancellationPort,
 } from '../../../../../ai/application/port/in/generation/ai-generation-cancellation.port';
@@ -27,6 +23,7 @@ import {
 } from '../../../../../automation/application/port/in/workflow-run-cancellation.port';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { OperationCancellationService } from '../../../../application/service/operation-cancellation.service';
+import { OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT } from '../../../../application/port/out/cross-domain/agent-session-task-cancellation.port';
 import { OperationCancellationController } from '../operation-cancellation.controller';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
@@ -201,9 +198,7 @@ async function buildHarness() {
   const workflows: WorkflowRunCancellationPort = {
     cancelRun: vi.fn(),
   };
-  const agentRunner: AgentRunnerPort = {
-    runByType: vi.fn(),
-  };
+  const sessionTasks = { cancel: vi.fn() };
   const prisma = {
     contentGeneration: { findFirst: vi.fn() },
     thumbnailGeneration: { findFirst: vi.fn() },
@@ -225,7 +220,7 @@ async function buildHarness() {
       { provide: PRODUCT_GENERATION_CHILD_LEDGER_REPOSITORY_PORT, useValue: childLedger },
       { provide: OPERATION_ALERT_PORT, useValue: operationAlerts.port },
       { provide: WORKFLOW_RUN_CANCELLATION_PORT, useValue: workflows },
-      { provide: AGENT_RUNNER_PORT, useValue: agentRunner },
+      { provide: OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT, useValue: sessionTasks },
       { provide: AI_GENERATION_CANCELLATION_PORT, useValue: ai },
     ],
   }).compile();
@@ -307,8 +302,7 @@ describe('operation cancellation parent/child integration', () => {
       operationKey: OPERATION_KEY,
       affected: {
         workflowRunIds: [],
-        agentRunRequestIds: [],
-        agentRunIds: [],
+        agentSessionTaskNames: [],
         contentGenerationIds: ['cg-1'],
         thumbnailGenerationIds: ['tg-1'],
         directAiJobIds: [],

@@ -9,24 +9,18 @@ import {
   OPERATION_RUNNER_PORT,
   type OperationRunnerPort,
 } from '../../../../operations/application/port/in/operation-runner.port';
+import type {
+  AgentSessionCancellationPort,
+  CancelAgentSessionTaskInput,
+} from '../../port/in/session-control/agent-session-cancellation.port';
 import {
   AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
   type AgentSessionControlQueryRepositoryPort,
 } from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 
-interface CancelInput {
-  organizationId: string;
-  session: AgentSessionName;
-  task: AgentSessionTaskName;
-  actorId: string;
-  idempotencyKey: string;
-  expectedStatus: 'queued' | 'running' | 'waiting_dependency' | 'waiting_approval' | 'paused';
-  reason: string | null;
-}
-
 @Injectable()
-export class AgentSessionCancellationService {
+export class AgentSessionCancellationService implements AgentSessionCancellationPort {
   private readonly pending = new Map<string, Promise<{ status: string }>>();
 
   constructor(
@@ -36,7 +30,7 @@ export class AgentSessionCancellationService {
     private readonly operations: OperationRunnerPort,
   ) {}
 
-  async cancel(input: CancelInput): Promise<{ status: string }> {
+  async cancel(input: CancelAgentSessionTaskInput): Promise<{ status: string }> {
     const graph = parseGraph(input);
     const key = JSON.stringify([
       graph.organizationId,
@@ -55,7 +49,7 @@ export class AgentSessionCancellationService {
   private async cancelOnce(
     graph: { organizationId: string; sessionId: string; taskId: string },
     actorId: string,
-    expectedStatus: CancelInput['expectedStatus'],
+    expectedStatus: CancelAgentSessionTaskInput['expectedStatus'],
     reason: string | null,
   ): Promise<{ status: string }> {
     const target = await this.controls.loadCancelableTask({ ...graph, actorId, expectedStatus });
@@ -75,7 +69,7 @@ export class AgentSessionCancellationService {
   }
 }
 
-function parseGraph(input: CancelInput): {
+function parseGraph(input: CancelAgentSessionTaskInput): {
   organizationId: string;
   sessionId: string;
   taskId: string;

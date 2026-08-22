@@ -102,7 +102,7 @@ function makeCoordinator(overrides: Record<string, unknown> = {}) {
 }
 
 describe('AgentRunCoordinator cancellation', () => {
-  it('cancels a pending request by id', async () => {
+  it('cancels a pending request without emitting the retired operation-cancellation audit shape', async () => {
     const { coordinator, repository } = makeCoordinator({
       findRunRequestById: vi.fn().mockResolvedValue(request('pending')),
     });
@@ -120,17 +120,7 @@ describe('AgentRunCoordinator cancellation', () => {
       currentRequestStatuses: ['pending', 'claimed', 'requires_approval'],
       errorCode: 'user_cancelled',
       errorMessage: '사용자 요청',
-      payload: {
-        operationCancellation: expect.objectContaining({
-          requestedByUserId: USER_ID,
-          reason: '사용자 요청',
-          result: 'cancelled',
-          target: { targetType: 'agent_run_request', requestId: REQUEST_ID },
-          affected: expect.objectContaining({
-            agentRunRequestIds: [REQUEST_ID],
-          }),
-        }),
-      },
+      payload: {},
     });
     expect(repository.markRequestStatusIfCurrent).not.toHaveBeenCalled();
     expect(repository.finalizeRun).not.toHaveBeenCalled();
@@ -182,7 +172,7 @@ describe('AgentRunCoordinator cancellation', () => {
     });
   });
 
-  it('records cancel request on a running run and cancels its request ledger', async () => {
+  it('records cancellation without emitting the retired operation-cancellation audit shape', async () => {
     const { coordinator, repository, executor } = makeCoordinator({
       findRunById: vi.fn().mockResolvedValue(run('running')),
       findRunRequestById: vi.fn().mockResolvedValue(request('claimed')),
@@ -205,12 +195,10 @@ describe('AgentRunCoordinator cancellation', () => {
         runId: RUN_ID,
         type: 'run.cancel_requested',
         message: '사용자 요청',
-        data: expect.objectContaining({
-          operationCancellation: expect.objectContaining({
-            requestedByUserId: USER_ID,
-            target: { targetType: 'agent_run', runId: RUN_ID },
-          }),
-        }),
+        data: {
+          requestId: REQUEST_ID,
+          reason: '사용자 요청',
+        },
       }),
     );
     expect(repository.cancelRequestAndRun).toHaveBeenCalledWith(
