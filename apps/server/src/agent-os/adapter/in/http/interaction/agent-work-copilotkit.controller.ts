@@ -11,13 +11,13 @@ import type { AuthUser } from '../../../../../auth/auth.types';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { AgentAttemptAdmissionService } from '../../../../application/service/work/agent-attempt-admission.service';
 import { AgentAttemptExecutorService } from '../../../../adapter/out/runtime/attempt/agent-attempt-executor.service';
-import { AttemptLiveEventHub } from '../../../../adapter/out/runtime/attempt/attempt-live-event-hub';
+import { AttemptFutureOutputChannel } from '../../../../adapter/out/runtime/attempt/attempt-future-output-channel';
 import { CopilotAgentRunner, CopilotSseRuntime, createCopilotRuntimeHandler } from './copilotkit-v2-runtime';
 
 /** Incoming CopilotKit OSS adapter. It has no durable conversation/replay store. */
 @Controller('copilotkit')
 export class AgentWorkCopilotKitController {
-  constructor(private readonly prisma: PrismaService, private readonly admissions: AgentAttemptAdmissionService, private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptLiveEventHub) {}
+  constructor(private readonly prisma: PrismaService, private readonly admissions: AgentAttemptAdmissionService, private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptFutureOutputChannel) {}
 
   @All(['', '*path'])
   async handle(@CurrentUser() user: AuthUser, @CurrentOrganization() organizationId: string, @Req() request: ExpressRequest, @Res() response: ExpressResponse): Promise<void> {
@@ -55,7 +55,7 @@ class DurableWorkAgent extends AbstractAgent {
 }
 
 class FutureOnlyRunner extends CopilotAgentRunner {
-  constructor(private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptLiveEventHub) { super(); }
+  constructor(private readonly executor: AgentAttemptExecutorService, private readonly live: AttemptFutureOutputChannel) { super(); }
   bind(input: { attemptId: string; threadId: string; runId: string }): void { this.attempts.set(`${input.threadId}\u0000${input.runId}`, input.attemptId); this.live.bind(input); }
   run(request: { threadId: string; agent: { run(input: unknown): Observable<BaseEvent> }; input: unknown }): Observable<BaseEvent> {
     const runId = (request.input as { runId?: unknown }).runId;

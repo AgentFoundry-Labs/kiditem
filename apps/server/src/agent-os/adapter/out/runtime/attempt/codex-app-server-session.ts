@@ -13,9 +13,14 @@ export class CodexAppServerSession {
 
   async start(input: { model: string; cwd: string; prompt: string }): Promise<void> {
     await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' } });
-    const thread = await this.request('thread/start', { ephemeral: true, model: input.model, cwd: input.cwd });
+    const thread = await this.request('thread/start', {
+      ephemeral: true, model: input.model, cwd: input.cwd,
+      sandbox: { mode: 'workspace-write', writableRoots: [input.cwd], networkAccess: false },
+      runtimeWorkspaceRoots: [input.cwd], environments: [], selectedCapabilityRoots: [],
+      history: { persistence: 'none' },
+    });
     this.threadId = requiredNestedId(thread, 'thread');
-    const turn = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: input.prompt }] });
+    const turn = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: input.prompt }], outputSchema: terminalOutputSchema() });
     this.turnId = requiredNestedId(turn, 'turn');
   }
 
@@ -58,6 +63,14 @@ export class CodexAppServerSession {
       this.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, params })}\n`);
     });
   }
+}
+
+function terminalOutputSchema() {
+  return { type: 'object', additionalProperties: false, required: ['outcome', 'summary', 'resourceRefs', 'operationRefs'], properties: {
+    outcome: { enum: ['completed', 'needs_input', 'failed'] }, summary: { type: 'string', maxLength: 1000 },
+    resourceRefs: { type: 'array', maxItems: 50 }, operationRefs: { type: 'array', maxItems: 50 },
+    needsInput: { type: 'object', additionalProperties: false }, error: { type: 'object', additionalProperties: false }, output: { type: 'object', additionalProperties: false },
+  } };
 }
 
 function requiredNestedId(value: unknown, key: 'thread' | 'turn'): string {
