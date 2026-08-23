@@ -57,8 +57,10 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
   async ingestCandidate(input: {
     organizationId: string;
     initiatingUserId: string;
+    idempotencyKey: string;
     snapshot: SourcingSourceSnapshot;
   }) {
+    if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
     const supplier = parseAllowedSupplierUrl(input.snapshot.sourceUrl);
     if (contentHash(snapshotContent(input.snapshot)) !== input.snapshot.contentHash) {
       throw new Error('sourcing_scrape_snapshot_hash_mismatch');
@@ -72,6 +74,7 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       externalOfferId,
       variantKeyNormalized: '',
       sourceIdentityHash: externalOfferId ? stableSourcingCandidateIdentity(platform, externalOfferId, '') : null,
+      idempotencyKey: input.idempotencyKey,
       rawData: {
         source: 'agent_final_scrape',
         contentHash: input.snapshot.contentHash,

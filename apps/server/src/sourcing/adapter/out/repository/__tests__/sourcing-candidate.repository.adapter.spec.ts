@@ -94,6 +94,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     let candidate: ReturnType<typeof candidateRow> | null = null;
     let imageCount = 0;
     const tx = {
+      $queryRaw: vi.fn(async () => [{ lock: 'locked' }]),
       sourcingCandidate: {
         findFirst: vi.fn(async () => candidate && { id: candidate.id, rawData: candidate.rawData }),
         create: vi.fn(async ({ data }) => {
@@ -131,6 +132,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
     const input = {
       organizationId: 'org-1',
+      idempotencyKey: 'candidate-owner-key',
       sourceUrl: 'https://detail.1688.com/offer/1.html',
       sourcePlatform: 'ALIBABA_1688',
       externalOfferId: '1',
@@ -152,6 +154,7 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(replay.id).toBe(first.id);
     expect(tx.sourcingCandidate.create).toHaveBeenCalledOnce();
     expect(tx.candidateImage.createMany).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
     expect(imageCount).toBe(1);
   });
 

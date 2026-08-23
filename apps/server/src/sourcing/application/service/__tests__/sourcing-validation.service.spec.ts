@@ -156,6 +156,7 @@ describe('SourcingValidationService', () => {
     await service.refreshForRun({
       organizationId: ORGANIZATION_ID,
       recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
     });
 
     expect(recommendations.findById).toHaveBeenCalledWith({
@@ -163,6 +164,11 @@ describe('SourcingValidationService', () => {
       id: RUN_ID,
     });
     expect(recommendations.findLatest).not.toHaveBeenCalled();
+    expect(validations.replaceForRun).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+    }));
   });
 });
 

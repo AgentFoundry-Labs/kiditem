@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
-import type { Prisma } from '@prisma/client';
+import { Injectable } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   SourcingValidationEpisodeWrite,
@@ -20,6 +20,7 @@ export class SourcingValidationRepositoryAdapter
   async replaceForRun(command: {
     organizationId: string;
     recommendationRunId: string;
+    idempotencyKey?: string;
     episodes: SourcingValidationEpisodeWrite[];
   }): Promise<SourcingValidationItemRecord[]> {
     if (command.episodes.length === 0) return [];
@@ -75,9 +76,16 @@ export class SourcingValidationRepositoryAdapter
   private async createMissingEpisodes(command: {
     organizationId: string;
     recommendationRunId: string;
+    idempotencyKey?: string;
     episodes: SourcingValidationEpisodeWrite[];
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
+      if (command.idempotencyKey?.trim()) {
+        await advisoryLock(
+          tx,
+          `sourcing-validation:${command.organizationId}:${command.idempotencyKey}`,
+        );
+      }
       const episodeByItemId = new Map<string, SourcingValidationEpisodeWrite>();
       for (const episode of command.episodes) {
         if (episodeByItemId.has(episode.recommendationItemId)) {
@@ -183,6 +191,13 @@ export class SourcingValidationRepositoryAdapter
       }
     });
   }
+}
+
+async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+  await tx.$queryRaw(
+    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+  );
 }
 
 const viewInclude = {

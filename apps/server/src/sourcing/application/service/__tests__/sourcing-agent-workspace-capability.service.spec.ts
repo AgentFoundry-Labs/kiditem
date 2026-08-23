@@ -96,6 +96,29 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       idempotencyKey: 'review-key-1',
     });
   });
+
+  it('passes the owner idempotency key through validation to its final owner', async () => {
+    const dependencies = mocks();
+    dependencies.validations.refreshForRun.mockResolvedValue({
+      data: {
+        recommendationRunId: RUN_ID,
+        items: [{ episodeId: 'episode-1', checks: [] }],
+      },
+    });
+    const service = createMutationService(dependencies);
+
+    await service.refreshValidation({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+    });
+
+    expect(dependencies.validations.refreshForRun).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+    });
+  });
 });
 
 function mocks() {

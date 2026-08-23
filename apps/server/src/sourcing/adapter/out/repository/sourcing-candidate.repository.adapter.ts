@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { Prisma } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   CandidateImageRow,
@@ -278,6 +278,9 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
 
   private upsertSourcedInTransaction(input: UpsertCandidateInput): Promise<CandidateRow> {
     return this.prisma.$transaction(async (tx) => {
+      if (input.idempotencyKey?.trim()) {
+        await advisoryLock(tx, `sourcing-candidate:${input.organizationId}:${input.idempotencyKey}`);
+      }
       const existing = await tx.sourcingCandidate.findFirst({
         where: {
           organizationId: input.organizationId,
@@ -346,6 +349,13 @@ export class SourcingCandidateRepositoryAdapter implements SourcingCandidateRepo
       })),
     });
   }
+}
+
+async function advisoryLock(tx: Prisma.TransactionClient, key: string): Promise<void> {
+  await tx.$queryRaw(
+    // queryraw-tenancy-exempt: exact owner key contains the organization boundary; reads no tenant data.
+    Prisma.sql`SELECT pg_advisory_xact_lock(hashtextextended(${key}, 0))::text AS "lock"`,
+  );
 }
 
 function hydrateCandidate(row: any) {

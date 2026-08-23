@@ -72,6 +72,8 @@ export interface ProductPreparationRow {
 
 export interface UpsertCandidateInput {
   organizationId: string;
+  /** Optional for legacy owner paths; Agent capability writes pass an exact owner key. */
+  idempotencyKey?: string;
   sourceUrl: string;
   sourcePlatform: string;
   externalOfferId?: string | null;

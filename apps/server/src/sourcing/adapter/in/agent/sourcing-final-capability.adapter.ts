@@ -57,7 +57,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async ingestCandidate({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { snapshot: import('../../../application/port/in/capability/sourcing-final-capability.port').SourcingSourceSnapshot } }) {
-    requiredDerivedIdempotency(
+    const idempotencyKey = requiredDerivedIdempotency(
       context,
       'sourcing.ingestCandidate',
       input,
@@ -65,6 +65,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
     return this.discovery.ingestCandidate({
       organizationId: context.organizationId,
       initiatingUserId: context.initiatingUserId,
+      idempotencyKey,
       snapshot: input.snapshot,
     });
   }

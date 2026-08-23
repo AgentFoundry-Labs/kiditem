@@ -8,6 +8,7 @@ export interface SourcingFinalDiscoveryCapabilityPort {
   ingestCandidate(input: {
     organizationId: string;
     initiatingUserId: string;
+    idempotencyKey: string;
     snapshot: SourcingSourceSnapshot;
   }): Promise<{ candidateId: string }>;
 }

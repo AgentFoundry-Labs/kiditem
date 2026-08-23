@@ -49,6 +49,7 @@ describe('SourcingValidationRepositoryAdapter', () => {
   it('replays an existing immutable run item graph without episode, check, or link writes', async () => {
     let episodeExists = false;
     const tx = {
+      $queryRaw: vi.fn(async () => [{ lock: 'locked' }]),
       sourcingRecommendationItem: {
         findMany: vi.fn(async () => [{ id: ITEM_ID }]),
       },
@@ -76,7 +77,12 @@ describe('SourcingValidationRepositoryAdapter', () => {
       },
     };
     const repository = new SourcingValidationRepositoryAdapter(prisma as never);
-    const command = { organizationId: ORGANIZATION_ID, recommendationRunId: RUN_ID, episodes: [episode()] };
+    const command = {
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+      episodes: [episode()],
+    };
 
     const first = await repository.replaceForRun(command);
     const replay = await repository.replaceForRun(command);
@@ -85,6 +91,33 @@ describe('SourcingValidationRepositoryAdapter', () => {
     expect(tx.sourcingValidationEpisode.createMany).toHaveBeenCalledOnce();
     expect(tx.sourcingValidationCheck.createMany).toHaveBeenCalledOnce();
     expect(tx.sourcingValidationCheckEvidence.createMany).toHaveBeenCalledOnce();
+    expect(tx.$queryRaw).toHaveBeenCalledTimes(2);
+  });
+
+  it('takes an exact owner-key transaction lock before the immutable validation create-or-get', async () => {
+    const tx = {
+      $queryRaw: vi.fn(async () => [{ lock: 'locked' }]),
+      sourcingRecommendationItem: { findMany: vi.fn(async () => [{ id: ITEM_ID }]) },
+      sourcingValidationEpisode: {
+        findMany: vi.fn(async () => [{ recommendationItemId: ITEM_ID }]),
+        createMany: vi.fn(),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback) => callback(tx)),
+      sourcingValidationEpisode: { findMany: vi.fn(async () => [storedEpisode()]) },
+    };
+    const repository = new SourcingValidationRepositoryAdapter(prisma as never);
+
+    await repository.replaceForRun({
+      organizationId: ORGANIZATION_ID,
+      recommendationRunId: RUN_ID,
+      idempotencyKey: 'validation-owner-key',
+      episodes: [episode()],
+    });
+
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.sourcingValidationEpisode.createMany).not.toHaveBeenCalled();
   });
 
   it('orders validation pages by updated time and id without exposing malformed image URLs', async () => {

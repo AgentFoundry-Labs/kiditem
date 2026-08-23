@@ -100,6 +100,7 @@ describe('SourcingFinalCapabilityAdapter', () => {
     await admission.admit({ ...context, capabilityKey: 'sourcing.ingestCandidate', input: { snapshot } });
     await expect(adapter.ingestCandidate({ context, input: { snapshot } })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000010' });
     expect(discovery.ingestCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: context.ownerIdempotencyKey,
       snapshot,
     }));
   });

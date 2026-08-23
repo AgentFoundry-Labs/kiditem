@@ -90,6 +90,7 @@ export class SourcingValidationService {
   async refreshForRun(input: {
     organizationId: string;
     recommendationRunId: string;
+    idempotencyKey?: string;
     limit?: number;
   }): Promise<SourcingValidationEnvelope> {
     const now = new Date();
@@ -104,6 +105,7 @@ export class SourcingValidationService {
       run,
       limit: normalizeLimit(input.limit),
       now,
+      idempotencyKey: input.idempotencyKey,
     });
   }
 
@@ -112,6 +114,7 @@ export class SourcingValidationService {
     run: SourcingRecommendationRunGraph;
     limit: number;
     now: Date;
+    idempotencyKey?: string;
   }): Promise<SourcingValidationEnvelope> {
     const supplyItems = input.run.items.filter((item) => item.sourcePlatform === '1688');
     const validationItems = supplyItems.length > 0 ? supplyItems : input.run.items;
@@ -123,6 +126,7 @@ export class SourcingValidationService {
       : await this.validations.replaceForRun({
           organizationId: input.organizationId,
           recommendationRunId: input.run.id,
+          idempotencyKey: input.idempotencyKey,
           episodes,
         });
     return ready(input.run, items, null);
