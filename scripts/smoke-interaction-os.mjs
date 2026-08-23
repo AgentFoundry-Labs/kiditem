@@ -30,11 +30,9 @@ function run(args, additionalEnv = {}) {
 run(['run', 'build', '--workspace=apps/server']);
 run(['run', 'build', '--workspace=apps/web']);
 run([
-  'exec', '--', 'playwright', 'test',
-  'apps/web/e2e/agent-session-interaction.spec.ts',
-  'apps/web/e2e/interaction-os/durable-session.spec.ts',
-], { KIDITEM_E2E_SKIP_WEB_BUILD: '1' });
-run([
-  'run', 'test:integration', '--workspace=apps/server', '--',
-  'src/agent-os/__tests__/official-runtime-recovery.pg.integration.spec.ts',
+  'exec', '--workspace=apps/server', 'vitest', '--', 'run',
+  'src/agent-os/adapter/out/runtime/attempt',
+  'src/agent-os/application/service/work/__tests__/agent-attempt-admission.service.spec.ts',
+  'src/agent-os/application/service/work/agent-api-startup-reconciler.service.spec.ts',
+  'src/readiness/__tests__/readiness.service.spec.ts',
 ]);

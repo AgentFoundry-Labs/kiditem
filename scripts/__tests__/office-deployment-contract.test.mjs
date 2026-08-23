@@ -36,6 +36,11 @@ test('office Compose is image-only and preserves external state volumes', () => 
   assert.equal(compose.match(/external: true/g)?.length, 2);
   assert.doesNotMatch(compose, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
   assert.doesNotMatch(envExample, /SUPABASE_URL|NEXT_PUBLIC_SUPABASE/);
+  assert.doesNotMatch(compose, /interaction-gateway/);
+  assert.doesNotMatch(compose, /AGENT_DURABLE_RUNTIME_RUN_ROOT/);
+  assert.doesNotMatch(compose, /AGENT_RUNTIME_(?:CONCURRENCY|CAPACITY_WAIT_MS|CLAUDE_MAX_BUDGET_USD|WORKER_ENABLED)/);
+  assert.match(compose, /KIDITEM_APPLICATION_VERSION: \$\{KIDITEM_APPLICATION_VERSION:\?/);
+  assert.match(compose, /KIDITEM_GIT_SHA: \$\{KIDITEM_GIT_SHA:\?/);
 });
 
 test('office Compose injects the managed Chrome CDP endpoint into the API runtime', () => {
@@ -58,6 +63,8 @@ test('office Compose injects the managed Chrome CDP endpoint into the API runtim
       env: {
         ...process.env,
         OFFICE_API_ENV_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
+        KIDITEM_APPLICATION_VERSION: '0.0.0-test',
+        KIDITEM_GIT_SHA: 'a'.repeat(40),
       },
     },
   );
@@ -113,7 +120,7 @@ test('office API runtime includes the Prisma CLI used by explicit schema apply',
   assert.equal(serverPackage.devDependencies?.prisma, undefined);
 });
 
-test('office API runtime owns installed local CLIs and persistent service-account profiles', () => {
+test('office API runtime alone owns installed local CLIs and a read-only service-account profile', () => {
   const serverPackage = JSON.parse(read('apps/server/package.json'));
   const dockerfile = read('apps/server/Dockerfile');
   const compose = read('deploy/office/compose.office.yml');
@@ -124,21 +131,25 @@ test('office API runtime owns installed local CLIs and persistent service-accoun
   assert.match(dockerfile, /codex --version/);
   assert.match(dockerfile, /claude --version/);
   assert.match(dockerfile, /COPY agent-config \.\/agent-config/);
-  assert.match(dockerfile, /FilesystemAgentRuntimeManifestCatalog/);
+  assert.match(dockerfile, /readiness-canary-mcp-server\.js/);
   assert.match(dockerfile, /kiditem-agent-os-mcp-server\.js/);
   assert.doesNotMatch(
     dockerfile,
     /COPY agent-config\/prompts\/agents\/sourcing\.md/,
   );
-  assert.match(compose, /HOME: \/var\/lib\/kiditem-cli/);
-  assert.match(compose, /CODEX_HOME: \/var\/lib\/kiditem-cli\/\.codex/);
-  assert.match(compose, /CLAUDE_CONFIG_DIR: \/var\/lib\/kiditem-cli\/\.claude/);
-  assert.match(compose, /kiditem-cli-home:\/var\/lib\/kiditem-cli/);
+  assert.match(compose, /KIDITEM_ATTEMPT_LOGIN_HOME: \/var\/lib\/kiditem-cli/);
+  assert.match(compose, /kiditem-cli-home:\/var\/lib\/kiditem-cli:ro/);
+  assert.match(compose, /AGENT_CLI_MAX_CONCURRENCY: \$\{AGENT_CLI_MAX_CONCURRENCY:-4\}/);
+  for (const key of ['OPERATOR', 'SOURCING', 'MERCHANDISING', 'SUPPLY', 'CHANNEL_OPERATIONS', 'ADVERTISING']) {
+    assert.match(compose, new RegExp('AGENT_' + key + '_MODEL: \\$\\{AGENT_' + key + '_MODEL:\\?'));
+  }
   assert.doesNotMatch(compose, /kiditem-agent-runs:\/var\/lib\/kiditem-agent-runs/);
   assert.match(compose, /cli-login:/);
   assert.match(compose, /profiles:\s*\["cli-login"\]/);
   assert.match(compose, /command: \["codex", "login", "status"\]/);
   assert.doesNotMatch(compose, /OPENAI_API_KEY|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN/);
+  const worker = compose.slice(compose.indexOf('  worker:'), compose.indexOf('  web:'));
+  assert.doesNotMatch(worker, /(?:HOME|CODEX_HOME|CLAUDE_CONFIG_DIR|KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)/);
   const runbook = read('docs/runbooks/office-deploy.md');
   assert.match(runbook, /docker compose run --rm --no-deps cli-login codex login --device-auth/);
   assert.match(runbook, /docker compose run --rm --no-deps cli-login claude auth login/);
@@ -162,6 +173,8 @@ test('office cli-login profile resolves with only its non-secret CLI-home enviro
       env: {
         ...process.env,
         OFFICE_API_ENV_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
+        KIDITEM_APPLICATION_VERSION: '0.0.0-test',
+        KIDITEM_GIT_SHA: 'a'.repeat(40),
       },
     },
   );
@@ -227,4 +240,27 @@ test('office runbook fixes branch lifetime and rollback boundaries', () => {
   assert.match(runbook, /larger local SSD/);
   assert.match(runbook, /-ApplySchema/);
   assert.match(runbook, /does not undo Prisma schema changes/);
+});
+
+test('office deployment passes immutable application identity into the API runtime', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const compose = read('deploy/office/compose.office.yml');
+  assert.match(script, /KIDITEM_APPLICATION_VERSION=\$\(\$Manifest\.appVersion\)/);
+  assert.match(script, /KIDITEM_GIT_SHA=\$\(\$Manifest\.gitSha\)/);
+  assert.match(compose, /KIDITEM_APPLICATION_VERSION: \$\{KIDITEM_APPLICATION_VERSION:\?/);
+  assert.match(compose, /KIDITEM_GIT_SHA: \$\{KIDITEM_GIT_SHA:\?/);
+});
+
+test('Agent OS clean cutover is Windows/Docker-only and stops writers on post-start failure', () => {
+  const cutover = read('docs/runbooks/agent-os-clean-cutover.md');
+  assert.match(cutover, /\$expectedDockerContext = 'desktop-linux'/);
+  assert.match(cutover, /pg_dump.*--format=custom/);
+  assert.match(cutover, /pg_restore --list/);
+  assert.match(cutover, /Get-FileHash -Algorithm SHA256/);
+  assert.match(cutover, /npx prisma db push --accept-data-loss/);
+  assert.match(cutover, /seed-agent-versions\.cli\.js/);
+  assert.match(cutover, /& docker @compose stop api worker web nginx/);
+  assert.match(cutover, /\$cutoverError = \$_\.Exception\.Message/);
+  assert.match(cutover, /docker cp \$dump kiditem-postgres:/);
+  assert.doesNotMatch(cutover, /codex\.exe|claude\.exe|Start-Process\s+(?:codex|claude)/i);
 });

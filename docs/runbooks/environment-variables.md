@@ -103,8 +103,17 @@ AI_TEXT_MODEL
 AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
-AGENT_RUNTIME_WORKER_ENABLED
-AGENT_DEFAULT_MODEL
+KIDITEM_ATTEMPT_LOGIN_HOME
+KIDITEM_ATTEMPT_CLI_VERSION
+KIDITEM_APPLICATION_VERSION
+KIDITEM_GIT_SHA
+AGENT_CLI_MAX_CONCURRENCY
+AGENT_OPERATOR_MODEL
+AGENT_SOURCING_MODEL
+AGENT_MERCHANDISING_MODEL
+AGENT_SUPPLY_MODEL
+AGENT_CHANNEL_OPERATIONS_MODEL
+AGENT_ADVERTISING_MODEL
 ```
 
 ## Operations Control Plane
@@ -236,11 +245,6 @@ API text/detail/thumbnail/image-edit AI features are enabled.
 | `AI_DIRECT_JOB_HEARTBEAT_MS` | Running-job lease heartbeats need a non-default interval | AI direct-job worker | Optional; defaults to `5000`. Must be shorter than the lease; runtime also caps it at one third of the lease. |
 | `AI_DIRECT_JOB_LEASE_MS` | Direct AI claim leases need a non-default duration | AI direct-job worker | Optional; defaults to `60000`. Must be a positive integer. |
 | `AI_PROVIDER_TIMEOUT_MS` | A direct AI job needs a non-default total execution budget | AI direct-job worker | Optional; defaults to `1200000` (20 minutes) so multi-image detail-page jobs can finish within their 15-minute generated-image budget. Must be a positive integer. Timeout aborts the whole job and is retryable. Each Gemini SDK call still carries its own 120-second HTTP timeout. |
-| `AGENT_OS_OPERATOR_RUNTIME` | Agent OS Operator should use the optional hosted provider runtime | Nest Agent OS Operator runtime handler | Set `openai_responses` for the optional hosted Operator runtime. Missing value keeps the deterministic path. Any other value fails closed with `operator_runtime_unsupported`. |
-| `OPENAI_API_KEY` | Agent OS `openai_responses` Operator runtime or Python direct OpenAI mode is enabled | Nest Agent OS OpenAI Responses runtime; Python agents direct provider path | Required for paid OpenAI Operator verification. Server code fails closed when this runtime is selected without a key. |
-| `AGENT_OS_OPENAI_RESPONSES_MODEL` | Agent OS `openai_responses` Operator runtime is enabled | Nest Agent OS OpenAI Responses runtime | Explicit model selection is required; no silent default. |
-| `AGENT_OS_OPENAI_RESPONSES_TIMEOUT_MS` | Custom OpenAI Operator timeout is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults in code. |
-| `AGENT_OS_OPENAI_RESPONSES_BASE_URL` | Custom OpenAI-compatible Responses endpoint is needed | Nest Agent OS OpenAI Responses runtime | Optional; defaults to OpenAI's v1 API base URL. |
 | `AGENT_OS_1688_CHECKOUT_RUNTIME` | Agent OS should execute live 1688 checkout/payment | Agent OS live readiness preflight; Supply 1688 checkout runtime | Set to `provider` for the current provider-backed runtime. Missing or unsupported values block `supply.submit_purchase_order` live checkout readiness. |
 | `AGENT_OS_1688_CHECKOUT_PROVIDER_URL` | `AGENT_OS_1688_CHECKOUT_RUNTIME=provider` | Supply `Alibaba1688CheckoutRuntimeAdapter` | Provider endpoint that accepts `{ organizationId, purchaseOrderId }` and returns `externalOrderId` plus optional `externalOrderUrl`. Required before readiness reports the 1688 checkout runtime as ready. |
 | `AGENT_OS_1688_CHECKOUT_TIMEOUT_MS` | Custom 1688 provider checkout timeout is needed | Supply `Alibaba1688CheckoutRuntimeAdapter` | Optional; defaults in code. |
@@ -260,45 +264,33 @@ keyword research is intentionally enabled.
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
 | `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
 
-## Agent OS And Claude CLI
+## Agent OS local CLI
 
-These variables are feature-specific. They should not be present in Office
-unless Agent OS execution or Claude CLI chat is intentionally enabled and
-covered by an operator runbook.
+The home-server has exactly one API process that may spawn Codex/Claude and
+its private MCP socket. The worker and web containers never receive a CLI home
+or provider login path. Attempt profiles are isolated under the API container;
+the read-only service-account profile is only their login source. No provider
+credential, provider session/history, gateway secret, HMAC envelope, budget,
+or second concurrency setting is an Office contract.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
-| `AGENT_RUNTIME_WORKER_ENABLED` | Background Agent OS execution should run | Agent run worker | Default is disabled. Use `1` or `true` only after handlers and model env are ready. |
-| `AGENT_RUNTIME_WORKER_INTERVAL_MS` | Worker enabled and custom tick interval needed | Agent run worker | Defaults to `2000`. |
-| `AGENT_DEFAULT_MODEL` | Any Agent OS definition should share one default model | Agent definition registry and Agent OS seed | Used only when a per-agent model env is empty. Local `npm run seed:agent-os` reads this from root `.env`; API runtime reads it from `apps/server/.env`. |
-| `AGENT_MANAGER_MODEL` | Manager agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_EVALUATION_MODEL` | Rules evaluation agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_SOURCING_ADAPTER_TYPE` | Sourcing dashboard assistant enabled | Agent OS seed | Optional server-only override: `codex_cli` or `claude_cli`. The code-owned default is `codex_cli`; an unknown value fails seed instead of falling back. The browser cannot select it. |
-| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Explicit local CLI model; no silent fallback. |
-| `AGENT_RUNTIME_EXECUTION_TIMEOUT_MS` | Local Agent OS CLI runtime enabled | Agent OS local CLI runtime | Defaults to `45000`. Timeout terminates the process and records a failed run; it is never resumed after restart. |
-| `AGENT_RUNTIME_CONCURRENCY` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `2`. Bounds Claude/Codex child processes per Nest process. |
-| `AGENT_RUNTIME_CAPACITY_WAIT_MS` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `5000`. Capacity expiry fails the request without spawning another process. |
-| `AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD` | `claude_cli` is explicitly selected | Agent OS local CLI runtime | Defaults to `0.25` per invocation. It does not apply to Codex. |
-| `AGENT_RUNTIME_CREDENTIAL_HMAC_KEY` | Experimental `hermes_http` is explicitly enabled | Hermes runtime credential broker | Hermes-only HMAC secret, at least 32 bytes. Local Claude/Codex CLI execution does not consume this key. |
-| `AGENT_RUNTIME_CREDENTIAL_TTL_MS` | Experimental `hermes_http` needs a non-default credential lifetime | Hermes runtime credential broker | Hermes-only optional integer from `1000` through `900000`; defaults to `300000` (5 minutes). |
-| `AGENT_RUNTIME_HANDLE_ENCRYPTION_KEY` | Experimental `hermes_http` is explicitly enabled | Hermes durable runtime handle cipher | Hermes-only server/worker 32-byte base64, hex, or raw UTF-8 key. Local Claude/Codex CLI execution does not consume this key: provider authentication stays in the service account's CLI-owned profile and its persisted handle contains only non-secret execution/process correlation. |
-| `HERMES_RUNTIME_BASE_URL` | `hermes_http` or matrix-compatible `hermes_acp` is registered | Hermes durable runtime transport | Required explicit control-plane URL. Use HTTPS in Office; the adapter posts only execution-scoped prompt/context and run-scoped MCP config, never organization or policy-snapshot IDs. |
-| `AGENT_DURABLE_RUNTIME_RUN_ROOT` | Isolated Codex/Claude runtime is enabled | Current API container boot | Optional current-boot work/state base directory; defaults to `/var/lib/kiditem-agent-runs`. The durable authority is the Agent OS database attempt/checkpoint and native session handle, never a host process. API container termination is the boundary for its CLI child process tree; recovery creates a successor attempt and resumes only when the durable native handle exists. Provider login remains in the Nest service account's normal local CLI profile. |
-| `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
-| `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
-| `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
-The Nest service account owns the persistent local Claude/Codex login used by
-Agent OS. Provision it with `claude auth login` and `codex login`; startup checks
-both CLIs with their native auth-status commands. KidItem does not store, copy,
-or forward Anthropic/OpenAI credentials. The MCP child receives only a strict
-non-secret execution coordinate and database connection owned by its Nest root.
-The interaction adapter uses the ordinary authenticated Nest request and direct
-Agent OS authorization ports; it has no shared service secret, HMAC envelope,
-or browser-provided identity. Never expose local CLI credentials through
-`NEXT_PUBLIC_*`, request bodies, Agent OS prompts, logs, deployment output,
-tests, issues, or pull requests.
+| `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Admission/recovery identity | Written from the immutable Office manifest. |
+| `KIDITEM_GIT_SHA` | Every API/worker deployment | Admission/recovery identity | Full immutable deployment SHA, written from the manifest. |
+| `KIDITEM_ATTEMPT_CLI_VERSION` | Every API deployment | Attempt admission record | Explicit CLI contract identity; no silent default. |
+| `KIDITEM_ATTEMPT_LOGIN_HOME` | API local CLI use | API attempt runtime/readiness | API-only path to the read-only `kiditem-cli-home` profile. |
+| `AGENT_CLI_MAX_CONCURRENCY` | API local CLI use | API process-local admission | The only operator-tunable Agent concurrency; Office sets `4`. |
+| `AGENT_OPERATOR_MODEL` | Every published Operator version | API admission/readiness | Explicit model, never persisted in AgentVersion. |
+| `AGENT_SOURCING_MODEL` | Every published Sourcing version | API admission/readiness | Explicit model. |
+| `AGENT_MERCHANDISING_MODEL` | Every published Merchandising version | API admission/readiness | Explicit model. |
+| `AGENT_SUPPLY_MODEL` | Every published Supply version | API admission/readiness | Explicit model. |
+| `AGENT_CHANNEL_OPERATIONS_MODEL` | Every published Channel Operations version | API admission/readiness | Explicit model. |
+| `AGENT_ADVERTISING_MODEL` | Every published Advertising version | API admission/readiness | Explicit model. |
+
+Provision the persistent profile through the Office `cli-login` Compose profile
+with `codex login` and `claude auth login`. KidItem neither stores, copies, nor
+forwards Anthropic/OpenAI credentials. The browser reaches same-origin
+`/api/copilotkit`; it has no gateway secret or browser-provided identity.
 
 The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
 directly at the ordinary Nest API origin and is not a CopilotKit public key or
@@ -422,8 +414,8 @@ Get-Content C:\ProgramData\Kiditem\deployments\current.json
 
 - Any required secret is missing for a feature being enabled.
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
-- `AGENT_RUNTIME_WORKER_ENABLED=1` is set without model env and runtime handlers
-  ready for the enabled agent types.
+- Any of the six explicit `AGENT_*_MODEL` values, `KIDITEM_ATTEMPT_LOGIN_HOME`,
+  or immutable deployment identity values is missing from the API runtime.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.
 

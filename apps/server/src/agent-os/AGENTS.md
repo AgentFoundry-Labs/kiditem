@@ -1,205 +1,81 @@
-# agent-os — Agent Runtime Platform
+# agent-os — Durable Local-CLI Work Platform
 
-`src/agent-os/` owns code-defined agent definitions, organization-scoped agent
-instances, durable run requests, execution attempts, tool policy, approvals,
-cost ledger, and run observability. It is a platform owner, not a downstream
-business aggregate owner.
+`src/agent-os/` owns the single-node Agent Work platform, not downstream
+business aggregates. The exact durable schema is six code-owned models:
+`AgentVersion`, `AgentSession`, `AgentTask`, `AgentAttempt`,
+`AgentCapabilityInvocation`, and `AgentCapabilityApproval`.
 
-## Folder Map
-
-```text
-agent-os/
-├── adapter/
-│   ├── in/{http,operation,agent,mcp}/<capability>/
-│   └── out/{repository,transaction,runtime,event,cross-domain}/<capability>/
-├── application/
-│   ├── event/                # finalized event types/constants
-│   ├── port/in/<capability>/
-│   ├── port/out/<lane>/<capability>/
-│   └── service/<capability>/
-└── domain/<aggregate-or-policy>/
-```
-
-Agent OS is lane-first and capability-second: it remains one platform hexagon,
-not a top-level hexagon per feature. Incoming adapters inject only
-capability-named `application/port/in` tokens; they never import a concrete
-`application/service` implementation. Official session/KID-25 input ports live
-inside a capability folder. The retained generic `AgentRun` input ports are a
-narrow, explicitly classified compatibility exception while migration is in
-progress.
-
-## Owned Surfaces
-
-- Generic Agent OS run creation and observability APIs under `/api/agent-os/*`
-- Manual drain/debug endpoint:
-  `POST /api/agent-os/executor/claim-and-run`
-- Code-owned agent catalog/bootstrap and runtime handler registration
-- Organization-scoped interaction bootstrap, run authorization, AG-UI event
-  persistence/replay/live join, and action reauthorization. `AgentOsModule`
-  is the controller-free facade over catalog, capability, and session
-  composition; `AgentOsLegacyRunModule` temporarily quarantines retained
-  generic AgentRun providers. `AgentOsHttpModule` owns the HTTP
-  controllers, guards, secrets, AG-UI producers, and Operations-backed session
-  controls. Worker and MCP roots must not reach that HTTP wrapper transitively.
-- Complete AgentSession deletion and canonical session-task cancellation are
-  API-root-only: `AgentOsApiExecutionModule` owns their controller-free input
-  ports, deletion execution service, one Operations handler, and the two
-  post-accepting recovery hooks; `AgentOsHttpModule` owns the controller.
-  `AgentOsSessionModule` exports only controller-free transaction seams.
-  MCP may reconstruct and DB-verify its locally supplied execution coordinate,
-  but worker and MCP never compose deletion HTTP,
-  handler, finalizer, recovery, or Operations worker providers.
-
-## Main Data Models
-
-- `AgentInstance` is the organization-owned installed agent.
-- `AgentRunRequest` is the durable inbox, queue, retry, and coalescing owner.
-- `AgentRun` records one accepted execution attempt and starts at `running`.
-- `AgentRunEvent`, `AgentAuthorizationEvent`, and `AgentCostEvent` are separate
-  ledgers.
-- `AgentRuntimeState` stores aggregate runtime state such as total cost.
-
-## Runtime Flow
+## Ownership And Direction
 
 ```text
-business domain
-  -> AGENT_RUNNER_PORT.runByType(...)
-  -> AgentRunRequest
-  -> AgentRunExecutor / worker claim
-  -> AGENT_RUNTIME_PORT
-  -> registered runtime handler
-  -> owner-domain synchronous capability/write
-  -> AgentRun terminal state
-  -> global agent.run.finalized event
-  -> non-authoritative alert/audit listeners
+Agent
+  -> CapabilityDefinition
+  -> owner-domain incoming port
+  -> owner implementation
+     -> AI / DB / provider / Operation when needed
 ```
 
-Agent OS does not update downstream business rows. When a run requires a
-canonical business write, the owner-domain runtime/capability completes that
-write before returning success to Agent OS. Finalized listeners are
-non-authoritative alert/audit projections and cannot determine run success.
-Agent OS may call deterministic automation workflows through automation-owned
-incoming ports or registered workflow capabilities; automation must not call
-back into Agent OS.
+- Capability definitions are domain-owned business intents with strict Zod
+  input/output, stable owner ports, implementation, and idempotency; Agent OS
+  aggregates and admits them but never writes owner-domain canonical rows.
+- Incoming HTTP/MCP adapters inject only capability-named input ports, never
+  concrete services. Agent OS may depend on an owner-domain incoming port;
+  owner domains never import Agent OS application service types.
+- MCP is a private child of the API-owned local CLI Attempt. It revalidates the
+  exact database Session/Task/Attempt/version/user/organization coordinate for
+  every tool call. It has no HMAC, service credential, provider credential,
+  provider session, or direct Operations/repository bypass.
+- Only API may spawn Codex/Claude and bind its private Unix socket. Worker
+  executes durable mutation/Operation recovery but has no CLI login profile.
 
-## Status Machines
+## Lifecycle
 
-```text
-AgentRunRequest:
-  pending -> claimed -> succeeded
-                     -> failed
-                     -> cancelled
-          -> coalesced
-          -> requires_approval -> pending
-          -> skipped
+- `AgentTask` owns only `open | completed | failed | cancelled` business
+  lifecycle. `AgentAttempt` owns only a CLI process lifecycle.
+- Approval wait, Operation wait, child Task wait, and Continue requirement are
+  UI projections from current Approval/Operation/Task/Attempt records, never
+  duplicated Task states.
+- Every CLI process uses an isolated per-Attempt home/workspace. It may link to
+  the API service account’s persisted login artifact but never copies credential
+  bytes. API restart, CLI exit, timeout, or interruption never resumes a
+  provider session/history; later reasoning creates an immutable successor
+  Attempt from durable state.
+- Approval saves exact canonical input/hash before a live Attempt waits. A
+  timed-out Attempt does not cancel the durable mutation; worker recovery owns
+  the remaining safe work.
+- `AGENT_CLI_MAX_CONCURRENCY` is a process-local admission limit. There is no
+  organization quota, provider budget, distributed lock, or provider resume
+  contract in this release.
 
-AgentRun:
-  running -> succeeded
-          -> failed
-          -> cancelled
-```
+## Interaction Boundary
 
-Never add `queued` to `AgentRun.status`; queue state belongs to
-`AgentRunRequest`.
+CopilotKit OSS is an API-local Nest incoming adapter at `/api/copilotkit`.
+Browser traffic is same-origin and authenticated by ordinary KidItem session
+auth. There is no interaction gateway, replay transcript service, or separate
+control plane. Future output is streamed only while the Attempt is live;
+database Task/Attempt and mutation records are the durable recovery authority.
 
-## Cross-Domain Ports
+## Version Publication And Seed
 
-- Business domains request work through `AGENT_RUNNER_PORT`.
-- Agent OS may consume automation-owned incoming ports from adapter/out lanes
-  when it needs operation alerts or deterministic workflow execution.
-- Runtime execution goes through `AGENT_RUNTIME_PORT`; default binding is
-  `RoutingRuntimeAdapter`.
-- Owner domains register runtime handlers by `agentType`, usually during
-  module initialization.
-- Finalized listeners filter by event metadata (`agentType`, `source`,
-  `sourceResourceType`, `sourceResourceId`), not by output payload.
+`AgentVersion` snapshots agent key, assigned domains, capability keys, runtime
+type, and instruction profile reference. It deliberately excludes models,
+policy overrides, credentials, and provider session/history. The API bootstrap
+and `npm run seed:agent-os` publish the six code-owned snapshots idempotently.
+The seed requires `DATABASE_URL` through PrismaPg and one explicit
+`AGENT_<TYPE>_MODEL` for each published version; it never falls back to
+`AGENT_DEFAULT_MODEL` or direct `AI_*` configuration.
 
-## Local Agent Runtime And Official Durable Runtimes
+## Verification
 
-- The retained generic `AgentRun` local CLI lane below is compatibility-only.
-  Do not add behavior to it: the KID-25 target routes Agent judgment through an
-  official `AgentSession` task/execution and `AgentRuntimeAdapterRegistry`.
-- Agent OS owns local Claude/Codex process execution, code-owned prompt/skill
-  resolution, scoped KidItem MCP sessions, structured-output verification, and
-  detached process-group cancellation. Owner-domain runtime handlers retain
-  deterministic actions; they do not implement a second local CLI boundary.
-- Sourcing interactions use the code-owned `codex_cli` default. The Claude CLI
-  remains a supported explicitly configured adapter and uses the operator's
-  existing local login; neither provider requires an API key when its local
-  CLI session is already authenticated.
-- Each local run receives one child-only MCP session. The parent CLI process
-  inherits only the service account's local login paths and basic process
-  environment, never provider API keys, KidItem DB, Redis, commerce-provider,
-  or server `.env` credentials.
-- Generic background claims exclude `sourcing_dashboard`; only its inline
-  request-id claim may execute that surface. Stale pending/claimed dashboard
-  requests and running attempts fail with `process_interrupted` at startup and
-  are never replayed. MCP child application contexts never run reconciliation
-  or background workers.
-- The retained generic local CLI process is bound to the Nest process. Shutdown
-  terminates it; restart only closes stale nonterminal rows as
-  `process_interrupted`. That compatibility lane never resumes a process,
-  replays a prompt, or publishes delayed output.
-- Official session/execution, attempt, conversation, and outbox rows are the
-  durable work record. Local Claude/Codex processes are current-container
-  resources: an API restart never reconnects, resumes, or regenerates a CLI
-  process; it terminalizes the exact still-running work record as
-  `process_interrupted`. Their transient `work` and `state` paths are
-  owner-only and non-durable; gateway and web processes must never spawn those
-  executables.
-- Hermes production output is resource-reference-only: it may emit a canonical
-  `resource_ref`, never inline artifact bytes or an `artifact_candidate`.
-  Reject unsupported inline envelopes before the artifact writer, persistence,
-  or storage provider boundary.
-
-## Boundary Rules
-
-- Cost ledger inserts and `AgentRuntimeState.totalCostMicros` updates happen
-  in one transaction.
-- Atomic session authorization, event append, delegation, approval continuation,
-  attempt binding, and lifecycle transitions use transaction ports and outgoing
-  Prisma transaction adapters; do not split one lifecycle transaction into
-  table-shaped CRUD calls.
-- Missing runtime handler fails fast with `runtime_not_configured`.
-- Durable runtime tests inject explicit fake adapters; production has no no-op
-  or fallback runtime path.
-- Reconciliation changes Agent OS ledger state only. It must not replay owner
-  capabilities or synthesize a delayed business-domain result.
-- Interaction analytics is metadata-only and non-authoritative. Never emit
-  messages/model output, resource names, dashboard payloads, credentials,
-  cookies, tokens, or raw organization/user identifiers.
-- MCP is a local official-runtime child only: KidItem supplies one strict
-  `KIDITEM_MCP_EXECUTION_CONTEXT` when it spawns that child. MCP reconstructs
-  organization/actor/session/task/execution/attempt/Operation binding from the
-  database and rejects stale start-intent or generation coordinates. There is
-  no HMAC runtime token, provider credential, or KidItem-managed handle key;
-  Codex/Claude authenticate only through the Nest service account's existing
-  local CLI profile. Its only control tool is bounded context
-  read; code-owned capabilities marked `approvalRisk: none|low` invoke the
-  official session capability port with the exact DB-revalidated execution and
-  owner idempotency key. High-risk capabilities stay approval-gated and are not
-  exposed as directly invocable MCP tools. MCP roots do not compose legacy AgentRun,
-  Operations, HTTP/guards, API grants, or interaction secrets.
-- A production application or adapter file over 700 lines is a non-blocking
-  responsibility/cohesion review smell, not an architecture violation. Split
-  only at a real capability, transaction, or adapter seam; do not accumulate
-  behavior without that review merely because the scanner does not fail. Tests,
-  generated code, and temporary `legacy-run` files are omitted from smell
-  reporting but still obey incoming-adapter dependency direction.
-  `npm run check:agent-os-hexagonal` is intentionally a standalone failing
-  migration baseline until Tasks 12–14 remove its hard dependency and input-port
-  violations; only then may it join `check:conventions`.
-
-## Bootstrap
-
-Fresh DBs need one `AgentInstance` per shipped code-owned definition and
-organization:
+Run focused Agent OS tests first, then the backend boot gate:
 
 ```bash
-npm run seed:agent-os
+npm exec --workspace=apps/server vitest -- run src/agent-os
+npm run check:agent-os-contraction -- --enforce
+npm run dev:server
 ```
 
-The seed reads `AGENT_<TYPE>_MODEL` or `AGENT_DEFAULT_MODEL` for the primary
-model and any code-owned auxiliary `AGENT_*` model envs declared by the
-definition. It throws if any required Agent OS model is missing. Agent runtime
-model plans do not fall back to direct `AI_*` provider defaults.
+For schema/seed changes, use only an explicit disposable database; run
+`db:push`, `prisma generate`, `npm run seed:agent-os` twice, and confirm six
+active AgentVersions. Never run a destructive schema command against an Office
+or development database from an agent session.

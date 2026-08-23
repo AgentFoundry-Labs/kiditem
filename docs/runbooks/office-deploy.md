@@ -135,7 +135,11 @@ reason in the PR body and final report. This only appends
 ### Destructive Maintenance Window
 
 An incompatible schema contraction is a planned full-stop maintenance action,
-not a normal runtime rollout. Before taking the final row counts or dump, stop
+not a normal runtime rollout. The approved Agent OS clean cutover has an
+executable Windows sequence in [Agent OS Clean Cutover](agent-os-clean-cutover.md):
+it blocks ready/executing mutations, makes and lists a custom dump, records a
+SHA-256 plus app version/Git SHA and unrelated row counts, then seeds the six
+AgentVersions after `db push --accept-data-loss`. Before taking the final row counts or dump, stop
 API, worker, web, and nginx with the current Office Compose configuration. Keep
 PostgreSQL and MinIO running, and do not restart any application container until
 the schema operation and post-push relation checks are complete.

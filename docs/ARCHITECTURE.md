@@ -17,7 +17,7 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Chromium detail-page image rendering
-  -> Claude CLI Agent OS runtime
+  -> Codex/Claude CLI Agent OS runtime (API-owned, per-Attempt isolated)
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
 
@@ -34,50 +34,25 @@ worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
 MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
 ```
 
-`AgentRuntimeApplicationModule` is the controller-free official runtime beneath
-the MCP root. It composes only official session/capability providers and the
-DB-fenced MCP executor; it does not import the temporary
-`AgentOsLegacyRunModule`, Operations, HTTP wrappers, grants, or interaction
-secrets. `AgentOsLegacyRunModule` continues to quarantine the retained generic
-AgentRun lane for the separate worker while migration is in progress.
-`AgentOsHttpModule` supplies controller-free interaction ports while the
-API-only `AgentOsInteractionHttpModule` owns the Nest incoming adapter.
-`AgentOsWorkerModule` owns only the legacy worker wrapper. KidItem spawns each
-local MCP child with an exact,
+`AgentOsInteractionHttpModule` is the API-only Nest incoming adapter for
+CopilotKit. It composes controller-free Agent Work ports and the DB-fenced MCP
+executor; there is no gateway, legacy AgentRun lane, service credential, or
+runtime HMAC boundary. KidItem spawns each local MCP child with an exact,
 non-secret execution coordinate. The MCP root revalidates that coordinate,
-start intent, revocation generation, session lifecycle, and active Operation
-binding from the database on every tool call. It exposes
-`agent_os_read_context` plus policy-registered capabilities whose code-owned
-risk is `none` or `low`; owner writes retain their exact execution-derived
-idempotency key. High-risk tools remain approval-gated. The MCP root cannot
-create AgentRuns or Operations directly.
+Session/Task/Attempt authority and active Operation binding from the database
+on every tool call. It exposes `agent_os_read_context` plus the complete
+policy-registered capability catalog. Cross-domain reads receive an
+execution-scoped grant; cross-domain mutations delegate to the explicitly
+selected owner Agent. A mutation retains its exact execution-derived
+idempotency key, and its `approvalRisk` determines whether it waits for HITL;
+high-risk capabilities are discoverable rather than hidden. The MCP root cannot
+create Tasks or Operations directly.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
-and overlapping lifecycle ownership are unsupported. The Agent worker is a
-separate process and cannot query or mutate `OperationRun` rows.
-
-### Complete AgentSession deletion
-
-The API root is the only deletion composition owner. `AgentOsHttpModule` owns
-the DELETE/status/retry controller and `AgentOsApiExecutionModule` owns the
-deletion facade, execution service, exactly one Operations handler, and both
-post-accepting recovery hooks. Worker and MCP roots compose none of those
-providers; MCP may only revalidate its locally supplied execution coordinate.
-
-Deletion fences runtime authority before provider work, deletes only
-KidItem-derived artifact keys, and gives each retry generation a cumulative
-five-attempt budget. `present` and `unknown` storage results never succeed;
-only an administrator can create a fresh retry generation. Successful graph
-deletion removes the session and all owned lineage. It does not implement
-retention, legal holds, audits, tombstones, shared-object deletion, provider
-telemetry, organization removal, migrations, backfill, or a VERSION change.
-
-Hermes is an official durable runtime, but it is not an inline-artifact
-transport: production Hermes output must use a canonical `resource_ref`.
-Inline bytes and `artifact_candidate` envelopes are rejected before artifact
-materialization, storage, or canonical event persistence. Test-only deletion
-storage controls model erase confirmation only; they do not claim a production
-storage materialization capability.
+and overlapping lifecycle ownership are unsupported. The worker owns durable
+Operation and mutation execution but never spawns a provider CLI. An API
+restart terminalizes the live process and recovery starts an immutable successor
+Attempt from durable Task/Invocation state; it never resumes provider history.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
@@ -1007,97 +982,35 @@ in the [Sourcing Intelligence Phase 0–1 runbook](runbooks/sourcing-intelligenc
 
 ## Agent OS
 
-Agent OS is a backend platform capability. Runtime execution and run accounting
-live under `apps/server/src/agent-os/`; schema ownership is documented in
-`prisma/AGENTS.md`:
+Agent OS is the single-node backend execution boundary under
+`apps/server/src/agent-os/`; its schema ownership is in `prisma/AGENTS.md`.
+The persistence graph is exactly `AgentVersion`, `AgentSession`, `AgentTask`,
+`AgentAttempt`, `AgentCapabilityInvocation`, and
+`AgentCapabilityApproval`. A Task owns only the business lifecycle
+`open | completed | failed | cancelled`; approval, Operation, child-Task, and
+Continue waits are derived from their current records.
 
-- Public workflow routes live under the route-family controllers in
-  `apps/server/src/automation/adapter/in/http/workflow-templates.controller.ts`,
-  `workflow-run-commands.controller.ts`, and
-  `workflow-runs.controller.ts`.
-- Public action-board routes live under
-  `apps/server/src/automation/adapter/in/http/action-task.controller.ts`.
-- Manager routes live under
-  `apps/server/src/automation/adapter/in/http/manager.controller.ts`.
-- Business domains that require LLM judgment depend on official Agent OS use-
-  case ports such as `AgentSessionExecutionPort`; they do
-  not import runtime services or adapters directly.
-- Agent OS is lane-first and capability-second: adapter lanes precede
-  capability folders (`adapter/in/<lane>/<capability>/`,
-  `adapter/out/<lane>/<capability>/`,
-  `application/port/in/<capability>/`,
-  `application/port/out/<lane>/<capability>/`, and
-  `application/service/<capability>/`), with pure aggregate/policy code under
-  `domain/`. Incoming HTTP, Operation, Agent, MCP, and CLI adapters inject
-  capability-named input ports and never concrete application services.
-  Official session/KID-25 input ports are never flat directly below
-  `application/port/in`; retained generic `AgentRun` ports are the narrow
-  classified compatibility exception.
-- Session authorization, event append, delegation, approval continuation,
-  attempt binding, and lifecycle transitions cross transaction-port seams and
-  execute through outgoing Prisma transaction adapters as one lifecycle
-  transaction. They are not decomposed into table-shaped CRUD calls.
-- An Agent OS production application or adapter file over 700 lines is a
-  non-blocking responsibility/cohesion review smell, not a gate violation.
-  Splitting follows real capability, transaction, and adapter seams rather than
-  line count; large files must not accumulate behavior without an explicit
-  review. Tests, generated code, and temporary `legacy-run` files are omitted
-  from smell reporting but never from incoming-adapter dependency direction.
-  `check:agent-os-hexagonal` stays a standalone live migration baseline until
-  Tasks 12–14 remove existing concrete imports and flat official ports; it joins
-  `check:conventions` only after that hard-violation cleanup.
-- Automation workflows are deterministic and must not create Agent OS runs. If
-  LLM judgment is required, the entrypoint starts in Agent OS; Agent OS may call
-  deterministic workflows through automation-owned incoming ports or registered
-  workflow capabilities.
-- Agent capabilities are owner-domain incoming adapters. They call owner
-  business input ports and do not become Operation handlers or repositories.
-- Deterministic synchronous work calls the owner input port directly;
-  deterministic long-running work uses an owner Operation. Operations owns the
-  run envelope and invokes owner ports, never `AgentCapabilityRegistry`.
-- In the KID-25 target, generic non-session `AgentRun` execution is not a
-  supported lane. Existing
-  callers must migrate to an owner use case/Operation or to an official
-  `AgentSession` execution when LLM judgment is required.
-- Official Codex/Claude execution uses the service account's existing local CLI
-  login. KidItem does not store, issue, copy, or inject provider API/OAuth keys,
-  a runtime HMAC token, or a local-handle encryption key. It persists only the
-  exact session/execution/attempt/start-intent authority, revocation generation,
-  and non-secret native process/session correlation; startup fails that runtime
-  closed when the binary, version, or local login is unavailable.
+The browser reaches the Nest CopilotKit incoming adapter at same-origin
+`/api/copilotkit`. The API authorizes the current user, admits work, and is the
+only process root permitted to start a Codex/Claude CLI Attempt and its private
+MCP socket. The worker recovers durable mutation/Operation state, but never
+receives a CLI login profile or imports the HTTP adapter. Restart/follow-up
+reasoning always starts a new immutable Attempt from durable KidItem state;
+provider session/history is never resumed.
 
-Agent OS remains the dashboard's top-level operational interface and its
-autonomous reasoning runtime. It does not make every operation an `AgentRun`:
-deterministic workflows, direct AI jobs, and browser tasks retain their native
-engines while their top-level execution is recorded by the Operations control
-plane.
+Each public capability is defined by its owner domain with strict business Zod
+input/output contracts. Agent OS aggregates definitions, applies execution
+grants and admission/HITL policy, and calls the owner-domain incoming port. An
+owner implementation may use AI, DB, an external provider, or an Operation;
+Agent OS does not write owner-domain canonical rows. Deterministic workflows
+remain native workflows and do not create Agent work merely for bookkeeping.
 
-Interactive Agent OS conversations use CopilotKit OSS as the browser interaction
-framework and AG-UI as the wire protocol. KidItem remains authoritative for
-`AgentSession`, task, execution, conversation-event, outbox, and replay
-sequence coordinate in PostgreSQL. `AgentOsInteractionHttpModule` is the single
-Nest incoming adapter: ordinary authenticated API requests authorize the
-browser principal, execute the run, drain canonical pages by their decimal
-sequence coordinate, then join live events without copying a transcript into
-web state.
-CopilotKit Premium/Enterprise persistence is not part of this boundary.
-
-Public interaction/runtime correlation uses canonical `session`, `task`,
-`execution`, optional `attempt`, and optional `operation` resource names plus
-opaque `copilotThreadId`/`aguiRunId`. AgentOS repositories retain branded UUID
-IDs internally; replay sequence, request ID, idempotency key, runtime handle,
-and content hash are separate identifier classes.
-
-The global authenticated panel and `/agent-os` workspace share one ephemeral
-selection store. React Query owns bootstrap freshness; CopilotKit/AG-UI owns
-in-memory messages and tool state. Navigation results contain an opaque,
-short-lived `actionRef`, never a model-supplied URL or database ID; Nest
-reauthorizes the action and returns one
-allowlisted route. `AgentOsModule` remains controller-free and exposes only the
-core repositories, runtime registries, and capability ports shared by API and
-Agent process roots. The API-only `AgentOsInteractionHttpModule` composes the
-CopilotKit HTTP adapter over `AgentOsHttpModule`; worker and MCP roots cannot
-import or resolve that incoming HTTP surface transitively.
+Official Codex/Claude execution uses only the API service account's persisted
+local CLI login. KidItem does not issue, copy, or inject provider credentials,
+HMAC envelopes, runtime handles, or provider-session identifiers. The API
+fails readiness closed when the required binary, declared CLI version, or local
+login profile is unavailable. Agent versions snapshot domains/capabilities and
+runtime profile, while model selection is explicit deployment configuration.
 
 ## Verification Baseline
 

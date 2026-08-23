@@ -1,48 +1,34 @@
 import { describe, expect, it } from 'vitest';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { listAgentDefinitions } from '../../apps/server/src/agent-os/domain/agent-definition.registry';
+import { AGENT_VERSION_PUBLICATION_DEFINITIONS } from '../../apps/server/src/agent-os/domain/catalog/agent-version-publication.registry';
 
 const repoRoot = join(__dirname, '..', '..');
 const seedPath = join(repoRoot, 'scripts/seed-agent-os.ts');
-const serverSeedPath = join(repoRoot, 'apps/server/src/agent-os/seed-agent-os.ts');
+const seedSource = readFileSync(seedPath, 'utf8');
+const implementationSource = readFileSync(join(repoRoot, 'apps/server/src/agent-os/seed-agent-versions.ts'), 'utf8');
 
-describe('Agent OS seed catalog', () => {
-  it('seeds every shipped producer definition that backend routes can enqueue', () => {
-    const types = listAgentDefinitions().map((definition) => definition.type);
-
-    expect(types).toContain('ad_strategy');
-    expect(types).toContain('sourcing');
+describe('AgentVersion seed command', () => {
+  it('publishes exactly the six code-owned immutable AgentVersions', () => {
+    expect(AGENT_VERSION_PUBLICATION_DEFINITIONS.map((definition) => definition.agentDefinitionKey)).toEqual([
+      'operator', 'sourcing', 'merchandising', 'supply', 'channel_operations', 'advertising',
+    ]);
+    expect(implementationSource).toContain('AgentVersionPublisher');
+    expect(seedSource).toContain('AGENT_VERSION_PUBLICATION_DEFINITIONS');
+    expect(implementationSource).toContain('PrismaPg');
+    expect(implementationSource).toContain('missing_required_configuration:DATABASE_URL');
   });
 
-  it('points every code-owned definition at an existing prompt file', () => {
-    for (const definition of listAgentDefinitions()) {
-      expect(
-        existsSync(join(repoRoot, 'apps/server', definition.promptPath)),
-        `${definition.type} prompt does not exist: ${definition.promptPath}`,
-      ).toBe(true);
+  it('requires one explicit model for every published AgentVersion', () => {
+    for (const definition of AGENT_VERSION_PUBLICATION_DEFINITIONS) {
+      expect(implementationSource).toContain('AGENT_${definition.agentDefinitionKey.toUpperCase()}_MODEL');
     }
+    expect(implementationSource).not.toContain('AGENT_DEFAULT_MODEL');
   });
 
-  it('does not write legacy blueprint rows; definitions are code-owned', () => {
-    const source = `${readFileSync(seedPath, 'utf8')}\n${readFileSync(serverSeedPath, 'utf8')}`;
-    expect(source).not.toContain(`agent${'Blue'}${'print'}`);
-  });
-
-  it('does not copy definition defaults into instance override columns', () => {
-    const source = `${readFileSync(seedPath, 'utf8')}\n${readFileSync(serverSeedPath, 'utf8')}`;
-    expect(source).not.toContain('runtimeConfig: definition.defaultRuntimeConfig');
-  });
-
-  it('keeps direct AI jobs out of the Agent OS seed catalog', () => {
-    const definitions = new Map(
-      listAgentDefinitions().map((definition) => [definition.type, definition]),
-    );
-
-    expect(definitions.get('manager')?.runtimeKind).toBe('coordinator');
-    expect(definitions.get('chat')?.runtimeKind).toBe('agent');
-    expect(definitions.has('image_edit')).toBe(false);
-    expect(definitions.has('thumbnail_generate')).toBe(false);
-    expect(definitions.has('detail_page_generate')).toBe(false);
+  it('uses the idempotent publisher instead of legacy Agent OS seed state', () => {
+    expect(seedSource).not.toContain('runAgentOsSeed');
+    expect(seedSource).not.toContain(`agent${'Blue'}${'print'}`);
+    expect(implementationSource).not.toContain('AgentInstance');
   });
 });

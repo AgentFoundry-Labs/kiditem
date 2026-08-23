@@ -49,10 +49,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=4000
 ENV PATH=/app/apps/server/node_modules/.bin:/app/node_modules/.bin:$PATH
-ENV HOME=/var/lib/kiditem-cli
-ENV CODEX_HOME=/var/lib/kiditem-cli/.codex
-ENV CLAUDE_CONFIG_DIR=/var/lib/kiditem-cli/.claude
-ENV AGENT_DURABLE_RUNTIME_RUN_ROOT=/var/lib/kiditem-agent-runs
 ENV DISABLE_AUTOUPDATER=1
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
@@ -84,9 +80,7 @@ RUN npm ci \
     && npm cache clean --force \
     && rm -rf /root/.npm
 
-RUN mkdir -p "$CODEX_HOME" "$CLAUDE_CONFIG_DIR" "$AGENT_DURABLE_RUNTIME_RUN_ROOT" \
-    && chmod 700 "$HOME" "$CODEX_HOME" "$CLAUDE_CONFIG_DIR" "$AGENT_DURABLE_RUNTIME_RUN_ROOT" \
-    && codex --version \
+RUN codex --version \
     && claude --version
 
 COPY apps/server/src/orders/coupang-directship/requirements.txt ./apps/server/coupang-directship-requirements.txt
@@ -114,7 +108,9 @@ COPY --from=builder /app/packages/templates/dist ./packages/templates/dist
 COPY --from=builder /app/apps/server/dist ./apps/server/dist
 COPY agent-config ./agent-config
 
-RUN AGENT_DEFAULT_MODEL=image-build-contract node -e "const fs=require('fs'); const {FilesystemAgentRuntimeManifestCatalog}=require('./apps/server/dist/agent-os/adapter/out/runtime/filesystem-agent-runtime-manifest-catalog.js'); (async()=>{const catalog=await new FilesystemAgentRuntimeManifestCatalog('/app',process.env).compileAll(); if(!catalog.length) throw new Error('Empty Agent runtime catalog'); fs.accessSync('./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js');})().catch((error)=>{console.error(error);process.exit(1);});"
+# Fail the image build if the current private MCP and readiness canary entrypoints
+# are missing. Runtime login/model checks happen only with the operator profile.
+RUN node -e "const fs=require('fs'); for (const file of ['./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js','./apps/server/dist/agent-os/adapter/in/mcp/readiness-canary-mcp-server.js','./apps/server/dist/agent-os/adapter/out/runtime/attempt/agent-attempt-readiness-canary.js','./apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js']) fs.accessSync(file);"
 
 RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
 
@@ -135,7 +131,6 @@ WORKDIR /app/apps/server
 
 EXPOSE 4000
 
-# Node is PID 1 for the API container. Its exit/restart is the deliberate
-# termination boundary for current-boot Codex/Claude child process groups;
-# only DB attempts/checkpoints and native session handles survive recovery.
+# Node is PID 1 for the API container. Its exit/restart terminates current
+# Codex/Claude child groups; durable Task/Attempt rows recover separately.
 CMD ["node", "dist/main.js"]

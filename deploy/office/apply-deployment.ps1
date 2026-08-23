@@ -298,6 +298,8 @@ function Write-DeployEnv {
   @(
     "KIDITEM_API_IMAGE=$($Manifest.apiImage)"
     "KIDITEM_WEB_IMAGE=$($Manifest.webImage)"
+    "KIDITEM_APPLICATION_VERSION=$($Manifest.appVersion)"
+    "KIDITEM_GIT_SHA=$($Manifest.gitSha)"
   ) | Set-Content -LiteralPath $Path -Encoding Ascii
 }
 

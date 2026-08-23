@@ -1,6 +1,6 @@
 name: kiditem-office
 
-x-api-environment: &api-environment
+x-server-environment: &server-environment
   NODE_ENV: production
   PORT: "4000"
   DATABASE_URL: postgresql://kiditem:${POSTGRES_PASSWORD}@postgres:5432/kiditem
@@ -16,11 +16,10 @@ x-api-environment: &api-environment
   S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD}
   CHANNEL_CREDENTIALS_ENCRYPTION_KEY: ${CHANNEL_CREDENTIALS_ENCRYPTION_KEY}
   SOURCING_PLAYWRIGHT_CDP_ENDPOINT: ${SOURCING_PLAYWRIGHT_CDP_ENDPOINT}
-  HOME: /var/lib/kiditem-cli
-  CODEX_HOME: /var/lib/kiditem-cli/.codex
-  CLAUDE_CONFIG_DIR: /var/lib/kiditem-cli/.claude
-  AGENT_DURABLE_RUNTIME_RUN_ROOT: /var/lib/kiditem-agent-runs
-  DISABLE_AUTOUPDATER: "1"
+  # Both API admission and worker-owned durable mutation recovery fence work to
+  # the immutable bundle identity. Only API receives the CLI login source below.
+  KIDITEM_APPLICATION_VERSION: ${KIDITEM_APPLICATION_VERSION:?KIDITEM_APPLICATION_VERSION must come from the immutable deployment manifest}
+  KIDITEM_GIT_SHA: ${KIDITEM_GIT_SHA:?KIDITEM_GIT_SHA must come from the immutable deployment manifest}
 
 services:
   postgres:
@@ -83,7 +82,19 @@ services:
     image: ${KIDITEM_API_IMAGE:?KIDITEM_API_IMAGE must be an immutable GHCR digest reference}
     container_name: kiditem-api
     environment:
-      <<: *api-environment
+      <<: *server-environment
+      # Only API owns the local CLI/MCP boundary. Every child receives an
+      # isolated attempt directory; this is the read-only service login source.
+      KIDITEM_ATTEMPT_LOGIN_HOME: /var/lib/kiditem-cli
+      KIDITEM_ATTEMPT_CLI_VERSION: ${KIDITEM_ATTEMPT_CLI_VERSION:?KIDITEM_ATTEMPT_CLI_VERSION is required}
+      AGENT_CLI_MAX_CONCURRENCY: ${AGENT_CLI_MAX_CONCURRENCY:-4}
+      AGENT_OPERATOR_MODEL: ${AGENT_OPERATOR_MODEL:?AGENT_OPERATOR_MODEL is required}
+      AGENT_SOURCING_MODEL: ${AGENT_SOURCING_MODEL:?AGENT_SOURCING_MODEL is required}
+      AGENT_MERCHANDISING_MODEL: ${AGENT_MERCHANDISING_MODEL:?AGENT_MERCHANDISING_MODEL is required}
+      AGENT_SUPPLY_MODEL: ${AGENT_SUPPLY_MODEL:?AGENT_SUPPLY_MODEL is required}
+      AGENT_CHANNEL_OPERATIONS_MODEL: ${AGENT_CHANNEL_OPERATIONS_MODEL:?AGENT_CHANNEL_OPERATIONS_MODEL is required}
+      AGENT_ADVERTISING_MODEL: ${AGENT_ADVERTISING_MODEL:?AGENT_ADVERTISING_MODEL is required}
+      DISABLE_AUTOUPDATER: "1"
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:
@@ -94,7 +105,7 @@ services:
     expose:
       - "4000"
     volumes:
-      - kiditem-cli-home:/var/lib/kiditem-cli
+      - kiditem-cli-home:/var/lib/kiditem-cli:ro
     stop_grace_period: 10s
     restart: unless-stopped
     healthcheck:
@@ -129,7 +140,7 @@ services:
     container_name: kiditem-worker
     command: ["node", "dist/worker.js"]
     environment:
-      <<: *api-environment
+      <<: *server-environment
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:

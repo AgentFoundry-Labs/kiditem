@@ -13,8 +13,8 @@ protected release/office SHA
     -> Office operator guard
       -> local Docker Compose
         -> PostgreSQL + MinIO external volumes
-        -> API + worker + web + nginx
-        -> API-owned Codex/Claude CLI profile + Agent runtime volumes
+        -> one API + one worker + one web + nginx
+        -> API-owned Codex/Claude CLI profile + per-Attempt directories
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -35,12 +35,13 @@ worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
 MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
 ```
 
-Office runs exactly one API container. Replicas and rolling API overlap are
-unsupported because every OperationRun is bound to that one API process
-lifecycle. The API root does not contain the Agent run worker; the separate
-worker container enables it with `AGENT_RUNTIME_WORKER_ENABLED=1`. The API has
-a 10-second stop grace period, and its health check allows a 60-second startup
-period for fail-closed lifecycle cleanup before it is considered unhealthy.
+Office runs exactly one API container, one worker, and one web container.
+Replicas and rolling API overlap are unsupported. The API alone owns the
+Codex/Claude executable and private MCP socket; the worker owns durable
+Operation/approval work but receives neither a CLI login profile nor a CLI
+home. `AGENT_CLI_MAX_CONCURRENCY=4` is the only Agent capacity control. The
+API has a 10-second stop grace period and its health check allows a 60-second
+startup period for fail-closed lifecycle cleanup.
 
 Only the API application graph reaches OperationsModule; ApiApplicationModule
 owns OperationRun creation, scheduling, resource-class dispatch, browser
@@ -70,12 +71,12 @@ The immutable API image includes pinned Codex and Claude CLI binaries. Only the
 API root starts those local runtimes. Provider authentication remains in a
 persistent, operator-initialized CLI home volume; KidItem never stores or
 injects provider API/OAuth credentials or a runtime HMAC token. PostgreSQL owns
-the durable job/conversation record; CLI processes and their run directories
-are current-container-only and never resume after restart. Each child gets only
-an allowlisted local environment, a shell-disabled/read-only CLI profile, and a
-database-revalidated MCP execution coordinate. A missing binary, incompatible
-version, or logged-out profile makes that runtime unavailable and the owning
-AgentSession command fails closed.
+the durable Task/Attempt and mutation record; CLI processes and their
+per-Attempt directories are current-container-only and never resume after
+restart. Each child gets an isolated home plus only a symlinked read-only login
+artifact, an allowlisted local environment, and a database-revalidated MCP
+execution coordinate. A missing binary, incompatible version, or logged-out
+profile makes that runtime unavailable and the owning Task fails closed.
 
 The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
 proxying. Container-local access to an internal Agent command still requires a

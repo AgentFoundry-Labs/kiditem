@@ -180,20 +180,14 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 ### Agent interaction browser acceptance
 
 `apps/web/e2e/agent-session-interaction.spec.ts` is the narrow cross-process
-exception: it starts disposable PostgreSQL 17, a real Nest interaction boundary,
-a separate real `ApiApplicationModule` deletion root with persisted `AuthSession`
-credentials, the real Nest interaction adapter, a production Next build, and a
-deterministic fake AG-UI runtime before driving system Chrome. It verifies zero-write open/select,
-first-submit canonical graph creation, replay without writes, later turns,
-failed-run retry, tool renderers, one-shot suggestions, authorized navigation,
-and cross-organization denial. It also drives complete AgentSession deletion
-through the real controller and Operations worker: a narrow deterministic
-deletion-result fake (which has no materialization capability) produces five
-`unknown` outcomes, creator retry receives `403`, administrator retry succeeds
-after `erased`, and every scoped graph row is zero. Cross-organization and
-ordinary same-organization requests are all non-enumerating `204`.
-Each browser/DB stage is bounded to 10–15 seconds;
-do not hide readiness or locator failures by increasing the total timeout.
+exception: it starts disposable PostgreSQL 17, the real Nest CopilotKit incoming
+adapter, a production Next build, and a deterministic local CLI boundary before
+driving system Chrome. It verifies zero-write open/select, first-submit durable
+Session/Task/Attempt creation, future-only output, successor Attempts,
+capability grants, and cross-organization denial. It never depends on a gateway,
+replay transcript, provider-session resume, or browser-supplied identity. Each
+browser/DB stage is bounded to 10–15 seconds; do not hide readiness or locator
+failures by increasing the total timeout.
 
 ### Tier 3 추가 시 체크리스트
 
