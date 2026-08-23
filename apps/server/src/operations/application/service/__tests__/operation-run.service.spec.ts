@@ -784,6 +784,47 @@ describe('OperationRunService', () => {
     }));
   });
 
+  it('does not terminalize the Operation before the owner cancellation receipt succeeds', async () => {
+    const cancel = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('owner_cancel_transient'))
+      .mockResolvedValueOnce(undefined);
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, { ...handler, cancel });
+    const existing = makeRecord({ status: 'running' });
+    const cancelled = makeRecord({
+      status: 'cancelled',
+      finishedAt: new Date('2026-08-01T01:00:00Z'),
+    });
+    const repository = makeRepository();
+    repository.findRunById = vi.fn().mockResolvedValue(existing);
+    const coordinator = {
+      ...compositeCoordinator,
+      cancelChildren: vi.fn().mockResolvedValue(cancelled),
+    };
+    const service = new OperationRunService(
+      registry,
+      repository,
+      coordinator,
+      acceptingGate(),
+    );
+    const command = {
+      organizationId: ORG_ID,
+      runId: RUN_ID,
+      requestedByUserId: USER_ID,
+      reason: 'operator_cancelled',
+    };
+
+    await expect(service.cancel(command)).rejects.toThrow('owner_cancel_transient');
+    expect(coordinator.cancelChildren).not.toHaveBeenCalled();
+
+    await expect(service.cancel(command)).resolves.toMatchObject({
+      status: 'cancelled',
+    });
+    expect(cancel).toHaveBeenCalledTimes(2);
+    expect(coordinator.cancelChildren).toHaveBeenCalledOnce();
+  });
+
   it('returns the same run for an idempotent start command', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

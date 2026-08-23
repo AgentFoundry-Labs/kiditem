@@ -53,6 +53,9 @@ describe('SourcingListingPrepCapabilityAdapter', () => {
       }),
       'org-1',
       'user-1',
+      expect.stringMatching(
+        /^00000000-0000-4000-8000-000000000001:product_listing\.create_generation_package:/,
+      ),
     );
     expect(result).toMatchObject({
       resourceType: 'sourcing_candidate',

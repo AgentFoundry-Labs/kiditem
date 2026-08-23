@@ -15,6 +15,7 @@ export interface AgentJudgmentSubmissionTransactionPort {
     authorityProfilePolicyDocument: Record<string, unknown>;
     authorityProfilePolicyHash: string;
     capabilityKeys: readonly string[];
+    registeredRuntimeTypes: readonly string[];
   }): Promise<{
     organizationId: string;
     userId: string;

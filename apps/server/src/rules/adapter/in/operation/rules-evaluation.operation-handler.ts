@@ -29,10 +29,9 @@ export class RulesEvaluationOperationHandler implements OperationHandler, OnModu
   }
 
   async execute(context: OperationHandlerContext): Promise<OperationHandlerResult> {
-    const result = await this.results.apply({
+    const result = await this.results.evaluateAndApply({
       organizationId: context.organizationId,
       operationId: context.runId,
-      products: [],
     });
     return { kind: 'completed', result };
   }

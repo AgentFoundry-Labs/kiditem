@@ -19,8 +19,11 @@ import { OperationRunWorkerService } from '../operations/application/service/ope
 import { AgentSessionDeletionController } from '../agent-os/adapter/in/http/session-control/agent-session-deletion.controller';
 import { AgentSessionDeletionOperationHandler } from '../agent-os/adapter/in/operation/agent-session-deletion.operation-handler';
 import { PrismaAgentSessionDeletionCommandTransaction } from '../agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction';
-import { RuntimeCredentialBroker } from '../agent-os/adapter/out/runtime/runtime-credential-broker';
-import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT, type AgentRuntimeCredentialVerificationPort } from '../agent-os/application/port/in/session-execution/agent-runtime-credential-verification.port';
+import {
+  AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+  type AgentOsMcpExecutionContextPort,
+  type AgentOsMcpToolExecutionPort,
+} from '../agent-os/application/port/in/capability/agent-os-mcp-tool-execution.port';
 import { AgentSessionDeletionFinalizerRecoveryService } from '../agent-os/application/service/session-control/agent-session-deletion-finalizer-recovery.service';
 import { AgentSessionDeletionRecoveryService } from '../agent-os/application/service/session-control/agent-session-deletion-recovery.service';
 import { AGENT_SESSION_DELETE_OPERATION } from '../agent-os/domain/operation/agent-session-deletion.operations';
@@ -39,7 +42,6 @@ async function main(): Promise<void> {
   let worker: INestApplicationContext | null = null;
   let mcp: INestApplicationContext | null = null;
   let fencingApi: INestApplicationContext | null = null;
-  let recreatedApi: INestApplicationContext | null = null;
   let recreatedMcp: INestApplicationContext | null = null;
   try {
     api = await open(ApiApplicationModule);
@@ -49,19 +51,7 @@ async function main(): Promise<void> {
     assertPresent(api, AgentSessionDeletionRecoveryService, 'API deletion recovery');
     assertPresent(api, OperationRunWorkerService, 'API Operations worker');
 
-    const credentials = await seedCredentialAuthority(api);
-    const broker = required<RuntimeCredentialBroker>(
-      api,
-      RuntimeCredentialBroker,
-      'API credential broker',
-    );
-    const issued = broker.issue(credentials);
-    const apiVerifier = required<AgentRuntimeCredentialVerificationPort>(
-      api,
-      AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
-      'API credential verifier',
-    );
-    await apiVerifier.verify({ token: issued.token });
+    const executionContext = await seedMcpExecutionContext(api);
     await close(api);
     api = null;
 
@@ -80,12 +70,12 @@ async function main(): Promise<void> {
     assertAbsent(mcp, AgentSessionDeletionFinalizerRecoveryService, 'MCP deletion finalizer recovery');
     assertAbsent(mcp, AgentSessionDeletionRecoveryService, 'MCP deletion recovery');
     assertAbsent(mcp, OperationRunWorkerService, 'MCP Operations worker');
-    const mcpVerifier = required<AgentRuntimeCredentialVerificationPort>(
+    const mcpExecutor = required<AgentOsMcpToolExecutionPort>(
       mcp,
-      AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
-      'MCP credential verifier',
+      AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+      'MCP tool executor',
     );
-    await mcpVerifier.verify({ token: issued.token });
+    await mcpExecutor.listAvailableTools(executionContext);
     await close(mcp);
     mcp = null;
 
@@ -101,13 +91,13 @@ async function main(): Promise<void> {
       actorUserId: userId,
       session: formatAgentSessionName(
         OrganizationIdSchema.parse(organizationId),
-        AgentSessionIdSchema.parse(credentials.sessionId),
+        AgentSessionIdSchema.parse(executionContext.sessionId),
       ),
       definition: deletionDefinition,
       parsedInput: {
         session: formatAgentSessionName(
           OrganizationIdSchema.parse(organizationId),
-          AgentSessionIdSchema.parse(credentials.sessionId),
+          AgentSessionIdSchema.parse(executionContext.sessionId),
         ),
         retryGeneration: 1,
       },
@@ -115,35 +105,21 @@ async function main(): Promise<void> {
     await close(fencingApi);
     fencingApi = null;
 
-    recreatedApi = await open(ApiApplicationModule);
-    await rejectRevoked(
-      required<AgentRuntimeCredentialVerificationPort>(
-        recreatedApi,
-        AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
-        'recreated API credential verifier',
-      ),
-      issued.token,
-      'recreated API verifier',
-    );
-    await close(recreatedApi);
-    recreatedApi = null;
-
     recreatedMcp = await open(AgentMcpApplicationModule);
-    await rejectRevoked(
-      required<AgentRuntimeCredentialVerificationPort>(
+    await rejectStaleContext(
+      required<AgentOsMcpToolExecutionPort>(
         recreatedMcp,
-        AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
-        'recreated MCP credential verifier',
+        AGENT_OS_MCP_TOOL_EXECUTION_PORT,
+        'recreated MCP tool executor',
       ),
-      issued.token,
-      'recreated MCP verifier',
+      executionContext,
     );
     await close(recreatedMcp);
     recreatedMcp = null;
     console.log('agent-session-deletion-root-probe PASS');
   } finally {
     await Promise.allSettled([
-      close(recreatedMcp), close(recreatedApi), close(mcp), close(worker), close(api),
+      close(recreatedMcp), close(mcp), close(worker), close(api),
       close(fencingApi),
     ]);
   }
@@ -178,21 +154,25 @@ function assertAbsent(app: INestApplicationContext, token: unknown, label: strin
   throw new Error(`unexpected ${label}`);
 }
 
-async function rejectRevoked(
-  verifier: AgentRuntimeCredentialVerificationPort,
-  token: string,
-  label: string,
+async function rejectStaleContext(
+  executor: AgentOsMcpToolExecutionPort,
+  context: AgentOsMcpExecutionContextPort,
 ): Promise<void> {
   try {
-    await verifier.verify({ token });
+    await executor.listAvailableTools(context);
   } catch (error) {
-    if (error instanceof Error && error.message === 'RUNTIME_CREDENTIAL_REVOKED') return;
+    if (
+      error
+      && typeof error === 'object'
+      && 'code' in error
+      && error.code === 'MCP_EXECUTION_DENIED'
+    ) return;
     throw error;
   }
-  throw new Error(`${label} accepted a pre-fence credential`);
+  throw new Error('recreated MCP accepted a pre-fence execution context');
 }
 
-async function seedCredentialAuthority(app: INestApplicationContext) {
+async function seedMcpExecutionContext(app: INestApplicationContext) {
   const prisma = required<PrismaService>(app, PrismaService, 'API Prisma service');
   const version = await prisma.agentVersion.findFirst({
     select: { id: true, agentDefinitionKey: true, modelIdentity: true },
@@ -220,6 +200,7 @@ async function seedCredentialAuthority(app: INestApplicationContext) {
   const attemptId = randomUUID();
   const startIntentId = randomUUID();
   const policySnapshotId = randomUUID();
+  const operationRunId = randomUUID();
   await prisma.agentSession.create({
     data: {
       id: sessionId,
@@ -261,7 +242,7 @@ async function seedCredentialAuthority(app: INestApplicationContext) {
       copilotThreadId: `deletion-proof-run-${randomUUID()}`,
       aguiRunId: `deletion-proof-agui-${randomUUID()}`,
       agentVersionId: version.id,
-      runtimeType: 'hermes_http',
+      runtimeType: 'codex_cli',
       modelIdentity: version.modelIdentity,
       policySnapshotId,
       inputHash: 'e'.repeat(64),
@@ -276,10 +257,41 @@ async function seedCredentialAuthority(app: INestApplicationContext) {
       executionId,
       attemptNumber: 1,
       idempotencyKey: `deletion-proof-attempt-${attemptId}`,
-      runtimeType: 'hermes_http',
+      runtimeType: 'codex_cli',
       runtimeStartIntentId: startIntentId,
       runtimeCredentialGeneration: 0,
       state: 'running',
+    },
+  });
+  await prisma.operationRun.create({
+    data: {
+      id: operationRunId,
+      organizationId,
+      operationKey: 'agent-os.mcp-context-proof',
+      definitionVersion: 1,
+      ownerDomain: 'agent-os',
+      title: 'MCP context proof',
+      engineType: 'agent_os',
+      resourceClass: 'default',
+      executionTimeoutMs: 60_000,
+      status: 'running',
+      triggerSource: 'agent',
+      requestedByUserId: userId,
+      input: {},
+      maxAttempts: 1,
+    },
+  });
+  await prisma.agentSessionOperationRunOwnership.create({
+    data: { organizationId, sessionId, operationRunId },
+  });
+  await prisma.agentExecutionAttemptOperationBinding.create({
+    data: {
+      organizationId,
+      sessionId,
+      executionId,
+      executionAttemptId: attemptId,
+      operationRunId,
+      continuationKey: `initial:${operationRunId}`,
     },
   });
   return {

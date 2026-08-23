@@ -9,7 +9,17 @@ import {
   toMcpText,
 } from '../kiditem-agent-os-mcp-server';
 
-const RUNTIME_ENV = { KIDITEM_RUNTIME_CREDENTIAL: 'runtime-credential' };
+const RUNTIME_CONTEXT = {
+  organizationId: '00000000-0000-4000-8000-000000000001',
+  sessionId: '00000000-0000-4000-8000-000000000002',
+  executionId: '00000000-0000-4000-8000-000000000003',
+  attemptId: '00000000-0000-4000-8000-000000000004',
+  startIntentId: '00000000-0000-4000-8000-000000000005',
+  runtimeCredentialGeneration: 2,
+};
+const RUNTIME_ENV = {
+  KIDITEM_MCP_EXECUTION_CONTEXT: JSON.stringify(RUNTIME_CONTEXT),
+};
 
 function executor(): AgentOsMcpToolExecutionPort {
   return {
@@ -26,10 +36,8 @@ function registeredTools(server: unknown) {
 }
 
 describe('KidItem Agent OS MCP server', () => {
-  it('accepts only an issued runtime credential and rejects legacy caller context env', () => {
-    expect(readKidItemAgentOsMcpContext(RUNTIME_ENV)).toEqual({
-      credential: 'runtime-credential',
-    });
+  it('accepts only the exact locally spawned execution context and rejects legacy caller env', () => {
+    expect(readKidItemAgentOsMcpContext(RUNTIME_ENV)).toEqual(RUNTIME_CONTEXT);
 
     const legacyPrefix = `${['KIDITEM', 'AGENT', 'OS'].join('_')}_`;
     expect(() => readKidItemAgentOsMcpContext({
@@ -38,7 +46,7 @@ describe('KidItem Agent OS MCP server', () => {
       [`${legacyPrefix}REQUEST_ID`]: 'forged-request',
       [`${legacyPrefix}RUN_ID`]: 'forged-run',
       [`${legacyPrefix}AGENT_INSTANCE_ID`]: 'forged-agent',
-    })).toThrow('KIDITEM_RUNTIME_CREDENTIAL');
+    })).toThrow('KIDITEM_MCP_EXECUTION_CONTEXT');
   });
 
   it('boots the MCP application context without HTTP grant configuration', async () => {
@@ -54,7 +62,7 @@ describe('KidItem Agent OS MCP server', () => {
 
   it('registers only authenticated retained MCP tools', async () => {
     const server = await createKidItemAgentOsMcpServer({
-      context: { credential: 'runtime-credential' } as never,
+      context: RUNTIME_CONTEXT,
       executor: executor(),
     });
 
@@ -83,7 +91,7 @@ describe('KidItem Agent OS MCP server', () => {
       listAvailableTools: vi.fn().mockResolvedValue([{ name: 'agent_os_read_context' }]),
     } as unknown as AgentOsMcpToolExecutionPort;
     const server = await createKidItemAgentOsMcpServer({
-      context: { credential: 'runtime-credential' } as never,
+      context: RUNTIME_CONTEXT,
       executor: denied,
     });
     const tool = registeredTools(server) as Record<string, { handler: (args: Record<string, unknown>) => Promise<unknown> }>;

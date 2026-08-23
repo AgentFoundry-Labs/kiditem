@@ -85,6 +85,38 @@ describe('OperationDispatcherService', () => {
     }));
   });
 
+  it('publishes the committed terminal Operation identity for alert projection', async () => {
+    const events = { emit: vi.fn() };
+    const repository = {
+      transitionActiveAttempt: vi.fn().mockResolvedValue(run({ status: 'succeeded' })),
+    };
+    const dispatcher = new OperationDispatcherService(
+      {
+        getDefinition: vi.fn().mockReturnValue({ successPersistence: 'retained' }),
+        getHandler: vi.fn().mockReturnValue({
+          execute: vi.fn().mockResolvedValue({ kind: 'completed', result: {} }),
+        }),
+      } as never,
+      repository as never,
+      { waitForChild: vi.fn() } as never,
+      events as never,
+    );
+
+    await dispatcher.dispatch(run(), {
+      signal: new AbortController().signal,
+      checkpoint: vi.fn().mockResolvedValue(undefined),
+      enterEphemeralFinalization: vi.fn(),
+    });
+
+    expect(events.emit).toHaveBeenCalledWith('operation.run.finalized', {
+      organizationId: run().organizationId,
+      runId: run().id,
+      status: 'succeeded',
+      errorCode: null,
+      errorMessage: null,
+    });
+  });
+
   it('does not commit handler completion after the attempt signal aborts', async () => {
     let resolveHandler!: (value: {
       kind: 'completed';

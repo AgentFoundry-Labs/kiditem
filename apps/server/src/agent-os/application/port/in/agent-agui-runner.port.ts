@@ -14,6 +14,8 @@ export interface StopAuthorizedAguiRunInput {
   executionId: string;
   copilotThreadId: string;
   aguiRunId: string;
+  attemptId: string;
+  startIntentId: string;
 }
 
 export interface AgentAguiRunnerPort {

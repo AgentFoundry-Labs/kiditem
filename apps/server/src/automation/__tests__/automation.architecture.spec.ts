@@ -57,6 +57,8 @@ const ALLOWED_PRISMA_FILES = new Set<string>([
 
 const ALLOWED_PRISMA_PREFIXES = [
   'apps/server/src/automation/adapter/out/repository/',
+  // Operation source-state lookup is an explicit outbound Operations adapter.
+  'apps/server/src/automation/adapter/out/operations/',
   'apps/server/src/automation/adapter/out/panel-event/',
   'apps/server/src/automation/adapter/out/workflow-runner/',
   // Panel mapper is invoked by both `WorkflowOrchestrationService` and

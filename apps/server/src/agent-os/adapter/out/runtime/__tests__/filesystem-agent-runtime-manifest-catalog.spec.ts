@@ -37,6 +37,21 @@ describe('FilesystemAgentRuntimeManifestCatalog', () => {
       .toBe(true);
   });
 
+  it('binds every migrated Task 6 judgment surface to a composed official runtime', async () => {
+    const catalog = new FilesystemAgentRuntimeManifestCatalog(repositoryRoot, {
+      AGENT_DEFAULT_MODEL: 'gpt-test',
+    });
+
+    const compiled = await catalog.compileAll();
+    const runtimeByDefinition = new Map(
+      compiled.map((entry) => [entry.agentDefinitionKey, entry.manifest.runtimeType]),
+    );
+
+    expect(runtimeByDefinition.get('ad_strategy')).toBe('claude_cli');
+    expect(runtimeByDefinition.get('rules_suggest')).toBe('claude_cli');
+    expect(runtimeByDefinition.get('sourcing')).toBe('codex_cli');
+  });
+
   it('keeps migrated root prompts byte-identical to the legacy copies until cutover', async () => {
     for (const definition of listAgentDefinitions()) {
       if (definition.type === 'sourcing') continue;

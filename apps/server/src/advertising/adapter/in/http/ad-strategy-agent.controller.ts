@@ -1,9 +1,10 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Headers, Post } from '@nestjs/common';
 import { AdStrategyAgentService } from '../../../application/service/ad-strategy-agent.service';
 import { RunAdStrategyBodyDto } from './dto/ad-strategy-agent';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
+import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 
 /**
  * Manual trigger for the `ad_strategy` agent. Run observability
@@ -17,6 +18,7 @@ export class AdStrategyAgentController {
   @Post('run')
   run(
     @Body() body: RunAdStrategyBodyDto,
+    @Headers('idempotency-key') idempotencyKey: string | undefined,
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
   ) {
@@ -24,6 +26,7 @@ export class AdStrategyAgentController {
       ...body,
       organizationId,
       triggeredByUserId: user.id,
+      idempotencyKey: parseRequiredIdempotencyKey(idempotencyKey),
     });
   }
 }

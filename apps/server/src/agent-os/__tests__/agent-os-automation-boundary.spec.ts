@@ -29,9 +29,12 @@ describe('agent-os -> automation boundary', () => {
       `--type ts -n 'automation/' ${agentOs} --glob '!**/__tests__/**'`,
     );
     const violators = hits.filter((line) => {
-      if (line.includes('agent-os/agent-os.module.ts:')) {
+      if (line.includes('agent-os/agent-os.module.ts:') ||
+          line.includes('agent-os/agent-os-legacy-run.module.ts:') ||
+          line.includes('agent-os/agent-os-api-execution.module.ts:')) {
         return !line.includes('../automation/automation.module') &&
           !line.includes('../automation/operation-alert-runtime.module') &&
+          !line.includes('../automation/operation-run-alert-runtime.module') &&
           !line.includes('./adapter/out/automation/');
       }
       if (line.includes('agent-os/adapter/out/automation/')) {

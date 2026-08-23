@@ -53,8 +53,8 @@ test('AgentOS interaction vertical slice is durable, replay-safe, and tenant-sco
       expect(selected).not.toBe(threadId);
       return selected;
     });
-    await stage('projected tool results and terminal analytics are safe', () => (
-      harness.expectSafeAnalyticsAndSourcingRenderer(page)
+    await stage('projected tool results remain safe', () => (
+      harness.expectSafeSourcingRenderer(page)
     ));
     await stage('latest suggestion sends once and consumes siblings', () => (
       harness.expectSuggestionSendsOnce(page)

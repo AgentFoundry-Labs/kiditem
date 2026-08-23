@@ -2,6 +2,7 @@ import "reflect-metadata";
 import { describe, it, expect } from "vitest";
 import { SourcingModule } from "../sourcing.module";
 import { SourcingAgentRuntimeModule } from "../sourcing-agent-runtime.module";
+import { SourcingAgentListingCapabilityModule } from "../sourcing-agent-listing-capability.module";
 import { SourcingAgentApiCollectionModule } from "../sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "../sourcing-shadow-operation.module";
 import { Sourcing1688ImageSearchService } from "../application/service/sourcing-1688-image-search.service";
@@ -15,7 +16,6 @@ import { LiveCommerceService } from "../application/service/live-commerce.servic
 import { SourcingService } from "../application/service/sourcing.service";
 import { SourcingPromotionService } from "../application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "../application/service/sourcing-workspace-archive.service";
-import { SourcingAssistantService } from "../application/service/sourcing-assistant.service";
 import { SourcingRecommendationService } from "../application/service/sourcing-recommendation.service";
 import { SourcingKeywordPreferenceService } from "../application/service/sourcing-keyword-preference.service";
 import { SourcingValidationService } from "../application/service/sourcing-validation.service";
@@ -32,12 +32,18 @@ import { SourcingCollectionCoordinator } from "../application/service/sourcing-c
 import { SourcingBrowserTrendOperationService } from "../application/service/sourcing-browser-trend-operation.service";
 import { SourcingBrowserLiveCommerceOperationService } from "../application/service/sourcing-browser-live-commerce-operation.service";
 import { SourcingScrapeResultService } from "../application/service/sourcing-scrape-result.service";
-import { SourcingAgentWorkspaceCapabilityService } from "../application/service/sourcing-agent-workspace-capability.service";
+import {
+  SourcingAgentWorkspaceMutationCapabilityService,
+  SourcingAgentWorkspaceReadCapabilityService,
+} from "../application/service/sourcing-agent-workspace-capability.service";
 import { SourcingExtensionIngestService } from "../application/service/sourcing-extension-ingest.service";
 import { MarketShadowSignalCapabilityAdapter } from "../adapter/in/agent/market-shadow-signal-capability.adapter";
 import { SourcingListingPrepCapabilityAdapter } from "../adapter/in/agent/sourcing-listing-prep-capability.adapter";
 import { SourcingScrapeUrlCapabilityAdapter } from "../adapter/in/agent/sourcing-scrape-url-capability.adapter";
-import { SourcingWorkspaceCapabilityAdapter } from "../adapter/in/agent/sourcing-workspace-capability.adapter";
+import {
+  SourcingWorkspaceMutationCapabilityAdapter,
+  SourcingWorkspaceReadCapabilityAdapter,
+} from "../adapter/in/agent/sourcing-workspace-capability.adapter";
 import { SourcingBrowserTrendOperationController } from "../adapter/in/http/sourcing-browser-trend-operation.controller";
 import { SourcingBrowserLiveCommerceOperationController } from "../adapter/in/http/sourcing-browser-live-commerce-operation.controller";
 import { SourcingKeywordAnalysisController } from "../adapter/in/http/sourcing-keyword-analysis.controller";
@@ -92,7 +98,11 @@ import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from "../application/port/in/capability/sourcing-capability.ports";
-import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from "../application/port/in/capability/sourcing-agent-workspace-capability.port";
+import {
+  SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
+  SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
+} from "../application/port/in/capability/sourcing-agent-workspace-capability.port";
+import { SourcingAgentReadCapabilityModule } from "../sourcing-agent-read-capability.module";
 import { SOURCING_COLLECTION_OPERATION_PORT } from "../application/port/out/cross-domain/sourcing-collection-operation.port";
 import { SOURCING_1688_IMAGE_SEARCH_PORT } from "../application/port/out/provider/1688-image-search.port";
 import { SOURCING_1688_KEYWORD_SEARCH_PORT } from "../application/port/out/provider/1688-keyword-search.port";
@@ -140,6 +150,7 @@ import {
 
 // NestJS @Module / @Controller metadata keys (stable across Nest 10/11).
 const IMPORTS_KEY = "imports";
+const EXPORTS_KEY = "exports";
 const CONTROLLERS_KEY = "controllers";
 const PROVIDERS_KEY = "providers";
 const PATH_KEY = "path";
@@ -149,6 +160,7 @@ function sourcingProviders(): unknown[] {
   return [
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? []),
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? []),
+    ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentReadCapabilityModule) ?? []),
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentApiCollectionModule) ?? []),
     ...(Reflect.getMetadata(PROVIDERS_KEY, SourcingShadowOperationModule) ?? []),
   ];
@@ -160,6 +172,10 @@ function sourcingProviders(): unknown[] {
 // controller, a missing provider, or a route rename fails at vitest time
 // before reaching dev:server boot.
 describe("SourcingModule canonical owner wiring", () => {
+  it("re-exports the listing owner module instead of ports it does not provide", () => {
+    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, SourcingAgentRuntimeModule) ?? [];
+    expect(exports).toContain(SourcingAgentListingCapabilityModule);
+  });
   it('imports the official API capability owner for direct Shadow operations', () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingShadowOperationModule) ?? [];
@@ -222,7 +238,8 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(SourcingAgentRagService);
     expect(providers).toContain(SourcingPromotionService);
     expect(providers).toContain(SourcingWorkspaceArchiveService);
-    expect(providers).toContain(SourcingAssistantService);
+    expect(providers.map((provider) => (provider as { name?: string }).name))
+      .not.toContain("SourcingAssistantService");
     expect(providers).toContain(SourcingRecommendationService);
     expect(providers).toContain(SourcingKeywordPreferenceService);
     expect(providers).toContain(SourcingValidationService);
@@ -268,9 +285,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(NaverDatalabTrendAdapter);
     expect(providers).toContain(NaverAutocompleteKeywordAdapter);
     expect(providers).toContain(NaverSearchAdKeywordAdapter);
-    expect(providers).toContain(SourcingAgentGatewayAdapter);
     expect(providers).toContain(SourcingAiWorkspaceArchiveAdapter);
-    expect(providers).toContain(SourcingCandidateRepositoryAdapter);
     expect(providers).toContain(SourcingCollectionSourceControlRepositoryAdapter);
     expect(providers).toContain(SourcingInterestTargetRepositoryAdapter);
     expect(providers).toContain(SourcingRecommendationRepositoryAdapter);
@@ -289,10 +304,11 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(GoogleTrendsRssAdapter);
     expect(providers).toContain(LinkfoxEchotikShadowAdapter);
     expect(providers).toContain(MarketShadowSignalCapabilityAdapter);
-    expect(providers).toContain(SourcingListingPrepCapabilityAdapter);
     expect(providers).toContain(SourcingScrapeUrlCapabilityAdapter);
-    expect(providers).toContain(SourcingWorkspaceCapabilityAdapter);
-    expect(providers).toContain(SourcingAgentWorkspaceCapabilityService);
+    expect(providers).toContain(SourcingWorkspaceReadCapabilityAdapter);
+    expect(providers).toContain(SourcingWorkspaceMutationCapabilityAdapter);
+    expect(providers).toContain(SourcingAgentWorkspaceReadCapabilityService);
+    expect(providers).toContain(SourcingAgentWorkspaceMutationCapabilityService);
     expect(providers).toContain(SourcingCollectionOperationAdapter);
     expect(providers).toContain(MarketShadowOperationAdapter);
     expect(providers).toContain(SourcingPlaywrightRuntimeHandler);
@@ -305,6 +321,11 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(providers).toContain(ProductPreparationRepositoryAdapter);
     expect(providers).toContain(ChannelProductRegistrationAdapter);
     expect(providers).toContain(RegistrationContentWorkspaceAdapter);
+    const listingProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentListingCapabilityModule) ?? [];
+    expect(listingProviders).toContain(SourcingAgentGatewayAdapter);
+    expect(listingProviders).toContain(SourcingListingPrepCapabilityAdapter);
+    expect(listingProviders).toContain(SourcingCandidateRepositoryAdapter);
     expect(
       providers.some(
         (provider) =>
@@ -312,7 +333,7 @@ describe("SourcingModule canonical owner wiring", () => {
           provider.name === "SourcingPythonRuntimeHandler",
       ),
     ).toBe(false);
-    const gatewayBinding = providers.find(
+    const gatewayBinding = listingProviders.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
         p !== null &&
@@ -320,15 +341,25 @@ describe("SourcingModule canonical owner wiring", () => {
     );
     expect(gatewayBinding).toBeDefined();
     expect(gatewayBinding!.useExisting).toBe(SourcingAgentGatewayAdapter);
-    const workspaceCapabilityBinding = providers.find(
+    const workspaceReadCapabilityBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
         p !== null &&
-        (p as any).provide === SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT,
+        (p as any).provide === SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
     );
-    expect(workspaceCapabilityBinding).toBeDefined();
-    expect(workspaceCapabilityBinding!.useExisting).toBe(
-      SourcingAgentWorkspaceCapabilityService,
+    expect(workspaceReadCapabilityBinding).toBeDefined();
+    expect(workspaceReadCapabilityBinding!.useExisting).toBe(
+      SourcingAgentWorkspaceReadCapabilityService,
+    );
+    const workspaceMutationCapabilityBinding = providers.find(
+      (p): p is { provide: symbol; useExisting: unknown } =>
+        typeof p === "object" &&
+        p !== null &&
+        (p as any).provide === SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
+    );
+    expect(workspaceMutationCapabilityBinding).toBeDefined();
+    expect(workspaceMutationCapabilityBinding!.useExisting).toBe(
+      SourcingAgentWorkspaceMutationCapabilityService,
     );
     const collectionOperationBinding = providers.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
@@ -355,7 +386,7 @@ describe("SourcingModule canonical owner wiring", () => {
         (p as any).provide === MARKET_SHADOW_OPERATION_PORT,
     );
     expect(shadowOperationBinding?.useExisting).toBe(MarketShadowOperationAdapter);
-    const listingPrepBinding = providers.find(
+    const listingPrepBinding = listingProviders.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
         p !== null &&
@@ -385,7 +416,7 @@ describe("SourcingModule canonical owner wiring", () => {
     expect(aiArchiveBinding!.useExisting).toBe(
       SourcingAiWorkspaceArchiveAdapter,
     );
-    const candidateRepositoryBinding = providers.find(
+    const candidateRepositoryBinding = listingProviders.find(
       (p): p is { provide: symbol; useExisting: unknown } =>
         typeof p === "object" &&
         p !== null &&
@@ -622,6 +653,12 @@ describe("SourcingModule canonical owner wiring", () => {
     const imports: unknown[] =
       Reflect.getMetadata(IMPORTS_KEY, SourcingModule) ?? [];
     expect(imports).toContain(SourcingAgentRuntimeModule);
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentRuntimeModule) ?? [],
+    ).toContain(SourcingAgentReadCapabilityModule);
+    expect(
+      Reflect.getMetadata(IMPORTS_KEY, SourcingAgentRuntimeModule) ?? [],
+    ).toContain(SourcingAgentListingCapabilityModule);
     expect(imports).toContain(SourcingAgentApiCollectionModule);
     expect(imports).toContain(SourcingShadowOperationModule);
     expect(imports).toContain(ChannelsModule);
@@ -633,15 +670,22 @@ describe("SourcingModule canonical owner wiring", () => {
       Reflect.getMetadata(PROVIDERS_KEY, SourcingModule) ?? [];
     const runtimeProviders: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentRuntimeModule) ?? [];
+    const listingProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, SourcingAgentListingCapabilityModule) ?? [];
     expect(Reflect.getMetadata(CONTROLLERS_KEY, SourcingAgentRuntimeModule) ?? [])
       .toEqual([]);
     for (const provider of [
-      SourcingAgentGatewayAdapter,
-      SourcingListingPrepCapabilityAdapter,
       SourcingScrapeUrlCapabilityAdapter,
-      SourcingWorkspaceCapabilityAdapter,
+      SourcingWorkspaceMutationCapabilityAdapter,
     ]) {
       expect(runtimeProviders).toContain(provider);
+      expect(ownerProviders).not.toContain(provider);
+    }
+    for (const provider of [
+      SourcingAgentGatewayAdapter,
+      SourcingListingPrepCapabilityAdapter,
+    ]) {
+      expect(listingProviders).toContain(provider);
       expect(ownerProviders).not.toContain(provider);
     }
   });

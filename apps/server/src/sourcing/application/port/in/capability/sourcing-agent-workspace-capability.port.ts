@@ -1,5 +1,8 @@
-export const SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT = Symbol(
-  'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT',
+export const SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT = Symbol(
+  'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT',
+);
+export const SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT = Symbol(
+  'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT',
 );
 
 export interface SourcingEvidenceDocument {
@@ -21,7 +24,7 @@ export interface SourcingWorkspaceEvidenceResult {
   dataGaps: string[];
 }
 
-export interface SourcingAgentWorkspaceCapabilityPort {
+export interface SourcingAgentWorkspaceReadCapabilityPort {
   retrieveWorkspaceEvidence(input: {
     organizationId: string;
     query: string;
@@ -41,6 +44,9 @@ export interface SourcingAgentWorkspaceCapabilityPort {
     validation: { itemCount: number; missingCount: number };
   }>;
 
+}
+
+export interface SourcingAgentWorkspaceMutationCapabilityPort {
   refreshValidation(input: {
     organizationId: string;
     recommendationRunId: string;

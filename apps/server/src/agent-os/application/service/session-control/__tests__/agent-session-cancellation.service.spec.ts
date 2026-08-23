@@ -19,13 +19,12 @@ const task = formatAgentSessionTaskName(organization, AgentSessionIdSchema.parse
 describe('AgentSessionCancellationService', () => {
   it('deduplicates concurrent explicit cancellation through one Operation and one runtime cancel', async () => {
     const runtime = { cancel: vi.fn().mockResolvedValue(undefined) };
-    const controls = {
-      loadCancelableTask: vi.fn().mockResolvedValue({
-        organizationId: ORGANIZATION_ID,
-        sessionId: SESSION_ID,
-        taskId: TASK_ID,
+    const cancellations = {
+      begin: vi.fn().mockResolvedValue({
+        kind: 'pending',
         operationRunId: OPERATION_RUN_ID,
       }),
+      complete: vi.fn().mockResolvedValue({ status: 'cancelled' }),
     };
     const operations = {
       cancel: vi.fn(async () => {
@@ -34,7 +33,7 @@ describe('AgentSessionCancellationService', () => {
       }),
     };
     const service = new AgentSessionCancellationService(
-      controls as never,
+      cancellations as never,
       operations as never,
     );
     const input = {
@@ -50,26 +49,28 @@ describe('AgentSessionCancellationService', () => {
     await Promise.all([service.cancel(input), service.cancel(input)]);
     expect(operations.cancel).toHaveBeenCalledOnce();
     expect(runtime.cancel).toHaveBeenCalledOnce();
-    expect(controls.loadCancelableTask).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID, actorId: 'user-1',
+    expect(cancellations.begin).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      actorId: 'user-1',
       sessionId: SESSION_ID,
       taskId: TASK_ID,
       expectedStatus: 'running',
-    });
+      idempotencyKey: 'cancel:task-1',
+      fingerprint: expect.stringMatching(/^[a-f0-9]{64}$/),
+    }));
   });
 
   it('does not let a concurrent actor bypass the task ownership check', async () => {
     let releaseOperation: ((value: { id: string; status: string }) => void) | undefined;
-    const controls = {
-      loadCancelableTask: vi.fn(({ actorId }: { actorId: string }) =>
-        Promise.resolve(actorId === 'user-1'
-          ? {
-              organizationId: ORGANIZATION_ID,
-              sessionId: SESSION_ID,
-              taskId: TASK_ID,
+    const cancellations = {
+      begin: vi.fn(({ actorId }: { actorId: string }) =>
+        actorId === 'user-1'
+          ? Promise.resolve({
+              kind: 'pending' as const,
               operationRunId: OPERATION_RUN_ID,
-            }
-          : null)),
+            })
+          : Promise.reject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' })),
+      complete: vi.fn().mockResolvedValue({ status: 'cancelled' }),
     };
     const operations = {
       cancel: vi.fn(() => new Promise<{ id: string; status: string }>((resolve) => {
@@ -77,7 +78,7 @@ describe('AgentSessionCancellationService', () => {
       })),
     };
     const service = new AgentSessionCancellationService(
-      controls as never,
+      cancellations as never,
       operations as never,
     );
     const input = {
@@ -103,15 +104,15 @@ describe('AgentSessionCancellationService', () => {
       code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID',
     });
     await expect(ownerCancellation).resolves.toEqual({ status: 'cancelled' });
-    expect(controls.loadCancelableTask).toHaveBeenCalledWith(expect.objectContaining({
+    expect(cancellations.begin).toHaveBeenCalledWith(expect.objectContaining({
       actorId: 'user-2',
     }));
   });
 
   it('does not turn reconnect or panel close into cancellation', async () => {
-    const controls = { loadCancelableTask: vi.fn() };
+    const cancellations = { begin: vi.fn(), complete: vi.fn() };
     const operations = { cancel: vi.fn() };
-    const service = new AgentSessionCancellationService(controls as never, operations as never);
+    const service = new AgentSessionCancellationService(cancellations as never, operations as never);
 
     await expect(service.cancel({
       organizationId: 'other-org', session, task, actorId: 'user-1', reason: null,
@@ -121,9 +122,14 @@ describe('AgentSessionCancellationService', () => {
   });
 
   it('fails closed without enumerating a same-organization task owned by another actor', async () => {
-    const controls = { loadCancelableTask: vi.fn().mockResolvedValue(null) };
+    const cancellations = {
+      begin: vi.fn().mockRejectedValue({
+        code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID',
+      }),
+      complete: vi.fn(),
+    };
     const operations = { cancel: vi.fn() };
-    const service = new AgentSessionCancellationService(controls as never, operations as never);
+    const service = new AgentSessionCancellationService(cancellations as never, operations as never);
 
     await expect(service.cancel({
       organizationId: ORGANIZATION_ID,
@@ -135,5 +141,48 @@ describe('AgentSessionCancellationService', () => {
       reason: null,
     })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
     expect(operations.cancel).not.toHaveBeenCalled();
+  });
+
+  it('replays a durable completed result after service recreation without cancelling twice', async () => {
+    const begin = vi
+      .fn()
+      .mockResolvedValueOnce({ kind: 'pending', operationRunId: OPERATION_RUN_ID })
+      .mockResolvedValueOnce({ kind: 'completed', status: 'cancelled' });
+    const complete = vi.fn().mockResolvedValue({ status: 'cancelled' });
+    const transaction = { begin, complete };
+    const operations = {
+      cancel: vi.fn().mockResolvedValue({
+        id: OPERATION_RUN_ID,
+        status: 'cancelled',
+      }),
+    };
+    const input = {
+      organizationId: ORGANIZATION_ID,
+      session,
+      task,
+      actorId: 'user-1',
+      idempotencyKey: 'cancel:durable',
+      expectedStatus: 'running' as const,
+      reason: 'operator_cancelled',
+    };
+
+    const first = new AgentSessionCancellationService(
+      transaction as never,
+      operations as never,
+    );
+    await expect(first.cancel(input)).resolves.toEqual({ status: 'cancelled' });
+
+    const recreated = new AgentSessionCancellationService(
+      transaction as never,
+      operations as never,
+    );
+    await expect(recreated.cancel(input)).resolves.toEqual({ status: 'cancelled' });
+
+    expect(operations.cancel).toHaveBeenCalledTimes(1);
+    expect(complete).toHaveBeenCalledWith(expect.objectContaining({
+      idempotencyKey: 'cancel:durable',
+      operationRunId: OPERATION_RUN_ID,
+      status: 'cancelled',
+    }));
   });
 });

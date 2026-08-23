@@ -187,7 +187,7 @@ async function assertMatch(
     throw conflict();
 }
 async function terminal(
-  tx: Pick<Prisma.TransactionClient, "agentExecution">,
+  tx: Pick<Prisma.TransactionClient, "agentExecution" | "agentExecutionAttempt">,
   input: {
     organizationId: string;
     sessionId: string;
@@ -195,6 +195,8 @@ async function terminal(
     status: "completed" | "failed" | "cancelled";
     errorCode: string | null;
     finishedAt: Date;
+    attemptId?: string;
+    startIntentId?: string;
   },
 ): Promise<void> {
   validateTerminal(input.status, input.errorCode);
@@ -215,6 +217,33 @@ async function terminal(
     throw new AgentOsBoundaryError(
       "INTERACTION_EXECUTION_NOT_RUNNING",
       "Interaction execution was not found in scope or is already terminal.",
+    );
+  if (!input.attemptId && !input.startIntentId) return;
+  if (!input.attemptId || !input.startIntentId)
+    throw new AgentOsBoundaryError(
+      "INTERACTION_ATTEMPT_COORDINATE_INVALID",
+      "The interaction terminal record must identify its exact attempt.",
+    );
+  const attempt = await tx.agentExecutionAttempt.updateMany({
+    where: {
+      id: input.attemptId,
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      executionId: input.id,
+      runtimeType: "copilotkit_agui",
+      runtimeStartIntentId: input.startIntentId,
+      state: "running",
+    },
+    data: {
+      state: input.status === "completed" ? "completed" : input.status,
+      errorCode: input.errorCode,
+      finishedAt: input.finishedAt,
+    },
+  });
+  if (attempt.count !== 1)
+    throw new AgentOsBoundaryError(
+      "INTERACTION_ATTEMPT_NOT_RUNNING",
+      "Interaction execution attempt was not found in scope or is already terminal.",
     );
 }
 function validateTerminal(status: string, errorCode: string | null): void {

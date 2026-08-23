@@ -17,6 +17,7 @@ const readPorts = [
     "repository/interaction/agent-execution-query.repository.port.ts",
     [
       "loadExecutionRuntimeContext",
+      "loadInlineAguiExecutionRuntimeContext",
       "findCurrentExecution",
       "findAccessibleCurrentExecution",
       "findCurrentSessionExecution",
@@ -29,7 +30,6 @@ const readPorts = [
       "loadDelegationContext",
       "findTask",
       "findSession",
-      "loadCancelableTask",
       "loadTaskExecution",
       "listLifecycleRecoveryCandidates",
     ],
@@ -67,6 +67,10 @@ const transactionPorts = [
   [
     "transaction/session-control/agent-session-owned-operation.transaction.port.ts",
     ["createExecutionRun", "createCapabilityRun"],
+  ],
+  [
+    "transaction/session-control/agent-session-cancellation.transaction.port.ts",
+    ["begin", "complete"],
   ],
   [
     "transaction/session-control/agent-approval-continuation.transaction.port.ts",
@@ -114,6 +118,7 @@ const sessionControlAdapters = [
   "adapter/out/transaction/session-control/prisma-agent-delegation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-attempt-operation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.ts",
+  "adapter/out/transaction/session-control/prisma-agent-session-cancellation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-session-transition.transaction.ts",
   "adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction.ts",
@@ -132,7 +137,6 @@ const sessionControlAdapterSeams = [
     [
       "isExecutionCapabilityAllowed",
       "loadDelegationContext",
-      "loadCancelableTask",
       "loadTaskExecution",
       "listLifecycleRecoveryCandidates",
     ],
@@ -158,6 +162,11 @@ const sessionControlAdapterSeams = [
     "adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.ts",
     "AgentSessionOwnedOperationTransactionPort",
     ["createExecutionRun", "createCapabilityRun"],
+  ],
+  [
+    "adapter/out/transaction/session-control/prisma-agent-session-cancellation.transaction.ts",
+    "AgentSessionCancellationTransactionPort",
+    ["begin", "complete"],
   ],
   [
     "adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction.ts",
@@ -305,7 +314,11 @@ describe("AgentOS persistence seam contracts", () => {
 
       for (const port of sessionControlAdapterSeams.map(([, port]) => port)) {
         if (port === ownedPort) {
-          expect(source).toContain(`type { ${port} }`);
+          expect(source).toMatch(
+            new RegExp(
+              `import\\s+type\\s*\\{[^}]*\\b${port}\\b[^}]*\\}\\s+from`,
+            ),
+          );
         } else {
           expect(source).not.toContain(port);
         }

@@ -39,10 +39,23 @@ import { AGENT_JUDGMENT_SUBMISSION_TRANSACTION } from './application/port/out/tr
 import { AGENT_JUDGMENT_DISPATCH_OUTBOX_TRANSACTION } from './application/port/out/transaction/session-control/agent-judgment-dispatch-outbox.transaction.port';
 import { AgentSessionCancellationService } from './application/service/session-control/agent-session-cancellation.service';
 import { AGENT_SESSION_CANCELLATION_PORT } from './application/port/in/session-control/agent-session-cancellation.port';
+import { OperationRunAlertRuntimeModule } from '../automation/operation-run-alert-runtime.module';
+import { OperationRunOperationAlertBridge } from './adapter/out/automation/operation-run-operation-alert.bridge';
+import { AgentOsCapabilityModule } from './agent-os-capability.module';
+import { AgentCapabilityRegistry } from './application/service/agent-capability-registry.service';
+import { AgentRuntimeAdapterRegistry } from './application/service/agent-runtime-adapter.registry';
+import { LocalCliRuntimeStartupRegistrar } from './adapter/out/runtime/local-cli-runtime-registrar';
 
 /** API-only composition for Operations-backed AgentSession execution creation. */
 @Module({
-  imports: [AgentOsCatalogModule, AgentOsSessionModule, OperationsModule, StorageModule],
+  imports: [
+    AgentOsCatalogModule,
+    AgentOsCapabilityModule,
+    AgentOsSessionModule,
+    OperationsModule,
+    StorageModule,
+    OperationRunAlertRuntimeModule,
+  ],
   providers: [
     OperationDefinitionSnapshotAdapter,
     AgentSessionOwnedOperationService,
@@ -53,6 +66,18 @@ import { AGENT_SESSION_CANCELLATION_PORT } from './application/port/in/session-c
     AgentJudgmentSubmissionService,
     PrismaAgentJudgmentSubmissionTransaction,
     PrismaAgentJudgmentDispatchOutboxTransaction,
+    OperationRunOperationAlertBridge,
+    {
+      provide: LocalCliRuntimeStartupRegistrar,
+      inject: [
+        AgentRuntimeAdapterRegistry,
+        AgentCapabilityRegistry,
+      ],
+      useFactory: (
+        runtimes: AgentRuntimeAdapterRegistry,
+        capabilities: AgentCapabilityRegistry,
+      ) => new LocalCliRuntimeStartupRegistrar(runtimes, capabilities),
+    },
     StorageAgentSessionArtifactAdapter,
     AgentSessionArtifactWriterService,
     AgentSessionDeletionExecutionService,

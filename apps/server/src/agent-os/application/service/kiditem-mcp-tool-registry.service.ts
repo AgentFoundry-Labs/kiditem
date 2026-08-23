@@ -5,6 +5,8 @@ import type { AgentCapabilityHandler } from '../port/out/capability/agent-capabi
 import { AgentCapabilityRegistry } from './agent-capability-registry.service';
 
 export const DEFAULT_KIDITEM_MCP_CAPABILITY_ALLOWLIST = [
+  'agent_os.platform_probe',
+  'analytics.readOverview',
   'market.collect_shadow_signals',
   'sourcing.retrieveWorkspaceEvidence',
   'sourcing.inspectRecommendationRun',
@@ -101,7 +103,10 @@ export function mcpToolNameForCapability(capabilityKey: string): string {
 export function firstClassMcpToolNameForCapability(capabilityKey: string): string {
   return (
     FIRST_CLASS_CAPABILITY_TOOL_NAMES[capabilityKey] ??
-    capabilityKey.replace(/[^a-zA-Z0-9]+/g, '_')
+    capabilityKey
+      .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .toLowerCase()
   );
 }
 
@@ -278,7 +283,7 @@ export class KidItemMcpToolRegistry {
   }
 }
 
-function commonMcpToolsForAgentType(agentType: string): string[] {
+export function commonMcpToolsForAgentType(agentType: string): string[] {
   return agentType === 'sourcing'
     ? [...SOURCING_AGENT_OS_MCP_TOOLS]
     : [...COMMON_AGENT_OS_MCP_TOOLS];

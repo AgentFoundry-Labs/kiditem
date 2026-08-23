@@ -4,13 +4,16 @@ import { z } from 'zod';
 import type {
   AgentCapabilityExecutionInput,
   AgentCapabilityHandler,
+  AgentInteractiveCapabilityExecutionInput,
 } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import { AgentOsRuntimeError } from '../../../../agent-os/domain/agent-os.errors';
 import {
-  SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT,
-  type SourcingAgentWorkspaceCapabilityPort,
+  SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
+  SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
+  type SourcingAgentWorkspaceMutationCapabilityPort,
+  type SourcingAgentWorkspaceReadCapabilityPort,
 } from '../../../application/port/in/capability/sourcing-agent-workspace-capability.port';
 import { canonicalJson } from '../../../domain/sourcing-stable-json';
 
@@ -76,27 +79,48 @@ type ValidationInputType = z.infer<typeof ValidationInput>;
 type ReviewInputType = z.infer<typeof ReviewInput>;
 
 @Injectable()
-export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
+export class SourcingWorkspaceReadCapabilityAdapter implements OnModuleInit {
   constructor(
     private readonly registry: AgentCapabilityRegistry,
-    @Inject(SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT)
-    private readonly workspace: SourcingAgentWorkspaceCapabilityPort,
+    @Inject(SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT)
+    private readonly workspace: SourcingAgentWorkspaceReadCapabilityPort,
   ) {}
 
   onModuleInit(): void {
-    for (const handler of this.handlers()) this.registry.register(handler);
-  }
-
-  private handlers(): AgentCapabilityHandler[] {
-    return [
-      this.evidenceHandler(),
-      this.inspectRunHandler(),
-      this.validationHandler(),
-      this.reviewHandler(),
-    ];
+    this.registry.register(this.evidenceHandler());
+    this.registry.register(this.inspectRunHandler());
   }
 
   private evidenceHandler(): AgentCapabilityHandler<EvidenceInputType> {
+    const execute = async (
+      execution: AgentCapabilityExecutionInput<EvidenceInputType>
+        | AgentInteractiveCapabilityExecutionInput<EvidenceInputType>,
+    ) => {
+      const { organizationId } = ownerCapabilityContext(execution);
+      const { input } = execution;
+      const result = await this.workspace.retrieveWorkspaceEvidence({
+        organizationId,
+        ...input,
+      });
+      return {
+        resourceType: 'sourcing_workspace_evidence',
+        resourceId: result.inputHash,
+        outputSummary: {
+          inputHash: result.inputHash,
+          documentCount: result.documentCount,
+          citationIds: result.documents.map((document) => document.documentId),
+          dataGaps: result.dataGaps,
+        },
+        artifacts: result.documents.map((document) => ({
+          artifactType: 'sourcing_evidence_document',
+          targetDomain: 'sourcing',
+          targetModel: 'SourcingAgentRagDocument',
+          targetId: document.documentId,
+          title: document.title,
+          summary: { ...document },
+        })),
+      };
+    };
     return {
       key: 'sourcing.retrieveWorkspaceEvidence',
       ownerDomain: 'sourcing',
@@ -106,36 +130,36 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       sideEffects: ['read'],
       approvalRisk: 'none',
       idempotencyKey: () => null,
-      execute: async (execution) => {
-        const { organizationId } = ownerCapabilityContext(execution);
-        const { input } = execution;
-        const result = await this.workspace.retrieveWorkspaceEvidence({
-          organizationId,
-          ...input,
-        });
-        return {
-          resourceType: 'sourcing_workspace_evidence',
-          resourceId: result.inputHash,
-          outputSummary: {
-            inputHash: result.inputHash,
-            documentCount: result.documentCount,
-            citationIds: result.documents.map((document) => document.documentId),
-            dataGaps: result.dataGaps,
-          },
-          artifacts: result.documents.map((document) => ({
-            artifactType: 'sourcing_evidence_document',
-            targetDomain: 'sourcing',
-            targetModel: 'SourcingAgentRagDocument',
-            targetId: document.documentId,
-            title: document.title,
-            summary: { ...document },
-          })),
-        };
-      },
+      execute,
+      executeInteractive: execute,
     };
   }
 
   private inspectRunHandler(): AgentCapabilityHandler<InspectRunInputType> {
+    const execute = async (
+      execution: AgentCapabilityExecutionInput<InspectRunInputType>
+        | AgentInteractiveCapabilityExecutionInput<InspectRunInputType>,
+    ) => {
+      const { organizationId } = ownerCapabilityContext(execution);
+      const { input } = execution;
+      const result = await this.workspace.inspectRecommendationRun({
+        organizationId,
+        recommendationRunId: input.recommendationRunId ?? null,
+      });
+      return {
+        resourceType: 'sourcing_recommendation_run',
+        resourceId: result.runId,
+        outputSummary: result,
+        artifacts: [{
+          artifactType: 'recommendation_run',
+          targetDomain: 'sourcing',
+          targetModel: 'SourcingRecommendationRun',
+          targetId: result.runId,
+          title: '소싱 추천 실행',
+          summary: result,
+        }],
+      };
+    };
     return {
       key: 'sourcing.inspectRecommendationRun',
       ownerDomain: 'sourcing',
@@ -145,28 +169,25 @@ export class SourcingWorkspaceCapabilityAdapter implements OnModuleInit {
       sideEffects: ['read'],
       approvalRisk: 'none',
       idempotencyKey: () => null,
-      execute: async (execution) => {
-        const { organizationId } = ownerCapabilityContext(execution);
-        const { input } = execution;
-        const result = await this.workspace.inspectRecommendationRun({
-          organizationId,
-          recommendationRunId: input.recommendationRunId ?? null,
-        });
-        return {
-          resourceType: 'sourcing_recommendation_run',
-          resourceId: result.runId,
-          outputSummary: result,
-          artifacts: [{
-            artifactType: 'recommendation_run',
-            targetDomain: 'sourcing',
-            targetModel: 'SourcingRecommendationRun',
-            targetId: result.runId,
-            title: '소싱 추천 실행',
-            summary: result,
-          }],
-        };
-      },
+      execute,
+      executeInteractive: execute,
     };
+  }
+}
+
+@Injectable()
+export class SourcingWorkspaceMutationCapabilityAdapter
+  implements OnModuleInit
+{
+  constructor(
+    private readonly registry: AgentCapabilityRegistry,
+    @Inject(SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT)
+    private readonly workspace: SourcingAgentWorkspaceMutationCapabilityPort,
+  ) {}
+
+  onModuleInit(): void {
+    this.registry.register(this.validationHandler());
+    this.registry.register(this.reviewHandler());
   }
 
   private validationHandler(): AgentCapabilityHandler<ValidationInputType> {

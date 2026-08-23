@@ -15,12 +15,10 @@
     "dev": "npm run dev --workspace=apps/web",
     "clean:web-cache": "node -e \"require('fs').rmSync('apps/web/.next/dev/cache',{recursive:true,force:true})\"",
     "dev:server": "npm run start:dev --workspace=apps/server",
-    "dev:interaction-gateway": "npm run dev --workspace=apps/interaction-gateway",
     "dev:agents": "cd agents && .venv/bin/uvicorn src.server:app --host 0.0.0.0 --port 8001 --reload",
     "dev:all": "concurrently -n web,server,agents -c blue,green,yellow \"npm run dev\" \"OPERATION_RUNTIME_WORKER_ENABLED=1 npm run dev:server\" \"npm run dev:agents\"",
     "auth:password": "bash bin/set-local-auth-password.sh",
-    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server && npm run build --workspace=apps/interaction-gateway",
-    "build:interaction-gateway": "npm run build --workspace=apps/interaction-gateway",
+    "build": "npm run build --workspace=apps/web && npm run build --workspace=apps/server",
     "hooks:install": "git config core.hooksPath .githooks",
     "check:agents-hygiene": "node scripts/check-agents-hygiene.mjs",
     "check:agent-session-deletion": "node scripts/check-agent-session-deletion.mjs",
@@ -64,8 +62,8 @@
     "extension:release": "node scripts/manage-extension-release.mjs",
     "inventory:bootstrap:dev": "tsx scripts/bootstrap-authoritative-inventory-dev.ts",
     "seed:agent-os": "tsx scripts/seed-agent-os.ts",
+    "smoke:interaction-os": "node scripts/smoke-interaction-os.mjs",
     "seed:order-collection-malls": "tsx scripts/seed-order-collection-mall-accounts.ts",
-    "agent-os:operator:openai": "npm run build --workspace=apps/server && node apps/server/dist/agent-os/adapter/in/cli/run-openai-operator.js",
     "test:integration": "npm run test:integration --workspace=apps/server --"
   },
   "devDependencies": {

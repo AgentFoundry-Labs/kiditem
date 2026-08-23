@@ -16,7 +16,6 @@ import { OperationsModule } from '../../operations/operations.module';
 import { AutomationModule } from '../../automation/automation.module';
 import { AgentOsRulesJudgmentAdapter } from '../adapter/out/agent-os/agent-os-rules-judgment.adapter';
 import { RulesEvaluationOperationHandler } from '../adapter/in/operation/rules-evaluation.operation-handler';
-import { RulesEvaluationCapabilityAdapter } from '../adapter/in/agent/rules-evaluation-capability.adapter';
 
 const ORGANIZATION_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa';
 const RULE_ID = 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb';
@@ -74,7 +73,9 @@ describe('Rules route-family controllers', () => {
     ]);
     expect(providers).toContain(AgentOsRulesJudgmentAdapter);
     expect(providers).toContain(RulesEvaluationOperationHandler);
-    expect(providers).toContain(RulesEvaluationCapabilityAdapter);
+    expect(providers.some((provider) => (
+      typeof provider === 'function' && provider.name === 'RulesEvaluationCapabilityAdapter'
+    ))).toBe(false);
   });
 
   it('preserves the existing route URLs by route family', () => {
@@ -116,12 +117,16 @@ describe('RuleEvaluationController evaluation routes', () => {
     const controller = new RuleEvaluationController(rulesService as never);
     rulesService.evaluateAll.mockResolvedValue({ operationId: 'operation-1', status: 'queued' });
 
-    await expect(controller.evaluate(ORGANIZATION_ID, USER)).resolves.toEqual({
+    await expect(controller.evaluate(ORGANIZATION_ID, USER, 'request-1')).resolves.toEqual({
       operationId: 'operation-1',
       status: 'queued',
     });
 
-    expect(rulesService.evaluateAll).toHaveBeenCalledWith(ORGANIZATION_ID, USER.id);
+    expect(rulesService.evaluateAll).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      USER.id,
+      'request-1',
+    );
   });
 
   it('forwards getEvaluationStatus to RulesService with the owner operation identity', () => {
@@ -184,7 +189,9 @@ describe('RuleSuggestionsController suggestion routes', () => {
       status: 'pending',
     });
 
-    await expect(controller.suggestThresholds(ORGANIZATION_ID, USER)).resolves.toEqual({
+    await expect(
+      controller.suggestThresholds(ORGANIZATION_ID, USER, 'suggestion-1'),
+    ).resolves.toEqual({
       session: 'organizations/org/agentSessions/session',
       task: 'organizations/org/agentSessions/session/tasks/task',
       execution: 'organizations/org/agentSessions/session/executions/execution',
@@ -192,7 +199,11 @@ describe('RuleSuggestionsController suggestion routes', () => {
       status: 'pending',
     });
 
-    expect(rulesService.suggestThresholds).toHaveBeenCalledWith(ORGANIZATION_ID, USER.id);
+    expect(rulesService.suggestThresholds).toHaveBeenCalledWith(
+      ORGANIZATION_ID,
+      USER.id,
+      'suggestion-1',
+    );
   });
 });
 

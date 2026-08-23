@@ -44,6 +44,9 @@ export class PrismaAgentRunAuthorizationTransaction implements AgentRunAuthoriza
       throw envelopeInvalid();
     const input: AuthorizeAgentExecutionInput = {
       ...unsafeInput,
+      authorityProfileCapabilityKeys: [
+        ...unsafeInput.authorityProfileCapabilityKeys,
+      ],
       capabilityKeys: [...unsafeInput.capabilityKeys],
       userEvent: {
         externalEventId: unsafeInput.userEvent.externalEventId,
@@ -453,7 +456,10 @@ async function authority(
   });
   if (!current) throw scopeInvalid();
   if (
-    !equal(current.capabilityKeys, input.capabilityKeys) ||
+    !equal(
+      current.capabilityKeys,
+      input.authorityProfileCapabilityKeys,
+    ) ||
     !equal(current.policyDocument, input.authorityProfilePolicyDocument) ||
     current.policyHash !== input.authorityProfilePolicyHash
   )

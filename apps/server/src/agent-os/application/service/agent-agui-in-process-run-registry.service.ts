@@ -8,6 +8,18 @@ interface ActiveAguiRun {
   settle(): void;
 }
 
+/** A claimed user stop is an expected terminal outcome, never a runtime fault. */
+export class AgentAguiUserCancelled extends Error {
+  constructor() {
+    super("AGUI_USER_CANCELLED");
+    this.name = "AgentAguiUserCancelled";
+  }
+}
+
+export function isAgentAguiUserCancelled(error: unknown): error is AgentAguiUserCancelled {
+  return error instanceof AgentAguiUserCancelled;
+}
+
 /**
  * Tracks only local AG-UI work. Persistent revocation remains authoritative
  * across process recreation; this registry makes the current process stop the
@@ -16,6 +28,7 @@ interface ActiveAguiRun {
 @Injectable()
 export class AgentAguiInProcessRunRegistry {
   private readonly active = new Map<string, ActiveAguiRun>();
+  private readonly stopClaims = new Set<string>();
   /**
    * A deletion seal lasts for this registry's process lifetime. A paused
    * request cannot outlive a process restart, so process teardown is the only
@@ -26,7 +39,7 @@ export class AgentAguiInProcessRunRegistry {
   begin(input: AguiRunCoordinate): { signal: AbortSignal; finish(): void } {
     const key = coordinateKey(input);
     if (this.sealed.has(key))
-      throw new Error("AGUI_RUNTIME_COORDINATE_SEALED");
+      throw new AgentAguiUserCancelled();
     if (this.active.has(key))
       throw new Error("AGUI_RUNTIME_COORDINATE_ALREADY_ACTIVE");
     let settle!: () => void;
@@ -51,6 +64,31 @@ export class AgentAguiInProcessRunRegistry {
 
   seal(input: AguiRunCoordinate): void {
     this.sealed.add(coordinateKey(input));
+  }
+
+  claimStop(input: AguiRunCoordinate): void {
+    this.stopClaims.add(coordinateKey(input));
+  }
+
+  /**
+   * Atomically claims a current-process stop exactly once.  A just-created
+   * stream may not have reached `begin()` yet; sealing still prevents that
+   * stream from entering after its durable terminal record is committed.
+   */
+  async cancel(input: AguiRunCoordinate): Promise<boolean> {
+    const key = coordinateKey(input);
+    if (this.sealed.has(key)) return false;
+    const run = this.active.get(key);
+    if (!run && !this.stopClaims.has(key)) return false;
+    this.sealed.add(key);
+    this.stopClaims.delete(key);
+    // The service has already DB-authorized this exact coordinate. Claiming
+    // before begin closes the start/stop race; a future begin throws the typed
+    // cancellation and cannot start provider work.
+    if (!run) return true;
+    run.controller.abort(new AgentAguiUserCancelled());
+    await run.settled;
+    return true;
   }
 
   async stopAndInspect(

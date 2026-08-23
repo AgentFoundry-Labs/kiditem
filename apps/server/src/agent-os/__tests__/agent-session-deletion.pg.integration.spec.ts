@@ -525,6 +525,8 @@ describe("AgentSession deletion graph finalization (PostgreSQL)", () => {
       {
         loadExecutionRuntimeContext:
           executionQueries.loadExecutionRuntimeContext.bind(executionQueries),
+        loadInlineAguiExecutionRuntimeContext:
+          executionQueries.loadInlineAguiExecutionRuntimeContext.bind(executionQueries),
         findCurrentExecution:
           executionQueries.findCurrentExecution.bind(executionQueries),
       } as never,

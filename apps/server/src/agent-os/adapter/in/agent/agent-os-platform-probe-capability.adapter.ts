@@ -25,6 +25,10 @@ export class AgentOsPlatformProbeCapabilityAdapter implements OnModuleInit {
         resourceType: 'agent_os_platform',
         outputSummary: { status: 'available' },
       }),
+      executeInteractive: async () => ({
+        resourceType: 'agent_os_platform',
+        outputSummary: { status: 'available' },
+      }),
     };
   }
 }

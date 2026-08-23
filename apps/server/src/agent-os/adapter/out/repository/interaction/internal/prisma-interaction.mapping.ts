@@ -93,6 +93,10 @@ export const currentExecutionSelect = {
   runtimeType: true,
   status: true,
   attempt: true,
+  attempts: {
+    where: { state: "running" },
+    select: { id: true, runtimeStartIntentId: true },
+  },
   agentVersion: { select: { agentDefinitionKey: true } },
 } as const;
 export const eventSelect = {
@@ -168,6 +172,8 @@ export function mapCurrentExecution(
     runtimeType: row.runtimeType,
     status: row.status,
     attempt: row.attempt,
+    attemptId: row.attempts[0]?.id ?? null,
+    startIntentId: row.attempts[0]?.runtimeStartIntentId ?? null,
   };
 }
 export function mapSessionSummary(row: {

@@ -23,7 +23,7 @@ describe('useInteractionBootstrap', () => {
     await waitFor(() => expect(second.result.current.data).toEqual(bootstrap));
     expect(apiClient.getParsed).toHaveBeenCalledTimes(1);
     expect(apiClient.getParsed).toHaveBeenCalledWith(
-      '/api/agent-os/interaction/bootstrap',
+      '/api/copilotkit/bootstrap',
       expect.objectContaining({ parse: expect.any(Function) }),
     );
     expect(queryKeys.agentInteraction.bootstrap()).toEqual([

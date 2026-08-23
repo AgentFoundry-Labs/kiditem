@@ -69,11 +69,11 @@ function memoryFs(): IsolatedCliFilesystem & {
 function transport(version = "codex-cli 1.2.3"): IsolatedCliTransport {
   return {
     probeVersion: vi.fn().mockResolvedValue(version),
+    probeAuthentication: vi.fn().mockResolvedValue(undefined),
     start: vi.fn().mockResolvedValue({
       nativeSessionId: "native-session-1",
       pid: 42,
       processStartIdentity: "proc-start-42",
-      reconnectSecret: "resume-1",
       generation: 2,
     }),
     connect: vi.fn().mockReturnValue(
@@ -116,7 +116,6 @@ describe("isolated CLI durable runtime", () => {
         runRoot: "/tmp/runs",
         ambientEnv: { PATH: "/bin" },
         handleCipher: { encrypt: () => "vault://cli/1", decrypt: () => "" },
-        runtimeCredential: () => "runtime-token",
         mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
       };
       const adapter =
@@ -149,7 +148,7 @@ describe("isolated CLI durable runtime", () => {
       ).resolves.toEqual({
         state: "clean",
         executionAuthority: "process_exited",
-        credentials: "irrevocably_revoked",
+        credentials: "not_owned",
         handle: "removed",
         filesystem: "removed",
       });
@@ -172,7 +171,7 @@ describe("isolated CLI durable runtime", () => {
       });
     },
   );
-  it("creates attempt-isolated owner-only homes and strips ambient authority", async () => {
+  it("creates attempt-isolated work/state and uses local CLI login without ambient credentials", async () => {
     const fs = memoryFs();
     const cli = transport();
     const originalHome = process.env.HOME;
@@ -184,7 +183,6 @@ describe("isolated CLI durable runtime", () => {
         encrypt: () => "vault://cli/1",
         decrypt: () => "resume-1",
       },
-      runtimeCredential: () => "runtime-token",
       mcpConfig: () => ({ schemaVersion: 1, servers: [] }),
       ambientEnv: {
         PATH: "/bin",
@@ -203,8 +201,9 @@ describe("isolated CLI durable runtime", () => {
         binary: "codex",
         cwd: `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/work`,
         env: expect.objectContaining({
-          HOME: `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/home`,
-          KIDITEM_RUNTIME_CREDENTIAL: "runtime-token",
+          HOME: "/operator",
+          KIDITEM_MCP_CONFIG:
+            `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/state/mcp.json`,
         }),
       }),
     );
@@ -215,16 +214,12 @@ describe("isolated CLI durable runtime", () => {
     expect(childEnv).not.toHaveProperty("ANTHROPIC_API_KEY");
     expect(process.env.HOME).toBe(originalHome);
     expect(fs.directories.every((entry) => entry.mode === 0o700)).toBe(true);
-    expect(fs.directories).toContainEqual({
-      path: `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/home/.config`,
-      mode: 0o700,
-    });
     expect(fs.chmod).toHaveBeenCalledWith(
-      `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/home`,
+      `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/work`,
       0o700,
     );
     expect(fs.chmod).toHaveBeenCalledWith(
-      `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/home/.config`,
+      `/var/lib/kiditem-agent-runs/${EXECUTION_ID}/${ATTEMPT_ID}/state`,
       0o700,
     );
     expect([...fs.writes.values()].every((entry) => entry.mode === 0o600)).toBe(
@@ -242,6 +237,72 @@ describe("isolated CLI durable runtime", () => {
     );
   });
 
+  it("passes the exact judgment input, evidence, conversation, and skill contents to the local CLI", async () => {
+    const cli = transport();
+    const adapter = new CodexCliRuntimeAdapter({
+      filesystem: memoryFs(),
+      transport: cli,
+      runRoot: "/tmp/runs",
+      handleCipher: { encrypt: (value) => value, decrypt: (value) => value },
+      mcpConfig: () => ({ schemaVersion: 1, servers: [] }),
+      ambientEnv: { PATH: "/bin", HOME: "/service-account" },
+    });
+    const exact = context();
+    exact.promptPackage = {
+      ...exact.promptPackage,
+      prompt: "SYSTEM_PROMPT_SENTINEL",
+      skills: [{
+        key: "judgment.skill",
+        version: "1.0.0",
+        content: "SKILL_CONTENT_SENTINEL",
+        sha256: "c".repeat(64),
+      }],
+    };
+    exact.currentInput = {
+      objective: "OBJECTIVE_SENTINEL",
+      userEvent: {
+        externalEventId: "event-1",
+        schemaVersion: 1,
+        payload: { content: "CURRENT_INPUT_SENTINEL" },
+      },
+    };
+    exact.currentResourceRefs = [{
+      kind: "product",
+      id: "RESOURCE_SENTINEL",
+      version: "7",
+    }];
+    exact.conversationView = {
+      throughSequence: "4",
+      summary: {
+        sourceFromSequence: "1",
+        sourceThroughSequence: "2",
+        sourceHash: "d".repeat(64),
+        summarizerModelIdentity: "summary-model",
+        summaryPromptHash: "e".repeat(64),
+        content: "SUMMARY_SENTINEL",
+      },
+      turns: [{
+        role: "user",
+        content: "TURN_SENTINEL",
+        throughSequence: "4",
+      }],
+    };
+
+    await adapter.assertReady();
+    await adapter.start(exact);
+
+    const prompt = vi.mocked(cli.start).mock.calls[0][0].prompt;
+    for (const sentinel of [
+      "SYSTEM_PROMPT_SENTINEL",
+      "SKILL_CONTENT_SENTINEL",
+      "OBJECTIVE_SENTINEL",
+      "CURRENT_INPUT_SENTINEL",
+      "RESOURCE_SENTINEL",
+      "SUMMARY_SENTINEL",
+      "TURN_SENTINEL",
+    ]) expect(prompt).toContain(sentinel);
+  });
+
   it("reconnects after recreation and rejects PID reuse before cancel", async () => {
     const fs = memoryFs();
     const cli = transport();
@@ -249,15 +310,19 @@ describe("isolated CLI durable runtime", () => {
       [
         "vault://cli/1",
         JSON.stringify({
-          reconnectSecret: "resume-1",
           nativeSessionId: "native-session-1",
           pid: 42,
           processStartIdentity: "proc-start-42",
           executableVersion: "codex-cli 1.2.3",
           organizationId: "33333333-3333-4333-8333-333333333333",
           sessionId: "44444444-4444-4444-8444-444444444444",
+          executionId: EXECUTION_ID,
+          attemptId: ATTEMPT_ID,
           startIntentId: "88888888-8888-4888-8888-888888888888",
           runtimeCredentialGeneration: 0,
+          modelIdentity: "model-1",
+          outputSchema: null,
+          claudeMaxBudgetUsd: null,
           mcpToolSet: { schemaVersion: 1, servers: [] },
         }),
       ],
@@ -271,7 +336,6 @@ describe("isolated CLI durable runtime", () => {
         encrypt: vi.fn(() => "vault://cli/1"),
         decrypt: vi.fn((ref: string) => cipherValues.get(ref) ?? ""),
       },
-      runtimeCredential: () => "runtime-token",
       mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
     };
     const first = new CodexCliRuntimeAdapter(options);
@@ -300,15 +364,19 @@ describe("isolated CLI durable runtime", () => {
       [
         "vault://cli/1",
         JSON.stringify({
-          reconnectSecret: "resume-1",
           nativeSessionId: "native-session-1",
           pid: 42,
           processStartIdentity: "proc-start-42",
           executableVersion: "codex-cli 1.2.3",
           organizationId: "33333333-3333-4333-8333-333333333333",
           sessionId: "44444444-4444-4444-8444-444444444444",
+          executionId: EXECUTION_ID,
+          attemptId: ATTEMPT_ID,
           startIntentId: "88888888-8888-4888-8888-888888888888",
           runtimeCredentialGeneration: 0,
+          modelIdentity: "model-1",
+          outputSchema: null,
+          claudeMaxBudgetUsd: null,
           mcpToolSet: { schemaVersion: 1, servers: [] },
         }),
       ],
@@ -322,7 +390,6 @@ describe("isolated CLI durable runtime", () => {
         encrypt: vi.fn(() => "vault://cli/1"),
         decrypt: vi.fn((ref: string) => cipherValues.get(ref) ?? ""),
       },
-      runtimeCredential: () => "runtime-token",
       mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
     };
     const first = new CodexCliRuntimeAdapter(options);
@@ -340,26 +407,26 @@ describe("isolated CLI durable runtime", () => {
     expect(upgradedCli.inspect).not.toHaveBeenCalled();
   });
 
-  it("reissues an exact attempt credential and rewrites only the scoped MCP config before native resume", async () => {
+  it("rewrites the exact DB-fenced execution context before native resume", async () => {
     const fs = memoryFs();
     const cli = transport();
-    const credentials = vi
-      .fn()
-      .mockReturnValueOnce("initial-attempt-credential")
-      .mockReturnValueOnce("reconnect-attempt-credential");
     const cipherValues = new Map([
       [
         "vault://cli/1",
         JSON.stringify({
-          reconnectSecret: "resume-1",
           nativeSessionId: "native-session-1",
           pid: 42,
           processStartIdentity: "proc-start-42",
           executableVersion: "codex-cli 1.2.3",
           organizationId: "33333333-3333-4333-8333-333333333333",
           sessionId: "44444444-4444-4444-8444-444444444444",
+          executionId: EXECUTION_ID,
+          attemptId: ATTEMPT_ID,
           startIntentId: "88888888-8888-4888-8888-888888888888",
           runtimeCredentialGeneration: 0,
+          modelIdentity: "model-1",
+          outputSchema: null,
+          claudeMaxBudgetUsd: null,
           mcpToolSet: {
             schemaVersion: 1,
             servers: [{ key: "kiditem", tools: ["analytics_read_overview"] }],
@@ -376,13 +443,16 @@ describe("isolated CLI durable runtime", () => {
         encrypt: vi.fn(() => "vault://cli/1"),
         decrypt: vi.fn((ref: string) => cipherValues.get(ref) ?? ""),
       },
-      runtimeCredential: credentials,
+      mcpServer: {
+        command: "/usr/bin/node",
+        args: ["/app/dist/agent-os-mcp.js"],
+        environmentRoot: "/app",
+      },
       mcpConfig: () => ({
         schemaVersion: 1 as const,
         servers: [
           {
             key: "kiditem",
-            credential: "initial-attempt-credential",
             tools: ["analytics_read_overview"],
           },
         ],
@@ -398,38 +468,80 @@ describe("isolated CLI durable runtime", () => {
       // Fully drain the reconnect stream so its setup runs.
     }
 
-    expect(credentials).toHaveBeenLastCalledWith({
-      organizationId: "33333333-3333-4333-8333-333333333333",
-      sessionId: "44444444-4444-4444-8444-444444444444",
-      executionId: EXECUTION_ID,
-      attemptId: ATTEMPT_ID,
-      startIntentId: "88888888-8888-4888-8888-888888888888",
-      runtimeCredentialGeneration: 0,
-    });
-    expect(vi.mocked(cli.connect).mock.calls[0][1]).toMatchObject({
-      env: expect.objectContaining({
-        KIDITEM_RUNTIME_CREDENTIAL: "reconnect-attempt-credential",
-      }),
-    });
-    expect(
-      fs.writes.get(`/tmp/runs/${EXECUTION_ID}/${ATTEMPT_ID}/state/mcp.json`),
-    ).toMatchObject({
-      mode: 0o600,
-      value: JSON.stringify({
-        schemaVersion: 1,
-        servers: [
-          {
-            key: "kiditem",
-            credential: "reconnect-attempt-credential",
-            tools: ["analytics_read_overview"],
-          },
-        ],
-      }),
-    });
+    expect(vi.mocked(cli.connect).mock.calls[0][1].env).not.toHaveProperty(
+      "KIDITEM_RUNTIME_CREDENTIAL",
+    );
+    const resumeArgs = vi.mocked(cli.connect).mock.calls[0][1].args.join("\n");
+    expect(resumeArgs).toContain("mcp_servers.kiditem.command");
+    expect(resumeArgs).toContain("KIDITEM_MCP_EXECUTION_CONTEXT");
+    expect(resumeArgs).not.toContain("KIDITEM_RUNTIME_CREDENTIAL");
+    expect(resumeArgs).not.toContain("--output-schema");
+    const nativeMcp = fs.writes.get(
+      `/tmp/runs/${EXECUTION_ID}/${ATTEMPT_ID}/state/mcp.json`,
+    );
+    expect(nativeMcp?.mode).toBe(0o600);
+    expect(nativeMcp?.value).toContain('[mcp_servers.kiditem]');
+    expect(nativeMcp?.value).toContain('command = "/usr/bin/node"');
+    expect(nativeMcp?.value).toContain(
+      "KIDITEM_MCP_EXECUTION_CONTEXT",
+    );
+    expect(nativeMcp?.value).toContain(EXECUTION_ID);
     expect(fs.directories.slice(directoriesBeforeReconnect)).toContainEqual({
       path: `/tmp/runs/${EXECUTION_ID}/${ATTEMPT_ID}/state`,
       mode: 0o700,
     });
+  });
+
+  it("replays the exact Claude model, schema, and budget on native resume", async () => {
+    const fs = memoryFs();
+    const cli = transport("claude 2.3.4");
+    const options = {
+      filesystem: fs,
+      transport: cli,
+      runRoot: "/tmp/runs",
+      ambientEnv: { PATH: "/bin" },
+      handleCipher: {
+        encrypt: (value: string) => value,
+        decrypt: (value: string) => value,
+      },
+      claudeMaxBudgetUsd: "0.37",
+      mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
+    };
+    const executionContext = {
+      ...context(ATTEMPT_ID, "claude_cli"),
+      modelIdentity: "claude-sonnet-exact",
+      promptPackage: {
+        ...context().promptPackage,
+        outputSchema: {
+          path: "agent-config/schemas/exact.json",
+          version: "exact.v1",
+          document: {
+            type: "object",
+            required: ["answer"],
+            properties: { answer: { type: "string" } },
+          },
+          sha256: "c".repeat(64),
+        },
+      },
+    };
+    const first = new ClaudeCliRuntimeAdapter(options);
+    await first.assertReady();
+    const handle = await first.start(executionContext);
+
+    const recreated = new ClaudeCliRuntimeAdapter(options);
+    for await (const _event of recreated.connect(handle)) {
+      // Drain the native resume stream.
+    }
+
+    const args = vi.mocked(cli.connect).mock.calls[0][1].args;
+    expect(args).toContain("--model");
+    expect(args[args.indexOf("--model") + 1]).toBe("claude-sonnet-exact");
+    expect(args).toContain("--json-schema");
+    expect(JSON.parse(args[args.indexOf("--json-schema") + 1]!)).toEqual(
+      executionContext.promptPackage.outputSchema.document,
+    );
+    expect(args).toContain("--max-budget-usd");
+    expect(args[args.indexOf("--max-budget-usd") + 1]).toBe("0.37");
   });
 
   it("accepts only an absolute worker-owned run root and a strict generated MCP config", async () => {
@@ -449,14 +561,12 @@ describe("isolated CLI durable runtime", () => {
       transport: cli,
       runRoot: "/tmp/runs",
       handleCipher: { encrypt: (value) => value, decrypt: (value) => value },
-      runtimeCredential: () => "runtime-token",
       mcpConfig: () =>
         ({
           schemaVersion: 1,
           servers: [
             {
               key: "kiditem",
-              credential: "runtime-token",
               tools: ["analytics_read_overview"],
               untrustedServerOption: "forbidden",
             },
@@ -476,7 +586,6 @@ describe("isolated CLI durable runtime", () => {
       transport: transport("codex-cli 0.1.0"),
       runRoot: "/tmp/runs",
       handleCipher: { encrypt: (value) => value, decrypt: (value) => value },
-      runtimeCredential: () => "runtime-token",
       mcpConfig: () => ({ schemaVersion: 1, servers: [] }),
       ambientEnv: { PATH: "/bin" },
     });
@@ -488,6 +597,34 @@ describe("isolated CLI durable runtime", () => {
     );
   });
 
+  it("requires the existing local CLI login without reading or forwarding provider credentials", async () => {
+    const cli = transport();
+    const probeAuthentication = vi.fn().mockResolvedValue(undefined);
+    Object.assign(cli, { probeAuthentication });
+    const adapter = new CodexCliRuntimeAdapter({
+      filesystem: memoryFs(),
+      transport: cli,
+      runRoot: "/tmp/runs",
+      handleCipher: { encrypt: (value) => value, decrypt: (value) => value },
+      mcpConfig: () => ({ schemaVersion: 1, servers: [] }),
+      ambientEnv: {
+        PATH: "/bin",
+        HOME: "/service-account",
+        CODEX_HOME: "/service-account/.codex",
+        OPENAI_API_KEY: "must-not-reach-auth-probe",
+        ANTHROPIC_API_KEY: "must-not-reach-auth-probe",
+      },
+    });
+
+    await adapter.assertReady();
+
+    expect(probeAuthentication).toHaveBeenCalledWith("codex", {
+      PATH: "/bin",
+      HOME: "/service-account",
+      CODEX_HOME: "/service-account/.codex",
+    });
+  });
+
   it("keeps Codex and Claude command/resume semantics exact and rejects unsafe binaries", () => {
     const common = {
       filesystem: memoryFs(),
@@ -497,14 +634,98 @@ describe("isolated CLI durable runtime", () => {
         encrypt: (value: string) => value,
         decrypt: (value: string) => value,
       },
-      runtimeCredential: () => "token",
       mcpConfig: () => ({ schemaVersion: 1 as const, servers: [] }),
       ambientEnv: { PATH: "/bin" },
     };
     expect(new CodexCliRuntimeAdapter(common).command()).toEqual({
       binary: "codex",
-      startArgs: ["exec", "--json"],
-      resumeArgs: ["exec", "resume", "--json"],
+      startArgs: [
+        "exec",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--config",
+        'sandbox_mode="read-only"',
+        "--config",
+        'approval_policy="never"',
+        "--config",
+        "shell_environment_policy.allow_login_shell=false",
+        "--config",
+        "tools.web_search=false",
+        "--config",
+        'web_search="disabled"',
+        ...[
+          "shell_tool",
+          "unified_exec",
+          "shell_snapshot",
+          "browser_use",
+          "browser_use_external",
+          "browser_use_full_cdp_access",
+          "computer_use",
+          "plugins",
+          "plugin_sharing",
+          "remote_plugin",
+          "apps",
+          "image_generation",
+          "multi_agent",
+          "workspace_dependencies",
+          "code_mode",
+          "code_mode_host",
+          "in_app_browser",
+          "view_image",
+          "skill_mcp_dependency_install",
+          "tool_suggest",
+          "request_permissions_tool",
+          "auth_elicitation",
+          "hooks",
+        ].flatMap((feature) => ["--config", `features.${feature}=false`]),
+        "--skip-git-repo-check",
+        "--json",
+      ],
+      resumeArgs: [
+        "exec",
+        "resume",
+        "--ignore-user-config",
+        "--ignore-rules",
+        "--strict-config",
+        "--config",
+        'sandbox_mode="read-only"',
+        "--config",
+        'approval_policy="never"',
+        "--config",
+        "shell_environment_policy.allow_login_shell=false",
+        "--config",
+        "tools.web_search=false",
+        "--config",
+        'web_search="disabled"',
+        ...[
+          "shell_tool",
+          "unified_exec",
+          "shell_snapshot",
+          "browser_use",
+          "browser_use_external",
+          "browser_use_full_cdp_access",
+          "computer_use",
+          "plugins",
+          "plugin_sharing",
+          "remote_plugin",
+          "apps",
+          "image_generation",
+          "multi_agent",
+          "workspace_dependencies",
+          "code_mode",
+          "code_mode_host",
+          "in_app_browser",
+          "view_image",
+          "skill_mcp_dependency_install",
+          "tool_suggest",
+          "request_permissions_tool",
+          "auth_elicitation",
+          "hooks",
+        ].flatMap((feature) => ["--config", `features.${feature}=false`]),
+        "--skip-git-repo-check",
+        "--json",
+      ],
     });
     expect(
       new ClaudeCliRuntimeAdapter({
@@ -513,8 +734,37 @@ describe("isolated CLI durable runtime", () => {
       }).command(),
     ).toEqual({
       binary: "claude",
-      startArgs: ["--print", "--output-format", "stream-json"],
-      resumeArgs: ["--resume", "--print", "--output-format", "stream-json"],
+      startArgs: [
+        "--print",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--setting-sources",
+        "",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--no-chrome",
+        "--permission-mode",
+        "dontAsk",
+        "--disable-slash-commands",
+      ],
+      resumeArgs: [
+        "--resume",
+        "--print",
+        "--verbose",
+        "--output-format",
+        "stream-json",
+        "--setting-sources",
+        "",
+        "--tools",
+        "",
+        "--strict-mcp-config",
+        "--no-chrome",
+        "--permission-mode",
+        "dontAsk",
+        "--disable-slash-commands",
+      ],
     });
     expect(
       () =>

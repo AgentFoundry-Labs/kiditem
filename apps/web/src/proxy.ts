@@ -21,7 +21,7 @@ const AUTH_SESSION_COOKIE = 'kiditem_session';
 
 /**
  * Same-origin transport for the AI chat runtime. The browser hits
- * `/api/copilotkit[...]`, Next rewrites it to the interaction gateway (see
+ * `/api/copilotkit[...]`, Next rewrites it to the authenticated Nest API (see
  * `apps/web/next.config.mjs`). The proxy must NOT redirect these to
  * `/login` because the caller is `fetch`/SSE, not a navigation — Nest
  * already returns JSON `401 auth_required` when the cookie is missing,

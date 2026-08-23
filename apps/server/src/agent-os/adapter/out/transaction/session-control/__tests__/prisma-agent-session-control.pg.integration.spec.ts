@@ -12,6 +12,7 @@ import {
 } from '../../../../../../test-helpers/real-prisma';
 import { PrismaAgentExecutionContextRepository } from '../../../repository/prisma-agent-execution-context.repository';
 import { PrismaAgentSessionOwnedOperationTransaction } from '../prisma-agent-session-owned-operation.transaction';
+import { PrismaAgentSessionCancellationTransaction } from '../prisma-agent-session-cancellation.transaction';
 import { PrismaAgentSessionDeletionCommandTransaction } from '../../session-deletion/prisma-agent-session-deletion-command.transaction';
 import { PrismaAgentSessionDeletionQueryRepository } from '../../../repository/session-deletion/prisma-agent-session-deletion-query.repository';
 import { PrismaAgentSessionDeletionExecutionTransaction } from '../../session-deletion/prisma-agent-session-deletion-execution.transaction';
@@ -34,6 +35,7 @@ const OTHER_AUTHORITY_VERSION = '20000000-0000-4000-8000-000000000004';
 let prisma: PrismaClient | null = null;
 let repository: SessionControlAdapterSet;
 let ownedOperations: PrismaAgentSessionOwnedOperationTransaction;
+let cancellations: PrismaAgentSessionCancellationTransaction;
 let deletionCommands: PrismaAgentSessionDeletionCommandTransaction;
 let deletionQueries: PrismaAgentSessionDeletionQueryRepository;
 let deletionExecutions: PrismaAgentSessionDeletionExecutionTransaction;
@@ -66,6 +68,7 @@ beforeEach(async () => {
   await seedBaseFixture(prisma);
   await seedControlFixture(prisma);
   ownedOperations = new PrismaAgentSessionOwnedOperationTransaction(prisma as never);
+  cancellations = new PrismaAgentSessionCancellationTransaction(prisma as never);
   deletionCommands = new PrismaAgentSessionDeletionCommandTransaction(prisma as never);
   deletionQueries = new PrismaAgentSessionDeletionQueryRepository(prisma as never);
   deletionExecutions = new PrismaAgentSessionDeletionExecutionTransaction(prisma as never);
@@ -210,20 +213,20 @@ describe('Prisma Agent session-control transaction seams', () => {
       startIntentId,
       runtimeCredentialGeneration: credential.runtimeCredentialGeneration,
     };
-    await expect(contexts.loadRuntimeCredentialExecutionGraph(exact)).resolves.toMatchObject({
+    await expect(contexts.loadRuntimeExecutionGraph(exact)).resolves.toMatchObject({
       sessionTaskId: fixture.taskId,
       operationRunId: owned.operationRunId,
       attemptState: 'running',
       operationStatus: 'running',
     });
-    await expect(contexts.loadRuntimeCredentialExecutionGraph({
+    await expect(contexts.loadRuntimeExecutionGraph({
       ...exact,
       startIntentId: '20000000-0000-4000-8000-000000000023',
     })).resolves.toBeNull();
     await prisma!.operationRun.update({
       where: { id: owned.operationRunId }, data: { status: 'cancelled' },
     });
-    await expect(contexts.loadRuntimeCredentialExecutionGraph(exact)).resolves.toBeNull();
+    await expect(contexts.loadRuntimeExecutionGraph(exact)).resolves.toBeNull();
   });
 
   it('rolls back every row when ownership cannot use the scoped session', async () => {
@@ -1273,13 +1276,16 @@ describe('Prisma Agent session-control transaction seams', () => {
       },
       select: { operationRunId: true },
     })).resolves.toEqual({ operationRunId: operation.id });
-    await expect(repository.loadCancelableTask({
+    await expect(cancellations.begin({
       organizationId: TEST_ORGANIZATION_ID,
       actorId: TEST_USER_ID,
       sessionId: fixture.sessionId,
       taskId: fixture.taskId,
+      idempotencyKey: 'cancel:active-link',
+      fingerprint: '1'.repeat(64),
       expectedStatus: 'running',
-    })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
+      reason: 'operator_cancelled',
+    })).resolves.toEqual({ kind: 'pending', operationRunId: operation.id });
   });
 
   it('does not enumerate a cancellable task through a foreign organization or actor scope', async () => {
@@ -1292,20 +1298,85 @@ describe('Prisma Agent session-control transaction seams', () => {
       operationRunId: owned.operationRunId,
     });
 
-    await expect(repository.loadCancelableTask({
+    await expect(cancellations.begin({
       organizationId: OTHER_ORGANIZATION_ID,
       actorId: OTHER_USER_ID,
       sessionId: fixture.sessionId,
       taskId: fixture.taskId,
+      idempotencyKey: 'cancel:foreign-org',
+      fingerprint: '2'.repeat(64),
       expectedStatus: 'running',
-    })).resolves.toBeNull();
-    await expect(repository.loadCancelableTask({
+      reason: 'operator_cancelled',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+    await expect(cancellations.begin({
       organizationId: TEST_ORGANIZATION_ID,
       actorId: OTHER_USER_ID,
       sessionId: fixture.sessionId,
       taskId: fixture.taskId,
+      idempotencyKey: 'cancel:foreign-actor',
+      fingerprint: '3'.repeat(64),
       expectedStatus: 'running',
-    })).resolves.toBeNull();
+      reason: 'operator_cancelled',
+    })).rejects.toMatchObject({ code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID' });
+  });
+
+  it('durably replays one completed cancellation and rejects idempotency drift', async () => {
+    const fixture = await createRootGraph();
+    const owned = await createOwnedExecutionOperation(fixture, 'durable-cancellation');
+    await repository.activateAttemptForOperation({
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      executionId: fixture.executionId,
+      operationRunId: owned.operationRunId,
+    });
+    const command = {
+      organizationId: TEST_ORGANIZATION_ID,
+      sessionId: fixture.sessionId,
+      taskId: fixture.taskId,
+      actorId: TEST_USER_ID,
+      idempotencyKey: 'cancel:durable',
+      fingerprint: 'a'.repeat(64),
+      expectedStatus: 'running',
+      reason: 'operator_cancelled',
+    };
+
+    await expect(cancellations.begin(command)).resolves.toEqual({
+      kind: 'pending',
+      operationRunId: owned.operationRunId,
+    });
+    await expect(cancellations.complete({
+      organizationId: command.organizationId,
+      sessionId: command.sessionId,
+      taskId: command.taskId,
+      actorId: command.actorId,
+      idempotencyKey: command.idempotencyKey,
+      fingerprint: command.fingerprint,
+      operationRunId: owned.operationRunId,
+      status: 'cancelled',
+    })).resolves.toEqual({ status: 'cancelled' });
+    await prisma!.agentSessionTask.update({
+      where: { id: fixture.taskId },
+      data: { status: 'cancelled', finishedAt: new Date() },
+    });
+
+    const recreated = new PrismaAgentSessionCancellationTransaction(prisma as never);
+    await expect(recreated.begin(command)).resolves.toEqual({
+      kind: 'completed',
+      status: 'cancelled',
+    });
+    await expect(recreated.begin({
+      ...command,
+      fingerprint: 'b'.repeat(64),
+      reason: 'different_reason',
+    })).rejects.toMatchObject({
+      code: 'AGENT_SESSION_CANCELLATION_IDEMPOTENCY_CONFLICT',
+    });
+    await expect(recreated.begin({
+      ...command,
+      actorId: OTHER_USER_ID,
+    })).rejects.toMatchObject({
+      code: 'AGENT_SESSION_CONTROL_SCOPE_INVALID',
+    });
   });
 
   it('recovers the true latest lifecycle envelope after more than one bounded batch of historical bindings', async () => {
@@ -1383,13 +1454,16 @@ describe('Prisma Agent session-control transaction seams', () => {
     const reserved = { id: created.attemptId, state: 'queued' };
 
     expect(reserved.state).toBe('queued');
-    await expect(repository.loadCancelableTask({
+    await expect(cancellations.begin({
       organizationId: TEST_ORGANIZATION_ID,
       actorId: TEST_USER_ID,
       sessionId: fixture.sessionId,
       taskId: fixture.taskId,
+      idempotencyKey: 'cancel:queued-link',
+      fingerprint: '4'.repeat(64),
       expectedStatus: 'queued',
-    })).resolves.toEqual(expect.objectContaining({ operationRunId: operation.id }));
+      reason: 'operator_cancelled',
+    })).resolves.toEqual({ kind: 'pending', operationRunId: operation.id });
     await expect(repository.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: fixture.sessionId,

@@ -182,7 +182,7 @@ npm run test:integration -- src/inventory/__tests__/inventory-flow.pg.integratio
 `apps/web/e2e/agent-session-interaction.spec.ts` is the narrow cross-process
 exception: it starts disposable PostgreSQL 17, a real Nest interaction boundary,
 a separate real `ApiApplicationModule` deletion root with persisted `AuthSession`
-credentials, the real interaction gateway, a production Next build, and a
+credentials, the real Nest interaction adapter, a production Next build, and a
 deterministic fake AG-UI runtime before driving system Chrome. It verifies zero-write open/select,
 first-submit canonical graph creation, replay without writes, later turns,
 failed-run retry, tool renderers, one-shot suggestions, authorized navigation,

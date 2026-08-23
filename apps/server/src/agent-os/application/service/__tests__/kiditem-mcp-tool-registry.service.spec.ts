@@ -78,32 +78,17 @@ describe('KidItemMcpToolRegistry', () => {
       'agent_os_read_context',
       'agent_os_read_task_graph',
       'agent_os_read_artifacts',
-      'market_collect_shadow_signals',
       'sourcing_retrieve_workspace_evidence',
     ]);
     const shadowDescriptors = mcpRegistry.listToolsForContext({
       agentType: 'sourcing',
     }).filter((tool) => tool.capabilityKey === 'market.collect_shadow_signals');
-    expect(shadowDescriptors).toEqual([{
-      name: 'market_collect_shadow_signals',
-      capabilityKey: 'market.collect_shadow_signals',
-      ownerDomain: 'sourcing',
-      approvalRisk: 'low',
-      sideEffects: ['db_write', 'external_io', 'job_enqueue'],
-      toolKind: 'domain',
-    }]);
+    expect(shadowDescriptors).toEqual([]);
     const resolvedShadow = mcpRegistry.resolveTool(
       'market_collect_shadow_signals',
       { agentType: 'sourcing' },
     );
-    expect(resolvedShadow?.handler).toBe(marketShadow);
-    expect(resolvedShadow?.handler.inputSchema.safeParse({}).success).toBe(true);
-    expect(resolvedShadow?.handler.inputSchema.safeParse({ unexpected: true }).success)
-      .toBe(false);
-    expect(resolvedShadow?.handler.outputSchema.safeParse({
-      operationRunId: '00000000-0000-4000-8000-000000000001',
-      status: 'queued',
-    }).success).toBe(true);
+    expect(resolvedShadow).toBeNull();
     const manualIntakeContext = {
       agentType: 'sourcing',
       playbookKey: 'manual_product_intake_from_url_v2',
@@ -115,7 +100,6 @@ describe('KidItemMcpToolRegistry', () => {
       'agent_os_read_context',
       'agent_os_read_task_graph',
       'agent_os_read_artifacts',
-      'market_collect_shadow_signals',
       'sourcing_retrieve_workspace_evidence',
       'sourcing_scrape_url_workflow',
     ]);

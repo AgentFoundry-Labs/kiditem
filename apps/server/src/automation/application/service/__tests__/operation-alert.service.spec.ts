@@ -70,6 +70,53 @@ function makeService() {
 }
 
 describe('OperationAlertService.start', () => {
+  it('immediately reconciles an alert created after its canonical Operation already finished', async () => {
+    const prisma = makePrisma();
+    const eventEmitter = makeEventEmitter();
+    const repository = new OperationAlertRepositoryAdapter(prisma as any);
+    const sourceStates = {
+      find: vi.fn().mockResolvedValue({
+        state: 'succeeded',
+        errorCode: null,
+        errorMessage: null,
+      }),
+    };
+    const service = new OperationAlertService(
+      repository,
+      eventEmitter as any,
+      sourceStates as never,
+    );
+    const sourceId =
+      `organizations/${ORGANIZATION_ID}/operations/44444444-4444-4444-8444-444444444444`;
+    const running = existingAlert({ sourceType: 'operation_run', sourceId });
+    const succeeded = { ...running, status: 'succeeded', finishedAt: new Date() };
+    prisma.alert.findFirst
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(running)
+      .mockResolvedValueOnce(succeeded);
+    prisma.alert.create.mockResolvedValueOnce(running);
+    prisma.alert.updateMany.mockResolvedValueOnce({ count: 1 });
+
+    await expect(service.start({
+      organizationId: ORGANIZATION_ID,
+      operationKey: OPERATION_KEY,
+      type: 'rules_suggest',
+      title: '룰 제안',
+      sourceType: 'operation_run',
+      sourceId,
+    })).resolves.toMatchObject({ status: 'succeeded' });
+
+    expect(sourceStates.find).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      sourceType: 'operation_run',
+      sourceId,
+    });
+    expect(prisma.alert.updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: ALERT_ID, organizationId: ORGANIZATION_ID }),
+      data: expect.objectContaining({ status: 'succeeded' }),
+    }));
+  });
+
   it('creates a new operation alert when no row matches the key + emits panel UPSERT', async () => {
     const { service, prisma, eventEmitter } = makeService();
     prisma.alert.findFirst.mockResolvedValueOnce(null);

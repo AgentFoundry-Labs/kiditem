@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
@@ -39,7 +39,7 @@ describe('RulesService boundaries', () => {
   it('fails closed when a system caller attempts deterministic evaluation', async () => {
     const { service, operations } = makeService();
 
-    await expect(service.evaluateAll(ORGANIZATION_ID, null))
+    await expect(service.evaluateAll(ORGANIZATION_ID, null, 'request-1'))
       .rejects.toThrow('RULES_EVALUATION_ACTOR_REQUIRED');
     expect(operations.start).not.toHaveBeenCalled();
   });
@@ -47,7 +47,7 @@ describe('RulesService boundaries', () => {
   it('fails closed when a system caller attempts threshold judgment', async () => {
     const { service, judgment } = makeService();
 
-    await expect(service.suggestThresholds(ORGANIZATION_ID, null))
+    await expect(service.suggestThresholds(ORGANIZATION_ID, null, 'request-2'))
       .rejects.toThrow('RULES_SUGGEST_JUDGMENT_ACTOR_REQUIRED');
     expect(judgment.submit).not.toHaveBeenCalled();
   });
@@ -89,7 +89,6 @@ describe('RulesService boundaries', () => {
       'controllers/rule-evaluation.controller.ts',
       'controllers/rule-suggestions.controller.ts',
       'adapter/in/operation/rules-evaluation.operation-handler.ts',
-      'adapter/in/agent/rules-evaluation-capability.adapter.ts',
     ]) {
       const source = readFileSync(resolve(rulesRoot, relativePath), 'utf8');
       expect(source).not.toContain('AGENT_RUNNER_PORT');
@@ -98,5 +97,9 @@ describe('RulesService boundaries', () => {
       expect(source).not.toContain('AgentRunRequest');
       expect(source).not.toContain('AgentRun');
     }
+    expect(existsSync(resolve(
+      rulesRoot,
+      'adapter/in/agent/rules-evaluation-capability.adapter.ts',
+    ))).toBe(false);
   });
 });

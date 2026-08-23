@@ -114,6 +114,7 @@ export class SourcingListingPrepCapabilityAdapter
       },
       input.organizationId,
       input.triggeredByUserId ?? null,
+      input.idempotencyKey,
     );
 
     return {
@@ -144,6 +145,10 @@ export class SourcingListingPrepCapabilityAdapter
         const result = await this.createGenerationPackage({
           organizationId,
           triggeredByUserId: actorId,
+          idempotencyKey: ownerCapabilityIdempotencyKey(
+            execution,
+            `${PRODUCT_LISTING_PREP_KEY}:${stableHash(execution.input)}`,
+          ),
           ...input,
         });
         const outputSummary: Record<string, unknown> = { ...result };

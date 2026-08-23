@@ -35,6 +35,7 @@ model Organization {
   operationRuns                   OperationRun[]
   operationRunCheckpoints         OperationRunCheckpoint[]
   operationSchedules              OperationSchedule[]
+  rulesEvaluationApplications     RulesEvaluationApplication[]
 
   // Sourcing & Content
   contentGenerations                  ContentGeneration[]
@@ -57,27 +58,27 @@ model Organization {
   activityEvents    ActivityEvent[]
 
   // Agent OS
-  agentInstances            AgentInstance[]
-  agentRuntimeStates        AgentRuntimeState[]
-  agentTaskSessions         AgentTaskSession[]
-  agentRunRequests          AgentRunRequest[]
-  agentRuns                 AgentRun[]
-  agentRunEvents            AgentRunEvent[]
-  agentInstanceToolPolicies AgentInstanceToolPolicy[]
-  agentAuthorizationEvents  AgentAuthorizationEvent[]
-  agentApprovalRequests     AgentApprovalRequest[]
-  agentCostEvents           AgentCostEvent[]
-  agentConversations        AgentConversation[]
-  agentMessages             AgentMessage[]
-  agentToolInvocations      AgentToolInvocation[]
-  agentArtifacts            AgentArtifact[]
-  agentSessions             AgentSession[]            @relation("AgentSessionOrganization")
-  agentPolicySnapshots      AgentPolicySnapshot[]     @relation("AgentPolicySnapshotOrganization")
-  agentExecutions           AgentExecution[]          @relation("AgentExecutionOrganization")
-  agentExecutionUsages      AgentExecutionUsage[]     @relation("AgentExecutionUsageOrganization")
-  agentAuthorityProfileVersions AgentAuthorityProfileVersion[] @relation("AgentAuthorityProfileVersionOrganization")
+  agentInstances                        AgentInstance[]
+  agentRuntimeStates                    AgentRuntimeState[]
+  agentTaskSessions                     AgentTaskSession[]
+  agentRunRequests                      AgentRunRequest[]
+  agentRuns                             AgentRun[]
+  agentRunEvents                        AgentRunEvent[]
+  agentInstanceToolPolicies             AgentInstanceToolPolicy[]
+  agentAuthorizationEvents              AgentAuthorizationEvent[]
+  agentApprovalRequests                 AgentApprovalRequest[]
+  agentCostEvents                       AgentCostEvent[]
+  agentConversations                    AgentConversation[]
+  agentMessages                         AgentMessage[]
+  agentToolInvocations                  AgentToolInvocation[]
+  agentArtifacts                        AgentArtifact[]
+  agentSessions                         AgentSession[]                         @relation("AgentSessionOrganization")
+  agentPolicySnapshots                  AgentPolicySnapshot[]                  @relation("AgentPolicySnapshotOrganization")
+  agentExecutions                       AgentExecution[]                       @relation("AgentExecutionOrganization")
+  agentExecutionUsages                  AgentExecutionUsage[]                  @relation("AgentExecutionUsageOrganization")
+  agentAuthorityProfileVersions         AgentAuthorityProfileVersion[]         @relation("AgentAuthorityProfileVersionOrganization")
   agentSessionDeletionOperationBindings AgentSessionDeletionOperationBinding[] @relation("AgentSessionDeletionBindingOrganization")
-  agentExecutionDispatchOutboxes AgentExecutionDispatchOutbox[] @relation("AgentExecutionDispatchOutboxOrganization")
+  agentExecutionDispatchOutboxes        AgentExecutionDispatchOutbox[]         @relation("AgentExecutionDispatchOutboxOrganization")
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -266,7 +267,7 @@ model User {
   decidedAgentApprovalRequests      AgentApprovalRequest[]    @relation("AgentApprovalDecidedBy")
   createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
   createdAgentSessions              AgentSession[]            @relation("AgentSessionCreatedBy")
-  requestedAgentSessionDeletions           AgentSession[]                    @relation("AgentSessionDeletionRequestedBy")
+  requestedAgentSessionDeletions    AgentSession[]            @relation("AgentSessionDeletionRequestedBy")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")

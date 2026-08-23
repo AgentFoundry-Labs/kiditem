@@ -31,17 +31,19 @@ export class AnalyticsOverviewAgentCapabilityAdapter implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
+    const execute = async (execution: { input: z.infer<typeof InputSchema>; organization: Parameters<typeof ownerCapabilityContext>[0]['organization'] }) => ({
+      resourceType: 'analytics_overview',
+      outputSummary: await this.analytics.readOverview({
+        organizationId: ownerCapabilityContext(execution as Parameters<typeof ownerCapabilityContext>[0]).organizationId,
+        now: new Date(), period: execution.input.period,
+      }),
+    });
     const handler: AgentCapabilityHandler<z.infer<typeof InputSchema>> = {
       key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
       inputSchema: InputSchema, outputSchema: OutputSchema,
       sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-      execute: async (execution) => ({
-        resourceType: 'analytics_overview',
-        outputSummary: await this.analytics.readOverview({
-          organizationId: ownerCapabilityContext(execution).organizationId,
-          now: new Date(), period: execution.input.period,
-        }),
-      }),
+      execute,
+      executeInteractive: execute,
     };
     this.registry.register(handler);
   }

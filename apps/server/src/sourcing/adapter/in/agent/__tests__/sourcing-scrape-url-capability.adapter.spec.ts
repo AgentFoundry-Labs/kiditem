@@ -45,7 +45,33 @@ describe('SourcingScrapeUrlCapabilityAdapter', () => {
       sourceUrl: 'https://detail.1688.com/offer/123.html',
     }));
     expect(operations.startDirect).not.toHaveBeenCalled();
-    expect(result.resourceId).toBe('operation-child-1');
+    const operation = 'organizations/org-1/operations/operation-child-1';
+    expect(result.resourceId).toBe(operation);
+    expect(result.outputSummary).toEqual(
+      key === 'sourcing.scrapeUrlWorkflow'
+        ? {
+            skipped: false,
+            candidateId: null,
+            href: null,
+            operation,
+          }
+        : {
+            ok: true,
+            source_url: 'https://detail.1688.com/offer/123.html',
+            platform: null,
+            operation,
+            requiresRecovery: false,
+          },
+    );
+    expect(result.outputSummary).not.toHaveProperty('taskId');
+    expect(result.outputSummary).not.toHaveProperty('operationRunId');
+    expect(result.outputSummary).not.toHaveProperty('operationKey');
+    expect(result.artifacts).toEqual([
+      expect.objectContaining({
+        targetId: operation,
+        summary: result.outputSummary,
+      }),
+    ]);
   });
 
   it('uses request identity plus URL owner key for equivalent sourceUrl and url aliases', () => {
@@ -80,7 +106,12 @@ describe('SourcingScrapeUrlCapabilityAdapter', () => {
       organizationId: 'org-1',
       triggeredByUserId: 'user-1',
       sourceUrl: 'https://detail.1688.com/offer/123.html',
-    })).resolves.toMatchObject({ taskId: 'operation-direct-1' });
+    })).resolves.toEqual({
+      skipped: false,
+      candidateId: null,
+      href: null,
+      operation: 'organizations/org-1/operations/operation-direct-1',
+    });
 
     expect(operations.startDirect).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',

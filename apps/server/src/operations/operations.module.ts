@@ -86,6 +86,7 @@ import {
     OPERATION_ATTEMPT_VERIFIER_PORT,
     OperationAttemptVerifierService,
     OperationHandlerRegistryService,
+    BrowserOperationRuntimeService,
     OperationRunService,
     OperationSchedulerService,
     OperationLifecycleGateService,

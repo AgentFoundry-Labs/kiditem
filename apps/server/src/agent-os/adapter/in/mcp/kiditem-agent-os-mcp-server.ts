@@ -14,6 +14,14 @@ import {
 } from '../../../application/port/in/capability/agent-os-mcp-tool-execution.port';
 
 const objectInputSchema = z.object({}).catchall(z.unknown());
+const localExecutionContextSchema = z.object({
+  organizationId: z.string().uuid(),
+  sessionId: z.string().uuid(),
+  executionId: z.string().uuid(),
+  attemptId: z.string().uuid(),
+  startIntentId: z.string().uuid(),
+  runtimeCredentialGeneration: z.number().int().nonnegative(),
+}).strict();
 
 function readRequiredEnv(
   env: NodeJS.ProcessEnv | Record<string, string | undefined>,
@@ -26,11 +34,16 @@ function readRequiredEnv(
   return value.trim();
 }
 
-/** MCP receives no caller identity; the runtime credential is its sole input. */
+/** MCP receives only the exact context of the local CLI process that spawned it. */
 export function readKidItemAgentOsMcpContext(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env,
 ): AgentOsMcpExecutionContextPort {
-  return { credential: readRequiredEnv(env, 'KIDITEM_RUNTIME_CREDENTIAL') };
+  const serialized = readRequiredEnv(env, 'KIDITEM_MCP_EXECUTION_CONTEXT');
+  try {
+    return localExecutionContextSchema.parse(JSON.parse(serialized));
+  } catch {
+    throw new Error('Invalid KidItem MCP env: KIDITEM_MCP_EXECUTION_CONTEXT');
+  }
 }
 
 export function toMcpText(result: unknown) {

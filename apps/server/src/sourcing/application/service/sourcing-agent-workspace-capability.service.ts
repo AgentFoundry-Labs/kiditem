@@ -1,6 +1,7 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type {
-  SourcingAgentWorkspaceCapabilityPort,
+  SourcingAgentWorkspaceMutationCapabilityPort,
+  SourcingAgentWorkspaceReadCapabilityPort,
   SourcingWorkspaceEvidenceResult,
 } from '../port/in/capability/sourcing-agent-workspace-capability.port';
 import {
@@ -16,8 +17,8 @@ import { SourcingReviewService } from './sourcing-review.service';
 import { SourcingValidationService } from './sourcing-validation.service';
 
 @Injectable()
-export class SourcingAgentWorkspaceCapabilityService
-  implements SourcingAgentWorkspaceCapabilityPort
+export class SourcingAgentWorkspaceReadCapabilityService
+  implements SourcingAgentWorkspaceReadCapabilityPort
 {
   constructor(
     private readonly rag: SourcingAgentRagService,
@@ -25,8 +26,6 @@ export class SourcingAgentWorkspaceCapabilityService
     private readonly recommendations: SourcingRecommendationRepositoryPort,
     @Inject(SOURCING_VALIDATION_REPOSITORY_PORT)
     private readonly validationRows: SourcingValidationRepositoryPort,
-    private readonly validations: SourcingValidationService,
-    private readonly reviews: SourcingReviewService,
   ) {}
 
   retrieveWorkspaceEvidence(input: {
@@ -83,6 +82,17 @@ export class SourcingAgentWorkspaceCapabilityService
       },
     };
   }
+
+}
+
+@Injectable()
+export class SourcingAgentWorkspaceMutationCapabilityService
+  implements SourcingAgentWorkspaceMutationCapabilityPort
+{
+  constructor(
+    private readonly validations: SourcingValidationService,
+    private readonly reviews: SourcingReviewService,
+  ) {}
 
   async refreshValidation(input: {
     organizationId: string;

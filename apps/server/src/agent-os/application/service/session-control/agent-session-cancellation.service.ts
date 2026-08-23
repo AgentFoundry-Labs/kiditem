@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import {
   parseAgentSessionName,
@@ -14,9 +15,10 @@ import type {
   CancelAgentSessionTaskInput,
 } from '../../port/in/session-control/agent-session-cancellation.port';
 import {
-  AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
-  type AgentSessionControlQueryRepositoryPort,
-} from '../../port/out/repository/session-control/agent-session-control-query.repository.port';
+  AGENT_SESSION_CANCELLATION_TRANSACTION,
+  type AgentSessionCancellationCommand,
+  type AgentSessionCancellationTransactionPort,
+} from '../../port/out/transaction/session-control/agent-session-cancellation.transaction.port';
 import { AgentOsRuntimeError } from '../../../domain/agent-os.errors';
 
 @Injectable()
@@ -24,8 +26,8 @@ export class AgentSessionCancellationService implements AgentSessionCancellation
   private readonly pending = new Map<string, Promise<{ status: string }>>();
 
   constructor(
-    @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
-    private readonly controls: AgentSessionControlQueryRepositoryPort,
+    @Inject(AGENT_SESSION_CANCELLATION_TRANSACTION)
+    private readonly cancellations: AgentSessionCancellationTransactionPort,
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
   ) {}
@@ -37,36 +39,56 @@ export class AgentSessionCancellationService implements AgentSessionCancellation
       graph.sessionId,
       graph.taskId,
       input.actorId,
+      input.idempotencyKey,
     ]);
     const current = this.pending.get(key);
     if (current) return current;
-    const action = this.cancelOnce(graph, input.actorId, input.expectedStatus, input.reason)
+    const action = this.cancelOnce({
+      ...graph,
+      actorId: input.actorId,
+      idempotencyKey: input.idempotencyKey,
+      expectedStatus: input.expectedStatus,
+      reason: input.reason,
+      fingerprint: fingerprint({
+        ...graph,
+        actorId: input.actorId,
+        expectedStatus: input.expectedStatus,
+        reason: input.reason,
+      }),
+    })
       .finally(() => this.pending.delete(key));
     this.pending.set(key, action);
     return action;
   }
 
   private async cancelOnce(
-    graph: { organizationId: string; sessionId: string; taskId: string },
-    actorId: string,
-    expectedStatus: CancelAgentSessionTaskInput['expectedStatus'],
-    reason: string | null,
+    command: AgentSessionCancellationCommand,
   ): Promise<{ status: string }> {
-    const target = await this.controls.loadCancelableTask({ ...graph, actorId, expectedStatus });
-    if (!target || !target.operationRunId) {
-      throw new AgentOsRuntimeError(
-        'AGENT_SESSION_CONTROL_SCOPE_INVALID',
-        'The task has no cancellable durable operation in this organization.',
-      );
-    }
+    const begun = await this.cancellations.begin(command);
+    if (begun.kind === 'completed') return { status: begun.status };
     const run = await this.operations.cancel({
-      organizationId: graph.organizationId,
-      runId: target.operationRunId,
-      requestedByUserId: actorId,
-      reason,
+      organizationId: command.organizationId,
+      runId: begun.operationRunId,
+      requestedByUserId: command.actorId,
+      reason: command.reason,
     });
-    return { status: run.status };
+    return this.cancellations.complete({
+      organizationId: command.organizationId,
+      sessionId: command.sessionId,
+      taskId: command.taskId,
+      actorId: command.actorId,
+      idempotencyKey: command.idempotencyKey,
+      fingerprint: command.fingerprint,
+      operationRunId: begun.operationRunId,
+      status: run.status,
+    });
   }
+}
+
+function fingerprint(input: Record<string, unknown>): string {
+  return createHash('sha256')
+    .update(JSON.stringify(input))
+    .digest('hex');
 }
 
 function parseGraph(input: CancelAgentSessionTaskInput): {

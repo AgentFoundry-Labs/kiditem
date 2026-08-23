@@ -13,7 +13,6 @@ import { AgentOsRulesJudgmentAdapter } from './adapter/out/agent-os/agent-os-rul
 import { RULES_JUDGMENT_PORT } from './application/port/out/cross-domain/rules-judgment.port';
 import { APPLY_RULES_EVALUATION_PORT } from './application/port/in/apply-rules-evaluation.port';
 import { RulesEvaluationOperationHandler } from './adapter/in/operation/rules-evaluation.operation-handler';
-import { RulesEvaluationCapabilityAdapter } from './adapter/in/agent/rules-evaluation-capability.adapter';
 
 // EventEmitter2 is injected globally — do NOT import EventEmitterModule.forRoot() here.
 //
@@ -32,7 +31,6 @@ import { RulesEvaluationCapabilityAdapter } from './adapter/in/agent/rules-evalu
     RulesOperationAlertAdapter,
     AgentOsRulesJudgmentAdapter,
     RulesEvaluationOperationHandler,
-    RulesEvaluationCapabilityAdapter,
     { provide: RULES_OPERATION_ALERT_PORT, useExisting: RulesOperationAlertAdapter },
     { provide: RULES_JUDGMENT_PORT, useExisting: AgentOsRulesJudgmentAdapter },
     { provide: APPLY_RULES_EVALUATION_PORT, useExisting: RulesService },

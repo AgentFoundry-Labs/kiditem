@@ -164,8 +164,8 @@ The manifest lives in `domain/capability/sourcing.capabilities.ts`:
 - `sourcing.createReviewBatch` is registry-valid for a future explicit
   selection handoff but is absent from the dashboard Sourcing policy.
 
-The dashboard assistant reaches Claude/Codex only through
-`AGENT_INTERACTION_PORT`; Sourcing does not own a second CLI subprocess path.
+The dashboard opens the shared Interaction Surface with the Sourcing agent;
+Sourcing owns no local assistant endpoint, transcript, or CLI subprocess path.
 
 Agent OS and automation reach sourcing through incoming capability ports, not
 by importing sourcing application services.

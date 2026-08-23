@@ -65,7 +65,7 @@ function createWorkspace(t, manifests = validWorkspaceManifests()) {
     path.join(tmpdir(), 'kiditem-copilotkit-train-'),
   );
   t.after(() => rmSync(rootDir, { recursive: true, force: true }));
-  writeJson(rootDir, 'deploy/interaction-gateway/platform-lock.json', lock);
+  writeJson(rootDir, 'deploy/copilotkit/platform-lock.json', lock);
 
   for (const [manifestPath, manifest] of Object.entries(manifests)) {
     writeJson(rootDir, manifestPath, manifest);
@@ -93,9 +93,6 @@ function validWorkspaceManifests() {
     'apps/server/package.json': {
       dependencies: { '@copilotkit/runtime': '1.67.1' },
     },
-    'apps/interaction-gateway/package.json': {
-      dependencies: { '@ag-ui/core': '0.0.57' },
-    },
   };
 }
 
@@ -114,7 +111,7 @@ function assertWorkspaceError(rootDir, context, pattern) {
   );
 }
 
-test('loads only the exact OSS interaction gateway platform lock', (t) => {
+test('loads only the exact OSS CopilotKit platform lock', (t) => {
   const rootDir = createWorkspace(t);
 
   assert.deepEqual(loadPlatformLock(rootDir), lock);
@@ -130,14 +127,14 @@ test('rejects vendor lock fields outside the exact OSS boundary', (t) => {
     ['redis', '>=7'],
   ]) {
     const rootDir = createWorkspace(t);
-    writeJson(rootDir, 'deploy/interaction-gateway/platform-lock.json', {
+    writeJson(rootDir, 'deploy/copilotkit/platform-lock.json', {
       ...lock,
       [field]: value,
     });
 
     assertWorkspaceError(
       rootDir,
-      'deploy/interaction-gateway/platform-lock.json',
+      'deploy/copilotkit/platform-lock.json',
       /must exactly match the OSS platform lock/,
     );
   }
@@ -217,7 +214,6 @@ test('checkWorkspace scans all configured manifests and identifies the failing g
     ['package.json', 'dependencies', '@copilotkit/react-core', '^1.67.1'],
     ['apps/web/package.json', 'devDependencies', '@copilotkit/react-core', '^1.67.1'],
     ['apps/server/package.json', 'overrides', '@copilotkit/react-core', '^1.67.1'],
-    ['apps/interaction-gateway/package.json', 'dependencies', '@copilotkit/react-core', '^1.67.1'],
     ['package.json', 'optionalDependencies', '@copilotkit/runtime', '^1.67.1'],
     ['package.json', 'peerDependencies', '@ag-ui/client', '0.0.56'],
   ];
@@ -313,11 +309,11 @@ test('target override objects validate their dot self version', (t) => {
 test('rejects excluded Enterprise and managed-thread production source', (t) => {
   for (const [name, source] of forbiddenProductionValues) {
     const rootDir = createWorkspace(t);
-    writeText(rootDir, 'apps/interaction-gateway/src/runtime.ts', `${source}\n`);
+    writeText(rootDir, 'apps/server/src/runtime.ts', `${source}\n`);
 
     assertWorkspaceError(
       rootDir,
-      'apps/interaction-gateway/src/runtime.ts',
+      'apps/server/src/runtime.ts',
       new RegExp(name, 'i'),
     );
   }
@@ -327,7 +323,7 @@ test('allows ordinary Kubernetes and Helm mentions in production source', (t) =>
   const rootDir = createWorkspace(t);
   writeText(
     rootDir,
-    'apps/interaction-gateway/src/deployment-target.ts',
+    'apps/server/src/deployment-target.ts',
     [
       'const target = "Kubernetes deployment";',
       'const templateFormat = "Helm template";',
@@ -341,13 +337,13 @@ test('rejects Kubernetes and Helm version requirements in production source', (t
   const rootDir = createWorkspace(t);
   writeText(
     rootDir,
-    'apps/interaction-gateway/src/enterprise-requirements.ts',
+    'apps/server/src/enterprise-requirements.ts',
     'const requirements = { kubernetes: ">=1.28", helm: ">=3.12" };\n',
   );
 
   assertWorkspaceError(
     rootDir,
-    'apps/interaction-gateway/src/enterprise-requirements.ts',
+    'apps/server/src/enterprise-requirements.ts',
     /Kubernetes/i,
   );
 });
@@ -355,15 +351,15 @@ test('rejects Kubernetes and Helm version requirements in production source', (t
 test('rejects excluded Enterprise configuration in production manifests', (t) => {
   for (const [name, value] of forbiddenProductionValues) {
     const manifests = validWorkspaceManifests();
-    manifests['apps/interaction-gateway/package.json'] = {
-      ...manifests['apps/interaction-gateway/package.json'],
+    manifests['apps/server/package.json'] = {
+      ...manifests['apps/server/package.json'],
       kiditemTestConfig: value,
     };
     const rootDir = createWorkspace(t, manifests);
 
     assertWorkspaceError(
       rootDir,
-      'apps/interaction-gateway/package.json',
+      'apps/server/package.json',
       new RegExp(name, 'i'),
     );
   }
@@ -381,7 +377,7 @@ test('ignores documentation, tests, and transitive lockfile package names', (t) 
   );
   writeText(
     rootDir,
-    'apps/interaction-gateway/src/__tests__/boundary.test.ts',
+    'apps/server/src/__tests__/boundary.test.ts',
     excludedBoundaryExplanation,
   );
   writeJson(rootDir, 'package-lock.json', {

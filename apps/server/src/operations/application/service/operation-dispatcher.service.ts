@@ -1,4 +1,5 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import {
@@ -10,6 +11,10 @@ import type {
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import {
+  OPERATION_RUN_EVENTS,
+  type OperationRunFinalizedEvent,
+} from '../event/operation-run-events';
 
 export interface OperationDispatchControls {
   signal: AbortSignal;
@@ -30,6 +35,7 @@ export class OperationDispatcherService {
     private readonly repository: OperationRunRepositoryPort,
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async dispatch(
@@ -114,6 +120,7 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(run, 'succeeded', null, null);
           return;
         case 'retryable':
           controls.signal.throwIfAborted();
@@ -225,6 +232,12 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(
+            run,
+            'attention_required',
+            'operation_attention_required',
+            result.reason,
+          );
           return;
         case 'cancelled':
           await this.repository.transition({
@@ -240,6 +253,7 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(run, 'cancelled', null, null);
           return;
         case 'failed':
           controls.signal.throwIfAborted();
@@ -257,6 +271,7 @@ export class OperationDispatcherService {
             claimedAt: null,
             leaseExpiresAt: null,
           });
+          this.publishTerminal(run, 'failed', result.code, result.message);
           return;
       }
     } catch (error) {
@@ -291,6 +306,29 @@ export class OperationDispatcherService {
       claimedAt: null,
       leaseExpiresAt: null,
     });
+    if (terminal) {
+      this.publishTerminal(
+        run,
+        'failed',
+        'operation_execution_failed',
+        'Operation execution failed',
+      );
+    }
+  }
+
+  private publishTerminal(
+    run: OperationRunRecord,
+    status: OperationRunFinalizedEvent['status'],
+    errorCode: string | null,
+    errorMessage: string | null,
+  ): void {
+    this.events?.emit(OPERATION_RUN_EVENTS.FINALIZED, {
+      organizationId: run.organizationId,
+      runId: run.id,
+      status,
+      errorCode,
+      errorMessage,
+    } satisfies OperationRunFinalizedEvent);
   }
 }
 

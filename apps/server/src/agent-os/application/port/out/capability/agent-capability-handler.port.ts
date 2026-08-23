@@ -53,6 +53,17 @@ export interface AgentCapabilityExecutionInput<
   input: TInput;
 }
 
+/**
+ * Inline AG-UI is a persisted session execution, not an Operations worker.
+ * Only a handler that explicitly exposes this narrow read surface may receive
+ * it; the normal capability method remains strictly Operation-bound.
+ */
+export interface AgentInteractiveCapabilityExecutionInput<
+  TInput extends Record<string, unknown> = Record<string, unknown>,
+> extends Omit<AgentCapabilityExecutionInput<TInput>, 'operation'> {
+  operation: null;
+}
+
 export interface AgentCapabilityExecutionResult {
   outputSummary?: Record<string, unknown>;
   resourceType?: string | null;
@@ -75,5 +86,8 @@ export interface AgentCapabilityHandler<
   idempotencyKey(input: AgentCapabilityExecutionInput<TInput>): string | null;
   execute(
     input: AgentCapabilityExecutionInput<TInput>,
+  ): Promise<AgentCapabilityExecutionResult>;
+  executeInteractive?(
+    input: AgentInteractiveCapabilityExecutionInput<TInput>,
   ): Promise<AgentCapabilityExecutionResult>;
 }

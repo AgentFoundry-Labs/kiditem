@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { BadRequestException, Inject, Injectable } from '@nestjs/common';
 import type {
   CreateProductGenerationCommand,
@@ -36,6 +36,7 @@ export class SourcingAgentCommandService {
     data: RegisterManualProductCommand,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey?: string,
   ) {
     const title = data.title.trim();
     const imageUrls = uniqueNonEmptyStrings(data.imageUrls);
@@ -56,11 +57,17 @@ export class SourcingAgentCommandService {
       : '';
     const optionNames = uniqueNonEmptyStrings(data.optionNames ?? []);
     const keywords = uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10);
-    const sourceUrl = `kiditem://manual-product-registration/${randomUUID()}`;
+    const identityHash = idempotencyKey
+      ? createHash('sha256').update(idempotencyKey).digest('hex')
+      : null;
+    const sourceUrl = identityHash
+      ? `kiditem://manual-product-registration/${identityHash}`
+      : `kiditem://manual-product-registration/${randomUUID()}`;
     const candidate = await this.candidates.upsertSourced({
       organizationId,
       sourceUrl,
       sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
+      sourceIdentityHash: identityHash,
       rawData: {
         source: 'kiditem_product_registration',
         title,
@@ -112,6 +119,7 @@ export class SourcingAgentCommandService {
     data: CreateProductGenerationCommand,
     organizationId: string,
     triggeredByUserId: string | null,
+    idempotencyKey?: string,
   ) {
     const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
     const representativeThumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
@@ -121,10 +129,15 @@ export class SourcingAgentCommandService {
       data,
       organizationId,
       triggeredByUserId,
+      idempotencyKey,
     );
     const ai = await this.agentGateway.startProductGeneration({
       organizationId,
       triggeredByUserId,
+      idempotencyKey,
+      requestHash: createHash('sha256')
+        .update(JSON.stringify(data))
+        .digest('hex'),
       candidateId: candidate.candidateId,
       productName: data.title.trim(),
       category: data.category ?? null,

@@ -215,6 +215,30 @@ export class OpenAiResponsesAguiRuntimeAdapter
     }
   }
 
+  async stop(input: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    attemptId: string;
+    startIntentId: string;
+    copilotThreadId: string;
+    aguiRunId: string;
+  }): Promise<boolean> {
+    return this.activeRuns.cancel(input);
+  }
+
+  claimStop(input: {
+    organizationId: string;
+    sessionId: string;
+    executionId: string;
+    attemptId: string;
+    startIntentId: string;
+    copilotThreadId: string;
+    aguiRunId: string;
+  }): void {
+    this.activeRuns.claimStop(input);
+  }
+
   private hasExactCleanupAuthority(
     input: AgentSessionRuntimeCleanupInput,
   ): boolean {

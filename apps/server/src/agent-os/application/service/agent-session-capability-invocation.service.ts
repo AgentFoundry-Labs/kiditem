@@ -1,4 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
+import { createHash } from 'node:crypto';
 import {
   AgentExecutionAttemptIdSchema,
   AgentExecutionIdSchema,
@@ -34,9 +35,17 @@ import type {
   AgentSessionCapabilityInvocationInput,
   AgentSessionCapabilityInvocationPort,
 } from "../port/in/session-capability/agent-capability-invocation.port";
-import type { AgentCapabilityExecutionResult } from "../port/out/capability/agent-capability-handler.port";
+import type {
+  AgentCapabilityExecutionInput,
+  AgentCapabilityExecutionResult,
+  AgentInteractiveCapabilityExecutionInput,
+} from "../port/out/capability/agent-capability-handler.port";
 import { AgentOsRuntimeError } from "../../domain/agent-os.errors";
 import { AgentCapabilityRegistry } from "./agent-capability-registry.service";
+import {
+  AGENT_CONVERSATION_EVENT_TRANSACTION,
+  type AgentConversationEventTransactionPort,
+} from '../port/out/transaction/interaction/agent-conversation-event.transaction.port';
 
 @Injectable()
 export class AgentSessionCapabilityInvocationService implements AgentSessionCapabilityInvocationPort {
@@ -46,6 +55,8 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
     @Inject(AGENT_SESSION_CONTROL_QUERY_REPOSITORY)
     private readonly controls: AgentSessionControlQueryRepositoryPort,
     private readonly capabilities: AgentCapabilityRegistry,
+    @Inject(AGENT_CONVERSATION_EVENT_TRANSACTION)
+    private readonly events: AgentConversationEventTransactionPort,
   ) {}
 
   async invoke(
@@ -61,9 +72,14 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
     } catch {
       throw denied();
     }
-    const context = await this.interactions.loadExecutionRuntimeContext({
-      executionId: execution.execution,
-    });
+    const interactive = input.invocationSurface === "interactive_runtime";
+    const context = interactive
+      ? await this.interactions.loadInlineAguiExecutionRuntimeContext({
+          executionId: execution.execution,
+        })
+      : await this.interactions.loadExecutionRuntimeContext({
+          executionId: execution.execution,
+        });
     if (
       !context ||
       context.organizationId !== session.organization ||
@@ -80,15 +96,25 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
     }
     const handler = this.capabilities.resolve(input.capabilityKey);
     if (!handler) throw denied();
+    const supportedRuntimeSurface =
+      input.invocationSurface === "interactive_runtime" ||
+      input.invocationSurface === "mcp_runtime";
+    const directlyAllowed =
+      supportedRuntimeSurface &&
+      (handler.approvalRisk === "none" || handler.approvalRisk === "low");
     if (
-      handler.approvalRisk !== "none" ||
-      handler.sideEffects.length !== 1 ||
-      handler.sideEffects[0] !== "read"
+      !directlyAllowed
     ) {
       throw new AgentOsRuntimeError(
         "AGENT_CAPABILITY_APPROVAL_REQUIRED",
-        "A non-read or approval-gated capability requires an explicit session approval.",
+        "The capability is not directly allowed on this official runtime surface.",
       );
+    }
+    // An inline AG-UI run deliberately has no Operations lease.  Keep that
+    // exception limited to pure reads so a worker-owned action can never be
+    // dispatched with an invented operation identity.
+    if (interactive && handler.sideEffects.some((effect) => effect !== "read")) {
+      throw denied();
     }
 
     const parsedInput = handler.inputSchema.safeParse(input.input);
@@ -110,11 +136,13 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
     });
     if (!allowed) throw denied();
 
-    let executionInput;
+    let executionInput:
+      | AgentCapabilityExecutionInput
+      | AgentInteractiveCapabilityExecutionInput;
     try {
       const organizationId = OrganizationIdSchema.parse(context.organizationId);
       const organization = formatOrganizationName(organizationId);
-      executionInput = {
+      const common = {
         organization,
         actor: context.userId ? formatUserName(UserIdSchema.parse(context.userId)) : null,
         agentVersion: formatAgentVersionName(
@@ -138,15 +166,57 @@ export class AgentSessionCapabilityInvocationService implements AgentSessionCapa
           AgentExecutionIdSchema.parse(context.executionId),
           AgentExecutionAttemptIdSchema.parse(context.attemptId),
         ),
-        operation: formatOperationRunName(organizationId, OperationRunIdSchema.parse(context.operationRunId)),
         requestId: RequestIdSchema.parse(context.startIntentId),
         input: parsedInput.data,
       };
+      executionInput = interactive
+        ? { ...common, operation: null }
+        : {
+            ...common,
+            operation: formatOperationRunName(
+              organizationId,
+              OperationRunIdSchema.parse(
+                (
+                  context as Awaited<ReturnType<AgentExecutionQueryRepositoryPort["loadExecutionRuntimeContext"]>>
+                )?.operationRunId,
+              ),
+            ),
+          };
     } catch {
       throw denied();
     }
-    const result = await handler.execute(executionInput);
+    const result = interactive
+      ? await handler.executeInteractive?.(
+          executionInput as AgentInteractiveCapabilityExecutionInput,
+        )
+      : await handler.execute(executionInput as AgentCapabilityExecutionInput);
+    if (!result) throw denied();
     if (result.outputSummary) handler.outputSchema.parse(result.outputSummary);
+    await this.events.appendExecutionEvent({
+      organizationId: context.organizationId,
+      sessionId: context.sessionId,
+      executionId: context.executionId,
+      externalEventId: capabilityEvidenceEventId(
+        context.attemptId,
+        input.capabilityKey,
+        parsedInput.data,
+      ),
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'agent_capability_evidence',
+        snapshotVersion: 1,
+        data: {
+          content: capabilityEvidenceContent({
+            capabilityKey: input.capabilityKey,
+            input: parsedInput.data,
+            outputSummary: result.outputSummary ?? null,
+            resourceType: result.resourceType ?? null,
+            resourceId: result.resourceId ?? null,
+          }),
+        },
+      },
+    });
     return result;
   }
 }
@@ -156,4 +226,44 @@ function denied(): AgentOsRuntimeError {
     "AGENT_EXECUTION_CAPABILITY_DENIED",
     "Capability is outside the exact active Agent session execution policy.",
   );
+}
+
+function capabilityEvidenceEventId(
+  attemptId: string,
+  capabilityKey: string,
+  input: unknown,
+): string {
+  return `${attemptId}:capability:${createHash('sha256')
+    .update(canonicalJson({ capabilityKey, input }))
+    .digest('hex')}`;
+}
+
+function capabilityEvidenceContent(value: Record<string, unknown>): string {
+  const content = canonicalJson({ schemaVersion: 1, ...value });
+  if (content.length > 12_000) {
+    throw new AgentOsRuntimeError(
+      'AGENT_CAPABILITY_EVIDENCE_TOO_LARGE',
+      'Capability evidence exceeds the bounded official event payload.',
+    );
+  }
+  return content;
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') {
+    return JSON.stringify(value);
+  }
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) throw denied();
+    return JSON.stringify(value);
+  }
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`;
+  if (typeof value === 'object') {
+    return `{${Object.entries(value as Record<string, unknown>)
+      .filter(([, item]) => item !== undefined)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`)
+      .join(',')}}`;
+  }
+  throw denied();
 }

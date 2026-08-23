@@ -1,21 +1,32 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AgentCapabilityHandler } from '../../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import { officialCapabilityExecution } from '../../../../../agent-os/test-helpers/official-capability-execution';
-import { SourcingWorkspaceCapabilityAdapter } from '../sourcing-workspace-capability.adapter';
+import {
+  SourcingWorkspaceMutationCapabilityAdapter,
+  SourcingWorkspaceReadCapabilityAdapter,
+} from '../sourcing-workspace-capability.adapter';
 
-describe('SourcingWorkspaceCapabilityAdapter', () => {
-  it('registers only the bounded Sourcing workspace surface', () => {
+describe('Sourcing workspace capability adapters', () => {
+  it('keeps the runtime-safe reads separate from API-owned mutations', () => {
     const registry = { register: vi.fn() };
-    const adapter = new SourcingWorkspaceCapabilityAdapter(
+    const readAdapter = new SourcingWorkspaceReadCapabilityAdapter(
       registry as never,
       workspace() as never,
     );
-
-    adapter.onModuleInit();
+    readAdapter.onModuleInit();
 
     expect(registry.register.mock.calls.map(([handler]) => handler.key)).toEqual([
       'sourcing.retrieveWorkspaceEvidence',
       'sourcing.inspectRecommendationRun',
+    ]);
+
+    registry.register.mockClear();
+    const mutationAdapter = new SourcingWorkspaceMutationCapabilityAdapter(
+      registry as never,
+      workspace() as never,
+    );
+    mutationAdapter.onModuleInit();
+    expect(registry.register.mock.calls.map(([handler]) => handler.key)).toEqual([
       'sourcing.refreshValidation',
       'sourcing.createReviewBatch',
     ]);
@@ -43,7 +54,7 @@ describe('SourcingWorkspaceCapabilityAdapter', () => {
       }],
       dataGaps: [],
     });
-    const adapter = new SourcingWorkspaceCapabilityAdapter(
+    const adapter = new SourcingWorkspaceReadCapabilityAdapter(
       registry as never,
       capability as never,
     );

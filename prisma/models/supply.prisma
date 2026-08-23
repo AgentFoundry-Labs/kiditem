@@ -234,6 +234,8 @@ model PurchaseOrder {
   externalOrderPlatform String?   @map("external_order_platform") @db.VarChar(40)
   externalOrderId       String?   @map("external_order_id") @db.VarChar(120)
   externalOrderUrl      String?   @map("external_order_url") @db.Text
+  idempotencyKey        String?   @map("idempotency_key")
+  requestHash           String?   @map("request_hash") @db.VarChar(64)
 
   // Inspection (from dashboard)
   receivedAt   DateTime? @map("received_at") @db.Timestamptz
@@ -255,6 +257,7 @@ model PurchaseOrder {
   submissionAttempts PurchaseOrderSubmissionAttempt[]
 
   @@unique([id, organizationId], map: "purchase_orders_id_org_key")
+  @@unique([organizationId, idempotencyKey], map: "purchase_orders_org_idempotency_key", where: raw("idempotency_key IS NOT NULL"))
   @@index([organizationId])
   @@index([organizationId, externalOrderPlatform, externalOrderId])
   @@index([status])

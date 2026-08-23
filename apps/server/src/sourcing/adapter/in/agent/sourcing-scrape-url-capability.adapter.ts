@@ -1,5 +1,12 @@
 import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
 import { z } from 'zod';
+import {
+  OperationRunIdSchema,
+  OperationRunNameSchema,
+  OrganizationIdSchema,
+  formatOperationRunName,
+  parseOrganizationName,
+} from '@kiditem/shared/identifiers';
 import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
 import { ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
@@ -32,98 +39,24 @@ const ScrapeUrlOutputSchema = z.object({
   skipped: z.boolean(),
   candidateId: z.string().nullable(),
   href: z.string().nullable(),
-  operationKey: z.string().nullable(),
-  taskId: z.string().nullable().optional(),
+  operation: OperationRunNameSchema.nullable(),
 });
 const ScrapeProductUrlOutputSchema = z
   .object({
     ok: z.boolean(),
     source_url: z.string(),
     platform: z.string().nullable().optional(),
+    operation: OperationRunNameSchema,
     requiresRecovery: z.boolean().optional(),
     recommendedSkillKey: z.string().optional(),
     recoveryReason: z.string().optional(),
   })
-  .passthrough();
+  .strict();
 
 type ScrapeUrlInput = z.infer<typeof ScrapeUrlInputSchema>;
 
 function sourceUrlOf(input: { sourceUrl?: string | null; url?: string | null }): string | null {
   return input.sourceUrl?.trim() || input.url?.trim() || null;
-}
-
-function outputSummaryOf(result: SourcingScrapeUrlWorkflowResult): Record<string, unknown> {
-  return {
-    skipped: result.skipped,
-    candidateId: result.candidateId,
-    href: result.href,
-    operationKey: result.operationKey,
-    taskId: result.taskId ?? null,
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return value !== null && typeof value === 'object' && !Array.isArray(value);
-}
-
-function recordField(
-  value: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | null {
-  const nested = value[key];
-  return isRecord(nested) ? nested : null;
-}
-
-function stringField(value: unknown): string | null {
-  return typeof value === 'string' && value.trim().length > 0
-    ? value.trim()
-    : null;
-}
-
-function firstStringField(
-  value: Record<string, unknown>,
-  keys: string[],
-): string | null {
-  for (const key of keys) {
-    const field = stringField(value[key]);
-    if (field) return field;
-  }
-  return null;
-}
-
-function productDataOf(output: Record<string, unknown>): Record<string, unknown> {
-  return (
-    recordField(output, 'scraped_data') ??
-    recordField(output, 'scrapedData') ??
-    recordField(output, 'product') ??
-    output
-  );
-}
-
-function candidateTitleOf(output: Record<string, unknown>): string {
-  const productData = productDataOf(output);
-  const title =
-    firstStringField(productData, ['title', 'productName', 'name']) ??
-    firstStringField(output, ['title', 'productName', 'name']);
-  return title ? `${title} 소싱 후보` : '소싱 후보';
-}
-
-function candidateTargetIdOf(
-  output: Record<string, unknown>,
-  sourceUrl: string,
-): string {
-  const productData = productDataOf(output);
-  return (
-    firstStringField(productData, [
-      'product_id',
-      'productId',
-      'offerId',
-      'offer_id',
-      'id',
-    ]) ??
-    firstStringField(output, ['candidateId', 'productId', 'offerId', 'id']) ??
-    sourceUrl
-  );
 }
 
 @Injectable()
@@ -158,8 +91,10 @@ export class SourcingScrapeUrlCapabilityAdapter
       skipped: false,
       candidateId: null,
       href: null,
-      operationKey: SCRAPE_URL_WORKFLOW_KEY,
-      taskId: result.operationRunId,
+      operation: formatOperationRunName(
+        OrganizationIdSchema.parse(input.organizationId),
+        OperationRunIdSchema.parse(result.operationRunId),
+      ),
     };
   }
 
@@ -186,13 +121,15 @@ export class SourcingScrapeUrlCapabilityAdapter
           execution: executionInput,
           sourceUrl,
         });
-        const targetId = result.operationRunId;
+        const targetId = formatOperationRunName(
+          parseOrganizationName(executionInput.organization).organization,
+          OperationRunIdSchema.parse(result.operationRunId),
+        );
         const summary = {
           skipped: false,
           candidateId: null,
           href: null,
-          operationKey: SCRAPE_URL_WORKFLOW_KEY,
-          taskId: result.operationRunId,
+          operation: targetId,
         };
         return {
           resourceType: 'operation_run',
@@ -242,23 +179,27 @@ export class SourcingScrapeUrlCapabilityAdapter
           execution: executionInput,
           sourceUrl,
         });
+        const operation = formatOperationRunName(
+          parseOrganizationName(executionInput.organization).organization,
+          OperationRunIdSchema.parse(result.operationRunId),
+        );
         const output = {
           ok: true,
           source_url: sourceUrl,
           platform: null,
-          operationRunId: result.operationRunId,
+          operation,
           requiresRecovery: false,
         };
         return {
           resourceType: 'operation_run',
-          resourceId: result.operationRunId,
+          resourceId: operation,
           outputSummary: output,
           artifacts: [
             {
               artifactType: 'sourcing_scrape_snapshot',
               targetDomain: 'sourcing',
               targetModel: 'SourcingScrapeSnapshot',
-              targetId: result.operationRunId,
+              targetId: operation,
               title:
                 typeof output.platform === 'string' && output.platform
                   ? `${output.platform} scrape snapshot`

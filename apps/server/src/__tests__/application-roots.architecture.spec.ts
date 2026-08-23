@@ -14,6 +14,7 @@ import { OperationsHttpModule } from '../operations/operations-http.module';
 import { OperationsController } from '../operations/adapter/in/http/operations.controller';
 import { OperationSchedulesController } from '../operations/adapter/in/http/operation-schedules.controller';
 import { BrowserOperationRuntimeController } from '../operations/adapter/in/http/browser-operation-runtime.controller';
+import { BrowserOperationRuntimeService } from '../operations/application/service/browser-operation-runtime.service';
 import { OperationRunWorkerService } from '../operations/application/service/operation-run-worker.service';
 import { OperationSchedulerService } from '../operations/application/service/operation-scheduler.service';
 import {
@@ -40,6 +41,11 @@ import { AgentSessionDeletionRecoveryService } from '../agent-os/application/ser
 import { PrismaAgentSessionDeletionCommandTransaction } from '../agent-os/adapter/out/transaction/session-deletion/prisma-agent-session-deletion-command.transaction';
 import { PrismaAgentSessionDeletionQueryRepository } from '../agent-os/adapter/out/repository/session-deletion/prisma-agent-session-deletion-query.repository';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
+import { SourcingAgentReadCapabilityModule } from '../sourcing/sourcing-agent-read-capability.module';
+import { SourcingAgentListingCapabilityModule } from '../sourcing/sourcing-agent-listing-capability.module';
+import { AiProductGenerationRuntimeModule } from '../ai/ai-product-generation-runtime.module';
+import { AiAgentRuntimeModule, AiModule } from '../ai/ai.module';
+import { SourcingAgentRuntimeModule } from '../sourcing/sourcing-agent-runtime.module';
 
 type ProviderLike = Function | { provide?: unknown };
 type ModuleLike =
@@ -140,6 +146,12 @@ describe('application root topology', () => {
     }
   });
 
+  it('exports the browser runtime service to its HTTP wrapper', () => {
+    expect(
+      Reflect.getMetadata(MODULE_METADATA.EXPORTS, OperationsModule) ?? [],
+    ).toContain(BrowserOperationRuntimeService);
+  });
+
   it('does not give the worker wrapper HTTP or Operations dependencies', () => {
     const workerImports: ModuleLike[] =
       Reflect.getMetadata(MODULE_METADATA.IMPORTS, AgentOsWorkerModule) ?? [];
@@ -163,6 +175,31 @@ describe('application root topology', () => {
     expect(controllers(AgentMcpApplicationModule)).toEqual([]);
     expect(hasGlobalGuard(AgentWorkerApplicationModule)).toBe(false);
     expect(hasGlobalGuard(AgentMcpApplicationModule)).toBe(false);
+    expect([...graph(AgentMcpApplicationModule)].map(moduleClass)).toContain(
+      SourcingAgentReadCapabilityModule,
+    );
+  });
+
+  it('composes listing generation from narrow controller-free owner modules only', () => {
+    const mcpGraph = [...graph(AgentMcpApplicationModule)].map(moduleClass);
+    expect(mcpGraph).toEqual(expect.arrayContaining([
+      SourcingAgentListingCapabilityModule,
+      AiProductGenerationRuntimeModule,
+    ]));
+    expect(mcpGraph).not.toEqual(expect.arrayContaining([
+      AiModule,
+      AiAgentRuntimeModule,
+      SourcingAgentRuntimeModule,
+      AgentOsHttpModule,
+      OperationsModule,
+    ]));
+    expect(controllers(AiProductGenerationRuntimeModule)).toEqual([]);
+    expect(
+      readFileSync(
+        join(SERVER_SRC, 'ai', 'ai-product-generation-runtime.module.ts'),
+        'utf8',
+      ),
+    ).not.toMatch(/adapter\/in\/http|AgentOsApiExecutionModule|Operations(?:Http)?Module|INTERACTION_.*(?:SECRET|HMAC)/);
   });
 
   it('composes AgentSession deletion execution only in the API root', () => {
@@ -199,15 +236,15 @@ describe('application root topology', () => {
     expect(readFileSync(join(SERVER_SRC, 'worker.ts'), 'utf8')).toContain(
       "from './agent-worker-application.module'",
     );
-    expect(
-      readFileSync(
-        join(
-          SERVER_SRC,
-          'agent-os/adapter/in/cli/run-openai-operator.ts',
-        ),
-        'utf8',
-      ),
-    ).toContain("from '../../../../agent-mcp-application.module'");
+    expect(existsSync(join(
+      SERVER_SRC,
+      'agent-os/adapter/in/cli/run-openai-operator.ts',
+    ))).toBe(false);
+    const rootPackage = JSON.parse(readFileSync(
+      join(SERVER_SRC, '../../../package.json'),
+      'utf8',
+    )) as { scripts?: Record<string, string> };
+    expect(rootPackage.scripts).not.toHaveProperty('agent-os:operator:openai');
     expect(
       readFileSync(
         join(

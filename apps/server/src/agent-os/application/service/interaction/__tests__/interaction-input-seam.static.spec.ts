@@ -30,22 +30,61 @@ const replayProjector = resolve(
 );
 
 describe("interaction input seam", () => {
-  it("keeps AG-UI HTTP as a driver adapter", () => {
-    const controller = readFileSync(
-      resolve(interactionRoot, "agent-agui.controller.ts"),
+  it("exposes direct authenticated interaction contracts without gateway credentials", () => {
+    const authorizationPort = readFileSync(
+      resolve(
+        __dirname,
+        "..",
+        "..",
+        "..",
+        "port",
+        "in",
+        "interaction",
+        "agent-interaction-authorization.port.ts",
+      ),
       "utf8",
     );
-    expect(controller).not.toMatch(/application\/port\/out/);
-    expect(controller).not.toMatch(/application\/service\//);
+    const bootstrapPort = readFileSync(
+      resolve(
+        __dirname,
+        "..",
+        "..",
+        "..",
+        "port",
+        "in",
+        "interaction",
+        "agent-interaction-bootstrap.port.ts",
+      ),
+      "utf8",
+    );
+    const livePort = readFileSync(
+      resolve(
+        __dirname,
+        "..",
+        "..",
+        "..",
+        "port",
+        "in",
+        "interaction",
+        "agent-interaction-live-events.port.ts",
+      ),
+      "utf8",
+    );
+    for (const source of [authorizationPort, bootstrapPort, livePort]) {
+      expect(source).not.toMatch(
+        /runIntent|liveJoinToken|principalKey|HMAC|opaque replay/i,
+      );
+    }
+    expect(authorizationPort).toContain("organizationId: string");
+    expect(authorizationPort).toContain("userId: string");
+    expect(authorizationPort).toContain("afterSequence?: string | null");
+    expect(livePort).toContain("coordinate: AuthorizedLiveJoin");
     expect(readFileSync(authorization, "utf8")).not.toContain(
       "bootstrap(input",
     );
-    expect(readFileSync(authorization, "utf8")).not.toContain(
-      "prepareRunIntent(input",
-    );
   });
 
-  it("makes bootstrap a direct capability and keeps replay mapping capability-local", () => {
+  it("makes bootstrap a listing capability and keeps one replay mapping capability-local", () => {
     const source = readFileSync(bootstrap, "utf8");
     const authorizationSource = readFileSync(authorization, "utf8");
 
@@ -53,8 +92,11 @@ describe("interaction input seam", () => {
     expect(authorizationSource).not.toContain(
       "AgentInteractionBootstrapService",
     );
-    expect(source).toContain("resolvePrincipal(");
-    expect(source).toContain("prepareRunIntent(");
+    expect(source).not.toContain("resolvePrincipal(");
+    expect(source).not.toContain("prepareRunIntent(");
+    expect(readFileSync(replayProjector, "utf8")).not.toContain(
+      "TEXT_MESSAGE_CHUNK",
+    );
     expect(() => readFileSync(replayProjector, "utf8")).not.toThrow();
   });
 });

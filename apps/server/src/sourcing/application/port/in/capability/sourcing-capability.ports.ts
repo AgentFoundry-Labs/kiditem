@@ -1,3 +1,5 @@
+import type { OperationRunName } from '@kiditem/shared/identifiers';
+
 export const SOURCING_DUPLICATE_CHECK_PORT = Symbol(
   'SOURCING_DUPLICATE_CHECK_PORT',
 );
@@ -86,8 +88,7 @@ export interface SourcingScrapeUrlWorkflowResult {
   skipped: boolean;
   candidateId: string | null;
   href: string | null;
-  operationKey: string | null;
-  taskId?: string | null;
+  operation: OperationRunName | null;
 }
 
 export interface SourcingScrapeUrlWorkflowPort {
@@ -98,6 +99,7 @@ export interface SourcingScrapeUrlWorkflowPort {
 
 export interface SourcingListingPrepCapabilityInput {
   organizationId: string;
+  idempotencyKey: string;
   triggeredByUserId?: string | null;
   productName: string;
   category?: string | null;

@@ -6,7 +6,6 @@ import ts from 'typescript';
 
 const ACTIVE_SOURCE_ROOTS = Object.freeze([
   'agents/src',
-  'apps/interaction-gateway/src',
   'apps/server/src',
   'apps/web/src',
   'packages/shared/src',
@@ -79,8 +78,6 @@ const OWNED_OPERATION_CREATE_OWNER = /(?:owned-operation|session-deletion|contin
 const EPHEMERAL_SUCCESS_ASSIGNMENT = /\bsuccessPersistence\s*:\s*['"]ephemeral_on_success['"]/g;
 const AGENT_SESSION_DELETE_OPERATION_KEY = 'AGENT_SESSION_DELETE_OPERATION_KEY';
 const TYPESCRIPT_OR_JAVASCRIPT_SOURCE = /\.[cm]?[jt]sx?$/;
-const RUNTIME_CREDENTIAL_VERIFICATION_SERVICE =
-  'apps/server/src/agent-os/application/service/session-execution/agent-runtime-credential-verification.service.ts';
 
 function toRepoPath(relativePath) {
   return relativePath.split(path.sep).join('/');
@@ -257,7 +254,6 @@ function firstCalledPropertyPosition(sourceFile, propertyName) {
 }
 
 function runtimeCredentialBrokerVerificationViolations(relativePath, source) {
-  if (relativePath === RUNTIME_CREDENTIAL_VERIFICATION_SERVICE) return [];
   const sourceFile = sourceFileFor(relativePath, source);
   if (!sourceFile) return [];
 
@@ -297,7 +293,7 @@ function runtimeCredentialBrokerVerificationViolations(relativePath, source) {
       && isBrokerExpression(node.expression.expression)
     ) {
       violations.push(
-        `${relativePath}:${lineNumberOfNode(sourceFile, node)}: RuntimeCredentialBroker verification must use AgentRuntimeCredentialVerificationService`,
+        `${relativePath}:${lineNumberOfNode(sourceFile, node)}: RuntimeCredentialBroker verification is not a local MCP authority`,
       );
     }
     ts.forEachChild(node, visitCalls);

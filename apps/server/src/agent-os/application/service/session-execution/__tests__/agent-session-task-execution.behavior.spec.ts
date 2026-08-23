@@ -104,6 +104,7 @@ function harness(
     inspection?: Record<string, unknown>;
     events?: Array<Record<string, unknown>>;
     runtime?: any;
+    agentDefinitionKey?: string;
   } = {},
 ) {
   const order: string[] = [];
@@ -213,9 +214,12 @@ function harness(
       sessionTaskId: TASK_ID,
       executionId: EXECUTION_ID,
       runtimeType: "hermes_http",
+      agentDefinitionKey: options.agentDefinitionKey ?? executionContext.agentDefinitionKey,
     }),
     findCurrentExecution: vi.fn().mockResolvedValue({ status: "running" }),
     markExecutionTerminal: vi.fn(),
+    listExecutionStateSnapshots: vi.fn().mockResolvedValue([]),
+    appendExecutionEvent: vi.fn(),
   };
   const runtimeControl = {
     record: vi.fn(async () => {
@@ -234,7 +238,10 @@ function harness(
     appendCheckpoint: checkpoints.append,
   };
   const executionService = new AgentSessionTaskExecutionService(
-    { build: vi.fn().mockResolvedValue(executionContext) } as never,
+    { build: vi.fn().mockResolvedValue({
+      ...executionContext,
+      agentDefinitionKey: options.agentDefinitionKey ?? executionContext.agentDefinitionKey,
+    }) } as never,
     { requireCompatible: vi.fn().mockReturnValue(runtime) } as never,
     operationExecution as never,
     controls as never,
@@ -536,6 +543,71 @@ describe("AgentSessionTaskExecutionService", () => {
     expect(order.lastIndexOf("runtime-event")).toBeLessThan(
       order.indexOf("finish-attempt"),
     );
+  });
+
+  it("persists the verified sourcing terminal snapshot from exact-execution evidence", async () => {
+    const operationId = "00000000-0000-4000-8000-000000000007";
+    const { handler, executions } = harness({
+      agentDefinitionKey: "sourcing",
+      events: [{
+        kind: "terminal",
+        status: "completed",
+        output: {
+          text: "근거로 컬렉션을 갱신했습니다.",
+          citationIds: ["evidence-1"],
+          dataGaps: [],
+          resourceRefs: [{ kind: "operation_run", id: operationId }],
+          operationRunId: operationId,
+        },
+      }],
+    });
+    executions.listExecutionStateSnapshots.mockResolvedValue([{
+      payload: {
+        snapshotType: "agent_capability_evidence",
+        snapshotVersion: 1,
+        data: { content: JSON.stringify({
+          schemaVersion: 1,
+          capabilityKey: "sourcing.retrieveWorkspaceEvidence",
+          outputSummary: { citationIds: ["evidence-1"] },
+          resourceType: "sourcing_workspace_evidence",
+          resourceId: "query-1",
+        }) },
+      },
+    }, {
+      payload: {
+        snapshotType: "agent_capability_evidence",
+        snapshotVersion: 1,
+        data: { content: JSON.stringify({
+          schemaVersion: 1,
+          capabilityKey: "sourcing.refreshCollection",
+          outputSummary: {
+            operation: `organizations/${ORGANIZATION_ID}/operations/${operationId}`,
+          },
+          resourceType: "operation_run",
+          resourceId: `organizations/${ORGANIZATION_ID}/operations/${operationId}`,
+        }) },
+      },
+    }]);
+
+    await expect(handler.execute(operation)).resolves.toMatchObject({ kind: "completed" });
+
+    expect(executions.appendExecutionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: ORGANIZATION_ID,
+      sessionId: SESSION_ID,
+      executionId: EXECUTION_ID,
+      externalEventId: `${ATTEMPT_ID}:runtime:terminal-result`,
+      eventType: "state_snapshot",
+      payload: expect.objectContaining({
+        snapshotType: "agent_sourcing_terminal_result",
+        data: expect.objectContaining({ content: expect.any(String) }),
+      }),
+    }));
+    const snapshot = JSON.parse(executions.appendExecutionEvent.mock.calls[0][0].payload.data.content);
+    expect(snapshot).toMatchObject({
+      schemaVersion: "sourcing-agent-answer.v1",
+      citationIds: ["evidence-1"],
+      resourceRefs: [{ kind: "operation_run", id: operationId }],
+    });
   });
 
   it("preserves explicit runtime text boundaries without synthesizing a duplicate start", async () => {

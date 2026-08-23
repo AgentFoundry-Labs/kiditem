@@ -29,10 +29,14 @@ describe('sourcing capability manifest', () => {
     );
   });
 
-  it('keeps workspace writes idempotent and owned by the bounded incoming port', () => {
+  it('keeps workspace writes idempotent and separate from the runtime-safe reads', () => {
     const workspace = SOURCING_CAPABILITIES.filter((capability) =>
       capability.key.startsWith('sourcing.') &&
-      capability.entrypoint.token === 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT',
+      [
+        'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT',
+        'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT',
+        'SOURCING_COLLECTION_OPERATION_PORT',
+      ].includes(capability.entrypoint.token),
     );
     expect(workspace.map((capability) => capability.key)).toEqual([
       'sourcing.retrieveWorkspaceEvidence',
@@ -50,7 +54,7 @@ describe('sourcing capability manifest', () => {
   it('exposes only the two registered Sourcing reads to the Operator foundation profile', () => {
     const operatorReadKeys = SOURCING_CAPABILITIES.filter(
       (capability) =>
-        capability.entrypoint.token === 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' &&
+        capability.entrypoint.token === 'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT' &&
         !capability.effects.includes('db_write'),
     ).map((capability) => capability.key);
 

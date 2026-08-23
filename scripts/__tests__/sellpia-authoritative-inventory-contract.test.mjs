@@ -80,6 +80,7 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/products/__tests__/product-operations.repository.pg.integration.spec.ts",
   "apps/server/src/orders/__tests__/coupang-direct-order-collection.pg.integration.spec.ts",
   "apps/server/src/test-helpers/finance-seeds.ts",
+  "apps/server/src/test-helpers/inventory-seeds.ts",
   "apps/server/src/supply/__tests__/purchase-order-submission.pg.integration.spec.ts",
   "apps/server/src/supply/__tests__/rocket-final-order-reconciliation.pg.integration.spec.ts",
   "apps/server/src/supply/__tests__/rocket-purchase-commitment-query.pg.integration.spec.ts",

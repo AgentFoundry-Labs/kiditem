@@ -12,6 +12,8 @@ import { bootstrap, existingSession, makeQueryClient } from './test-fixtures';
 
 const copilotRun = vi.hoisted(() => vi.fn());
 const copilotConnect = vi.hoisted(() => vi.fn());
+const useAgent = vi.hoisted(() => vi.fn());
+const chatConfigurationProps = vi.hoisted(() => vi.fn());
 const copilotChatLifecycle = vi.hoisted(() => ({ mounts: vi.fn(), unmounts: vi.fn() }));
 const providerProps = vi.hoisted(() => vi.fn());
 const chatError = vi.hoisted(() => ({
@@ -83,12 +85,19 @@ vi.mock('@copilotkit/react-core/v2', () => {
       OnRunStatusChanged: 'OnRunStatusChanged',
       OnMessagesChanged: 'OnMessagesChanged',
     },
-    useAgent: () => ({ agent: { isRunning: false }, isReady: true }),
+    useAgent: (options: unknown) => {
+      useAgent(options);
+      return { agent: { isRunning: false }, isReady: true };
+    },
     useInterrupt: vi.fn(),
     useAgentContext: vi.fn(),
     useDefaultRenderTool: vi.fn(),
     CopilotKitProvider: ({ children, ...props }: { children: unknown }) => {
       providerProps(props);
+      return children;
+    },
+    CopilotChatConfigurationProvider: ({ children, ...props }: { children: unknown }) => {
+      chatConfigurationProps(props);
       return children;
     },
     CopilotChat: Chat,
@@ -122,7 +131,7 @@ describe('AgentInteractionSurface', () => {
     expect(dialog).toHaveAttribute('data-narrow-mode', 'fullscreen');
     expect(dialog.className).toContain('sm:max-w-xl');
     expect(apiClient.getParsed).toHaveBeenCalledWith(
-      '/api/agent-os/interaction/bootstrap',
+      '/api/copilotkit/bootstrap',
       expect.anything(),
     );
     expect(apiClient.post).not.toHaveBeenCalled();
@@ -168,6 +177,20 @@ describe('AgentInteractionSurface', () => {
       '/agent-os',
     );
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('scopes the public agent state to the selected CopilotKit thread', async () => {
+    const user = userEvent.setup();
+    renderPanel();
+
+    await user.click(await screen.findByRole('button', { name: '세션 session-1 열기' }));
+
+    await waitFor(() => expect(chatConfigurationProps).toHaveBeenCalledWith(expect.objectContaining({
+      agentId: 'operator',
+      threadId: existingSession.copilotThreadId,
+      hasExplicitThreadId: true,
+    })));
+    expect(useAgent).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'operator' }));
   });
 
   it('remounts the public chat lifecycle when selecting an existing thread', async () => {

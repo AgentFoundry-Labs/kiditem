@@ -1,92 +1,36 @@
 import 'reflect-metadata';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
+import { cpSync } from 'node:fs';
 import path from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { ValidationPipe } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
 import { PostgreSqlContainer, type StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { EventType, type BaseEvent } from '@ag-ui/core';
-import { z } from 'zod';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import type { Page } from 'playwright/test';
-import { AgentAguiController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-agui.controller.js';
-import { AgentInteractionBootstrapController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-bootstrap.controller.js';
-import { AgentInteractionControlController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-control.controller.js';
-import { AgentInteractionActionsController } from '../../../server/dist/agent-os/adapter/in/http/interaction/agent-interaction-actions.controller.js';
-import { AgentSessionController } from '../../../server/dist/agent-os/adapter/in/http/session-control/agent-session.controller.js';
-import { InteractionGatewayGuard } from '../../../server/dist/agent-os/adapter/in/http/interaction/interaction-gateway.guard.js';
 import { ApiApplicationModule } from '../../../server/dist/api-application.module.js';
-import { AGENT_AGUI_RUNNER_PORT } from '../../../server/dist/agent-os/application/port/in/agent-agui-runner.port.js';
-import { AGENT_INTERACTION_AUTHORIZATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-authorization.port.js';
-import { AGENT_INTERACTION_BOOTSTRAP_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-bootstrap.port.js';
-import { AGENT_AGUI_PRODUCER_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-agui-producer.port.js';
-import { AGENT_INTERACTION_LIVE_EVENTS_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-live-events.port.js';
-import { AGENT_INTERACTION_PRESENTATION_PORT } from '../../../server/dist/agent-os/application/port/in/interaction/agent-interaction-presentation.port.js';
-import { AGENT_SESSION_APPROVAL_DECISION_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-approval-decision.port.js';
-import { AGENT_SESSION_TASK_CONTROL_PORT } from '../../../server/dist/agent-os/application/port/in/session-control/agent-session-task-control.port.js';
-import { AGENT_SESSION_CAPABILITY_INVOCATION_PORT } from '../../../server/dist/agent-os/application/port/in/session-capability/agent-capability-invocation.port.js';
 import { AGENT_SESSION_ARTIFACT_STORAGE_PORT } from '../../../server/dist/agent-os/application/port/out/storage/agent-session-artifact-storage.port.js';
-import { AGENT_CONVERSATION_LIVE_PUBLISHER } from '../../../server/dist/agent-os/application/port/out/event/agent-conversation-live-publisher.port.js';
-import { AGENT_SESSION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-session-query.repository.port.js';
-import { AGENT_CONVERSATION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-conversation-query.repository.port.js';
-import { AGENT_EXECUTION_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/interaction/agent-execution-query.repository.port.js';
-import { AGENT_RUN_AUTHORIZATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-run-authorization.transaction.port.js';
-import { AGENT_CONVERSATION_EVENT_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-conversation-event.transaction.port.js';
-import { AGENT_EXECUTION_USAGE_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/interaction/agent-execution-usage.transaction.port.js';
-import { AGENT_VERSION_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/agent-version.repository.port.js';
-import { AGENT_SESSION_CONTROL_QUERY_REPOSITORY } from '../../../server/dist/agent-os/application/port/out/repository/session-control/agent-session-control-query.repository.port.js';
-import { AGENT_DELEGATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-delegation.transaction.port.js';
-import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-attempt-operation.transaction.port.js';
 import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-approval-continuation.transaction.port.js';
+import { AGENT_ATTEMPT_OPERATION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-attempt-operation.transaction.port.js';
 import { AGENT_SESSION_TRANSITION_TRANSACTION } from '../../../server/dist/agent-os/application/port/out/transaction/session-control/agent-session-transition.transaction.port.js';
-import { AgentCapabilityRegistry } from '../../../server/dist/agent-os/application/service/agent-capability-registry.service.js';
-import { AgentAguiRunService } from '../../../server/dist/agent-os/application/service/agent-agui-run.service.js';
-import { AgentAguiProducerCoordinator } from '../../../server/dist/agent-os/application/service/agent-agui-producer-coordinator.service.js';
 import { AgentAguiRuntimeRegistry } from '../../../server/dist/agent-os/application/service/agent-agui-runtime-registry.service.js';
+import { AgentAguiStartupRecoveryService } from '../../../server/dist/agent-os/application/service/interaction/agent-agui-startup-recovery.service.js';
+import { AgentRuntimeAdapterRegistry } from '../../../server/dist/agent-os/application/service/agent-runtime-adapter.registry.js';
+import { OpenAiResponsesAguiRuntimeAdapter } from '../../../server/dist/agent-os/adapter/out/runtime/openai-responses-agui-runtime.adapter.js';
+import { LocalCliRuntimeStartupRegistrar } from '../../../server/dist/agent-os/adapter/out/runtime/local-cli-runtime-registrar.js';
 import { AgentInteractionPresentationService } from '../../../server/dist/agent-os/application/service/agent-interaction-presentation.service.js';
-import { AgentInteractionAuthorizationService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-authorization.service.js';
-import { AgentInteractionBootstrapService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-bootstrap.service.js';
-import { AgentInteractionLiveEventsService } from '../../../server/dist/agent-os/application/service/interaction/agent-interaction-live-events.service.js';
-import { InteractionAllowedVersionResolver } from '../../../server/dist/agent-os/application/service/interaction/interaction-allowed-version-resolver.js';
-import { AgentSessionCapabilityInvocationService } from '../../../server/dist/agent-os/application/service/agent-session-capability-invocation.service.js';
 import { AgentSessionApprovalService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-approval.service.js';
-import { AgentSessionOperationContinuationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-operation-continuation.service.js';
-import { AgentSessionCancellationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-cancellation.service.js';
 import { AgentSessionDelegationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-delegation.service.js';
-import { AgentSessionExecutionService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-execution.service.js';
 import { AgentSessionRuntimeControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-runtime-control.service.js';
-import { AgentSessionTaskDispatchService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-dispatch.service.js';
 import { AgentSessionOwnedOperationService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-owned-operation.service.js';
-import { AgentSessionTaskControlService } from '../../../server/dist/agent-os/application/service/session-control/agent-session-task-control.service.js';
-import {
-  INTERACTION_CLOCK,
-  INTERACTION_GATEWAY_SHARED_SECRET,
-  INTERACTION_PRINCIPAL_HMAC_KEY,
-  INTERACTION_REPLAY_CURSOR_HMAC_KEY,
-  INTERACTION_RUN_INTENT_HMAC_KEY,
-} from '../../../server/dist/agent-os/application/port/in/interaction/interaction-gateway-config.port.js';
-import { InProcessAgentConversationLivePublisher } from '../../../server/dist/agent-os/adapter/out/event/in-process-agent-conversation-live-publisher.adapter.js';
-import { PrismaAgentSessionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-session-query.repository.js';
-import { PrismaAgentConversationQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-conversation-query.repository.js';
-import { PrismaAgentExecutionQueryRepository } from '../../../server/dist/agent-os/adapter/out/repository/interaction/prisma-agent-execution-query.repository.js';
-import { PrismaAgentVersionRepository } from '../../../server/dist/agent-os/adapter/out/repository/prisma-agent-version.repository.js';
-import { PrismaAgentRunAuthorizationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-run-authorization.transaction.js';
 import { PrismaAgentConversationEventTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-conversation-event.transaction.js';
-import { PrismaAgentExecutionUsageTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/interaction/prisma-agent-execution-usage.transaction.js';
-import { PrismaAgentSessionOwnedOperationTransaction } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/prisma-agent-session-owned-operation.transaction.js';
-import { OperationDefinitionSnapshotAdapter } from '../../../server/dist/agent-os/adapter/out/operation/operation-definition-snapshot.adapter.js';
-import { SessionControlAdapterSet } from '../../../server/dist/agent-os/adapter/out/transaction/session-control/__tests__/session-control-adapter-set.js';
 import { OperationRepositoryAdapter } from '../../../server/dist/operations/adapter/out/repository/operation.repository.adapter.js';
-import { CompositeOperationCoordinatorService } from '../../../server/dist/operations/application/service/composite-operation-coordinator.service.js';
 import { OperationHandlerRegistryService } from '../../../server/dist/operations/application/service/operation-handler-registry.service.js';
-import { OperationLifecycleGateService } from '../../../server/dist/operations/application/service/operation-lifecycle-gate.service.js';
-import { OperationRunService } from '../../../server/dist/operations/application/service/operation-run.service.js';
 import { OperationRunWorkerService } from '../../../server/dist/operations/application/service/operation-run-worker.service.js';
 import { AGENT_OS_OPERATIONS } from '../../../server/dist/agent-os/domain/operation/agent-os.operations.js';
-import { InteractionProductAnalyticsAdapter } from '../../../server/dist/agent-os/adapter/out/event/interaction-product-analytics.adapter.js';
-import { INTERACTION_PRODUCT_ANALYTICS_PORT } from '../../../server/dist/agent-os/application/port/out/event/interaction-product-analytics.port.js';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, OTHER_USER_ID, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../../server/dist/test-helpers/real-prisma.js';
 import {
   formatAgentExecutionName,
@@ -104,18 +48,20 @@ import type {
   AgentAguiRuntimeInput,
   AgentAguiRuntimeStopInput,
 } from '../../../server/src/agent-os/application/port/out/runtime/agent-agui-runtime.port';
+import type { AgentDurableRuntimeAdapter } from '../../../server/src/agent-os/application/port/out/runtime/agent-durable-runtime.port';
 import type { AgentApprovalContinuationTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-approval-continuation.transaction.port';
 import type { AgentAttemptOperationTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-attempt-operation.transaction.port';
 import type { AgentSessionTransitionTransactionPort } from '../../../server/src/agent-os/application/port/out/transaction/session-control/agent-session-transition.transaction.port';
 import { stopTrackedChild } from './tracked-child';
 
+// The production API entrypoint installs this parser before SessionAuthMiddleware.
+// The test root keeps the same order while retaining the actual module graph.
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
+
 const repoRoot = path.resolve(__dirname, '../../../..');
 const WEB_PORT = 4310;
 const NEST_PORT = 4320;
-const DELETION_API_PORT = 4321;
-const GATEWAY_PORT = 4330;
-const SERVICE_SECRET = 'e2e-interaction-gateway-secret-value-0001';
-const HMAC = Buffer.from('e2e-interaction-hmac-secret-value-0000001');
 let AGENT_VERSION_ID = '';
 let DELEGATE_VERSION_ID = '';
 const PRIMARY_TOKEN = 'p'.repeat(43);
@@ -142,10 +88,13 @@ interface ActiveStopGraph {
   readonly aguiRunId: string;
 }
 
-type AcceptanceSessionControls =
-  AgentApprovalContinuationTransactionPort &
-  AgentAttemptOperationTransactionPort &
-  AgentSessionTransitionTransactionPort;
+interface ApiRootBoot {
+  readonly bootstrapStartedAt: Date;
+  readonly recoveryStartedAt: Date | null;
+  readonly recoveryCompletedAt: Date | null;
+  readonly recoveryInvocations: number;
+  readonly acceptingRequestsAt: Date;
+}
 
 class AcceptanceDurableControlPlane {
   private graph: DurableControlGraph | null = null;
@@ -178,7 +127,9 @@ class AcceptanceDurableControlPlane {
   });
 
   constructor(
-    private readonly controls: AcceptanceSessionControls,
+    private readonly approvalTransactions: AgentApprovalContinuationTransactionPort,
+    private readonly attemptOperations: AgentAttemptOperationTransactionPort,
+    private readonly transitions: AgentSessionTransitionTransactionPort,
     private readonly runtimeControl: AgentSessionRuntimeControlService,
     private readonly delegations: AgentSessionDelegationService,
     private readonly approvals: AgentSessionApprovalService,
@@ -204,18 +155,18 @@ class AcceptanceDurableControlPlane {
       idempotencyKey: `acceptance:delegation:${input.executionId}`,
       requestedByUserId: TEST_USER_ID,
     });
-    const attempt = await this.controls.findAttemptForOperation({
+    const attempt = await this.attemptOperations.findAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       operationRunId: delegated.operationsRunId,
     });
     if (!attempt) throw new Error('durable acceptance child attempt was not reserved');
-    const activeAttempt = await this.controls.activateAttemptForOperation({
+    const activeAttempt = await this.attemptOperations.activateAttemptForOperation({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: input.sessionId,
       executionId: delegated.childExecutionId,
       operationRunId: delegated.operationsRunId,
     });
-    await this.controls.persistAttemptHandle({
+    await this.attemptOperations.persistAttemptHandle({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: input.sessionId,
       executionId: delegated.childExecutionId,
@@ -225,7 +176,7 @@ class AcceptanceDurableControlPlane {
       encryptedHandleRef: 'vault://acceptance-child-handle',
       runtimeGeneration: 1,
     });
-    await this.controls.transitionTask({
+    await this.transitions.transitionTask({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: input.sessionId,
       taskId: delegated.childTaskId,
@@ -364,7 +315,7 @@ class AcceptanceDurableControlPlane {
       expiresAt: new Date(Date.now() + 5 * 60_000).toISOString(),
       idempotencyKey: `acceptance:approval:${delegated.childExecutionId}`,
     });
-    await this.controls.transitionTask({
+    await this.transitions.transitionTask({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: input.sessionId,
       taskId: delegated.childTaskId,
@@ -428,7 +379,7 @@ class AcceptanceDurableControlPlane {
     await Promise.race([
       this.activeStopReady,
       delay(10_000).then(() => {
-        throw new Error('durable active run did not reach the gateway stop boundary');
+        throw new Error('durable active run did not reach the API stop boundary');
       }),
     ]);
   }
@@ -455,7 +406,7 @@ class AcceptanceDurableControlPlane {
 
   async createExpiredApproval(): Promise<string> {
     const graph = this.current();
-    const stale = await this.controls.requestApproval({
+    const stale = await this.approvalTransactions.requestApproval({
       organizationId: TEST_ORGANIZATION_ID,
       sessionId: graph.sessionId,
       taskId: graph.childTaskId,
@@ -498,7 +449,7 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
     if (submitted.includes('durable 제어')) {
       await this.durableControls.begin(input);
     }
-    if (submitted.includes('gateway stop')) {
+    if (submitted.includes('API stop')) {
       await this.durableControls.beginActiveStop(input);
     }
     if (submitted.includes('새 대화')) {
@@ -538,6 +489,35 @@ class DeterministicAcceptanceRuntime implements AgentAguiRuntimeAdapter {
   }
 }
 
+const deterministicRuntimeCleanup = async () => ({
+  state: 'clean' as const,
+  executionAuthority: 'irrevocably_revoked' as const,
+  credentials: 'not_owned' as const,
+  handle: 'removed' as const,
+  filesystem: 'not_owned' as const,
+});
+
+/** Test-only durable runtime replacement; no local CLI, MCP child, or credentials are used. */
+class DeterministicAcceptanceCliRuntime implements AgentDurableRuntimeAdapter {
+  readonly runtimeType = 'codex_cli';
+  readonly capabilities = {
+    detached: true,
+    reconnect: true,
+    interrupt: true,
+    cancel: true,
+    inspect: true,
+  };
+
+  constructor(private readonly finishAfterApproval: () => void) {}
+
+  async start(): Promise<never> { throw new Error('acceptance durable CLI runtime must reconnect'); }
+  async *connect(): AsyncIterable<never> {}
+  async inspect() { return { status: 'running' as const }; }
+  async interrupt() { this.finishAfterApproval(); }
+  async cancel() {}
+  cleanup = deterministicRuntimeCleanup;
+}
+
 export interface CanonicalCounts { sessions: number; executions: number; events: number; outbox: number }
 
 export interface DeletionHarnessControl {
@@ -562,6 +542,7 @@ class DeterministicDeletionStorage {
 
 export async function createAgentInteractionAcceptanceHarness() {
   if (process.env.KIDITEM_E2E_SKIP_WEB_BUILD !== '1') buildAcceptanceWeb();
+  prepareAcceptanceStandaloneWeb();
   const postgres = await new PostgreSqlContainer('postgres:17')
     .withDatabase('kiditem_test')
     .withUsername('kiditem_test')
@@ -593,31 +574,27 @@ export async function createAgentInteractionAcceptanceHarness() {
   await seedAcceptanceAuthSessions(prisma);
   configureActualDeletionEnvironment();
   await seedAgentVersion(prisma);
-  const analyticsEvents: unknown[] = [];
-  const { app: nest, durableControls } = await startNest(prisma, analyticsEvents);
-  const { app: deletionApi, deletionControl } = await startDeletionApiRoot(prisma);
-  const gatewayLog: string[] = [];
+  const { app: nest, durableControls, deletionControl, boot } = await startApiRoot(prisma);
   const webLog: string[] = [];
-  const gateway = await startGateway(gatewayLog);
   const web = startWeb(webLog);
   try {
     await waitForUrl(`http://127.0.0.1:${WEB_PORT}/login`);
-    await waitForUrl(`http://127.0.0.1:${GATEWAY_PORT}/health/ready`);
+    await waitForUrl(`http://127.0.0.1:${NEST_PORT}/api/auth/me`, {
+      headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` },
+    });
     await probeAcceptanceBoundaries();
   } catch (error) {
     await Promise.allSettled([
       stopTrackedChild(web),
-      stopTrackedChild(gateway),
       nest.close(),
-      deletionApi.close(),
       prisma.$disconnect(),
       postgres.stop(),
     ]);
-    throw new Error(`acceptance setup failed: ${String(error)}; web=${JSON.stringify(webLog.slice(-30))}; gateway=${JSON.stringify(gatewayLog.slice(-20))}`);
+    throw new Error(`acceptance setup failed: ${String(error)}; web=${JSON.stringify(webLog.slice(-30))}`);
   }
 
   return new AgentInteractionAcceptanceHarness(
-    postgres, prisma, nest, deletionApi, gateway, web, gatewayLog, webLog, analyticsEvents, durableControls, deletionControl,
+    postgres, prisma, nest, web, webLog, durableControls, deletionControl, [boot],
   );
 }
 
@@ -627,32 +604,37 @@ class AgentInteractionAcceptanceHarness {
   constructor(
     private readonly postgres: StartedPostgreSqlContainer,
     private readonly prisma: PrismaClient,
-    private readonly nest: INestApplication,
-    private readonly deletionApi: INestApplication,
-    private gateway: ChildProcess,
+    private nest: INestApplication,
     private readonly web: ChildProcess,
-    private readonly gatewayLog: string[],
     private readonly webLog: string[],
-    private readonly analyticsEvents: unknown[],
-    private readonly durableControls: AcceptanceDurableControlPlane,
-    private readonly deletionControl: AgentSessionDeletionAcceptanceControl,
+  private durableControls: AcceptanceDurableControlPlane,
+  private deletionControl: AgentSessionDeletionAcceptanceControl,
+  private readonly apiRootBoots: ApiRootBoot[],
   ) {}
 
   diagnostics() {
-    return { gateway: this.gatewayLog.slice(-20), web: this.webLog.slice(-30) };
+    return { api: `http://127.0.0.1:${NEST_PORT}`, web: this.webLog.slice(-30) };
   }
 
   async authenticate(page: Page, identity: 'primary' | 'other-organization') {
     const token = identity === 'primary' ? PRIMARY_TOKEN : OTHER_TOKEN;
     await page.context().clearCookies();
     await page.context().addCookies([{ name: 'kiditem_session', value: token, url: `http://localhost:${WEB_PORT}` }]);
-    await page.addInitScript(({ storageKey, value }) => localStorage.setItem(storageKey, JSON.stringify(value)), {
+    await page.addInitScript(({ storageKey, value }) => {
+      localStorage.setItem(storageKey, JSON.stringify(value));
+      sessionStorage.setItem('kiditem.readiness.dismissed', '1');
+    }, {
       storageKey: 'kiditem.auth.session.v1',
       value: { token, expiresAt: '2099-01-01T00:00:00.000Z' },
     });
   }
 
   async openPanel(page: Page, threadId?: string) {
+    const dismissOnboarding = page.getByRole('button', { name: '오늘 하루 보지 않기' });
+    if (await dismissOnboarding.count()) {
+      await dismissOnboarding.click();
+      await dismissOnboarding.waitFor({ state: 'hidden', timeout: 5_000 });
+    }
     await page.getByRole('button', { name: '퀵 메뉴 열기' }).click();
     await page.getByRole('button', { name: 'AgentOS 대화 열기' }).click();
     if (threadId) {
@@ -739,21 +721,71 @@ class AgentInteractionAcceptanceHarness {
     graph = this.durableControls.current();
     if (!graph.approvalId) throw new Error('durable approval was not persisted');
 
-    // The public gateway process has no authority map after this restart. The
-    // browser must reconnect from canonical state while the approval is still
-    // pending, then resolve that same persisted approval.
-    await this.restartGateway();
+    // Browser reconnect rebuilds its state from canonical rows while the
+    // approval is still pending. API process-restart recovery is exercised by
+    // the separate partial in-process run below, where it must terminalize
+    // rather than resurrect this kind of local work.
+    // Recreate only the browser-side Copilot transport. This is deliberately
+    // still the same API boot: API-root recovery is covered by the separate
+    // partial in-process run below. A fresh client transport must replay the
+    // active run before the resumed durable child can publish its own run.
     await page.reload();
     await this.openPanel(page, threadId);
     const progress = page.getByTestId(`agent-task-${graph.taskId}`)
-      .getByRole('progressbar');
-    await progress.waitFor({ timeout: 10_000 });
+      .locator('[role="progressbar"][aria-valuenow="75"]');
+    await progress.waitFor({ timeout: 10_000 }).catch(async (error) => {
+      const directConnect = await this.readDirectConnectChunk(threadId);
+      const browserConnect = await this.readBrowserConnectChunk(page, threadId);
+      const rendered = await page.locator('[data-interaction-surface]').evaluateAll((surfaces) => (
+        surfaces.map((surface) => ({
+          threadId: surface.getAttribute('data-thread-id'),
+          session: surface.getAttribute('data-session'),
+          text: surface.textContent?.slice(0, 4_000) ?? '',
+          activities: [...surface.querySelectorAll('[data-testid^="agent-task-"]')]
+            .map((card) => card.getAttribute('data-testid')),
+        }))
+      )).catch(() => []);
+      const replay = await this.prisma.agentConversationEvent.findMany({
+        where: { sessionId: graph.sessionId },
+        orderBy: { sequence: 'asc' },
+        select: {
+          id: true,
+          sequence: true,
+          eventType: true,
+          payload: true,
+          execution: { select: { aguiRunId: true } },
+        },
+      });
+      throw new Error(`durable reconnect projection missing child progress directConnect=${JSON.stringify(directConnect)} browserConnect=${JSON.stringify(browserConnect)} rendered=${JSON.stringify(rendered)} replay=${JSON.stringify(
+        replay.map((event) => ({
+          id: event.id,
+          sequence: event.sequence.toString(),
+          eventType: event.eventType,
+          aguiRunId: event.execution?.aguiRunId ?? null,
+          payload: event.payload,
+        })),
+      )} :: ${String(error)}`);
+    });
     if (await progress.getAttribute('aria-valuenow') !== '75') {
       throw new Error('progress produced after panel close was not replayed');
     }
     await page.getByLabel('Agent 위임').waitFor({ timeout: 10_000 });
     const approvalCard = page.getByLabel('Agent 승인 요청');
-    await approvalCard.waitFor({ timeout: 10_000 });
+    await approvalCard.waitFor({ timeout: 10_000 }).catch(async (error) => {
+      const [directConnect, browserConnect, rendered, replay] = await Promise.all([
+        this.readDirectConnectChunk(threadId),
+        this.readBrowserConnectChunk(page, threadId),
+        page.locator('[data-interaction-surface]').evaluateAll((surfaces) => surfaces.map((surface) => ({
+          threadId: surface.getAttribute('data-thread-id'),
+          text: surface.textContent?.slice(0, 2_000) ?? '',
+        }))).catch(() => []),
+        this.prisma.agentConversationEvent.findMany({
+          where: { sessionId: graph.sessionId }, orderBy: { sequence: 'asc' },
+          select: { sequence: true, eventType: true, payload: true, execution: { select: { aguiRunId: true } } },
+        }),
+      ]);
+      throw new Error(`durable approval interrupt missing directConnect=${JSON.stringify(directConnect)} browserConnect=${JSON.stringify(browserConnect)} rendered=${JSON.stringify(rendered)} replay=${JSON.stringify(replay.map((event) => ({ sequence: event.sequence.toString(), eventType: event.eventType, aguiRunId: event.execution?.aguiRunId ?? null, payload: event.payload }))) } :: ${String(error)}`);
+    });
     await approvalCard.evaluate((element) => element.scrollIntoView({ block: 'center' }));
     await approvalCard.getByRole('button', { name: '승인' }).click({ timeout: 10_000 });
     await this.waitForApprovalState(graph.approvalId, 'approved');
@@ -798,13 +830,13 @@ class AgentInteractionAcceptanceHarness {
     assertJson(await this.counts(), replayBefore, 'durable replay after panel close');
   }
 
-  async expectActiveRunStopAfterGatewayRestart(page: Page) {
+  async expectInProcessRunRecoveryAfterApiRestart(page: Page) {
     const before = await this.prisma.agentExecution.count();
     await page.goto('/dashboard');
     await this.openPanel(page);
     await page.getByRole('button', { name: '새 대화' }).click();
     const textbox = page.getByRole('textbox');
-    await textbox.fill('gateway stop 검증');
+    await textbox.fill('API stop 검증');
     await textbox.press('Enter');
     await this.waitForExecutionCount(before + 1);
     await this.durableControls.waitForActiveStop();
@@ -813,35 +845,149 @@ class AgentInteractionAcceptanceHarness {
       where: { id: active.executionId },
     });
     if (beforeRestart.status !== 'running') {
-      throw new Error('gateway stop fixture was not canonically running before restart');
+      throw new Error('API stop fixture was not canonically running before reconnect');
     }
 
-    await this.restartGateway();
+    const recoveryBoot = await this.restartApiRoot();
+    await this.waitForExecutionTerminal(active.executionId);
+    const [recovered, attempt, terminalEvent, terminalEvents, terminalOutbox] = await Promise.all([
+      this.prisma.agentExecution.findUniqueOrThrow({ where: { id: active.executionId } }),
+      this.prisma.agentExecutionAttempt.findFirstOrThrow({
+        where: { executionId: active.executionId, state: 'failed' },
+      }),
+      this.prisma.agentConversationEvent.findFirstOrThrow({
+        where: { executionId: active.executionId, eventType: 'run_terminal', payload: { path: ['errorCode'], equals: 'process_interrupted' } },
+        select: { externalEventId: true, createdAt: true, payload: true },
+      }),
+      this.prisma.agentConversationEvent.count({
+        where: { executionId: active.executionId, eventType: 'run_terminal', payload: { path: ['errorCode'], equals: 'process_interrupted' } },
+      }),
+      this.prisma.agentConversationOutbox.count({
+        where: { event: { executionId: active.executionId, eventType: 'run_terminal' } },
+      }),
+    ]);
+    if (
+      recovered.status !== 'failed' || recovered.errorCode !== 'process_interrupted'
+      || attempt.errorCode !== 'process_interrupted' || terminalEvents !== 1 || terminalOutbox !== 1
+      || terminalEvent.externalEventId !== `${active.executionId}:agui:process_interrupted`
+      || recoveryBoot.recoveryInvocations !== 1
+      || !recoveryBoot.recoveryStartedAt || !recoveryBoot.recoveryCompletedAt
+      || recoveryBoot.recoveryCompletedAt > recoveryBoot.acceptingRequestsAt
+      || terminalEvent.createdAt < recoveryBoot.recoveryStartedAt
+      || terminalEvent.createdAt > recoveryBoot.recoveryCompletedAt
+    ) {
+      throw new Error(`API restart did not terminalize exactly one interrupted predecessor before request acceptance: ${JSON.stringify({ recovered, attempt, terminalEvent, terminalEvents, terminalOutbox, recoveryBoot })}`);
+    }
+    // A second real module bootstrap must observe the already-terminal
+    // predecessor as a no-op. This is deliberately an API-root restart, not
+    // a browser transport reconnect.
+    const idempotentBoot = await this.restartApiRoot();
+    const [attemptsAfterSecondBoot, terminalEventsAfterSecondBoot, terminalOutboxAfterSecondBoot] = await Promise.all([
+      this.prisma.agentExecutionAttempt.count({ where: { executionId: active.executionId } }),
+      this.prisma.agentConversationEvent.count({
+        where: { executionId: active.executionId, eventType: 'run_terminal', payload: { path: ['errorCode'], equals: 'process_interrupted' } },
+      }),
+      this.prisma.agentConversationOutbox.count({
+        where: { event: { executionId: active.executionId, eventType: 'run_terminal' } },
+      }),
+    ]);
+    if (
+      attemptsAfterSecondBoot !== 1 || terminalEventsAfterSecondBoot !== 1 || terminalOutboxAfterSecondBoot !== 1
+      || idempotentBoot.recoveryInvocations !== 1
+      || !idempotentBoot.recoveryCompletedAt
+      || idempotentBoot.recoveryCompletedAt > idempotentBoot.acceptingRequestsAt
+    ) {
+      throw new Error(`repeated API bootstrap duplicated interrupted predecessor recovery or accepted requests before recovery completed: ${JSON.stringify({ attemptsAfterSecondBoot, terminalEventsAfterSecondBoot, terminalOutboxAfterSecondBoot, idempotentBoot })}`);
+    }
     await page.reload();
     await this.openPanel(page, active.copilotThreadId);
     const response = await page.request.post(
-      `http://127.0.0.1:${GATEWAY_PORT}/api/copilotkit/agent/operator/stop/${encodeURIComponent(active.copilotThreadId)}`,
+      `http://127.0.0.1:${NEST_PORT}/api/copilotkit/agent/operator/stop/${encodeURIComponent(active.copilotThreadId)}`,
       { headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` } },
     );
-    if (!response.ok() || (await response.json() as { stopped?: unknown }).stopped !== true) {
-      throw new Error('gateway restart could not stop the canonical active run');
+    const responseBody = await response.text();
+    let stopped: unknown = null;
+    try { stopped = JSON.parse(responseBody).stopped; } catch {}
+    if (!response.ok() || stopped !== false) {
+      throw new Error(`API restart allowed the interrupted predecessor to stop/revive status=${response.status()} body=${responseBody.slice(0, 2_000)}`);
     }
-    await this.waitForExecutionTerminal(active.executionId);
+    const beforeSuccessor = await this.prisma.agentExecution.count();
+    await page.getByRole('button', { name: '새 대화' }).click();
+    const successorThreadId = await this.submit(page, 'API restart 이후 새 실행');
+    if (await this.prisma.agentExecution.count() !== beforeSuccessor + 1) {
+      throw new Error('API restart successor was not created exactly once');
+    }
+    if (successorThreadId === active.copilotThreadId) {
+      throw new Error('API restart successor reused the interrupted Copilot thread');
+    }
+    const successor = await this.prisma.agentExecution.findFirstOrThrow({
+      where: { copilotThreadId: successorThreadId },
+      orderBy: { startedAt: 'desc' },
+      select: {
+        id: true,
+        aguiRunId: true,
+        status: true,
+        errorCode: true,
+        startedAt: true,
+        finishedAt: true,
+        events: {
+          where: { eventType: 'run_terminal' },
+          select: { externalEventId: true, createdAt: true, payload: true },
+        },
+        attempts: {
+          select: { id: true, state: true, errorCode: true, startedAt: true, finishedAt: true },
+        },
+      },
+    });
+    const successorTerminalOutbox = await this.prisma.agentConversationOutbox.count({
+      where: { event: { executionId: successor.id, eventType: 'run_terminal' } },
+    });
+    const currentBoot = this.apiRootBoots.at(-1);
+    if (
+      // `completed` is the canonical AgentExecution success terminal (the
+      // user-visible outcome is success; `succeeded` is used by a separate
+      // OperationRun state machine and is not a valid AG-UI execution state).
+      successor.status !== 'completed'
+      || successor.aguiRunId === recovered.aguiRunId
+      || !currentBoot
+      || successor.startedAt < currentBoot.acceptingRequestsAt
+      || successor.events.length !== 1
+      || successor.events[0]?.externalEventId !== `${successor.id}:agui:5:RUN_FINISHED`
+      || successorTerminalOutbox !== 1
+      || successor.attempts.length !== 1
+      || successor.attempts[0]?.state !== 'completed'
+    ) {
+      throw new Error(`API restart successor did not complete exactly one fresh terminal AG-UI run: ${JSON.stringify({ successor, successorTerminalOutbox, predecessorAguiRunId: recovered.aguiRunId, apiRootBoots: this.apiRootBoots })}`);
+    }
   }
 
-  async restartGateway() {
-    const previous = this.gateway;
-    await stopTrackedChild(previous);
-    this.gateway = await startGateway(this.gatewayLog);
-    await waitForUrl(`http://127.0.0.1:${GATEWAY_PORT}/health/ready`);
+  async restartApiRoot(): Promise<ApiRootBoot> {
+    // Deliberately tear down the actual API process root. This is not a
+    // simulated controller or transport replacement: the second root runs its
+    // own ApiApplicationModule bootstrap against the same disposable PG DB.
+    // The partial AG-UI response intentionally remains open at this point;
+    // sever its test-owned HTTP connection before awaiting Nest shutdown.
+    // This mirrors a process exit while retaining an actual root close/create.
+    (this.nest.getHttpServer() as { closeAllConnections?: () => void })
+      .closeAllConnections?.();
+    await this.nest.close();
+    const restarted = await startApiRoot(this.prisma);
+    this.nest = restarted.app;
+    this.durableControls = restarted.durableControls;
+    this.deletionControl = restarted.deletionControl;
+    this.apiRootBoots.push(restarted.boot);
+    await waitForUrl(`http://127.0.0.1:${NEST_PORT}/api/auth/me`, {
+      headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` },
+    });
+    return restarted.boot;
   }
 
-  async expectReplayAfterGatewayRestart(page: Page, threadId: string) {
+  async expectPanelReconnectWithoutWrites(page: Page, threadId: string) {
     const before = await this.counts();
     await page.reload();
     await this.openPanel(page, threadId);
     await this.expectReplayWithoutWrites(threadId);
-    assertJson(await this.counts(), before, 'gateway restart replay wrote canonical rows');
+    assertJson(await this.counts(), before, 'API reconnect replay wrote canonical rows');
   }
 
   async startNewConversationAndSubmit(page: Page, content: string) {
@@ -861,24 +1007,12 @@ class AgentInteractionAcceptanceHarness {
     if (after !== before + 2 || await this.prisma.agentSession.count() !== sessionCount) throw new Error('retry changed session or execution count');
   }
 
-  async expectSafeAnalyticsAndSourcingRenderer(page: Page) {
+  async expectSafeSourcingRenderer(page: Page) {
     await page.getByText('운영 지표').waitFor({ timeout: 10_000 });
     await page.getByText('품절 SKU', { exact: true }).waitFor({ timeout: 10_000 });
-    await page.getByText('근거 1').waitFor({ timeout: 10_000 });
-    if (!this.selectedThreadId) throw new Error('missing selected thread for analytics');
-    const session = await this.session(this.selectedThreadId);
-    const actual = this.analyticsEvents.find((value) => {
-      const event = value as { sessionId?: unknown; rendererKinds?: unknown };
-      return event.sessionId === session.id &&
-        Array.isArray(event.rendererKinds) &&
-        event.rendererKinds.includes('metric_group') &&
-        event.rendererKinds.includes('resource_list');
-    });
-    if (!actual) throw new Error('terminal flow did not emit product analytics');
-    const serialized = JSON.stringify(actual);
-    for (const forbidden of [TEST_ORGANIZATION_ID, TEST_USER_ID, '연필 세트', '재고 현황을 확인했습니다.', 'cookie', 'token', 'dashboard']) {
-      if (serialized.includes(forbidden)) throw new Error(`unsafe analytics field leaked: ${forbidden}`);
-    }
+    // The disposable database contains no sourcing corpus.  Assert the real
+    // bounded empty-evidence projection instead of inventing a citation.
+    await page.getByText('검색 근거 없음').waitFor({ timeout: 10_000 });
   }
 
   async expectSuggestionSendsOnce(page: Page) {
@@ -913,10 +1047,10 @@ class AgentInteractionAcceptanceHarness {
   }
 
   async expectSessionUnavailable(page: Page, threadId: string) {
-    const response = await page.request.post(`http://127.0.0.1:${NEST_PORT}/api/agent-os/interaction/connections/authorize`, {
-      headers: { cookie: `kiditem_session=${OTHER_TOKEN}`, 'x-kiditem-interaction-gateway': SERVICE_SECRET },
-      data: { copilotThreadId: threadId },
-    });
+    const response = await page.request.get(
+      `http://127.0.0.1:${NEST_PORT}/api/copilotkit/agent/operator/connect/${encodeURIComponent(threadId)}`,
+      { headers: { cookie: `kiditem_session=${OTHER_TOKEN}` } },
+    );
     if (response.ok()) throw new Error('cross-organization session was available');
   }
 
@@ -924,11 +1058,10 @@ class AgentInteractionAcceptanceHarness {
     if (!this.selectedThreadId) throw new Error('missing selected session for deletion acceptance');
     const session = await this.session(this.selectedThreadId);
     await this.deletionControl.prepare(session.id);
-    // Deletion requests go through the separately booted ApiApplicationModule
-    // with persisted AuthSession credentials. The interaction-only test app
-    // remains responsible solely for deterministic browser/runtime behavior.
+    // Deletion shares the authenticated production API root with interaction;
+    // only deterministic storage/runtime seams are overridden by this harness.
     const headers = { authorization: `Bearer ${PRIMARY_TOKEN}` };
-    const route = `http://127.0.0.1:${DELETION_API_PORT}/api/agent-os/sessions/${session.id}`;
+    const route = `http://127.0.0.1:${NEST_PORT}/api/agent-os/sessions/${session.id}`;
     const eventCountAtFence = await this.prisma.agentConversationEvent.count({
       where: { organizationId: TEST_ORGANIZATION_ID, sessionId: session.id },
     });
@@ -964,7 +1097,7 @@ class AgentInteractionAcceptanceHarness {
       }
     }
     const history = await page.request.get(
-      `http://127.0.0.1:${NEST_PORT}/api/agent-os/interaction/bootstrap`,
+      `http://127.0.0.1:${NEST_PORT}/api/copilotkit/bootstrap`,
       { headers: { cookie: `kiditem_session=${PRIMARY_TOKEN}` } },
     );
     if (!history.ok() || JSON.stringify(await history.json()).includes(this.selectedThreadId)) {
@@ -1020,16 +1153,95 @@ class AgentInteractionAcceptanceHarness {
   }
 
   async close() {
-    // Browser pages can retain an SSE connection through the gateway. Stop
-    // that owned boundary first so Nest shutdown cannot wait on the client.
-    await stopTrackedChild(this.gateway);
     await stopTrackedChild(this.web);
     await Promise.allSettled([
       this.nest.close(),
-      this.deletionApi.close(),
       this.prisma.$disconnect(),
     ]);
     await this.postgres.stop();
+  }
+
+  private async readDirectConnectChunk(threadId: string) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 3_000);
+    try {
+      const response = await fetch(`http://127.0.0.1:${NEST_PORT}/api/copilotkit/agent/operator/connect`, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: {
+          cookie: `kiditem_session=${PRIMARY_TOKEN}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          threadId,
+          runId: randomUUID(),
+          messages: [],
+          tools: [],
+          context: [],
+          state: {},
+          forwardedProps: {},
+        }),
+      });
+      const result = await response.body?.getReader().read();
+      return {
+        status: response.status,
+        contentType: response.headers.get('content-type'),
+        done: result?.done ?? true,
+        chunk: result?.value ? new TextDecoder().decode(result.value).slice(0, 8_000) : '',
+      };
+    } catch (fetchError) {
+      return { error: String(fetchError) };
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
+    }
+  }
+
+  /**
+   * Distinguishes a same-origin proxy stream failure from a CopilotKit client
+   * projection failure without changing the authenticated browser state.
+   */
+  private async readBrowserConnectChunk(page: Page, threadId: string) {
+    return page.evaluate(async (requestedThreadId) => {
+      const controller = new AbortController();
+      const timeout = window.setTimeout(() => controller.abort(), 3_000);
+      try {
+        const response = await fetch('/api/copilotkit/agent/operator/connect', {
+          method: 'POST',
+          signal: controller.signal,
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            threadId: requestedThreadId,
+            runId: crypto.randomUUID(),
+            messages: [],
+            tools: [],
+            context: [],
+            state: {},
+            forwardedProps: {},
+          }),
+        });
+        const details = {
+          status: response.status,
+          contentType: response.headers.get('content-type'),
+          cacheControl: response.headers.get('cache-control'),
+        };
+        try {
+          const result = await response.body?.getReader().read();
+          return {
+            ...details,
+            done: result?.done ?? true,
+            chunk: result?.value ? new TextDecoder().decode(result.value).slice(0, 8_000) : '',
+          };
+        } catch (readError) {
+          return { ...details, error: String(readError) };
+        }
+      } catch (fetchError) {
+        return { error: String(fetchError) };
+      } finally {
+        window.clearTimeout(timeout);
+        controller.abort();
+      }
+    }, threadId).catch((error) => ({ error: String(error) }));
   }
 
   private async counts() {
@@ -1274,15 +1486,27 @@ async function seedAcceptanceAuthSessions(prisma: PrismaClient): Promise<void> {
   });
 }
 
-async function startDeletionApiRoot(prisma: PrismaClient): Promise<{
+async function startApiRoot(prisma: PrismaClient): Promise<{
   app: INestApplication;
   deletionControl: AgentSessionDeletionAcceptanceControl;
+  durableControls: AcceptanceDurableControlPlane;
+  boot: ApiRootBoot;
 }> {
+  const bootstrapStartedAt = new Date();
   configureActualDeletionEnvironment();
   const storage = new DeterministicDeletionStorage();
+  let durableControls: AcceptanceDurableControlPlane | null = null;
   const moduleRef = await Test.createTestingModule({
     imports: [ApiApplicationModule],
   })
+    // The actual API composition remains in use. Only the external model
+    // transport is replaced with the deterministic browser-runtime fixture.
+    .overrideProvider(OpenAiResponsesAguiRuntimeAdapter)
+    .useValue({ runtimeType: 'copilotkit_agui' })
+    // This exact acceptance root replaces only the external CLI transport.
+    // Durable control tests register the deterministic codex runtime below.
+    .overrideProvider(LocalCliRuntimeStartupRegistrar)
+    .useValue({ onApplicationBootstrap: async () => undefined })
     // Test-only deletion-result control. It intentionally does not implement
     // materializationCapability/openMultipart/upload methods, so this narrow
     // fake cannot claim Hermes production materialization support.
@@ -1290,10 +1514,35 @@ async function startDeletionApiRoot(prisma: PrismaClient): Promise<{
     .useValue(storage)
     .compile();
   const app = moduleRef.createNestApplication();
+  app.use(cookieParser());
   app.setGlobalPrefix('api');
   app.enableCors({ origin: `http://localhost:${WEB_PORT}`, credentials: true });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
-  await app.listen(DELETION_API_PORT, '127.0.0.1');
+  app.get(AgentRuntimeAdapterRegistry, { strict: false }).register(
+    new DeterministicAcceptanceCliRuntime(() => durableControls?.finishAfterApproval()),
+  );
+  // The in-process AG-UI fixture has no external credential or process. Keep
+  // that deletion seam explicit without introducing a second API application.
+  app.get(AgentRuntimeAdapterRegistry, { strict: false }).registerCleanup({
+    runtimeType: 'copilotkit_agui',
+    cleanup: deterministicRuntimeCleanup,
+  });
+  // Instrument the real module provider before Nest invokes lifecycle hooks.
+  // The timestamps make the E2E prove that recovery completed before this
+  // root listened, rather than merely observing the recovered rows later.
+  const recovery = app.get(AgentAguiStartupRecoveryService, { strict: false });
+  const recoverInterruptedRuns = recovery.onApplicationBootstrap.bind(recovery);
+  let recoveryStartedAt: Date | null = null;
+  let recoveryCompletedAt: Date | null = null;
+  let recoveryInvocations = 0;
+  recovery.onApplicationBootstrap = async () => {
+    recoveryInvocations += 1;
+    recoveryStartedAt = new Date();
+    await recoverInterruptedRuns();
+    recoveryCompletedAt = new Date();
+  };
+  await app.listen(NEST_PORT, '127.0.0.1');
+  const acceptingRequestsAt = new Date();
 
   const registry = app.get(OperationHandlerRegistryService, { strict: false });
   if (!registry.listDefinitions().some((definition) => definition.key === 'agent-os.delete-session')) {
@@ -1301,179 +1550,18 @@ async function startDeletionApiRoot(prisma: PrismaClient): Promise<{
   }
   const worker = app.get(OperationRunWorkerService, { strict: false });
   const ownedOperations = app.get(AgentSessionOwnedOperationService, { strict: false });
-  return {
-    app,
-    deletionControl: new AgentSessionDeletionAcceptanceControl(
-      prisma,
-      storage,
-      worker,
-      new PrismaAgentConversationEventTransaction(prisma as never),
-      ownedOperations,
-    ),
-  };
-}
-
-function configureActualDeletionEnvironment(): void {
-  Object.assign(process.env, {
-    NODE_ENV: 'test',
-    AGENT_DEFAULT_MODEL: 'deletion-browser-proof',
-    AGENT_RUNTIME_CREDENTIAL_HMAC_KEY: 'd'.repeat(48),
-    INTERACTION_GATEWAY_SHARED_SECRET: SERVICE_SECRET,
-    INTERACTION_PRINCIPAL_HMAC_KEY: 'p'.repeat(48),
-    INTERACTION_RUN_INTENT_HMAC_KEY: 'i'.repeat(48),
-    INTERACTION_REPLAY_CURSOR_HMAC_KEY: 'r'.repeat(48),
-    INTERACTION_ANALYTICS_HMAC_KEY: 'a'.repeat(48),
-    OPERATION_RUNTIME_WORKER_ENABLED: '0',
-    OPERATION_SCHEDULER_ENABLED: '0',
-    AGENT_RUNTIME_WORKER_ENABLED: '0',
-    AI_DIRECT_JOB_WORKER_ENABLED: '0',
-  });
-}
-
-function registerAcceptanceCapabilities(registry: AgentCapabilityRegistry): void {
-  registry.register({
-    key: 'analytics.readOverview', ownerDomain: 'analytics', executionKind: 'tool',
-    inputSchema: z.object({ period: z.enum(['today', 'month']).optional() }).strict(),
-    outputSchema: z.object({
-      sales: z.object({ revenue: z.number(), orders: z.number() }).strict(),
-      inventory: z.object({ outOfStockSkus: z.number(), mappingAttentionSkus: z.number() }).strict(),
-      freshness: z.object({ lastSync: z.string().datetime().nullable(), confirmedUntil: z.string().nullable() }).strict(),
-    }).strict(),
-    sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-    execute: async () => ({
-      resourceType: 'analytics_overview',
-      outputSummary: {
-        sales: { revenue: 12000, orders: 3 },
-        inventory: { outOfStockSkus: 1, mappingAttentionSkus: 0 },
-        freshness: { lastSync: '2026-08-14T00:00:00.000Z', confirmedUntil: '2026-08-13' },
-      },
-    }),
-  });
-  registry.register({
-    key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', executionKind: 'tool',
-    inputSchema: z.object({
-      query: z.string().min(1), topK: z.number().int().positive().optional(),
-    }).strict(),
-    outputSchema: z.object({
-      inputHash: z.string(), documentCount: z.number().int(),
-      citationIds: z.array(z.string()), dataGaps: z.array(z.string()),
-    }).strict(),
-    sideEffects: ['read'], approvalRisk: 'none', idempotencyKey: () => null,
-    execute: async () => ({
-      resourceType: 'sourcing_workspace_evidence', resourceId: 'a'.repeat(64),
-      outputSummary: {
-        inputHash: 'a'.repeat(64), documentCount: 1,
-        citationIds: ['document-1'], dataGaps: [],
-      },
-    }),
-  });
-}
-
-async function startNest(
-  prisma: PrismaClient,
-  analyticsEvents: unknown[],
-): Promise<{
-  app: INestApplication;
-  durableControls: AcceptanceDurableControlPlane;
-}> {
-  const sessions = new PrismaAgentSessionQueryRepository(prisma as never);
-  const conversations = new PrismaAgentConversationQueryRepository(prisma as never);
-  const executionsQuery = new PrismaAgentExecutionQueryRepository(prisma as never);
-  const authorization = new PrismaAgentRunAuthorizationTransaction(prisma as never);
-  const events = new PrismaAgentConversationEventTransaction(prisma as never);
-  const usage = new PrismaAgentExecutionUsageTransaction(prisma as never);
-  const controls = new SessionControlAdapterSet(prisma as never);
-  const versions = new PrismaAgentVersionRepository(prisma as never);
-  const allowedVersions = new InteractionAllowedVersionResolver(versions);
-  const publisher = new InProcessAgentConversationLivePublisher();
-  const presentation = new AgentInteractionPresentationService();
-  const operationRepository = new OperationRepositoryAdapter(prisma as never);
-  const operationRegistry = new OperationHandlerRegistryService();
-  operationRegistry.register(AGENT_OS_OPERATIONS[0], {
-    execute: async () => ({ kind: 'completed', result: {} }),
-    cancel: async () => undefined,
-  } as never);
-  const operationLifecycle = new OperationLifecycleGateService();
-  operationLifecycle.open();
-  const operationCoordinator = new CompositeOperationCoordinatorService(
-    operationRegistry,
-    operationRepository,
-    operationLifecycle,
-  );
-  const operations = new OperationRunService(
-    operationRegistry,
-    operationRepository,
-    operationCoordinator,
-    operationLifecycle,
-  );
-  const dispatch = new AgentSessionTaskDispatchService(
-    new AgentSessionOwnedOperationService(
-      new OperationDefinitionSnapshotAdapter(operationRegistry, operationLifecycle),
-      new PrismaAgentSessionOwnedOperationTransaction(prisma as never),
-    ),
-  );
-  const runtimeControl = new AgentSessionRuntimeControlService(
-    events,
-    publisher,
-    () => new Date(),
-  );
-  let durableControls: AcceptanceDurableControlPlane | null = null;
-  const approvalRuntime = {
-    runtimeType: 'codex_cli',
-    capabilities: { detached: true, reconnect: true, interrupt: true, cancel: true, inspect: true },
-    start: async () => { throw new Error('acceptance approval runtime must reconnect'); },
-    inspect: async () => ({ status: 'running' as const }),
-    connect: async function* () {},
-    interrupt: async () => {
-      durableControls?.finishAfterApproval();
-    },
-    cancel: async () => undefined,
-  };
-  const continuations = new AgentSessionOperationContinuationService(
-    controls as never,
-    controls as never,
-    controls as never,
-    operationLifecycle,
-    { requireCompatible: () => approvalRuntime } as never,
-  );
-  const approvals = new AgentSessionApprovalService(
-    controls as never,
-    controls as never,
-    runtimeControl,
-    { areCurrent: async () => true } as never,
-    operations,
-    continuations,
-    () => new Date(),
-  );
-  const cancellations = new AgentSessionCancellationService(controls as never, operations);
-  const executions = new AgentSessionExecutionService(controls as never, controls as never, dispatch);
-  const delegations = new AgentSessionDelegationService(controls as never, controls as never, dispatch);
-  const taskControls = new AgentSessionTaskControlService(executions, cancellations);
-  const bootstrap = new AgentInteractionBootstrapService(
-    sessions,
-    () => new Date(),
-    HMAC,
-    HMAC,
-    allowedVersions,
-  );
-  const interactionAuthorization = new AgentInteractionAuthorizationService(
-    sessions,
-    conversations,
-    executionsQuery,
-    authorization,
-    versions,
-    () => new Date(),
-    HMAC,
-    HMAC,
-    allowedVersions,
-  );
-  const liveEvents = new AgentInteractionLiveEventsService(
-    interactionAuthorization,
-    conversations,
-    publisher,
-  );
-  const createdDurableControls = new AcceptanceDurableControlPlane(
-    controls as never,
+  const approvalTransactions = app.get(AGENT_APPROVAL_CONTINUATION_TRANSACTION, { strict: false }) as AgentApprovalContinuationTransactionPort;
+  const attemptOperations = app.get(AGENT_ATTEMPT_OPERATION_TRANSACTION, { strict: false }) as AgentAttemptOperationTransactionPort;
+  const transitions = app.get(AGENT_SESSION_TRANSITION_TRANSACTION, { strict: false }) as AgentSessionTransitionTransactionPort;
+  const runtimeControl = app.get(AgentSessionRuntimeControlService, { strict: false });
+  const delegations = app.get(AgentSessionDelegationService, { strict: false });
+  const approvals = app.get(AgentSessionApprovalService, { strict: false });
+  const presentation = app.get(AgentInteractionPresentationService, { strict: false });
+  const operationRepository = app.get(OperationRepositoryAdapter, { strict: false });
+  durableControls = new AcceptanceDurableControlPlane(
+    approvalTransactions,
+    attemptOperations,
+    transitions,
     runtimeControl,
     delegations,
     approvals,
@@ -1488,142 +1576,52 @@ async function startNest(
         errorMessage: 'acceptance approval boundary',
         finishedAt: new Date(),
       });
-      if (!transitioned) {
-        throw new Error('durable acceptance operation did not enter approval boundary');
-      }
+      if (!transitioned) throw new Error('durable acceptance operation did not enter approval boundary');
     },
   );
-  durableControls = createdDurableControls;
-  const runtimeRegistry = new AgentAguiRuntimeRegistry();
-  runtimeRegistry.register(
-    'copilotkit_agui',
-    new DeterministicAcceptanceRuntime(presentation, createdDurableControls),
-  );
-  const capabilityRegistry = new AgentCapabilityRegistry();
-  registerAcceptanceCapabilities(capabilityRegistry);
-  const moduleRef = await Test.createTestingModule({
-    controllers: [
-      AgentInteractionBootstrapController,
-      AgentInteractionControlController,
-      AgentInteractionActionsController,
-      AgentAguiController,
-      AgentSessionController,
-    ],
-    providers: [
-      { provide: AGENT_SESSION_QUERY_REPOSITORY, useValue: sessions },
-      { provide: AGENT_CONVERSATION_QUERY_REPOSITORY, useValue: conversations },
-      { provide: AGENT_EXECUTION_QUERY_REPOSITORY, useValue: executionsQuery },
-      { provide: AGENT_RUN_AUTHORIZATION_TRANSACTION, useValue: authorization },
-      { provide: AGENT_CONVERSATION_EVENT_TRANSACTION, useValue: events },
-      { provide: AGENT_EXECUTION_USAGE_TRANSACTION, useValue: usage },
-      { provide: AGENT_VERSION_REPOSITORY, useValue: versions },
-      { provide: AGENT_SESSION_CONTROL_QUERY_REPOSITORY, useValue: controls },
-      { provide: AGENT_DELEGATION_TRANSACTION, useValue: controls },
-      { provide: AGENT_ATTEMPT_OPERATION_TRANSACTION, useValue: controls },
-      { provide: AGENT_APPROVAL_CONTINUATION_TRANSACTION, useValue: controls },
-      { provide: AGENT_SESSION_TRANSITION_TRANSACTION, useValue: controls },
-      { provide: AGENT_INTERACTION_BOOTSTRAP_PORT, useValue: bootstrap },
-      { provide: AGENT_INTERACTION_AUTHORIZATION_PORT, useValue: interactionAuthorization },
-      { provide: AGENT_INTERACTION_LIVE_EVENTS_PORT, useValue: liveEvents },
-      { provide: AGENT_INTERACTION_PRESENTATION_PORT, useValue: presentation },
-      { provide: AGENT_AGUI_PRODUCER_PORT, useExisting: AgentAguiProducerCoordinator },
-      { provide: AGENT_SESSION_TASK_CONTROL_PORT, useValue: taskControls },
-      { provide: AGENT_SESSION_APPROVAL_DECISION_PORT, useValue: approvals },
-      { provide: AGENT_CONVERSATION_LIVE_PUBLISHER, useValue: publisher },
-      { provide: INTERACTION_CLOCK, useValue: () => new Date() },
-      { provide: INTERACTION_GATEWAY_SHARED_SECRET, useValue: Buffer.from(SERVICE_SECRET) },
-      { provide: INTERACTION_PRINCIPAL_HMAC_KEY, useValue: HMAC },
-      { provide: INTERACTION_RUN_INTENT_HMAC_KEY, useValue: HMAC },
-      { provide: INTERACTION_REPLAY_CURSOR_HMAC_KEY, useValue: HMAC },
-      { provide: AgentAguiRuntimeRegistry, useValue: runtimeRegistry },
-      { provide: AgentInteractionPresentationService, useValue: presentation },
-      {
-        provide: InteractionProductAnalyticsAdapter,
-        useFactory: () => new InteractionProductAnalyticsAdapter(
-          'acceptance-analytics-hmac-key-value-0001',
-          async (event) => { analyticsEvents.push(event); },
-        ),
-      },
-      { provide: INTERACTION_PRODUCT_ANALYTICS_PORT, useExisting: InteractionProductAnalyticsAdapter },
-      { provide: AgentCapabilityRegistry, useValue: capabilityRegistry },
-      AgentSessionCapabilityInvocationService,
-      {
-        provide: AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
-        useExisting: AgentSessionCapabilityInvocationService,
-      },
-      { provide: AgentSessionApprovalService, useValue: approvals },
-      { provide: AgentSessionCancellationService, useValue: cancellations },
-      { provide: AgentSessionExecutionService, useValue: executions },
-      AgentAguiRunService,
-      AgentAguiProducerCoordinator,
-      { provide: AGENT_AGUI_RUNNER_PORT, useExisting: AgentAguiRunService },
-      InteractionGatewayGuard,
-    ],
-  }).compile();
-  const app = moduleRef.createNestApplication();
-  app.setGlobalPrefix('api');
-  app.enableCors({ origin: `http://localhost:${WEB_PORT}`, credentials: true });
-  app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
-  app.use('/api/inventory/sellpia-freshness', (request: any, response: any, next: () => void) => {
-    if (request.method !== 'GET' || request.path !== '/') return next();
-    return response.json({
-      status: 'fresh',
-      sourceBinding: { origin: 'https://kiditem.sellpia.com', accountKey: 'kiditem', confirmed: true },
-      lastVerifiedAt: '2099-01-01T00:00:00.000Z', expiresAt: '2099-01-01T00:10:00.000Z',
-      requestedGeneration: '1', verifiedGeneration: '1', refreshRequestedAt: null,
-      refreshReason: null, requestedSyncScope: 'inventory', syncNotBefore: null,
-      activeSync: null, lastAttempt: null,
-    });
-  });
-  app.use('/api/auth/me', (request: any, response: any) => {
-    const cookie = String(request.headers.cookie ?? '');
-    const other = cookie.includes(OTHER_TOKEN);
-    const member = cookie.includes(MEMBER_TOKEN);
-    response.json({
-      id: other ? OTHER_USER_ID : member ? MEMBER_USER_ID : TEST_USER_ID,
-      email: other ? 'other@test.local' : member ? 'member@test.local' : 'test@test.local',
-      name: other ? 'Other Tester' : member ? 'Ordinary Member' : 'Tester',
-      role: member ? 'member' : 'owner', type: 'human',
-      organizationId: other ? OTHER_ORGANIZATION_ID : TEST_ORGANIZATION_ID,
-      membershipId: '33333333-3333-4333-8333-333333333333',
-    });
-  });
-  app.use((request: any, _response: any, next: () => void) => {
-    const cookie = String(request.headers.cookie ?? '');
-    const identity = cookie.includes(OTHER_TOKEN)
-      ? { id: OTHER_USER_ID, organizationId: OTHER_ORGANIZATION_ID, email: 'other@test.local', role: 'owner' }
-      : cookie.includes(MEMBER_TOKEN)
-        ? { id: MEMBER_USER_ID, organizationId: TEST_ORGANIZATION_ID, email: 'member@test.local', role: 'member' }
-        : { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID, email: 'test@test.local', role: 'owner' };
-    request.authUser = { ...identity, membershipId: '33333333-3333-4333-8333-333333333333', type: 'human' };
-    next();
-  });
-  await app.listen(NEST_PORT, '127.0.0.1');
-  return { app, durableControls: createdDurableControls };
+  const runtimeRegistry = app.get(AgentAguiRuntimeRegistry, { strict: false });
+  runtimeRegistry.register('copilotkit_agui', new DeterministicAcceptanceRuntime(presentation, durableControls));
+  return {
+    app,
+    durableControls,
+    boot: {
+      bootstrapStartedAt,
+      recoveryStartedAt,
+      recoveryCompletedAt,
+      recoveryInvocations,
+      acceptingRequestsAt,
+    },
+    deletionControl: new AgentSessionDeletionAcceptanceControl(
+      prisma,
+      storage,
+      worker,
+      new PrismaAgentConversationEventTransaction(prisma as never),
+      ownedOperations,
+    ),
+  };
 }
 
-async function startGateway(log: string[]): Promise<ChildProcess> {
-  const child = spawn(process.execPath, [path.join(repoRoot, 'apps/interaction-gateway/dist/server.js')], {
-    cwd: repoRoot,
-    env: {
-      ...process.env,
-      INTERACTION_GATEWAY_PORT: String(GATEWAY_PORT),
-      KIDITEM_API_INTERNAL_URL: `http://127.0.0.1:${NEST_PORT}`,
-      AGENT_OS_AGUI_INTERNAL_URL: `http://127.0.0.1:${NEST_PORT}/api/agent-os/ag-ui`,
-      INTERACTION_GATEWAY_SHARED_SECRET: SERVICE_SECRET,
-      COPILOTKIT_TELEMETRY_DISABLED: '1',
-    },
-    stdio: ['ignore', 'pipe', 'pipe'],
+function configureActualDeletionEnvironment(): void {
+  Object.assign(process.env, {
+    NODE_ENV: 'test',
+    AGENT_DEFAULT_MODEL: 'deletion-browser-proof',
+    OPERATION_RUNTIME_WORKER_ENABLED: '0',
+    OPERATION_SCHEDULER_ENABLED: '0',
+    AGENT_RUNTIME_WORKER_ENABLED: '0',
+    AI_DIRECT_JOB_WORKER_ENABLED: '0',
   });
-  collectOutput(child, log);
-  await waitForUrl(`http://127.0.0.1:${GATEWAY_PORT}/health/live`);
-  return child;
 }
 
 function startWeb(log: string[]): ChildProcess {
-  const child = spawn(process.execPath, [path.join(repoRoot, 'node_modules/next/dist/bin/next'), 'start', 'apps/web', '-p', String(WEB_PORT)], {
+  const child = spawn(process.execPath, [path.join(repoRoot, 'apps/web/.next/standalone/apps/web/server.js')], {
     cwd: repoRoot,
-    env: { ...process.env, NEXT_PUBLIC_API_URL: `http://127.0.0.1:${NEST_PORT}`, KIDITEM_PROXY_ALL_API: 'true', INTERACTION_GATEWAY_URL: `http://127.0.0.1:${GATEWAY_PORT}` },
+    env: {
+      ...process.env,
+      HOSTNAME: '127.0.0.1',
+      PORT: String(WEB_PORT),
+      NEXT_PUBLIC_API_URL: `http://127.0.0.1:${NEST_PORT}`,
+      KIDITEM_PROXY_ALL_API: 'true',
+    },
     stdio: ['ignore', 'pipe', 'pipe'],
   });
   collectOutput(child, log);
@@ -1636,9 +1634,22 @@ function buildAcceptanceWeb() {
     env: {
       ...process.env,
       NEXT_PUBLIC_API_URL: `http://127.0.0.1:${NEST_PORT}`,
-      INTERACTION_GATEWAY_URL: `http://127.0.0.1:${GATEWAY_PORT}`,
+      KIDITEM_PROXY_ALL_API: 'true',
     },
     stdio: 'ignore',
+  });
+}
+
+function prepareAcceptanceStandaloneWeb() {
+  const webBuild = path.join(repoRoot, 'apps/web/.next');
+  const standaloneBuild = path.join(webBuild, 'standalone/apps/web');
+  cpSync(path.join(webBuild, 'static'), path.join(standaloneBuild, '.next/static'), {
+    recursive: true,
+  });
+  const publicDirectory = path.join(repoRoot, 'apps/web/public');
+  cpSync(publicDirectory, path.join(standaloneBuild, 'public'), {
+    recursive: true,
+    force: true,
   });
 }
 
@@ -1671,7 +1682,7 @@ async function seedAgentVersion(prisma: PrismaClient) {
     prisma.agentVersion.findFirstOrThrow({
       where: { agentDefinitionKey: 'operator', activatedAt: { not: null } },
       orderBy: { version: 'desc' },
-      select: { id: true, runtimeType: true },
+      select: { id: true, runtimeType: true, capabilityKeys: true, policyDocument: true },
     }),
     prisma.agentVersion.findFirstOrThrow({
       where: { agentDefinitionKey: 'sourcing', activatedAt: { not: null } },
@@ -1682,13 +1693,40 @@ async function seedAgentVersion(prisma: PrismaClient) {
   if (operator.runtimeType !== 'copilotkit_agui' || sourcing.runtimeType !== 'codex_cli') {
     throw new Error('official AgentOS seed did not publish expected browser acceptance runtimes');
   }
+  const expectedOperatorCapabilities = [
+    'agent_os.platform_probe',
+    'analytics.readOverview',
+    'sourcing.retrieveWorkspaceEvidence',
+    'sourcing.inspectRecommendationRun',
+  ];
+  const operatorPolicies = operator.policyDocument && typeof operator.policyDocument === 'object'
+    ? (operator.policyDocument as { toolPolicies?: unknown }).toolPolicies
+    : undefined;
+  const directlyAllowed = Array.isArray(operatorPolicies)
+    ? operatorPolicies
+      .filter((policy): policy is { toolKey: string; effect: string; approvalMode: string } =>
+        Boolean(policy) && typeof policy === 'object' &&
+        typeof (policy as { toolKey?: unknown }).toolKey === 'string' &&
+        typeof (policy as { effect?: unknown }).effect === 'string' &&
+        typeof (policy as { approvalMode?: unknown }).approvalMode === 'string',
+      )
+      .filter((policy) => policy.effect === 'allow' && policy.approvalMode === 'none')
+      .map((policy) => policy.toolKey)
+      .sort()
+    : [];
+  if (
+    JSON.stringify(operator.capabilityKeys) !== JSON.stringify(expectedOperatorCapabilities) ||
+    JSON.stringify(directlyAllowed) !== JSON.stringify([...expectedOperatorCapabilities].sort())
+  ) {
+    throw new Error(`official Operator seed lacks acceptance read capabilities: manifest=${JSON.stringify(operator.capabilityKeys)} direct=${JSON.stringify(directlyAllowed)}`);
+  }
   AGENT_VERSION_ID = operator.id;
   DELEGATE_VERSION_ID = sourcing.id;
 }
 
-async function waitForUrl(url: string) {
+async function waitForUrl(url: string, init?: RequestInit) {
   for (let attempt = 0; attempt < 120; attempt += 1) {
-    const response = await fetch(url).catch(() => null);
+    const response = await fetch(url, init).catch(() => null);
     if (response?.ok) return;
     await delay(250);
   }
@@ -1699,8 +1737,8 @@ async function probeAcceptanceBoundaries() {
   const headers = { cookie: `kiditem_session=${PRIMARY_TOKEN}` };
   const probes = [
     fetch(`http://127.0.0.1:${NEST_PORT}/api/auth/me`, { headers }),
-    fetch(`http://127.0.0.1:${NEST_PORT}/api/agent-os/interaction/bootstrap`, { headers }),
-    fetch(`http://127.0.0.1:${GATEWAY_PORT}/health/ready`),
+    fetch(`http://127.0.0.1:${NEST_PORT}/api/copilotkit/bootstrap`, { headers }),
+    fetch(`http://127.0.0.1:${NEST_PORT}/api/copilotkit/info`, { headers }),
   ];
   const responses = await Promise.all(probes);
   const failed = responses.find((response) => !response.ok);

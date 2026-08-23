@@ -49,7 +49,12 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     kind: 'workflow',
     description: 'Duplicate-check, scrape, ingest, and return the candidate detail link.',
     inputSchema: { sourceUrl: 'string' },
-    outputSchema: { skipped: 'boolean', candidateId: 'string', href: 'string' },
+    outputSchema: {
+      skipped: 'boolean',
+      candidateId: 'string|null',
+      href: 'string|null',
+      operation: 'OperationRunName|null',
+    },
     effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'],
     approval: 'none',
     idempotency: 'required',
@@ -67,7 +72,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     approval: 'none',
     idempotency: 'recommended',
     visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' },
+    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT' },
   },
   {
     key: 'sourcing.inspectRecommendationRun',
@@ -80,7 +85,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     approval: 'none',
     idempotency: 'recommended',
     visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' },
+    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT' },
   },
   {
     key: 'sourcing.refreshCollection',
@@ -93,7 +98,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     approval: 'none',
     idempotency: 'required',
     visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' },
+    entrypoint: { type: 'incoming_port', token: 'SOURCING_COLLECTION_OPERATION_PORT' },
   },
   {
     key: 'sourcing.refreshValidation',
@@ -106,7 +111,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     approval: 'none',
     idempotency: 'required',
     visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' },
+    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT' },
   },
   {
     key: 'sourcing.createReviewBatch',
@@ -119,7 +124,7 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     approval: 'none',
     idempotency: 'required',
     visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT' },
+    entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT' },
   },
   {
     key: 'market.collect_shadow_signals',

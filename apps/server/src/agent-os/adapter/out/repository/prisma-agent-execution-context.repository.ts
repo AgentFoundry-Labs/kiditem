@@ -4,7 +4,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   AgentExecutionContextGraph,
   AgentExecutionContextRepositoryPort,
-  AgentRuntimeCredentialExecutionGraph,
+  AgentRuntimeExecutionGraph,
 } from '../../../application/port/out/repository/agent-execution-context.repository.port';
 
 @Injectable()
@@ -113,14 +113,14 @@ export class PrismaAgentExecutionContextRepository
     } as AgentExecutionContextGraph;
   }
 
-  async loadRuntimeCredentialExecutionGraph(input: {
+  async loadRuntimeExecutionGraph(input: {
     organizationId: string;
     sessionId: string;
     executionId: string;
     attemptId: string;
     startIntentId: string;
     runtimeCredentialGeneration: number;
-  }): Promise<AgentRuntimeCredentialExecutionGraph | null> {
+  }): Promise<AgentRuntimeExecutionGraph | null> {
     const execution = await this.prisma.agentExecution.findFirst({
       where: {
         id: input.executionId,
@@ -143,7 +143,38 @@ export class PrismaAgentExecutionContextRepository
         runtimeType: true,
         status: true,
         resourceRefs: true,
-        session: { select: { createdByUserId: true, lifecycle: true } },
+        session: {
+          select: {
+            createdByUserId: true,
+            lifecycle: true,
+            tasks: {
+              select: {
+                id: true,
+                parentTaskId: true,
+                objective: true,
+                status: true,
+                assignedAgentVersion: {
+                  select: { agentDefinitionKey: true },
+                },
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              take: 100,
+            },
+            artifacts: {
+              where: { lifecycle: 'active' },
+              select: {
+                id: true,
+                taskId: true,
+                executionId: true,
+                artifactType: true,
+                sha256: true,
+                metadata: true,
+              },
+              orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+              take: 100,
+            },
+          },
+        },
         sessionTask: { select: { status: true, assignedAgentVersionId: true } },
         agentVersion: { select: { agentDefinitionKey: true, version: true } },
         policySnapshot: { select: { agentVersionId: true, capabilityKeys: true } },
@@ -208,6 +239,21 @@ export class PrismaAgentExecutionContextRepository
       agentVersion: execution.agentVersion.version,
       policyCapabilityKeys: execution.policySnapshot.capabilityKeys,
       currentResourceRefs: execution.resourceRefs,
+      taskGraph: execution.session.tasks.map((task) => ({
+        taskId: task.id,
+        parentTaskId: task.parentTaskId,
+        objective: task.objective,
+        status: task.status,
+        agentDefinitionKey: task.assignedAgentVersion.agentDefinitionKey,
+      })),
+      artifacts: execution.session.artifacts.map((artifact) => ({
+        artifactId: artifact.id,
+        taskId: artifact.taskId,
+        executionId: artifact.executionId,
+        artifactType: artifact.artifactType,
+        sha256: artifact.sha256,
+        metadata: artifact.metadata,
+      })),
     };
   }
 }

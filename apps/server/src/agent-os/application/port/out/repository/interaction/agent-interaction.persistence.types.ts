@@ -122,6 +122,7 @@ export interface AuthorizeAgentExecutionInput {
   authorityProfileVersionId: string;
   authorityProfilePolicyDocument: Record<string, unknown>;
   authorityProfilePolicyHash: string;
+  authorityProfileCapabilityKeys: string[];
   capabilityKeys: string[];
   policyHash: string;
   inputHash: string;
@@ -196,6 +197,18 @@ export interface AgentExecutionRuntimeContext {
   initialUserEvent: AgentConversationEventRecord;
 }
 
+/**
+ * Browser AG-UI runs are authorized and persisted inline; unlike CLI/MCP
+ * execution they never acquire an Operations lease merely to stream SSE.
+ */
+export interface InlineAguiExecutionRuntimeContext
+  extends Omit<
+    AgentExecutionRuntimeContext,
+    "operationRunId" | "operationAttemptToken" | "runtimeType"
+  > {
+  runtimeType: "copilotkit_agui";
+}
+
 export interface ModelConversationPage {
   events: AgentConversationEventRecord[];
   hasMore: boolean;
@@ -211,6 +224,8 @@ export interface CurrentAgentExecution {
   runtimeType: string;
   status: string;
   attempt: number;
+  attemptId: string | null;
+  startIntentId: string | null;
 }
 
 interface AgentExecutionTerminalInputBase {
@@ -218,6 +233,9 @@ interface AgentExecutionTerminalInputBase {
   sessionId: string;
   id: string;
   finishedAt: Date;
+  /** Present for inline AG-UI execution; locks terminalization to one attempt. */
+  attemptId?: string;
+  startIntentId?: string;
 }
 
 export type MarkAgentExecutionTerminalInput =

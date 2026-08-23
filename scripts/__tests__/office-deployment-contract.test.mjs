@@ -113,6 +113,72 @@ test('office API runtime includes the Prisma CLI used by explicit schema apply',
   assert.equal(serverPackage.devDependencies?.prisma, undefined);
 });
 
+test('office API runtime owns installed local CLIs and persistent service-account profiles', () => {
+  const serverPackage = JSON.parse(read('apps/server/package.json'));
+  const dockerfile = read('apps/server/Dockerfile');
+  const compose = read('deploy/office/compose.office.yml');
+
+  assert.equal(typeof serverPackage.dependencies['@openai/codex'], 'string');
+  assert.equal(typeof serverPackage.dependencies['@anthropic-ai/claude-code'], 'string');
+  assert.match(dockerfile, /ENV PATH=\/app\/apps\/server\/node_modules\/\.bin:\/app\/node_modules\/\.bin:/);
+  assert.match(dockerfile, /codex --version/);
+  assert.match(dockerfile, /claude --version/);
+  assert.match(dockerfile, /COPY agent-config \.\/agent-config/);
+  assert.match(dockerfile, /FilesystemAgentRuntimeManifestCatalog/);
+  assert.match(dockerfile, /kiditem-agent-os-mcp-server\.js/);
+  assert.doesNotMatch(
+    dockerfile,
+    /COPY agent-config\/prompts\/agents\/sourcing\.md/,
+  );
+  assert.match(compose, /HOME: \/var\/lib\/kiditem-cli/);
+  assert.match(compose, /CODEX_HOME: \/var\/lib\/kiditem-cli\/\.codex/);
+  assert.match(compose, /CLAUDE_CONFIG_DIR: \/var\/lib\/kiditem-cli\/\.claude/);
+  assert.match(compose, /kiditem-cli-home:\/var\/lib\/kiditem-cli/);
+  assert.doesNotMatch(compose, /kiditem-agent-runs:\/var\/lib\/kiditem-agent-runs/);
+  assert.match(compose, /cli-login:/);
+  assert.match(compose, /profiles:\s*\["cli-login"\]/);
+  assert.match(compose, /command: \["codex", "login", "status"\]/);
+  assert.doesNotMatch(compose, /OPENAI_API_KEY|ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH_TOKEN/);
+  const runbook = read('docs/runbooks/office-deploy.md');
+  assert.match(runbook, /docker compose run --rm --no-deps cli-login codex login --device-auth/);
+  assert.match(runbook, /docker compose run --rm --no-deps cli-login claude auth login/);
+  assert.doesNotMatch(runbook, /docker exec[^\n]*(codex|claude)/i);
+});
+
+test('office cli-login profile resolves with only its non-secret CLI-home environment', () => {
+  const result = spawnSync(
+    'docker',
+    [
+      'compose',
+      '--profile', 'cli-login',
+      '--env-file', 'deploy/office/office.env.example',
+      '--env-file', 'deploy/office/digest.env.example',
+      '-f', 'deploy/office/compose.office.yml',
+      'config', '--format', 'json',
+    ],
+    {
+      cwd: root,
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        OFFICE_API_ENV_FILE: process.platform === 'win32' ? 'NUL' : '/dev/null',
+      },
+    },
+  );
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  const cliLogin = JSON.parse(result.stdout).services['cli-login'];
+  assert.deepEqual(Object.keys(cliLogin.environment).sort(), [
+    'CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'DISABLE_AUTOUPDATER', 'HOME',
+  ]);
+  for (const key of [
+    'DATABASE_URL', 'DIRECT_URL', 'S3_ACCESS_KEY', 'S3_SECRET_KEY',
+    'SOURCING_PLAYWRIGHT_CDP_ENDPOINT', 'CHANNEL_CREDENTIALS_ENCRYPTION_KEY',
+  ]) assert.equal(cliLogin.environment[key], undefined, `cli-login leaked ${key}`);
+  assert.deepEqual(cliLogin.volumes, [
+    { type: 'volume', source: 'kiditem-cli-home', target: '/var/lib/kiditem-cli', volume: {} },
+  ]);
+});
+
 test(
   'office operator forwards detach and parses revision under Windows PowerShell',
   { skip: process.platform !== 'win32' },

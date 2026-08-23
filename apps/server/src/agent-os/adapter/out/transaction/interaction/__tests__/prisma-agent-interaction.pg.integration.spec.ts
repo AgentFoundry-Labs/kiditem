@@ -74,6 +74,8 @@ beforeAll(async () => {
       conversations.readModelConversation.bind(conversations),
     loadExecutionRuntimeContext:
       executions.loadExecutionRuntimeContext.bind(executions),
+    loadInlineAguiExecutionRuntimeContext:
+      executions.loadInlineAguiExecutionRuntimeContext.bind(executions),
     findCurrentExecution: executions.findCurrentExecution.bind(executions),
     findAccessibleCurrentExecution:
       executions.findAccessibleCurrentExecution.bind(executions),
@@ -368,6 +370,72 @@ describe("Prisma interaction persistence seams", () => {
     await expect(
       repository.loadExecutionRuntimeContext({
         executionId: "20000000-0000-4000-8000-000000000099",
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("loads only the exact unbound inline CopilotKit AG-UI authority", async () => {
+    if (!prisma) throw new Error("Prisma test client was not initialized");
+    const authorized = await repository.authorizeExecution(
+      firstRunInput({
+        copilotThreadId: "thread-inline-agui",
+        aguiRunId: "run-inline-agui",
+        externalEventId: "message-inline-agui",
+      }),
+    );
+
+    await expect(
+      repository.loadInlineAguiExecutionRuntimeContext({
+        executionId: authorized.execution.id,
+      }),
+    ).resolves.toMatchObject({
+      organizationId: TEST_ORGANIZATION_ID,
+      userId: TEST_USER_ID,
+      sessionId: authorized.session.id,
+      sessionTaskId: authorized.rootTask.id,
+      executionId: authorized.execution.id,
+      runtimeType: "copilotkit_agui",
+      attemptId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+      startIntentId: expect.stringMatching(/^[0-9a-f-]{36}$/),
+    });
+
+    await prisma.agentExecution.update({
+      where: { id: authorized.execution.id },
+      data: { runtimeType: "codex_cli" },
+    });
+    await expect(
+      repository.loadInlineAguiExecutionRuntimeContext({
+        executionId: authorized.execution.id,
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it("rejects inline AG-UI authority after session or policy graph drift", async () => {
+    if (!prisma) throw new Error("Prisma test client was not initialized");
+    const authorized = await repository.authorizeExecution(
+      firstRunInput({
+        copilotThreadId: "thread-inline-agui-drift",
+        aguiRunId: "run-inline-agui-drift",
+        externalEventId: "message-inline-agui-drift",
+      }),
+    );
+    await prisma.agentSession.update({
+      where: { id: authorized.session.id },
+      data: { lifecycle: "archived" },
+    });
+    await expect(
+      repository.loadInlineAguiExecutionRuntimeContext({
+        executionId: authorized.execution.id,
+      }),
+    ).resolves.toBeNull();
+
+    await prisma.agentSession.update({
+      where: { id: authorized.session.id },
+      data: { lifecycle: "active", primaryAgentVersionId: OTHER_AGENT_VERSION_ID },
+    });
+    await expect(
+      repository.loadInlineAguiExecutionRuntimeContext({
+        executionId: authorized.execution.id,
       }),
     ).resolves.toBeNull();
   });
@@ -1930,6 +1998,7 @@ function firstRunInput(overrides: {
       authorityClass: "authority-profile-v1",
       capabilityKeys: ["catalog.read"],
     }),
+    authorityProfileCapabilityKeys: ["catalog.read"],
     capabilityKeys: ["catalog.read"],
     policyHash: "policy-hash-v1",
     inputHash: `input-hash-${overrides.copilotThreadId}-${overrides.aguiRunId}`,

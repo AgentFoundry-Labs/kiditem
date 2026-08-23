@@ -13,8 +13,9 @@ describe('SourcingCollectionCapabilityAdapter', () => {
       register: vi.fn((handler: AgentCapabilityHandler) => handlers.push(handler)),
     };
     const collections = {
-      startCollection: vi.fn().mockResolvedValue({
-        operationRunId: 'b7c099b4-cf56-47ae-a553-23e65e5f263f',
+      startOfficial: vi.fn().mockResolvedValue({
+        operation:
+          `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
         status: 'queued',
       }),
     };
@@ -55,17 +56,20 @@ describe('SourcingCollectionCapabilityAdapter', () => {
       { organizationId: ORG_ID, actor: 'users/user-1', requestId: REQUEST_ID },
     ) as never);
 
-    expect(collections.startCollection).toHaveBeenCalledWith({
-      organizationId: ORG_ID,
-      requestedByUserId: 'user-1',
+    expect(collections.startOfficial).toHaveBeenCalledWith({
+      execution: expect.objectContaining({
+        organization: `organizations/${ORG_ID}`,
+        requestId: REQUEST_ID,
+      }),
       sources: ['1688', 'naver'],
-      idempotencyKey: `${REQUEST_ID}:sourcing.refreshCollection:1688,naver,naver`,
     });
     expect(result).toEqual({
       resourceType: 'operation_run',
-      resourceId: 'b7c099b4-cf56-47ae-a553-23e65e5f263f',
+      resourceId:
+        `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
       outputSummary: {
-        operationRunId: 'b7c099b4-cf56-47ae-a553-23e65e5f263f',
+        operation:
+          `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
         status: 'queued',
       },
       artifacts: [
@@ -73,23 +77,40 @@ describe('SourcingCollectionCapabilityAdapter', () => {
           artifactType: 'operation_run',
           targetDomain: 'operations',
           targetModel: 'OperationRun',
-          targetId: 'b7c099b4-cf56-47ae-a553-23e65e5f263f',
+          targetId:
+            `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
           title: '소싱 수집 실행',
           summary: {
-            operationRunId: 'b7c099b4-cf56-47ae-a553-23e65e5f263f',
+            operation:
+              `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
             status: 'queued',
             sources: ['1688', 'naver'],
           },
         },
       ],
     });
+    expect(handler.outputSchema.parse(result.outputSummary)).toEqual(
+      result.outputSummary,
+    );
+    expect(() =>
+      handler.outputSchema.parse({
+        operationRunId: result.resourceId,
+        status: 'queued',
+      }),
+    ).toThrow();
   });
 
   it('uses its persisted official request context for the mutating handler', async () => {
     const handlers: AgentCapabilityHandler[] = [];
     const adapter = new SourcingCollectionCapabilityAdapter(
       { register: (handler: AgentCapabilityHandler) => handlers.push(handler) } as never,
-      { startCollection: vi.fn().mockResolvedValue({ operationRunId: 'operation-2', status: 'queued' }) } as never,
+      {
+        startOfficial: vi.fn().mockResolvedValue({
+          operation:
+            `organizations/${ORG_ID}/operations/b7c099b4-cf56-47ae-a553-23e65e5f263f`,
+          status: 'queued',
+        }),
+      } as never,
     );
     adapter.onModuleInit();
 

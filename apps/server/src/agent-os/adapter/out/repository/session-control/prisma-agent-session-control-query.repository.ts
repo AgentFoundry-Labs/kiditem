@@ -146,62 +146,6 @@ export class PrismaAgentSessionControlQueryRepository implements AgentSessionCon
     });
   }
 
-  async loadCancelableTask(
-    input: Parameters<
-      AgentSessionControlQueryRepositoryPort["loadCancelableTask"]
-    >[0],
-  ) {
-    const task = await this.prisma.agentSessionTask.findFirst({
-      where: {
-        id: input.taskId,
-        sessionId: input.sessionId,
-        organizationId: input.organizationId,
-        status: input.expectedStatus,
-        session: { createdByUserId: input.actorId },
-      },
-      select: {
-        id: true,
-        sessionId: true,
-        organizationId: true,
-        status: true,
-        executions: {
-          where: { status: "running" },
-          orderBy: [{ startedAt: "desc" }, { id: "desc" }],
-          take: 1,
-          select: {
-            id: true,
-            runtimeType: true,
-            attempts: {
-              where: {
-                state: { in: ["queued", "running"] },
-                operationBindings: { some: {} },
-              },
-              orderBy: [{ startedAt: "desc" }, { id: "desc" }],
-              take: 1,
-              select: {
-                operationBindings: {
-                  orderBy: [{ createdAt: "desc" }, { id: "desc" }],
-                  take: 1,
-                  select: { operationRunId: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-    const execution = task?.executions[0];
-    const operationRunId =
-      execution?.attempts[0]?.operationBindings[0]?.operationRunId ?? null;
-    if (!task || !execution || !operationRunId) return null;
-    return {
-      organizationId: task.organizationId,
-      sessionId: task.sessionId,
-      taskId: task.id,
-      operationRunId,
-    };
-  }
-
   async loadTaskExecution(
     input: Parameters<
       AgentSessionControlQueryRepositoryPort["loadTaskExecution"]

@@ -118,7 +118,7 @@ export interface OperationAlertPort {
     organizationId: string,
     sourceType: string,
     sourceId: string,
-    status: 'succeeded' | 'failed' | 'cancelled',
+    status: 'succeeded' | 'failed' | 'cancelled' | 'attention_required',
     patch?: OperationLifecyclePatch,
   ): Promise<AlertRecord | null>;
 

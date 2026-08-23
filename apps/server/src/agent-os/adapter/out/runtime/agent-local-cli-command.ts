@@ -32,8 +32,8 @@ const SHARED_ENV_KEYS = [
   'TMPDIR',
   'TZ',
 ] as const;
-const CLAUDE_ENV_KEYS = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'] as const;
-const CODEX_ENV_KEYS = ['CODEX_API_KEY', 'OPENAI_API_KEY', 'CODEX_HOME'] as const;
+const CLAUDE_ENV_KEYS: readonly string[] = [];
+const CODEX_ENV_KEYS = ['CODEX_HOME'] as const;
 
 export function filterLocalCliEnvironment(
   provider: AgentLocalCliProvider,

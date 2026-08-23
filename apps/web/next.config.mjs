@@ -13,21 +13,7 @@ const backendBase = stripTrailingSlash(
 const proxyAllApi = process.env.KIDITEM_PROXY_ALL_API === 'true';
 const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
-function resolveInteractionGatewayBase(phase) {
-  if (process.env.INTERACTION_GATEWAY_URL) {
-    return stripTrailingSlash(process.env.INTERACTION_GATEWAY_URL);
-  }
-  if (phase === 'phase-production-server') {
-    throw new Error('INTERACTION_GATEWAY_URL is required in production');
-  }
-  if (phase === 'phase-development-server') return 'http://localhost:4100';
-  // Build-only placeholder keeps environment-agnostic CI builds finite. A
-  // production server cannot start without the real server-only value.
-  return 'http://interaction-gateway.invalid';
-}
-
-function createNextConfig(phase) {
-  const interactionGatewayBase = resolveInteractionGatewayBase(phase);
+function createNextConfig() {
   return {
   output: 'standalone',
   transpilePackages: ['@kiditem/templates'],
@@ -58,7 +44,7 @@ function createNextConfig(phase) {
     turbopackFileSystemCacheForDev: false,
   },
   // CopilotKit browser runtime calls only same-origin `/api/copilotkit`.
-  // Next forwards the runtime entry and sub-paths to the OSS interaction gateway. No API
+  // Next forwards it to the ordinary Nest API origin. No API
   // Route/Route Handler is added — `apps/web/AGENTS.md` keeps the No API
   // Routes rule; AI chat is the bounded transport exception, implemented
   // purely as a rewrite.
@@ -66,11 +52,11 @@ function createNextConfig(phase) {
     return [
       {
         source: '/api/copilotkit',
-        destination: `${interactionGatewayBase}/api/copilotkit`,
+        destination: `${backendBase}/api/copilotkit`,
       },
       {
         source: '/api/copilotkit/:path*',
-        destination: `${interactionGatewayBase}/api/copilotkit/:path*`,
+        destination: `${backendBase}/api/copilotkit/:path*`,
       },
       ...(proxyAllApi
         ? [

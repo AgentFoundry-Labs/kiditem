@@ -43,11 +43,15 @@ export interface AgentAguiRuntimeStopInput {
   organizationId: string;
   sessionId: string;
   executionId: string;
+  attemptId: string;
+  startIntentId: string;
   copilotThreadId: string;
   aguiRunId: string;
 }
 
 export interface AgentAguiRuntimeAdapter {
   run(input: AgentAguiRuntimeInput): AsyncIterable<BaseEvent>;
+  /** Called only after the runner DB-fences the exact current coordinate. */
+  claimStop?(input: AgentAguiRuntimeStopInput): void;
   stop?(input: AgentAguiRuntimeStopInput): Promise<boolean>;
 }

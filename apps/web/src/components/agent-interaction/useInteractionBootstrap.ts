@@ -5,7 +5,7 @@ import { InteractionBootstrapSchema } from '@kiditem/shared/agent-interaction';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
-const BOOTSTRAP_PATH = '/api/agent-os/interaction/bootstrap';
+const BOOTSTRAP_PATH = '/api/copilotkit/bootstrap';
 
 export function useInteractionBootstrap() {
   return useQuery({

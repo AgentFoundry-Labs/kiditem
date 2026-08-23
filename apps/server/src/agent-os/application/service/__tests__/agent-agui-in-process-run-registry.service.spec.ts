@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { AgentAguiInProcessRunRegistry } from "../agent-agui-in-process-run-registry.service";
+import { AgentAguiInProcessRunRegistry, AgentAguiUserCancelled } from "../agent-agui-in-process-run-registry.service";
 
 describe("AgentAguiInProcessRunRegistry", () => {
   it("seals a missing exact coordinate so a stale request cannot begin later", async () => {
@@ -16,8 +16,6 @@ describe("AgentAguiInProcessRunRegistry", () => {
       registry.stopAndInspect(coordinate, new AbortController().signal),
     ).resolves.toEqual({ status: "cancelled" });
 
-    expect(() => registry.begin(coordinate)).toThrow(
-      "AGUI_RUNTIME_COORDINATE_SEALED",
-    );
+    expect(() => registry.begin(coordinate)).toThrow(AgentAguiUserCancelled);
   });
 });

@@ -40,6 +40,10 @@ describe('SupplyAgentCapabilityAdapter', () => {
     if (key === 'supply.create_purchase_order_draft') {
       expect(drafts.createFromRecommendation).toHaveBeenCalledWith(expect.objectContaining({
         organizationId: 'org-1',
+        idempotencyKey: expect.stringContaining(
+          'supply.create_purchase_order_draft',
+        ),
+        requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
       }));
       expect(submissions.submit).not.toHaveBeenCalled();
     } else {

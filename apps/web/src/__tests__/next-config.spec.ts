@@ -14,7 +14,6 @@ interface ImageRemotePattern {
 }
 
 const ORIGINAL_API_URL = process.env.NEXT_PUBLIC_API_URL;
-const ORIGINAL_GATEWAY_URL = process.env.INTERACTION_GATEWAY_URL;
 const webRoot = process.cwd().endsWith('/apps/web')
   ? process.cwd()
   : resolve(process.cwd(), 'apps/web');
@@ -54,22 +53,19 @@ async function getImageRemotePatterns(): Promise<ImageRemotePattern[]> {
 describe('next.config rewrites — chat runtime same-origin transport', () => {
   beforeEach(() => {
     delete process.env.NEXT_PUBLIC_API_URL;
-    delete process.env.INTERACTION_GATEWAY_URL;
   });
 
   afterEach(() => {
     if (ORIGINAL_API_URL === undefined) delete process.env.NEXT_PUBLIC_API_URL;
     else process.env.NEXT_PUBLIC_API_URL = ORIGINAL_API_URL;
-    if (ORIGINAL_GATEWAY_URL === undefined) delete process.env.INTERACTION_GATEWAY_URL;
-    else process.env.INTERACTION_GATEWAY_URL = ORIGINAL_GATEWAY_URL;
   });
 
-  it('rewrites the exact /api/copilotkit path to the dev-only local gateway', async () => {
+  it('rewrites the exact /api/copilotkit path to the ordinary Nest API', async () => {
     const rules = await getRewrites();
 
     expect(rules).toEqual(
       expect.arrayContaining([
-        { source: '/api/copilotkit', destination: 'http://localhost:4100/api/copilotkit' },
+        { source: '/api/copilotkit', destination: 'http://localhost:4000/api/copilotkit' },
       ]),
     );
   });
@@ -81,40 +77,26 @@ describe('next.config rewrites — chat runtime same-origin transport', () => {
       expect.arrayContaining([
         {
           source: '/api/copilotkit/:path*',
-          destination: 'http://localhost:4100/api/copilotkit/:path*',
+          destination: 'http://localhost:4000/api/copilotkit/:path*',
         },
       ]),
     );
   });
 
-  it('honours the server-only INTERACTION_GATEWAY_URL when set', async () => {
-    const rules = await getRewrites({ INTERACTION_GATEWAY_URL: 'http://gateway.kiditem.local:4101' });
-
-    const destinations = rules.map((r) => r.destination);
-    expect(destinations).toContain('http://gateway.kiditem.local:4101/api/copilotkit');
-    expect(destinations).toContain('http://gateway.kiditem.local:4101/api/copilotkit/:path*');
+  it('uses the configured ordinary API base in every Next phase', async () => {
+    const rules = await getRewrites({ NEXT_PUBLIC_API_URL: 'https://api.example.test/' }, 'phase-production-server');
+    expect(rules).toContainEqual({ source: '/api/copilotkit', destination: 'https://api.example.test/api/copilotkit' });
   });
 
-  it('strips a single trailing slash from INTERACTION_GATEWAY_URL', async () => {
-    const rules = await getRewrites({ INTERACTION_GATEWAY_URL: 'http://gateway.kiditem.local:4101/' });
+  it('includes the regular API rewrite only when the build enables the all-API proxy', async () => {
+    const rules = await getRewrites({
+      NEXT_PUBLIC_API_URL: 'http://127.0.0.1:4320',
+      KIDITEM_PROXY_ALL_API: 'true',
+    }, 'phase-production-build');
 
-    for (const rule of rules) {
-      expect(rule.destination).not.toContain('//api/copilotkit');
-    }
-    expect(rules.map((r) => r.destination)).toContain(
-      'http://gateway.kiditem.local:4101/api/copilotkit',
-    );
-  });
-
-  it('fails fast in production without INTERACTION_GATEWAY_URL', () => {
-    expect(() => getRewrites({ NODE_ENV: 'production', INTERACTION_GATEWAY_URL: '' }, 'phase-production-server')).rejects.toThrow();
-  });
-
-  it('keeps production builds finite while deferring the required-value check to server startup', async () => {
-    const rules = await getRewrites({ NODE_ENV: 'production', INTERACTION_GATEWAY_URL: '' }, 'phase-production-build');
     expect(rules).toContainEqual({
-      source: '/api/copilotkit',
-      destination: 'http://interaction-gateway.invalid/api/copilotkit',
+      source: '/api/:path*',
+      destination: 'http://127.0.0.1:4320/api/:path*',
     });
   });
 });

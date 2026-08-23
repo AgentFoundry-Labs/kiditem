@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AutomationModule } from '../automation.module';
 import { OperationAlertRuntimeModule } from '../operation-alert-runtime.module';
-import { AiAgentRuntimeModule } from '../../ai/ai-agent-runtime.module';
+import { AiProductGenerationRuntimeModule } from '../../ai/ai-product-generation-runtime.module';
 import { AiOperationAlertAdapter } from '../../ai/adapter/out/automation/operation-alert.adapter';
 import { AI_OPERATION_ALERT_PORT } from '../../ai/application/port/out/cross-domain/operation-alert.port';
 import { ChannelsModule } from '../../channels/channels.module';
@@ -40,8 +40,8 @@ const consumers = [
     token: INVENTORY_OPERATION_ALERT_PORT,
   },
   {
-    name: 'AiAgentRuntimeModule',
-    module: AiAgentRuntimeModule,
+    name: 'AiProductGenerationRuntimeModule',
+    module: AiProductGenerationRuntimeModule,
     alertRuntimeModule: OperationAlertRuntimeModule,
     adapter: AiOperationAlertAdapter,
     token: AI_OPERATION_ALERT_PORT,

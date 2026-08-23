@@ -1,4 +1,5 @@
 import { Inject, Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import { z } from 'zod';
 import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
@@ -76,6 +77,12 @@ function purchaseOrderDraftIdempotencyKey(input: {
   return `${input.requestId}:supply.create_purchase_order_draft:${source}`;
 }
 
+function purchaseOrderDraftRequestHash(value: Record<string, unknown>): string {
+  return createHash('sha256')
+    .update(JSON.stringify(Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))))
+    .digest('hex');
+}
+
 export function purchaseOrderSubmissionIdempotencyKey(
   executionInput: AgentCapabilityExecutionInput,
 ): string {
@@ -108,9 +115,12 @@ export class SupplyAgentCapabilityAdapter implements OnModuleInit {
       execute: async (execution) => {
         const { organizationId } = ownerCapabilityContext(execution);
         const { input } = execution;
+        const recommendation = recommendationFromInput(input);
         const result = await this.drafts.createFromRecommendation({
           organizationId,
-          recommendation: recommendationFromInput(input),
+          idempotencyKey: purchaseOrderDraftIdempotencyKey(execution),
+          requestHash: purchaseOrderDraftRequestHash(recommendation),
+          recommendation,
         });
         return {
           resourceType: 'purchase_order',

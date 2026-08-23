@@ -16,6 +16,7 @@ import { PrismaAgentSessionOwnedOperationTransaction } from "./adapter/out/trans
 import { PrismaAgentApprovalContinuationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-approval-continuation.transaction";
 import { PrismaAgentSessionTransitionTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-transition.transaction";
 import { PrismaAgentSessionArtifactMaterializationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-artifact-materialization.transaction";
+import { PrismaAgentSessionCancellationTransaction } from "./adapter/out/transaction/session-control/prisma-agent-session-cancellation.transaction";
 import { PrismaAgentExecutionContextRepository } from "./adapter/out/repository/prisma-agent-execution-context.repository";
 import { PrismaAgentConversationModelViewRepository } from "./adapter/out/repository/prisma-agent-conversation-model-view.repository";
 import { InProcessAgentConversationLivePublisher } from "./adapter/out/event/in-process-agent-conversation-live-publisher.adapter";
@@ -34,6 +35,7 @@ import { AGENT_SESSION_OWNED_OPERATION_TRANSACTION } from "./application/port/ou
 import { AGENT_APPROVAL_CONTINUATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-approval-continuation.transaction.port";
 import { AGENT_SESSION_TRANSITION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-transition.transaction.port";
 import { AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-artifact-materialization.transaction.port";
+import { AGENT_SESSION_CANCELLATION_TRANSACTION } from "./application/port/out/transaction/session-control/agent-session-cancellation.transaction.port";
 import { AGENT_EXECUTION_CONTEXT_REPOSITORY } from "./application/port/out/repository/agent-execution-context.repository.port";
 import { AGENT_CONVERSATION_MODEL_VIEW_REPOSITORY } from "./application/port/out/repository/agent-conversation-model-view.repository.port";
 import { AGENT_CONVERSATION_LIVE_PUBLISHER } from "./application/port/out/event/agent-conversation-live-publisher.port";
@@ -47,15 +49,10 @@ import {
 import { AgentExecutionContextBuilder } from "./application/service/agent-execution-context-builder.service";
 import { AgentSessionCapabilityInvocationService } from "./application/service/agent-session-capability-invocation.service";
 import { AgentRuntimeAdapterRegistry } from "./application/service/agent-runtime-adapter.registry";
-import { PrismaAgentRuntimeCredentialAuthorityRepository } from "./adapter/out/repository/session-execution/prisma-agent-runtime-credential-authority.repository";
 import { AgentSessionRuntimeCleanupAdapter } from "./adapter/out/runtime/agent-session-runtime-cleanup.adapter";
 import { PrismaAgentSessionDeletionExecutionTransaction } from "./adapter/out/transaction/session-deletion/prisma-agent-session-deletion-execution.transaction";
-import { AgentRuntimeCredentialVerificationService } from "./application/service/session-execution/agent-runtime-credential-verification.service";
-import { AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY } from "./application/port/out/repository/session-execution/agent-runtime-credential-authority.repository.port";
-import { AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT } from "./application/port/in/session-execution/agent-runtime-credential-verification.port";
 import { AGENT_SESSION_RUNTIME_CLEANUP_PORT } from "./application/port/out/runtime/agent-session-runtime-cleanup.port";
 import { AGENT_SESSION_DELETION_EXECUTION_TRANSACTION } from "./application/port/out/transaction/session-deletion/agent-session-deletion-execution.transaction.port";
-import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credential-broker";
 
 @Module({
   imports: [
@@ -66,20 +63,8 @@ import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credentia
   ],
   providers: [
     AgentRuntimeAdapterRegistry,
-    PrismaAgentRuntimeCredentialAuthorityRepository,
-    AgentRuntimeCredentialVerificationService,
     AgentSessionRuntimeCleanupAdapter,
     PrismaAgentSessionDeletionExecutionTransaction,
-    {
-      provide: RuntimeCredentialBroker,
-      useFactory: () => {
-        return new RuntimeCredentialBroker({
-          secretResolver: () => process.env.AGENT_RUNTIME_CREDENTIAL_HMAC_KEY,
-        });
-      },
-    },
-    { provide: AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY, useExisting: PrismaAgentRuntimeCredentialAuthorityRepository },
-    { provide: AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT, useExisting: AgentRuntimeCredentialVerificationService },
     { provide: AGENT_SESSION_RUNTIME_CLEANUP_PORT, useExisting: AgentSessionRuntimeCleanupAdapter },
     { provide: AGENT_SESSION_DELETION_EXECUTION_TRANSACTION, useExisting: PrismaAgentSessionDeletionExecutionTransaction },
     {
@@ -147,6 +132,10 @@ import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credentia
       useClass: PrismaAgentSessionArtifactMaterializationTransaction,
     },
     {
+      provide: AGENT_SESSION_CANCELLATION_TRANSACTION,
+      useClass: PrismaAgentSessionCancellationTransaction,
+    },
+    {
       // Until each owner domain supplies a version resolver, only an approval
       // with no resource reference may be resumed. Unknown resources never
       // become implicit approval authority.
@@ -193,8 +182,6 @@ import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credentia
     AgentRuntimeAdapterRegistry,
     AgentExecutionContextBuilder,
     AGENT_SESSION_CAPABILITY_INVOCATION_PORT,
-    AGENT_RUNTIME_CREDENTIAL_AUTHORITY_REPOSITORY,
-    AGENT_RUNTIME_CREDENTIAL_VERIFICATION_PORT,
     AGENT_SESSION_RUNTIME_CLEANUP_PORT,
     AGENT_SESSION_DELETION_EXECUTION_TRANSACTION,
     AGENT_SESSION_CONTROL_QUERY_REPOSITORY,
@@ -204,6 +191,7 @@ import { RuntimeCredentialBroker } from "./adapter/out/runtime/runtime-credentia
     AGENT_APPROVAL_CONTINUATION_TRANSACTION,
     AGENT_SESSION_TRANSITION_TRANSACTION,
     AGENT_SESSION_ARTIFACT_MATERIALIZATION_TRANSACTION,
+    AGENT_SESSION_CANCELLATION_TRANSACTION,
     AGENT_CONVERSATION_LIVE_PUBLISHER,
     AGENT_SESSION_RESOURCE_VERSION_VALIDATOR,
   ],

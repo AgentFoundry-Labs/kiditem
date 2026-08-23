@@ -9,8 +9,22 @@ function makeJudgment(): { submit: ReturnType<typeof vi.fn> } & AdvertisingJudgm
 function makeService() {
   const judgment = makeJudgment();
   const operationAlerts = { start: vi.fn().mockResolvedValue(undefined) };
+  const strategies = {
+    getWeeklyPlan: vi.fn().mockResolvedValue({
+      week: { start: '2026-08-09', end: '2026-08-22' },
+      actions: [{ type: 'raise_budget' }],
+      issues: {
+        zeroConversion: [],
+        lowRoas: [{ listing: { listingId: 'listing-1' } }],
+        highSpend: [],
+      },
+      accountSummary: { spend: 1200, sales: 4800 },
+      tierAnalysis: { tier1: 3 },
+      top20: [{ listingId: 'listing-1', roas: 4 }],
+    }),
+  };
   return {
-    service: new AdStrategyAgentService(judgment, operationAlerts),
+    service: new AdStrategyAgentService(judgment, operationAlerts, strategies as never),
     judgment,
     operationAlerts,
   };
@@ -28,15 +42,20 @@ describe('AdStrategyAgentService', () => {
     const { service, judgment } = makeService();
     judgment.submit.mockResolvedValue(submitted);
 
-    await expect(service.run({ organizationId: 'org-1', triggeredByUserId: 'user-1', dryRun: true }))
+    await expect(service.run({
+      organizationId: 'org-1',
+      triggeredByUserId: 'user-1',
+      idempotencyKey: 'request-1',
+      dryRun: true,
+    }))
       .resolves.toEqual(submitted);
 
     expect(judgment.submit).toHaveBeenCalledWith({
       organizationId: 'org-1',
       actorUserId: 'user-1',
-      objective: 'Create an advertising strategy analysis.',
+      objective: expect.stringContaining('"actionCount":1'),
       resourceRefs: [],
-      idempotencyKey: 'advertising.ad_strategy.manual:org-1:user-1:true',
+      idempotencyKey: 'advertising.ad_strategy.manual:user-1:request-1',
     });
   });
 
@@ -44,7 +63,11 @@ describe('AdStrategyAgentService', () => {
     const { service, judgment, operationAlerts } = makeService();
     judgment.submit.mockResolvedValue(submitted);
 
-    await service.run({ organizationId: 'org-1', triggeredByUserId: 'user-1' });
+    await service.run({
+      organizationId: 'org-1',
+      triggeredByUserId: 'user-1',
+      idempotencyKey: 'request-2',
+    });
 
     expect(operationAlerts.start).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1',
@@ -58,7 +81,11 @@ describe('AdStrategyAgentService', () => {
   it('rejects a system caller instead of creating judgment without a user actor', async () => {
     const { service, judgment } = makeService();
 
-    await expect(service.run({ organizationId: 'org-1', triggeredByUserId: null }))
+    await expect(service.run({
+      organizationId: 'org-1',
+      triggeredByUserId: null,
+      idempotencyKey: 'request-3',
+    }))
       .rejects.toThrow('AD_STRATEGY_JUDGMENT_ACTOR_REQUIRED');
 
     expect(judgment.submit).not.toHaveBeenCalled();

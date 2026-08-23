@@ -21,12 +21,6 @@ function baseEnv(databaseUrl) {
     WEB_ORIGIN: 'http://127.0.0.1:4310',
     PORT: '4340',
     AGENT_DEFAULT_MODEL: 'deletion-process-proof',
-    AGENT_RUNTIME_CREDENTIAL_HMAC_KEY: 'd'.repeat(48),
-    INTERACTION_GATEWAY_SHARED_SECRET: 'g'.repeat(48),
-    INTERACTION_PRINCIPAL_HMAC_KEY: 'p'.repeat(48),
-    INTERACTION_RUN_INTENT_HMAC_KEY: 'i'.repeat(48),
-    INTERACTION_REPLAY_CURSOR_HMAC_KEY: 'r'.repeat(48),
-    INTERACTION_ANALYTICS_HMAC_KEY: 'a'.repeat(48),
     OPERATION_RUNTIME_WORKER_ENABLED: '1',
     OPERATION_SCHEDULER_ENABLED: '0',
     AI_DIRECT_JOB_WORKER_ENABLED: '0',
@@ -141,22 +135,6 @@ async function main() {
     await waitFor(() => worker.output.join('').includes('Worker running with Nest application context'), 'worker root')
       .catch((error) => { throw new Error(`${error.message}: ${worker.output.join('')}`); });
     await stop(worker);
-
-    const mcp = start('mcp', ['apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js'], {
-      ...env,
-      OPERATION_RUNTIME_WORKER_ENABLED: '0',
-      AGENT_RUNTIME_WORKER_ENABLED: '0',
-      KIDITEM_AGENT_OS_ENV_ROOT: root,
-      KIDITEM_AGENT_OS_ORGANIZATION_ID: '00000000-0000-4000-8000-000000000001',
-      KIDITEM_AGENT_OS_CONVERSATION_ID: 'proof-conversation',
-      KIDITEM_AGENT_OS_REQUEST_ID: 'proof-request',
-      KIDITEM_AGENT_OS_RUN_ID: 'proof-run',
-      KIDITEM_AGENT_OS_AGENT_INSTANCE_ID: 'proof-instance',
-    });
-    mcp.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05', capabilities: {}, clientInfo: { name: 'proof', version: '1' } } })}\n`);
-    await waitFor(() => mcp.output.join('').includes('"id":1'), 'MCP initialize response')
-      .catch((error) => { throw new Error(`${error.message}: ${mcp.output.join('')}`); });
-    await stop(mcp);
 
     // The test-only probe creates the three real Nest roots and resolves their
     // providers directly. Log text is used above only for bounded process

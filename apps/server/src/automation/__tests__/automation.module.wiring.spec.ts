@@ -25,6 +25,7 @@ import { AlertsRepositoryAdapter } from '../adapter/out/repository/alerts.reposi
 import { MarketplaceCatalogRepositoryAdapter } from '../adapter/out/repository/marketplace-catalog.repository.adapter';
 import { MarketplaceInstallStoreRepositoryAdapter } from '../adapter/out/repository/marketplace-install-store.repository.adapter';
 import { OperationAlertRepositoryAdapter } from '../adapter/out/repository/operation-alert.repository.adapter';
+import { OperationRunAlertSourceStateAdapter } from '../adapter/out/operations/operation-run-alert-source-state.adapter';
 import { WorkflowOrchestrationRepositoryAdapter } from '../adapter/out/repository/workflow-orchestration.repository.adapter';
 
 // adapter/out/panel-event
@@ -50,6 +51,7 @@ import { ALERTS_REPOSITORY_PORT } from '../application/port/out/repository/alert
 import { MARKETPLACE_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/marketplace-catalog.repository.port';
 import { MARKETPLACE_INSTALL_STORE_PORT } from '../application/port/out/repository/marketplace-install-store.port';
 import { OPERATION_ALERT_REPOSITORY_PORT } from '../application/port/out/repository/operation-alert.repository.port';
+import { OPERATION_ALERT_SOURCE_STATE_PORT } from '../application/port/out/operations/operation-alert-source-state.port';
 import { WORKFLOW_ORCHESTRATION_REPOSITORY_PORT } from '../application/port/out/repository/workflow-orchestration.repository.port';
 
 const IMPORTS_KEY = 'imports';
@@ -168,14 +170,21 @@ describe('AutomationModule capability wiring', () => {
     expect(runtimeProviders).toEqual([
       OperationAlertRepositoryAdapter,
       OperationAlertService,
+      OperationRunAlertSourceStateAdapter,
       {
         provide: OPERATION_ALERT_REPOSITORY_PORT,
         useExisting: OperationAlertRepositoryAdapter,
       },
       { provide: OPERATION_ALERT_PORT, useExisting: OperationAlertService },
+      {
+        provide: OPERATION_ALERT_SOURCE_STATE_PORT,
+        useExisting: OperationRunAlertSourceStateAdapter,
+      },
     ]);
     expect(Reflect.getMetadata(EXPORTS_KEY, OperationAlertRuntimeModule)).toEqual([
       OPERATION_ALERT_PORT,
+      OPERATION_ALERT_REPOSITORY_PORT,
+      OperationAlertService,
     ]);
   });
 

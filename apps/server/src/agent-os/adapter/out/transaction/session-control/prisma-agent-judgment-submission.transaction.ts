@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../../prisma/prisma.service';
@@ -19,6 +19,54 @@ export class PrismaAgentJudgmentSubmissionTransaction
       return await this.prisma.$transaction(async (tx) => {
         await submissionLock(tx, input);
         await humanPrincipal(tx, input.organizationId, input.userId);
+        await authority(tx, input);
+
+        const identity = digest([
+          'agent-judgment', input.organizationId, input.userId,
+          input.agentDefinitionKey, input.idempotencyKey,
+        ]);
+        const copilotThreadId = `judgment.${identity}`;
+        const aguiRunId = `judgment.${identity}`;
+        const currentInput = judgmentCurrentInput(input.objective, copilotThreadId);
+        const inputHash = digest(currentInput);
+        const session = await tx.agentSession.findFirst({
+          where: { organizationId: input.organizationId, copilotThreadId },
+          select: {
+            id: true, organizationId: true, createdByUserId: true,
+            primaryAgentVersionId: true, authorityProfileVersionId: true, lifecycle: true,
+          },
+        });
+        if (session) {
+          const storedVersion = await tx.agentVersion.findFirst({
+            where: { id: session.primaryAgentVersionId },
+            select: { agentDefinitionKey: true },
+          });
+          if (
+            session.createdByUserId !== input.userId
+            || storedVersion?.agentDefinitionKey !== input.agentDefinitionKey
+            || session.authorityProfileVersionId !== input.authorityProfileVersionId
+            || session.lifecycle !== 'active'
+          ) throw conflict();
+          const existing = await tx.agentExecution.findFirst({
+            where: { organizationId: input.organizationId, copilotThreadId, aguiRunId },
+            select: { id: true, sessionId: true, sessionTaskId: true, inputHash: true },
+          });
+          if (!existing || existing.sessionId !== session.id || existing.inputHash !== inputHash)
+            throw conflict();
+          const outbox = await tx.agentExecutionDispatchOutbox.findFirst({
+            where: {
+              organizationId: input.organizationId,
+              sessionId: session.id,
+              sessionTaskId: existing.sessionTaskId,
+              executionId: existing.id,
+            },
+            select: { idempotencyKey: true, fingerprint: true, state: true, operationRunId: true },
+          });
+          if (!outbox || outbox.idempotencyKey !== input.idempotencyKey || outbox.fingerprint !== input.fingerprint)
+            throw conflict();
+          return result(input, session.id, existing.sessionTaskId, existing.id, outbox);
+        }
+
         const version = await tx.agentVersion.findFirst({
           where: {
             agentDefinitionKey: input.agentDefinitionKey,
@@ -36,46 +84,8 @@ export class PrismaAgentJudgmentSubmissionTransaction
           },
         });
         if (!version) throw boundary('AGENT_JUDGMENT_AGENT_NOT_ACTIVE');
-        await authority(tx, input);
-
-        const identity = digest([
-          'agent-judgment', input.organizationId, input.userId,
-          input.agentDefinitionKey, input.idempotencyKey,
-        ]);
-        const copilotThreadId = `judgment.${identity}`;
-        const aguiRunId = `judgment.${identity}`;
-        const session = await tx.agentSession.findFirst({
-          where: { organizationId: input.organizationId, copilotThreadId },
-          select: {
-            id: true, organizationId: true, createdByUserId: true,
-            primaryAgentVersionId: true, authorityProfileVersionId: true, lifecycle: true,
-          },
-        });
-        if (session) {
-          if (
-            session.createdByUserId !== input.userId
-            || session.primaryAgentVersionId !== version.id
-            || session.authorityProfileVersionId !== input.authorityProfileVersionId
-            || session.lifecycle !== 'active'
-          ) throw conflict();
-          const existing = await tx.agentExecution.findFirst({
-            where: { organizationId: input.organizationId, copilotThreadId, aguiRunId },
-            select: { id: true, sessionId: true, sessionTaskId: true, inputHash: true },
-          });
-          if (!existing || existing.sessionId !== session.id || existing.inputHash !== input.fingerprint)
-            throw conflict();
-          const outbox = await tx.agentExecutionDispatchOutbox.findFirst({
-            where: {
-              organizationId: input.organizationId,
-              sessionId: session.id,
-              sessionTaskId: existing.sessionTaskId,
-              executionId: existing.id,
-            },
-            select: { idempotencyKey: true, fingerprint: true, state: true, operationRunId: true },
-          });
-          if (!outbox || outbox.idempotencyKey !== input.idempotencyKey || outbox.fingerprint !== input.fingerprint)
-            throw conflict();
-          return result(input, session.id, existing.sessionTaskId, existing.id, outbox);
+        if (!input.registeredRuntimeTypes.includes(version.runtimeType)) {
+          throw boundary('AGENT_RUNTIME_NOT_CONFIGURED');
         }
 
         const created = await tx.agentSession.create({
@@ -96,7 +106,7 @@ export class PrismaAgentJudgmentSubmissionTransaction
             assignedAgentVersionId: version.id,
             objective: null,
             isRoot: true,
-            status: 'interpreting',
+            status: 'queued',
             idempotencyKey: 'root',
           },
           select: { id: true },
@@ -131,24 +141,12 @@ export class PrismaAgentJudgmentSubmissionTransaction
             runtimeType: version.runtimeType,
             modelIdentity: version.modelIdentity,
             policySnapshotId: policy.id,
-            inputHash: input.fingerprint,
-            currentInput: { objective: input.objective },
+            inputHash,
+            currentInput,
             resourceRefs: input.resourceRefs as Prisma.InputJsonValue,
             status: 'running',
           },
           select: { id: true },
-        });
-        await tx.agentExecutionAttempt.create({
-          data: {
-            organizationId: input.organizationId,
-            sessionId: created.id,
-            executionId: execution.id,
-            attemptNumber: 1,
-            idempotencyKey: `agui:${aguiRunId}`,
-            runtimeType: version.runtimeType,
-            runtimeStartIntentId: randomUUID(),
-            state: 'running',
-          },
         });
         const updatedSession = await tx.agentSession.update({
           where: { id_organizationId: { id: created.id, organizationId: input.organizationId } },
@@ -160,11 +158,11 @@ export class PrismaAgentJudgmentSubmissionTransaction
             organizationId: input.organizationId,
             sessionId: created.id,
             executionId: execution.id,
-            externalEventId: `judgment.${identity}`,
+            externalEventId: currentInput.userEvent.externalEventId,
             sequence: updatedSession.lastEventSequence,
             eventType: 'user_message',
             schemaVersion: 1,
-            payload: { phase: 'complete', messageId: `judgment.${identity}`, content: input.objective },
+            payload: currentInput.userEvent.payload,
           },
           select: { id: true },
         });
@@ -262,6 +260,19 @@ function canonical(value: unknown): string {
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([key, item]) => `${JSON.stringify(key)}:${canonical(item)}`).join(',')}}`;
   throw conflict();
+}
+function judgmentCurrentInput(objective: string, externalEventId: string) {
+  return {
+    userEvent: {
+      externalEventId,
+      schemaVersion: 1 as const,
+      payload: {
+        phase: 'complete' as const,
+        messageId: externalEventId,
+        content: objective,
+      },
+    },
+  };
 }
 function digest(value: unknown): string { return createHash('sha256').update(canonical(value)).digest('hex'); }
 function stableUuid(value: unknown): string {

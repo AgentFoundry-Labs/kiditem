@@ -136,7 +136,7 @@ describe('agent local CLI command builders', () => {
     expect(command.args.join(' ')).not.toContain('mcp_servers.');
   });
 
-  it('forwards only the selected providers local authentication environment', () => {
+  it('uses only local CLI login paths and never forwards provider credentials', () => {
     const host = commandInput().hostEnvironment;
     expect(filterLocalCliEnvironment('claude_cli', host)).toMatchObject({
       PATH: '/usr/bin',
@@ -147,8 +147,10 @@ describe('agent local CLI command builders', () => {
     );
     expect(filterLocalCliEnvironment('codex_cli', host)).toMatchObject({
       CODEX_HOME: '/Users/operator/.codex',
-      OPENAI_API_KEY: 'operator-supplied',
     });
+    expect(filterLocalCliEnvironment('codex_cli', host)).not.toHaveProperty(
+      'OPENAI_API_KEY',
+    );
   });
 
   it('uses bounded runtime defaults and finite-positive tuning fallbacks', () => {

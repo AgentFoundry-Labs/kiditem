@@ -30,7 +30,7 @@ const authorization = (): AguiRunAuthorization => ({
     AgentExecutionIdSchema.parse("execution-1"),
   ),
   modelIdentity: "gpt-5.2",
-  runtimeType: "openai_responses",
+  runtimeType: "copilotkit_agui",
   policyHash: "a".repeat(64),
   contextEpoch: 1,
   dashboardContext: {
@@ -75,7 +75,7 @@ function setup(
 ) {
   const calls: string[] = [];
   const repository = {
-    loadExecutionRuntimeContext: vi.fn().mockResolvedValue({
+    loadInlineAguiExecutionRuntimeContext: vi.fn().mockResolvedValue({
       organizationId: "org-1",
       userId: "user-1",
       agentDefinitionKey: "operator",
@@ -88,7 +88,8 @@ function setup(
       copilotThreadId: "thread-1",
       aguiRunId: "run-1",
       agentVersionId: "version-1",
-      runtimeType: "openai_responses",
+      agentVersion: 1,
+      runtimeType: "copilotkit_agui",
       modelIdentity: "gpt-5.2",
       policySnapshotId: "policy-1",
       policyHash: "a".repeat(64),
@@ -151,7 +152,7 @@ function setup(
       copilotThreadId: "thread-1",
       aguiRunId: "run-1",
       status: "running",
-      runtimeType: "openai_responses",
+      runtimeType: "copilotkit_agui",
       agentDefinitionKey: "operator",
       attempt: 1,
     }),
@@ -162,9 +163,11 @@ function setup(
       copilotThreadId: "thread-1",
       aguiRunId: "run-1",
       status: "running",
-      runtimeType: "openai_responses",
+      runtimeType: "copilotkit_agui",
       agentDefinitionKey: "operator",
       attempt: 1,
+      attemptId: "attempt-1",
+      startIntentId: "00000000-0000-4000-8000-000000000001",
     }),
   };
   const publisher = {
@@ -184,7 +187,7 @@ function setup(
     }),
     stop: vi.fn().mockResolvedValue(true),
   };
-  runtimes.register("openai_responses", runtime);
+  runtimes.register("copilotkit_agui", runtime);
   const capabilityInvocations = {
     invoke: vi.fn().mockResolvedValue({
       outputSummary: {
@@ -197,7 +200,6 @@ function setup(
       },
     }),
   };
-  const analytics = { record: vi.fn().mockResolvedValue(true) };
   const service = new AgentAguiRunService(
     repository as never,
     repository as never,
@@ -207,7 +209,6 @@ function setup(
     runtimes,
     capabilityInvocations as never,
     new AgentInteractionPresentationService(),
-    analytics,
   );
   return {
     service,
@@ -215,7 +216,6 @@ function setup(
     publisher,
     runtime,
     capabilityInvocations,
-    analytics,
     calls,
   };
 }
@@ -228,7 +228,7 @@ async function collect(iterable: AsyncIterable<BaseEvent>) {
 
 describe("AgentAguiRunService", () => {
   it("uses canonical history and persists every normalized event before publishing/yielding", async () => {
-    const { service, repository, runtime, analytics, calls } = setup();
+    const { service, repository, runtime, calls } = setup();
     const events = await collect(
       service.run({ agentDefinitionKey: "operator", input: runInput() }),
     );
@@ -252,7 +252,7 @@ describe("AgentAguiRunService", () => {
         startIntentId: "00000000-0000-4000-8000-000000000001",
         runtimeCredentialGeneration: 0,
         modelIdentity: "gpt-5.2",
-        runtimeType: "openai_responses",
+        runtimeType: "copilotkit_agui",
         messages: expect.arrayContaining([
           expect.objectContaining({ content: "canonical prior" }),
         ]),
@@ -281,20 +281,9 @@ describe("AgentAguiRunService", () => {
       costMicros: 12n,
       currency: "USD",
     });
-    expect(analytics.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        event: "interaction_run_finished",
-        organizationId: "org-1",
-        sessionId: "session-1",
-        executionId: "execution-1",
-        surface: "global_panel",
-        outcome: "completed",
-        rendererKinds: [],
-      }),
-    );
   });
 
-  it("records only deduplicated renderer kinds accepted from the strict persisted tool-result stream", async () => {
+  it("accepts strict persisted tool-result streams without interaction analytics", async () => {
     const suggestion = {
       kind: "suggested_replies",
       messageId: "assistant-source-1",
@@ -330,7 +319,7 @@ describe("AgentAguiRunService", () => {
         content: JSON.stringify(result),
       },
     ];
-    const { service, analytics } = setup([
+    const { service } = setup([
       { type: EventType.RUN_STARTED, threadId: "thread-1", runId: "run-1" },
       ...toolEvents("tool-1", "tool-message-1", suggestion),
       ...toolEvents("tool-2", "tool-message-2", suggestion),
@@ -338,25 +327,20 @@ describe("AgentAguiRunService", () => {
       { type: EventType.RUN_FINISHED, threadId: "thread-1", runId: "run-1" },
     ]);
 
-    await collect(
+    const events = await collect(
       service.run({ agentDefinitionKey: "operator", input: runInput() }),
     );
-
-    expect(analytics.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        rendererKinds: ["suggested_replies", "navigation"],
-      }),
-    );
+    expect(events).toHaveLength(11);
   });
 
-  it("never records a renderer kind when its validated tool result was not persisted", async () => {
+  it("returns a normalized failure when a strict tool result cannot be persisted", async () => {
     const result = {
       kind: "suggested_replies",
       messageId: "assistant-source-1",
       replies: [{ id: "reply-1", label: "후속", content: "후속 질문" }],
       textFallback: "후속 질문이 있습니다.",
     };
-    const { service, repository, analytics } = setup([
+    const { service, repository } = setup([
       { type: EventType.RUN_STARTED, threadId: "thread-1", runId: "run-1" },
       {
         type: EventType.TOOL_CALL_START,
@@ -385,16 +369,10 @@ describe("AgentAguiRunService", () => {
       new Error("persist failed"),
     );
 
-    await collect(
+    const events = await collect(
       service.run({ agentDefinitionKey: "operator", input: runInput() }),
     );
-
-    expect(analytics.record).toHaveBeenCalledWith(
-      expect.objectContaining({
-        outcome: "failed",
-        rendererKinds: [],
-      }),
-    );
+    expect(events.at(-1)).toMatchObject({ type: EventType.RUN_ERROR });
   });
 
   it("persists every assistant stream phase before yield and folds ordered deltas into one model turn", async () => {
@@ -630,6 +608,7 @@ describe("AgentAguiRunService", () => {
     ).resolves.toMatchObject({ interactionUiResult: { kind: "metric_group" } });
     expect(capabilityInvocations.invoke).toHaveBeenCalledWith(
       expect.objectContaining({
+        invocationSurface: "interactive_runtime",
         capabilityKey: "analytics.readOverview",
         input: {},
         session: "organizations/org-1/agentSessions/session-1",
@@ -839,7 +818,7 @@ describe("AgentAguiRunService", () => {
     expect(repository.appendExecutionEvent).toHaveBeenCalledTimes(1);
   });
 
-  it("stops only the exact current execution", async () => {
+  it("stops only the exact current execution and is the sole cancelled terminal writer", async () => {
     const { service, runtime, repository } = setup();
     await expect(
       service.stop({
@@ -848,10 +827,19 @@ describe("AgentAguiRunService", () => {
         executionId: "execution-1",
         copilotThreadId: "thread-1",
         aguiRunId: "run-1",
+        attemptId: "attempt-1",
+        startIntentId: "00000000-0000-4000-8000-000000000001",
       }),
     ).resolves.toBe(true);
     expect(runtime.stop).toHaveBeenCalledWith(
       expect.objectContaining({ executionId: "execution-1" }),
+    );
+    expect(repository.appendExecutionEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: "run_terminal",
+        payload: { status: "cancelled", errorCode: "user_cancelled" },
+        terminal: expect.objectContaining({ attemptId: "attempt-1", startIntentId: "00000000-0000-4000-8000-000000000001" }),
+      }),
     );
 
     repository.findCurrentSessionExecution.mockResolvedValueOnce({
@@ -861,9 +849,11 @@ describe("AgentAguiRunService", () => {
       copilotThreadId: "thread-1",
       aguiRunId: "run-2",
       status: "running",
-      runtimeType: "openai_responses",
+      runtimeType: "copilotkit_agui",
       agentDefinitionKey: "operator",
       attempt: 2,
+      attemptId: "attempt-2",
+      startIntentId: "00000000-0000-4000-8000-000000000002",
     });
     await expect(
       service.stop({
@@ -872,6 +862,8 @@ describe("AgentAguiRunService", () => {
         executionId: "execution-1",
         copilotThreadId: "thread-1",
         aguiRunId: "run-1",
+        attemptId: "attempt-1",
+        startIntentId: "00000000-0000-4000-8000-000000000001",
       }),
     ).resolves.toBe(false);
   });

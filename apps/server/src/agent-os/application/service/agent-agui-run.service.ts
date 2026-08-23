@@ -38,12 +38,7 @@ import {
   AGENT_CONVERSATION_LIVE_PUBLISHER,
   type AgentConversationLivePublisherPort,
 } from "../port/out/event/agent-conversation-live-publisher.port";
-import {
-  INTERACTION_PRODUCT_ANALYTICS_PORT,
-  type InteractionProductAnalyticsPort,
-  type InteractionRendererKind,
-} from "../port/out/event/interaction-product-analytics.port";
-import type { AgentExecutionRuntimeContext } from "../port/out/repository/interaction/agent-interaction.persistence.types";
+import type { InlineAguiExecutionRuntimeContext } from "../port/out/repository/interaction/agent-interaction.persistence.types";
 import {
   AGENT_EXECUTION_QUERY_REPOSITORY,
   type AgentExecutionQueryRepositoryPort,
@@ -66,6 +61,7 @@ import {
 } from "../../domain/agent-os.errors";
 import { AgentAguiRuntimeRegistry } from "./agent-agui-runtime-registry.service";
 import { AgentInteractionPresentationService } from "./agent-interaction-presentation.service";
+import { isAgentAguiUserCancelled } from "./agent-agui-in-process-run-registry.service";
 import type { AgentAguiRuntimeMessage } from "../port/out/runtime/agent-agui-runtime.port";
 
 const MODEL_CONTEXT_EVENT_LIMIT = 200;
@@ -87,10 +83,6 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     @Inject(AGENT_SESSION_CAPABILITY_INVOCATION_PORT)
     private readonly capabilityInvocations: AgentSessionCapabilityInvocationPort,
     private readonly presentation: AgentInteractionPresentationService = new AgentInteractionPresentationService(),
-    @Inject(INTERACTION_PRODUCT_ANALYTICS_PORT)
-    private readonly analytics: InteractionProductAnalyticsPort = {
-      record: async () => false,
-    },
   ) {}
 
   async *run(request: AuthorizedAguiRunInput): AsyncIterable<BaseEvent> {
@@ -107,7 +99,7 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
       authorization.execution,
       authorization.session,
     );
-    const runtimeContext = await this.executions.loadExecutionRuntimeContext({
+    const runtimeContext = await this.executions.loadInlineAguiExecutionRuntimeContext({
       executionId: authorizedExecution.execution,
     });
     if (!runtimeContext) {
@@ -141,8 +133,6 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     }
 
     const state = new RuntimeEventState(runtimeContext);
-    const startedAt = Date.now();
-    const rendererKinds = new Set<InteractionRendererKind>();
     try {
       const stream = runtime.run({
         organizationId: runtimeContext.organizationId,
@@ -205,32 +195,22 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
                   status: content.payload.status,
                   errorCode: content.payload.errorCode,
                   finishedAt: new Date(),
+                  attemptId: runtimeContext.attemptId,
+                  startIntentId: runtimeContext.startIntentId,
                 },
               }
             : {}),
         });
-        if (
-          content.eventType === "state_snapshot" &&
-          content.payload.snapshotType === "tool_result" &&
-          "result" in content.payload.data
-        ) {
-          rendererKinds.add(content.payload.data.result.kind);
-        }
         await this.publishAfterCommit(saved).catch(() => undefined);
-        if (content.eventType === "run_terminal") {
-          await this.recordAnalytics(
-            runtimeContext,
-            authorization.dashboardContext,
-            startedAt,
-            content.payload.status,
-            rendererKinds,
-          );
-        }
         yield event;
       }
       state.assertComplete();
     } catch (error) {
       if (state.terminal) throw error;
+      // `stop()` owns the one cancelled terminal transaction. The provider
+      // stream observes the typed local abort only after that DB-authorized
+      // coordinate was claimed, so it must not compete with a failed terminal.
+      if (isAgentAguiUserCancelled(error)) return;
       const code = stableErrorCode(error);
       const event: BaseEvent = {
         type: EventType.RUN_ERROR,
@@ -245,16 +225,9 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
         eventType: "run_terminal",
         schemaVersion: 1,
         payload: { status: "failed", errorCode: code },
-        terminal: { status: "failed", errorCode: code, finishedAt: new Date() },
+        terminal: { status: "failed", errorCode: code, finishedAt: new Date(), attemptId: runtimeContext.attemptId, startIntentId: runtimeContext.startIntentId },
       });
       await this.publishAfterCommit(saved).catch(() => undefined);
-      await this.recordAnalytics(
-        runtimeContext,
-        authorization.dashboardContext,
-        startedAt,
-        "failed",
-        rendererKinds,
-      );
       yield event;
     }
   }
@@ -272,23 +245,48 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
       current.executionId !== input.executionId ||
       current.copilotThreadId !== input.copilotThreadId ||
       current.aguiRunId !== input.aguiRunId
+      || current.attemptId !== input.attemptId
+      || current.startIntentId !== input.startIntentId
     ) {
       return false;
     }
     const runtime = this.runtimes.resolve(current.runtimeType);
     if (!runtime?.stop) return false;
-    return runtime.stop({
+    const coordinate = {
       organizationId: current.organizationId,
       sessionId: current.sessionId,
       executionId: current.executionId,
+      attemptId: input.attemptId,
+      startIntentId: input.startIntentId,
       copilotThreadId: current.copilotThreadId,
       aguiRunId: current.aguiRunId,
+    };
+    runtime.claimStop?.(coordinate);
+    const stopped = await runtime.stop(coordinate);
+    if (!stopped) return false;
+    const saved = await this.events.appendExecutionEvent({
+      organizationId: current.organizationId,
+      sessionId: current.sessionId,
+      executionId: current.executionId,
+      externalEventId: `${current.executionId}:agui:cancel`,
+      eventType: "run_terminal",
+      schemaVersion: 1,
+      payload: { status: "cancelled", errorCode: "user_cancelled" },
+      terminal: {
+        status: "cancelled",
+        errorCode: "user_cancelled",
+        finishedAt: new Date(),
+        attemptId: current.attemptId,
+        startIntentId: current.startIntentId,
+      },
     });
+    await this.publishAfterCommit(saved).catch(() => undefined);
+    return true;
   }
 
   private async loadCanonicalMessages(
     input: ReturnType<typeof RunAgentInputSchema.parse>,
-    context: AgentExecutionRuntimeContext,
+    context: InlineAguiExecutionRuntimeContext,
   ): Promise<AgentAguiRuntimeMessage[]> {
     const submitted = input.messages.at(-1);
     const initial = context.initialUserEvent;
@@ -427,7 +425,7 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
   }
 
   private async invokeCapability(
-    context: AgentExecutionRuntimeContext,
+    context: InlineAguiExecutionRuntimeContext,
     key: string,
     unsafeInput: Record<string, unknown>,
   ) {
@@ -444,6 +442,7 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     let result;
     try {
       result = await this.capabilityInvocations.invoke({
+        invocationSurface: "interactive_runtime",
         session: formatAgentSessionName(organizationId, sessionId),
         task: formatAgentSessionTaskName(
           organizationId,
@@ -498,31 +497,6 @@ export class AgentAguiRunService implements AgentAguiRunnerPort {
     });
   }
 
-  private async recordAnalytics(
-    context: AgentExecutionRuntimeContext,
-    dashboardContext: unknown,
-    startedAt: number,
-    outcome: "completed" | "failed" | "cancelled",
-    rendererKinds: Set<InteractionRendererKind>,
-  ): Promise<void> {
-    const surface =
-      record(dashboardContext).routeKey === "agent_os"
-        ? "agent_os_workspace"
-        : "global_panel";
-    await this.analytics
-      .record({
-        event: "interaction_run_finished",
-        organizationId: context.organizationId,
-        sessionId: context.sessionId,
-        executionId: context.executionId,
-        agentDefinitionKey: context.agentDefinitionKey,
-        surface,
-        durationMs: Math.max(0, Date.now() - startedAt),
-        outcome,
-        rendererKinds: [...rendererKinds],
-      })
-      .catch(() => false);
-  }
 }
 
 class RuntimeEventState {
@@ -535,7 +509,7 @@ class RuntimeEventState {
     "open" | "endedAwaitingResult" | "consumed"
   >();
 
-  constructor(private readonly context: AgentExecutionRuntimeContext) {}
+  constructor(private readonly context: InlineAguiExecutionRuntimeContext) {}
 
   accept(event: ParsedAguiEvent): AgentConversationEventContent {
     if (this.terminal)
@@ -681,7 +655,7 @@ function assertCorrelation(
   routeAgentDefinitionKey: string,
   input: ReturnType<typeof RunAgentInputSchema.parse>,
   authorization: ReturnType<typeof AguiRunAuthorizationSchema.parse>,
-  context: AgentExecutionRuntimeContext,
+  context: InlineAguiExecutionRuntimeContext,
 ): void {
   let session;
   let task;

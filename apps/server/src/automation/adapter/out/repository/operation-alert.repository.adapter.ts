@@ -70,6 +70,22 @@ export class OperationAlertRepositoryAdapter
 {
   constructor(private readonly prisma: PrismaService) {}
 
+  async listOpenBySourceType(input: {
+    sourceType: string;
+    afterId: string | null;
+    limit: number;
+  }): Promise<Alert[]> {
+    return this.prisma.alert.findMany({
+      where: {
+        sourceType: input.sourceType,
+        status: { in: ['pending', 'running'] },
+        ...(input.afterId ? { id: { gt: input.afterId } } : {}),
+      },
+      orderBy: { id: 'asc' },
+      take: input.limit,
+    });
+  }
+
   async upsertByOperationKey(
     organizationId: string,
     operationKey: string,

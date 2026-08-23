@@ -12,8 +12,8 @@ import type {
 } from '../../../application/port/out/runtime/agent-durable-runtime.port';
 import type { RuntimeHandleCipher } from './runtime-handle-cipher';
 import {
-  parseRunScopedMcpConfig,
-  type RunScopedMcpConfig,
+  parseLocalCliMcpConfig,
+  type LocalCliMcpConfig,
 } from './run-scoped-mcp-config';
 import type { IsolatedCliFilesystemPort } from '../../../application/port/out/runtime/isolated-cli-filesystem.port';
 
@@ -29,13 +29,13 @@ export interface IsolatedCliStartRequest {
   cwd: string;
   env: Record<string, string>;
   prompt: string;
+  startIntent: IsolatedCliStartIntent;
 }
 
 export interface IsolatedCliProcessHandle {
   nativeSessionId: string;
   pid: number;
   processStartIdentity: string;
-  reconnectSecret: string;
   generation: number;
 }
 
@@ -43,8 +43,13 @@ export interface IsolatedCliNativeHandle extends IsolatedCliProcessHandle {
   executableVersion: string;
   organizationId: string;
   sessionId: string;
+  executionId: string;
+  attemptId: string;
   startIntentId: string;
   runtimeCredentialGeneration: number;
+  modelIdentity: string;
+  outputSchema: Record<string, unknown> | null;
+  claudeMaxBudgetUsd: string | null;
   mcpToolSet: {
     schemaVersion: 1;
     servers: Array<{ key: string; tools: string[] }>;
@@ -53,6 +58,7 @@ export interface IsolatedCliNativeHandle extends IsolatedCliProcessHandle {
 
 export interface IsolatedCliTransport {
   probeVersion(binary: string): Promise<string>;
+  probeAuthentication(binary: string, env: Record<string, string>): Promise<void>;
   start(request: IsolatedCliStartRequest): Promise<IsolatedCliProcessHandle>;
   connect(handle: IsolatedCliNativeHandle, resume: { binary: string; args: string[]; cwd: string; env: Record<string, string> }): AsyncIterable<DurableRuntimeAdapterEvent>;
   inspect(handle: IsolatedCliNativeHandle): Promise<RuntimeInspection>;
@@ -73,6 +79,10 @@ export interface IsolatedCliStartIntent {
   startIntentId: string;
 }
 
+type LocalMcpExecutionContext = IsolatedCliStartIntent & {
+  runtimeCredentialGeneration: number;
+};
+
 export interface IsolatedCliRuntimeOptions {
   runtimeType: string;
   binary: string;
@@ -84,18 +94,14 @@ export interface IsolatedCliRuntimeOptions {
   transport: IsolatedCliTransport;
   runRoot?: string;
   handleCipher: RuntimeHandleCipher;
-  runtimeCredential(scope: RuntimeCredentialScope): string;
-  mcpConfig(context: AgentDurableRuntimeExecutionContext): RunScopedMcpConfig;
+  mcpConfig(context: AgentDurableRuntimeExecutionContext): LocalCliMcpConfig;
+  mcpServer?: {
+    command: string;
+    args: string[];
+    environmentRoot: string;
+  };
+  claudeMaxBudgetUsd?: string;
   ambientEnv?: Record<string, string | undefined>;
-}
-
-export interface RuntimeCredentialScope {
-  organizationId: string;
-  sessionId: string;
-  executionId: string;
-  attemptId: string;
-  startIntentId: string;
-  runtimeCredentialGeneration: number;
 }
 
 export const DEFAULT_ISOLATED_CLI_RUN_ROOT = '/var/lib/kiditem-agent-runs';
@@ -118,20 +124,34 @@ const mcpToolSetSchema = z.object({
 }).strict();
 
 const nativeHandleSchema = z.object({
-  reconnectSecret: z.string().min(1).max(4_096),
   nativeSessionId: z.string().min(1).max(512),
   pid: z.number().int().positive(),
   processStartIdentity: z.string().min(1).max(512),
   executableVersion: z.string().min(1).max(512),
   organizationId: z.string().min(1).max(128),
   sessionId: z.string().uuid(),
+  executionId: z.string().uuid(),
+  attemptId: z.string().uuid(),
   startIntentId: z.string().uuid(),
   runtimeCredentialGeneration: z.number().int().nonnegative(),
+  modelIdentity: z.string().min(1).max(512),
+  outputSchema: z.record(z.unknown()).nullable(),
+  claudeMaxBudgetUsd: z.string().min(1).max(64).nullable(),
   mcpToolSet: mcpToolSetSchema,
 }).strict();
 
-const SAFE_AMBIENT_ENV = new Set(['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TERM', 'TZ']);
-const runtimeCredentialSchema = z.string().min(1).max(4_096);
+const SAFE_AMBIENT_ENV = new Set([
+  'PATH',
+  'LANG',
+  'LC_ALL',
+  'LC_CTYPE',
+  'TERM',
+  'TZ',
+  'HOME',
+  'XDG_CONFIG_HOME',
+  'CODEX_HOME',
+  'CLAUDE_CONFIG_DIR',
+]);
 
 export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
   readonly runtimeType: string;
@@ -174,6 +194,10 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       this.readyVersion = null;
       throw new Error(`CLI_RUNTIME_VERSION_INCOMPATIBLE: ${this.runtimeType}`);
     }
+    await this.options.transport.probeAuthentication(
+      this.options.binary,
+      this.safeAmbientEnvironment(),
+    );
     this.readyVersion = version;
   }
 
@@ -184,40 +208,49 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       throw new Error('RUNTIME_START_AUTHORITY_REQUIRED');
     }
     const paths = await this.prepareRunDirectories(context.executionId, context.attemptId);
-    const credential = runtimeCredentialSchema.parse(this.options.runtimeCredential({
-      organizationId: context.organizationId,
-      sessionId: context.sessionId,
-      executionId: context.executionId,
-      attemptId: context.attemptId,
-      startIntentId: context.startIntentId,
-      runtimeCredentialGeneration: context.runtimeCredentialGeneration,
-    }));
-    const mcpConfig = parseRunScopedMcpConfig(this.options.mcpConfig(context));
+    const mcpConfig = parseLocalCliMcpConfig(this.options.mcpConfig(context));
     await this.writeOwnerOnly(
       paths.mcpConfig,
-      JSON.stringify(mcpConfig),
+      this.nativeMcpConfig(mcpConfig, exactMcpExecutionContext(context)),
     );
+    if (context.promptPackage.outputSchema) {
+      await this.writeOwnerOnly(
+        paths.outputSchema,
+        JSON.stringify(context.promptPackage.outputSchema.document),
+      );
+    }
     const startIntent = exactStartIntent(context);
     await this.writeOwnerOnly(paths.startIntent, JSON.stringify(startIntent));
     await this.options.transport.superviseStartIntent(startIntent);
-    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential, context.startIntentId);
+    const env = this.childEnvironment(
+      paths.mcpConfig,
+      context.startIntentId,
+    );
     const started = await this.options.transport.start({
       binary: this.options.binary,
-      args: [...this.options.startArgs],
+      args: this.startArguments(context, paths, mcpConfig),
       cwd: paths.work,
       env,
-      prompt: context.promptPackage.prompt,
+      prompt: localCliPrompt(context),
+      startIntent,
     });
     const native = nativeHandleSchema.parse({
-      reconnectSecret: started.reconnectSecret,
       nativeSessionId: started.nativeSessionId,
       pid: started.pid,
       processStartIdentity: started.processStartIdentity,
       executableVersion: this.readyVersion,
       organizationId: context.organizationId,
       sessionId: context.sessionId,
+      executionId: context.executionId,
+      attemptId: context.attemptId,
       startIntentId: context.startIntentId,
       runtimeCredentialGeneration: context.runtimeCredentialGeneration,
+      modelIdentity: context.modelIdentity,
+      outputSchema: context.promptPackage.outputSchema?.document ?? null,
+      claudeMaxBudgetUsd:
+        this.runtimeType === 'claude_cli'
+          ? this.options.claudeMaxBudgetUsd ?? '0.25'
+          : null,
       mcpToolSet: snapshotMcpToolSet(mcpConfig),
     });
     const encryptedHandleRef = this.options.handleCipher.encrypt(JSON.stringify(native));
@@ -248,31 +281,34 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
   }
 
   async *connect(handle: RuntimeHandle): AsyncIterable<DurableRuntimeAdapterEvent> {
-    const native = await this.validatedNativeHandle(handle);
+    const native = await this.validatedNativeHandle(handle, true);
     const paths = await this.prepareRunDirectories(
       handle.executionId,
       handle.attemptId,
     );
-    const credential = runtimeCredentialSchema.parse(this.options.runtimeCredential({
-      organizationId: native.organizationId, sessionId: native.sessionId, executionId: handle.executionId,
-      attemptId: handle.attemptId, startIntentId: native.startIntentId,
-      runtimeCredentialGeneration: native.runtimeCredentialGeneration,
-    }));
+    const mcpConfig = hydrateMcpConfig(native.mcpToolSet);
     await this.writeOwnerOnly(
       paths.mcpConfig,
-      JSON.stringify(hydrateMcpConfig(native.mcpToolSet, credential)),
+      this.nativeMcpConfig(mcpConfig, exactMcpExecutionContext(native)),
     );
-    const env = this.childEnvironment(paths.home, paths.mcpConfig, credential, native.startIntentId);
+    const env = this.childEnvironment(
+      paths.mcpConfig,
+      native.startIntentId,
+    );
     for await (const event of this.options.transport.connect(native, {
       binary: this.options.binary,
-      args: [...this.options.resumeArgs, native.nativeSessionId],
+      args: this.resumeArguments(
+        native,
+        paths,
+        mcpConfig,
+      ),
       cwd: paths.work,
       env,
     })) yield event;
   }
 
   async inspect(handle: RuntimeHandle): Promise<RuntimeInspection> {
-    return this.options.transport.inspect(await this.validatedNativeHandle(handle));
+    return this.options.transport.inspect(await this.validatedNativeHandle(handle, true));
   }
 
   async interrupt(handle: RuntimeHandle, input: RuntimeInterruptInput): Promise<void> {
@@ -292,12 +328,16 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     if (!this.hasExactCleanupAuthority(input)) return unknownCleanup();
     const startIntent = cleanupStartIntent(input);
     try {
+      input.signal.throwIfAborted();
       let inspection = await this.options.transport.inspectStartIntent(startIntent);
+      input.signal.throwIfAborted();
       if (inspection.status === 'running') {
         await this.options.transport.cancelStartIntent(startIntent);
+        input.signal.throwIfAborted();
         inspection = await this.options.transport.inspectStartIntent(startIntent);
       }
       await this.options.transport.revokeStartIntent(startIntent);
+      input.signal.throwIfAborted();
       if (inspection.status === 'running' || inspection.status === 'unknown') return unknownCleanup();
       const scoped = { executionId: input.executionId, attemptId: input.attemptId };
       const owned = await this.options.filesystem.exists(scoped);
@@ -308,11 +348,12 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
       return {
         state: 'clean',
         executionAuthority: 'process_exited',
-        credentials: 'irrevocably_revoked',
+        credentials: 'not_owned',
         handle: 'removed',
         filesystem: owned ? 'removed' : 'not_owned',
       };
     } catch {
+      if (input.signal.aborted) throw abortReason(input.signal);
       return unknownCleanup();
     }
   }
@@ -322,7 +363,10 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     await this.options.transport.cancel(native);
   }
 
-  private async validatedNativeHandle(handle: RuntimeHandle): Promise<IsolatedCliNativeHandle> {
+  private async validatedNativeHandle(
+    handle: RuntimeHandle,
+    allowExited = false,
+  ): Promise<IsolatedCliNativeHandle> {
     if (handle.runtimeType !== this.runtimeType) throw new Error('RUNTIME_HANDLE_TYPE_MISMATCH');
     if (!this.readyVersion) await this.assertReady();
     const readyVersion = this.readyVersion;
@@ -336,11 +380,18 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     }
     const native = nativeHandleSchema.parse(parsed);
     if (native.nativeSessionId !== handle.externalRunId) throw new Error('CLI_RUNTIME_HANDLE_CORRELATION_INVALID');
+    if (
+      native.executionId !== handle.executionId
+      || native.attemptId !== handle.attemptId
+    ) throw new Error('CLI_RUNTIME_HANDLE_CORRELATION_INVALID');
     if (native.executableVersion !== readyVersion) {
       throw new Error(`CLI_RUNTIME_VERSION_CHANGED: ${this.runtimeType}`);
     }
     const currentIdentity = await this.options.transport.readProcessStartIdentity(native.pid);
-    if (currentIdentity !== native.processStartIdentity) throw new Error('CLI_PROCESS_IDENTITY_MISMATCH');
+    if (
+      currentIdentity !== native.processStartIdentity
+      && !(allowExited && currentIdentity === null)
+    ) throw new Error('CLI_PROCESS_IDENTITY_MISMATCH');
     return { ...native, generation: handle.generation };
   }
 
@@ -348,8 +399,6 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     const paths = this.paths(executionId, attemptId);
     for (const path of [
       paths.root,
-      paths.home,
-      paths.configHome,
       paths.work,
       paths.stateDirectory,
     ]) {
@@ -364,29 +413,159 @@ export class IsolatedCliRuntimeAdapter implements AgentDurableRuntimeAdapter {
     const root = join(this.runRoot, segment.parse(executionId), segment.parse(attemptId));
     return {
       root,
-      home: join(root, 'home'),
-      configHome: join(root, 'home', '.config'),
       work: join(root, 'work'),
       stateDirectory: join(root, 'state'),
       mcpConfig: join(root, 'state', 'mcp.json'),
+      outputSchema: join(root, 'state', 'output.schema.json'),
       state: join(root, 'state', 'runtime.json'),
       startIntent: join(root, 'state', 'start-intent.json'),
     };
   }
 
-  private childEnvironment(home: string, mcpConfigPath: string, credential: string, startIntentId: string) {
+  private childEnvironment(
+    mcpConfigPath: string,
+    startIntentId: string,
+  ) {
+    return {
+      ...this.safeAmbientEnvironment(),
+      KIDITEM_MCP_CONFIG: mcpConfigPath,
+      KIDITEM_RUNTIME_START_INTENT: startIntentId,
+    };
+  }
+
+  private safeAmbientEnvironment(): Record<string, string> {
     const env: Record<string, string> = {};
     for (const [key, value] of Object.entries(this.options.ambientEnv ?? process.env)) {
       if (SAFE_AMBIENT_ENV.has(key) && typeof value === 'string') env[key] = value;
     }
-    return {
-      ...env,
-      HOME: home,
-      XDG_CONFIG_HOME: join(home, '.config'),
-      KIDITEM_RUNTIME_CREDENTIAL: credential,
-      KIDITEM_MCP_CONFIG: mcpConfigPath,
-      KIDITEM_RUNTIME_START_INTENT: startIntentId,
-    };
+    return env;
+  }
+
+  private startArguments(
+    context: AgentDurableRuntimeExecutionContext,
+    paths: ReturnType<IsolatedCliRuntimeAdapter['paths']>,
+    mcpConfig: LocalCliMcpConfig,
+  ): string[] {
+    const args = [...this.options.startArgs];
+    if (this.runtimeType === 'claude_cli') {
+      args.push('--model', context.modelIdentity);
+      this.appendClaudeMcpArguments(args, paths.mcpConfig, mcpConfig);
+      if (context.promptPackage.outputSchema) {
+        args.push(
+          '--json-schema',
+          JSON.stringify(context.promptPackage.outputSchema.document),
+        );
+      }
+      args.push(
+        '--max-budget-usd',
+        this.options.claudeMaxBudgetUsd ?? '0.25',
+      );
+    } else if (this.runtimeType === 'codex_cli') {
+      args.push('--model', context.modelIdentity);
+      this.appendCodexMcpArguments(
+        args,
+        mcpConfig,
+        exactMcpExecutionContext(context),
+      );
+      if (context.promptPackage.outputSchema) {
+        args.push('--output-schema', paths.outputSchema);
+      }
+    }
+    return args;
+  }
+
+  private resumeArguments(
+    native: IsolatedCliNativeHandle,
+    paths: ReturnType<IsolatedCliRuntimeAdapter['paths']>,
+    mcpConfig: LocalCliMcpConfig,
+  ): string[] {
+    const args = [...this.options.resumeArgs];
+    if (this.runtimeType === 'claude_cli') {
+      args.push('--model', native.modelIdentity);
+      this.appendClaudeMcpArguments(args, paths.mcpConfig, mcpConfig);
+      if (native.outputSchema) {
+        args.push('--json-schema', JSON.stringify(native.outputSchema));
+      }
+      args.push(
+        '--max-budget-usd',
+        native.claudeMaxBudgetUsd ?? this.options.claudeMaxBudgetUsd ?? '0.25',
+      );
+    } else if (this.runtimeType === 'codex_cli') {
+      args.push('--model', native.modelIdentity);
+      this.appendCodexMcpArguments(
+        args,
+        mcpConfig,
+        exactMcpExecutionContext(native),
+      );
+      if (native.outputSchema) args.push('--output-schema', paths.outputSchema);
+    }
+    args.push(native.nativeSessionId);
+    return args;
+  }
+
+  private appendClaudeMcpArguments(
+    args: string[],
+    mcpConfigPath: string,
+    mcpConfig: LocalCliMcpConfig,
+  ): void {
+    if (mcpConfig.servers.length === 0) return;
+    args.push('--mcp-config', mcpConfigPath);
+    const allowed = mcpConfig.servers.flatMap((server) =>
+      server.tools.map((tool) => `mcp__${server.key}__${tool}`),
+    );
+    if (allowed.length > 0) args.push('--allowedTools', allowed.join(','));
+  }
+
+  private nativeMcpConfig(
+    config: LocalCliMcpConfig,
+    context: LocalMcpExecutionContext,
+  ): string {
+    if (config.servers.length === 0) {
+      return this.runtimeType === 'codex_cli'
+        ? codexBaseConfig()
+        : JSON.stringify({ mcpServers: {} });
+    }
+    const server = this.options.mcpServer;
+    if (!server) throw new Error('CLI_RUNTIME_MCP_SERVER_NOT_CONFIGURED');
+    if (this.runtimeType === 'codex_cli') {
+      return codexMcpConfig(config, server, context);
+    }
+    return JSON.stringify({
+      mcpServers: Object.fromEntries(config.servers.map((entry) => [
+        entry.key,
+        {
+          type: 'stdio',
+          command: server.command,
+          args: [...server.args],
+          env: {
+            KIDITEM_MCP_EXECUTION_CONTEXT: JSON.stringify(context),
+            KIDITEM_RUNTIME_ENV_ROOT: server.environmentRoot,
+          },
+        },
+      ])),
+    });
+  }
+
+  private appendCodexMcpArguments(
+    args: string[],
+    config: LocalCliMcpConfig,
+    context: LocalMcpExecutionContext,
+  ): void {
+    if (config.servers.length === 0) return;
+    const server = this.options.mcpServer;
+    if (!server) throw new Error('CLI_RUNTIME_MCP_SERVER_NOT_CONFIGURED');
+    for (const entry of config.servers) {
+      args.push(
+        '--config',
+        `mcp_servers.${entry.key}.command=${JSON.stringify(server.command)}`,
+        '--config',
+        `mcp_servers.${entry.key}.args=[${server.args.map((value) => JSON.stringify(value)).join(', ')}]`,
+        '--config',
+        `mcp_servers.${entry.key}.env.KIDITEM_MCP_EXECUTION_CONTEXT=${JSON.stringify(JSON.stringify(context))}`,
+        '--config',
+        `mcp_servers.${entry.key}.env.KIDITEM_RUNTIME_ENV_ROOT=${JSON.stringify(server.environmentRoot)}`,
+      );
+    }
   }
 
   private async writeOwnerOnly(path: string, value: string): Promise<void> {
@@ -424,6 +603,19 @@ function exactStartIntent(context: AgentDurableRuntimeExecutionContext): Isolate
   };
 }
 
+function exactMcpExecutionContext(
+  context: LocalMcpExecutionContext,
+): LocalMcpExecutionContext {
+  return {
+    organizationId: context.organizationId,
+    sessionId: context.sessionId,
+    executionId: context.executionId,
+    attemptId: context.attemptId,
+    startIntentId: context.startIntentId,
+    runtimeCredentialGeneration: context.runtimeCredentialGeneration,
+  };
+}
+
 function cleanupStartIntent(input: AgentSessionRuntimeCleanupInput): IsolatedCliStartIntent {
   return {
     organizationId: input.organizationId,
@@ -438,7 +630,11 @@ function unknownCleanup(): AgentSessionRuntimeCleanupResult {
   return { state: 'unknown', code: 'RUNTIME_CLEANUP_UNKNOWN' };
 }
 
-function snapshotMcpToolSet(config: RunScopedMcpConfig) {
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new Error('Agent runtime cleanup aborted.');
+}
+
+function snapshotMcpToolSet(config: LocalCliMcpConfig) {
   return mcpToolSetSchema.parse({
     schemaVersion: config.schemaVersion,
     servers: config.servers.map((server) => ({
@@ -450,16 +646,43 @@ function snapshotMcpToolSet(config: RunScopedMcpConfig) {
 
 function hydrateMcpConfig(
   toolSet: z.infer<typeof mcpToolSetSchema>,
-  credential: string,
-): RunScopedMcpConfig {
+): LocalCliMcpConfig {
   return {
     schemaVersion: toolSet.schemaVersion,
     servers: toolSet.servers.map((server) => ({
       key: server.key,
-      credential,
       tools: [...server.tools],
     })),
   };
+}
+
+function localCliPrompt(context: AgentDurableRuntimeExecutionContext): string {
+  const skills = context.promptPackage.skills.map((skill) => [
+    `### ${skill.key}@${skill.version}`,
+    skill.content,
+  ].join('\n')).join('\n\n');
+  return [
+    '# KidItem official AgentSession execution',
+    '',
+    '## System instructions',
+    context.promptPackage.prompt,
+    '',
+    '## Approved runtime playbooks',
+    skills || '(none)',
+    '',
+    '## Exact current input',
+    'The following JSON is the authoritative user/domain request data.',
+    JSON.stringify(context.currentInput, null, 2),
+    '',
+    '## Exact resource evidence',
+    JSON.stringify(context.currentResourceRefs, null, 2),
+    '',
+    '## Durable conversation summary',
+    JSON.stringify(context.conversationView.summary, null, 2),
+    '',
+    `## Durable conversation turns through sequence ${context.conversationView.throughSequence}`,
+    JSON.stringify(context.conversationView.turns, null, 2),
+  ].join('\n');
 }
 
 function parseRunRoot(value: string): string {
@@ -472,5 +695,35 @@ function parseRunRoot(value: string): string {
 }
 
 function isUnsafeArgument(value: string): boolean {
-  return /(?:--yolo|dangerously-skip|permission-mode|approval.*(?:off|never)|--config(?:=|$)|--mcp)/i.test(value);
+  return /(?:--yolo|dangerously-skip|bypassPermissions|\u0000)/i.test(value);
+}
+
+function codexBaseConfig(): string {
+  return [
+    'approval_policy = "never"',
+    'sandbox_mode = "read-only"',
+    'web_search = "disabled"',
+    '',
+  ].join('\n');
+}
+
+function codexMcpConfig(
+  config: LocalCliMcpConfig,
+  server: NonNullable<IsolatedCliRuntimeOptions['mcpServer']>,
+  context: LocalMcpExecutionContext,
+): string {
+  const lines = [codexBaseConfig().trimEnd()];
+  for (const entry of config.servers) {
+    lines.push(
+      '',
+      `[mcp_servers.${entry.key}]`,
+      `command = ${JSON.stringify(server.command)}`,
+      `args = [${server.args.map((value) => JSON.stringify(value)).join(', ')}]`,
+      '',
+      `[mcp_servers.${entry.key}.env]`,
+      `KIDITEM_MCP_EXECUTION_CONTEXT = ${JSON.stringify(JSON.stringify(context))}`,
+      `KIDITEM_RUNTIME_ENV_ROOT = ${JSON.stringify(server.environmentRoot)}`,
+    );
+  }
+  return `${lines.join('\n')}\n`;
 }

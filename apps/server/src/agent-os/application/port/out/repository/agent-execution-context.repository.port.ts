@@ -32,11 +32,11 @@ export interface AgentExecutionContextGraph {
 }
 
 /**
- * The only MCP lookup key is an already-verified runtime credential claim.
- * It reconstructs the complete persisted execution envelope, including the
- * current active Operation binding; no transport identity is accepted.
+ * A locally spawned MCP child supplies the exact persisted execution
+ * coordinate. The repository reconstructs the complete execution envelope,
+ * including the current active Operation binding, and rejects stale epochs.
  */
-export interface AgentRuntimeCredentialExecutionGraph {
+export interface AgentRuntimeExecutionGraph {
   organizationId: string;
   userId: string;
   sessionId: string;
@@ -56,6 +56,21 @@ export interface AgentRuntimeCredentialExecutionGraph {
   agentVersion: number;
   policyCapabilityKeys: unknown;
   currentResourceRefs: unknown;
+  taskGraph: Array<{
+    taskId: string;
+    parentTaskId: string | null;
+    objective: string | null;
+    status: string;
+    agentDefinitionKey: string;
+  }>;
+  artifacts: Array<{
+    artifactId: string;
+    taskId: string;
+    executionId: string;
+    artifactType: string;
+    sha256: string;
+    metadata: unknown;
+  }>;
 }
 
 export interface AgentExecutionContextRepositoryPort {
@@ -66,12 +81,12 @@ export interface AgentExecutionContextRepositoryPort {
     executionId: string;
     attemptId: string;
   }): Promise<AgentExecutionContextGraph | null>;
-  loadRuntimeCredentialExecutionGraph(input: {
+  loadRuntimeExecutionGraph(input: {
     organizationId: string;
     sessionId: string;
     executionId: string;
     attemptId: string;
     startIntentId: string;
     runtimeCredentialGeneration: number;
-  }): Promise<AgentRuntimeCredentialExecutionGraph | null>;
+  }): Promise<AgentRuntimeExecutionGraph | null>;
 }

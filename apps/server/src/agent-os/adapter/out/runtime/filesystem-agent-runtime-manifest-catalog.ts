@@ -193,8 +193,9 @@ function canonicalDefinitionKey(definition: AgentDefinitionRecord): string {
 }
 
 function runtimeType(definition: AgentDefinitionRecord): string {
-  return definition.type === 'manager'
-    ? 'copilotkit_agui'
+  if (definition.type === 'manager') return 'copilotkit_agui';
+  return definition.defaultAdapterType === 'claude_local'
+    ? 'claude_cli'
     : definition.defaultAdapterType;
 }
 

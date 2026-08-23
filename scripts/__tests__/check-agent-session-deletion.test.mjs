@@ -161,7 +161,7 @@ test('permits an ordinary interval outside Agent OS', () => {
   );
 });
 
-test('rejects direct RuntimeCredentialBroker verification outside the verification service', () => {
+test('rejects direct RuntimeCredentialBroker verification as local MCP authority', () => {
   withFixture(
     withRequiredLifecycleLocks({
       'apps/server/src/agent-os/adapter/out/runtime/unsafe-runtime-credential.ts': [
@@ -172,7 +172,7 @@ test('rejects direct RuntimeCredentialBroker verification outside the verificati
     }),
     (result) => {
       assert.equal(result.status, 1);
-      assert.match(result.stderr, /RuntimeCredentialBroker verification must use AgentRuntimeCredentialVerificationService/);
+      assert.match(result.stderr, /RuntimeCredentialBroker verification is not a local MCP authority/);
     },
   );
 });

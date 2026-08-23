@@ -14,6 +14,7 @@ protected release/office SHA
       -> local Docker Compose
         -> PostgreSQL + MinIO external volumes
         -> API + worker + web + nginx
+        -> API-owned Codex/Claude CLI profile + Agent runtime volumes
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -64,6 +65,17 @@ next API boot fail-closed until its own startup sweep reaches zero. Maintenance,
 restart, replacement, and an expired lease never reactivate, reclaim, or
 requeue a cancelled row; a deliberate operator retry creates a new run only
 after a single API is ACCEPTING.
+
+The immutable API image includes pinned Codex and Claude CLI binaries. Only the
+API root starts those local runtimes. Provider authentication remains in a
+persistent, operator-initialized CLI home volume; KidItem never stores or
+injects provider API/OAuth credentials or a runtime HMAC token. PostgreSQL owns
+the durable job/conversation record; CLI processes and their run directories
+are current-container-only and never resume after restart. Each child gets only
+an allowlisted local environment, a shell-disabled/read-only CLI profile, and a
+database-revalidated MCP execution coordinate. A missing binary, incompatible
+version, or logged-out profile makes that runtime unavailable and the owning
+AgentSession command fails closed.
 
 The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
 proxying. Container-local access to an internal Agent command still requires a
@@ -133,6 +145,8 @@ database.
 ## Security Boundary
 
 - Office environment files remain outside Git and are never workflow inputs.
+- Codex/Claude login material remains in the local `kiditem-cli-home` volume;
+  it is never copied to an env file, image, workflow artifact, log, or backup.
 - Office database and object storage are not exposed to the public Internet.
 - The `office` GitHub Environment restricts bundle publication to the protected
   branch and may require reviewers.

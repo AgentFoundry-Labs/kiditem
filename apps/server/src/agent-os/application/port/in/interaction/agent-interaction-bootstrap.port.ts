@@ -1,20 +1,8 @@
-import type { AguiRunIntent, InteractionBootstrap } from '@kiditem/shared/agent-interaction';
+import type { InteractionBootstrap } from '@kiditem/shared/agent-interaction';
 
 export interface InteractionPrincipalInput {
   organizationId: string;
   userId: string;
-}
-
-export interface InteractionPrincipal {
-  principalKey: string;
-}
-
-export interface PrepareRunIntentInput extends InteractionPrincipalInput {
-  agentDefinitionKey: string;
-  copilotThreadId: string;
-  aguiRunId: string;
-  dashboardContext: unknown;
-  userEvent: unknown;
 }
 
 export const AGENT_INTERACTION_BOOTSTRAP_PORT = Symbol(
@@ -22,7 +10,5 @@ export const AGENT_INTERACTION_BOOTSTRAP_PORT = Symbol(
 );
 
 export interface AgentInteractionBootstrapPort {
-  resolvePrincipal(input: InteractionPrincipalInput): InteractionPrincipal;
   bootstrap(input: InteractionPrincipalInput): Promise<InteractionBootstrap>;
-  prepareRunIntent(input: PrepareRunIntentInput): Promise<AguiRunIntent>;
 }

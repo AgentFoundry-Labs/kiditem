@@ -67,10 +67,16 @@ function setup(overrides: {
     approvalRisk: 'none',
     idempotencyKey: () => null,
     execute,
+    executeInteractive: execute,
   });
   const interactions = {
     loadExecutionRuntimeContext: vi.fn().mockResolvedValue(
       overrides.runtimeContext === undefined ? graph() : overrides.runtimeContext,
+    ),
+    loadInlineAguiExecutionRuntimeContext: vi.fn().mockResolvedValue(
+      overrides.runtimeContext === undefined
+        ? graph({ operationRunId: undefined, operationAttemptToken: undefined })
+        : overrides.runtimeContext,
     ),
   };
   const controls = {
@@ -78,15 +84,20 @@ function setup(overrides: {
       .fn()
       .mockResolvedValue(overrides.allowed ?? true),
   };
+  const events = {
+    appendExecutionEvent: vi.fn().mockResolvedValue({}),
+  };
   const service = new AgentSessionCapabilityInvocationService(
     interactions as never,
     controls as never,
     capabilities,
+    events as never,
   );
-  return { service, interactions, controls, capabilities, execute };
+  return { service, interactions, controls, capabilities, events, execute };
 }
 
 const input = (overrides: Record<string, unknown> = {}) => ({
+  invocationSurface: 'interactive_runtime',
   session: formatAgentSessionName(
     OrganizationIdSchema.parse('org-1'),
     AgentSessionIdSchema.parse('session-1'),
@@ -107,8 +118,8 @@ const input = (overrides: Record<string, unknown> = {}) => ({
 });
 
 describe('AgentSessionCapabilityInvocationService', () => {
-  it('invokes only an exact active session graph after immutable policy recheck', async () => {
-    const { service, controls, execute } = setup();
+  it('invokes an exact inline AG-UI read graph without manufacturing an Operation binding', async () => {
+    const { service, controls, events, execute, interactions } = setup();
 
     await expect(service.invoke(input())).resolves.toMatchObject({
       outputSummary: { title: 'Inventory overview' },
@@ -129,9 +140,28 @@ describe('AgentSessionCapabilityInvocationService', () => {
       task: 'organizations/org-1/agentSessions/session-1/tasks/task-1',
       execution: 'organizations/org-1/agentSessions/session-1/executions/execution-1',
       attempt: 'organizations/org-1/agentSessions/session-1/executions/execution-1/attempts/attempt-1',
-      operation: 'organizations/org-1/operations/operation-1',
+      operation: null,
       requestId: '00000000-0000-4000-8000-000000000002',
       input: { period: 'week' },
+    }));
+    expect(interactions.loadInlineAguiExecutionRuntimeContext).toHaveBeenCalledWith({
+      executionId: 'execution-1',
+    });
+    expect(interactions.loadExecutionRuntimeContext).not.toHaveBeenCalled();
+    expect(events.appendExecutionEvent).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'org-1',
+      sessionId: 'session-1',
+      executionId: 'execution-1',
+      externalEventId: expect.stringMatching(/^attempt-1:capability:/),
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'agent_capability_evidence',
+        snapshotVersion: 1,
+        data: {
+          content: expect.stringContaining('analytics.readOverview'),
+        },
+      },
     }));
   });
 
@@ -143,14 +173,14 @@ describe('AgentSessionCapabilityInvocationService', () => {
         AgentSessionIdSchema.parse('other-session'),
       ),
     })],
-    ['missing or foreign bound operation', input()],
+    ['missing inline execution', input()],
     ['archived session', input()],
     ['capability absent from the immutable policy', input()],
   ])('rejects %s without calling an owner adapter', async (label, invocation) => {
     const overrides =
       label === 'archived session'
         ? { runtimeContext: graph({ lifecycle: 'archived' }) }
-        : label === 'missing or foreign bound operation'
+        : label === 'missing inline execution'
           ? { runtimeContext: null }
         : label === 'capability absent from the immutable policy'
           ? { runtimeContext: graph({ capabilityKeys: [] }) }
@@ -192,5 +222,58 @@ describe('AgentSessionCapabilityInvocationService', () => {
     await expect(mutation.service.invoke(input({ capabilityKey: 'supply.submitPurchaseOrder', input: {} }))).rejects.toMatchObject({
       code: 'AGENT_CAPABILITY_APPROVAL_REQUIRED',
     });
+  });
+
+  it('keeps worker-capable low-risk actions Operation-bound for MCP while inline AG-UI rejects them', async () => {
+    const interactive = setup({
+      runtimeContext: graph({ capabilityKeys: ['sourcing.scrapeUrlWorkflow'] }),
+    });
+    const execute = vi.fn().mockResolvedValue({ outputSummary: { accepted: true } });
+    interactive.capabilities.register({
+      key: 'sourcing.scrapeUrlWorkflow',
+      ownerDomain: 'sourcing',
+      executionKind: 'workflow',
+      inputSchema: z.object({ url: z.string().url() }),
+      outputSchema: z.object({ accepted: z.boolean() }),
+      sideEffects: ['browser', 'external_io', 'db_write', 'job_enqueue'],
+      approvalRisk: 'low',
+      idempotencyKey: () => 'scrape:one',
+      execute,
+    });
+
+    await expect(interactive.service.invoke(input({
+      capabilityKey: 'sourcing.scrapeUrlWorkflow',
+      input: { url: 'https://example.com/product' },
+    }))).rejects.toMatchObject({ code: 'AGENT_EXECUTION_CAPABILITY_DENIED' });
+    expect(execute).not.toHaveBeenCalled();
+
+    const mcp = setup({
+      runtimeContext: graph({ capabilityKeys: ['sourcing.scrapeUrlWorkflow'] }),
+    });
+    const mcpExecute = vi.fn().mockResolvedValue({ outputSummary: { accepted: true } });
+    mcp.capabilities.register({
+      key: 'sourcing.scrapeUrlWorkflow',
+      ownerDomain: 'sourcing',
+      executionKind: 'workflow',
+      inputSchema: z.object({ url: z.string().url() }),
+      outputSchema: z.object({ accepted: z.boolean() }),
+      sideEffects: ['browser', 'external_io', 'db_write', 'job_enqueue'],
+      approvalRisk: 'low',
+      idempotencyKey: () => 'scrape:one',
+      execute: mcpExecute,
+    });
+    await expect(mcp.service.invoke(input({
+      invocationSurface: 'mcp_runtime',
+      capabilityKey: 'sourcing.scrapeUrlWorkflow',
+      input: { url: 'https://example.com/product' },
+    }))).resolves.toMatchObject({ outputSummary: { accepted: true } });
+    expect(mcpExecute).toHaveBeenCalledTimes(1);
+    expect(mcp.interactions.loadExecutionRuntimeContext).toHaveBeenCalledWith({
+      executionId: 'execution-1',
+    });
+    expect(mcp.interactions.loadInlineAguiExecutionRuntimeContext).not.toHaveBeenCalled();
+    expect(mcpExecute).toHaveBeenCalledWith(expect.objectContaining({
+      operation: 'organizations/org-1/operations/operation-1',
+    }));
   });
 });

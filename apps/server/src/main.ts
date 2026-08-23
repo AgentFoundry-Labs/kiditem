@@ -9,85 +9,22 @@ config({ path: resolve(__dirname, '..', '..', '..', '.env') });
 
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { NestExpressApplication, ExpressAdapter } from '@nestjs/platform-express';
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const express = require('express') as typeof import('express');
+import { NestExpressApplication } from '@nestjs/platform-express';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
-import { ChatService } from './chat/chat.service';
-import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
-import type { Request, Response } from 'express';
+import { configureCopilotKitBodyParser } from './common/http/copilotkit-body-parser';
 
 async function bootstrap() {
   requireWebOrigin();
 
-  // Express instance 를 먼저 만들어 Nest router 앞에 CopilotKit 미들웨어를 등록.
-  // NestFactory 가 만든 default ExpressAdapter 를 쓰면 미들웨어가 Nest router
-  // 뒤에 쌓여 `/api/chat/copilot/...` 이 Nest 의 404 에 먼저 잡힘.
-  const expressApp = express();
-  // CopilotKit raw route is registered before Nest middleware, so cookie auth
-  // must be parsed on the underlying Express app before the chat handler.
-  expressApp.use(cookieParser());
-  // Pre-parse the JSON body so the CopilotKit v2 single-route handler can
-  // rebuild a fresh Web Request via `synthesizeBodyFromParsedBody` instead
-  // of trying to stream the IncomingMessage. Streaming-bodied Web Requests
-  // hit a Node fetch `clone()/json()` failure inside CopilotKit's helper
-  // (`Invalid JSON payload`), even when the underlying body is intact —
-  // see node_modules/@copilotkit/runtime/dist/lib/integrations/node-http
-  // /request-handler.mjs `synthesizeBodyFromParsedBody`.
-  expressApp.use('/api/chat/copilot', express.json({ limit: '25mb' }));
-
-  // ChatService / SessionAuthMiddleware 는 Nest 초기화 후에만 resolve 가능 — lazy ref.
-  // 이 raw express handler 는 Nest router 앞에 있어 API root middleware 와
-  // OrganizationScopeGuard 가 적용되지 않으므로, SessionAuthMiddleware 를 직접
-  // 호출해 `req.authUser` 를 채운 뒤 401/auth_required / no_organization_context 를
-  // 손수 처리한다.
-  let chatServiceRef: ChatService | null = null;
-  let sessionAuthRef: SessionAuthMiddleware | null = null;
-  expressApp.use('/api/chat/copilot', async (req: Request, res: Response) => {
-    // Browsers reach this route through Next's same-origin rewrite (see
-    // `apps/web/next.config.mjs`). There is no cross-origin browser caller,
-    // so chat-specific CORS preflight handling is intentionally absent —
-    // `app.enableCors` below covers the remaining server→server callers.
-    if (!chatServiceRef || !sessionAuthRef) {
-      res.status(503).json({ error: 'service_not_ready' });
-      return;
-    }
-    try {
-      await new Promise<void>((resolveStep, rejectStep) => {
-        sessionAuthRef!.use(req, res, (err?: unknown) => {
-          if (err) rejectStep(err as Error);
-          else resolveStep();
-        });
-      });
-    } catch {
-      res.status(401).json({ error: 'auth_required' });
-      return;
-    }
-    if (!req.authUser) {
-      res.status(401).json({ error: 'auth_required' });
-      return;
-    }
-    if (!req.authUser.organizationId) {
-      res.status(401).json({ error: 'no_organization_context' });
-      return;
-    }
-    // Express `app.use(path, ...)` 는 req.url 에서 path prefix 를 strip 해
-    // CopilotKit 내부 Hono 라우터가 full URL 을 인식 못 함. originalUrl 로 복원.
-    req.url = req.originalUrl;
-    void chatServiceRef.handleCopilotRequest(req, res);
+  const app = await NestFactory.create<NestExpressApplication>(ApiApplicationModule, {
+    bodyParser: false,
   });
-
-  const app = await NestFactory.create<NestExpressApplication>(
-    ApiApplicationModule,
-    new ExpressAdapter(expressApp),
-  );
   app.enableShutdownHooks();
-  chatServiceRef = app.get(ChatService);
-  sessionAuthRef = app.get(SessionAuthMiddleware);
+  app.use(cookieParser());
   // 프로덕션은 CORS_ORIGINS(쉼표 구분) 화이트리스트 필수. 미지정이면 전부 차단.
   const isProd = process.env.NODE_ENV === 'production';
   const prodOrigins = (process.env.CORS_ORIGINS ?? '')
@@ -110,9 +47,8 @@ async function bootstrap() {
     // server:4000) 에서 cookie 전송이 허용되도록 credentials 활성화 필수.
     credentials: true,
   });
-  app.useBodyParser('json', { limit: '25mb' });
+  configureCopilotKitBodyParser(app);
   // SessionAuthMiddleware 가 KidItem HttpOnly 세션 쿠키를 읽기 위해 필요.
-  // `expressApp.use(cookieParser())` above covers both raw chat and Nest routes.
   app.setGlobalPrefix('api');
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,

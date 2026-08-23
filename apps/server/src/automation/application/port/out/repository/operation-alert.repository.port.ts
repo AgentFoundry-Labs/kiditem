@@ -93,6 +93,12 @@ export interface OperationAlertRepositoryPort {
     operationKey: string,
   ): Promise<AlertRecord | null>;
 
+  listOpenBySourceType(input: {
+    sourceType: string;
+    afterId: string | null;
+    limit: number;
+  }): Promise<AlertRecord[]>;
+
   /** Batch close stale operation rows matching the criteria. */
   closeStaleOperations(criteria: CloseStaleOperationsCriteria): Promise<AlertRecord[]>;
 

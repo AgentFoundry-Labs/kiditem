@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const PLATFORM_LOCK_PATH =
-  'deploy/interaction-gateway/platform-lock.json';
+  'deploy/copilotkit/platform-lock.json';
 
 const EXPECTED_PLATFORM_LOCK = Object.freeze({
   copilotKit: '1.67.1',
@@ -23,13 +23,11 @@ const WORKSPACE_MANIFESTS = Object.freeze([
   'package.json',
   'apps/web/package.json',
   'apps/server/package.json',
-  'apps/interaction-gateway/package.json',
 ]);
 
 const PRODUCTION_SOURCE_ROOTS = Object.freeze([
   'apps/web/src',
   'apps/server/src',
-  'apps/interaction-gateway/src',
 ]);
 
 const PRODUCTION_SOURCE_FILE_PATTERN = /\.[cm]?[jt]sx?$/;

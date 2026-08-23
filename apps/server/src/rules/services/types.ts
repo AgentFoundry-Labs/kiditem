@@ -9,17 +9,3 @@ export interface EvaluationResult {
   violationCount?: number;
   evaluatedAt?: Date;
 }
-
-export interface ProductEvalResult {
-  masterId: string;
-  healthScore: number;
-  violations: Array<{
-    ruleName: string;
-    field: string;
-    severity: string;
-    category: string;
-    message: string;
-    actionType: string | null;
-    value: number;
-  }>;
-}

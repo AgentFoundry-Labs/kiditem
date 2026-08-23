@@ -1,5 +1,6 @@
 import { apiClient } from '@/lib/api-client';
 import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { OperationRunName } from '@kiditem/shared/identifiers';
 import {
   CreateProductPreparationInputSchema,
   ProductPreparationCommandResultSchema,
@@ -209,7 +210,7 @@ export interface ScrapeUrlResponse {
   message: string;
   product_id: string | null;
   skipped?: boolean;
-  taskId?: string | null;
+  operation?: OperationRunName | null;
   candidateId?: string | null;
   href?: string | null;
 }

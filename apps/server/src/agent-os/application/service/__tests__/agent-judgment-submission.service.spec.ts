@@ -15,7 +15,12 @@ describe('AgentJudgmentSubmissionService', () => {
       }),
     };
     const dispatch = { dispatch: vi.fn().mockResolvedValue({ operationsRunId: 'operation-1' }) };
-    const service = new AgentJudgmentSubmissionService(transaction, dispatch as never);
+    const runtimes = { registeredTypes: vi.fn().mockReturnValue(['claude_cli', 'codex_cli']) };
+    const service = new AgentJudgmentSubmissionService(
+      transaction,
+      dispatch as never,
+      runtimes as never,
+    );
 
     await expect(service.submit({
       organization: 'organizations/org-1' as never,
@@ -32,6 +37,7 @@ describe('AgentJudgmentSubmissionService', () => {
     expect(transaction.submit).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: 'org-1', userId: 'user-1', agentDefinitionKey: 'ad_strategy',
       objective: 'Create a strategy.', resourceRefs: [],
+      registeredRuntimeTypes: ['claude_cli', 'codex_cli'],
     }));
     expect(dispatch.dispatch).toHaveBeenCalledWith({
       organizationId: 'org-1', sessionId: 'session-1', taskId: 'task-1', executionId: 'execution-1', requestedByUserId: 'user-1',
@@ -39,7 +45,11 @@ describe('AgentJudgmentSubmissionService', () => {
   });
 
   it('rejects an unbounded objective before authorizing work', async () => {
-    const service = new AgentJudgmentSubmissionService({} as never, {} as never);
+    const service = new AgentJudgmentSubmissionService(
+      {} as never,
+      {} as never,
+      { registeredTypes: vi.fn().mockReturnValue([]) } as never,
+    );
     await expect(service.submit({
       organization: 'organizations/org-1' as never, actor: 'users/user-1' as never,
       agentDefinition: 'agentDefinitions/ad_strategy' as never, objective: '', resourceRefs: [], idempotencyKey: 'x' as never,

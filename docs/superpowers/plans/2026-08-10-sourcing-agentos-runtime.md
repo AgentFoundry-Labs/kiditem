@@ -1173,11 +1173,11 @@ Filter the child environment to these shared keys needed to locate the installed
 
 ```ts
 const shared = ['PATH', 'HOME', 'USER', 'LOGNAME', 'SHELL', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TMPDIR', 'TZ'];
-const claude = ['ANTHROPIC_API_KEY', 'CLAUDE_CODE_OAUTH_TOKEN'];
-const codex = ['CODEX_API_KEY', 'OPENAI_API_KEY', 'CODEX_HOME'];
+const claude = [];
+const codex = ['CODEX_HOME'];
 ```
 
-Transplant the existing `SourcingAssistantCliGenerationAdapter.buildChildEnv()` contract instead of inventing a new credential mechanism. Claude reads the current OS user's Claude Code OAuth/keychain session through `HOME`; Codex reads its ChatGPT login beneath `CODEX_HOME` or the default location beneath `HOME`. If the operator has already supplied a provider CLI auth variable, forward it only to that provider process as the current adapter does. No auth variable is mandatory, no credential is copied into the MCP child, and there is no cross-provider fallback. A missing or expired CLI login is classified as the existing `unauthenticated` failure. Spawn both commands with `cwd` set to the per-run empty temp directory, never the repository or the server working directory.
+Claude reads the current OS user's Claude Code OAuth/keychain session through `HOME`; Codex reads its ChatGPT login beneath `CODEX_HOME` or the default location beneath `HOME`. KidItem never reads, copies, or forwards provider API keys or OAuth-token environment variables. Startup uses each CLI's native auth-status command, and a missing or expired local login is classified as the existing `unauthenticated` failure. The MCP child receives only the exact non-secret execution coordinate that it revalidates from the database. Spawn both commands with `cwd` set to the per-run empty temp directory, never the repository or the server working directory.
 
 Claude cannot use `--bare` because that flag explicitly disables OAuth and keychain reads. Preserve isolation without it by combining `--setting-sources ''`, `--tools ''`, `--allowedTools <exact KidItem MCP names>`, `--strict-mcp-config`, `--no-chrome`, `--no-session-persistence`, `--disable-slash-commands`, and `--permission-mode dontAsk`. The command test must prove all of those flags are present and that `--bare` is absent. Codex keeps its existing config/rules/feature-disable isolation. Neither provider receives KidItem DB or commerce credentials.
 
@@ -2932,7 +2932,7 @@ AGENT_LOCAL_CLI_CAPACITY_WAIT_MS=5000
 AGENT_CLAUDE_MAX_BUDGET_USD=0.25
 ```
 
-Document that `AGENT_SOURCING_ADAPTER_TYPE` accepts only `claude_cli|codex_cli`, remove `SOURCING_ASSISTANT_RUNTIME` and `SOURCING_ASSISTANT_MODEL` from the example/runbook, and state that the service account owns the persistent local CLI login. Optional CLI auth variables remain restricted server secrets exactly as in the existing adapter; the browser and MCP child receive no credential material. Do not add an architecture document.
+Document that `AGENT_SOURCING_ADAPTER_TYPE` accepts only `claude_cli|codex_cli`, remove `SOURCING_ASSISTANT_RUNTIME` and `SOURCING_ASSISTANT_MODEL` from the example/runbook, and state that the service account owns the persistent local CLI login. KidItem accepts no provider CLI auth variable; the browser and MCP child receive no provider credential material. Do not add an architecture document.
 
 - [ ] **Step 6: Keep conversation state mounted and invisible in the current UI**
 

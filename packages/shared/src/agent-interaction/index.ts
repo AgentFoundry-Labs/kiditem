@@ -11,8 +11,6 @@ import {
   CopilotThreadIdSchema,
   formatOrganizationName,
   NonNegativeDecimalSequenceSchema,
-  OpaqueReplayCursorSchema,
-  OpaqueShortLivedTokenSchema,
   OperationRunNameSchema,
   parseAgentConversationEventName,
   parseAgentExecutionAttemptName,
@@ -213,15 +211,6 @@ export const DashboardContextSchema = z.object({
   locale: z.string().min(2).max(20),
   timezone: z.string().min(1).max(64),
 });
-
-export const AguiRunIntentSchema = z
-  .object({
-    runIntent: OpaqueShortLivedTokenSchema,
-    expiresAt: z.string().datetime(),
-    copilotThreadId: CopilotThreadIdSchema,
-    aguiRunId: AguiRunIdSchema,
-  })
-  .strict();
 
 export const AguiRunAuthorizationSchema = z
   .object({
@@ -673,7 +662,7 @@ export const AgentConversationReplaySchema = z
   .object({
     session: AgentSessionNameSchema,
     events: z.array(AgentConversationEventEnvelopeSchema).max(500),
-    nextCursor: OpaqueReplayCursorSchema.nullable(),
+    nextCursor: NonNegativeDecimalSequenceSchema.nullable(),
     lastSequence: NonNegativeDecimalSequenceSchema,
   })
   .strict()
@@ -692,7 +681,7 @@ export const AgentConversationReplaySchema = z
 export const AgentConversationReplayRequestSchema = z
   .object({
     session: AgentSessionNameSchema,
-    cursor: OpaqueReplayCursorSchema.nullable().optional(),
+    afterSequence: NonNegativeDecimalSequenceSchema.nullable().optional(),
   })
   .strict();
 
@@ -719,7 +708,7 @@ export type {
 
 const replayMetadataSchema = z
   .object({
-    nextCursor: OpaqueReplayCursorSchema.nullable(),
+    nextCursor: NonNegativeDecimalSequenceSchema.nullable(),
     lastSequence: NonNegativeDecimalSequenceSchema,
   })
   .strict();
@@ -736,8 +725,6 @@ export const AgentConversationConnectionAuthorizationSchema = z
   .object({
     authorization: AguiConnectionAuthorizationSchema,
     replay: AgentConversationReplaySchema,
-    liveJoinToken: OpaqueShortLivedTokenSchema.nullable(),
-    liveJoinExpiresAt: z.string().datetime().nullable(),
   })
   .strict()
   .superRefine((value, context) => {
@@ -748,23 +735,12 @@ export const AgentConversationConnectionAuthorizationSchema = z
         "replay must belong to the authorized session",
       );
     }
-    if (
-      (value.liveJoinToken === null) !==
-      (value.liveJoinExpiresAt === null)
-    ) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ["liveJoinToken"],
-        message: "live join token and expiry must be present together",
-      });
-    }
   });
 
 export type AllowedAgent = z.infer<typeof AllowedAgentSchema>;
 export type AgentSessionSummary = z.infer<typeof AgentSessionSummarySchema>;
 export type InteractionBootstrap = z.infer<typeof InteractionBootstrapSchema>;
 export type DashboardContext = z.infer<typeof DashboardContextSchema>;
-export type AguiRunIntent = z.infer<typeof AguiRunIntentSchema>;
 export type AguiRunAuthorization = z.infer<typeof AguiRunAuthorizationSchema>;
 export type AgentCorrelation = z.infer<typeof AgentCorrelationSchema>;
 export type AgentConversationEventType = z.infer<

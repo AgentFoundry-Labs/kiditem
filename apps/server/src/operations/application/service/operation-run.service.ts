@@ -1,4 +1,5 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { EventEmitter2 } from '@nestjs/event-emitter';
 import { OPERATION_HANDLER_REGISTRY_PORT } from '../port/in/operation-handler-registry.port';
 import { OPERATION_REPOSITORY_PORT } from '../port/out/repository/operation.repository.port';
 import {
@@ -19,6 +20,10 @@ import type {
   OperationRunRepositoryPort,
 } from '../port/out/repository/operation.repository.port';
 import type { OperationHandlerRegistryPort } from '../port/in/operation-handler-registry.port';
+import {
+  OPERATION_RUN_EVENTS,
+  type OperationRunFinalizedEvent,
+} from '../event/operation-run-events';
 
 const CANCELLABLE_OPERATION_STATUSES: OperationStatus[] = [
   'queued',
@@ -55,6 +60,7 @@ export class OperationRunService
     @Inject(COMPOSITE_OPERATION_COORDINATOR_PORT)
     private readonly compositeCoordinator: CompositeOperationCoordinatorPort,
     private readonly lifecycleGate: OperationLifecycleGateService,
+    @Optional() private readonly events?: EventEmitter2,
   ) {}
 
   async start(command: StartOperationCommand): Promise<OperationRun> {
@@ -167,10 +173,6 @@ export class OperationRunService
     }
 
     const reason = command.reason ?? 'operator_cancelled';
-    const cancelled = await this.compositeCoordinator.cancelChildren(existing, reason);
-    if (!cancelled) {
-      return this.toWire(await this.require(command.organizationId, command.runId));
-    }
     await this.registry.getHandler(existing.operationKey).cancel?.({
       runId: existing.id,
       organizationId: existing.organizationId,
@@ -178,6 +180,11 @@ export class OperationRunService
       reason,
       requestedByUserId: command.requestedByUserId,
     });
+    const cancelled = await this.compositeCoordinator.cancelChildren(existing, reason);
+    if (!cancelled) {
+      return this.toWire(await this.require(command.organizationId, command.runId));
+    }
+    this.publishLifecycle(cancelled, 'cancelled');
     return this.toWire(cancelled);
   }
 
@@ -307,6 +314,7 @@ export class OperationRunService
           NATIVE_FENCE_HOOK_TIMEOUT_MS,
         );
       }
+      this.publishLifecycle(fenced, 'cancelled');
       return { runId: requested.runId, state: 'fenced', ...coordinates };
     } catch {
       if (input.signal.aborted) throw input.signal.reason;
@@ -357,6 +365,19 @@ export class OperationRunService
     const record = await this.repository.findRunById({ organizationId, runId });
     if (!record) throw new NotFoundException('operation_run_not_found');
     return record;
+  }
+
+  private publishLifecycle(
+    run: OperationRunRecord,
+    status: OperationRunFinalizedEvent['status'],
+  ): void {
+    this.events?.emit(OPERATION_RUN_EVENTS.FINALIZED, {
+      organizationId: run.organizationId,
+      runId: run.id,
+      status,
+      errorCode: run.errorCode,
+      errorMessage: run.errorMessage,
+    } satisfies OperationRunFinalizedEvent);
   }
 
   private toWire(record: OperationRunRecord): OperationRun {

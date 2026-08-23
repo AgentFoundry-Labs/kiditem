@@ -6,7 +6,7 @@ describe('RulesEvaluationOperationHandler', () => {
   it('registers the code-owned Rules definition and applies exactly its owner operation result', async () => {
     const registry = { register: vi.fn() };
     const results = {
-      apply: vi.fn().mockResolvedValue({ productCount: 0, violationCount: 0, criticalCount: 0 }),
+      evaluateAndApply: vi.fn().mockResolvedValue({ productCount: 2, violationCount: 1, criticalCount: 1 }),
     };
     const handler = new RulesEvaluationOperationHandler(registry as never, results as never);
 
@@ -29,13 +29,13 @@ describe('RulesEvaluationOperationHandler', () => {
     });
 
     expect(registry.register).toHaveBeenCalledWith(RULES_EVALUATION_OPERATION, handler);
-    expect(results.apply).toHaveBeenCalledTimes(1);
-    expect(results.apply).toHaveBeenCalledWith({
-      organizationId: 'organization-1', operationId: 'operation-1', products: [],
+    expect(results.evaluateAndApply).toHaveBeenCalledTimes(1);
+    expect(results.evaluateAndApply).toHaveBeenCalledWith({
+      organizationId: 'organization-1', operationId: 'operation-1',
     });
     expect(result).toEqual({
       kind: 'completed',
-      result: { productCount: 0, violationCount: 0, criticalCount: 0 },
+      result: { productCount: 2, violationCount: 1, criticalCount: 1 },
     });
   });
 });

@@ -2,7 +2,7 @@
 
 Evidence was captured on 2026-08-13 (Asia/Seoul). Foundation Task 1 replaces
 the obsolete Enterprise-oriented lock with the machine-readable source of
-truth at `deploy/interaction-gateway/platform-lock.json`.
+truth at `deploy/copilotkit/platform-lock.json`.
 
 ## Supported train
 
@@ -45,8 +45,8 @@ contracts needed by this program:
   exports `useHumanInTheLoop` and supplies `respond` while a tool call is
   executing.
 - AG-UI transport: the public `@ag-ui/client` package exposes `HttpAgent` and
-  streamed event/state subscribers, allowing the KidItem gateway to remain the
-  durable backend.
+  streamed event/state subscribers, with the KidItem Agent OS/PostgreSQL
+  durable backend behind Nest as the sole incoming adapter.
 
 ## License evidence and stop gate
 
@@ -70,7 +70,7 @@ must also prove:
 - first-send atomicity across session control and the first conversation event;
 - append-before-publish ordering and duplicate-event rejection;
 - PostgreSQL snapshot/cursor replay followed by an atomic live-stream join;
-- browser, gateway, API, and worker restart recovery;
+- browser/Nest API restart recovery with no gateway process, plus worker recovery;
 - organization/user fencing for list, history, reconnect, archive, restore,
   retention, legal hold, and deletion;
 - HITL resume without duplicate capability execution; and
@@ -78,5 +78,5 @@ must also prove:
 
 Across the root, server, and web manifests, every direct CopilotKit declaration
 is now exact-pinned at `1.67.1` and every direct AG-UI declaration at `0.0.57`.
-The OSS source of truth is `deploy/interaction-gateway/platform-lock.json`, and
+The OSS source of truth is `deploy/copilotkit/platform-lock.json`, and
 `npm run check:copilotkit-train` passes against the normalized workspace.

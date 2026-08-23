@@ -14,6 +14,7 @@ export const AGENT_SESSION_CAPABILITY_INVOCATION_PORT = Symbol(
  * unambiguous across transports; adapters parse them before entering storage.
  */
 export interface AgentSessionCapabilityInvocationInput {
+  invocationSurface: 'interactive_runtime' | 'mcp_runtime';
   session: AgentSessionName;
   task: AgentSessionTaskName;
   execution: AgentExecutionName;

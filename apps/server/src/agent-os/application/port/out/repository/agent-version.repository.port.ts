@@ -33,5 +33,9 @@ export interface AgentVersionRepositoryPort {
   findActiveAgentVersion(
     input: FindActiveAgentVersionInput,
   ): Promise<ActiveAgentVersionRecord | null>;
+  /** Exact persisted session binding; retirement never erases its identity. */
+  findKnownAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null>;
   probeHealth(): Promise<void>;
 }

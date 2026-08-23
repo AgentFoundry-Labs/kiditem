@@ -72,6 +72,15 @@ export class PrismaAgentVersionRepository implements AgentVersionRepositoryPort 
     }) as Promise<ActiveAgentVersionRecord | null>;
   }
 
+  findKnownAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    return this.prisma.agentVersion.findFirst({
+      where: { id: input.agentVersionId, agentDefinitionKey: input.agentDefinitionKey },
+      select: activeInteractionVersionSelect,
+    }) as Promise<ActiveAgentVersionRecord | null>;
+  }
+
   async probeHealth(): Promise<void> {
     await this.prisma.agentVersion.count({
       where: { activatedAt: { not: null }, retiredAt: null },
@@ -120,6 +129,14 @@ export class PrismaClientAgentVersionRepository implements AgentVersionRepositor
         activatedAt: { not: null },
         retiredAt: null,
       },
+      select: activeInteractionVersionSelect,
+    }) as Promise<ActiveAgentVersionRecord | null>;
+  }
+  findKnownAgentVersion(
+    input: FindActiveAgentVersionInput,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    return this.prisma.agentVersion.findFirst({
+      where: { id: input.agentVersionId, agentDefinitionKey: input.agentDefinitionKey },
       select: activeInteractionVersionSelect,
     }) as Promise<ActiveAgentVersionRecord | null>;
   }

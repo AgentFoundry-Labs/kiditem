@@ -423,7 +423,11 @@ describe('SourcingService — candidate ingest', () => {
       requestedByUserId: 'user-1',
       sourceUrl: 'https://1688.com/item/1',
     }));
-    expect(result.taskId).toBe('operation-1');
+    expect(result).toMatchObject({
+      operation: 'organizations/org-1/operations/operation-1',
+    });
+    expect(result).not.toHaveProperty('taskId');
+    expect(result).not.toHaveProperty('operationKey');
   });
 
   it('scrapeUrl skips duplicate sourceUrl and returns the existing candidate link', async () => {
@@ -462,6 +466,7 @@ describe('SourcingService — candidate ingest', () => {
     expect(result).toEqual(expect.objectContaining({
       ok: true,
       skipped: true,
+      operation: null,
       candidateId: 'candidate-1',
       product_id: 'candidate-1',
       href: '/product-pipeline/collected-products/candidate-1',

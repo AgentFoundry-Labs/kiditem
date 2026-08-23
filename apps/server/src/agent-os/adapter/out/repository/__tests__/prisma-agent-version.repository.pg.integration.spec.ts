@@ -55,6 +55,19 @@ describe('PrismaAgentVersionRepository', () => {
       where: { id: changed.id },
     })).retiredAt).toBeInstanceOf(Date);
   });
+
+  it('keeps an exact retired version addressable for an already-bound session while active lookup denies it', async () => {
+    const v1 = await repository.publishAndActivate(manifestInput('a', 40));
+    await repository.publishAndActivate(manifestInput('b', 41));
+
+    await expect(repository.findActiveAgentVersion({ agentDefinitionKey: 'operator', agentVersionId: v1.id })).resolves.toBeNull();
+    await expect(repository.findKnownAgentVersion({ agentDefinitionKey: 'operator', agentVersionId: v1.id })).resolves.toMatchObject({
+      id: v1.id,
+      agentDefinitionKey: 'operator',
+      retiredAt: expect.any(Date),
+    });
+    await expect(repository.findKnownAgentVersion({ agentDefinitionKey: 'foreign', agentVersionId: v1.id })).resolves.toBeNull();
+  });
 });
 
 function manifestInput(hashCharacter: string, maxTurns: number): PublishAgentVersionInput {

@@ -1,4 +1,9 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  OperationRunIdSchema,
+  OrganizationIdSchema,
+  formatOperationRunName,
+} from '@kiditem/shared/identifiers';
 import { paginationParams } from '../../../common/pagination';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
@@ -273,11 +278,10 @@ export class SourcingService {
         ok: true,
         skipped: true,
         message: '이미 수집된 URL입니다. 기존 수집 상품으로 이동할 수 있습니다.',
-        taskId: null,
+        operation: null,
         candidateId: existing.id,
         product_id: existing.id,
         href: collectedCandidateHref(existing.id),
-        operationKey: null,
       };
     }
     const operation = await this.scrapes.startDirect({
@@ -290,11 +294,13 @@ export class SourcingService {
       ok: true,
       skipped: false,
       message: '스크래핑 작업이 대기열에 등록되었습니다.',
-      taskId: operation.operationRunId,
+      operation: formatOperationRunName(
+        OrganizationIdSchema.parse(organizationId),
+        OperationRunIdSchema.parse(operation.operationRunId),
+      ),
       candidateId: null,
       product_id: null,
       href: null,
-      operationKey: 'sourcing.scrape_url',
     };
   }
 

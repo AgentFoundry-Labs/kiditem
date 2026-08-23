@@ -12,6 +12,7 @@ import {
 } from 'react';
 import {
   CopilotChat,
+  CopilotChatConfigurationProvider,
   UseAgentUpdate,
   useAgent,
   type CopilotChatViewProps,
@@ -103,6 +104,39 @@ function ReadyInteractionSurface({
   surface: InteractionSurface;
 }) {
   const conversation = useKidItemConversation(bootstrap);
+
+  return (
+    <CopilotChatConfigurationProvider
+      agentId={conversation.agentId}
+      threadId={conversation.threadId}
+      hasExplicitThreadId
+    >
+      <ThreadBoundInteractionSurface
+        {...props}
+        surface={surface}
+        bootstrap={bootstrap}
+        conversation={conversation}
+        errorMessage={errorMessage}
+        onError={onError}
+      />
+    </CopilotChatConfigurationProvider>
+  );
+}
+
+function ThreadBoundInteractionSurface({
+  bootstrap,
+  conversation,
+  errorMessage,
+  onError,
+  surface,
+  ...props
+}: Omit<ComponentProps<'section'>, 'onError'> & {
+  bootstrap: NonNullable<ReturnType<typeof useInteractionBootstrap>['data']>;
+  conversation: ReturnType<typeof useKidItemConversation>;
+  errorMessage: string | null;
+  onError: (message: string) => void;
+  surface: InteractionSurface;
+}) {
   const sendSuggestedReplyRef = useRef<((content: string) => void) | null>(null);
   const registerSend = useCallback((send: ((content: string) => void) | null) => {
     sendSuggestedReplyRef.current = send;

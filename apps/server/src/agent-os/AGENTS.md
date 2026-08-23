@@ -46,7 +46,8 @@ progress.
   ports, deletion execution service, one Operations handler, and the two
   post-accepting recovery hooks; `AgentOsHttpModule` owns the controller.
   `AgentOsSessionModule` exports only controller-free transaction seams.
-  Worker and MCP may verify fenced credentials but never compose deletion HTTP,
+  MCP may reconstruct and DB-verify its locally supplied execution coordinate,
+  but worker and MCP never compose deletion HTTP,
   handler, finalizer, recovery, or Operations worker providers.
 
 ## Main Data Models
@@ -127,22 +128,25 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
   existing local login; neither provider requires an API key when its local
   CLI session is already authenticated.
 - Each local run receives one child-only MCP session. The parent CLI process
-  receives only local CLI session/auth discovery variables, never KidItem DB,
-  Redis, commerce-provider, or server `.env` credentials.
+  inherits only the service account's local login paths and basic process
+  environment, never provider API keys, KidItem DB, Redis, commerce-provider,
+  or server `.env` credentials.
 - Generic background claims exclude `sourcing_dashboard`; only its inline
   request-id claim may execute that surface. Stale pending/claimed dashboard
   requests and running attempts fail with `process_interrupted` at startup and
   are never replayed. MCP child application contexts never run reconciliation
   or background workers.
-- Local CLI/MCP processes are bound to the Nest process. Shutdown terminates
-  them; restart only closes stale nonterminal rows as `process_interrupted`.
-  It never resumes a process, replays a prompt, or publishes delayed output.
-- Official durable Hermes and isolated CLI adapters are a separate task-runtime
-  boundary. They persist only an encrypted native/reconnect reference, inspect
-  it before reconnecting, regenerate the same execution/attempt-scoped
-  credential, and never fall back to a different runtime or a new external
-  run. Their `home`, `work`, and `state` paths are worker-owned and owner-only;
-  gateway and web processes must never spawn those executables.
+- The retained generic local CLI process is bound to the Nest process. Shutdown
+  terminates it; restart only closes stale nonterminal rows as
+  `process_interrupted`. That compatibility lane never resumes a process,
+  replays a prompt, or publishes delayed output.
+- Official session/execution, attempt, conversation, and outbox rows are the
+  durable work record. Local Claude/Codex processes are current-container
+  resources: an API restart never reconnects, resumes, or regenerates a CLI
+  process; it terminalizes the exact still-running work record as
+  `process_interrupted`. Their transient `work` and `state` paths are
+  owner-only and non-durable; gateway and web processes must never spawn those
+  executables.
 - Hermes production output is resource-reference-only: it may emit a canonical
   `resource_ref`, never inline artifact bytes or an `artifact_candidate`.
   Reject unsupported inline envelopes before the artifact writer, persistence,
@@ -164,12 +168,17 @@ Never add `queued` to `AgentRun.status`; queue state belongs to
 - Interaction analytics is metadata-only and non-authoritative. Never emit
   messages/model output, resource names, dashboard payloads, credentials,
   cookies, tokens, or raw organization/user identifiers.
-- MCP is an official-runtime child only: it accepts exactly one
-  `KIDITEM_RUNTIME_CREDENTIAL`, reconstructs its organization/actor/session/
-  task/execution/attempt/Operation binding from persisted authority, and never
-  accepts caller-provided lineage. Its only control tool is bounded context
-  read; policy-registered capabilities must be read-only and invoke the
-  official session capability port. MCP roots do not compose legacy AgentRun,
+- MCP is a local official-runtime child only: KidItem supplies one strict
+  `KIDITEM_MCP_EXECUTION_CONTEXT` when it spawns that child. MCP reconstructs
+  organization/actor/session/task/execution/attempt/Operation binding from the
+  database and rejects stale start-intent or generation coordinates. There is
+  no HMAC runtime token, provider credential, or KidItem-managed handle key;
+  Codex/Claude authenticate only through the Nest service account's existing
+  local CLI profile. Its only control tool is bounded context
+  read; code-owned capabilities marked `approvalRisk: none|low` invoke the
+  official session capability port with the exact DB-revalidated execution and
+  owner idempotency key. High-risk capabilities stay approval-gated and are not
+  exposed as directly invocable MCP tools. MCP roots do not compose legacy AgentRun,
   Operations, HTTP/guards, API grants, or interaction secrets.
 - A production application or adapter file over 700 lines is a non-blocking
   responsibility/cohesion review smell, not an architecture violation. Split

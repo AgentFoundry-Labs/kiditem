@@ -5,7 +5,7 @@ import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SourcingListingPrepCapabilityAdapter } from './adapter/in/agent/sourcing-listing-prep-capability.adapter';
 import { SourcingScrapeUrlCapabilityAdapter } from './adapter/in/agent/sourcing-scrape-url-capability.adapter';
-import { SourcingWorkspaceCapabilityAdapter } from './adapter/in/agent/sourcing-workspace-capability.adapter';
+import { SourcingWorkspaceMutationCapabilityAdapter } from './adapter/in/agent/sourcing-workspace-capability.adapter';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
@@ -21,7 +21,7 @@ import {
   SOURCING_LISTING_PREP_CAPABILITY_PORT,
   SOURCING_SCRAPE_URL_WORKFLOW_PORT,
 } from './application/port/in/capability/sourcing-capability.ports';
-import { SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT } from './application/port/in/capability/sourcing-agent-workspace-capability.port';
+import { SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT } from './application/port/in/capability/sourcing-agent-workspace-capability.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from './application/port/out/repository/sourcing-interest-target.repository.port';
 import { SOURCING_RECOMMENDATION_REPOSITORY_PORT } from './application/port/out/repository/sourcing-recommendation.repository.port';
@@ -33,11 +33,12 @@ import { SOURCING_AGENT_GATEWAY_PORT } from './application/port/out/runtime/sour
 import { SOURCING_SCRAPE_OPERATION_PORT } from './application/port/out/cross-domain/sourcing-scrape-operation.port';
 import { OperationsModule } from '../operations/operations.module';
 import { SourcingAgentCommandService } from './application/service/sourcing-agent-command.service';
-import { SourcingAgentRagService } from './application/service/sourcing-agent-rag.service';
-import { SourcingAgentWorkspaceCapabilityService } from './application/service/sourcing-agent-workspace-capability.service';
+import { SourcingAgentWorkspaceMutationCapabilityService } from './application/service/sourcing-agent-workspace-capability.service';
 import { SourcingReviewService } from './application/service/sourcing-review.service';
 import { SourcingScrapeResultService } from './application/service/sourcing-scrape-result.service';
 import { SourcingValidationService } from './application/service/sourcing-validation.service';
+import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capability.module';
+import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-capability.module';
 
 @Module({
   imports: [
@@ -46,19 +47,16 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     AgentOsCapabilityModule,
     OperationsModule,
     AiAgentRuntimeModule,
+    SourcingAgentReadCapabilityModule,
+    SourcingAgentListingCapabilityModule,
   ],
   providers: [
-    SourcingAgentCommandService,
-    SourcingAgentRagService,
-    SourcingAgentWorkspaceCapabilityService,
+    SourcingAgentWorkspaceMutationCapabilityService,
     SourcingReviewService,
     SourcingScrapeResultService,
     SourcingValidationService,
-    SourcingListingPrepCapabilityAdapter,
     SourcingScrapeUrlCapabilityAdapter,
-    SourcingWorkspaceCapabilityAdapter,
-    SourcingAgentGatewayAdapter,
-    SourcingCandidateRepositoryAdapter,
+    SourcingWorkspaceMutationCapabilityAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingReviewRepositoryAdapter,
@@ -69,23 +67,14 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     SourcingScrapeUrlOperationHandler,
     SourcingScrapeOperationAdapter,
     {
-      provide: SOURCING_LISTING_PREP_CAPABILITY_PORT,
-      useExisting: SourcingListingPrepCapabilityAdapter,
-    },
-    {
       provide: SOURCING_SCRAPE_URL_WORKFLOW_PORT,
       useExisting: SourcingScrapeUrlCapabilityAdapter,
     },
     {
-      provide: SOURCING_AGENT_WORKSPACE_CAPABILITY_PORT,
-      useExisting: SourcingAgentWorkspaceCapabilityService,
+      provide: SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
+      useExisting: SourcingAgentWorkspaceMutationCapabilityService,
     },
-    { provide: SOURCING_AGENT_GATEWAY_PORT, useExisting: SourcingAgentGatewayAdapter },
     { provide: SOURCING_SCRAPE_OPERATION_PORT, useExisting: SourcingScrapeOperationAdapter },
-    {
-      provide: SOURCING_CANDIDATE_REPOSITORY_PORT,
-      useExisting: SourcingCandidateRepositoryAdapter,
-    },
     {
       provide: SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
       useExisting: SourcingInterestTargetRepositoryAdapter,
@@ -112,13 +101,11 @@ import { SourcingValidationService } from './application/service/sourcing-valida
     },
   ],
   exports: [
-    SourcingAgentCommandService,
-    SourcingAgentRagService,
+    SourcingAgentListingCapabilityModule,
+    SourcingAgentReadCapabilityModule,
     SourcingReviewService,
     SourcingValidationService,
-    SOURCING_AGENT_GATEWAY_PORT,
     SOURCING_SCRAPE_OPERATION_PORT,
-    SOURCING_CANDIDATE_REPOSITORY_PORT,
     SOURCING_INTEREST_TARGET_REPOSITORY_PORT,
     SOURCING_RECOMMENDATION_REPOSITORY_PORT,
     SOURCING_VALIDATION_REPOSITORY_PORT,

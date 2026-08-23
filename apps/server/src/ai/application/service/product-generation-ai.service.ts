@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { DetailPageGenerationService } from './detail-page-generation.service';
 import { ThumbnailEditorAiService } from './thumbnail-editor-ai.service';
@@ -21,6 +21,10 @@ import {
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   type ProductGenerationContextRepositoryPort,
 } from '../port/out/repository/product-generation-context.repository.port';
+import {
+  PRODUCT_GENERATION_IDEMPOTENCY_PORT,
+  type ProductGenerationIdempotencyPort,
+} from '../port/out/transaction/product-generation-idempotency.port';
 
 @Injectable()
 export class ProductGenerationAiService implements ProductGenerationAiTriggerPort {
@@ -33,9 +37,26 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     private readonly thumbnails: ThumbnailGenerationJobService,
     private readonly editorAi: ThumbnailEditorAiService,
     private readonly parentAlerts: ProductGenerationAlertService,
+    @Inject(PRODUCT_GENERATION_IDEMPOTENCY_PORT)
+    private readonly idempotency: ProductGenerationIdempotencyPort,
   ) {}
 
   async startForCandidate(
+    input: ProductGenerationAiRequest,
+  ): Promise<ProductGenerationAiResult> {
+    if (!input.idempotencyKey?.trim() || !input.requestHash?.trim()) {
+      throw new Error('product_generation_idempotency_required');
+    }
+    return this.idempotency.runExclusive(
+      {
+        organizationId: input.organizationId,
+        idempotencyKey: input.idempotencyKey,
+      },
+      () => this.startClaimed(input),
+    );
+  }
+
+  private async startClaimed(
     input: ProductGenerationAiRequest,
   ): Promise<ProductGenerationAiResult> {
     const candidate = await this.contextRepository.findCandidate({
@@ -44,23 +65,41 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     });
     if (!candidate) throw new NotFoundException('Sourcing candidate not found');
 
-    const batchId = randomUUID();
+    const batchId = createHash('sha256')
+      .update(`${input.organizationId}:${input.idempotencyKey}`)
+      .digest('hex')
+      .slice(0, 32);
     const parentOperationKey = productGenerationOperationKey(batchId);
     const href = `/product-pipeline/collected-products/${encodeURIComponent(input.candidateId)}`;
     const productName = input.productName.trim() || candidate.name;
     const includeDetailPage = input.task !== 'thumbnail';
     const includeThumbnail = input.task !== 'detail';
 
-    await this.parentAlerts.start({
-      organizationId: input.organizationId,
-      actorUserId: input.triggeredByUserId,
-      batchId,
-      candidateId: input.candidateId,
-      productName,
-      href,
-      includeDetailPage,
-      includeThumbnail,
-    });
+    const existingParent = await this.parentAlerts.find(
+      input.organizationId,
+      parentOperationKey,
+    );
+    const existingMetadata = asRecord(existingParent?.metadata);
+    if (
+      existingParent
+      && existingMetadata.requestHash !== input.requestHash
+    ) {
+      throw new Error('product_generation_idempotency_conflict');
+    }
+    if (!existingParent) {
+      await this.parentAlerts.start({
+        organizationId: input.organizationId,
+        actorUserId: input.triggeredByUserId,
+        batchId,
+        candidateId: input.candidateId,
+        productName,
+        href,
+        includeDetailPage,
+        includeThumbnail,
+        requestHash: input.requestHash,
+      });
+    }
+    const existingChildIds = asRecord(existingMetadata.childIds);
 
     const detailLink: ParentProductGenerationAlertLink = {
       mode: 'parent',
@@ -81,9 +120,9 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     const rawDescription = buildProductGenerationDescription(input, candidate.description);
     const rawOptions = input.optionNames.join('\n');
 
-    let detailGenerationId: string | null = null;
+    let detailGenerationId = stringOrNull(existingChildIds.detailPageGenerationId);
     let contentWorkspaceId: string | null = null;
-    if (includeDetailPage) try {
+    if (includeDetailPage && !detailGenerationId) try {
       const detail = await this.detailPages.generate(
         {
           rawTitle: productName,
@@ -128,8 +167,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       });
     }
 
-    let thumbnailGenerationId: string | null = null;
-    if (includeThumbnail) try {
+    let thumbnailGenerationId = stringOrNull(existingChildIds.thumbnailGenerationId);
+    if (includeThumbnail && !thumbnailGenerationId) try {
       const canStartThumbnail = await this.parentAlerts.canStartChild({
         organizationId: input.organizationId,
         parentOperationKey,
@@ -211,6 +250,16 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       href,
     };
   }
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+function stringOrNull(value: unknown): string | null {
+  return typeof value === 'string' && value.length > 0 ? value : null;
 }
 
 function buildProductGenerationDescription(

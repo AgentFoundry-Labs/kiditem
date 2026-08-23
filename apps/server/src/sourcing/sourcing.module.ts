@@ -38,7 +38,6 @@ import { Sourcing1688SearchResultService } from "./application/service/sourcing-
 import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingPromotionService } from "./application/service/sourcing-promotion.service";
 import { SourcingWorkspaceArchiveService } from "./application/service/sourcing-workspace-archive.service";
-import { SourcingAssistantService } from "./application/service/sourcing-assistant.service";
 import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
@@ -178,7 +177,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingKeywordPreferenceService,
     SourcingKeywordSuggestionService,
     SourcingWingCatalogIngestService,
-    SourcingAssistantService,
     SourcingExtensionIngestService,
     SourcingMarketDiscoveryService,
     SourcingRisingProductService,

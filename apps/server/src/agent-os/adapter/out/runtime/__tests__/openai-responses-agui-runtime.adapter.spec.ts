@@ -1,6 +1,7 @@
 import { EventType } from "@ag-ui/core";
 import { describe, expect, it, vi } from "vitest";
 import { AgentAguiRuntimeRegistry } from "../../../../application/service/agent-agui-runtime-registry.service";
+import { AgentAguiInProcessRunRegistry } from "../../../../application/service/agent-agui-in-process-run-registry.service";
 import { OpenAiResponsesAguiRuntimeAdapter } from "../openai-responses-agui-runtime.adapter";
 
 describe("OpenAiResponsesAguiRuntimeAdapter", () => {
@@ -208,7 +209,43 @@ describe("OpenAiResponsesAguiRuntimeAdapter", () => {
       expect.objectContaining({ model: "gpt-5.4" }),
     );
   });
+
+  it("claims one DB-authorized exact active coordinate without writing a terminal", async () => {
+    const activeRuns = new AgentAguiInProcessRunRegistry();
+    const responses = { decide: vi.fn(({ signal }: { signal: AbortSignal }) => new Promise<never>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }))) };
+    const runtime = new OpenAiResponsesAguiRuntimeAdapter(
+      new AgentAguiRuntimeRegistry(),
+      responses as never,
+      undefined,
+      undefined,
+      activeRuns,
+    );
+    const stream = runtime.run(runtimeInput());
+    await stream.next();
+    const running = stream.next();
+    await vi.waitFor(() => expect(responses.decide).toHaveBeenCalledOnce());
+
+    await expect(runtime.stop({
+      organizationId: "org-1", sessionId: "session-1", executionId: "execution-1",
+      attemptId: "attempt-1", startIntentId: "intent-1", copilotThreadId: "thread-1", aguiRunId: "run-1",
+    })).resolves.toBe(true);
+    await expect(running).rejects.toBeDefined();
+    await expect(runtime.stop({
+      organizationId: "org-1", sessionId: "session-1", executionId: "execution-1",
+      attemptId: "attempt-1", startIntentId: "intent-1", copilotThreadId: "thread-1", aguiRunId: "run-1",
+    })).resolves.toBe(false);
+  });
 });
+
+function runtimeInput() {
+  return {
+    organizationId: "org-1", userId: "user-1", sessionId: "session-1", sessionTaskId: "task-1",
+    executionId: "execution-1", attemptId: "attempt-1", startIntentId: "intent-1", runtimeCredentialGeneration: 0,
+    copilotThreadId: "thread-1", aguiRunId: "run-1", agentDefinitionKey: "operator", runtimeType: "copilotkit_agui",
+    modelIdentity: "gpt-5.4", capabilityKeys: [], messages: [{ id: "message-1", role: "user" as const, content: "hello" }],
+    dashboardContext: {}, invokeCapability: vi.fn(), recordUsage: vi.fn(),
+  };
+}
 
 function deferred<T>() {
   let resolve!: (value: T | PromiseLike<T>) => void;

@@ -36,17 +36,21 @@ MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
 
 `AgentRuntimeApplicationModule` is the controller-free official runtime beneath
 the MCP root. It composes only official session/capability providers and the
-credential-fenced MCP executor; it does not import the temporary
+DB-fenced MCP executor; it does not import the temporary
 `AgentOsLegacyRunModule`, Operations, HTTP wrappers, grants, or interaction
 secrets. `AgentOsLegacyRunModule` continues to quarantine the retained generic
 AgentRun lane for the separate worker while migration is in progress.
-`AgentOsHttpModule` is the only Agent OS HTTP/controller, gateway-secret, and
-Operations-backed interaction wrapper, while `AgentOsWorkerModule` owns only
-the legacy worker wrapper. The MCP process derives every identity from an
-already-issued runtime credential and its exact persisted session execution and
-Operation binding. It exposes only `agent_os_read_context` plus policy-
-registered read-only capabilities; it cannot create AgentRuns, Operations, or
-owner state.
+`AgentOsHttpModule` supplies controller-free interaction ports while the
+API-only `AgentOsInteractionHttpModule` owns the Nest incoming adapter.
+`AgentOsWorkerModule` owns only the legacy worker wrapper. KidItem spawns each
+local MCP child with an exact,
+non-secret execution coordinate. The MCP root revalidates that coordinate,
+start intent, revocation generation, session lifecycle, and active Operation
+binding from the database on every tool call. It exposes
+`agent_os_read_context` plus policy-registered capabilities whose code-owned
+risk is `none` or `low`; owner writes retain their exact execution-derived
+idempotency key. High-risk tools remain approval-gated. The MCP root cannot
+create AgentRuns or Operations directly.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
 and overlapping lifecycle ownership are unsupported. The Agent worker is a
@@ -58,7 +62,7 @@ The API root is the only deletion composition owner. `AgentOsHttpModule` owns
 the DELETE/status/retry controller and `AgentOsApiExecutionModule` owns the
 deletion facade, execution service, exactly one Operations handler, and both
 post-accepting recovery hooks. Worker and MCP roots compose none of those
-providers; MCP may only verify an already-issued runtime credential.
+providers; MCP may only revalidate its locally supplied execution coordinate.
 
 Deletion fences runtime authority before provider work, deletes only
 KidItem-derived artifact keys, and gives each retry generation a cumulative
@@ -277,7 +281,6 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/automation` | Platform | Workflows, alerts, action board, marketplace install, and panel projection. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, account-scoped listing/registration capability, durable listing-deletion operations, order, return, Wing/Rocket catalog identity, typed exact-evidence extraction, option-to-inventory matching, derived listing-product summaries, direct option-component diagnostics, and sellable-capacity projections. |
-| `apps/server/src/chat` | Platform Capability | CopilotKit bridge and Claude CLI adapter. |
 | `apps/server/src/common` | Platform Support | Shared backend DTOs, filters, KST/date helpers, security, storage, and pricing helpers. |
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and the read-only contribution-profit evidence port consumed by Products' automatic ABC evaluation. |
@@ -317,7 +320,6 @@ folders are intentionally absent from this map.
 | `apps/server/src/operations` | Hexagonal | code-owned operation definitions, run/schedule repository ports, native-runtime ports, dispatcher, server queue worker, and browser lease APIs; canonical business writes remain in owner incoming capabilities. |
 | `apps/server/src/channels` | Hexagonal | Provider APIs use `application/port/out` plus `adapter/out/coupang`; catalog import and matching use repository ports plus an Inventory-owned read-port bridge. |
 | `apps/server/src/channels/adapters` | Flat | compatibility shims only; new provider work uses `adapter/out/coupang/`. |
-| `apps/server/src/chat` | Flat | controller/service/Claude CLI adapter. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Flat | controllers/services/DTO plus folded finance capabilities. |
 | `apps/server/src/inventory` | Hexagonal | Sellpia freshness/publication single-writer, browser lease, snapshot-aware physical availability, narrow matching/purchase gates, and retained warehouse/transfer/return capabilities behind ports/adapters. |
@@ -1057,6 +1059,12 @@ live under `apps/server/src/agent-os/`; schema ownership is documented in
   supported lane. Existing
   callers must migrate to an owner use case/Operation or to an official
   `AgentSession` execution when LLM judgment is required.
+- Official Codex/Claude execution uses the service account's existing local CLI
+  login. KidItem does not store, issue, copy, or inject provider API/OAuth keys,
+  a runtime HMAC token, or a local-handle encryption key. It persists only the
+  exact session/execution/attempt/start-intent authority, revocation generation,
+  and non-secret native process/session correlation; startup fails that runtime
+  closed when the binary, version, or local login is unavailable.
 
 Agent OS remains the dashboard's top-level operational interface and its
 autonomous reasoning runtime. It does not make every operation an `AgentRun`:
@@ -1066,17 +1074,19 @@ plane.
 
 Interactive Agent OS conversations use CopilotKit OSS as the browser interaction
 framework and AG-UI as the wire protocol. KidItem remains authoritative for
-`AgentSession`, task, execution, conversation-event, outbox, replay cursor, and
-live-join state in PostgreSQL. The separate `apps/interaction-gateway` validates
-the browser principal through Nest, forwards only the opaque authorized run, and
-joins replay to live events without copying a transcript into web state.
+`AgentSession`, task, execution, conversation-event, outbox, and replay
+sequence coordinate in PostgreSQL. `AgentOsInteractionHttpModule` is the single
+Nest incoming adapter: ordinary authenticated API requests authorize the
+browser principal, execute the run, drain canonical pages by their decimal
+sequence coordinate, then join live events without copying a transcript into
+web state.
 CopilotKit Premium/Enterprise persistence is not part of this boundary.
 
 Public interaction/runtime correlation uses canonical `session`, `task`,
 `execution`, optional `attempt`, and optional `operation` resource names plus
 opaque `copilotThreadId`/`aguiRunId`. AgentOS repositories retain branded UUID
-IDs internally; replay sequence, request ID, idempotency key, live-join token,
-runtime handle, and content hash are separate identifier classes.
+IDs internally; replay sequence, request ID, idempotency key, runtime handle,
+and content hash are separate identifier classes.
 
 The global authenticated panel and `/agent-os` workspace share one ephemeral
 selection store. React Query owns bootstrap freshness; CopilotKit/AG-UI owns
@@ -1085,9 +1095,9 @@ short-lived `actionRef`, never a model-supplied URL or database ID; Nest
 reauthorizes the action and returns one
 allowlisted route. `AgentOsModule` remains controller-free and exposes only the
 core repositories, runtime registries, and capability ports shared by API and
-Agent process roots. Interaction controllers, HTTP guards and secrets, AG-UI
-producers, and Operations-backed session controls are composed only by
-`AgentOsHttpModule`; worker and MCP roots cannot reach them transitively.
+Agent process roots. The API-only `AgentOsInteractionHttpModule` composes the
+CopilotKit HTTP adapter over `AgentOsHttpModule`; worker and MCP roots cannot
+import or resolve that incoming HTTP surface transitively.
 
 ## Verification Baseline
 

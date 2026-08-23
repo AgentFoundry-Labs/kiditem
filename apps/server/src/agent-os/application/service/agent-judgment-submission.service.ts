@@ -28,6 +28,7 @@ import {
   type AgentJudgmentSubmissionTransactionPort,
 } from '../port/out/transaction/session-control/agent-judgment-submission.transaction.port';
 import { AgentJudgmentDispatchService } from './session-control/agent-judgment-dispatch.service';
+import { AgentRuntimeAdapterRegistry } from './agent-runtime-adapter.registry';
 import {
   AUTHORITY_PROFILE_VERSION_ID,
   FOUNDATION_CAPABILITY_KEYS,
@@ -44,6 +45,7 @@ export class AgentJudgmentSubmissionService implements AgentJudgmentSubmissionPo
     @Inject(AGENT_JUDGMENT_SUBMISSION_TRANSACTION)
     private readonly submissions: AgentJudgmentSubmissionTransactionPort,
     private readonly dispatch: AgentJudgmentDispatchService,
+    private readonly runtimes: AgentRuntimeAdapterRegistry,
   ) {}
 
   async submit(input: Parameters<AgentJudgmentSubmissionPort['submit']>[0]) {
@@ -70,6 +72,7 @@ export class AgentJudgmentSubmissionService implements AgentJudgmentSubmissionPo
       authorityProfilePolicyDocument: foundationAuthorityProfilePolicyDocument(),
       authorityProfilePolicyHash: foundationAuthorityProfilePolicyHash(),
       capabilityKeys: [...FOUNDATION_CAPABILITY_KEYS],
+      registeredRuntimeTypes: this.runtimes.registeredTypes(),
     });
     const dispatched = await this.dispatch.dispatch({
       organizationId,

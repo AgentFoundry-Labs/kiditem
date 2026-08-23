@@ -164,7 +164,6 @@ same-origin `/api/*` routing.
 |---|---|---:|---|---|
 | `NEXT_PUBLIC_API_URL` | Web build/runtime | Local only | API client, Next rewrite destination | Local dev uses `http://localhost:4000`. Office leaves it empty so browser requests stay same-origin and nginx routes `/api/*`. |
 | `NEXT_PUBLIC_ENABLE_QUERY_DEVTOOLS` | Web runtime | Optional | Query devtools provider | Effective only when `NODE_ENV=development`. |
-| `INTERACTION_GATEWAY_URL` | Next server/build | Production interaction UI | Next same-origin rewrite | Server-only gateway base for `/api/copilotkit/:path*`. Production server startup fails closed when absent; local development alone defaults to `http://localhost:4100`. Never prefix this variable with `NEXT_PUBLIC_`. |
 
 ## Storage
 
@@ -277,40 +276,33 @@ covered by an operator runbook.
 | `AGENT_RULES_SUGGEST_MODEL` | Rules suggestion agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_AD_STRATEGY_MODEL` | Ad strategy agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_SOURCING_ADAPTER_TYPE` | Sourcing dashboard assistant enabled | Agent OS seed | Optional server-only override: `codex_cli` or `claude_cli`. The code-owned default is `codex_cli`; an unknown value fails seed instead of falling back. The browser cannot select it. |
-| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Explicit local CLI model. This computer's Codex QA uses `gpt-5.6-terra`. |
+| `AGENT_SOURCING_MODEL` | Sourcing agent enabled | Agent definition registry | Explicit local CLI model; no silent fallback. |
 | `AGENT_RUNTIME_EXECUTION_TIMEOUT_MS` | Local Agent OS CLI runtime enabled | Agent OS local CLI runtime | Defaults to `45000`. Timeout terminates the process and records a failed run; it is never resumed after restart. |
 | `AGENT_RUNTIME_CONCURRENCY` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `2`. Bounds Claude/Codex child processes per Nest process. |
 | `AGENT_RUNTIME_CAPACITY_WAIT_MS` | Local Agent OS CLI runtime enabled | Agent OS local process registry | Defaults to `5000`. Capacity expiry fails the request without spawning another process. |
 | `AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD` | `claude_cli` is explicitly selected | Agent OS local CLI runtime | Defaults to `0.25` per invocation. It does not apply to Codex. |
-| `AGENT_RUNTIME_CREDENTIAL_HMAC_KEY` | A durable Hermes or isolated CLI runtime host is enabled | Durable runtime credential broker | Required server/worker-only HMAC secret, at least 32 bytes. It signs one execution-and-attempt-bound credential; never expose it to browser, gateway, prompts, runtime logs, or `OperationRun.result`. |
-| `AGENT_RUNTIME_CREDENTIAL_TTL_MS` | Durable runtime credential broker needs a non-default lifetime | Durable runtime credential broker | Optional integer from `1000` through `900000`; defaults to `300000` (5 minutes). A reconnect receives a new credential for the same execution/attempt scope. |
-| `AGENT_RUNTIME_HANDLE_ENCRYPTION_KEY` | A durable Hermes or isolated CLI runtime host is enabled | Durable runtime handle cipher | Required server/worker-only 32-byte base64, hex, or raw UTF-8 key. It encrypts reconnect/native-process references only; rotation makes persisted handles unrecoverable and must be coordinated with terminal reconciliation. |
+| `AGENT_RUNTIME_CREDENTIAL_HMAC_KEY` | Experimental `hermes_http` is explicitly enabled | Hermes runtime credential broker | Hermes-only HMAC secret, at least 32 bytes. Local Claude/Codex CLI execution does not consume this key. |
+| `AGENT_RUNTIME_CREDENTIAL_TTL_MS` | Experimental `hermes_http` needs a non-default credential lifetime | Hermes runtime credential broker | Hermes-only optional integer from `1000` through `900000`; defaults to `300000` (5 minutes). |
+| `AGENT_RUNTIME_HANDLE_ENCRYPTION_KEY` | Experimental `hermes_http` is explicitly enabled | Hermes durable runtime handle cipher | Hermes-only server/worker 32-byte base64, hex, or raw UTF-8 key. Local Claude/Codex CLI execution does not consume this key: provider authentication stays in the service account's CLI-owned profile and its persisted handle contains only non-secret execution/process correlation. |
 | `HERMES_RUNTIME_BASE_URL` | `hermes_http` or matrix-compatible `hermes_acp` is registered | Hermes durable runtime transport | Required explicit control-plane URL. Use HTTPS in Office; the adapter posts only execution-scoped prompt/context and run-scoped MCP config, never organization or policy-snapshot IDs. |
-| `AGENT_DURABLE_RUNTIME_RUN_ROOT` | Isolated Codex/Claude durable worker is enabled | Isolated CLI runtime supervisor | Optional host/worker-owned base directory; defaults to `/var/lib/kiditem-agent-runs`. Each execution/attempt receives distinct `home`, `work`, and `state` directories and owner-only files. Do not mount it in API, gateway, or web containers. |
+| `AGENT_DURABLE_RUNTIME_RUN_ROOT` | Isolated Codex/Claude runtime is enabled | Current API container boot | Optional current-boot work/state base directory; defaults to `/var/lib/kiditem-agent-runs`. The durable authority is the Agent OS database attempt/checkpoint and native session handle, never a host process. API container termination is the boundary for its CLI child process tree; recovery creates a successor attempt and resumes only when the durable native handle exists. Provider login remains in the Nest service account's normal local CLI profile. |
 | `AD_KEYWORD_RELEVANCE_MODEL` | 광고 키워드 연관성 판정 사용 | `advertising` keyword relevance judge adapter | Text model id. No fallback — unset throws, because a silently different model still returns confident verdicts that propose pausing live ads. |
 | `AGENT_THUMBNAIL_ANALYST_MODEL` | Thumbnail analyst agent enabled | Agent definition registry | Per-agent override. |
 | `AGENT_CHAT_MODEL` | Chatbot agent enabled | Agent definition registry | Required unless `AGENT_DEFAULT_MODEL` is set. |
-| `INTERACTION_GATEWAY_SHARED_SECRET` | Every production API boot | Agent OS interaction gateway guard | Required server-only shared credential (minimum 32 bytes) for gateway control and health routes. It has no default. Rotate it in a coordinated gateway/server rollout; in-flight requests using the old value fail closed. |
-| `INTERACTION_PRINCIPAL_HMAC_KEY` | Every production API boot | Agent OS interaction identity service | Required server-only HMAC key (minimum 32 bytes) for opaque browser principal keys. It has no default. Rotation changes principal identities and requires an explicit identity/history migration plan. |
-| `INTERACTION_RUN_INTENT_HMAC_KEY` | Every production API boot | Agent OS interaction authorization service | Required server-only HMAC key (minimum 32 bytes) for 30-second run intents. It has no default. Rotation immediately invalidates outstanding intents; allow the window to drain or expect clients to prepare again. |
-| `INTERACTION_REPLAY_CURSOR_HMAC_KEY` | Every production API boot | Agent OS replay and live-join authorization | Required server-only HMAC key (minimum 32 bytes) for opaque replay cursors and short-lived live-join tokens. It has no default. Rotate only with a coordinated reconnect rollout; old cursors and join tokens fail closed. |
-| `INTERACTION_ANALYTICS_HMAC_KEY` | Every production API boot | Agent OS product analytics adapter | Required server-only HMAC key (minimum 32 bytes) for hashing organization identity before metadata-only interaction analytics leaves the application boundary. It has no default. Rotate with an explicit analytics continuity decision; raw organization/user IDs, prompts, results, resources, tokens, and cookies must never enter this event. |
-| `ANTHROPIC_API_KEY` | Claude CLI uses Anthropic API key auth | Claude CLI env allowlist | Passed only to the Claude child process. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | Claude CLI uses OAuth token auth | Claude CLI env allowlist | Passed only to the Claude child process. |
-
 The Nest service account owns the persistent local Claude/Codex login used by
-Agent OS. Existing CLI login files are discovered through that account's
-isolated child environment. Optional API-key variables remain restricted server
-secrets; they are never copied to the browser or KidItem MCP child process.
-The five `INTERACTION_*` secrets have deliberately separate purposes and must
-use independent random values. Never expose them through `NEXT_PUBLIC_*`, send
-them to the browser or gateway request bodies, include them in Agent OS prompts,
-or print their values in logs, deployment output, tests, issues, or pull
-requests.
+Agent OS. Provision it with `claude auth login` and `codex login`; startup checks
+both CLIs with their native auth-status commands. KidItem does not store, copy,
+or forward Anthropic/OpenAI credentials. The MCP child receives only a strict
+non-secret execution coordinate and database connection owned by its Nest root.
+The interaction adapter uses the ordinary authenticated Nest request and direct
+Agent OS authorization ports; it has no shared service secret, HMAC envelope,
+or browser-provided identity. Never expose local CLI credentials through
+`NEXT_PUBLIC_*`, request bodies, Agent OS prompts, logs, deployment output,
+tests, issues, or pull requests.
 
-The browser sees only same-origin `/api/copilotkit`. `INTERACTION_GATEWAY_URL`
-is a server-side Next rewrite destination and must point at the deployed OSS
-gateway; it is not a CopilotKit public key or Enterprise endpoint.
+The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
+directly at the ordinary Nest API origin and is not a CopilotKit public key or
+Enterprise endpoint.
 
 ## Channel Credentials
 

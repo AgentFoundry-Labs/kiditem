@@ -97,6 +97,19 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
   }
 
   async createDraft(organizationId: string, command: PurchaseOrderCreateCommand) {
+    const existing = command.idempotencyKey
+      ? await this.prisma.purchaseOrder.findFirst({
+          where: { organizationId, idempotencyKey: command.idempotencyKey },
+          include: { items: true, supplier: true },
+        })
+      : null;
+    if (existing) {
+      if (existing.requestHash !== command.requestHash) {
+        throw new Error('purchase_order_draft_idempotency_conflict');
+      }
+      return { ok: true as const, order: existing };
+    }
+
     if (command.supplierId) {
       const supplier = await this.prisma.supplier.findFirst({
         where: { id: command.supplierId, organizationId },
@@ -122,31 +135,62 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       0,
     );
 
-    const order = await this.prisma.purchaseOrder.create({
-      data: {
-        organizationId,
-        supplierName: command.supplierName,
-        supplierId: command.supplierId || null,
-        totalAmountCny,
-        status: 'draft',
-        orderDate: new Date(),
-        expectedDeliveryDate: command.expectedDeliveryDate
-          ? new Date(command.expectedDeliveryDate)
-          : null,
-        items: {
-          create: command.items.map((item) => ({
-            productName: item.productName,
-            organizationId,
-            sellpiaInventorySkuId: item.sellpiaInventorySkuId,
-            quantity: item.quantity,
-            unitPriceCny: item.unitPriceCny,
-          })),
+    try {
+      const order = await this.prisma.purchaseOrder.create({
+        data: {
+          organization: { connect: { id: organizationId } },
+          supplierName: command.supplierName,
+          ...(command.supplierId
+            ? {
+                supplier: {
+                  connect: {
+                    id_organizationId: {
+                      id: command.supplierId,
+                      organizationId,
+                    },
+                  },
+                },
+              }
+            : {}),
+          totalAmountCny,
+          status: 'draft',
+          orderDate: new Date(),
+          expectedDeliveryDate: command.expectedDeliveryDate
+            ? new Date(command.expectedDeliveryDate)
+            : null,
+          ...(command.idempotencyKey ? { idempotencyKey: command.idempotencyKey } : {}),
+          ...(command.requestHash ? { requestHash: command.requestHash } : {}),
+          items: {
+            create: command.items.map((item) => ({
+              productName: item.productName,
+              organization: { connect: { id: organizationId } },
+              sellpiaInventorySku: {
+                connect: {
+                  id_organizationId: {
+                    id: item.sellpiaInventorySkuId,
+                    organizationId,
+                  },
+                },
+              },
+              quantity: item.quantity,
+              unitPriceCny: item.unitPriceCny,
+            })),
+          },
         },
-      },
-      include: { items: true, supplier: true },
-    });
-
-    return { ok: true as const, order };
+        include: { items: true, supplier: true },
+      });
+      return { ok: true as const, order };
+    } catch (error) {
+      if (!command.idempotencyKey || !isUniqueConstraintError(error)) throw error;
+      const raced = await this.prisma.purchaseOrder.findFirst({
+        where: { organizationId, idempotencyKey: command.idempotencyKey },
+        include: { items: true, supplier: true },
+      });
+      if (!raced || raced.requestHash !== command.requestHash) {
+        throw new Error('purchase_order_draft_idempotency_conflict');
+      }
+      return { ok: true as const, order: raced };
+    }
   }
 
   findScopedStatus(organizationId: string, id: string) {
@@ -265,4 +309,9 @@ function toNumber(value: Prisma.Decimal | number | string | null | undefined): n
 
 function decimalString(value: Prisma.Decimal | number | string): string {
   return String(value);
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError
+    && error.code === 'P2002';
 }

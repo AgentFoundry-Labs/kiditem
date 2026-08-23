@@ -65,6 +65,7 @@ import type {
   NormalizedRuntimeEvent,
   RuntimeHandle,
 } from "../../../application/port/out/runtime/agent-durable-runtime.port";
+import { verifyOfficialSourcingTerminalOutput } from '../official-sourcing-terminal-output';
 
 const durableRequirements = {
   detached: true,
@@ -336,7 +337,14 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       });
     }
 
-    return this.consume(operation, input, attempt.id, runtime, handle);
+    return this.consume(
+      operation,
+      input,
+      attempt.id,
+      runtime,
+      handle,
+      execution.agentDefinitionKey,
+    );
   }
 
   async cancel(command: CancelAgentSessionTaskCommand): Promise<void> {
@@ -412,6 +420,7 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
     attemptId: string,
     runtime: AgentDurableRuntimeAdapter,
     handle: RuntimeHandle,
+    agentDefinitionKey: string,
   ): Promise<SessionExecutionOperationResult> {
     let eventCount = 0;
     let assistantOpen = false;
@@ -534,6 +543,18 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
         }
         if (event.kind === "terminal") {
           operation.signal.throwIfAborted();
+          if (
+            event.status === 'completed' &&
+            agentDefinitionKey === 'sourcing' &&
+            event.output
+          ) {
+            await this.persistOfficialSourcingTerminalOutput(
+              operation,
+              input,
+              attemptId,
+              event.output,
+            );
+          }
           return this.finalize(
             operation,
             input,
@@ -700,6 +721,40 @@ export class AgentSessionTaskExecutionService implements AgentSessionTaskExecuti
       attemptId,
       ordinal,
       event,
+    });
+  }
+
+  private async persistOfficialSourcingTerminalOutput(
+    operation: Pick<SessionExecutionOperation, 'organizationId'>,
+    input: SessionTaskOperationInput,
+    attemptId: string,
+    output: Record<string, unknown>,
+  ): Promise<void> {
+    const evidenceEvents = await this.executions.listExecutionStateSnapshots({
+      organizationId: operation.organizationId,
+      sessionId: input.sessionId,
+      executionId: input.executionId,
+      snapshotType: 'agent_capability_evidence',
+      limit: 100,
+    });
+    const evidence = evidenceEvents.map((event) => evidenceFromSnapshot(event.payload));
+    const verified = verifyOfficialSourcingTerminalOutput({
+      output,
+      evidence,
+      organizationId: operation.organizationId,
+    });
+    await this.executionEvents.appendExecutionEvent({
+      organizationId: operation.organizationId,
+      sessionId: input.sessionId,
+      executionId: input.executionId,
+      externalEventId: `${attemptId}:runtime:terminal-result`,
+      eventType: 'state_snapshot',
+      schemaVersion: 1,
+      payload: {
+        snapshotType: 'agent_sourcing_terminal_result',
+        snapshotVersion: 1,
+        data: { content: JSON.stringify(verified) },
+      },
     });
   }
 
@@ -926,6 +981,20 @@ function adapterEvent(
     throw new Error("AGENT_RUNTIME_EVENT_INVALID");
   }
   return event;
+}
+
+function evidenceFromSnapshot(payload: unknown): unknown {
+  const parsed = z.object({
+    snapshotType: z.literal('agent_capability_evidence'),
+    snapshotVersion: z.literal(1),
+    data: z.object({ content: z.string().min(1).max(12_000) }).strict(),
+  }).strict().safeParse(payload);
+  if (!parsed.success) throw new Error('OFFICIAL_SOURCING_OUTPUT_EVIDENCE_INVALID');
+  try {
+    return JSON.parse(parsed.data.data.content);
+  } catch {
+    throw new Error('OFFICIAL_SOURCING_OUTPUT_EVIDENCE_INVALID');
+  }
 }
 
 function nextRuntimeEvent(

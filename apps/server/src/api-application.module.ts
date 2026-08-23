@@ -5,6 +5,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { AdvertisingModule } from './advertising/advertising.module';
 import { AgentOsHttpModule } from './agent-os/agent-os-http.module';
+import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AiModule } from './ai/ai.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { AuthModule } from './auth/auth.module';
@@ -13,7 +14,6 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import { AutomationModule } from './automation/automation.module';
 import { ChannelsModule } from './channels/channels.module';
-import { ChatModule } from './chat/chat.module';
 import { CommonModule } from './common/common.module';
 import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
@@ -54,11 +54,11 @@ import { UploadsModule } from './uploads/uploads.module';
     FinanceModule,
     RulesModule,
     AgentOsHttpModule,
+    AgentOsInteractionHttpModule,
     AutomationModule,
     OperationCancellationModule,
     OperationsHttpModule,
     AdvertisingModule,
-    ChatModule,
     UploadsModule,
     ReadinessModule,
   ],

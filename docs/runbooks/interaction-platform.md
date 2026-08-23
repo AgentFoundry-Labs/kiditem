@@ -10,8 +10,8 @@ thread service is required.
 ```text
 browser /api/copilotkit
   -> Next server-only rewrite
-  -> interaction gateway
-  -> Nest authorize/dispatch/replay/live boundary
+  -> Nest authenticated incoming adapter
+  -> Agent OS authorize/dispatch/replay/live ports
   -> deterministic or configured AG-UI runtime
   -> PostgreSQL canonical graph and outbox
 ```
@@ -79,23 +79,22 @@ failure never changes the canonical run result.
 
 ## Readiness and verification
 
-Probe Nest interaction health and gateway `/health/ready` before sending browser
-traffic. A gateway readiness failure is authoritative: do not bypass it or point
-the browser directly at Nest replay endpoints.
+Probe the authenticated Nest interaction route before sending browser traffic.
+There is no intermediary service, service credential, HMAC envelope, or
+browser-provided organization identity.
 
 ```bash
 npm run build --workspace=apps/server
-npm run build --workspace=apps/interaction-gateway
 npm run build --workspace=apps/web
 npx playwright test apps/web/e2e/agent-session-interaction.spec.ts
 npx playwright test apps/web/e2e/interaction-os/durable-session.spec.ts
-node deploy/interaction-gateway/smoke-official-recovery.mjs
+npm run smoke:interaction-os
 node scripts/verify-agent-session-deletion-process-roots.mjs
 ```
 
-The acceptance harness owns and stops only the exact child processes it starts.
-It uses disposable PostgreSQL 17 and a deterministic fake runtime, while keeping
-the real Nest, gateway, persistence, and browser boundaries.
+The acceptance harness owns and stops only the exact API/Web child processes it
+starts. It uses disposable PostgreSQL 17 and a deterministic runtime override,
+while keeping the real Nest composition, persistence, and browser boundaries.
 
 Official Hermes runtime output cannot carry inline artifact bytes. Its only
 artifact-adjacent output contract is a canonical `resource_ref`; a provider
@@ -111,10 +110,10 @@ container plus the child PIDs/listeners it recorded. Do not point it at
 `kiditem-postgres` or `kiditem-minio`; there is no backfill and the release
 train `VERSION` remains unchanged.
 
-`smoke-official-recovery.mjs` refuses production-like environments. It builds
-the exact server, gateway, and web artifacts, then runs the real browser
-harness (gateway restart, reconnect, approval, cancel, and canonical resource
-correlation) plus the real PostgreSQL detached-runtime recovery suite
+`npm run smoke:interaction-os` refuses production-like environments. It builds
+the exact server and web artifacts, then runs the real browser harness (Nest
+reconnect, approval, cancel, and canonical resource correlation) plus the real
+PostgreSQL detached-runtime recovery suite
 (persisted opaque-handle reuse, immutable OperationRun successor lineage,
 approval continuation/outbox retry, and Operations worker/runtime-adapter
 recreation). It does not contact Hermes, Codex, Claude, or a production
@@ -123,9 +122,8 @@ database/runtime.
 ## Process-root boundary
 
 The API root is the only owner of the Operations lifecycle. It composes
-`AgentOsHttpModule`, whose interaction controllers, guards, HMAC secrets,
-AG-UI producers, and Operations-backed session controls wrap the
-controller-free `AgentOsModule`. The Agent worker and MCP/CLI roots import only
-the controller-free runtime graph: they must boot without interaction HTTP
-secrets and must not reach `OperationsModule` transitively. Preserve this split
+`AgentOsInteractionHttpModule` over controller-free `AgentOsModule` and the
+direct authorization/replay/live ports. The Agent worker and MCP/CLI roots
+import only the controller-free runtime graph: they must not import or resolve
+interaction HTTP/controller/runtime providers transitively. Preserve this split
 when adding a runtime, capability, controller, or control service.

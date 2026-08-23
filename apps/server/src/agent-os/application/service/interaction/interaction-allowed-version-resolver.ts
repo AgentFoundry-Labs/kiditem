@@ -110,6 +110,18 @@ export class InteractionAllowedVersionResolver {
     return version && this.isAllowed(version) ? version : null;
   }
 
+  /** Existing sessions are pinned to a known immutable definition version. */
+  async resolveKnownById(
+    agentDefinitionKey: string,
+    agentVersionId: string,
+  ): Promise<ActiveAgentVersionRecord | null> {
+    const version = await this.repository.findKnownAgentVersion({
+      agentDefinitionKey,
+      agentVersionId,
+    });
+    return version && version.activatedAt ? version : null;
+  }
+
   private isAllowed(version: ActiveAgentVersionRecord): boolean {
     return Boolean(version.activatedAt) && version.retiredAt === null;
   }

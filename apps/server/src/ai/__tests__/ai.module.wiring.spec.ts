@@ -1,9 +1,12 @@
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
-import { AgentOsModule } from '../../agent-os/agent-os.module';
+import { AgentOsCapabilityModule } from '../../agent-os/agent-os-capability.module';
+import { AgentOsSessionModule } from '../../agent-os/agent-os-session.module';
+import { PrismaModule } from '../../prisma/prisma.module';
 import { OperationAlertRuntimeModule } from '../../automation/operation-alert-runtime.module';
 import { StorageModule } from '../../common/storage/storage.module';
 import { AiAgentRuntimeModule, AiModule } from '../ai.module';
+import { AiProductGenerationRuntimeModule } from '../ai-product-generation-runtime.module';
 import { AiWingRegistrationCapabilityAdapter } from '../adapter/in/agent/ai-wing-registration-capability.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
@@ -83,6 +86,7 @@ import {
 import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
 import { AiDirectJobWakeRegistrationService } from '../application/service/ai-direct-job-wake-registration.service';
 import { DetailPageClientRenderService } from '../application/service/detail-page-client-render.service';
+import { DetailPageResultRefinerService } from '../application/service/detail-page-result-refiner.service';
 import { CatalogDisplayMediaService } from '../application/service/catalog-display-media.service';
 import { CatalogDisplayMediaRepositoryAdapter } from '../adapter/out/repository/catalog-display-media.repository.adapter';
 import {
@@ -119,11 +123,24 @@ describe('AiModule hexagonal wiring contract', () => {
 
     expect(imports).toEqual([AiAgentRuntimeModule]);
     expect(runtimeImports).toEqual([
+      PrismaModule,
       OperationAlertRuntimeModule,
-      AgentOsModule,
+      AgentOsSessionModule,
+      AgentOsCapabilityModule,
       StorageModule,
+      AiProductGenerationRuntimeModule,
     ]);
     expect(Reflect.getMetadata('controllers', AiAgentRuntimeModule) ?? []).toEqual([]);
+  });
+
+  it('re-exports the product-generation owner module instead of a port it does not provide', () => {
+    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiAgentRuntimeModule) ?? [];
+    expect(exports).toContain(AiProductGenerationRuntimeModule);
+  });
+
+  it('publishes the refiner consumed by API-side direct generation executors', () => {
+    const exports: unknown[] = Reflect.getMetadata(EXPORTS_KEY, AiProductGenerationRuntimeModule) ?? [];
+    expect(exports).toContain(DetailPageResultRefinerService);
   });
 
   it('binds AI-domain ports that keep PR 2A application services off Prisma', () => {
@@ -131,6 +148,8 @@ describe('AiModule hexagonal wiring contract', () => {
       Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
     const apiProviders: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
+    const productGenerationProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AiProductGenerationRuntimeModule) ?? [];
 
     [
       [AI_DIRECT_JOB_REPOSITORY_PORT, AiDirectJobRepositoryAdapter],
@@ -145,10 +164,14 @@ describe('AiModule hexagonal wiring contract', () => {
       [GENERATED_IMAGE_VALIDATOR_PORT, SharpGeneratedImageValidatorAdapter],
       [THUMBNAIL_IMAGE_GENERATION_PORT, ThumbnailImageGenerationAdapter],
       [THUMBNAIL_REFERENCE_IMAGES_PORT, ThumbnailReferenceImagesService],
-      [THUMBNAIL_WING_REPOSITORY_PORT, ThumbnailWingRepositoryAdapter],
     ].forEach(([token, adapter]) => {
-      expectExistingBinding(runtimeProviders, token as symbol, adapter);
+      expectExistingBinding(productGenerationProviders, token as symbol, adapter);
     });
+    expectExistingBinding(
+      runtimeProviders,
+      THUMBNAIL_WING_REPOSITORY_PORT,
+      ThumbnailWingRepositoryAdapter,
+    );
     [
       [DETAIL_PAGE_DIRECT_OUTPUT_SINK_PORT, DetailPageContentGenerationSinkAdapter],
       [AI_DIRECT_JOB_WAKE_PORT, AiDirectJobWorkerService],
@@ -167,6 +190,7 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(apiProviders, token as symbol, adapter);
     });
     expect(runtimeProviders).not.toContain(AiDirectJobWorkerService);
+    expect(runtimeProviders).not.toContain(ProductGenerationAiService);
     expect(runtimeProviders).not.toContain(AiDirectJobWakeRegistrationService);
     expect(apiProviders).toContain(AiDirectJobWakeRegistrationService);
     expect(apiProviders).toContain(ContentWorkspaceThumbnailSelectionService);
@@ -178,17 +202,21 @@ describe('AiModule hexagonal wiring contract', () => {
       Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
     const apiProviders: unknown[] =
       Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
+    const productGenerationProviders: unknown[] =
+      Reflect.getMetadata(PROVIDERS_KEY, AiProductGenerationRuntimeModule) ?? [];
     const runtimeExports: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AiAgentRuntimeModule) ?? [];
     const apiExports: unknown[] =
       Reflect.getMetadata(EXPORTS_KEY, AiModule) ?? [];
 
-    [
-      [AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter],
-      [PRODUCT_GENERATION_AI_TRIGGER_PORT, ProductGenerationAiService],
-    ].forEach(([token, adapter]) => {
+    [[AI_WING_REGISTRATION_CAPABILITY_PORT, AiWingRegistrationCapabilityAdapter]].forEach(([token, adapter]) => {
       expectExistingBinding(runtimeProviders, token as symbol, adapter);
     });
+    expectExistingBinding(
+      productGenerationProviders,
+      PRODUCT_GENERATION_AI_TRIGGER_PORT,
+      ProductGenerationAiService,
+    );
     [
       [AI_WORKSPACE_ARCHIVE_PORT, SourcingWorkspaceArchiveService],
       [AI_GENERATION_CANCELLATION_PORT, AiGenerationCancellationService],
@@ -201,7 +229,7 @@ describe('AiModule hexagonal wiring contract', () => {
       expectExistingBinding(apiProviders, token as symbol, adapter);
     });
 
-    expect(runtimeExports).toContain(PRODUCT_GENERATION_AI_TRIGGER_PORT);
+    expect(runtimeExports).toContain(AiProductGenerationRuntimeModule);
     expect(apiExports).toEqual(expect.arrayContaining([
       // Bounded text judgement published for other owner domains (advertising
       // keyword relevance). Consumers must not reach for the provider-side

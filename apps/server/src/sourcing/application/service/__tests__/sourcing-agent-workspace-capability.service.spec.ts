@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from 'vitest';
-import { SourcingAgentWorkspaceCapabilityService } from '../sourcing-agent-workspace-capability.service';
+import {
+  SourcingAgentWorkspaceMutationCapabilityService,
+  SourcingAgentWorkspaceReadCapabilityService,
+} from '../sourcing-agent-workspace-capability.service';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -25,7 +28,7 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       }],
       dataGaps: [],
     });
-    const service = createService(dependencies);
+    const service = createReadService(dependencies);
 
     const result = await service.retrieveWorkspaceEvidence({
       organizationId: ORGANIZATION_ID,
@@ -52,7 +55,7 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       }],
       nextCursor: null,
     });
-    const service = createService(dependencies);
+    const service = createReadService(dependencies);
 
     await expect(service.inspectRecommendationRun({
       organizationId: ORGANIZATION_ID,
@@ -72,7 +75,7 @@ describe('SourcingAgentWorkspaceCapabilityService', () => {
       itemCount: 1,
       status: 'awaiting_procurement_enablement',
     });
-    const service = createService(dependencies);
+    const service = createMutationService(dependencies);
 
     await service.createReviewBatch({
       organizationId: ORGANIZATION_ID,
@@ -105,11 +108,16 @@ function mocks() {
   };
 }
 
-function createService(dependencies: ReturnType<typeof mocks>) {
-  return new SourcingAgentWorkspaceCapabilityService(
+function createReadService(dependencies: ReturnType<typeof mocks>) {
+  return new SourcingAgentWorkspaceReadCapabilityService(
     dependencies.rag as never,
     dependencies.recommendations as never,
     dependencies.validationRows as never,
+  );
+}
+
+function createMutationService(dependencies: ReturnType<typeof mocks>) {
+  return new SourcingAgentWorkspaceMutationCapabilityService(
     dependencies.validations as never,
     dependencies.reviews as never,
   );

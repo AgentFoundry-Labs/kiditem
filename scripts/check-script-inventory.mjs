@@ -30,6 +30,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'safe-prisma-db-push.mjs',
   'seed-agent-os.ts',
   'seed-order-collection-mall-accounts.ts',
+  'smoke-interaction-os.mjs',
   'verify-agent-session-deletion-process-roots.mjs',
   'vitest.config.ts',
 ]);
