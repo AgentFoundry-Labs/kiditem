@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
 import {
   OPERATION_RUNNER_PORT,
   type OperationRunnerPort,
@@ -17,28 +18,19 @@ import {
   MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
   type MarketShadowCollectionCapabilityPort,
 } from '../../../application/port/in/capability/market-shadow-capability.port';
-import type {
-  SourcingFinalCapabilityPort,
-  SourcingOwnerExecutionContext,
-} from '../../../application/port/in/capability/sourcing-final-capability.port';
 import {
   SOURCING_CAPABILITY_ADMISSION_PORT,
   type SourcingCapabilityAdmissionPort,
 } from '../../../application/port/in/capability/sourcing-capability-admission.port';
 import { SOURCING_SCRAPE_URL_OPERATION } from '../../../domain/operation/sourcing.operations';
+import type {
+  SourcingFinalCapabilityPort,
+  SourcingOwnerExecutionContext,
+} from '../../../application/port/in/capability/sourcing-final-capability.port';
 
 /** Translates final server context into independently owned Sourcing ports. */
 @Injectable()
 export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPort {
-  private readonly ingestAdmissions = new Map<string, { input: string; result: Promise<{ candidateId: string }> }>();
-  private readonly validationAdmissions = new Map<string, { input: string; result: Promise<{ recommendationRunId: string; validationEpisodeIds: string[]; missingEvidence: string[] }> }>();
-  private readonly workflowAdmissions = new Map<string, {
-    input: string;
-    result: Promise<
-      { kind: 'existing'; candidateId: string }
-      | { kind: 'enqueued'; operationRunId: string; status: string }
-    >;
-  }>();
   constructor(
     @Inject(SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT)
     private readonly reads: SourcingAgentWorkspaceReadCapabilityPort,
@@ -65,30 +57,31 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async ingestCandidate({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { snapshot: import('../../../application/port/in/capability/sourcing-final-capability.port').SourcingSourceSnapshot } }) {
-    const key = `${context.organizationId}:ingest-candidate:${requiredIdempotency(context)}`;
-    const canonicalInput = canonical(input);
-    const existing = this.ingestAdmissions.get(key);
-    if (existing) {
-      if (existing.input !== canonicalInput) throw new Error('owner_idempotency_input_conflict');
-      return existing.result;
-    }
-    const result = this.discovery.ingestCandidate({
+    requiredDerivedIdempotency(
+      context,
+      'sourcing.ingestCandidate',
+      input,
+    );
+    return this.discovery.ingestCandidate({
       organizationId: context.organizationId,
       initiatingUserId: context.initiatingUserId,
       snapshot: input.snapshot,
     });
-    this.ingestAdmissions.set(key, { input: canonicalInput, result });
-    return result;
   }
 
   async createReviewBatch({ context, input }: { context: SourcingOwnerExecutionContext; input: { recommendationRunId: string; workspaceKey: 'entry' | 'final'; items: Array<{ itemKey: string; expectedVersion: number }> } }) {
+    const ownerIdempotencyKey = requiredDerivedIdempotency(
+      context,
+      'sourcing.createReviewBatch',
+      input,
+    );
     return this.mutations.createReviewBatch({
       organizationId: context.organizationId,
       requestedByUserId: context.initiatingUserId,
       recommendationRunId: input.recommendationRunId,
       workspaceKey: input.workspaceKey,
       items: input.items,
-      idempotencyKey: requiredIdempotency(context),
+      idempotencyKey: ownerIdempotencyKey,
     });
   }
 
@@ -100,32 +93,33 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async refreshCollection({ context, input }: { context: SourcingOwnerExecutionContext; input: { sources: Array<'naver' | '1688' | 'shorts'> } }) {
+    const ownerIdempotencyKey = requiredDerivedIdempotency(
+      context,
+      'sourcing.refreshCollection',
+      input,
+    );
     const run = await this.operations.start({
       organizationId: context.organizationId,
       operationKey: 'sourcing.collect_daily_trends',
       triggerSource: 'agent',
       input: { sources: input.sources },
       requestedByUserId: context.initiatingUserId,
-      idempotencyKey: requiredIdempotency(context),
+      idempotencyKey: ownerIdempotencyKey,
     });
     return { operationRunId: run.id, status: run.status };
   }
 
   async refreshValidation({ context, input }: { context: SourcingOwnerExecutionContext & { ownerIdempotencyKey: string }; input: { recommendationRunId: string } }) {
-    const key = `${context.organizationId}:refresh-validation:${context.ownerIdempotencyKey}`;
-    const canonicalInput = canonical(input);
-    const existing = this.validationAdmissions.get(key);
-    if (existing) {
-      if (existing.input !== canonicalInput) throw new Error('owner_idempotency_input_conflict');
-      return existing.result;
-    }
-    const result = this.mutations.refreshValidation({
+    const ownerIdempotencyKey = requiredDerivedIdempotency(
+      context,
+      'sourcing.refreshValidation',
+      input,
+    );
+    return this.mutations.refreshValidation({
       organizationId: context.organizationId,
       recommendationRunId: input.recommendationRunId,
-      idempotencyKey: requiredIdempotency(context),
+      idempotencyKey: ownerIdempotencyKey,
     });
-    this.validationAdmissions.set(key, { input: canonicalInput, result });
-    return result;
   }
 
   async retrieveWorkspaceEvidence({ context, input }: { context: Pick<SourcingOwnerExecutionContext, 'organizationId'>; input: { query: string; topK?: number; days?: number } }) {
@@ -151,38 +145,39 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
   }
 
   async scrapeUrlWorkflow({ context, input }: { context: SourcingOwnerExecutionContext; input: { sourceUrl: string } }) {
-    const idempotencyKey = requiredIdempotency(context);
-    const key = `${context.organizationId}:scrape-url-workflow:${idempotencyKey}`;
-    const canonicalInput = canonical(input);
-    const existing = this.workflowAdmissions.get(key);
-    if (existing) {
-      if (existing.input !== canonicalInput) throw new Error('owner_idempotency_input_conflict');
-      return existing.result;
+    const idempotencyKey = requiredDerivedIdempotency(
+      context,
+      'sourcing.scrapeUrlWorkflow',
+      input,
+    );
+    const duplicate = await this.discovery.duplicateCheck({
+      organizationId: context.organizationId,
+      sourceUrl: input.sourceUrl,
+    });
+    if (duplicate.duplicate && duplicate.candidateId) {
+      return { kind: 'existing' as const, candidateId: duplicate.candidateId };
     }
-    const result = (async () => {
-      const duplicate = await this.discovery.duplicateCheck({
-        organizationId: context.organizationId,
-        sourceUrl: input.sourceUrl,
-      });
-      if (duplicate.duplicate && duplicate.candidateId) {
-        return { kind: 'existing' as const, candidateId: duplicate.candidateId };
-      }
-      const run = await this.operations.start({
-        organizationId: context.organizationId,
-        operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
-        triggerSource: 'agent',
-        input: { sourceUrl: input.sourceUrl },
-        requestedByUserId: context.initiatingUserId,
-        idempotencyKey,
-      });
-      return { kind: 'enqueued' as const, operationRunId: run.id, status: run.status };
-    })();
-    this.workflowAdmissions.set(key, { input: canonicalInput, result });
-    return result;
+    const run = await this.operations.start({
+      organizationId: context.organizationId,
+      operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
+      triggerSource: 'agent',
+      input: { sourceUrl: input.sourceUrl },
+      requestedByUserId: context.initiatingUserId,
+      idempotencyKey,
+    });
+    return { kind: 'enqueued' as const, operationRunId: run.id, status: run.status };
   }
 
-  async collectShadowSignals({ context }: { context: SourcingOwnerExecutionContext; input: Record<string, never> }) {
-    return this.shadow.collectShadowSignals({ organizationId: context.organizationId, requestedByUserId: context.initiatingUserId, idempotencyKey: requiredIdempotency(context) });
+  async collectShadowSignals({ context, input }: { context: SourcingOwnerExecutionContext; input: Record<string, never> }) {
+    return this.shadow.collectShadowSignals({
+      organizationId: context.organizationId,
+      requestedByUserId: context.initiatingUserId,
+      idempotencyKey: requiredDerivedIdempotency(
+        context,
+        'sourcing.collect_shadow_signals',
+        input,
+      ),
+    });
   }
 }
 
@@ -191,20 +186,25 @@ function requiredIdempotency(input: { ownerIdempotencyKey?: string }): string {
   return input.ownerIdempotencyKey;
 }
 
+function requiredDerivedIdempotency(
+  context: SourcingOwnerExecutionContext,
+  capabilityKey: string,
+  input: unknown,
+): string {
+  const ownerIdempotencyKey = requiredIdempotency(context);
+  const expected = deriveOwnerIdempotencyKey({
+    attemptId: context.attemptId,
+    capabilityKey,
+    input,
+  });
+  if (ownerIdempotencyKey !== expected) {
+    throw new Error('owner_idempotency_input_conflict');
+  }
+  return ownerIdempotencyKey;
+}
+
 function boundedRequiredText(value: string, maximum: number): string {
   const normalized = value.trim();
   if (!normalized) throw new Error('sourcing_evidence_text_missing');
   return normalized.slice(0, maximum);
-}
-
-function canonical(value: unknown): string {
-  return JSON.stringify(canonicalValue(value));
-}
-
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue);
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([key, item]) => [key, canonicalValue(item)]));
 }

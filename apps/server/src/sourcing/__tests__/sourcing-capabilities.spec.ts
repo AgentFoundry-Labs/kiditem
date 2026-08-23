@@ -34,6 +34,26 @@ describe('sourcing final capability definitions', () => {
     }
   });
 
+  it('keeps each capability on its exact bounded effect and approval surface', () => {
+    expect(SOURCING_CAPABILITIES.map((capability) => ({
+      key: capability.key,
+      effects: capability.effects,
+      approvalRisk: capability.approvalRisk,
+      idempotency: capability.idempotency,
+    }))).toEqual([
+      { key: 'sourcing.duplicateCheck', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
+      { key: 'sourcing.scrapeProductUrl', effects: ['browser', 'external_io'], approvalRisk: 'none', idempotency: 'recommended' },
+      { key: 'sourcing.ingestCandidate', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.scrapeUrlWorkflow', effects: ['read', 'browser', 'external_io', 'db_write', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.retrieveWorkspaceEvidence', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
+      { key: 'sourcing.inspectRecommendationRun', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended' },
+      { key: 'sourcing.refreshCollection', effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.refreshValidation', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.createReviewBatch', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required' },
+      { key: 'sourcing.collect_shadow_signals', effects: ['external_io', 'job_enqueue'], approvalRisk: 'low', idempotency: 'required' },
+    ]);
+  });
+
   it('accepts only canonical supplier URLs for public supplier capability inputs', () => {
     for (const key of ['sourcing.duplicateCheck', 'sourcing.scrapeProductUrl', 'sourcing.scrapeUrlWorkflow'] as const) {
       const definition = SOURCING_CAPABILITIES.find((item) => item.key === key)!;

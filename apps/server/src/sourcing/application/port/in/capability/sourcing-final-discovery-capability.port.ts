@@ -5,5 +5,9 @@ export const SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT = Symbol('SOURCING_FINAL_D
 export interface SourcingFinalDiscoveryCapabilityPort {
   duplicateCheck(input: { organizationId: string; sourceUrl: string }): Promise<{ duplicate: boolean; candidateId: string | null }>;
   scrapeProductUrl(input: { sourceUrl: string }): Promise<SourcingSourceSnapshot>;
-  ingestCandidate(input: { organizationId: string; initiatingUserId: string; snapshot: SourcingSourceSnapshot }): Promise<{ candidateId: string }>;
+  ingestCandidate(input: {
+    organizationId: string;
+    initiatingUserId: string;
+    snapshot: SourcingSourceSnapshot;
+  }): Promise<{ candidateId: string }>;
 }

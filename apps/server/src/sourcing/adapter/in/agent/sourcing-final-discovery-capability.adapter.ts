@@ -3,7 +3,6 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   type SourcingFinalDiscoveryCapabilityPort,
 } from '../../../application/port/in/capability/sourcing-final-discovery-capability.port';
-import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
 import {
   SOURCING_CANDIDATE_REPOSITORY_PORT,
   type SourcingCandidateRepositoryPort,
@@ -14,6 +13,7 @@ import {
 } from '../../../application/port/out/runtime/sourcing-browser-scrape.port';
 import { extractSupplierOfferId, parseAllowedSupplierUrl } from '../../../domain/supplier-source-url-policy';
 import { stableSourcingCandidateIdentity } from '../../../domain/sourcing-candidate-identity';
+import type { SourcingSourceSnapshot } from '../../../application/port/in/capability/sourcing-final-capability.port';
 
 /** Owner bridge for final discovery capabilities; raw browser records never cross this boundary. */
 @Injectable()
@@ -54,7 +54,11 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     return { ...snapshot, contentHash: contentHash(snapshot) };
   }
 
-  async ingestCandidate(input: { organizationId: string; initiatingUserId: string; snapshot: SourcingSourceSnapshot }) {
+  async ingestCandidate(input: {
+    organizationId: string;
+    initiatingUserId: string;
+    snapshot: SourcingSourceSnapshot;
+  }) {
     const supplier = parseAllowedSupplierUrl(input.snapshot.sourceUrl);
     if (contentHash(snapshotContent(input.snapshot)) !== input.snapshot.contentHash) {
       throw new Error('sourcing_scrape_snapshot_hash_mismatch');
@@ -68,7 +72,10 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       externalOfferId,
       variantKeyNormalized: '',
       sourceIdentityHash: externalOfferId ? stableSourcingCandidateIdentity(platform, externalOfferId, '') : null,
-      rawData: { source: 'agent_final_scrape', contentHash: input.snapshot.contentHash },
+      rawData: {
+        source: 'agent_final_scrape',
+        contentHash: input.snapshot.contentHash,
+      },
       name: input.snapshot.title ?? supplier.normalizedUrl,
       description: '',
       category: null,

@@ -46,6 +46,47 @@ describe('SourcingValidationRepositoryAdapter', () => {
     expect(tx.sourcingValidationCheckEvidence.createMany).toHaveBeenCalledOnce();
   });
 
+  it('replays an existing immutable run item graph without episode, check, or link writes', async () => {
+    let episodeExists = false;
+    const tx = {
+      sourcingRecommendationItem: {
+        findMany: vi.fn(async () => [{ id: ITEM_ID }]),
+      },
+      sourcingValidationEpisode: {
+        findMany: vi.fn(async () => episodeExists ? [{ recommendationItemId: ITEM_ID }] : []),
+        createMany: vi.fn(async () => {
+          episodeExists = true;
+          return { count: 1 };
+        }),
+      },
+      sourcingEvidenceObservation: {
+        findMany: vi.fn(async () => [{ id: EVIDENCE_ID }]),
+      },
+      sourcingValidationCheck: {
+        createMany: vi.fn(async () => ({ count: 10 })),
+      },
+      sourcingValidationCheckEvidence: {
+        createMany: vi.fn(async () => ({ count: 10 })),
+      },
+    };
+    const prisma = {
+      $transaction: vi.fn(async (callback: (transaction: typeof tx) => Promise<unknown>) => callback(tx)),
+      sourcingValidationEpisode: {
+        findMany: vi.fn(async () => [storedEpisode()]),
+      },
+    };
+    const repository = new SourcingValidationRepositoryAdapter(prisma as never);
+    const command = { organizationId: ORGANIZATION_ID, recommendationRunId: RUN_ID, episodes: [episode()] };
+
+    const first = await repository.replaceForRun(command);
+    const replay = await repository.replaceForRun(command);
+
+    expect(replay).toEqual(first);
+    expect(tx.sourcingValidationEpisode.createMany).toHaveBeenCalledOnce();
+    expect(tx.sourcingValidationCheck.createMany).toHaveBeenCalledOnce();
+    expect(tx.sourcingValidationCheckEvidence.createMany).toHaveBeenCalledOnce();
+  });
+
   it('orders validation pages by updated time and id without exposing malformed image URLs', async () => {
     const prisma = {
       sourcingValidationEpisode: {
