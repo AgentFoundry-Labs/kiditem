@@ -9,6 +9,7 @@ let repository: PrismaAgentWorkRepository;
 let transaction: PrismaAgentWorkTransaction;
 const organizationId = "a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d";
 const userId = "f1234567-89ab-4cde-8f01-23456789abcd";
+const attemptSnapshot = { input: {}, applicationVersion: "1.0.0", authorizingGitSha: "a".repeat(40), cliVersion: "1.0.0" };
 
 beforeAll(async () => {
   prisma = new PrismaClient({
@@ -45,6 +46,9 @@ beforeEach(async () => {
   await prisma.user.create({
     data: { id: userId, email: "agent-work@test.local", name: "Tester" },
   });
+  await prisma.organizationMembership.create({
+    data: { organizationId, userId, status: "active" },
+  });
 });
 
 describe("PrismaAgentWorkRepository", () => {
@@ -58,22 +62,24 @@ describe("PrismaAgentWorkRepository", () => {
         runtimeType: "codex_cli",
         instructionProfileRef: "operator/v1",
         manifestHash: "a".repeat(64),
+        activatedAt: new Date(),
       },
     });
-    const admitted = await transaction.admitRootTask({
+    const admitted = await transaction.admitRootAttempt({
       organizationId,
       createdByUserId: userId,
       assignedAgentVersionId: version.id,
       objective: "Check inventory",
       completionCriteria: "Summarize availability",
       inputResourceRefs: [],
+      ...attemptSnapshot,
     });
     expect(admitted.task.sessionId).toBe(admitted.session.id);
     expect(await repository.loadProjection(admitted.session)).toMatchObject({
       tasks: [{ id: admitted.task.id }],
     });
     await expect(
-      transaction.admitRootTask({
+      transaction.admitRootAttempt({
         organizationId,
         createdByUserId: userId,
         assignedAgentVersionId: version.id,
@@ -81,6 +87,7 @@ describe("PrismaAgentWorkRepository", () => {
         completionCriteria: "Nope",
         inputResourceRefs: [],
         sessionId: admitted.session.id,
+        ...attemptSnapshot,
       }),
     ).rejects.toThrow();
     expect(
@@ -101,39 +108,28 @@ describe("PrismaAgentWorkRepository", () => {
         runtimeType: "codex_cli",
         instructionProfileRef: "operator/v1",
         manifestHash: "b".repeat(64),
+        activatedAt: new Date(),
       },
     });
-    const first = await transaction.admitRootTask({
+    const first = await transaction.admitRootAttempt({
       organizationId,
       createdByUserId: userId,
       assignedAgentVersionId: version.id,
       objective: "First",
       completionCriteria: "First",
       inputResourceRefs: [],
+      ...attemptSnapshot,
     });
-    const second = await transaction.admitRootTask({
+    const second = await transaction.admitRootAttempt({
       organizationId,
       createdByUserId: userId,
       assignedAgentVersionId: version.id,
       objective: "Second",
       completionCriteria: "Second",
       inputResourceRefs: [],
+      ...attemptSnapshot,
     });
-    const attempt = await prisma.agentAttempt.create({
-      data: {
-        organizationId,
-        sessionId: first.session.id,
-        taskId: first.task.id,
-        agentVersionId: version.id,
-        ordinal: 1,
-        input: {},
-        runtimeType: "codex_cli",
-        instructionProfileRef: "operator/v1",
-        applicationVersion: "1.0.0",
-        authorizingGitSha: "a".repeat(40),
-        cliVersion: "1.0.0",
-      },
-    });
+    const attempt = { id: first.attempt.id };
     const wrongVersion = await prisma.agentWorkVersion.create({
       data: {
         agentDefinitionKey: "operator_work_test_other",
@@ -143,6 +139,7 @@ describe("PrismaAgentWorkRepository", () => {
         runtimeType: "codex_cli",
         instructionProfileRef: "operator/v1",
         manifestHash: "e".repeat(64),
+        activatedAt: new Date(),
       },
     });
     await expect(

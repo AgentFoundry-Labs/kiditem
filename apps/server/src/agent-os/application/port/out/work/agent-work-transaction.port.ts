@@ -14,7 +14,29 @@ import type { OrganizationScopedId } from "./agent-work-repository.port";
 export const AGENT_WORK_TRANSACTION_PORT = Symbol(
   "AGENT_WORK_TRANSACTION_PORT",
 );
-export interface AdmitRootTaskInput {
+export interface AttemptSnapshot {
+  input: unknown;
+  applicationVersion: string;
+  authorizingGitSha: string;
+  cliVersion: string;
+  reportedModel?: string;
+}
+export interface AdmitAttemptInput extends AttemptSnapshot {
+  organizationId: string;
+  sessionId: string;
+  taskId: string;
+  requestedByUserId: string;
+  predecessorAttemptId: string;
+  /** Command intent only; never persisted as Task state. */
+  intent?: "follow_up" | "retry" | "reopen";
+}
+export interface AdmitAttemptResult {
+  attemptId: string;
+  taskId: string;
+  sessionId: string;
+  ordinal: number;
+}
+export interface AdmitRootAttemptInput extends AttemptSnapshot {
   organizationId: string;
   createdByUserId: string;
   assignedAgentVersionId: string;
@@ -23,9 +45,28 @@ export interface AdmitRootTaskInput {
   inputResourceRefs: unknown[];
   sessionId?: string;
 }
-export interface AdmitRootTaskResult {
+export interface AdmitRootAttemptResult {
   session: OrganizationScopedId;
   task: OrganizationScopedId & { sessionId: string };
+  attempt: { id: string; ordinal: number };
+}
+export interface DelegateTaskInput extends AttemptSnapshot {
+  organizationId: string;
+  sessionId: string;
+  parentTaskId: string;
+  delegatingAttemptId: string;
+  requestedByUserId: string;
+  targetAgentVersionId: string;
+  objective: string;
+  completionCriteria: string;
+  inputResourceRefs: unknown[];
+  idempotencyKey: string;
+  requestHash: string;
+}
+export interface DelegateTaskResult {
+  childTaskId: string;
+  firstAttemptId: string;
+  replayed: boolean;
 }
 export interface InvocationAuthorizationInput {
   organizationId: string;
@@ -44,11 +85,7 @@ export interface InvocationAuthorizationInput {
   approvalRisk: CapabilityApprovalRisk;
   idempotencyRequirement: CapabilityIdempotency;
   ownerIdempotencyKey?: string;
-  applicationVersion: string;
-  authorizingGitSha: string;
   capabilityContractFingerprint: string;
-  runtimeType: string;
-  reportedModel?: string;
   initialStatus: "authorized" | "approval_pending" | "ready";
   approval?: {
     inputHash: string;
@@ -140,10 +177,23 @@ export interface TerminalSessionDeleteInput {
   sessionId: string;
   deletedByUserId: string;
 }
+export interface TaskLifecycleTransitionInput {
+  organizationId: string;
+  sessionId: string;
+  taskId: string;
+  requestedByUserId: string;
+  to: "completed" | "failed" | "cancelled";
+  at: Date;
+}
 
 /** Future atomic command shapes; Task 1 intentionally implements admission only. */
 export interface AgentWorkTransactionPort {
-  admitRootTask(input: AdmitRootTaskInput): Promise<AdmitRootTaskResult>;
+  admitRootAttempt(
+    input: AdmitRootAttemptInput,
+  ): Promise<AdmitRootAttemptResult>;
+  /** Locks Session before Task and creates an immutable successor attempt. */
+  admitAttempt(input: AdmitAttemptInput): Promise<AdmitAttemptResult>;
+  delegateTask(input: DelegateTaskInput): Promise<DelegateTaskResult>;
   authorizeInvocation(
     input: InvocationAuthorizationInput,
   ): Promise<InvocationAuthorizationResult>;
@@ -154,6 +204,9 @@ export interface AgentWorkTransactionPort {
   ): Promise<MutationWorkSnapshot | null>;
   finalizeMutation(input: MutationFinalizeInput): Promise<{ won: boolean }>;
   reconcile(input: ReconciliationInput): Promise<{ reconciled: number }>;
+  transitionTask(
+    input: TaskLifecycleTransitionInput,
+  ): Promise<{ status: string }>;
   deleteTerminalSession(
     input: TerminalSessionDeleteInput,
   ): Promise<{ deleted: boolean }>;

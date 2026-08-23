@@ -19,4 +19,22 @@ export interface AgentWorkRepositoryPort {
   loadProjection(
     input: OrganizationScopedId,
   ): Promise<AgentWorkProjection | null>;
+  findDelegationReplay(input: {
+    organizationId: string;
+    sessionId: string;
+    parentTaskId: string;
+    idempotencyKey: string;
+    requestedByUserId: string;
+  }): Promise<{
+    childTaskId: string;
+    requestHash: string | null;
+    firstAttemptId: string | null;
+  } | null>;
+  loadLiveAttempt(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+  }): Promise<{ taskStatus: AgentWorkTaskStatus; live: boolean } | null>;
 }

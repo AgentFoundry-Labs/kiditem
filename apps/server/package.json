@@ -50,7 +50,8 @@
     "sharp": "^0.35.3",
     "undici": "^7.29.0",
     "xlsx": "npm:@e965/xlsx@^0.20.3",
-    "zod": "^3.25.0"
+    "zod": "^3.25.0",
+    "zod-to-json-schema": "^3.25.2"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
