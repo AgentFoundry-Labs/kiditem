@@ -21,9 +21,12 @@ import {
   ProductProfitabilityRefreshOperationHandler,
 } from './adapter/in/operation/product-profitability.operation-handler';
 import { MasterProductInventoryActivityListener } from './adapter/in/event/master-product-inventory-activity.listener';
+import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
+import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
+import { SourcingAgentListingCapabilityModule } from '../sourcing/sourcing-agent-listing-capability.module';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule, SourcingAgentListingCapabilityModule],
   controllers: [ProductOperationsController],
   providers: [
     ProductOperationsService,
@@ -34,6 +37,7 @@ import { MasterProductInventoryActivityListener } from './adapter/in/event/maste
     ProductRecipeComponentCandidateService,
     MasterProductAbcService,
     MasterProductInventoryActivityListener,
+    ProductsListingGenerationCapabilityAdapter,
     MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {
@@ -48,9 +52,11 @@ import { MasterProductInventoryActivityListener } from './adapter/in/event/maste
       provide: MASTER_PRODUCT_ABC_REPOSITORY_PORT,
       useExisting: MasterProductAbcRepositoryAdapter,
     },
+    { provide: PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT, useExisting: ProductsListingGenerationCapabilityAdapter },
   ],
   exports: [
     ProductOperationsService,
+    PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT,
   ],
 })
 export class ProductsModule {}

@@ -57,8 +57,6 @@ export class LocalCliRuntimeStartupRegistrar implements OnApplicationBootstrap {
         )],
         environmentRoot: repositoryRoot,
       },
-      claudeMaxBudgetUsd:
-        this.environment.AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD?.trim() || '0.25',
       mcpConfig: (context: {
         agentDefinitionKey: string;
         capabilityKeys: string[];

@@ -1,7 +1,6 @@
-import { Inject, Injectable, OnModuleInit, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
-import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import {
   PURCHASE_ORDER_DRAFT_PORT,
   type PurchaseOrderDraftPort,
@@ -10,11 +9,7 @@ import {
   PURCHASE_ORDER_SUBMISSION_PORT,
   type PurchaseOrderSubmissionPort,
 } from '../../../application/port/in/procurement/purchase-order-submission.port';
-import type {
-  AgentCapabilityExecutionInput,
-  AgentCapabilityHandler,
-} from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
-import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
+import type { SupplyPurchaseOrderCapabilityPort } from '../../../application/port/in/capability/purchase-order.port';
 
 const PurchaseOrderDraftInputSchema = z.object({
   recommendationArtifactId: z.string().uuid().optional(),
@@ -83,124 +78,45 @@ function purchaseOrderDraftRequestHash(value: Record<string, unknown>): string {
     .digest('hex');
 }
 
-export function purchaseOrderSubmissionIdempotencyKey(
-  executionInput: AgentCapabilityExecutionInput,
-): string {
-  return ownerCapabilityIdempotencyKey(
-    executionInput,
-    `supply.submit_purchase_order:${String(executionInput.input.purchaseOrderId)}`,
-  );
-}
-
 @Injectable()
-export class SupplyAgentCapabilityAdapter implements OnModuleInit {
+export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabilityPort {
   constructor(
-    private readonly registry: AgentCapabilityRegistry,
     @Inject(PURCHASE_ORDER_DRAFT_PORT)
     private readonly drafts: PurchaseOrderDraftPort,
     @Inject(PURCHASE_ORDER_SUBMISSION_PORT)
     private readonly submissions: PurchaseOrderSubmissionPort,
   ) {}
 
-  onModuleInit(): void {
-    const draftHandler: AgentCapabilityHandler = {
-      key: 'supply.create_purchase_order_draft',
-      ownerDomain: 'supply',
-      executionKind: 'workflow',
-      inputSchema: PurchaseOrderDraftInputSchema,
-      outputSchema: PurchaseOrderDraftOutputSchema,
-      sideEffects: ['db_write'],
-      approvalRisk: 'low',
-      idempotencyKey: purchaseOrderDraftIdempotencyKey,
-      execute: async (execution) => {
-        const { organizationId } = ownerCapabilityContext(execution);
-        const { input } = execution;
-        const recommendation = recommendationFromInput(input);
-        const result = await this.drafts.createFromRecommendation({
-          organizationId,
-          idempotencyKey: purchaseOrderDraftIdempotencyKey(execution),
-          requestHash: purchaseOrderDraftRequestHash(recommendation),
-          recommendation,
-        });
-        return {
-          resourceType: 'purchase_order',
-          resourceId: result.orderId,
-          outputSummary: { orderId: result.orderId, status: result.status },
-          artifacts: [
-            {
-              artifactType: 'purchase_order_draft',
-              targetDomain: 'supply',
-              targetModel: 'PurchaseOrder',
-              targetId: result.orderId,
-              title: '발주 초안 생성됨',
-              href: result.href,
-              summary: { status: result.status, orderId: result.orderId },
-            },
-          ],
-        };
-      },
-    };
-    const submitHandler: AgentCapabilityHandler = {
-      key: 'supply.submit_purchase_order',
-      ownerDomain: 'supply',
-      executionKind: 'workflow',
-      inputSchema: PurchaseOrderSubmissionInputSchema,
-      outputSchema: PurchaseOrderSubmissionOutputSchema,
-      sideEffects: ['external_write', 'db_write'],
-      approvalRisk: 'high',
-      idempotencyKey: purchaseOrderSubmissionIdempotencyKey,
-      execute: async (executionInput) => {
-        const { organizationId, actorId } = ownerCapabilityContext(executionInput);
-        const { input } = executionInput;
-        if (!actorId) {
-          throw new UnauthorizedException(
-            'Purchase submission requires an authenticated actor.',
-          );
-        }
-        const parsed = PurchaseOrderSubmissionInputSchema.parse(input);
-        const result = await this.submissions.submit({
-          organizationId,
-          purchaseOrderId: parsed.purchaseOrderId,
-          idempotencyKey: purchaseOrderSubmissionIdempotencyKey(executionInput),
-          userId: actorId,
-          ...(parsed.externalOrderPlatform !== undefined && {
-            externalOrderPlatform: parsed.externalOrderPlatform,
-          }),
-          ...(parsed.externalOrderId !== undefined && {
-            externalOrderId: parsed.externalOrderId,
-          }),
-          ...(parsed.externalOrderUrl !== undefined && {
-            externalOrderUrl: parsed.externalOrderUrl,
-          }),
-        });
-        const externalOrderPlatform =
-          result.externalOrderPlatform ?? 'ALIBABA_1688';
-        const outputSummary = {
-          orderId: result.orderId,
-          status: result.status,
-          externalOrderPlatform,
-          externalOrderId: result.externalOrderId,
-          externalOrderUrl: result.externalOrderUrl,
-        };
-        return {
-          resourceType: 'purchase_order',
-          resourceId: result.orderId,
-          outputSummary,
-          artifacts: [
-            {
-              artifactType: 'purchase_order_submission',
-              targetDomain: 'supply',
-              targetModel: 'PurchaseOrder',
-              targetId: result.orderId,
-              title: '발주 제출 완료',
-              href: result.href,
-              summary: outputSummary,
-            },
-          ],
-        };
-      },
-    };
-    this.registry.register(draftHandler);
-    this.registry.register(submitHandler);
+  async createPurchaseOrderDraft(input: Record<string, unknown>): Promise<{ orderId: string; status: string }> {
+    const organizationId = z.string().uuid().parse(input.organizationId);
+    const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
+    const recommendation = recommendationFromInput(input);
+    const result = await this.drafts.createFromRecommendation({
+      organizationId,
+      idempotencyKey,
+      requestHash: purchaseOrderDraftRequestHash(recommendation),
+      recommendation,
+    });
+    return { orderId: result.orderId, status: result.status };
+  }
+
+  async submitPurchaseOrder(input: Record<string, unknown>): Promise<{ orderId: string; status: string }> {
+    const organizationId = z.string().uuid().parse(input.organizationId);
+    if (typeof input.userId !== 'string' || input.userId.length === 0) {
+      throw new UnauthorizedException('Purchase submission requires an authenticated actor.');
+    }
+    const userId = z.string().uuid().parse(input.userId);
+    const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
+    const parsed = PurchaseOrderSubmissionInputSchema.parse(input);
+    const result = await this.submissions.submit({
+      organizationId,
+      purchaseOrderId: parsed.purchaseOrderId,
+      idempotencyKey,
+      userId,
+      ...(parsed.externalOrderPlatform !== undefined && { externalOrderPlatform: parsed.externalOrderPlatform }),
+      ...(parsed.externalOrderId !== undefined && { externalOrderId: parsed.externalOrderId }),
+      ...(parsed.externalOrderUrl !== undefined && { externalOrderUrl: parsed.externalOrderUrl }),
+    });
+    return { orderId: result.orderId, status: result.status };
   }
 }

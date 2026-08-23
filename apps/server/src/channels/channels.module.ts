@@ -77,6 +77,8 @@ import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domai
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
 import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operation/coupang-rocket-purchase-order.operation-handler';
+import { ChannelsWingThumbnailCapabilityAdapter } from './adapter/in/agent/channels-wing-thumbnail-capability.adapter';
+import { CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT } from './application/port/in/capability/wing-thumbnail.port';
 
 @Module({
   imports: [AutomationModule, AiModule, InventoryModule, OperationsModule, OrganizationsModule],
@@ -111,6 +113,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     ChannelSkuAvailabilityService,
     RocketPoCatalogService,
     ChannelRegistrationCapabilityAdapter,
+    ChannelsWingThumbnailCapabilityAdapter,
     CoupangProviderAdapter,
     ChannelsOperationAlertAdapter,
     ChannelAccountRepositoryAdapter,
@@ -143,6 +146,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
       provide: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
       useExisting: ChannelRegistrationCapabilityAdapter,
     },
+    { provide: CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT, useExisting: ChannelsWingThumbnailCapabilityAdapter },
     { provide: CHANNEL_SYNC_REPOSITORY_PORT, useExisting: ChannelSyncRepositoryAdapter },
     {
       provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
@@ -199,6 +203,7 @@ import { CoupangRocketPurchaseOrderOperationHandler } from './adapter/in/operati
     COUPANG_PROVIDER_PORT,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
+    CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT,
     ROCKET_PO_CATALOG_PORT,
   ],
 })

@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentRuntimeApplicationModule } from './agent-runtime-application.module';
-
+/** The Attempt MCP child is a stdio proxy, never a Nest application context. */
 @Module({
-  imports: [AgentRuntimeApplicationModule],
 })
 export class AgentMcpApplicationModule {}

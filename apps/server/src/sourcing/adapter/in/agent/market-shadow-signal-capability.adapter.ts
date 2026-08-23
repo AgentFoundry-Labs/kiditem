@@ -1,9 +1,5 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { z } from 'zod';
-import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
+import { Inject, Injectable } from '@nestjs/common';
 import { kstBusinessDate } from '../../../../common/kst';
-import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
-import { ownerCapabilityContext, ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
 import type {
   MarketShadowCollectionCapabilityInput,
   MarketShadowCollectionCapabilityPort,
@@ -14,26 +10,16 @@ import {
   type MarketShadowOperationPort,
 } from '../../../application/port/out/cross-domain/market-shadow-operation.port';
 
-const CAPABILITY_KEY = 'market.collect_shadow_signals';
-const InputSchema = z.object({}).strict();
-const OutputSchema = z.object({
-  operationRunId: z.string().uuid(),
-  status: z.string(),
-});
+const CAPABILITY_KEY = 'sourcing.collect_shadow_signals';
 
 @Injectable()
 export class MarketShadowSignalCapabilityAdapter
-  implements OnModuleInit, MarketShadowCollectionCapabilityPort
+  implements MarketShadowCollectionCapabilityPort
 {
   constructor(
-    private readonly registry: AgentCapabilityRegistry,
     @Inject(MARKET_SHADOW_OPERATION_PORT)
     private readonly operations: MarketShadowOperationPort,
   ) {}
-
-  onModuleInit(): void {
-    this.registry.register(this.handler());
-  }
 
   async collectShadowSignals(
     input: MarketShadowCollectionCapabilityInput,
@@ -46,46 +32,6 @@ export class MarketShadowSignalCapabilityAdapter
     });
   }
 
-  private handler(): AgentCapabilityHandler<z.infer<typeof InputSchema>> {
-    return {
-      key: CAPABILITY_KEY,
-      ownerDomain: 'sourcing',
-      executionKind: 'job_trigger',
-      inputSchema: InputSchema,
-      outputSchema: OutputSchema,
-      sideEffects: ['db_write', 'external_io', 'job_enqueue'],
-      approvalRisk: 'low',
-      idempotencyKey: (execution) => ownerCapabilityIdempotencyKey(
-        execution,
-        `${CAPABILITY_KEY}:${kstBusinessDate(new Date()).toISOString().slice(0, 10)}`,
-      ),
-      execute: async (execution) => {
-        const owner = ownerCapabilityContext(execution);
-        const result = await this.operations.startShadowCollection({
-          organizationId: owner.organizationId,
-          requestedByUserId: owner.actorId,
-          triggerSource: 'agent',
-          idempotencyKey: ownerCapabilityIdempotencyKey(
-            execution,
-            `${CAPABILITY_KEY}:${kstBusinessDate(new Date()).toISOString().slice(0, 10)}`,
-          ),
-        });
-        return {
-          resourceType: 'operation_run',
-          resourceId: result.operationRunId,
-          outputSummary: { ...result },
-          artifacts: [{
-            artifactType: 'operation_run',
-            targetDomain: 'operations',
-            targetModel: 'OperationRun',
-            targetId: result.operationRunId,
-            title: '시장 shadow 신호 수집 실행',
-            summary: { ...result },
-          }],
-        };
-      },
-    };
-  }
 }
 
 function capabilityIdempotencyKey(organizationId: string): string {

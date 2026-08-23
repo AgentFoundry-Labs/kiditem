@@ -40,6 +40,7 @@ describe('agent local CLI command builders', () => {
         '--print',
         '--setting-sources',
         '',
+        '--strict-mcp-config',
         '--tools',
         '',
         '--no-chrome',
@@ -47,8 +48,6 @@ describe('agent local CLI command builders', () => {
         '--disable-slash-commands',
         '--json-schema',
         JSON.stringify(input.outputSchema),
-        '--max-budget-usd',
-        input.claudeMaxBudgetUsd,
         '--model',
         input.model,
       ]),
@@ -61,6 +60,7 @@ describe('agent local CLI command builders', () => {
     expect(command.env).not.toHaveProperty('COUPANG_ACCESS_KEY');
     expect(command.env).not.toHaveProperty('OPENAI_API_KEY');
     expect(command.args.join(' ')).not.toContain('mcp_');
+    expect(command.args).not.toContain('--max-budget-usd');
   });
 
   it('builds an isolated Codex command with stdin prompt and all execution surfaces disabled', () => {

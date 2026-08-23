@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
+import { AgentAttemptReadinessService } from '../agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
 import type {
   AgentOsLiveReadinessCheck,
   AgentOsLiveReadinessResponse,
@@ -79,6 +80,36 @@ export class ReadinessService {
       runnableCapabilities,
       blockedCapabilities,
     };
+  }
+
+  /**
+   * KID-25 local-runtime gate. It probes only runtime binary/login state and
+   * requires an explicit profile model; credential values never enter Nest.
+   */
+  async getAgentAttemptRuntimeReadiness(): Promise<Array<{
+    agentDefinitionKey: string;
+    runtimeType: string;
+    model: string;
+  }>> {
+    const versions = await this.prisma.agentWorkVersion.findMany({
+      where: { activatedAt: { not: null }, retiredAt: null },
+      select: { agentDefinitionKey: true, runtimeType: true },
+      orderBy: { agentDefinitionKey: 'asc' },
+    });
+    const readiness = new AgentAttemptReadinessService();
+    const checkedRuntimes = new Set<string>();
+    return Promise.all(versions.map(async (version) => {
+      const model = optionalEnv(`AGENT_${version.agentDefinitionKey.toUpperCase()}_MODEL`);
+      if (!model) throw new Error(`missing_runtime_model:${version.agentDefinitionKey}`);
+      if (version.runtimeType !== 'codex_cli' && version.runtimeType !== 'claude_cli') {
+        throw new Error(`attempt_runtime_not_supported:${version.runtimeType}`);
+      }
+      if (!checkedRuntimes.has(version.runtimeType)) {
+        checkedRuntimes.add(version.runtimeType);
+        await readiness.assertRuntime(version.runtimeType);
+      }
+      return { agentDefinitionKey: version.agentDefinitionKey, runtimeType: version.runtimeType, model };
+    }));
   }
 
   async getStatus(organizationId: string): Promise<ReadinessResponse> {

@@ -6,6 +6,21 @@ import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../../applica
 
 export const CHANNELS_CAPABILITIES = defineCapabilities([
   {
+    key: 'channels.submit_wing_thumbnail',
+    ownerDomain: 'channels',
+    ownerInputPort: 'channels.submitWingThumbnail',
+    kind: 'workflow',
+    description: 'Submit an approved thumbnail to Wing through the Channels owner boundary.',
+    inputSchema: { generationId: 'string' },
+    outputSchema: { success: 'boolean', screenshotPath: 'string|null' },
+    effects: ['external_write', 'browser', 'db_write'],
+    approval: 'always',
+    approvalRisk: 'high',
+    idempotency: 'required',
+    visibility: 'agent',
+    entrypoint: { type: 'incoming_port', token: 'CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT' },
+  },
+  {
     key: 'channels.register_confirmed_listing',
     ownerDomain: 'channels',
     kind: 'workflow',

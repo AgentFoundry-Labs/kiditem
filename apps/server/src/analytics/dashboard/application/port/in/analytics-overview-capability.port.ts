@@ -1,6 +1,9 @@
 export const ANALYTICS_OVERVIEW_CAPABILITY_PORT = Symbol(
   'ANALYTICS_OVERVIEW_CAPABILITY_PORT',
 );
+export const ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT = Symbol(
+  'ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT',
+);
 
 export interface AnalyticsOverview {
   [key: string]: unknown;

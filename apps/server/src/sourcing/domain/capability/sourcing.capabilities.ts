@@ -127,8 +127,9 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     entrypoint: { type: 'incoming_port', token: 'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT' },
   },
   {
-    key: 'market.collect_shadow_signals',
+    key: 'sourcing.collect_shadow_signals',
     ownerDomain: 'sourcing',
+    ownerInputPort: 'sourcing.collectShadowSignals',
     kind: 'workflow',
     description: 'Start the fenced market shadow signal Operation once.',
     inputSchema: {},
@@ -138,30 +139,6 @@ export const SOURCING_CAPABILITIES = defineCapabilities([
     idempotency: 'required',
     visibility: 'agent',
     entrypoint: { type: 'incoming_port', token: 'MARKET_SHADOW_COLLECTION_CAPABILITY_PORT' },
-  },
-  {
-    key: 'product_listing.create_generation_package',
-    ownerDomain: 'sourcing',
-    kind: 'workflow',
-    description: 'Create a product-generation package for listing preparation.',
-    inputSchema: {
-      productName: 'string',
-      imageUrls: 'string[]',
-      category: 'string|null',
-      description: 'string|null',
-    },
-    outputSchema: {
-      candidateId: 'string',
-      detailGenerationId: 'string|null',
-      thumbnailGenerationId: 'string|null',
-      contentWorkspaceId: 'string|null',
-      href: 'string',
-    },
-    effects: ['db_write', 'job_enqueue'],
-    approval: 'none',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SOURCING_LISTING_PREP_CAPABILITY_PORT' },
   },
 ] as const satisfies readonly CapabilityManifest[]);
 

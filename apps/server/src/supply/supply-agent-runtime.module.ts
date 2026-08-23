@@ -8,6 +8,7 @@ import { Alibaba1688CheckoutRuntimeAdapter } from './adapter/out/runtime/alibaba
 import { PurchaseOrderSubmissionTransactionAdapter } from './adapter/out/transaction/purchase-order-submission.transaction.adapter';
 import { PURCHASE_ORDER_DRAFT_PORT } from './application/port/in/procurement/purchase-order-draft.port';
 import { PURCHASE_ORDER_SUBMISSION_PORT } from './application/port/in/procurement/purchase-order-submission.port';
+import { SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT } from './application/port/in/capability/purchase-order.port';
 import { PROCUREMENT_REPOSITORY_PORT } from './application/port/out/repository/procurement.repository.port';
 import { PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT } from './application/port/out/runtime/purchase-order-checkout-runtime.port';
 import { PURCHASE_ORDER_SUBMISSION_TRANSACTION_PORT } from './application/port/out/transaction/purchase-order-submission.transaction.port';
@@ -34,6 +35,7 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
       provide: PURCHASE_ORDER_SUBMISSION_PORT,
       useExisting: PurchaseOrderSubmissionService,
     },
+    { provide: SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT, useExisting: SupplyAgentCapabilityAdapter },
     { provide: PROCUREMENT_REPOSITORY_PORT, useExisting: ProcurementRepositoryAdapter },
     {
       provide: PURCHASE_ORDER_CHECKOUT_RUNTIME_PORT,
@@ -48,6 +50,7 @@ import { PurchaseOrderSubmissionService } from './application/service/purchase-o
     ProcurementService,
     PURCHASE_ORDER_DRAFT_PORT,
     PURCHASE_ORDER_SUBMISSION_PORT,
+    SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT,
   ],
 })
 export class SupplyAgentRuntimeModule {}

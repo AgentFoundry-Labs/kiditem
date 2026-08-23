@@ -19,6 +19,8 @@ import {
   resolveDefinitionModelPlan,
 } from './domain/agent-definition.registry';
 import type { AgentDefinitionRecord } from './domain/agent-os.types';
+import { AGENT_VERSION_PUBLICATION_DEFINITIONS } from './domain/catalog/agent-version-publication.registry';
+import { AgentWorkVersionPublisher } from './application/service/work/agent-work-version-publisher.service';
 
 export interface AgentOsSeedResult {
   organizationCount: number;
@@ -243,6 +245,10 @@ export async function seedAgentOs(prisma: PrismaClient): Promise<AgentOsSeedResu
   for (const version of versions) {
     await publisher.publishAndActivate(version);
   }
+  const workPublisher = new AgentWorkVersionPublisher(prisma);
+  for (const version of AGENT_VERSION_PUBLICATION_DEFINITIONS) {
+    await workPublisher.publish(version);
+  }
 
   let instances = 0;
   for (const orgId of orgIds) {
@@ -256,7 +262,7 @@ export async function seedAgentOs(prisma: PrismaClient): Promise<AgentOsSeedResu
   return {
     organizationCount: orgIds.length,
     definitionCount: definitions.length,
-    versionsPublished: versions.length,
+    versionsPublished: AGENT_VERSION_PUBLICATION_DEFINITIONS.length,
     instancesEnsured: instances,
   };
 }

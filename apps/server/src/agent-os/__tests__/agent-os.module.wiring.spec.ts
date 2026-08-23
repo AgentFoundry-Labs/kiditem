@@ -10,6 +10,9 @@ import { OperationServerLifecycleService } from "../../operations/application/se
 import { StorageModule } from "../../common/storage/storage.module";
 import { StorageService } from "../../common/storage/storage.service";
 import { AgentRuntimeApplicationModule } from "../../agent-runtime-application.module";
+import { PrismaService } from '../../prisma/prisma.service';
+import { AgentAttemptExecutorService } from '../adapter/out/runtime/attempt/agent-attempt-executor.service';
+import { AttemptMcpBrokerService } from '../adapter/in/mcp/attempt-mcp-broker.service';
 import { AgentMcpApplicationModule } from "../../agent-mcp-application.module";
 import { AgentOsCatalogModule } from "../agent-os-catalog.module";
 import { AgentOsCapabilityModule } from "../agent-os-capability.module";
@@ -121,6 +124,19 @@ class PlatformPortConsumer {
 class PlatformPortConsumerModule {}
 
 describe("Agent OS artifact materialization composition", () => {
+  it('resolves the API-owned Attempt executor and bound Unix-socket broker', async () => {
+    process.env.AGENT_DEFAULT_MODEL = 'acceptance-test-model';
+    const moduleRef = await Test.createTestingModule({
+      imports: [AgentRuntimeApplicationModule],
+    })
+      .overrideProvider(PrismaService)
+      .useValue({})
+      .compile();
+    expect(moduleRef.get(AgentAttemptExecutorService)).toBeInstanceOf(AgentAttemptExecutorService);
+    expect(moduleRef.get(AttemptMcpBrokerService)).toBeInstanceOf(AttemptMcpBrokerService);
+    await moduleRef.close();
+  });
+
   it("resolves StorageModule and the AgentOS API composition without reflected options dependencies", async () => {
     const storageModule = await Test.createTestingModule({
       imports: [StorageModule],

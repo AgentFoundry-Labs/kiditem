@@ -14,8 +14,7 @@ describe('sourcing capability manifest', () => {
       'sourcing.refreshCollection',
       'sourcing.refreshValidation',
       'sourcing.createReviewBatch',
-      'market.collect_shadow_signals',
-      'product_listing.create_generation_package',
+      'sourcing.collect_shadow_signals',
     ]);
     expect(SOURCING_CAPABILITIES.map((capability) => capability.key)).not.toEqual(
       expect.arrayContaining([
@@ -67,12 +66,13 @@ describe('sourcing capability manifest', () => {
   it('starts external market signals through an OperationRun workflow', () => {
     expect(
       SOURCING_CAPABILITIES.find(
-        (capability) => capability.key === 'market.collect_shadow_signals',
+        (capability) => capability.key === 'sourcing.collect_shadow_signals',
       ),
     ).toMatchObject({
       outputSchema: { operationRunId: 'string', status: 'string' },
       effects: ['db_write', 'external_io', 'job_enqueue'],
       approval: 'on_write',
+      ownerInputPort: 'sourcing.collectShadowSignals',
     });
   });
 

@@ -29,6 +29,9 @@ export interface CapabilityEntrypoint {
 export interface CapabilityManifest {
   key: string;
   ownerDomain: string;
+  /** KID-25 owner contract. Legacy fields remain during the staged cutover. */
+  ownerInputPort?: string;
+  approvalRisk?: 'none' | 'low' | 'medium' | 'high';
   kind: CapabilityKind;
   description: string;
   inputSchema: unknown;

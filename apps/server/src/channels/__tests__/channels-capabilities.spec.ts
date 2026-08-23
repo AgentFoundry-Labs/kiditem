@@ -5,10 +5,15 @@ import { CHANNELS_CAPABILITIES } from '../domain/capability/channels.capabilitie
 describe('channels capability manifest', () => {
   it('publishes the Agent OS confirmed listing registration workflow', () => {
     expect(CHANNELS_CAPABILITIES.map((capability) => capability.key)).toEqual([
+      'channels.submit_wing_thumbnail',
       'channels.register_confirmed_listing',
       'channels.submit_coupang_listing',
     ]);
     expect(CHANNELS_CAPABILITIES[0]).toMatchObject({
+      key: 'channels.submit_wing_thumbnail', ownerDomain: 'channels',
+      ownerInputPort: 'channels.submitWingThumbnail', effects: ['external_write', 'browser', 'db_write'], approvalRisk: 'high',
+    });
+    expect(CHANNELS_CAPABILITIES[1]).toMatchObject({
       key: 'channels.register_confirmed_listing',
       ownerDomain: 'channels',
       kind: 'workflow',
@@ -37,7 +42,7 @@ describe('channels capability manifest', () => {
         token: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description,
       },
     });
-    expect(CHANNELS_CAPABILITIES[1]).toMatchObject({
+    expect(CHANNELS_CAPABILITIES[2]).toMatchObject({
       key: 'channels.submit_coupang_listing',
       ownerDomain: 'channels',
       kind: 'workflow',
