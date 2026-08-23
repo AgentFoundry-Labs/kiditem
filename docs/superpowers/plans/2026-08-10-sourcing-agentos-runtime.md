@@ -1,5 +1,10 @@
 # Sourcing AgentOS Runtime Implementation Plan
 
+> Superseded as an executable KID-25 plan (2026-08-23). Do not resume any task
+> from this plan. Sourcing business requirements are reference-only; use the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md)
+> for the replacement plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Route the existing sourcing dashboard assistant through one audited Agent OS runtime that supports Claude CLI and Codex CLI, exposes only bounded Sourcing capabilities, preserves deterministic fallback behavior, and leaves all visible sourcing UI copy unchanged.

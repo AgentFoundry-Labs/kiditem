@@ -1,5 +1,11 @@
 # Sourcing Long-Running Operations, API Lifecycle, and Snapshot-First UI Design
 
+> Partial supersession notice (2026-08-23): deterministic Operations and
+> Sourcing business behavior remain authoritative. Generic Agent worker,
+> AgentRun, HMAC grant, conversation, artifact, and provider-runtime assumptions
+> are replaced by the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 - Date: 2026-08-13
 - Status: Approved
 - Tracking issue: KID-24

@@ -1,5 +1,9 @@
 # AgentSession Complete Deletion Implementation Plan
 
+> Superseded (2026-08-23). Do not resume unchecked tasks or its artifact/runtime
+> cleanup graph. A new implementation plan will be derived from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the unreleased retention/legal-hold lifecycle stack with one asynchronous, recoverable, complete deletion path that removes every KidItem-owned AgentSession process, credential, file, object, canonical row, and ephemeral deletion OperationRun lineage.

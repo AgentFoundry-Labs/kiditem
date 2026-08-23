@@ -1,5 +1,10 @@
 # CopilotKit Nest Incoming Adapter Contraction Implementation Plan
 
+> Superseded (2026-08-23). The Nest adapter conclusion remains, but this plan's
+> conversation/replay and old execution-graph work must not continue. A new
+> implementation plan will be derived from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use
 > `superpowers:subagent-driven-development` to implement this plan as one
 > integrated Terra task, followed by one integrated Sol review. Steps use

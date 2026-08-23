@@ -1,5 +1,10 @@
 # Interaction OS Pre-Launch Contraction And First Deployment Implementation Plan
 
+> Superseded for KID-25 (2026-08-23). Do not resume unchecked tasks. Code,
+> automation, canary, and recovery work will be replanned from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md);
+> actual Office rollout remains separate release-operations work.
+
 Last amended: 2026-08-22 — replaced the unreleased retention/legal-hold Task 1
 with complete AgentSession deletion and linked its bounded TDD execution plan.
 

@@ -1,5 +1,9 @@
 # AgentSession Complete Deletion Design
 
+> Superseded in full (2026-08-23). Do not implement this deletion graph. The
+> authoritative replacement is the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 - Date: 2026-08-21
 - Status: Approved for implementation planning
 - Tracking issue: KID-25

@@ -1,5 +1,9 @@
 # AgentOS Durable Session Runtime Implementation Plan
 
+> Superseded (2026-08-23). Do not resume unchecked tasks. A new implementation
+> plan will be derived from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 Last amended: 2026-08-21 — post-KID-24 AgentOS hexagonal directory deepening,
 input-port enforcement, lifecycle transaction seams, and composition modules.
 

@@ -1,5 +1,9 @@
 # CopilotKit Nest Incoming Adapter Contraction Design
 
+> Superseded in full (2026-08-23). The Nest adapter conclusion remains, but
+> conversation replay and the old execution graph do not. Use the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 Status: approved on 2026-08-23
 
 This design supersedes every separate-process Interaction Gateway decision in

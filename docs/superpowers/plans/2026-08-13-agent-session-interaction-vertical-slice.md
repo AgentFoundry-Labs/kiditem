@@ -1,5 +1,9 @@
 # Agent Session Interaction Vertical Slice Implementation Plan
 
+> Superseded (2026-08-23). Do not resume unchecked tasks. A new implementation
+> plan will be derived from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Deliver the first complete CopilotKit conversation path in which the

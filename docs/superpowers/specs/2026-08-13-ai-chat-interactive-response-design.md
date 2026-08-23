@@ -1,5 +1,11 @@
 # KidItem CopilotKit-Native Interaction OS And AgentOS Design
 
+> Superseded for implementation (2026-08-23): its Agent OS runtime, gateway,
+> conversation/replay, execution, policy, artifact, analytics, provider, and
+> deployment contracts are replaced by the
+> [KID-25 Agent OS Clean Contraction Design](2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+> Non-conflicting visual product ideas are reference-only.
+
 - Date: 2026-08-13
 - Last amended: 2026-08-21 — hexagonal capability/Operation boundary,
   canonical identifier system, AgentOS lane-first/capability-second directory

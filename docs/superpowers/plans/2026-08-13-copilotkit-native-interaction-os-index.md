@@ -1,5 +1,9 @@
 # CopilotKit-Native Interaction OS Execution Index Implementation Plan
 
+> Superseded (2026-08-23). Do not use this index or its completion checklist.
+> A new implementation plan will be derived from the
+> [KID-25 Agent OS Clean Contraction Design](../specs/2026-08-23-kid-25-agent-os-clean-contraction-design.md).
+
 Last amended: 2026-08-21 — owner-port execution boundaries, canonical ID
 system, AgentOS lane-first/capability-second hexagonal deepening, and zero-data
 pre-launch contraction propagated through Plans 1–4.
