@@ -2,6 +2,9 @@ import { describe, expect, expectTypeOf, it } from "vitest";
 import {
   AgentDefinitionKeySchema,
   AgentExecutionAttemptIdSchema,
+  AgentAttemptIdSchema,
+  AgentCapabilityApprovalIdSchema,
+  AgentCapabilityInvocationIdSchema,
   AgentExecutionIdSchema,
   AgentSessionIdSchema,
   AgentSessionTaskIdSchema,
@@ -45,6 +48,9 @@ import {
   UserIdSchema,
 } from "./index";
 import type {
+  AgentAttemptId,
+  AgentCapabilityApprovalId,
+  AgentCapabilityInvocationId,
   AgentExecutionId,
   AgentSessionId,
   AguiRunId,
@@ -71,6 +77,19 @@ const firstSequence = PositiveDecimalSequenceSchema.parse("1");
 const checkpointSequence = PositiveDecimalSequenceSchema.parse("42");
 
 describe("canonical identifiers", () => {
+  it("keeps final Agent work identifiers distinct from legacy execution identifiers", () => {
+    expect(AgentAttemptIdSchema.parse("agent-attempt-1")).toBe(
+      "agent-attempt-1",
+    );
+    expect(AgentCapabilityInvocationIdSchema.parse("agent-invocation-1")).toBe(
+      "agent-invocation-1",
+    );
+    expect(AgentCapabilityApprovalIdSchema.parse("agent-approval-1")).toBe(
+      "agent-approval-1",
+    );
+    expectTypeOf<AgentAttemptId>().not.toEqualTypeOf<AgentExecutionAttemptId>();
+    expectTypeOf<AgentCapabilityInvocationId>().not.toEqualTypeOf<AgentCapabilityApprovalId>();
+  });
   it("keeps branded identifier categories non-interchangeable", () => {
     expectTypeOf<OwnerId>().not.toEqualTypeOf<LogicalId>();
     expectTypeOf<OrganizationId>().not.toEqualTypeOf<UserId>();

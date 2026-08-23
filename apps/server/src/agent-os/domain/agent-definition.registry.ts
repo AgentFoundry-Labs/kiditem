@@ -4,6 +4,16 @@ import type {
   AgentModelPlan,
   AgentModelPlanRole,
 } from './agent-os.types';
+import type { DomainKey } from './catalog/domain-definition.registry';
+
+export const AGENT_DEFINITIONS: readonly { key: string; assignedDomains: readonly DomainKey[] }[] = [
+  { key: 'operator', assignedDomains: ['agent_os', 'automation', 'operations'] },
+  { key: 'sourcing', assignedDomains: ['sourcing'] },
+  { key: 'merchandising', assignedDomains: ['products', 'ai'] },
+  { key: 'supply', assignedDomains: ['supply'] },
+  { key: 'channel_operations', assignedDomains: ['channels', 'orders', 'inventory'] },
+  { key: 'advertising', assignedDomains: ['advertising'] },
+] as const;
 
 const PROMPT_BASE = 'agent-config/prompts/agents';
 

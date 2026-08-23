@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 export const SCRIPT_INVENTORY = Object.freeze([
   'bootstrap-authoritative-inventory-dev.ts',
+  'check-agent-os-contraction.mjs',
   'check-agent-os-hexagonal.mjs',
   'check-agent-session-deletion.mjs',
   'check-agents-hygiene.mjs',

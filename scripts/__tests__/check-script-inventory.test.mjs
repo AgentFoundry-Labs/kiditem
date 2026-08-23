@@ -2,6 +2,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { analyzeInventory, SCRIPT_INVENTORY } from '../check-script-inventory.mjs';
 
+test('registers the Agent OS contraction scanner', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('check-agent-os-contraction.mjs'));
+});
+
 test('accepts complete script inventory metadata', () => {
   const result = analyzeInventory({
     actualFiles: SCRIPT_INVENTORY,

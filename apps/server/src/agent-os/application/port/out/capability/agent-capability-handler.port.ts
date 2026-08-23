@@ -1,5 +1,8 @@
-import type { z } from 'zod';
-import type { InteractionUiResult } from '@kiditem/shared/agent-interaction';
+import type { z } from "zod";
+import type {
+  InteractionUiResult,
+  AgentResultEnvelope,
+} from "@kiditem/shared/agent-interaction";
 import type {
   AgentExecutionAttemptName,
   AgentExecutionName,
@@ -10,24 +13,18 @@ import type {
   OperationRunName,
   RequestId,
   UserName,
-} from '@kiditem/shared/identifiers';
+} from "@kiditem/shared/identifiers";
 
 export type AgentCapabilityExecutionKind =
-  | 'tool'
-  | 'workflow'
-  | 'job_trigger'
-  | 'scorer';
-
+  "tool" | "workflow" | "job_trigger" | "scorer";
 export type AgentCapabilitySideEffect =
-  | 'read'
-  | 'db_write'
-  | 'external_io'
-  | 'external_write'
-  | 'browser'
-  | 'job_enqueue';
-
-export type AgentCapabilityApprovalRisk = 'none' | 'low' | 'medium' | 'high';
-
+  | "read"
+  | "db_write"
+  | "external_io"
+  | "external_write"
+  | "browser"
+  | "job_enqueue";
+export type AgentCapabilityApprovalRisk = "none" | "low" | "medium" | "high";
 export interface AgentCapabilityArtifactOutput {
   artifactType: string;
   targetDomain: string;
@@ -37,7 +34,6 @@ export interface AgentCapabilityArtifactOutput {
   href?: string | null;
   summary?: Record<string, unknown>;
 }
-
 export interface AgentCapabilityExecutionInput<
   TInput extends Record<string, unknown> = Record<string, unknown>,
 > {
@@ -52,18 +48,11 @@ export interface AgentCapabilityExecutionInput<
   requestId: RequestId;
   input: TInput;
 }
-
-/**
- * Inline AG-UI is a persisted session execution, not an Operations worker.
- * Only a handler that explicitly exposes this narrow read surface may receive
- * it; the normal capability method remains strictly Operation-bound.
- */
 export interface AgentInteractiveCapabilityExecutionInput<
   TInput extends Record<string, unknown> = Record<string, unknown>,
-> extends Omit<AgentCapabilityExecutionInput<TInput>, 'operation'> {
+> extends Omit<AgentCapabilityExecutionInput<TInput>, "operation"> {
   operation: null;
 }
-
 export interface AgentCapabilityExecutionResult {
   outputSummary?: Record<string, unknown>;
   resourceType?: string | null;
@@ -71,7 +60,7 @@ export interface AgentCapabilityExecutionResult {
   artifacts?: AgentCapabilityArtifactOutput[];
   interactionUiResult?: InteractionUiResult;
 }
-
+/** @deprecated Compile-only legacy compatibility; do not use for final capabilities. */
 export interface AgentCapabilityHandler<
   TInput extends Record<string, unknown> = Record<string, unknown>,
   TOutput extends Record<string, unknown> = Record<string, unknown>,
@@ -90,4 +79,9 @@ export interface AgentCapabilityHandler<
   executeInteractive?(
     input: AgentInteractiveCapabilityExecutionInput<TInput>,
   ): Promise<AgentCapabilityExecutionResult>;
+}
+/** Final narrow handler contract; capability metadata belongs to CapabilityDefinition. */
+export interface AgentCapabilityContractHandler {
+  capabilityKey: string;
+  invoke(input: Record<string, unknown>): Promise<AgentResultEnvelope>;
 }

@@ -79,6 +79,7 @@ model Organization {
   agentAuthorityProfileVersions         AgentAuthorityProfileVersion[]         @relation("AgentAuthorityProfileVersionOrganization")
   agentSessionDeletionOperationBindings AgentSessionDeletionOperationBinding[] @relation("AgentSessionDeletionBindingOrganization")
   agentExecutionDispatchOutboxes        AgentExecutionDispatchOutbox[]         @relation("AgentExecutionDispatchOutboxOrganization")
+  agentWorkSessions                     AgentWorkSession[]                     @relation("AgentWorkSessionOrganization")
 
   // Order domain (Plan A.5)
   orderLineItems       OrderLineItem[]
@@ -268,6 +269,9 @@ model User {
   createdAgentConversations         AgentConversation[]       @relation("AgentConversationCreatedBy")
   createdAgentSessions              AgentSession[]            @relation("AgentSessionCreatedBy")
   requestedAgentSessionDeletions    AgentSession[]            @relation("AgentSessionDeletionRequestedBy")
+  createdAgentWorkSessions          AgentWorkSession[]        @relation("AgentWorkSessionCreator")
+  initiatedAgentCapabilityInvocations AgentCapabilityInvocation[] @relation("AgentCapabilityInvocationInitiator")
+  decidedAgentCapabilityApprovals   AgentCapabilityApproval[] @relation("AgentCapabilityApprovalDecider")
 
   // Sourcing (issue #192)
   rejectedSourcingCandidates  SourcingCandidate[] @relation("SourcingCandidateRejectedBy")

@@ -25,6 +25,12 @@ export const AgentExecutionIdSchema =
   logicalIdentifierSchema.brand<"AgentExecutionId">();
 export const AgentExecutionAttemptIdSchema =
   logicalIdentifierSchema.brand<"AgentExecutionAttemptId">();
+export const AgentAttemptIdSchema =
+  logicalIdentifierSchema.brand<"AgentAttemptId">();
+export const AgentCapabilityInvocationIdSchema =
+  logicalIdentifierSchema.brand<"AgentCapabilityInvocationId">();
+export const AgentCapabilityApprovalIdSchema =
+  logicalIdentifierSchema.brand<"AgentCapabilityApprovalId">();
 export const OperationRunIdSchema =
   logicalIdentifierSchema.brand<"OperationRunId">();
 
@@ -550,6 +556,13 @@ export type AgentSessionTaskId = z.infer<typeof AgentSessionTaskIdSchema>;
 export type AgentExecutionId = z.infer<typeof AgentExecutionIdSchema>;
 export type AgentExecutionAttemptId = z.infer<
   typeof AgentExecutionAttemptIdSchema
+>;
+export type AgentAttemptId = z.infer<typeof AgentAttemptIdSchema>;
+export type AgentCapabilityInvocationId = z.infer<
+  typeof AgentCapabilityInvocationIdSchema
+>;
+export type AgentCapabilityApprovalId = z.infer<
+  typeof AgentCapabilityApprovalIdSchema
 >;
 export type OperationRunId = z.infer<typeof OperationRunIdSchema>;
 export type AgentDefinitionKey = z.infer<typeof AgentDefinitionKeySchema>;

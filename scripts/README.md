@@ -21,6 +21,7 @@ npm run test:scripts
 | path | owner / purpose | entrypoint |
 |---|---|---|
 | `scripts/bootstrap-authoritative-inventory-dev.ts` | verified-local DB bootstrap for the Sellpia-authoritative inventory baseline; requires `--coupang-vendor-id` and creates only organization and Wing/Rocket account metadata | `npm run inventory:bootstrap:dev`, `docs/runbooks/sellpia-rocket-inventory-sync.md` |
+| `scripts/check-agent-os-contraction.mjs` | Agent OS legacy-surface report scanner; use enforce mode only after the clean Task 5 cutover, because current report findings are intentional | `node scripts/check-agent-os-contraction.mjs --report` |
 | `scripts/check-agent-os-hexagonal.mjs` | AgentOS lane-first/capability-second dependency, input-port placement, and official module-size contract scanner; intentionally standalone until the KID-25 migration removes its live baseline violations | `npm run check:agent-os-hexagonal` |
 | `scripts/check-agent-session-deletion.mjs` | live complete-deletion contraction guard for retired lifecycle concepts, raw artifact references, duplicate deletion schedulers, lifecycle write fences, and session-owned OperationRuns | `npm run check:agent-session-deletion` |
 | `scripts/check-agents-hygiene.mjs` | AGENTS/CLAUDE instruction hygiene gate | `npm run check:agents-hygiene` |

@@ -58,6 +58,28 @@ export type {
 
 export { CanonicalResourceRefSchema } from "./resource-ref";
 export type { CanonicalResourceRef } from "./resource-ref";
+export {
+  AgentAttemptStatusSchema,
+  AgentCapabilityApprovalStatusSchema,
+  AgentCapabilityInvocationStatusSchema,
+  AgentResultEnvelopeSchema,
+  AgentWorkTaskStatusSchema,
+  AuthorizationKindSchema,
+  CapabilityIdempotencySchema,
+  OperationRefSchema,
+  ResourceRefSchema,
+} from "./work";
+export type {
+  AgentAttemptStatus,
+  AgentCapabilityApprovalStatus,
+  AgentCapabilityInvocationStatus,
+  AgentResultEnvelope,
+  AgentWorkTaskStatus,
+  AuthorizationKind,
+  CapabilityIdempotency,
+  OperationRef,
+  ResourceRef,
+} from "./work";
 
 export {
   AgentSessionDeletionFailureCodeSchema,
@@ -615,9 +637,7 @@ export const AgentConversationEventEnvelopeSchema = z
         "execution must belong to the event session",
       );
     }
-    if (
-      (value.execution === null) !== (value.aguiRunId === null)
-    ) {
+    if ((value.execution === null) !== (value.aguiRunId === null)) {
       addCanonicalNameIssue(
         context,
         ["aguiRunId"],

@@ -1,9 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { findAgentDefinitionByType, listAgentDefinitions } from '../agent-definition.registry';
+import {
+  AGENT_DEFINITIONS,
+  findAgentDefinitionByType,
+  listAgentDefinitions,
+} from '../agent-definition.registry';
 
 describe('agent definition registry', () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+  });
+
+  it('keeps the final code-owned Agent definitions and non-exclusive domain assignments', () => {
+    expect(AGENT_DEFINITIONS).toEqual([
+      { key: 'operator', assignedDomains: ['agent_os', 'automation', 'operations'] },
+      { key: 'sourcing', assignedDomains: ['sourcing'] },
+      { key: 'merchandising', assignedDomains: ['products', 'ai'] },
+      { key: 'supply', assignedDomains: ['supply'] },
+      { key: 'channel_operations', assignedDomains: ['channels', 'orders', 'inventory'] },
+      { key: 'advertising', assignedDomains: ['advertising'] },
+    ]);
   });
 
   it('does not register thumbnail auto edit as an Agent OS runtime definition', () => {

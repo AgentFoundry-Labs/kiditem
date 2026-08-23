@@ -6,6 +6,13 @@
 // Workflow models live alongside because the workflow runner triggers
 // Agent OS through `AgentRunnerPort` and shares related FK columns.
 
+// KID-25 replacement graph. Temporary AgentWork symbols avoid colliding with
+// legacy logical models until the destructive cutover.
+// AgentWorkTaskStatus: 'open' | 'completed' | 'failed' | 'cancelled'
+// AgentAttemptStatus: 'starting' | 'running' | 'succeeded' | 'failed' | 'process_interrupted' | 'cancelled'
+// AgentCapabilityInvocationStatus: 'authorized' | 'approval_pending' | 'ready' | 'executing' | 'succeeded' | 'failed'
+// AgentCapabilityApprovalStatus: 'pending' | 'approved' | 'rejected' | 'expired'
+
 /// @namespace AgentOS
 /// @describe Immutable runtime and policy identity for one version of a code-defined interactive agent.
 model AgentVersion {
