@@ -1,4 +1,4 @@
-import type { AgentWorkTaskStatus } from "@kiditem/shared/agent-interaction";
+import type { AgentTaskStatus } from "@kiditem/shared/agent-interaction";
 
 export const AGENT_WORK_REPOSITORY_PORT = Symbol("AGENT_WORK_REPOSITORY_PORT");
 
@@ -10,7 +10,7 @@ export interface OrganizationScopedId {
 export interface AgentWorkProjection {
   session: OrganizationScopedId;
   tasks: Array<
-    OrganizationScopedId & { sessionId: string; status: AgentWorkTaskStatus }
+    OrganizationScopedId & { sessionId: string; status: AgentTaskStatus }
   >;
 }
 
@@ -36,7 +36,7 @@ export interface AgentWorkRepositoryPort {
     taskId: string;
     attemptId: string;
     requestedByUserId: string;
-  }): Promise<{ taskStatus: AgentWorkTaskStatus; live: boolean } | null>;
+  }): Promise<{ taskStatus: AgentTaskStatus; live: boolean } | null>;
   loadAttemptMcpDelegationContext(input: {
     organizationId: string;
     sessionId: string;
@@ -63,7 +63,7 @@ export interface AgentWorkRepositoryPort {
     requestedByUserId: string;
   }): Promise<{
     childTaskId: string;
-    taskStatus: AgentWorkTaskStatus;
+    taskStatus: AgentTaskStatus;
     attemptId: string | null;
     attemptStatus: string | null;
     live: boolean;

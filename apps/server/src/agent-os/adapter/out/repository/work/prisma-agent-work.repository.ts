@@ -1,6 +1,6 @@
 import {
-  AgentWorkTaskStatusSchema,
-  type AgentWorkTaskStatus,
+  AgentTaskStatusSchema,
+  type AgentTaskStatus,
 } from "@kiditem/shared/agent-interaction";
 import type { PrismaClient } from "@prisma/client";
 import type {
@@ -26,7 +26,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
         id: task.id,
         organizationId: task.organizationId,
         sessionId: task.sessionId,
-        status: AgentWorkTaskStatusSchema.parse(task.status),
+        status: AgentTaskStatusSchema.parse(task.status),
       })),
     };
   }
@@ -75,7 +75,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
     taskId: string;
     attemptId: string;
     requestedByUserId: string;
-  }): Promise<{ taskStatus: AgentWorkTaskStatus; live: boolean } | null> {
+  }): Promise<{ taskStatus: AgentTaskStatus; live: boolean } | null> {
     const [attempt, membership] = await Promise.all([
       this.prisma.agentAttempt.findFirst({
         where: {
@@ -97,7 +97,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
     ]);
     if (!attempt || !membership) return null;
     return {
-      taskStatus: AgentWorkTaskStatusSchema.parse(attempt.task.status),
+      taskStatus: AgentTaskStatusSchema.parse(attempt.task.status),
       live: ["starting", "running"].includes(attempt.status),
     };
   }
@@ -189,7 +189,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
     const attempt = child.attempts[0] ?? null;
     return {
       childTaskId: child.id,
-      taskStatus: AgentWorkTaskStatusSchema.parse(child.status),
+      taskStatus: AgentTaskStatusSchema.parse(child.status),
       attemptId: attempt?.id ?? null,
       attemptStatus: attempt?.status ?? null,
       live: Boolean(attempt && ['starting', 'running'].includes(attempt.status)),

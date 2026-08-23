@@ -1,4 +1,4 @@
-import type { AgentWorkTaskStatus } from "@kiditem/shared/agent-interaction";
+import type { AgentTaskStatus } from "@kiditem/shared/agent-interaction";
 
 export type AgentWorkPresentationState =
   | "running"
@@ -10,10 +10,10 @@ export type AgentWorkPresentationState =
   | "terminal"
   | "error";
 
-/** Presentation-only state. None of these labels are persisted on AgentWorkTask. */
+/** Presentation-only state. None of these labels are persisted on AgentTask. */
 export class AgentWorkProjectionService {
   project(input: {
-    taskStatus: AgentWorkTaskStatus;
+    taskStatus: AgentTaskStatus;
     hasLiveAttempt: boolean;
     hasPendingApproval: boolean;
     hasReadyOrExecutingMutation: boolean;

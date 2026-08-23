@@ -5,7 +5,7 @@ export const ResourceRefSchema = CanonicalResourceRefSchema;
 export const OperationRefSchema = z
   .object({ kind: z.string().min(1).max(64), id: z.string().min(1).max(128) })
   .strict();
-export const AgentWorkTaskStatusSchema = z.enum([
+export const AgentTaskStatusSchema = z.enum([
   "open",
   "completed",
   "failed",
@@ -79,7 +79,7 @@ export const AgentResultEnvelopeSchema = z
 export type ResourceRef = z.infer<typeof ResourceRefSchema>;
 export type OperationRef = z.infer<typeof OperationRefSchema>;
 export type AgentResultEnvelope = z.infer<typeof AgentResultEnvelopeSchema>;
-export type AgentWorkTaskStatus = z.infer<typeof AgentWorkTaskStatusSchema>;
+export type AgentTaskStatus = z.infer<typeof AgentTaskStatusSchema>;
 export type AgentAttemptStatus = z.infer<typeof AgentAttemptStatusSchema>;
 export type AgentCapabilityInvocationStatus = z.infer<
   typeof AgentCapabilityInvocationStatusSchema
