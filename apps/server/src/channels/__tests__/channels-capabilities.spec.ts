@@ -1,74 +1,29 @@
 import { describe, expect, it } from 'vitest';
-import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../application/port/in/capability/marketplace-registration.port';
 import { CHANNELS_CAPABILITIES } from '../domain/capability/channels.capabilities';
 
-describe('channels capability manifest', () => {
-  it('publishes the Agent OS confirmed listing registration workflow', () => {
+describe('Channels final capability definitions', () => {
+  it('owns all three marketplace mutations with real strict schemas', () => {
     expect(CHANNELS_CAPABILITIES.map((capability) => capability.key)).toEqual([
-      'channels.submit_wing_thumbnail',
       'channels.register_confirmed_listing',
       'channels.submit_coupang_listing',
+      'channels.submit_wing_thumbnail',
     ]);
-    expect(CHANNELS_CAPABILITIES[0]).toMatchObject({
-      key: 'channels.submit_wing_thumbnail', ownerDomain: 'channels',
-      ownerInputPort: 'channels.submitWingThumbnail', effects: ['external_write', 'browser', 'db_write'], approvalRisk: 'high',
-    });
-    expect(CHANNELS_CAPABILITIES[1]).toMatchObject({
-      key: 'channels.register_confirmed_listing',
-      ownerDomain: 'channels',
-      kind: 'workflow',
-      inputSchema: {
-        masterId: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        productBarcode: 'string|null',
-        channelName: 'string|null',
-        channelPrice: 'number|null',
-      },
-      outputSchema: {
-        listingId: 'string',
-        masterId: 'string',
-        channel: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        status: 'string|null',
-      },
-      effects: ['db_write'],
-      approval: 'always',
-      idempotency: 'required',
-      visibility: 'agent',
-      entrypoint: {
-        type: 'incoming_port',
-        token: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description,
-      },
-    });
-    expect(CHANNELS_CAPABILITIES[2]).toMatchObject({
-      key: 'channels.submit_coupang_listing',
-      ownerDomain: 'channels',
-      kind: 'workflow',
-      inputSchema: {
-        masterId: 'string',
-        channelAccountId: 'string',
-        productBarcode: 'string|null',
-        listingPayload: 'object',
-      },
-      outputSchema: {
-        listingId: 'string',
-        sellerProductId: 'string',
-        masterId: 'string',
-        channel: 'string',
-        channelAccountId: 'string',
-        externalId: 'string',
-        status: 'string|null',
-      },
-      effects: ['external_write', 'db_write'],
-      approval: 'always',
-      idempotency: 'required',
-      visibility: 'agent',
-      entrypoint: {
-        type: 'incoming_port',
-        token: CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description,
-      },
-    });
+    for (const capability of CHANNELS_CAPABILITIES) {
+      expect(capability.ownerDomain).toBe('channels');
+      expect(capability.inputSchema.safeParse({ organizationId: 'forged' }).success).toBe(false);
+      expect(capability.outputSchema.safeParse({}).success).toBe(false);
+      expect(capability.idempotency).toBe('required');
+    }
+  });
+
+  it('rejects the retired master-only shape and accepts frozen provenance-complete input', () => {
+    const definition = CHANNELS_CAPABILITIES.find((item) => item.key === 'channels.submit_coupang_listing')!;
+    expect(definition.inputSchema.safeParse({ masterId: 'master-1', channelAccountId: 'account-1' }).success).toBe(false);
+    expect(definition.inputSchema.safeParse({
+      executionId: '00000000-0000-4000-8000-000000000011', preparationId: '00000000-0000-4000-8000-000000000012',
+      sourceCandidateId: '00000000-0000-4000-8000-000000000013', channelAccountId: '00000000-0000-4000-8000-000000000014',
+      submissionKey: 'submission-key', submissionPayloadHash: 'b'.repeat(64), submissionPayloadJson: { sellerProductName: 'Toy' },
+      providerSubmissionId: null, registrationResult: null, isRetry: false, providerOutcome: 'not_attempted', providerCreateAllowed: true, optionLinks: [],
+    }).success).toBe(true);
   });
 });

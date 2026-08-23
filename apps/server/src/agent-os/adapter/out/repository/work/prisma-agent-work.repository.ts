@@ -101,4 +101,93 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       live: ["starting", "running"].includes(attempt.status),
     };
   }
+
+  async loadAttemptMcpDelegationContext(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+    targetAgentKey: string;
+  }) {
+    const [attempt, target] = await Promise.all([
+      this.prisma.agentAttempt.findFirst({
+        where: {
+          id: input.attemptId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          session: { createdByUserId: input.requestedByUserId },
+        },
+        select: {
+          input: true,
+          applicationVersion: true,
+          authorizingGitSha: true,
+          cliVersion: true,
+          reportedModel: true,
+        },
+      }),
+      this.prisma.agentWorkVersion.findFirst({
+        where: {
+          agentDefinitionKey: input.targetAgentKey,
+          activatedAt: { not: null },
+          retiredAt: null,
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!attempt || !target) return null;
+    return {
+      input: attempt.input,
+      applicationVersion: attempt.applicationVersion,
+      authorizingGitSha: attempt.authorizingGitSha,
+      cliVersion: attempt.cliVersion,
+      reportedModel: attempt.reportedModel,
+      targetAgentVersionId: target.id,
+    };
+  }
+
+  async loadAttemptMcpChild(input: {
+    organizationId: string;
+    sessionId: string;
+    parentTaskId: string;
+    childTaskId: string;
+    requestedByUserId: string;
+  }) {
+    const [child, membership] = await Promise.all([
+      this.prisma.agentWorkTask.findFirst({
+        where: {
+          id: input.childTaskId,
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          parentTaskId: input.parentTaskId,
+          session: { createdByUserId: input.requestedByUserId },
+        },
+        include: {
+          attempts: {
+            orderBy: { ordinal: 'desc' },
+            take: 1,
+            select: { id: true, status: true },
+          },
+        },
+      }),
+      this.prisma.organizationMembership.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          userId: input.requestedByUserId,
+          status: 'active',
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!child || !membership) return null;
+    const attempt = child.attempts[0] ?? null;
+    return {
+      childTaskId: child.id,
+      taskStatus: AgentWorkTaskStatusSchema.parse(child.status),
+      attemptId: attempt?.id ?? null,
+      attemptStatus: attempt?.status ?? null,
+      live: Boolean(attempt && ['starting', 'running'].includes(attempt.status)),
+    };
+  }
 }

@@ -58,6 +58,7 @@ import { SourcingAgentRuntimeModule } from './sourcing-agent-runtime.module';
     },
   ],
   exports: [
+    MARKET_SHADOW_COLLECTION_CAPABILITY_PORT,
     MARKET_SHADOW_OPERATION_PORT,
     SourcingShadowSignalService,
   ],

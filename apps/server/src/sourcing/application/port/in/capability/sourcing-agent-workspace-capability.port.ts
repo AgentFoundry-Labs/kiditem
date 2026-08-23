@@ -50,6 +50,7 @@ export interface SourcingAgentWorkspaceMutationCapabilityPort {
   refreshValidation(input: {
     organizationId: string;
     recommendationRunId: string;
+    idempotencyKey: string;
   }): Promise<{
     recommendationRunId: string;
     validationEpisodeIds: string[];

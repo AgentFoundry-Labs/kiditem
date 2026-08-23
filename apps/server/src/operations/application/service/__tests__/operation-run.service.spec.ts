@@ -852,6 +852,55 @@ describe('OperationRunService', () => {
     expect(repository.createRun).toHaveBeenCalledTimes(1);
   });
 
+  it('rejects a reused idempotency key when its canonical operation input differs', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.findByIdempotencyKey = vi.fn().mockResolvedValue(makeRecord({
+      input: { source: 'naver' },
+    }));
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.start({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      triggerSource: 'dashboard',
+      input: { source: '1688' },
+      requestedByUserId: USER_ID,
+      idempotencyKey: 'dashboard:trends',
+    })).rejects.toThrow('idempotency_key_input_conflict');
+    expect(repository.createRun).not.toHaveBeenCalled();
+  });
+
+  it('rejects a different canonical input returned after a concurrent idempotent create', async () => {
+    const registry = new OperationHandlerRegistryService();
+    registry.register(definition, handler);
+    const repository = makeRepository();
+    repository.createRun = vi.fn().mockResolvedValue(makeRecord({
+      input: { source: 'naver' },
+    }));
+    const service = new OperationRunService(
+      registry,
+      repository,
+      compositeCoordinator,
+      acceptingGate(),
+    );
+
+    await expect(service.start({
+      organizationId: ORG_ID,
+      operationKey: definition.key,
+      triggerSource: 'dashboard',
+      input: { source: '1688' },
+      requestedByUserId: USER_ID,
+      idempotencyKey: 'dashboard:trends',
+    })).rejects.toThrow('idempotency_key_input_conflict');
+  });
+
   it('copies definition policy into the run and returns persisted execution metadata', async () => {
     const registry = new OperationHandlerRegistryService();
     registry.register(definition, handler);

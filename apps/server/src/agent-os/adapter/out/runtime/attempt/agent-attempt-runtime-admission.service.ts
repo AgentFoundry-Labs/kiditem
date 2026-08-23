@@ -10,12 +10,20 @@ export class AgentAttemptRuntimeAdmissionService {
     private readonly readiness = new AgentAttemptReadinessService(),
   ) {}
 
-  async assert(agentVersionId: string, runtime: 'codex_cli' | 'claude_cli'): Promise<void> {
-    const version = await this.prisma.agentWorkVersion.findFirst({
-      where: { id: agentVersionId, activatedAt: { not: null }, retiredAt: null },
-      select: { runtimeType: true },
+  async assert(binding: { attemptId: string; organizationId: string; sessionId: string; taskId: string; agentVersionId: string }, runtime: 'codex_cli' | 'claude_cli'): Promise<void> {
+    const attempt = await this.prisma.agentAttempt.findFirst({
+      where: {
+        id: binding.attemptId,
+        organizationId: binding.organizationId,
+        sessionId: binding.sessionId,
+        taskId: binding.taskId,
+        agentVersionId: binding.agentVersionId,
+        status: { in: ['starting', 'running'] },
+        agentVersion: { activatedAt: { not: null } },
+      },
+      select: { runtimeType: true, agentVersion: { select: { runtimeType: true } } },
     });
-    if (!version || version.runtimeType !== runtime) throw new Error('attempt_runtime_not_pinned');
+    if (!attempt || attempt.runtimeType !== runtime || attempt.agentVersion.runtimeType !== runtime) throw new Error('attempt_runtime_not_pinned');
     await this.readiness.assertRuntime(runtime);
   }
 }

@@ -112,6 +112,9 @@ import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-c
     SOURCING_REVIEW_REPOSITORY_PORT,
     SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
     TREND_COLLECTION_REPOSITORY_PORT,
+    SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
+    SOURCING_SCRAPE_URL_WORKFLOW_PORT,
+    SourcingPlaywrightRuntimeHandler,
   ],
 })
 export class SourcingAgentRuntimeModule {}

@@ -438,27 +438,40 @@ Expected: PASS with no continuation/deletion/capacity state columns.
 
 - [ ] **Step 1: Write failing owner, publication, CLI, and broker tests**
 
-Require exact corrected keys:
+Require the current exact eighteen-key Agent-facing catalog:
 
 ```text
-sourcing.collect_shadow_signals
-products.create_listing_generation_package
-channels.submit_wing_thumbnail
 agent_os.platform_probe
 analytics.readOverview
+channels.register_confirmed_listing
+channels.submit_coupang_listing
+channels.submit_wing_thumbnail
+products.create_listing_generation_package
+sourcing.collect_shadow_signals
+sourcing.createReviewBatch
+sourcing.duplicateCheck
+sourcing.ingestCandidate
+sourcing.inspectRecommendationRun
+sourcing.refreshCollection
+sourcing.refreshValidation
+sourcing.retrieveWorkspaceEvidence
+sourcing.scrapeProductUrl
+sourcing.scrapeUrlWorkflow
 supply.create_purchase_order_draft
 supply.submit_purchase_order
 ```
 
+Require Sourcing AgentVersion `capabilityKeys` to contain exactly its ten keys
+above and require all ten in MCP discovery and exact-context invocation.
+
 Assert one definition/implementation, correct owner input port, immutable
 AgentVersion capability snapshot, and no wrapper Agent/AgentRun caller.
 
-Assert exact CLI flags:
+Assert exact non-persistence controls:
 
 ```typescript
-expect(codexArgs).toEqual(expect.arrayContaining([
-  '--ephemeral', '--ignore-user-config',
-]));
+expect(codexThreadStart).toMatchObject({ ephemeral: true });
+expect(codexConfig).toMatchObject({ history: { persistence: 'none' } });
 expect(claudeArgs).toEqual(expect.arrayContaining([
   '--no-session-persistence', '--strict-mcp-config',
 ]));
@@ -481,10 +494,23 @@ Expected: FAIL on misplaced capability keys and persistent-session runtime code.
 
 - [ ] **Step 2: Move capabilities to exact owner input ports and publish versions**
 
-Move generation-package work to Products, Wing submission to Channels, and
-shadow-signal collection to Sourcing. Advertising/Rules/AI judgment remains
-ordinary owner capability behavior, not a wrapper Agent. A `job_enqueue`
-implementation returns `operation_ref` immediately after durable enqueue.
+Move generation-package work to Products and Wing submission to Channels.
+Keep shadow-signal collection as both a Sourcing-owned Operation and an Agent
+capability. Advertising/Rules/AI judgment remains ordinary owner capability
+behavior, not a wrapper Agent. A `job_enqueue` implementation returns
+`operation_ref` immediately after durable enqueue.
+
+Keep Sourcing's ten independent capabilities. `scrapeProductUrl` returns a
+bounded normalized result/hash and never writes a candidate; `ingestCandidate`
+admits only an exact same-Attempt scrape result/hash; `scrapeUrlWorkflow` uses
+the existing scrape Operation and returns a discriminated existing-candidate or
+enqueued-operation result. `retrieveWorkspaceEvidence` includes bounded source
+documents. Exact owner idempotency reaches scrape, ingest, validation, daily
+collection, review batch, and shadow Operation owners. Tests prove same-key
+same-input replay, same-key changed-input conflict, missing-key rejection before
+the owner call, and no duplicate candidate, validation write, or OperationRun.
+Keep bounded synchronous validation as a DB mutation unless runtime evidence
+requires an Operation.
 
 Publish six AgentVersions from code-owned Agent/domain/capability registries.
 Manifest hash covers Agent key/version, domains, resolved capability keys,
@@ -503,6 +529,13 @@ terminate/kill cleanup. Built-in arbitrary network/browser access is disabled;
 model tools and native subagents cannot read auth home, repository, broker,
 server files, or environment secrets. Provider login home remains outside the
 workspace and KidItem never reads credential values.
+
+Codex runs through app-server with a generated isolated `CODEX_HOME`,
+`history.persistence="none"`, and `thread/start.ephemeral=true`; those are the
+supported non-persistence controls because app-server has no `--ephemeral` or
+`--ignore-user-config` flag. Claude uses empty setting sources,
+`--no-session-persistence`, and `--strict-mcp-config`. Neither runtime may load
+the service account's ordinary settings, plugins, hooks, memories, or skills.
 
 `liveControlHandle` exists only in the process-memory registry for the same
 Attempt. It handles a second message/interrupt and is deleted at terminal state.
@@ -820,11 +853,15 @@ Expected: PASS with no compatibility route, worker, fallback, or old schema.
 
 - [ ] **Step 1: Make deployment exactly one Web/API/worker stack**
 
-Compose declares one API replica. API owns CopilotKit/live CLI execution;
-worker owns mutation/Approval/Operations. Keep separate persistent CLI auth home
-and ephemeral Attempt root. Remove gateway URLs, `AGENT_RUNTIME_WORKER_ENABLED`,
-old runtime concurrency/wait/budget values, HMAC/provider credentials, advisory
-lock, release drain, compatibility canary/image, and old run-root mounts.
+The Office/home host is Windows and runs the existing Linux containers through
+Docker Desktop. Compose declares one API replica. API owns CopilotKit/live CLI
+execution; Codex, Claude, the MCP stdio proxy, and each private Unix socket run
+inside that Linux API container. Do not add a native-Windows CLI path, named
+pipe broker, or host-side child process. Worker owns mutation/Approval/Operations.
+Keep separate persistent CLI auth home and ephemeral Attempt root. Remove gateway
+URLs, `AGENT_RUNTIME_WORKER_ENABLED`, old runtime concurrency/wait/budget values,
+HMAC/provider credentials, advisory lock, release drain, compatibility
+canary/image, and old run-root mounts.
 
 The only adjustable capacity variable is:
 
@@ -906,7 +943,9 @@ rtk env DATABASE_URL="$KID25_ACCEPTANCE_DATABASE_URL" \
 
 Confirm mutation/Approval/Operation pollers boot, then stop it cleanly. The
 integration suite uses its own isolated test database and must not reuse the
-acceptance DB.
+acceptance DB. The Office deployment contract additionally proves that the
+Windows PowerShell entrypoint starts Linux containers and never launches Codex,
+Claude, or the MCP broker as native host processes.
 
 Expected: all mandatory runtime/admission/cutover/restart gates PASS from one
 Git SHA. No scheduled compatibility or restore-rehearsal gate is required.

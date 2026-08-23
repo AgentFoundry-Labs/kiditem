@@ -1,90 +1,46 @@
-import {
-  defineCapabilities,
-  type CapabilityManifest,
-} from '../../../common/capability-manifest';
-import { CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT } from '../../application/port/in/capability/marketplace-registration.port';
+import { z } from 'zod';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const CHANNELS_CAPABILITIES = defineCapabilities([
+const Uuid = z.string().uuid();
+const Identifier = z.string().trim().min(1).max(256);
+const FrozenSubmissionInput = z.object({
+  executionId: Uuid, preparationId: Uuid, sourceCandidateId: Uuid, channelAccountId: Uuid,
+  submissionKey: Identifier, submissionPayloadHash: z.string().regex(/^[a-f0-9]{64}$/),
+  submissionPayloadJson: z.record(z.unknown()), providerSubmissionId: Identifier.nullable(), registrationResult: z.unknown(),
+  isRetry: z.boolean(), providerOutcome: z.enum(['not_attempted', 'uncertain', 'succeeded', 'definitive_failure']), providerCreateAllowed: z.boolean(),
+  masterProductId: Uuid.optional(),
+  optionLinks: z.array(z.object({ externalOptionId: Identifier, sellpiaInventorySkuId: Uuid, quantity: z.number().int().positive() }).strict()).max(100),
+}).strict();
+const ListingOutput = z.object({ preparationId: Uuid, listingId: Uuid.nullable(), status: z.enum(['registered', 'failed']) }).strict();
+
+/** Channels owns provider submission and ChannelListing mutation. */
+export const CHANNELS_CAPABILITIES = [
   {
-    key: 'channels.submit_wing_thumbnail',
-    ownerDomain: 'channels',
-    ownerInputPort: 'channels.submitWingThumbnail',
-    kind: 'workflow',
-    description: 'Submit an approved thumbnail to Wing through the Channels owner boundary.',
-    inputSchema: { generationId: 'string' },
-    outputSchema: { success: 'boolean', screenshotPath: 'string|null' },
-    effects: ['external_write', 'browser', 'db_write'],
-    approval: 'always',
-    approvalRisk: 'high',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'CHANNELS_WING_THUMBNAIL_CAPABILITY_PORT' },
+    key: 'channels.register_confirmed_listing', ownerDomain: 'channels', ownerInputPort: 'channels.registerConfirmedListing',
+    description: 'Resolve an externally confirmed frozen marketplace submission into a local ChannelListing.',
+    inputSchema: FrozenSubmissionInput.extend({
+      externalListingId: Identifier, displayName: z.string().trim().min(1).max(500),
+      confirmationEvidence: z.object({
+        wingVendorId: z.string().trim().min(1).max(80),
+        wingIdentitySource: z.enum(['dom:data-vendor-id', 'meta:vendor-id', 'url:vendorId', 'dom:vendor-code-label', 'dom:inline-script']),
+      }).strict(),
+    }).strict(),
+    outputSchema: ListingOutput,
+    effects: ['db_write'], approvalRisk: 'medium', idempotency: 'required',
   },
   {
-    key: 'channels.register_confirmed_listing',
-    ownerDomain: 'channels',
-    kind: 'workflow',
-    description:
-      'Create or update a confirmed marketplace ChannelListing from an externally confirmed listing identity.',
-    inputSchema: {
-      masterId: 'string',
-      channelAccountId: 'string',
-      externalId: 'string',
-      productBarcode: 'string|null',
-      channelName: 'string|null',
-      channelPrice: 'number|null',
-    },
-    outputSchema: {
-      listingId: 'string',
-      masterId: 'string',
-      channel: 'string',
-      channelAccountId: 'string',
-      externalId: 'string',
-      status: 'string|null',
-    },
-    effects: ['db_write'],
-    approval: 'always',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token:
-        CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description ??
-        'CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT',
-    },
+    key: 'channels.submit_coupang_listing', ownerDomain: 'channels', ownerInputPort: 'channels.submitCoupangListing',
+    description: 'Submit a frozen Coupang payload through Channels and resolve its local ChannelListing.',
+    inputSchema: FrozenSubmissionInput, outputSchema: ListingOutput,
+    effects: ['external_write', 'db_write'], approvalRisk: 'high', idempotency: 'required',
   },
   {
-    key: 'channels.submit_coupang_listing',
-    ownerDomain: 'channels',
-    kind: 'workflow',
-    description:
-      'Submit a full Coupang seller-product payload, then register the returned sellerProductId as a ChannelListing.',
-    inputSchema: {
-      masterId: 'string',
-      channelAccountId: 'string',
-      productBarcode: 'string|null',
-      listingPayload: 'object',
-    },
-    outputSchema: {
-      listingId: 'string',
-      sellerProductId: 'string',
-      masterId: 'string',
-      channel: 'string',
-      channelAccountId: 'string',
-      externalId: 'string',
-      status: 'string|null',
-    },
-    effects: ['external_write', 'db_write'],
-    approval: 'always',
-    idempotency: 'required',
-    visibility: 'agent',
-    entrypoint: {
-      type: 'incoming_port',
-      token:
-        CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT.description ??
-        'CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT',
-    },
+    key: 'channels.submit_wing_thumbnail', ownerDomain: 'channels', ownerInputPort: 'channels.submitWingThumbnail',
+    description: 'Submit an approved generated thumbnail to Coupang Wing through the Channels owner.',
+    inputSchema: z.object({ generationId: Identifier }).strict(),
+    outputSchema: z.object({ success: z.boolean(), screenshotPath: z.string().nullable() }).strict(),
+    effects: ['browser', 'external_write', 'db_write'], approvalRisk: 'high', idempotency: 'required',
   },
-] as const satisfies readonly CapabilityManifest[]);
+] as const satisfies readonly CapabilityDefinition[];
 
 export type ChannelsCapabilityKey = (typeof CHANNELS_CAPABILITIES)[number]['key'];

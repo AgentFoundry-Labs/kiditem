@@ -149,20 +149,22 @@ Failure: retrieval-only.
 
 ## Capability Surface
 
-The manifest lives in `domain/capability/sourcing.capabilities.ts`:
+Strict Agent-facing definitions live in
+`domain/capability/sourcing.capabilities.ts` and execute through Sourcing-owned
+incoming ports. The exact ten are:
 
-- `sourcing.duplicateCheck` (`resource`) reads existing candidates by URL.
-- `sourcing.scrapeProductUrl` (`tool`) is an internal deterministic bridge for
-  reviewed scrape workflows; it is not exposed to the Sourcing model.
-- `sourcing.ingestCandidate` (`sink`) validates and persists a candidate.
-- `sourcing.scrapeUrlWorkflow` (`workflow`) and `sourcing.scrapeProductUrl`
-  create the same Sourcing-owned scrape Operation; official callers create one
-  immutable session ownership edge.
-- `sourcing.retrieveWorkspaceEvidence`, `sourcing.inspectRecommendationRun`,
-  `sourcing.refreshCollection`, and `sourcing.refreshValidation` are the direct
-  dashboard model's bounded evidence/run capabilities.
-- `sourcing.createReviewBatch` is registry-valid for a future explicit
-  selection handoff but is absent from the dashboard Sourcing policy.
+- reads: `sourcing.duplicateCheck`, `sourcing.retrieveWorkspaceEvidence`,
+  `sourcing.inspectRecommendationRun`;
+- split scrape/ingest: `sourcing.scrapeProductUrl` returns a bounded snapshot
+  without writing a candidate, and `sourcing.ingestCandidate` admits only that
+  same attempt's exact snapshot/hash;
+- mutations: `sourcing.refreshValidation`, `sourcing.createReviewBatch`;
+- Operation-backed: `sourcing.scrapeUrlWorkflow`,
+  `sourcing.refreshCollection`, `sourcing.collect_shadow_signals`.
+
+All ten are AgentVersion/MCP-discoverable with an exact context and grant.
+Required-idempotency mutations pass the exact owner key to the final Sourcing
+DB or Operation boundary. Agent OS only aggregates and routes them.
 
 The dashboard opens the shared Interaction Surface with the Sourcing agent;
 Sourcing owns no local assistant endpoint, transcript, or CLI subprocess path.

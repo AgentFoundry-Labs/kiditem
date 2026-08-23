@@ -1,5 +1,4 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { kstBusinessDate } from '../../../../common/kst';
 import type {
   MarketShadowCollectionCapabilityInput,
   MarketShadowCollectionCapabilityPort,
@@ -9,8 +8,6 @@ import {
   MARKET_SHADOW_OPERATION_PORT,
   type MarketShadowOperationPort,
 } from '../../../application/port/out/cross-domain/market-shadow-operation.port';
-
-const CAPABILITY_KEY = 'sourcing.collect_shadow_signals';
 
 @Injectable()
 export class MarketShadowSignalCapabilityAdapter
@@ -24,20 +21,13 @@ export class MarketShadowSignalCapabilityAdapter
   async collectShadowSignals(
     input: MarketShadowCollectionCapabilityInput,
   ): Promise<MarketShadowCollectionCapabilityResult> {
+    if (!input.idempotencyKey?.trim()) throw new Error('owner_idempotency_key_required');
     return this.operations.startShadowCollection({
       organizationId: input.organizationId,
-      requestedByUserId: null,
+      requestedByUserId: input.requestedByUserId ?? null,
       triggerSource: 'agent',
-      idempotencyKey: capabilityIdempotencyKey(input.organizationId),
+      idempotencyKey: input.idempotencyKey,
     });
   }
 
-}
-
-function capabilityIdempotencyKey(organizationId: string): string {
-  return [
-    organizationId,
-    CAPABILITY_KEY,
-    kstBusinessDate(new Date()).toISOString().slice(0, 10),
-  ].join(':');
 }

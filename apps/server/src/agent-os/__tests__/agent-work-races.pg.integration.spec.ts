@@ -51,7 +51,7 @@ beforeEach(async () => {
   await prisma.agentAttempt.deleteMany({ where: { organizationId } });
   await prisma.agentWorkSession.deleteMany({ where: { organizationId } });
   await prisma.agentWorkVersion.deleteMany({
-    where: { agentDefinitionKey: "admission_race_test" },
+    where: { agentDefinitionKey: { startsWith: "admission_race_test" } },
   });
   await prisma.organizationMembership.deleteMany({ where: { organizationId } });
   await prisma.user.deleteMany({ where: { id: userId } });
@@ -68,6 +68,7 @@ beforeEach(async () => {
 });
 
 async function createVersion(overrides: {
+  agentDefinitionKey?: string;
   assignedDomains?: string[];
   capabilityKeys?: string[];
   activatedAt?: Date | null;
@@ -77,7 +78,8 @@ async function createVersion(overrides: {
   versionNumber += 1;
   return prisma.agentWorkVersion.create({
     data: {
-      agentDefinitionKey: "admission_race_test",
+      agentDefinitionKey:
+        overrides.agentDefinitionKey ?? `admission_race_test_${versionNumber}`,
       version: versionNumber,
       assignedDomains: overrides.assignedDomains ?? ["agent_os"],
       capabilityKeys: overrides.capabilityKeys ?? [],
@@ -507,6 +509,51 @@ describe("replacement Agent work transaction races", () => {
     expect(pendingRows).toEqual(expect.arrayContaining([
       expect.objectContaining({ status: "approval_pending", canonicalInput: { a: 1, b: 2 }, approval: expect.objectContaining({ status: "pending" }) }),
     ]));
+  });
+
+  it("replays a required durable invocation for the same canonical input and rejects owner-key drift", async () => {
+    const version = await createVersion({
+      assignedDomains: ["products"],
+      capabilityKeys: ["products.write"],
+    });
+    const root = await liveRoot(version);
+    const service = new AgentCapabilityInvocationService(
+      work,
+      {
+        resolveDefinition: () => ({
+          key: "products.write",
+          ownerDomain: "products",
+          description: "write",
+          inputSchema: z.object({ a: z.number(), z: z.number() }).strict(),
+          outputSchema: z.object({ ok: z.boolean() }),
+          effects: ["db_write"],
+          approvalRisk: "low",
+          idempotency: "required",
+          ownerInputPort: "products.write",
+        }),
+      } as never,
+    );
+    const base = {
+      organizationId,
+      sessionId: root.session.id,
+      taskId: root.task.id,
+      attemptId: root.attempt.id,
+      agentVersionId: root.version.id,
+      initiatingUserId: userId,
+      capabilityKey: "products.write",
+      authorizationKind: "agent_default_scope" as const,
+      authorizationExpiresAt: new Date(Date.now() + 60_000),
+      ownerIdempotencyKey: "durable-owner-key",
+    };
+
+    const first = await service.authorize({ ...base, input: { z: 1, a: 2 } });
+    const replay = await service.authorize({ ...base, input: { a: 2, z: 1 } });
+    expect(replay).toEqual(first);
+    await expect(service.authorize({ ...base, input: { a: 3, z: 1 } }))
+      .rejects.toMatchObject({ code: "owner_idempotency_input_conflict" });
+    await expect(prisma.agentCapabilityInvocation.count({
+      where: { organizationId, capabilityKey: "products.write", ownerIdempotencyKey: "durable-owner-key" },
+    })).resolves.toBe(1);
   });
 
   it("matrix 9: approval decisions, expiry, and their race leave one consistent durable pair", async () => {

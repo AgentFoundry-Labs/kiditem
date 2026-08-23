@@ -82,6 +82,8 @@ export interface SourcingScrapeUrlWorkflowInput {
   organizationId: string;
   sourceUrl: string;
   triggeredByUserId?: string | null;
+  /** Owner-supplied exact key; URL-derived fallbacks are forbidden. */
+  idempotencyKey: string;
 }
 
 export interface SourcingScrapeUrlWorkflowResult {

@@ -46,6 +46,9 @@ import { SourcingAgentWorkspaceReadCapabilityService } from './application/servi
       useExisting: SourcingWorkspaceSnapshotRepositoryAdapter,
     },
   ],
-  exports: [SourcingAgentRagService],
+  exports: [
+    SourcingAgentRagService,
+    SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT,
+  ],
 })
 export class SourcingAgentReadCapabilityModule {}

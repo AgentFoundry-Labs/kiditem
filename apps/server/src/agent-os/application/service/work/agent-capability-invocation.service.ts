@@ -8,6 +8,7 @@ import type {
 } from "../../port/out/work/agent-work-transaction.port";
 import { AgentCapabilityRegistry } from "../agent-capability-registry.service";
 import { MUTATION_EFFECTS } from "../../../domain/capability/capability-definition";
+import type { SourcingCapabilityAdmissionPort } from "../../../../sourcing/application/port/in/capability/sourcing-capability-admission.port";
 
 type PublicAuthorizationInput = Pick<
   InvocationAuthorizationInput,
@@ -34,6 +35,7 @@ export class AgentCapabilityInvocationService {
       "resolveDefinition"
     >,
     private readonly now: () => Date = () => new Date(),
+    private readonly sourcingAdmission?: Pick<SourcingCapabilityAdmissionPort, "admit">,
   ) {}
 
   async authorize(
@@ -73,6 +75,13 @@ export class AgentCapabilityInvocationService {
         "owner_idempotency_key_required",
       );
     }
+    await this.sourcingAdmission?.admit({
+      capabilityKey: input.capabilityKey,
+      organizationId: input.organizationId,
+      initiatingUserId: input.initiatingUserId,
+      attemptId: input.attemptId,
+      input: parsed,
+    });
     return this.transactions.authorizeInvocation({
       ...input,
       ownerDomain: definition.ownerDomain,

@@ -1,9 +1,6 @@
-import {
-  defineCapabilities,
-  type CapabilityManifest,
-} from '../../../common/capability-manifest';
-import { AI_WING_REGISTRATION_CAPABILITY_PORT } from '../../application/port/in/capability/wing-registration.port';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const AI_CAPABILITIES = defineCapabilities([] as const satisfies readonly CapabilityManifest[]);
+/** AI is a dependency of owner capabilities; it has no Agent-facing capability today. */
+export const AI_CAPABILITIES = [] as const satisfies readonly CapabilityDefinition[];
 
 export type AiCapabilityKey = (typeof AI_CAPABILITIES)[number]['key'];

@@ -205,7 +205,14 @@ export class SourcingWorkspaceMutationCapabilityAdapter
       execute: async (execution) => {
         const { organizationId } = ownerCapabilityContext(execution);
         const { input } = execution;
-        const result = await this.workspace.refreshValidation({ organizationId, ...input });
+        const result = await this.workspace.refreshValidation({
+          organizationId,
+          ...input,
+          idempotencyKey: ownerCapabilityIdempotencyKey(
+            execution,
+            `sourcing.refreshValidation:${execution.input.recommendationRunId}`,
+          ),
+        });
         return {
           resourceType: 'sourcing_validation',
           resourceId: result.recommendationRunId,

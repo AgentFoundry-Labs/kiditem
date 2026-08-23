@@ -22,7 +22,26 @@ beforeEach(async () => {
 });
 
 describe('KID-25 AgentVersion publication', () => {
-  it('publishes six immutable code-owned snapshots and creates a successor for a changed capability catalog', async () => {
+  it('derives default capability keys from the final catalog for every assigned owner domain', () => {
+    expect(AGENT_VERSION_PUBLICATION_DEFINITIONS).toEqual(expect.arrayContaining([
+      expect.objectContaining({ agentDefinitionKey: 'operator', capabilityKeys: ['agent_os.platform_probe'] }),
+      expect.objectContaining({ agentDefinitionKey: 'sourcing', capabilityKeys: [
+        'sourcing.collect_shadow_signals', 'sourcing.createReviewBatch',
+        'sourcing.duplicateCheck', 'sourcing.ingestCandidate',
+        'sourcing.inspectRecommendationRun', 'sourcing.refreshCollection',
+        'sourcing.refreshValidation', 'sourcing.retrieveWorkspaceEvidence',
+        'sourcing.scrapeProductUrl', 'sourcing.scrapeUrlWorkflow',
+      ] }),
+      expect.objectContaining({ agentDefinitionKey: 'merchandising', capabilityKeys: ['products.create_listing_generation_package'] }),
+      expect.objectContaining({ agentDefinitionKey: 'supply', capabilityKeys: ['supply.create_purchase_order_draft', 'supply.submit_purchase_order'] }),
+      expect.objectContaining({ agentDefinitionKey: 'channel_operations', capabilityKeys: [
+        'channels.register_confirmed_listing', 'channels.submit_coupang_listing', 'channels.submit_wing_thumbnail',
+      ] }),
+      expect.objectContaining({ agentDefinitionKey: 'advertising', capabilityKeys: [] }),
+    ]));
+  });
+
+  it('publishes six immutable code-owned snapshots and creates immutable A-to-B-to-A successors', async () => {
     expect(AGENT_VERSION_PUBLICATION_DEFINITIONS).toHaveLength(6);
     const published = await Promise.all(
       AGENT_VERSION_PUBLICATION_DEFINITIONS.map((definition) => versions.publish(definition)),
@@ -36,11 +55,17 @@ describe('KID-25 AgentVersion publication', () => {
       capabilityKeys: [...original.capabilityKeys, 'analytics.readOverview'],
       manifestHash: 'f'.repeat(64),
     });
+    const returned = await versions.publish(original);
     const originalRow = await prisma!.agentWorkVersion.findFirstOrThrow({
       where: { agentDefinitionKey: original.agentDefinitionKey, manifestHash: original.manifestHash },
     });
     expect(successor.version).toBe(originalRow.version + 1);
     expect(originalRow.capabilityKeys).toEqual([...original.capabilityKeys]);
     expect(originalRow.retiredAt).toBeInstanceOf(Date);
+    expect(returned.version).toBe(successor.version + 1);
+    expect(returned.id).not.toBe(originalRow.id);
+    const successorRow = await prisma!.agentWorkVersion.findUniqueOrThrow({ where: { id: successor.id } });
+    expect(successorRow.retiredAt).toBeInstanceOf(Date);
+    expect(returned.retiredAt).toBeNull();
   });
 });

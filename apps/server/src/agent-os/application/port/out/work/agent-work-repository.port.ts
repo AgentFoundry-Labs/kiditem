@@ -37,4 +37,32 @@ export interface AgentWorkRepositoryPort {
     attemptId: string;
     requestedByUserId: string;
   }): Promise<{ taskStatus: AgentWorkTaskStatus; live: boolean } | null>;
+  loadAttemptMcpDelegationContext(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+    targetAgentKey: string;
+  }): Promise<{
+    input: unknown;
+    applicationVersion: string;
+    authorizingGitSha: string;
+    cliVersion: string;
+    reportedModel: string | null;
+    targetAgentVersionId: string;
+  } | null>;
+  loadAttemptMcpChild(input: {
+    organizationId: string;
+    sessionId: string;
+    parentTaskId: string;
+    childTaskId: string;
+    requestedByUserId: string;
+  }): Promise<{
+    childTaskId: string;
+    taskStatus: AgentWorkTaskStatus;
+    attemptId: string | null;
+    attemptStatus: string | null;
+    live: boolean;
+  } | null>;
 }

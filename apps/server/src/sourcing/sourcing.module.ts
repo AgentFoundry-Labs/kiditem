@@ -9,6 +9,15 @@ import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
 import { SourcingAgentApiCollectionModule } from "./sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
+import { SourcingFinalCapabilityAdapter } from './adapter/in/agent/sourcing-final-capability.adapter';
+import { SourcingScrapeSnapshotAdmissionGuard } from './adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
+import { SourcingFinalDiscoveryCapabilityAdapter } from './adapter/in/agent/sourcing-final-discovery-capability.adapter';
+import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
+import { SOURCING_FINAL_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-capability.port';
+import { SOURCING_CAPABILITY_ADMISSION_PORT } from './application/port/in/capability/sourcing-capability-admission.port';
+import { SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT } from './application/port/in/capability/sourcing-final-discovery-capability.port';
+import { SOURCING_BROWSER_SCRAPE_PORT } from './application/port/out/runtime/sourcing-browser-scrape.port';
+import { SourcingFrozenRegistrationReadCapabilityModule } from './sourcing-frozen-registration-read-capability.module';
 import { SourcingCandidateWorkspaceController } from "./adapter/in/http/sourcing-candidate-workspace.controller";
 import { MarketShadowSignalController } from "./adapter/in/http/market-shadow-signal.controller";
 import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1688-search-result.controller";
@@ -139,6 +148,7 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
     SourcingAgentRuntimeModule,
     SourcingAgentApiCollectionModule,
     SourcingShadowOperationModule,
+    SourcingFrozenRegistrationReadCapabilityModule,
     AiModule,
     AdvertisingModule,
     ChannelsModule,
@@ -166,6 +176,9 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   ],
   providers: [
     SourcingService,
+    SourcingFinalCapabilityAdapter,
+    SourcingScrapeSnapshotAdmissionGuard,
+    SourcingFinalDiscoveryCapabilityAdapter,
     NaverKeywordResearchService,
     Sourcing1688ImageSearchService,
     Sourcing1688KeywordSearchService,
@@ -332,7 +345,27 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
       provide: SOURCING_SELLPIA_SALE_PRICE_PORT,
       useExisting: SellpiaSalePriceAdapter,
     },
+    {
+      provide: SOURCING_FINAL_CAPABILITY_PORT,
+      useExisting: SourcingFinalCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_CAPABILITY_ADMISSION_PORT,
+      useExisting: SourcingScrapeSnapshotAdmissionGuard,
+    },
+    {
+      provide: SOURCING_FINAL_DISCOVERY_CAPABILITY_PORT,
+      useExisting: SourcingFinalDiscoveryCapabilityAdapter,
+    },
+    {
+      provide: SOURCING_BROWSER_SCRAPE_PORT,
+      useExisting: SourcingPlaywrightRuntimeHandler,
+    },
   ],
-  exports: [SourcingAgentRuntimeModule],
+  exports: [
+    SourcingAgentRuntimeModule,
+    SOURCING_FINAL_CAPABILITY_PORT,
+    SOURCING_CAPABILITY_ADMISSION_PORT,
+  ],
 })
 export class SourcingModule {}

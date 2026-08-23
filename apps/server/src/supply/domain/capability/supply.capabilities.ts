@@ -1,18 +1,29 @@
-import { defineCapabilities, type CapabilityManifest } from '../../../common/capability-manifest';
+import { z } from 'zod';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const SUPPLY_CAPABILITIES = defineCapabilities([
+const Uuid = z.string().uuid();
+const Identifier = z.string().trim().min(1).max(200);
+
+export const SUPPLY_CAPABILITIES = [
   {
     key: 'supply.create_purchase_order_draft', ownerDomain: 'supply', ownerInputPort: 'supply.createPurchaseOrderDraft',
-    kind: 'workflow', description: 'Create a purchase-order draft from approved evidence.',
-    inputSchema: { sellpiaInventorySkuId: 'string', productName: 'string' }, outputSchema: { orderId: 'string' },
-    effects: ['db_write'], approval: 'on_write', approvalRisk: 'low', idempotency: 'required', visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT' },
+    description: 'Create an organization-scoped purchase-order draft from validated procurement inputs.',
+    inputSchema: z.object({
+      recommendationArtifactId: Uuid.optional(), sellpiaInventorySkuId: Uuid, productName: z.string().trim().min(1).max(500),
+      supplierName: z.string().trim().min(1).max(500), supplierId: Uuid.optional(), unitPriceCny: z.number().positive(),
+      moq: z.number().int().positive(), testQuantity: z.number().int().positive().optional(),
+    }).strict(),
+    outputSchema: z.object({ orderId: Identifier, status: Identifier }).strict(),
+    effects: ['db_write'], approvalRisk: 'low', idempotency: 'required',
   },
   {
     key: 'supply.submit_purchase_order', ownerDomain: 'supply', ownerInputPort: 'supply.submitPurchaseOrder',
-    kind: 'workflow', description: 'Submit an approved purchase order to its provider.',
-    inputSchema: { purchaseOrderId: 'string' }, outputSchema: { orderId: 'string', status: 'string' },
-    effects: ['db_write', 'external_write'], approval: 'always', approvalRisk: 'high', idempotency: 'required', visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'SUPPLY_PURCHASE_ORDER_CAPABILITY_PORT' },
+    description: 'Submit an approved purchase order through the Supply owner.',
+    inputSchema: z.object({
+      purchaseOrderId: Uuid, externalOrderPlatform: z.string().trim().min(1).max(40).nullable().optional(),
+      externalOrderId: z.string().trim().min(1).max(100).nullable().optional(), externalOrderUrl: z.string().url().nullable().optional(),
+    }).strict(),
+    outputSchema: z.object({ orderId: Identifier, status: Identifier }).strict(),
+    effects: ['db_write', 'external_write'], approvalRisk: 'high', idempotency: 'required',
   },
-] as const satisfies readonly CapabilityManifest[]);
+] as const satisfies readonly CapabilityDefinition[];

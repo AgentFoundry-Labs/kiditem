@@ -131,6 +131,8 @@ describe("Agent OS artifact materialization composition", () => {
     })
       .overrideProvider(PrismaService)
       .useValue({})
+      .overrideProvider(OperationServerLifecycleService)
+      .useValue({})
       .compile();
     expect(moduleRef.get(AgentAttemptExecutorService)).toBeInstanceOf(AgentAttemptExecutorService);
     expect(moduleRef.get(AttemptMcpBrokerService)).toBeInstanceOf(AttemptMcpBrokerService);
@@ -191,7 +193,10 @@ describe("Agent OS artifact materialization composition", () => {
     ]) {
       const moduleRef = await Test.createTestingModule({
         imports: [root],
-      }).compile();
+      })
+        .overrideProvider(OperationServerLifecycleService)
+        .useValue({})
+        .compile();
       for (const provider of [
         AgentSessionOwnedOperationService,
         OperationDefinitionSnapshotAdapter,

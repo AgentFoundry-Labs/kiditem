@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import { CAPABILITY_KINDS } from '../../common/capability-manifest';
 import { SOURCING_CAPABILITIES } from '../domain/capability/sourcing.capabilities';
 
-describe('sourcing capability manifest', () => {
-  it('publishes the bounded workspace capability surface without repeated discovery tools', () => {
+describe('sourcing final capability definitions', () => {
+  it('publishes all ten Agent-facing Sourcing capabilities', () => {
     expect(SOURCING_CAPABILITIES.map((capability) => capability.key)).toEqual([
       'sourcing.duplicateCheck',
       'sourcing.scrapeProductUrl',
@@ -20,74 +19,28 @@ describe('sourcing capability manifest', () => {
       expect.arrayContaining([
         'market.collect_keyword_category_rankings',
         'coupang.match_products',
-        'coupang.collect_tracking_snapshot',
-        'supplier1688.match_products',
-        'sourcing.score_opportunities',
-        'sourcing.create_recommendation_packet',
       ]),
     );
   });
 
-  it('keeps workspace writes idempotent and separate from the runtime-safe reads', () => {
-    const workspace = SOURCING_CAPABILITIES.filter((capability) =>
-      capability.key.startsWith('sourcing.') &&
-      [
-        'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT',
-        'SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT',
-        'SOURCING_COLLECTION_OPERATION_PORT',
-      ].includes(capability.entrypoint.token),
-    );
-    expect(workspace.map((capability) => capability.key)).toEqual([
-      'sourcing.retrieveWorkspaceEvidence',
-      'sourcing.inspectRecommendationRun',
-      'sourcing.refreshCollection',
-      'sourcing.refreshValidation',
-      'sourcing.createReviewBatch',
-    ]);
-    for (const capability of workspace.filter((item) => item.effects.includes('db_write'))) {
-      expect(capability.kind).toBe('workflow');
-      expect(capability.idempotency).toBe('required');
+  it('owns real strict business schemas and requires idempotency for every mutation', () => {
+    for (const capability of SOURCING_CAPABILITIES) {
+      expect(capability.ownerDomain).toBe('sourcing');
+      expect(capability.inputSchema.safeParse({ organizationId: 'forged' }).success).toBe(false);
+      expect(capability.outputSchema.safeParse({}).success).toBe(false);
+      if (capability.effects.some((effect) => ['db_write', 'external_write', 'job_enqueue'].includes(effect))) {
+        expect(capability.idempotency).toBe('required');
+      }
     }
   });
 
-  it('exposes only the two registered Sourcing reads to the Operator foundation profile', () => {
-    const operatorReadKeys = SOURCING_CAPABILITIES.filter(
-      (capability) =>
-        capability.entrypoint.token === 'SOURCING_AGENT_WORKSPACE_READ_CAPABILITY_PORT' &&
-        !capability.effects.includes('db_write'),
-    ).map((capability) => capability.key);
-
-    expect(operatorReadKeys).toEqual([
-      'sourcing.retrieveWorkspaceEvidence',
-      'sourcing.inspectRecommendationRun',
-    ]);
-  });
-
-  it('starts external market signals through an OperationRun workflow', () => {
-    expect(
-      SOURCING_CAPABILITIES.find(
-        (capability) => capability.key === 'sourcing.collect_shadow_signals',
-      ),
-    ).toMatchObject({
-      outputSchema: { operationRunId: 'string', status: 'string' },
-      effects: ['db_write', 'external_io', 'job_enqueue'],
-      approval: 'on_write',
-      ownerInputPort: 'sourcing.collectShadowSignals',
-    });
-  });
-
-  it('keeps ownership, kinds, and write effects explicit', () => {
-    const allowedKinds = new Set(CAPABILITY_KINDS);
-    const keys = new Set<string>();
-    for (const capability of SOURCING_CAPABILITIES) {
-      expect(capability.ownerDomain).toBe('sourcing');
-      expect(allowedKinds.has(capability.kind)).toBe(true);
-      expect(keys.has(capability.key)).toBe(false);
-      keys.add(capability.key);
-      if (capability.effects.includes('db_write')) {
-        expect(['sink', 'workflow']).toContain(capability.kind);
-        expect(capability.idempotency).toBe('required');
-      }
+  it('accepts only canonical supplier URLs for public supplier capability inputs', () => {
+    for (const key of ['sourcing.duplicateCheck', 'sourcing.scrapeProductUrl', 'sourcing.scrapeUrlWorkflow'] as const) {
+      const definition = SOURCING_CAPABILITIES.find((item) => item.key === key)!;
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'https://detail.1688.com/offer/123.html#fragment' }).success).toBe(true);
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'https://1688.com.evil.test/offer/123.html' }).success).toBe(false);
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'http://detail.1688.com/offer/123.html' }).success).toBe(false);
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'https://user:pass@detail.1688.com/offer/123.html' }).success).toBe(false);
     }
   });
 });

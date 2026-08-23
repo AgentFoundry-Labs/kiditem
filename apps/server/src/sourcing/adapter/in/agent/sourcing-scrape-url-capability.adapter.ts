@@ -1,15 +1,9 @@
-import { Inject, Injectable, OnModuleInit } from '@nestjs/common';
-import { z } from 'zod';
+import { Inject, Injectable } from '@nestjs/common';
 import {
   OperationRunIdSchema,
-  OperationRunNameSchema,
   OrganizationIdSchema,
   formatOperationRunName,
-  parseOrganizationName,
 } from '@kiditem/shared/identifiers';
-import type { AgentCapabilityHandler } from '../../../../agent-os/application/port/out/capability/agent-capability-handler.port';
-import { ownerCapabilityIdempotencyKey } from '../../../../agent-os/application/port/out/capability/agent-capability-owner-context';
-import { AgentCapabilityRegistry } from '../../../../agent-os/application/service/agent-capability-registry.service';
 import type {
   SourcingScrapeUrlWorkflowInput,
   SourcingScrapeUrlWorkflowPort,
@@ -20,72 +14,21 @@ import {
   type SourcingScrapeOperationPort,
 } from '../../../application/port/out/cross-domain/sourcing-scrape-operation.port';
 
-const SCRAPE_URL_WORKFLOW_KEY = 'sourcing.scrapeUrlWorkflow';
-const SCRAPE_PRODUCT_URL_KEY = 'sourcing.scrapeProductUrl';
-const SCRAPE_PRODUCT_ARTIFACT_CONTRACT_VERSION = 'candidate-v2';
-const COLLECTED_PRODUCTS_HREF = '/product-pipeline/collected-products';
-
-const ScrapeUrlInputSchema = z
-  .object({
-    sourceUrl: z.string().trim().optional(),
-    url: z.string().trim().optional(),
-  })
-  .strict()
-  .refine((input) => Boolean(sourceUrlOf(input)), {
-    message: 'sourceUrl or url is required',
-  });
-
-const ScrapeUrlOutputSchema = z.object({
-  skipped: z.boolean(),
-  candidateId: z.string().nullable(),
-  href: z.string().nullable(),
-  operation: OperationRunNameSchema.nullable(),
-});
-const ScrapeProductUrlOutputSchema = z
-  .object({
-    ok: z.boolean(),
-    source_url: z.string(),
-    platform: z.string().nullable().optional(),
-    operation: OperationRunNameSchema,
-    requiresRecovery: z.boolean().optional(),
-    recommendedSkillKey: z.string().optional(),
-    recoveryReason: z.string().optional(),
-  })
-  .strict();
-
-type ScrapeUrlInput = z.infer<typeof ScrapeUrlInputSchema>;
-
-function sourceUrlOf(input: { sourceUrl?: string | null; url?: string | null }): string | null {
-  return input.sourceUrl?.trim() || input.url?.trim() || null;
-}
-
+/** Sourcing-only operation adapter. It no longer registers an Agent OS handler. */
 @Injectable()
-export class SourcingScrapeUrlCapabilityAdapter
-  implements OnModuleInit, SourcingScrapeUrlWorkflowPort
-{
+export class SourcingScrapeUrlCapabilityAdapter implements SourcingScrapeUrlWorkflowPort {
   constructor(
-    private readonly registry: AgentCapabilityRegistry,
     @Inject(SOURCING_SCRAPE_OPERATION_PORT)
     private readonly operations: SourcingScrapeOperationPort,
   ) {}
 
-  onModuleInit(): void {
-    this.registry.register(this.workflowHandler());
-    this.registry.register(this.scrapeProductHandler());
-  }
-
-  async scrapeUrlWorkflow(
-    input: SourcingScrapeUrlWorkflowInput,
-  ): Promise<SourcingScrapeUrlWorkflowResult> {
-    const sourceUrl = sourceUrlOf(input);
-    if (!sourceUrl) {
-      throw new Error('sourceUrl or url is required');
-    }
+  async scrapeUrlWorkflow(input: SourcingScrapeUrlWorkflowInput): Promise<SourcingScrapeUrlWorkflowResult> {
+    if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
     const result = await this.operations.startDirect({
       organizationId: input.organizationId,
       requestedByUserId: input.triggeredByUserId ?? null,
-      sourceUrl,
-      idempotencyKey: `sourcing.scrape_url:${sourceUrl}`,
+      sourceUrl: input.sourceUrl,
+      idempotencyKey: input.idempotencyKey,
     });
     return {
       skipped: false,
@@ -95,121 +38,6 @@ export class SourcingScrapeUrlCapabilityAdapter
         OrganizationIdSchema.parse(input.organizationId),
         OperationRunIdSchema.parse(result.operationRunId),
       ),
-    };
-  }
-
-  private workflowHandler(): AgentCapabilityHandler<ScrapeUrlInput> {
-    return {
-      key: SCRAPE_URL_WORKFLOW_KEY,
-      ownerDomain: 'sourcing',
-      executionKind: 'workflow',
-      inputSchema: ScrapeUrlInputSchema,
-      outputSchema: ScrapeUrlOutputSchema,
-      sideEffects: ['browser', 'external_io', 'db_write', 'job_enqueue'],
-      approvalRisk: 'low',
-      idempotencyKey: (execution) => {
-        const { input } = execution;
-        const sourceUrl = sourceUrlOf(input);
-        return sourceUrl
-          ? ownerCapabilityIdempotencyKey(execution, `${SCRAPE_URL_WORKFLOW_KEY}:${sourceUrl}`)
-          : null;
-      },
-      execute: async (executionInput) => {
-        const sourceUrl = sourceUrlOf(executionInput.input);
-        if (!sourceUrl) throw new Error('sourceUrl or url is required');
-        const result = await this.operations.startOfficial({
-          execution: executionInput,
-          sourceUrl,
-        });
-        const targetId = formatOperationRunName(
-          parseOrganizationName(executionInput.organization).organization,
-          OperationRunIdSchema.parse(result.operationRunId),
-        );
-        const summary = {
-          skipped: false,
-          candidateId: null,
-          href: null,
-          operation: targetId,
-        };
-        return {
-          resourceType: 'operation_run',
-          resourceId: targetId,
-          outputSummary: summary,
-          artifacts: [
-            {
-              artifactType: 'operation_run',
-              targetDomain: 'operations',
-              targetModel: 'OperationRun',
-              targetId,
-              title: '소싱 URL 수집 요청',
-              href: COLLECTED_PRODUCTS_HREF,
-              summary,
-            },
-          ],
-        };
-      },
-    };
-  }
-
-  private scrapeProductHandler(): AgentCapabilityHandler<ScrapeUrlInput> {
-    return {
-      key: SCRAPE_PRODUCT_URL_KEY,
-      ownerDomain: 'sourcing',
-      executionKind: 'tool',
-      inputSchema: ScrapeUrlInputSchema,
-      outputSchema: ScrapeProductUrlOutputSchema,
-      sideEffects: ['browser', 'external_io'],
-      approvalRisk: 'low',
-      idempotencyKey: (execution) => {
-        const { input } = execution;
-        const sourceUrl = sourceUrlOf(input);
-        return sourceUrl
-          ? ownerCapabilityIdempotencyKey(
-              execution,
-              `${SCRAPE_PRODUCT_URL_KEY}:${SCRAPE_PRODUCT_ARTIFACT_CONTRACT_VERSION}:${sourceUrl}`,
-            )
-          : null;
-      },
-      execute: async (executionInput) => {
-        const sourceUrl = sourceUrlOf(executionInput.input);
-        if (!sourceUrl) {
-          throw new Error('sourceUrl or url is required');
-        }
-        const result = await this.operations.startOfficial({
-          execution: executionInput,
-          sourceUrl,
-        });
-        const operation = formatOperationRunName(
-          parseOrganizationName(executionInput.organization).organization,
-          OperationRunIdSchema.parse(result.operationRunId),
-        );
-        const output = {
-          ok: true,
-          source_url: sourceUrl,
-          platform: null,
-          operation,
-          requiresRecovery: false,
-        };
-        return {
-          resourceType: 'operation_run',
-          resourceId: operation,
-          outputSummary: output,
-          artifacts: [
-            {
-              artifactType: 'sourcing_scrape_snapshot',
-              targetDomain: 'sourcing',
-              targetModel: 'SourcingScrapeSnapshot',
-              targetId: operation,
-              title:
-                typeof output.platform === 'string' && output.platform
-                  ? `${output.platform} scrape snapshot`
-                  : 'Sourcing scrape snapshot',
-              href: null,
-              summary: output,
-            },
-          ],
-        };
-      },
     };
   }
 }

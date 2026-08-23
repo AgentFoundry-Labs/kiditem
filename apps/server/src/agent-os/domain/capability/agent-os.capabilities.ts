@@ -1,10 +1,11 @@
-import { defineCapabilities, type CapabilityManifest } from '../../../common/capability-manifest';
+import { z } from 'zod';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const AGENT_OS_CAPABILITIES = defineCapabilities([
+export const AGENT_OS_CAPABILITIES = [
   {
     key: 'agent_os.platform_probe', ownerDomain: 'agent_os', ownerInputPort: 'agent_os.platformProbe',
-    kind: 'resource', description: 'Read bounded Agent OS platform health.', inputSchema: {}, outputSchema: { status: 'string' },
-    effects: ['read'], approval: 'none', approvalRisk: 'none', idempotency: 'required', visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'AGENT_OS_PLATFORM_PROBE_CAPABILITY_PORT' },
+    description: 'Check whether the server-side Agent OS capability runtime is available.',
+    inputSchema: z.object({}).strict(), outputSchema: z.object({ status: z.literal('available') }).strict(),
+    effects: ['read'], approvalRisk: 'none', idempotency: 'none',
   },
-] as const satisfies readonly CapabilityManifest[]);
+] as const satisfies readonly CapabilityDefinition[];

@@ -354,6 +354,38 @@ Correct the known owner-prefix violations as follows:
 - `product_listing.submit_wing_thumbnail` ->
   `channels.submit_wing_thumbnail`.
 
+The current final Agent-facing catalog contains eighteen capabilities. Sourcing
+publishes all ten independently useful work intents:
+
+```text
+sourcing.duplicateCheck
+sourcing.scrapeProductUrl
+sourcing.ingestCandidate
+sourcing.scrapeUrlWorkflow
+sourcing.retrieveWorkspaceEvidence
+sourcing.inspectRecommendationRun
+sourcing.refreshCollection
+sourcing.refreshValidation
+sourcing.createReviewBatch
+sourcing.collect_shadow_signals
+```
+
+`duplicateCheck` is a DB read; `scrapeProductUrl` returns bounded normalized
+supplier evidence without writing a candidate; and `ingestCandidate` accepts
+only the exact same-Attempt scrape result/hash admitted by the server.
+`scrapeUrlWorkflow` is the convenience path over the existing
+`sourcing.scrape_url` Operation. `retrieveWorkspaceEvidence` returns bounded
+document text and provenance rather than citation IDs alone. Daily trend
+collection and market-shadow collection remain distinct Operations and distinct
+Agent capabilities.
+
+Every Sourcing mutation carries the exact owner idempotency key through its
+incoming port to the final database or Operation owner. Same key and canonical
+input replay the same result; a changed input conflicts, and a missing key is
+rejected before owner execution. Bounded synchronous validation remains a DB
+mutation and is not converted to an Operation without evidence that it is
+long-running.
+
 The scanner and boot validation require `key.startsWith(ownerDomain + '.')`,
 one definition, and one implementation per key.
 
@@ -476,8 +508,14 @@ model selection is explicit; missing selection fails admission/readiness.
 
 Every Attempt forces non-persistent history:
 
-- Codex: `--ephemeral`, `--ignore-user-config`;
+- Codex app-server: an isolated generated configuration plus
+  `thread/start.ephemeral=true` and `history.persistence="none"`;
 - Claude: `--no-session-persistence`, `--strict-mcp-config`.
+
+Codex does not expose `--ephemeral` or `--ignore-user-config` app-server
+flags. The protocol request and isolated `CODEX_HOME` are therefore the
+enforced boundary; no service-account `config.toml`, plugin, hook, skill,
+memory, or history setting is inherited by an Attempt.
 
 The dedicated OS service account's CLI login home is the only persistent
 provider state. KidItem never reads, copies, encrypts, HMAC-signs, stores, or
@@ -485,6 +523,11 @@ returns its credential values. Provider resume/session IDs are never requested
 or stored.
 
 ### 7.2 Attempt process boundary
+
+The Office/home host is Windows, but the supported runtime boundary is the
+existing Linux Docker Desktop container for the API. Codex, Claude, the MCP
+stdio proxy, and the private Unix socket all run inside that one API container.
+There is no native-Windows CLI, named-pipe broker, or host-side process branch.
 
 Each Attempt receives a new empty temporary workspace and private broker
 directory. The repository, DB URL, deployment/business secrets, auth files,
@@ -763,11 +806,13 @@ P1/P2 finding before completion.
 - Destructive push drops only approved legacy Agent OS objects.
 - Prisma generation, shared/server/Web builds, Nest boot, worker boot, ERD,
   smoke, and unrelated-row checks pass on the cutover database.
-- Office/home process audit shows Web/API/worker and one API replica only.
+- Windows Office/home process audit shows Web/API/worker and one Linux API
+  container replica only; CLI/MCP children stay inside that container.
 
 ## 16. Locked Decision Ledger
 
-- One user, one home server, one Agent-executor API process.
+- One user, one Windows home server, one Linux-container Agent-executor API
+  process.
 - CopilotKit stays inside Nest; Interaction Gateway does not.
 - Codex/Claude CLI stay; Hermes/OpenAI Responses do not.
 - Service-account login persists; provider history/credentials do not.

@@ -8,7 +8,7 @@ export class AgentWorkVersionPublisher {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const same = await tx.agentWorkVersion.findFirst({
-          where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash },
+          where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash, activatedAt: { not: null }, retiredAt: null },
         });
         if (same) return same;
         const latest = await tx.agentWorkVersion.aggregate({
@@ -34,7 +34,7 @@ export class AgentWorkVersionPublisher {
       });
     } catch (error: unknown) {
       const raced = await this.prisma.agentWorkVersion.findFirst({
-        where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash },
+        where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash, activatedAt: { not: null }, retiredAt: null },
       });
       if (raced) return raced;
       throw error;

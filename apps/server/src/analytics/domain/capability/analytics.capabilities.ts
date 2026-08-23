@@ -1,11 +1,16 @@
-import { defineCapabilities, type CapabilityManifest } from '../../../common/capability-manifest';
+import { z } from 'zod';
+import type { CapabilityDefinition } from '../../../common/capability-definition';
 
-export const ANALYTICS_CAPABILITIES = defineCapabilities([
+export const ANALYTICS_CAPABILITIES = [
   {
     key: 'analytics.readOverview', ownerDomain: 'analytics', ownerInputPort: 'analytics.readOverview',
-    kind: 'resource', description: 'Read the current organization analytics overview.',
-    inputSchema: { period: 'today|month|undefined' }, outputSchema: { sales: 'object', inventory: 'object', freshness: 'object' },
-    effects: ['read'], approval: 'none', approvalRisk: 'none', idempotency: 'required', visibility: 'agent',
-    entrypoint: { type: 'incoming_port', token: 'ANALYTICS_AGENT_OVERVIEW_CAPABILITY_PORT' },
+    description: 'Read the current organization sales, inventory attention, and freshness overview.',
+    inputSchema: z.object({ period: z.enum(['today', 'month']).optional() }).strict(),
+    outputSchema: z.object({
+      sales: z.object({ revenue: z.number(), orders: z.number().int().nonnegative() }).strict(),
+      inventory: z.object({ outOfStockSkus: z.number().int().nonnegative(), mappingAttentionSkus: z.number().int().nonnegative() }).strict(),
+      freshness: z.object({ lastSync: z.string().datetime().nullable(), confirmedUntil: z.string().nullable() }).strict(),
+    }).strict(),
+    effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
   },
-] as const satisfies readonly CapabilityManifest[]);
+] as const satisfies readonly CapabilityDefinition[];

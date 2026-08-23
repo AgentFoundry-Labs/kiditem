@@ -97,7 +97,9 @@ export class SourcingAgentWorkspaceMutationCapabilityService
   async refreshValidation(input: {
     organizationId: string;
     recommendationRunId: string;
+    idempotencyKey: string;
   }) {
+    if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
     const envelope = await this.validations.refreshForRun(input);
     if (!envelope.data) {
       throw new NotFoundException({

@@ -23,6 +23,7 @@ import {
   lockedOwnedSession,
   lockTask,
   rejectAgentWork as rejection,
+  type AgentWorkTransaction,
 } from "./internal/agent-work-transaction.guards";
 
 export class PrismaAgentWorkTransaction implements Pick<
@@ -298,7 +299,8 @@ export class PrismaAgentWorkTransaction implements Pick<
   async authorizeInvocation(
     input: InvocationAuthorizationInput,
   ): Promise<InvocationAuthorizationResult> {
-    return this.prisma.$transaction(async (tx) => {
+    try {
+      return await this.prisma.$transaction(async (tx) => {
       await assertActiveMembership(
         tx,
         input.organizationId,
@@ -358,6 +360,8 @@ export class PrismaAgentWorkTransaction implements Pick<
         ].includes(input.authorizationKind)
       )
         throw rejection("capability_routing_denied");
+      const existing = await findIdempotentInvocation(tx, input);
+      if (existing) return replayInvocation(existing, input);
       const invocation = await tx.agentCapabilityInvocation.create({
         data: {
           organizationId: input.organizationId,
@@ -395,7 +399,15 @@ export class PrismaAgentWorkTransaction implements Pick<
         approvalStatus: invocation.approval
           ?.status as InvocationAuthorizationResult["approvalStatus"],
       };
-    });
+      });
+    } catch (error) {
+      if (!isInvocationIdempotencyRace(error, input)) throw error;
+      return this.prisma.$transaction(async (tx) => {
+        const existing = await findIdempotentInvocation(tx, input);
+        if (!existing) throw error;
+        return replayInvocation(existing, input);
+      });
+    }
   }
 
   async decideApproval(
@@ -695,6 +707,56 @@ export class PrismaAgentWorkTransaction implements Pick<
       return { deleted: true };
     });
   }
+}
+
+async function findIdempotentInvocation(
+  tx: AgentWorkTransaction,
+  input: InvocationAuthorizationInput,
+) {
+  if (
+    input.idempotencyRequirement !== "required" ||
+    !input.ownerIdempotencyKey
+  )
+    return null;
+  return tx.agentCapabilityInvocation.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      capabilityKey: input.capabilityKey,
+      ownerIdempotencyKey: input.ownerIdempotencyKey,
+      idempotencyRequirement: "required",
+    },
+    include: { approval: true },
+  });
+}
+
+function replayInvocation(
+  invocation: NonNullable<Awaited<ReturnType<typeof findIdempotentInvocation>>>,
+  input: InvocationAuthorizationInput,
+): InvocationAuthorizationResult {
+  // The input hash is calculated from canonical JSON at the application edge.
+  // It is the durable equality proof for a required owner idempotency key.
+  if (invocation.inputHash !== input.inputHash)
+    throw rejection("owner_idempotency_input_conflict");
+  return {
+    invocationId: invocation.id,
+    approvalId: invocation.approval?.id ?? null,
+    invocationStatus:
+      invocation.status as InvocationAuthorizationResult["invocationStatus"],
+    approvalStatus: invocation.approval
+      ?.status as InvocationAuthorizationResult["approvalStatus"],
+  };
+}
+
+function isInvocationIdempotencyRace(
+  error: unknown,
+  input: InvocationAuthorizationInput,
+): boolean {
+  return (
+    input.idempotencyRequirement === "required" &&
+    Boolean(input.ownerIdempotencyKey) &&
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === "P2002"
+  );
 }
 
 function isReadOnlyEffects(effects: unknown): boolean {

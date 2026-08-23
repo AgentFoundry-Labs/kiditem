@@ -2,24 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process';
 import { createServer, type Server, type Socket } from 'node:net';
 import { rm } from 'node:fs/promises';
+import type {
+  AttemptMcpActionsPort,
+  AttemptMcpBinding,
+} from '../../../application/port/in/mcp/attempt-mcp-actions.port';
 
-export interface AttemptMcpBinding {
-  socketPath: string;
-  attemptId: string;
-  sessionId: string;
-  taskId: string;
-  agentVersionId: string;
-  organizationId: string;
-  userId: string;
-  processGroupId: number;
-  capabilityKeys: readonly string[];
-}
-
-export interface AttemptMcpBrokerActions {
-  invoke(input: { invocationId: string; binding: AttemptMcpBinding; capabilityKey: string; input: Record<string, unknown> }): Promise<unknown>;
-  delegate(input: { binding: AttemptMcpBinding; targetAgentKey: string; objective: string }): Promise<unknown>;
-  child(input: { binding: AttemptMcpBinding; action: 'status' | 'wait' | 'result' | 'message' | 'interrupt'; childTaskId: string; message?: string }): Promise<unknown>;
-}
+export type { AttemptMcpBinding } from '../../../application/port/in/mcp/attempt-mcp-actions.port';
 
 export interface AttemptMcpPeerVerifier {
   belongsToAttemptGroup(binding: AttemptMcpBinding, peerPid: number): boolean;
@@ -97,9 +85,10 @@ const PEER_CREDENTIAL_SCRIPT = [
 export class AttemptMcpBrokerService {
   private readonly bindings = new Map<string, AttemptMcpBinding>();
   private readonly servers = new Map<string, Server>();
+  private readonly sockets = new Map<string, Set<Socket>>();
 
   constructor(
-    private readonly actions: AttemptMcpBrokerActions,
+    private readonly actions: AttemptMcpActionsPort,
     private readonly peers: AttemptMcpPeerVerifier = new LocalAttemptMcpPeerVerifier(),
     private readonly credentials: AttemptMcpPeerCredentialReader = new PythonAttemptMcpPeerCredentialReader(),
   ) {}
@@ -114,7 +103,13 @@ export class AttemptMcpBrokerService {
   async listen(binding: AttemptMcpBinding): Promise<void> {
     this.bind(binding);
     await rm(binding.socketPath, { force: true });
-    const server = createServer({ pauseOnConnect: true }, (socket) => { void this.handleSocket(binding.socketPath, socket); });
+    const server = createServer({ pauseOnConnect: true }, (socket) => {
+      const sockets = this.sockets.get(binding.socketPath) ?? new Set<Socket>();
+      sockets.add(socket);
+      this.sockets.set(binding.socketPath, sockets);
+      socket.once('close', () => sockets.delete(socket));
+      void this.handleSocket(binding.socketPath, socket);
+    });
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
       server.listen(binding.socketPath, () => { server.off('error', reject); resolve(); });
@@ -126,13 +121,18 @@ export class AttemptMcpBrokerService {
     const server = this.servers.get(socketPath);
     this.servers.delete(socketPath);
     this.unbind(socketPath);
+    for (const socket of this.sockets.get(socketPath) ?? []) socket.destroy();
+    this.sockets.delete(socketPath);
     if (server) await new Promise<void>((resolve) => server.close(() => resolve()));
     await rm(socketPath, { force: true });
   }
 
   catalog(socketPath: string, peerPid: number, query = ''): string[] {
     const binding = this.authorize(socketPath, peerPid);
-    return binding.capabilityKeys.filter((key) => key.includes(query.trim().toLowerCase()));
+    const normalizedQuery = query.trim().toLowerCase();
+    return binding.capabilityKeys.filter((key) =>
+      key.toLowerCase().includes(normalizedQuery),
+    );
   }
 
   async invoke(input: { socketPath: string; peerPid: number; capabilityKey: string; arguments: Record<string, unknown>; ignoredIdentity?: unknown }): Promise<unknown> {
@@ -161,6 +161,7 @@ export class AttemptMcpBrokerService {
     if (!binding || !peerPid || !this.peers.belongsToAttemptGroup(binding, peerPid)) { socket.destroy(); return; }
     let line = '';
     let handled = false;
+    const timeout = setTimeout(() => socket.destroy(), 10_000);
     socket.setEncoding('utf8');
     const respond = async () => {
       if (handled) return;
@@ -176,9 +177,11 @@ export class AttemptMcpBrokerService {
     };
     socket.on('data', (chunk) => {
       line += chunk;
+      if (Buffer.byteLength(line, 'utf8') > 64 * 1024) { socket.destroy(); return; }
       if (line.includes('\n')) { line = line.slice(0, line.indexOf('\n')); void respond(); }
     });
     socket.once('end', () => { void respond(); });
+    socket.once('close', () => clearTimeout(timeout));
     socket.resume();
   }
 

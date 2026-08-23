@@ -1,33 +1,26 @@
 import { describe, expect, it } from 'vitest';
+import { z } from 'zod';
 import {
-  CAPABILITY_KINDS,
-  defineCapabilities,
-  type CapabilityManifest,
-} from '../capability-manifest';
+  assertCapabilityDefinitions,
+  type CapabilityDefinition,
+} from '../capability-definition';
 
-describe('common capability manifest vocabulary', () => {
-  it('keeps the shared capability kind taxonomy in common, not a top-level owner module', () => {
-    expect(CAPABILITY_KINDS).toEqual(['resource', 'tool', 'workflow', 'sink']);
-  });
-
-  it('preserves literal capability keys while checking the manifest shape', () => {
-    const manifest = defineCapabilities([
+describe('common capability definition contract', () => {
+  it('checks final owner definitions without legacy kind, visibility, approval, or entrypoint metadata', () => {
+    const definitions = [
       {
         key: 'example.read',
-        ownerDomain: 'example',
-        kind: 'resource',
+        ownerDomain: 'analytics',
+        ownerInputPort: 'analytics.readExample',
         description: 'Read example data.',
-        inputSchema: {},
-        outputSchema: {},
+        inputSchema: z.object({ query: z.string() }).strict(),
+        outputSchema: z.object({ count: z.number() }).strict(),
         effects: ['read'],
-        approval: 'none',
+        approvalRisk: 'none',
         idempotency: 'none',
-        visibility: 'both',
-        entrypoint: { type: 'incoming_port', token: 'EXAMPLE_READ_PORT' },
       },
-    ] as const satisfies readonly CapabilityManifest[]);
+    ] as const satisfies readonly CapabilityDefinition[];
 
-    expect(manifest[0].key).toBe('example.read');
-    expect(manifest[0].entrypoint.token).toBe('EXAMPLE_READ_PORT');
+    expect(() => assertCapabilityDefinitions(definitions)).toThrow('owner-prefixed');
   });
 });

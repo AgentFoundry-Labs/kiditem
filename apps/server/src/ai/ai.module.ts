@@ -213,6 +213,7 @@ import { AiProductGenerationRuntimeModule } from './ai-product-generation-runtim
     DETAIL_PAGE_MEDIA_PORT,
     THUMBNAIL_WING_REPOSITORY_PORT,
     WING_AUTOMATION_PORT,
+    AI_WING_REGISTRATION_CAPABILITY_PORT,
   ],
 })
 export class AiAgentRuntimeModule {}

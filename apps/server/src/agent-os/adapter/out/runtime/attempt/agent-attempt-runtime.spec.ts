@@ -9,15 +9,15 @@ import { buildCodexAttemptCommand } from './codex-attempt.adapter';
 import { AttemptLiveControlRegistry } from './attempt-live-control.registry';
 
 describe('ephemeral AgentAttempt CLI runtime', () => {
-  it('builds ephemeral Codex and non-persistent strict Claude invocations from an explicit model', () => {
+  it('builds strict live Codex app-server and non-persistent Claude MCP invocations from an explicit model', () => {
     const profile = { model: 'test-model', loginHome: '/provider-login' };
-    const codex = buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', profile });
-    const claude = buildClaudeAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', profile });
-    expect(codex.args).toEqual(expect.arrayContaining(['--ephemeral', '--ignore-user-config']));
-    expect(claude.args).toEqual(expect.arrayContaining(['--no-session-persistence', '--strict-mcp-config']));
+    const codex = buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
+    const claude = buildClaudeAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
+    expect(codex.args).toEqual(expect.arrayContaining(['app-server', '--stdio', '--strict-config']));
+    expect(claude.args).toEqual(expect.arrayContaining(['--input-format', 'stream-json', '--output-format', 'stream-json', '--no-session-persistence', '--mcp-config', '/tmp/mcp.json', '--strict-mcp-config', '--tools', 'Agent']));
     expect([...codex.args, ...claude.args]).not.toContain('--max-budget-usd');
     expect(codex.env).toEqual({ PATH: expect.any(String), HOME: '/provider-login', ATTEMPT_MCP_SOCKET_PATH: '/tmp/broker.sock' });
-    expect(() => buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', profile: { ...profile, model: '' } })).toThrow('missing_runtime_model');
+    expect(() => buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile: { ...profile, model: '' } })).toThrow('missing_runtime_model');
   });
 
   it('keeps second-message and interrupt handles only for the live Attempt', async () => {
@@ -49,7 +49,7 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
   });
 
   it('owns the spawned group and removes broker, controls, and files when the CLI exits', async () => {
-    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt', workspace: '/tmp/attempt/workspace', broker: '/tmp/attempt/broker', socketPath: '/tmp/attempt/broker/attempt.sock' };
+    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt', workspace: '/tmp/attempt/workspace', broker: '/tmp/attempt/broker', socketPath: '/tmp/attempt/broker/attempt.sock', mcpConfigPath: '/tmp/attempt/broker/mcp.json' };
     const files = { create: vi.fn(async () => paths), remove: vi.fn(async () => undefined) };
     const broker = { listen: vi.fn(async () => undefined), close: vi.fn(async () => undefined) };
     const child = fakeChild(7444);
@@ -70,7 +70,7 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
   });
 
   it('cleans allocated files for synchronous spawn failures and emitted process errors', async () => {
-    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt-error', workspace: '/tmp/attempt-error/workspace', broker: '/tmp/attempt-error/broker', socketPath: '/tmp/attempt-error/broker/attempt.sock' };
+    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt-error', workspace: '/tmp/attempt-error/workspace', broker: '/tmp/attempt-error/broker', socketPath: '/tmp/attempt-error/broker/attempt.sock', mcpConfigPath: '/tmp/attempt-error/broker/mcp.json' };
     const failedFiles = { create: vi.fn(async () => paths), remove: vi.fn(async () => undefined) };
     const failedExecutor = new AgentAttemptExecutorService(failedFiles as never, new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, (() => { throw new Error('spawn_failed'); }) as never);
     await expect(failedExecutor.start(attemptInput())).rejects.toThrow('spawn_failed');
@@ -92,7 +92,7 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     const admission = { assert: vi.fn(async () => { throw new Error('attempt_runtime_not_pinned'); }) };
     const executor = new AgentAttemptExecutorService(files as never, new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, undefined, undefined, admission);
     await expect(executor.start(attemptInput())).rejects.toThrow('attempt_runtime_not_pinned');
-    expect(admission.assert).toHaveBeenCalledWith('version', 'codex_cli');
+    expect(admission.assert).toHaveBeenCalledWith(expect.objectContaining({ agentVersionId: 'version', attemptId: 'attempt-1', sessionId: 'session', taskId: 'task' }), 'codex_cli');
     expect(files.create).not.toHaveBeenCalled();
   });
 });

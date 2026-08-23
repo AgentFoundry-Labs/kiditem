@@ -16,7 +16,8 @@ model AgentWorkVersion {
   attempts AgentAttempt[]
   invocations AgentCapabilityInvocation[]
   @@unique([agentDefinitionKey, version])
-  @@unique([agentDefinitionKey, manifestHash])
+  @@index([agentDefinitionKey, manifestHash])
+  @@unique([agentDefinitionKey], where: raw("activated_at IS NOT NULL AND retired_at IS NULL"), map: "agent_work_versions_one_current")
   @@index([agentDefinitionKey, activatedAt])
   @@map("agent_work_versions")
 }

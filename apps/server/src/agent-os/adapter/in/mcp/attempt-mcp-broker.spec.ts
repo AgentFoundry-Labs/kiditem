@@ -7,6 +7,41 @@ import { spawn } from 'node:child_process';
 import { AttemptMcpBrokerService, LocalAttemptMcpPeerVerifier, PythonAttemptMcpPeerCredentialReader } from './attempt-mcp-broker.service';
 
 describe('Attempt-bound MCP broker', () => {
+  it('exposes and accepts the exact ten Sourcing capability keys for an exactly scoped Attempt', async () => {
+    const sourcingKeys = [
+      'sourcing.duplicateCheck',
+      'sourcing.scrapeProductUrl',
+      'sourcing.ingestCandidate',
+      'sourcing.scrapeUrlWorkflow',
+      'sourcing.retrieveWorkspaceEvidence',
+      'sourcing.inspectRecommendationRun',
+      'sourcing.refreshCollection',
+      'sourcing.refreshValidation',
+      'sourcing.createReviewBatch',
+      'sourcing.collect_shadow_signals',
+    ];
+    const invoke = vi.fn().mockResolvedValue({ accepted: true });
+    const broker = new AttemptMcpBrokerService(
+      { invoke, delegate: async () => ({}), child: async () => ({}) },
+      { belongsToAttemptGroup: () => true },
+    );
+    broker.bind({
+      socketPath: '/tmp/attempt-sourcing.sock',
+      attemptId: 'attempt', sessionId: 'session', taskId: 'task',
+      agentVersionId: 'version', organizationId: 'org', userId: 'user',
+      processGroupId: 42, capabilityKeys: sourcingKeys,
+    });
+
+    expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'sourcing.')).toEqual(sourcingKeys);
+    expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'REFRESHVALIDATION'))
+      .toEqual(['sourcing.refreshValidation']);
+    await Promise.all(sourcingKeys.map((capabilityKey) => broker.invoke({
+      socketPath: '/tmp/attempt-sourcing.sock', peerPid: 42, capabilityKey,
+      arguments: {},
+    })));
+    expect(invoke.mock.calls.map(([call]) => call.capabilityKey)).toEqual(sourcingKeys);
+  });
+
   it('binds a private socket to its live process and ignores caller supplied identity', async () => {
     const invocations: unknown[] = [];
     const descendantsOnly = { belongsToAttemptGroup: vi.fn((_binding, peerPid) => peerPid === 72) };

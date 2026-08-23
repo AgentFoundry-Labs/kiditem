@@ -30,13 +30,13 @@ export class AgentAttemptExecutorService {
     rejectUnsafeAttemptInput(input.prompt, input.profile);
     if (this.admission) {
       if (!input.mcp) throw new Error('attempt_mcp_binding_required');
-      await this.admission.assert(input.mcp.agentVersionId, input.runtime);
+      await this.admission.assert(input.mcp, input.runtime);
     }
     const paths = await this.files.create(input.attemptId);
     try {
       const command = input.runtime === 'codex_cli'
-        ? buildCodexAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, profile: input.profile })
-        : buildClaudeAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, profile: input.profile });
+        ? buildCodexAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: input.profile })
+        : buildClaudeAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: input.profile });
       // detached creates the Attempt-owned process group. We keep stdio and event handlers attached.
       const child = this.spawnProcess(command.bin, command.args, {
         cwd: command.cwd, env: command.env, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'],

@@ -92,6 +92,40 @@ describe("replacement Agent work lifecycle", () => {
     );
   });
 
+  it("runs a domain-owned pre-authorization admission guard before persisting a mutation invocation", async () => {
+    const authorizeInvocation = vi.fn().mockResolvedValue({});
+    const admit = vi.fn().mockResolvedValue(undefined);
+    const service = new AgentCapabilityInvocationService(
+      { authorizeInvocation } as never,
+      {
+        resolveDefinition: vi.fn().mockReturnValue(
+          capability({
+            key: "sourcing.ingestCandidate",
+            ownerDomain: "sourcing",
+            effects: ["db_write"],
+            approvalRisk: "low",
+            idempotency: "required",
+          }),
+        ),
+      } as never,
+      undefined,
+      { admit } as never,
+    );
+
+    await service.authorize({
+      ...base,
+      capabilityKey: "sourcing.ingestCandidate",
+      ownerIdempotencyKey: "owner-key",
+      input: { snapshot: { contentHash: "a".repeat(64) } },
+    });
+
+    expect(admit).toHaveBeenCalledWith(expect.objectContaining({
+      capabilityKey: "sourcing.ingestCandidate",
+      input: { snapshot: { contentHash: "a".repeat(64) } },
+    }));
+    expect(admit.mock.invocationCallOrder[0]).toBeLessThan(authorizeInvocation.mock.invocationCallOrder[0]);
+  });
+
   it("ignores forged read metadata and derives mutation HITL from the code-owned definition", async () => {
     const authorizeInvocation = vi.fn().mockResolvedValue({});
     const service = new AgentCapabilityInvocationService(

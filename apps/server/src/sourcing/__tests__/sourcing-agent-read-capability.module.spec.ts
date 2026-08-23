@@ -29,7 +29,6 @@ describe('SourcingAgentReadCapabilityModule', () => {
         .map((handler) => handler.key)
         .sort(),
     ).toEqual([
-      'agent_os.platform_probe',
       'analytics.readOverview',
       'sourcing.inspectRecommendationRun',
       'sourcing.retrieveWorkspaceEvidence',

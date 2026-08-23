@@ -80,14 +80,16 @@ export class OperationRunService
         operationKey: command.operationKey,
         idempotencyKey: command.idempotencyKey,
       });
-      if (existing) return this.toWire(existing);
+      if (existing) {
+        this.assertMatchingIdempotencyInput(existing.input, input);
+        return this.toWire(existing);
+      }
     }
 
     this.lifecycleGate.assertAccepting();
     const signal = this.lifecycleGate.signal();
     signal.throwIfAborted();
-    return this.toWire(
-      await this.repository.createRun({
+    const created = await this.repository.createRun({
         signal,
         organizationId: command.organizationId,
         operationKey: definition.key,
@@ -105,8 +107,20 @@ export class OperationRunService
         input,
         maxAttempts: definition.maxAttempts,
         scheduledFor: command.scheduledFor ?? null,
-      }),
-    );
+    });
+    if (command.idempotencyKey !== null) {
+      this.assertMatchingIdempotencyInput(created.input, input);
+    }
+    return this.toWire(created);
+  }
+
+  private assertMatchingIdempotencyInput(
+    existing: Record<string, unknown>,
+    requested: Record<string, unknown>,
+  ): void {
+    if (!sameOperationInput(existing, requested)) {
+      throw new Error('idempotency_key_input_conflict');
+    }
   }
 
   async list(query: ListOperationRunsQuery): Promise<OperationRun[]> {

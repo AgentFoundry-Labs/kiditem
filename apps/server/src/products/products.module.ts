@@ -23,10 +23,10 @@ import {
 import { MasterProductInventoryActivityListener } from './adapter/in/event/master-product-inventory-activity.listener';
 import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/products-listing-generation-capability.adapter';
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
-import { SourcingAgentListingCapabilityModule } from '../sourcing/sourcing-agent-listing-capability.module';
+import { ProductsListingGenerationOperationHandler } from './adapter/in/operation/listing-generation.operation-handler';
 
 @Module({
-  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule, SourcingAgentListingCapabilityModule],
+  imports: [CategoriesModule, InventoryModule, AnalyticsModule, FinanceModule, AiModule, OperationsModule],
   controllers: [ProductOperationsController],
   providers: [
     ProductOperationsService,
@@ -38,6 +38,7 @@ import { SourcingAgentListingCapabilityModule } from '../sourcing/sourcing-agent
     MasterProductAbcService,
     MasterProductInventoryActivityListener,
     ProductsListingGenerationCapabilityAdapter,
+    ProductsListingGenerationOperationHandler,
     MasterProductAbcRepositoryAdapter,
     ProductOperationsRepositoryAdapter,
     {
