@@ -32,6 +32,11 @@ const hasPath = (filePath, expression) => expression.test(filePath);
 function findingsFor({ path: filePath, source }) {
   const findings = [];
   if (
+    /^(?:apps\/server\/src\/agent-os\/|packages\/shared\/src\/|prisma\/models\/)/.test(filePath) &&
+    /\bAgent(?:SessionTask|WorkTask|WorkSession|WorkVersion)\b/.test(source)
+  )
+    findings.push("legacy task model/name");
+  if (
     hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
     /\bAgent(?:Run(?:Request|Event)?|Execution(?:Attempt)?)\b/.test(source)
   )

@@ -11,7 +11,7 @@ const ACTIVE_SOURCE_ROOTS = Object.freeze([
   'packages/shared/src',
 ]);
 
-const PRISMA_SOURCE_PATHS = Object.freeze(['prisma/models/agents.prisma']);
+const PRISMA_SOURCE_PATHS = Object.freeze(['prisma/models/agent-work.prisma', 'prisma/models/agents.prisma']);
 const SOURCE_FILE_PATTERN = /\.(?:[cm]?[jt]sx?|py|prisma)$/;
 
 const EXCLUDED_DIRECTORY_NAMES = new Set([
@@ -188,6 +188,11 @@ function executionSessionOwnershipViolations(schemaSource) {
     }
   }
   return violations;
+}
+
+function finalWorkSchemaViolations(schemaSource) {
+  const required = ['AgentVersion', 'AgentSession', 'AgentTask', 'AgentAttempt', 'AgentCapabilityInvocation', 'AgentCapabilityApproval'];
+  return required.filter((model) => !new RegExp(`^\\s*model\\s+${model}\\s*\\{`, 'm').test(schemaSource)).map((model) => `prisma/models/agents.prisma: ${model} model is required`);
 }
 
 function isTypeScriptOrJavaScript(relativePath) {
@@ -496,16 +501,24 @@ export function checkAgentSessionDeletion(rootDir) {
     violations.push(...runtimeCredentialBrokerVerificationViolations(relativePath, source));
   }
 
-  const agentSchemaPath = path.join(rootDir, 'prisma/models/agents.prisma');
+  const agentSchemaRelativePath = existsSync(path.join(rootDir, 'prisma/models/agent-work.prisma'))
+    ? 'prisma/models/agent-work.prisma'
+    : 'prisma/models/agents.prisma';
+  const agentSchemaPath = path.join(rootDir, agentSchemaRelativePath);
   if (!existsSync(agentSchemaPath)) {
     violations.push('prisma/models/agents.prisma: schema file is required');
   } else {
-    violations.push(
-      ...executionSessionOwnershipViolations(readFileSync(agentSchemaPath, 'utf8')),
-    );
+    const schema = readFileSync(agentSchemaPath, 'utf8');
+    if (/^\s*model\s+AgentTask\s*\{/m.test(schema)) {
+      // KID-25's six-model graph replaced the legacy execution/deletion
+      // transaction family. Keep the retained deletion hygiene checks above,
+      // but never require removed legacy models or adapters.
+      violations.push(...finalWorkSchemaViolations(schema));
+    } else {
+      violations.push(...executionSessionOwnershipViolations(schema));
+      violations.push(...requireLifecycleLock(rootDir));
+    }
   }
-
-  violations.push(...requireLifecycleLock(rootDir));
   if (violations.length > 0) {
     throw new Error(['AgentSession deletion violations:', ...violations].join('\n'));
   }

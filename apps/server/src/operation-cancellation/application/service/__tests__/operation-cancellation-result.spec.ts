@@ -23,7 +23,6 @@ describe('operation cancellation result policy', () => {
       operationKey: 'operation:1',
       affected: {
         workflowRunIds: [],
-        agentSessionTaskNames: [],
         contentGenerationIds: [],
         thumbnailGenerationIds: [],
         directAiJobIds: [],

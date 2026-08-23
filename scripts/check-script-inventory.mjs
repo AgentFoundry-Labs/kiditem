@@ -84,6 +84,12 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
     missingPackageHooks.push('check:agent-os-hexagonal');
   }
   if (
+    packageScripts['check:agent-os-contraction'] !==
+    'node scripts/check-agent-os-contraction.mjs'
+  ) {
+    missingPackageHooks.push('check:agent-os-contraction');
+  }
+  if (
     packageScripts['check:agent-session-deletion'] !==
     'node scripts/check-agent-session-deletion.mjs'
   ) {

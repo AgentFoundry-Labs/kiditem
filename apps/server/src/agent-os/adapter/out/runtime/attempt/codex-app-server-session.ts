@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { agentResultOutputSchema } from './agent-result-output-schema';
 
 type RpcResponse = { id?: string; method?: string; params?: unknown; result?: unknown; error?: { message?: string } };
 
@@ -12,12 +13,12 @@ export class CodexAppServerSession {
   constructor(private readonly write: (line: string) => void, private readonly maxBytes = 64 * 1024, private readonly notification?: (method: string, params: unknown) => void) {}
 
   async start(input: { model: string; cwd: string; prompt: string }): Promise<void> {
-    await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' } });
+    await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' }, capabilities: null });
+    this.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'initialized', params: {} })}\n`);
     const thread = await this.request('thread/start', {
       ephemeral: true, model: input.model, cwd: input.cwd,
-      sandbox: { mode: 'workspace-write', writableRoots: [input.cwd], networkAccess: false },
+      sandbox: 'workspace-write',
       runtimeWorkspaceRoots: [input.cwd], environments: [], selectedCapabilityRoots: [],
-      history: { persistence: 'none' },
     });
     this.threadId = requiredNestedId(thread, 'thread');
     const turn = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: input.prompt }], outputSchema: terminalOutputSchema() });
@@ -65,13 +66,7 @@ export class CodexAppServerSession {
   }
 }
 
-function terminalOutputSchema() {
-  return { type: 'object', additionalProperties: false, required: ['outcome', 'summary', 'resourceRefs', 'operationRefs'], properties: {
-    outcome: { enum: ['completed', 'needs_input', 'failed'] }, summary: { type: 'string', maxLength: 1000 },
-    resourceRefs: { type: 'array', maxItems: 50 }, operationRefs: { type: 'array', maxItems: 50 },
-    needsInput: { type: 'object', additionalProperties: false }, error: { type: 'object', additionalProperties: false }, output: { type: 'object', additionalProperties: false },
-  } };
-}
+function terminalOutputSchema() { return agentResultOutputSchema(); }
 
 function requiredNestedId(value: unknown, key: 'thread' | 'turn'): string {
   const id = ((value as Record<string, unknown> | null)?.[key] as Record<string, unknown> | undefined)?.id;

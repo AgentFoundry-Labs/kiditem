@@ -23,7 +23,10 @@ import type {
  */
 @Injectable()
 export class ReadinessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly attemptReadiness = new AgentAttemptReadinessService(),
+  ) {}
 
   /**
    * 광고와 Sellpia 매출 모두 최소 최근 N일을 보장하고, 이번 달이 더 길면
@@ -69,7 +72,9 @@ export class ReadinessService {
       select: { agentDefinitionKey: true, runtimeType: true },
       orderBy: { agentDefinitionKey: 'asc' },
     });
-    const readiness = new AgentAttemptReadinessService();
+    const applicationVersion = optionalEnv('KIDITEM_APPLICATION_VERSION');
+    const gitSha = optionalEnv('KIDITEM_GIT_SHA');
+    if (!applicationVersion || !gitSha) throw new Error('missing_required_work_runtime_identity');
     const checkedRuntimes = new Set<string>();
     return Promise.all(versions.map(async (version) => {
       const model = optionalEnv(`AGENT_${version.agentDefinitionKey.toUpperCase()}_MODEL`);
@@ -77,9 +82,10 @@ export class ReadinessService {
       if (version.runtimeType !== 'codex_cli' && version.runtimeType !== 'claude_cli') {
         throw new Error(`attempt_runtime_not_supported:${version.runtimeType}`);
       }
-      if (!checkedRuntimes.has(version.runtimeType)) {
-        checkedRuntimes.add(version.runtimeType);
-        await readiness.assertRuntime(version.runtimeType);
+      const readinessKey = `${version.runtimeType}:${model}`;
+      if (!checkedRuntimes.has(readinessKey)) {
+        checkedRuntimes.add(readinessKey);
+        await this.attemptReadiness.assertRuntime(version.runtimeType, model, `${applicationVersion}:${gitSha}`);
       }
       return { agentDefinitionKey: version.agentDefinitionKey, runtimeType: version.runtimeType, model };
     }));

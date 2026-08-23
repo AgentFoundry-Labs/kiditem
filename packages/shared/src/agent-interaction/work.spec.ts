@@ -4,7 +4,7 @@ import {
   AgentCapabilityApprovalStatusSchema,
   AgentCapabilityInvocationStatusSchema,
   AgentResultEnvelopeSchema,
-  AgentWorkTaskStatusSchema,
+  AgentTaskStatusSchema,
   AuthorizationKindSchema,
   CapabilityIdempotencySchema,
 } from "./work";
@@ -36,7 +36,7 @@ describe("AgentResultEnvelopeSchema", () => {
   });
 
   it("exports exact work status, authorization, and idempotency vocabularies", () => {
-    expect(AgentWorkTaskStatusSchema.options).toEqual([
+    expect(AgentTaskStatusSchema.options).toEqual([
       "open",
       "completed",
       "failed",

@@ -21,9 +21,9 @@ export class AgentAttemptRuntimeAdmissionService {
         status: { in: ['starting', 'running'] },
         agentVersion: { activatedAt: { not: null } },
       },
-      select: { runtimeType: true, agentVersion: { select: { runtimeType: true } } },
+      select: { runtimeType: true, reportedModel: true, applicationVersion: true, authorizingGitSha: true, agentVersion: { select: { runtimeType: true } } },
     });
     if (!attempt || attempt.runtimeType !== runtime || attempt.agentVersion.runtimeType !== runtime) throw new Error('attempt_runtime_not_pinned');
-    await this.readiness.assertRuntime(runtime);
+    await this.readiness.assertRuntime(runtime, attempt.reportedModel ?? '', `${attempt.applicationVersion}:${attempt.authorizingGitSha}`);
   }
 }

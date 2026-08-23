@@ -13,6 +13,7 @@ test('accepts complete script inventory metadata', () => {
     packageScripts: {
       'check:copilotkit-train': 'node scripts/check-copilotkit-train.mjs',
       'check:agent-os-hexagonal': 'node scripts/check-agent-os-hexagonal.mjs',
+      'check:agent-os-contraction': 'node scripts/check-agent-os-contraction.mjs',
       'check:agent-session-deletion': 'node scripts/check-agent-session-deletion.mjs',
       'check:scripts-inventory': 'node scripts/check-script-inventory.mjs',
       'check:schema-artifact-sync': 'node scripts/check-schema-artifact-sync.mjs',
@@ -44,6 +45,7 @@ test('reports unregistered scripts and missing hooks', () => {
   assert.deepEqual(result.missingPackageHooks, [
     'check:copilotkit-train',
     'check:agent-os-hexagonal',
+    'check:agent-os-contraction',
     'check:agent-session-deletion',
     'check:scripts-inventory',
     'check:schema-artifact-sync',

@@ -2,30 +2,40 @@ import { describe, expect, it } from 'vitest';
 import { CodexAppServerSession } from './codex-app-server-session';
 
 describe('CodexAppServerSession', () => {
-  it('uses initialize, ephemeral thread/start, turn/start, steer expectedTurnId, and interrupt', async () => {
-    const writes: Array<Record<string, unknown>> = [];
-    const session = new CodexAppServerSession((line) => writes.push(JSON.parse(line)));
-    const started = session.start({ model: 'model', cwd: '/tmp/work', prompt: 'hello' });
-    session.receive(JSON.stringify({ id: writes[0].id, result: {} }) + '\n');
+  it('uses the pinned 0.149 thread/start sandbox shape without unsupported history fields', async () => {
+    const lines: string[] = [];
+    const session = new CodexAppServerSession((line) => lines.push(line));
+    const starting = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'do work' });
+    respond(session, lines, 'initialize', {});
     await Promise.resolve();
-    session.receive(JSON.stringify({ id: writes[1].id, result: { thread: { id: 'thread' } } }) + '\n');
-    await Promise.resolve();
-    session.receive(JSON.stringify({ id: writes[2].id, result: { turn: { id: 'turn' } } }) + '\n');
-    await started;
-    const steering = session.steer('follow up');
-    expect(writes[3]).toMatchObject({ method: 'turn/steer', params: { threadId: 'thread', expectedTurnId: 'turn' } });
-    session.receive(JSON.stringify({ id: writes[3].id, result: {} }) + '\n');
-    await steering;
-    const interrupted = session.interrupt();
-    expect(writes[4]).toMatchObject({ method: 'turn/interrupt', params: { threadId: 'thread', turnId: 'turn' } });
-    session.receive(JSON.stringify({ id: writes[4].id, result: {} }) + '\n');
-    await interrupted;
-  });
+    const initializedIndex = lines.findIndex((line) => JSON.parse(line).method === 'initialized');
+    const threadIndex = lines.findIndex((line) => JSON.parse(line).method === 'thread/start');
+    expect(JSON.parse(lines[initializedIndex]!)).toMatchObject({ jsonrpc: '2.0', method: 'initialized', params: {} });
+    expect(initializedIndex).toBeGreaterThan(lines.findIndex((line) => JSON.parse(line).method === 'initialize'));
+    expect(threadIndex).toBeGreaterThan(initializedIndex);
+    const thread = request(lines, 'thread/start');
 
-  it('forwards terminal notifications without retaining provider output', () => {
-    const received: Array<{ method: string; params: unknown }> = [];
-    const session = new CodexAppServerSession(() => undefined, 64 * 1024, (method, params) => received.push({ method, params }));
-    session.receive(JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { turn: { id: 'turn', status: 'completed' } } }) + '\n');
-    expect(received).toEqual([{ method: 'turn/completed', params: { turn: { id: 'turn', status: 'completed' } } }]);
+    expect(thread.params).toMatchObject({
+      ephemeral: true,
+      sandbox: 'workspace-write',
+      runtimeWorkspaceRoots: ['/attempt/workspace'],
+      environments: [],
+      selectedCapabilityRoots: [],
+    });
+    respond(session, lines, 'thread/start', { thread: { id: 'thread-1' } });
+    await Promise.resolve();
+    expect(request(lines, 'turn/start').params).toMatchObject({ threadId: 'thread-1', outputSchema: expect.any(Object) });
+    respond(session, lines, 'turn/start', { turn: { id: 'turn-1' } });
+    await starting;
   });
 });
+
+function request(lines: string[], method: string): { id: string; params: Record<string, unknown> } {
+  const message = lines.map((line) => JSON.parse(line) as { id: string; method: string; params: Record<string, unknown> }).find((line) => line.method === method);
+  if (!message) throw new Error(`missing ${method}`);
+  return message;
+}
+function respond(session: CodexAppServerSession, lines: string[], method: string, result: unknown): void {
+  const message = request(lines, method);
+  session.receive(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n`);
+}

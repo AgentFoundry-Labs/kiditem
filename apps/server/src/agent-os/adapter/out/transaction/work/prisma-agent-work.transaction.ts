@@ -22,6 +22,8 @@ import type {
   AttemptLifecycleTransitionInput,
   TerminalSessionDeleteInput,
 } from "../../../../application/port/out/work/agent-work-transaction.port";
+import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
+import type { OperationRunnerPort } from '../../../../../operations/application/port/in/operation-runner.port';
 import {
   activeVersion,
   assertActiveMembership,
@@ -48,8 +50,9 @@ export class PrismaAgentWorkTransaction implements Pick<
   | "transitionTask"
   | "deleteTerminalSession"
   | "transitionAttempt"
+  | "finalizeTaskFromAttempt"
 > {
-  constructor(private readonly prisma: PrismaClient) {}
+  constructor(private readonly prisma: PrismaClient, private readonly operations?: Pick<OperationRunnerPort, 'get'>) {}
 
   async admitRootAttempt(
     input: AdmitRootAttemptInput,
@@ -61,12 +64,7 @@ export class PrismaAgentWorkTransaction implements Pick<
         input.createdByUserId,
       );
       const session = input.sessionId
-        ? await lockedOwnedSession(
-            tx,
-            input.organizationId,
-            input.sessionId,
-            input.createdByUserId,
-          )
+        ? await createOrLockOwnedSession(tx, input.organizationId, input.sessionId, input.createdByUserId)
         : await tx.agentSession.create({
             data: {
               organizationId: input.organizationId,
@@ -573,8 +571,8 @@ export class PrismaAgentWorkTransaction implements Pick<
   async claimMutation(input: MutationClaimInput): Promise<MutationWorkSnapshot | null> {
     return this.prisma.$transaction(async (tx) => {
       for (let skipped = 0; skipped < 100; skipped += 1) {
-        const rows = await tx.$queryRaw<{ id: string }[]>`
-        SELECT id FROM agent_capability_invocations
+        const rows = await tx.$queryRaw<{ id: string; organizationId: string }[]>`
+        SELECT id, organization_id AS "organizationId" FROM agent_capability_invocations
         WHERE canonical_input IS NOT NULL
           AND (
             status = 'ready'
@@ -583,16 +581,16 @@ export class PrismaAgentWorkTransaction implements Pick<
         ORDER BY created_at ASC
         LIMIT 1
         FOR UPDATE SKIP LOCKED`;
-        const id = rows[0]?.id;
-        if (!id) return null;
-        const invocation = await tx.agentCapabilityInvocation.findUnique({
-        where: { id },
+        const candidate = rows[0];
+        if (!candidate) return null;
+        const invocation = await tx.agentCapabilityInvocation.findFirst({
+        where: { id: candidate.id, organizationId: candidate.organizationId },
         });
         if (!invocation) continue;
         const context = await mutationContextStatus(tx, invocation);
         if (!context.valid) {
-          await tx.agentCapabilityInvocation.update({
-          where: { id },
+          await tx.agentCapabilityInvocation.updateMany({
+          where: { id: invocation.id, organizationId: invocation.organizationId },
           data: {
             status: 'failed',
             error: context.error,
@@ -605,7 +603,8 @@ export class PrismaAgentWorkTransaction implements Pick<
         }
         const updated = await tx.agentCapabilityInvocation.updateMany({
         where: {
-          id,
+          id: invocation.id,
+          organizationId: invocation.organizationId,
           OR: [
             { status: 'ready' },
             { status: 'executing', leaseExpiresAt: { lte: input.claimedAt } },
@@ -706,8 +705,6 @@ export class PrismaAgentWorkTransaction implements Pick<
       const attempts = await tx.agentAttempt.findMany({
         where: {
           status: { in: ['starting', 'running'] },
-          applicationVersion: input.applicationVersion,
-          authorizingGitSha: input.authorizingGitSha,
         },
         select: { id: true },
       });
@@ -849,6 +846,41 @@ export class PrismaAgentWorkTransaction implements Pick<
     return { transitioned: updated.count === 1 };
   }
 
+  async finalizeTaskFromAttempt(input: { attemptId: string; at: Date }): Promise<{ finalized: boolean; status: string | null }> {
+    return this.prisma.$transaction(async (tx) => {
+      const attempt = await tx.agentAttempt.findFirst({ where: { id: input.attemptId }, include: { task: true } });
+      if (!attempt || attempt.task.status !== 'open' || !['succeeded', 'failed'].includes(attempt.status)) return { finalized: false, status: null };
+      const result = AgentResultEnvelopeSchema.safeParse(attempt.result);
+      if (!result.success || !['completed', 'failed'].includes(result.data.outcome)) return { finalized: false, status: null };
+      const latest = await tx.agentAttempt.findFirst({ where: { taskId: attempt.taskId }, orderBy: { ordinal: 'desc' }, select: { id: true } });
+      if (latest?.id !== attempt.id) return { finalized: false, status: null };
+      const [pendingInvocations, liveAttempts, openChildren] = await Promise.all([
+        tx.agentCapabilityInvocation.count({ where: { taskId: attempt.taskId, status: { in: ['authorized', 'approval_pending', 'ready', 'executing'] } } }),
+        tx.agentAttempt.count({ where: { taskId: attempt.taskId, status: { in: ['starting', 'running'] } } }),
+        tx.agentTask.count({ where: { parentTaskId: attempt.taskId, status: 'open' } }),
+      ]);
+      if (pendingInvocations || liveAttempts || openChildren) return { finalized: false, status: null };
+      const invocationResults = await tx.agentCapabilityInvocation.findMany({
+        where: { taskId: attempt.taskId, status: 'succeeded' }, select: { result: true },
+      });
+      const operationIds = [result.data, ...invocationResults.map((invocation) => AgentResultEnvelopeSchema.safeParse(invocation.result)).filter((parsed): parsed is { success: true; data: typeof result.data } => parsed.success).map((parsed) => parsed.data)]
+        .flatMap((envelope) => envelope.operationRefs.map((reference) => reference.id));
+      if (operationIds.length) {
+        // The Operations owner is authoritative for current state.  If it is
+        // unavailable or a reference is active, preserve this Task for a
+        // successor rather than inferring completion from stale envelopes.
+        if (!this.operations) return { finalized: false, status: null };
+        try {
+          const runs = await Promise.all([...new Set(operationIds)].slice(0, 50).map((id) => this.operations!.get(attempt.organizationId, id)));
+          if (runs.some((run) => !['succeeded', 'failed', 'cancelled', 'skipped'].includes(run.status))) return { finalized: false, status: null };
+        } catch { return { finalized: false, status: null }; }
+      }
+      const status = result.data.outcome === 'completed' ? 'completed' : 'failed';
+      const updated = await tx.agentTask.updateMany({ where: { id: attempt.taskId, organizationId: attempt.organizationId, status: 'open' }, data: { status, finishedAt: input.at } });
+      return { finalized: updated.count === 1, status: updated.count === 1 ? status : null };
+    });
+  }
+
   async deleteTerminalSession(
     input: TerminalSessionDeleteInput,
   ): Promise<{ deleted: boolean }> {
@@ -908,6 +940,20 @@ export class PrismaAgentWorkTransaction implements Pick<
       });
       return { deleted: true };
     });
+  }
+}
+
+async function createOrLockOwnedSession(
+  tx: AgentWorkTransaction,
+  organizationId: string,
+  sessionId: string,
+  userId: string,
+) {
+  try {
+    return await tx.agentSession.create({ data: { id: sessionId, organizationId, createdByUserId: userId } });
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error;
+    return lockedOwnedSession(tx, organizationId, sessionId, userId);
   }
 }
 

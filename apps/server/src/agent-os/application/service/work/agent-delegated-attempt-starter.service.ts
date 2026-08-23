@@ -21,16 +21,21 @@ export class AgentDelegatedAttemptStarterService {
     runtime: string;
     capabilityKeys: readonly string[];
     prompt: string;
+    /** Exact resolved target model persisted at child admission. */
+    model?: string;
+    instructionProfileRef: string;
   }): Promise<void> {
     try {
       if (input.runtime !== 'codex_cli' && input.runtime !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
       const executor = this.modules.get(AgentAttemptExecutorService, { strict: false });
-      const model = required(`AGENT_${input.agentKey.toUpperCase()}_MODEL`);
+      const model = input.model?.trim();
+      if (!model) throw new Error(`missing_required_configuration:AGENT_${input.agentKey.toUpperCase()}_MODEL`);
       await executor.start({
         attemptId: input.attemptId,
         runtime: input.runtime,
         profile: { model, loginHome: required('KIDITEM_ATTEMPT_LOGIN_HOME') },
         prompt: input.prompt,
+        instructionProfileRef: input.instructionProfileRef,
         mcp: {
           attemptId: input.attemptId, sessionId: input.sessionId, taskId: input.taskId,
           agentVersionId: input.agentVersionId, organizationId: input.organizationId,

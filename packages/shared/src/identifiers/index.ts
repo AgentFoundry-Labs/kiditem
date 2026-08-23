@@ -19,12 +19,6 @@ export const OrganizationIdSchema =
 export const UserIdSchema = logicalIdentifierSchema.brand<"UserId">();
 export const AgentSessionIdSchema =
   logicalIdentifierSchema.brand<"AgentSessionId">();
-export const AgentSessionTaskIdSchema =
-  logicalIdentifierSchema.brand<"AgentSessionTaskId">();
-export const AgentExecutionIdSchema =
-  logicalIdentifierSchema.brand<"AgentExecutionId">();
-export const AgentExecutionAttemptIdSchema =
-  logicalIdentifierSchema.brand<"AgentExecutionAttemptId">();
 export const AgentAttemptIdSchema =
   logicalIdentifierSchema.brand<"AgentAttemptId">();
 export const AgentCapabilityInvocationIdSchema =
@@ -117,30 +111,6 @@ export const AgentSessionNameSchema = z
     ),
   )
   .brand<"AgentSessionName">();
-export const AgentSessionTaskNameSchema = z
-  .string()
-  .regex(
-    new RegExp(
-      `^organizations/${logicalIdentifierSource}/agentSessions/${logicalIdentifierSource}/tasks/${logicalIdentifierSource}$`,
-    ),
-  )
-  .brand<"AgentSessionTaskName">();
-export const AgentExecutionNameSchema = z
-  .string()
-  .regex(
-    new RegExp(
-      `^organizations/${logicalIdentifierSource}/agentSessions/${logicalIdentifierSource}/executions/${logicalIdentifierSource}$`,
-    ),
-  )
-  .brand<"AgentExecutionName">();
-export const AgentExecutionAttemptNameSchema = z
-  .string()
-  .regex(
-    new RegExp(
-      `^organizations/${logicalIdentifierSource}/agentSessions/${logicalIdentifierSource}/executions/${logicalIdentifierSource}/attempts/${logicalIdentifierSource}$`,
-    ),
-  )
-  .brand<"AgentExecutionAttemptName">();
 export const AgentConversationEventNameSchema = z
   .string()
   .regex(
@@ -178,15 +148,6 @@ const agentVersionNamePattern = new RegExp(
 );
 const agentSessionNamePattern = new RegExp(
   `^organizations/(${logicalIdentifierSource})/agentSessions/(${logicalIdentifierSource})$`,
-);
-const agentSessionTaskNamePattern = new RegExp(
-  `^organizations/(${logicalIdentifierSource})/agentSessions/(${logicalIdentifierSource})/tasks/(${logicalIdentifierSource})$`,
-);
-const agentExecutionNamePattern = new RegExp(
-  `^organizations/(${logicalIdentifierSource})/agentSessions/(${logicalIdentifierSource})/executions/(${logicalIdentifierSource})$`,
-);
-const agentExecutionAttemptNamePattern = new RegExp(
-  `^organizations/(${logicalIdentifierSource})/agentSessions/(${logicalIdentifierSource})/executions/(${logicalIdentifierSource})/attempts/(${logicalIdentifierSource})$`,
 );
 const agentConversationEventNamePattern = new RegExp(
   `^organizations/(${logicalIdentifierSource})/agentSessions/(${logicalIdentifierSource})/events/(${positiveDecimalSequenceSource})$`,
@@ -337,113 +298,6 @@ export const parseAgentSessionName = (
   };
 };
 
-export const formatAgentSessionTaskName = (
-  organization: OrganizationId,
-  session: AgentSessionId,
-  task: AgentSessionTaskId,
-): AgentSessionTaskName =>
-  AgentSessionTaskNameSchema.parse(
-    `organizations/${organization}/agentSessions/${session}/tasks/${task}`,
-  );
-
-export const parseAgentSessionTaskName = (
-  name: unknown,
-  expectedParent?: unknown,
-) => {
-  const [organization, session, task] = parseResourceName(
-    AgentSessionTaskNameSchema,
-    agentSessionTaskNamePattern,
-    name,
-  );
-
-  if (expectedParent !== undefined) {
-    const expected = parseAgentSessionName(expectedParent);
-    assertMatchingParent(
-      [organization, session],
-      [expected.organization, expected.session],
-      "Agent session task name does not match the expected agent session",
-    );
-  }
-
-  return {
-    organization: OrganizationIdSchema.parse(organization),
-    session: AgentSessionIdSchema.parse(session),
-    task: AgentSessionTaskIdSchema.parse(task),
-  };
-};
-
-export const formatAgentExecutionName = (
-  organization: OrganizationId,
-  session: AgentSessionId,
-  execution: AgentExecutionId,
-): AgentExecutionName =>
-  AgentExecutionNameSchema.parse(
-    `organizations/${organization}/agentSessions/${session}/executions/${execution}`,
-  );
-
-export const parseAgentExecutionName = (
-  name: unknown,
-  expectedParent?: unknown,
-) => {
-  const [organization, session, execution] = parseResourceName(
-    AgentExecutionNameSchema,
-    agentExecutionNamePattern,
-    name,
-  );
-
-  if (expectedParent !== undefined) {
-    const expected = parseAgentSessionName(expectedParent);
-    assertMatchingParent(
-      [organization, session],
-      [expected.organization, expected.session],
-      "Agent execution name does not match the expected agent session",
-    );
-  }
-
-  return {
-    organization: OrganizationIdSchema.parse(organization),
-    session: AgentSessionIdSchema.parse(session),
-    execution: AgentExecutionIdSchema.parse(execution),
-  };
-};
-
-export const formatAgentExecutionAttemptName = (
-  organization: OrganizationId,
-  session: AgentSessionId,
-  execution: AgentExecutionId,
-  attempt: AgentExecutionAttemptId,
-): AgentExecutionAttemptName =>
-  AgentExecutionAttemptNameSchema.parse(
-    `organizations/${organization}/agentSessions/${session}/executions/${execution}/attempts/${attempt}`,
-  );
-
-export const parseAgentExecutionAttemptName = (
-  name: unknown,
-  expectedParent?: unknown,
-) => {
-  const [organization, session, execution, attempt] = parseResourceName(
-    AgentExecutionAttemptNameSchema,
-    agentExecutionAttemptNamePattern,
-    name,
-  );
-
-  if (expectedParent !== undefined) {
-    const expected = parseAgentExecutionName(expectedParent);
-    assertMatchingParent(
-      [organization, session, execution],
-      [expected.organization, expected.session, expected.execution],
-      "Agent execution attempt name does not match the expected execution",
-    );
-  }
-
-  return {
-    organization: OrganizationIdSchema.parse(organization),
-    session: AgentSessionIdSchema.parse(session),
-    execution: AgentExecutionIdSchema.parse(execution),
-    attempt: AgentExecutionAttemptIdSchema.parse(attempt),
-  };
-};
-
 export const formatAgentConversationEventName = (
   organization: OrganizationId,
   session: AgentSessionId,
@@ -552,11 +406,6 @@ export type LogicalId = z.infer<typeof LogicalIdSchema>;
 export type OrganizationId = z.infer<typeof OrganizationIdSchema>;
 export type UserId = z.infer<typeof UserIdSchema>;
 export type AgentSessionId = z.infer<typeof AgentSessionIdSchema>;
-export type AgentSessionTaskId = z.infer<typeof AgentSessionTaskIdSchema>;
-export type AgentExecutionId = z.infer<typeof AgentExecutionIdSchema>;
-export type AgentExecutionAttemptId = z.infer<
-  typeof AgentExecutionAttemptIdSchema
->;
 export type AgentAttemptId = z.infer<typeof AgentAttemptIdSchema>;
 export type AgentCapabilityInvocationId = z.infer<
   typeof AgentCapabilityInvocationIdSchema
@@ -586,11 +435,6 @@ export type UserName = z.infer<typeof UserNameSchema>;
 export type AgentDefinitionName = z.infer<typeof AgentDefinitionNameSchema>;
 export type AgentVersionName = z.infer<typeof AgentVersionNameSchema>;
 export type AgentSessionName = z.infer<typeof AgentSessionNameSchema>;
-export type AgentSessionTaskName = z.infer<typeof AgentSessionTaskNameSchema>;
-export type AgentExecutionName = z.infer<typeof AgentExecutionNameSchema>;
-export type AgentExecutionAttemptName = z.infer<
-  typeof AgentExecutionAttemptNameSchema
->;
 export type AgentConversationEventName = z.infer<
   typeof AgentConversationEventNameSchema
 >;

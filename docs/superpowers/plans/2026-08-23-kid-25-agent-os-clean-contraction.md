@@ -167,25 +167,24 @@ not repeat schemas/effects/risk/idempotency and cannot return an artifact.
 
 - [ ] **Step 3: Add the physically separate replacement graph**
 
-During compile-only coexistence use temporary Prisma symbols
-`AgentWorkVersion`, `AgentWorkSession`, and `AgentWorkTask`, mapped to final
-physical tables `agent_work_versions`, `agent_work_sessions`, and
-`agent_work_tasks`. Add final-name `AgentAttempt`,
+Use final logical Prisma symbols `AgentVersion`, `AgentSession`, and
+`AgentTask`, mapped to physical tables `agent_work_versions`,
+`agent_work_sessions`, and `agent_work_tasks`. Add `AgentAttempt`,
 `AgentCapabilityInvocation`, and `AgentCapabilityApproval` against them. Do not
 modify populated legacy rows or write both graphs.
 
 The exact fields are:
 
 ```text
-AgentWorkVersion
+AgentVersion
   id, agentDefinitionKey, version, assignedDomains, capabilityKeys,
   runtimeType, instructionProfileRef, manifestHash,
   activatedAt?, retiredAt?, createdAt
 
-AgentWorkSession
+AgentSession
   id, organizationId, createdByUserId, createdAt, updatedAt
 
-AgentWorkTask
+AgentTask
   id, organizationId, sessionId, parentTaskId?, assignedAgentVersionId,
   objective, completionCriteria, inputResourceRefs, status,
   delegatedFromAttemptId?, delegationIdempotencyKey?,
@@ -471,7 +470,8 @@ Assert exact non-persistence controls:
 
 ```typescript
 expect(codexThreadStart).toMatchObject({ ephemeral: true });
-expect(codexConfig).toMatchObject({ history: { persistence: 'none' } });
+expect(codexCliConfig).toContain('history.persistence="none"');
+expect(threadStart).toMatchObject({ ephemeral: true });
 expect(claudeArgs).toEqual(expect.arrayContaining([
   '--no-session-persistence', '--strict-mcp-config',
 ]));
@@ -778,9 +778,7 @@ provider session/credential/handle codec, fixed playbook/wrapper Agent, full-
 Nest MCP child/HMAC context, background continuation, advisory lock, release
 drain, coordinated deletion, and old API/Web paths.
 
-Delete old legacy `AgentVersion`, `AgentSession`, `AgentSessionTask` and every legacy
-dependent model. Rename temporary `AgentWorkVersion`, `AgentWorkSession`, and
-`AgentWorkTask` Prisma symbols to final logical names while retaining their
+Delete old legacy Agent OS models and every dependent model while retaining the
 `agent_work_*` physical tables. Remove old reverse relations. Final schema has
 only the six fixed models and no lifecycle/continuation/deletion fields.
 

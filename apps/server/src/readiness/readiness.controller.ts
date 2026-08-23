@@ -21,4 +21,10 @@ export class ReadinessController {
   ): Promise<RebuildReadinessResponse> {
     return this.service.getRebuildStatus(organizationId);
   }
+
+  /** Authenticated, bounded CLI admission canary; no credential material is returned. */
+  @Get('agent-runtime')
+  getAgentRuntime(): Promise<Array<{ agentDefinitionKey: string; runtimeType: string; model: string }>> {
+    return this.service.getAgentAttemptRuntimeReadiness();
+  }
 }

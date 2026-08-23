@@ -12,7 +12,8 @@ function socketPath(env: NodeJS.ProcessEnv = process.env): string {
 }
 
 function text(value: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
+  const isError = Boolean(value && typeof value === 'object' && typeof (value as { error?: unknown }).error === 'string');
+  return { content: [{ type: 'text' as const, text: JSON.stringify(value) }], ...(isError ? { isError: true } : {}) };
 }
 
 async function call(tool: string, arguments_: Record<string, unknown>) {
@@ -21,11 +22,14 @@ async function call(tool: string, arguments_: Record<string, unknown>) {
 
 export async function createKidItemAgentOsMcpServer(): Promise<McpServer> {
   const server = new McpServer({ name: 'kiditem-attempt-mcp', version: '1.0.0' });
-  server.registerTool('capability_catalog_search', { inputSchema: z.object({ query: z.string().default('') }) }, (args) => call('capability_catalog_search', args));
-  server.registerTool('capability_invoke', { inputSchema: z.object({ capabilityKey: z.string(), input: z.record(z.unknown()) }) }, (args) => call('capability_invoke', args));
-  server.registerTool('delegate_to_agent', { inputSchema: z.object({ targetAgentKey: z.string(), objective: z.string() }) }, (args) => call('delegate_to_agent', args));
+  server.registerTool('capability_catalog_search', { description: 'Discover bounded public capability manifests and strict inputs.', inputSchema: z.object({ query: z.string().max(256).default('') }).strict() }, (args) => call('capability_catalog_search', args));
+  server.registerTool('capability_invoke', { description: 'Invoke one discovered capability with exact strict input.', inputSchema: z.object({ capabilityKey: z.string().min(1).max(160), input: z.record(z.unknown()) }).strict() }, (args) => call('capability_invoke', args));
+  for (const action of ['status', 'wait', 'result'] as const) {
+    server.registerTool(`invocation_${action}`, { description: 'Read or bounded-wait for this Attempt’s exact durable mutation result.', inputSchema: z.object({ invocationId: z.string().uuid() }).strict() }, (args) => call(`invocation_${action}`, args));
+  }
+  server.registerTool('delegate_to_agent', { description: 'Delegate a state-changing cross-domain objective to its target Agent.', inputSchema: z.object({ targetAgentKey: z.string().min(1).max(64), objective: z.string().min(1).max(8_000) }).strict() }, (args) => call('delegate_to_agent', args));
   for (const action of ['status', 'wait', 'result', 'message', 'interrupt'] as const) {
-    server.registerTool(`child_${action}`, { inputSchema: z.object({ childTaskId: z.string(), message: z.string().optional() }) }, (args) => call(`child_${action}`, args));
+    server.registerTool(`child_${action}`, { description: 'Inspect, wait for, or control an exact delegated child Task.', inputSchema: z.object({ childTaskId: z.string().uuid(), message: z.string().min(1).max(4_000).optional() }).strict() }, (args) => call(`child_${action}`, args));
   }
   return server;
 }

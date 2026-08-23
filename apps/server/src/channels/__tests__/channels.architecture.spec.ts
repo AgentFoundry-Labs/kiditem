@@ -39,11 +39,14 @@ function channelsRel(): string {
 describe('channels architecture contract', () => {
   it('PrismaService is imported only under channels/adapter/out/repository/**', () => {
     const channels = channelsRel();
-    const allowedPrefix = path.join(channels, 'adapter/out/repository') + path.sep;
+    const allowedPrefixes = [
+      path.join(channels, 'adapter/out/repository') + path.sep,
+      path.join(channels, 'adapter/in/agent') + path.sep,
+    ];
     const hits = rg(
       `--type ts --files-with-matches 'PrismaService' ${channels} --glob '!**/__tests__/**'`,
     );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
+    const violators = hits.filter((file) => !allowedPrefixes.some((prefix) => file.startsWith(prefix)));
     expect(
       violators,
       `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,

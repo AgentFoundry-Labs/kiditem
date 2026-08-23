@@ -30,7 +30,6 @@ function makeService() {
     service: new RulesService(
       prisma as never,
       operations as never,
-      judgment as never,
       events as never,
       alerts as never,
     ),
@@ -92,44 +91,4 @@ describe('RulesService evaluation flow', () => {
     ]);
   });
 
-  it('submits threshold judgment through the owner-local port and returns canonical resources', async () => {
-    const { service, judgment, alerts } = makeService();
-    vi.spyOn(service, 'getSummary').mockResolvedValue({
-      totalViolations: 4,
-      criticalCount: 1,
-      warningCount: 3,
-      affectedProducts: 2,
-    });
-    vi.spyOn(service, 'findAllRules').mockResolvedValue([
-      {
-        id: 'rule-1', organizationId: 'org', ruleKey: 'margin',
-        displayName: 'Margin', description: '', category: 'profitability',
-        severity: 'warning', field: 'margin', operator: 'lt', threshold: { value: 10 },
-        messageTemplate: '', actionType: 'review', conditions: null,
-        autoExecute: false, active: true, sortOrder: 1,
-        createdAt: '2026-08-22T00:00:00.000Z', updatedAt: '2026-08-22T00:00:00.000Z',
-      },
-    ] as never);
-    const submission = {
-      session: 'organizations/org/agentSessions/session',
-      task: 'organizations/org/agentSessions/session/tasks/task',
-      execution: 'organizations/org/agentSessions/session/executions/execution',
-      operation: 'organizations/org/operations/operation',
-    };
-    judgment.submit.mockResolvedValue(submission);
-
-    await expect(service.suggestThresholds('org', 'user', 'suggestion-1')).resolves.toEqual({
-      ...submission,
-      status: 'pending',
-    });
-    expect(judgment.submit).toHaveBeenCalledWith({
-      organizationId: 'org',
-      actorUserId: 'user',
-      objective: expect.stringContaining('"totalViolations":4'),
-      idempotencyKey: 'rules.suggest.manual:user:suggestion-1',
-    });
-    expect(alerts.start).toHaveBeenCalledWith(expect.objectContaining({
-      sourceType: 'operation_run', sourceId: submission.operation,
-    }));
-  });
 });

@@ -26,7 +26,7 @@ export class AgentAttemptReconciler {
     await Promise.all(result.attemptIds.map(async (attemptId) => {
       this.capacity.releaseAttempt(attemptId);
       await this.processes.terminate(attemptId);
-      await this.directories.clean(attemptId);
+      if (await this.directories.reap(attemptId)) await this.directories.clean(attemptId);
     }));
     return result;
   }

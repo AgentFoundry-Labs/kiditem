@@ -207,6 +207,10 @@ export interface AttemptLifecycleTransitionInput {
   result?: AgentResultEnvelope;
   error?: { code: string; message: string };
 }
+export interface FinalizeTaskFromAttemptInput {
+  attemptId: string;
+  at: Date;
+}
 
 /** Future atomic command shapes; Task 1 intentionally implements admission only. */
 export interface AgentWorkTransactionPort {
@@ -237,4 +241,6 @@ export interface AgentWorkTransactionPort {
     input: TerminalSessionDeleteInput,
   ): Promise<{ deleted: boolean }>;
   transitionAttempt(input: AttemptLifecycleTransitionInput): Promise<{ transitioned: boolean }>;
+  /** Terminalizes business work only from a validated, quiescent Attempt result. */
+  finalizeTaskFromAttempt(input: FinalizeTaskFromAttemptInput): Promise<{ finalized: boolean; status: string | null }>;
 }

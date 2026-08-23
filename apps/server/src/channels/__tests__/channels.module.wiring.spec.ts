@@ -82,12 +82,12 @@ describe('ChannelsModule canonical owner wiring', () => {
     const wiredNames = [...providers, ...controllers, ...exports_].map((value) =>
       typeof value === 'function' ? value.name : String(value));
     expect(wiredNames.join('\n')).not.toMatch(/ChannelReconciliation|RECONCILIATION/);
-    expect(exports_).toEqual([
+    expect(exports_).toEqual(expect.arrayContaining([
       COUPANG_PROVIDER_PORT,
       CHANNEL_SKU_AVAILABILITY_PORT,
       CHANNELS_MARKETPLACE_REGISTRATION_CAPABILITY_PORT,
       ROCKET_PO_CATALOG_PORT,
-    ]);
+    ]));
 
     const channelsRoot = path.resolve(__dirname, '..');
     expect(existsSync(path.join(

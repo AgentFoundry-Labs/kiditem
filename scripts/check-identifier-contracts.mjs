@@ -36,8 +36,6 @@ const RAW_PUBLIC_IDENTIFIER_FIELDS = Object.freeze([
 ]);
 const SESSION_GRAPH_MODELS = Object.freeze([
   'AgentSession',
-  'AgentSessionTask',
-  'AgentExecution',
   'AgentConversationEvent',
 ]);
 
@@ -91,7 +89,7 @@ function publicContractViolations(relativePath, source) {
     );
   }
   const uncheckedNameCast =
-    /\bas\s+(?:AgentSessionName|AgentSessionTaskName|AgentExecutionName|AgentConversationEventName|OperationRunName)\b/g;
+    /\bas\s+(?:AgentSessionName|AgentConversationEventName|OperationRunName)\b/g;
   for (const match of source.matchAll(uncheckedNameCast)) {
     violations.push(
       `${relativePath}:${lineNumberAt(source, match.index)}: unchecked resource-name cast is forbidden; parse the name`,

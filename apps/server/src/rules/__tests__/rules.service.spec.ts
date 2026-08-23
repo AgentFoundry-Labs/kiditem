@@ -24,7 +24,6 @@ function makeService() {
     service: new RulesService(
       prisma as never,
       operations as never,
-      judgment as never,
       eventEmitter as never,
       operationAlerts as never,
     ),
@@ -42,14 +41,6 @@ describe('RulesService boundaries', () => {
     await expect(service.evaluateAll(ORGANIZATION_ID, null, 'request-1'))
       .rejects.toThrow('RULES_EVALUATION_ACTOR_REQUIRED');
     expect(operations.start).not.toHaveBeenCalled();
-  });
-
-  it('fails closed when a system caller attempts threshold judgment', async () => {
-    const { service, judgment } = makeService();
-
-    await expect(service.suggestThresholds(ORGANIZATION_ID, null, 'request-2'))
-      .rejects.toThrow('RULES_SUGGEST_JUDGMENT_ACTOR_REQUIRED');
-    expect(judgment.submit).not.toHaveBeenCalled();
   });
 
   it('reads evaluation status from the organization-scoped owner Operation', async () => {
@@ -87,7 +78,6 @@ describe('RulesService boundaries', () => {
       'services/rules.service.ts',
       'rules.module.ts',
       'controllers/rule-evaluation.controller.ts',
-      'controllers/rule-suggestions.controller.ts',
       'adapter/in/operation/rules-evaluation.operation-handler.ts',
     ]) {
       const source = readFileSync(resolve(rulesRoot, relativePath), 'utf8');

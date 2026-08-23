@@ -89,40 +89,6 @@ function makeService() {
 }
 
 describe('OperationCancellationService', () => {
-  it('cancels a same-organization canonical AgentSession task through the owner-local port', async () => {
-    const { service, sessionTasks } = makeService();
-    const session =
-      'organizations/11111111-1111-1111-1111-111111111111/agentSessions/00000000-0000-4000-8000-000000000001';
-    const task = `${session}/tasks/00000000-0000-4000-8000-000000000002`;
-
-    const result = await service.cancel({
-      organizationId: ORG,
-      actorUserId: USER,
-      target: {
-        targetType: 'agent_session_task',
-        session,
-        task,
-        idempotencyKey: 'cancel:task-1',
-        expectedStatus: 'running',
-        reason: '사용자 요청',
-      } as never,
-    });
-
-    expect(sessionTasks.cancel).toHaveBeenCalledWith({
-      organizationId: ORG,
-      actorUserId: USER,
-      session,
-      task,
-      idempotencyKey: 'cancel:task-1',
-      expectedStatus: 'running',
-      reason: '사용자 요청',
-    });
-    expect(result).toMatchObject({
-      status: 'cancelled',
-      affected: { agentSessionTaskNames: [task] },
-    });
-  });
-
   it('cancels product generation children discovered from operation alert metadata', async () => {
     const { service, ai, operationAlerts } = makeService();
 
@@ -166,7 +132,6 @@ describe('OperationCancellationService', () => {
             },
             affected: {
               workflowRunIds: [],
-              agentSessionTaskNames: [],
               contentGenerationIds: ['cg-1'],
               thumbnailGenerationIds: ['tg-1'],
               directAiJobIds: [],
@@ -295,7 +260,6 @@ describe('OperationCancellationService', () => {
       reason: '사용자 요청으로 중단되었습니다.',
     });
     expect(result.affected.workflowRunIds).toEqual(['wf-run-1']);
-    expect(result.affected.agentSessionTaskNames).toEqual([]);
     expect(result.warnings).toEqual([]);
   });
 });

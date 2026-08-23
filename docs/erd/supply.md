@@ -68,6 +68,8 @@ erDiagram
     String externalOrderPlatform
     String externalOrderId
     String externalOrderUrl
+    String idempotencyKey
+    String requestHash
     DateTime receivedAt
     Int receivedQty
     Int defectQty

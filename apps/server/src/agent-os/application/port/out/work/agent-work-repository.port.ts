@@ -50,10 +50,13 @@ export interface AgentWorkRepositoryPort {
     authorizingGitSha: string;
     cliVersion: string;
     reportedModel: string | null;
+    /** Resolved from the server-owned target runtime profile, never its parent. */
+    targetModel?: string | null;
     targetAgentVersionId: string;
     targetAgentKey: string;
     targetRuntimeType: string;
     targetCapabilityKeys: readonly string[];
+    targetInstructionProfileRef: string;
   } | null>;
   loadAttemptMcpChild(input: {
     organizationId: string;
@@ -70,6 +73,14 @@ export interface AgentWorkRepositoryPort {
     result: unknown | null;
     error: unknown | null;
   } | null>;
+  loadAttemptMcpInvocation(input: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    requestedByUserId: string;
+    invocationId: string;
+  }): Promise<{ invocationId: string; status: string; result: unknown | null; error: unknown | null; attemptStartedAt: Date | null } | null>;
   findDueApprovals(input: { now: Date; limit: number }): Promise<Array<{
     organizationId: string;
     sessionId: string;

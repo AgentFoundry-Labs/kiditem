@@ -8,8 +8,9 @@ import type {
   AgentWorkRepositoryPort,
   OrganizationScopedId,
 } from "../../../../application/port/out/work/agent-work-repository.port";
+import type { AgentWorkQueryRepositoryPort } from '../../../../application/port/out/work/agent-work-query-repository.port';
 
-export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
+export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort, AgentWorkQueryRepositoryPort {
   constructor(private readonly prisma: PrismaClient) {}
 
   async loadProjection(
@@ -29,6 +30,32 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
         status: AgentTaskStatusSchema.parse(task.status),
       })),
     };
+  }
+
+  async loadOwnedProjection(input: { organizationId: string; userId: string; sessionId: string }): Promise<unknown | null> {
+    return this.prisma.agentSession.findFirst({
+      where: { id: input.sessionId, organizationId: input.organizationId, createdByUserId: input.userId },
+      include: { tasks: { include: { attempts: { orderBy: { ordinal: 'desc' }, take: 1 }, invocations: { include: { approval: true }, orderBy: { createdAt: 'desc' } } }, orderBy: { createdAt: 'asc' } } },
+    });
+  }
+
+  async activeVersion(agentDefinitionKey: string) {
+    return this.prisma.agentVersion.findFirst({ where: { agentDefinitionKey, activatedAt: { not: null }, retiredAt: null }, orderBy: { activatedAt: 'desc' }, select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true, instructionProfileRef: true } });
+  }
+
+  async taskVersion(input: { organizationId: string; userId: string; sessionId: string; taskId: string }) {
+    const task = await this.prisma.agentTask.findFirst({ where: { id: input.taskId, organizationId: input.organizationId, sessionId: input.sessionId, session: { createdByUserId: input.userId } }, select: { assignedAgentVersion: { select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true, instructionProfileRef: true } } } });
+    return task?.assignedAgentVersion ?? null;
+  }
+
+  async liveAttempt(input: { organizationId: string; userId: string; sessionId: string; taskId: string; attemptId?: string }) {
+    return this.prisma.agentAttempt.findFirst({ where: { ...(input.attemptId ? { id: input.attemptId } : {}), organizationId: input.organizationId, sessionId: input.sessionId, taskId: input.taskId, session: { createdByUserId: input.userId }, status: { in: ['starting', 'running'] } }, select: { id: true } });
+  }
+
+  async threadContinuation(input: { organizationId: string; userId: string; sessionId: string }) {
+    const task = await this.prisma.agentTask.findFirst({ where: { sessionId: input.sessionId, organizationId: input.organizationId, parentTaskId: null, session: { createdByUserId: input.userId } }, include: { attempts: { orderBy: { ordinal: 'desc' }, take: 1 } } });
+    const predecessor = task?.attempts[0] ?? null;
+    return task && predecessor ? { taskId: task.id, predecessorAttemptId: predecessor.id, terminal: ['succeeded', 'failed', 'process_interrupted', 'cancelled'].includes(predecessor.status) } : null;
   }
 
   async findDelegationReplay(input: {
@@ -133,7 +160,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
           activatedAt: { not: null },
           retiredAt: null,
         },
-        select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true },
+        select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true, instructionProfileRef: true },
       }),
     ]);
     if (!attempt || !target) return null;
@@ -149,6 +176,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       targetCapabilityKeys: Array.isArray(target.capabilityKeys)
         ? target.capabilityKeys.filter((key): key is string => typeof key === 'string')
         : [],
+      targetInstructionProfileRef: target.instructionProfileRef,
     };
   }
 
@@ -196,6 +224,18 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       result: attempt?.result ?? null,
       error: attempt?.error ?? null,
     };
+  }
+
+  async loadAttemptMcpInvocation(input: {
+    organizationId: string; sessionId: string; taskId: string; attemptId: string; requestedByUserId: string; invocationId: string;
+  }) {
+    return this.prisma.agentCapabilityInvocation.findFirst({
+      where: {
+        id: input.invocationId, organizationId: input.organizationId, sessionId: input.sessionId,
+        taskId: input.taskId, attemptId: input.attemptId, session: { createdByUserId: input.requestedByUserId },
+      },
+      select: { id: true, status: true, result: true, error: true, attempt: { select: { startedAt: true } } },
+    }).then((value) => value ? { invocationId: value.id, status: value.status, result: value.result, error: value.error, attemptStartedAt: value.attempt.startedAt } : null);
   }
 
   async findDueApprovals(input: { now: Date; limit: number }) {

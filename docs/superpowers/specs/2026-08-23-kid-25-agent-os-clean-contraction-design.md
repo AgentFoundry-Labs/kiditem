@@ -651,18 +651,14 @@ backfill, conversion, export, or compatibility reader.
 
 To avoid nullable hardening against populated legacy tables:
 
-1. add compile-time replacement Prisma symbols `AgentWorkVersion`,
-   `AgentWorkSession`, and `AgentWorkTask` mapped to new physical tables
-   `agent_work_versions`, `agent_work_sessions`, and `agent_work_tasks`;
+1. add the final logical `AgentVersion`, `AgentSession`, and `AgentTask`
+   symbols mapped to `agent_work_versions`, `agent_work_sessions`, and
+   `agent_work_tasks`;
 2. add `AgentAttempt`, `AgentCapabilityInvocation`, and
    `AgentCapabilityApproval` against that physical graph;
-3. cut replacement application callers to only those tables without dual
-   write;
-4. remove every legacy caller/model;
-5. rename only the temporary Prisma symbols to final logical
-   legacy `AgentVersion`, `AgentSession`, and `AgentSessionTask`, retaining the new
-   physical table names; and
-6. drop the old physical Agent OS tables with the repository's approved
+3. cut application callers to only those tables without dual write;
+4. remove every legacy caller/model; and
+5. drop the old physical Agent OS tables with the repository's approved
    `db:push -- --accept-data-loss` path.
 
 Before applying the destructive cutover to the home-server database:

@@ -6,8 +6,10 @@ import { AttemptLiveControlRegistry } from './agent-os/adapter/out/runtime/attem
 import { AgentAttemptExecutorService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service';
 import { AttemptFutureOutputChannel } from './agent-os/adapter/out/runtime/attempt/attempt-future-output-channel';
 import { AgentAttemptRuntimeAdmissionService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-runtime-admission.service';
+import { AgentAttemptReadinessService } from './agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
 import { AttemptMcpBrokerService } from './agent-os/adapter/in/mcp/attempt-mcp-broker.service';
 import { AgentAttemptReconciler } from './agent-os/application/service/work/agent-attempt-reconciler.service';
+import { AgentApiStartupReconciler } from './agent-os/application/service/work/agent-api-startup-reconciler.service';
 import { AgentRuntimeDirectoryReconciler } from './agent-os/application/service/work/agent-runtime-directory-reconciler.service';
 import { AgentLiveMessageService } from './agent-os/application/service/work/agent-live-message.service';
 import { AttemptMcpActionsService } from './agent-os/application/service/work/attempt-mcp-actions.service';
@@ -28,15 +30,17 @@ import { AgentOsSessionModule } from './agent-os/agent-os-session.module';
   imports: [AgentWorkCapabilityApplicationModule, AgentOsSessionModule],
   providers: [
     AgentAttemptProcessRegistry, AttemptFilesystemService, AttemptLiveControlRegistry, AttemptFutureOutputChannel,
+    AgentAttemptReadinessService,
     { provide: ATTEMPT_RUNTIME_CONTROL_PORT, useExisting: AttemptLiveControlRegistry },
-    { provide: AgentAttemptRuntimeAdmissionService, inject: [PrismaService], useFactory: (prisma: PrismaService) => new AgentAttemptRuntimeAdmissionService(prisma) },
-    { provide: AgentRuntimeDirectoryReconciler, inject: [AttemptFilesystemService], useFactory: (files: AttemptFilesystemService) => new AgentRuntimeDirectoryReconciler({ cleanAttempt: (attemptId) => files.cleanAttempt(attemptId) }) },
+    { provide: AgentAttemptRuntimeAdmissionService, inject: [PrismaService, AgentAttemptReadinessService], useFactory: (prisma: PrismaService, readiness: AgentAttemptReadinessService) => new AgentAttemptRuntimeAdmissionService(prisma, readiness) },
+    { provide: AgentRuntimeDirectoryReconciler, inject: [AttemptFilesystemService], useFactory: (files: AttemptFilesystemService) => new AgentRuntimeDirectoryReconciler({ cleanAttempt: (attemptId) => files.cleanAttempt(attemptId), reapMarkedProcess: (attemptId) => files.reapMarkedProcess(attemptId) }) },
     { provide: AgentAttemptReconciler, inject: [PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AgentAttemptProcessRegistry, AgentRuntimeDirectoryReconciler], useFactory: (work: PrismaAgentWorkTransaction, admissions: AgentAttemptAdmissionService, processes: AgentAttemptProcessRegistry, directories: AgentRuntimeDirectoryReconciler) => new AgentAttemptReconciler(work, admissions, processes, directories, currentWorkRuntimeIdentity()) },
+    { provide: AgentApiStartupReconciler, inject: [AgentAttemptReconciler], useFactory: (attempts: AgentAttemptReconciler) => new AgentApiStartupReconciler(attempts) },
     { provide: AgentLiveMessageService, inject: [AttemptLiveControlRegistry, PrismaAgentWorkRepository], useFactory: (controls: AttemptLiveControlRegistry, work: PrismaAgentWorkRepository) => new AgentLiveMessageService({ deliver: async (input) => controls.get(input.attemptId)?.send(input.content) }, work) },
     AgentDelegatedAttemptStarterService,
     { provide: ATTEMPT_MCP_ACTIONS_PORT, inject: [AgentCapabilityInvocationService, AgentTaskDelegationService, PrismaAgentWorkRepository, ATTEMPT_RUNTIME_CONTROL_PORT, AgentDelegatedAttemptStarterService, AgentCapabilityRegistry], useFactory: (invocations: AgentCapabilityInvocationService, delegation: AgentTaskDelegationService, work: PrismaAgentWorkRepository, controls: AttemptRuntimeControlPort, starter: AgentDelegatedAttemptStarterService, capabilities: AgentCapabilityRegistry) => new AttemptMcpActionsService(invocations, delegation, work, controls, starter, capabilities) },
     { provide: AttemptMcpBrokerService, inject: [ATTEMPT_MCP_ACTIONS_PORT], useFactory: (actions: AttemptMcpActionsPort) => new AttemptMcpBrokerService(actions) },
-    { provide: AgentAttemptExecutorService, inject: [AttemptFilesystemService, AgentAttemptProcessRegistry, AttemptLiveControlRegistry, AttemptMcpBrokerService, AgentAttemptRuntimeAdmissionService, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel], useFactory: (files: AttemptFilesystemService, processes: AgentAttemptProcessRegistry, controls: AttemptLiveControlRegistry, broker: AttemptMcpBrokerService, admission: AgentAttemptRuntimeAdmissionService, work: PrismaAgentWorkTransaction, attempts: AgentAttemptAdmissionService, live: AttemptFutureOutputChannel) => new AgentAttemptExecutorService(files, processes, controls, broker, undefined, undefined, admission, { running: async (attemptId) => { await work.transitionAttempt({ attemptId, from: 'starting', to: 'running', at: new Date() }); }, terminal: async (attemptId, status, error, result) => { const data = { attemptId, to: status, at: new Date(), ...(error ? { error } : {}), ...(result ? { result } : {}) }; const transitioned = await work.transitionAttempt({ ...data, from: 'running' }); if (!transitioned.transitioned) await work.transitionAttempt({ ...data, from: 'starting' }); live.finish({ attemptId, outcome: status === 'succeeded' ? 'completed' : 'failed', ...(result?.summary ? { summary: result.summary } : {}) }); }, release: (attemptId) => attempts.releaseAttempt(attemptId) }) },
+    { provide: AgentAttemptExecutorService, inject: [AttemptFilesystemService, AgentAttemptProcessRegistry, AttemptLiveControlRegistry, AttemptMcpBrokerService, AgentAttemptRuntimeAdmissionService, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel], useFactory: (files: AttemptFilesystemService, processes: AgentAttemptProcessRegistry, controls: AttemptLiveControlRegistry, broker: AttemptMcpBrokerService, admission: AgentAttemptRuntimeAdmissionService, work: PrismaAgentWorkTransaction, attempts: AgentAttemptAdmissionService, live: AttemptFutureOutputChannel) => new AgentAttemptExecutorService(files, processes, controls, broker, undefined, undefined, admission, { running: async (attemptId) => { await work.transitionAttempt({ attemptId, from: 'starting', to: 'running', at: new Date() }); }, terminal: async (attemptId, status, error, result) => { const data = { attemptId, to: status, at: new Date(), ...(error ? { error } : {}), ...(result ? { result } : {}) }; const transitioned = await work.transitionAttempt({ ...data, from: 'running' }); if (!transitioned.transitioned) await work.transitionAttempt({ ...data, from: 'starting' }); await work.finalizeTaskFromAttempt({ attemptId, at: new Date() }); live.finish({ attemptId, outcome: status === 'succeeded' ? 'completed' : 'failed', ...(result?.summary ? { summary: result.summary } : {}) }); }, release: (attemptId) => attempts.releaseAttempt(attemptId) }) },
   ],
   exports: [AgentAttemptExecutorService, AttemptMcpBrokerService, AgentAttemptReconciler, AgentLiveMessageService, AttemptFutureOutputChannel],
 })
@@ -44,7 +48,7 @@ export class AgentRuntimeApplicationModule {}
 
 function currentWorkRuntimeIdentity() {
   const applicationVersion = process.env.KIDITEM_APPLICATION_VERSION?.trim();
-  const gitSha = (process.env.KIDITEM_GIT_SHA ?? process.env.GIT_SHA)?.trim();
+  const gitSha = process.env.KIDITEM_GIT_SHA?.trim();
   if (!applicationVersion || !gitSha) throw new Error('missing_required_work_runtime_identity');
   return { applicationVersion, gitSha };
 }

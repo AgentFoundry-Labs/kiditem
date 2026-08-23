@@ -4,13 +4,14 @@ import type {
 } from '../../port/in/mcp/attempt-mcp-actions.port';
 import type { AttemptRuntimeControlPort } from '../../port/out/runtime/attempt-runtime-control.port';
 import type { AgentWorkRepositoryPort } from '../../port/out/work/agent-work-repository.port';
-import { canonicalize, hash } from './agent-capability-invocation.service';
+import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
 import { AgentCapabilityInvocationService } from './agent-capability-invocation.service';
 import { AgentTaskDelegationService } from './agent-task-delegation.service';
 import { AgentDelegatedAttemptStarterService } from './agent-delegated-attempt-starter.service';
 import { AgentCapabilityRegistry } from '../agent-capability-registry.service';
 import { MUTATION_EFFECTS } from '../../../domain/capability/capability-definition';
 import { zodToJsonSchema } from 'zod-to-json-schema';
+import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
 
 /**
  * Application orchestration for the Attempt-local MCP proxy. The incoming
@@ -23,7 +24,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
     private readonly delegation: Pick<AgentTaskDelegationService, 'delegate'>,
     private readonly work: Pick<
       AgentWorkRepositoryPort,
-      'loadAttemptMcpDelegationContext' | 'loadAttemptMcpChild'
+      'loadAttemptMcpDelegationContext' | 'loadAttemptMcpChild' | 'loadAttemptMcpInvocation'
     >,
     private readonly controls: AttemptRuntimeControlPort,
     private readonly starter?: Pick<AgentDelegatedAttemptStarterService, 'start'>,
@@ -48,15 +49,16 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
   ): Promise<unknown> {
     const definition = this.capabilities?.resolveDefinition(input.capabilityKey);
     if (!definition) throw new AgentOsRuntimeError('capability_not_found', 'capability_not_found');
+    const parsedInput = definition.inputSchema.parse(input.input);
     const mutation = definition.effects.some((effect) => MUTATION_EFFECTS.has(effect));
     const defaultScope = input.binding.capabilityKeys.includes(input.capabilityKey);
     if (!defaultScope && mutation) {
       throw new AgentOsRuntimeError('capability_delegation_required', 'capability_delegation_required');
     }
-    const ownerIdempotencyKey = hash({
+    const ownerIdempotencyKey = deriveOwnerIdempotencyKey({
       attemptId: input.binding.attemptId,
       capabilityKey: input.capabilityKey,
-      input: canonicalize(input.input),
+      input: parsedInput,
     });
     return this.invocations.invoke({
       organizationId: input.binding.organizationId,
@@ -69,7 +71,7 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       authorizationKind: defaultScope ? 'agent_default_scope' : 'cross_domain_read_grant',
       authorizationExpiresAt: new Date(Date.now() + 30 * 60 * 1_000),
       ownerIdempotencyKey,
-      input: input.input,
+      input: parsedInput,
     });
   }
 
@@ -95,12 +97,18 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       objective: input.objective,
       completionCriteria: input.objective,
       inputResourceRefs: [],
-      idempotencyKey: `attempt:${input.binding.attemptId}:delegate:${input.targetAgentKey}:${input.objective}`,
+      // Keep content-bearing objectives out of durable idempotency keys.  The
+      // canonical hash still makes an exact retry replay and drift conflict.
+      idempotencyKey: deriveOwnerIdempotencyKey({
+        attemptId: input.binding.attemptId,
+        capabilityKey: `delegation.${input.targetAgentKey}`,
+        input: { objective: input.objective },
+      }),
       input: context.input,
       applicationVersion: context.applicationVersion,
       authorizingGitSha: context.authorizingGitSha,
       cliVersion: context.cliVersion,
-      ...(context.reportedModel ? { reportedModel: context.reportedModel } : {}),
+      reportedModel: targetModel(context),
     });
     if (!delegated.replayed) {
       if (!this.starter) throw new Error('delegated_attempt_starter_unavailable');
@@ -115,9 +123,31 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
         runtime: context.targetRuntimeType,
         capabilityKeys: context.targetCapabilityKeys,
         prompt: input.objective,
+        model: targetModel(context),
+        instructionProfileRef: context.targetInstructionProfileRef,
       });
     }
     return delegated;
+  }
+
+  async invocation(input: Parameters<AttemptMcpActionsPort['invocation']>[0]): Promise<unknown> {
+    const load = () => this.work.loadAttemptMcpInvocation({
+      organizationId: input.binding.organizationId, sessionId: input.binding.sessionId,
+      taskId: input.binding.taskId, attemptId: input.binding.attemptId,
+      requestedByUserId: input.binding.userId, invocationId: input.invocationId,
+    });
+    let invocation = await load();
+    if (!invocation) throw new Error('attempt_mcp_invocation_not_found');
+    const waitExpired = input.action === 'wait' && invocation.attemptStartedAt instanceof Date && Date.now() - invocation.attemptStartedAt.getTime() >= 10 * 60 * 1_000;
+    if (input.action === 'wait' && !waitExpired) {
+      const deadline = Date.now() + 25_000;
+      while (isInvocationPending(invocation.status) && Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        invocation = await load();
+        if (!invocation) throw new Error('attempt_mcp_invocation_not_found');
+      }
+    }
+    return invocationProjection(invocation, waitExpired);
   }
 
   async child(
@@ -165,6 +195,33 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       requestedByUserId: input.binding.userId,
     });
   }
+}
+
+function isInvocationPending(status: string): boolean { return ['authorized', 'approval_pending', 'ready', 'executing'].includes(status); }
+function invocationProjection(invocation: { invocationId: string; status: string; result: unknown | null; error: unknown | null }, waitExpired = false) {
+  const parsed = AgentResultEnvelopeSchema.safeParse(invocation.result);
+  const result = parsed.success ? parsed.data : null;
+  const error = invocation.error && typeof invocation.error === 'object' ? invocation.error as Record<string, unknown> : null;
+  return {
+    invocationId: invocation.invocationId, status: invocation.status, terminal: !isInvocationPending(invocation.status), waitExpired,
+    result: result && {
+      outcome: result.outcome,
+      summary: result.summary,
+      resourceRefs: result.resourceRefs,
+      operationRefs: result.operationRefs,
+      ...(result.needsInput ? { needsInput: result.needsInput } : {}),
+      ...(result.output === undefined ? {} : { output: result.output }),
+      ...(result.error ? { error: result.error } : {}),
+    },
+    error: error && { code: boundedText(error.code, 128), message: boundedText(error.message, 1_000) },
+  };
+}
+function boundedText(value: unknown, maximum: number): string { return typeof value === 'string' ? value.slice(0, maximum) : ''; }
+
+function targetModel(context: { targetAgentKey: string; targetModel?: string | null }): string {
+  const configured = context.targetModel?.trim() || process.env[`AGENT_${context.targetAgentKey.toUpperCase()}_MODEL`]?.trim();
+  if (!configured) throw new Error(`missing_required_configuration:AGENT_${context.targetAgentKey.toUpperCase()}_MODEL`);
+  return configured;
 }
 
 type ChildSnapshot = NonNullable<Awaited<ReturnType<AgentWorkRepositoryPort['loadAttemptMcpChild']>>>;

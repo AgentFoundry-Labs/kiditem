@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { AttemptMcpActionsService } from './attempt-mcp-actions.service';
 import { z } from 'zod';
+import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
 
 const binding = {
   socketPath: '/tmp/attempt.sock', processGroupId: 1,
@@ -15,15 +16,17 @@ function setup() {
   const work = {
     loadAttemptMcpDelegationContext: vi.fn(),
     loadAttemptMcpChild: vi.fn(),
+    loadAttemptMcpInvocation: vi.fn(),
   };
   const controls = { send: vi.fn(), interrupt: vi.fn() };
   const starter = { start: vi.fn() };
+  const definitions = [
+      { key: 'supply.create_purchase_order_draft', ownerDomain: 'supply', description: 'draft', ownerInputPort: 'supply.purchaseOrderDraft', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required', inputSchema: z.object({ productName: z.string(), amount: z.number() }).strict() },
+      { key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', description: 'evidence', ownerInputPort: 'sourcing.workspaceEvidence', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended', inputSchema: z.object({ query: z.string() }).strict() },
+    ];
   const capabilities = {
-    resolveDefinition: vi.fn((key: string) => ({ key, ownerDomain: key.split('.')[0], effects: key.includes('create') ? ['db_write'] : ['read'] })),
-    listDefinitions: vi.fn(() => [
-      { key: 'supply.create_purchase_order_draft', ownerDomain: 'supply', description: 'draft', ownerInputPort: 'supply.purchaseOrderDraft', effects: ['db_write'], approvalRisk: 'low', idempotency: 'required', inputSchema: z.object({}).strict() },
-      { key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', description: 'evidence', ownerInputPort: 'sourcing.workspaceEvidence', effects: ['read'], approvalRisk: 'none', idempotency: 'recommended', inputSchema: z.object({}).strict() },
-    ]),
+    resolveDefinition: vi.fn((key: string) => definitions.find((definition) => definition.key === key)),
+    listDefinitions: vi.fn(() => definitions),
   };
   return {
     service: new AttemptMcpActionsService(
@@ -57,6 +60,19 @@ describe('AttemptMcpActionsService', () => {
       .toBe(invocations.invoke.mock.calls[1][0].ownerIdempotencyKey);
   });
 
+  it('derives the owner key from the strict normalized MCP input, not its raw URL spelling', async () => {
+    const { service, invocations, capabilities } = setup();
+    capabilities.resolveDefinition.mockReturnValueOnce({
+      key: 'sourcing.scrapeUrlWorkflow', ownerDomain: 'sourcing', effects: ['db_write'],
+      inputSchema: z.object({ sourceUrl: z.string().transform((value) => value.split('#')[0]) }).strict(),
+    });
+    await service.invoke({ invocationId: 'scrape', binding: { ...binding, capabilityKeys: ['sourcing.scrapeUrlWorkflow'] }, capabilityKey: 'sourcing.scrapeUrlWorkflow', input: { sourceUrl: 'https://detail.1688.com/offer/1.html#fragment' } });
+    expect(invocations.invoke).toHaveBeenCalledWith(expect.objectContaining({
+      input: { sourceUrl: 'https://detail.1688.com/offer/1.html' },
+      ownerIdempotencyKey: deriveOwnerIdempotencyKey({ attemptId: 'attempt', capabilityKey: 'sourcing.scrapeUrlWorkflow', input: { sourceUrl: 'https://detail.1688.com/offer/1.html' } }),
+    }));
+  });
+
   it('discovers all public capabilities but grants a foreign read only for this exact Attempt/input', async () => {
     const { service, invocations } = setup();
     await expect(service.catalog({ binding, query: 'evidence' })).resolves.toMatchObject([{ key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', effects: ['read'], inputSchema: { type: 'object' } }]);
@@ -66,7 +82,7 @@ describe('AttemptMcpActionsService', () => {
 
   it('requires delegation for a foreign mutation', async () => {
     const { service, capabilities } = setup();
-    capabilities.resolveDefinition.mockReturnValueOnce({ key: 'channels.publish', ownerDomain: 'channels', effects: ['external_write'] });
+    capabilities.resolveDefinition.mockReturnValueOnce({ key: 'channels.publish', ownerDomain: 'channels', effects: ['external_write'], inputSchema: z.object({}).strict() });
     await expect(service.invoke({ invocationId: 'mutate', binding, capabilityKey: 'channels.publish', input: {} })).rejects.toMatchObject({ code: 'capability_delegation_required' });
   });
 
@@ -75,7 +91,7 @@ describe('AttemptMcpActionsService', () => {
     work.loadAttemptMcpDelegationContext.mockResolvedValue({
       input: { objective: 'source' }, applicationVersion: '1.0.0',
       authorizingGitSha: 'a'.repeat(40), cliVersion: '1.0.0',
-      reportedModel: 'model-1', targetAgentVersionId: 'target-version',
+      reportedModel: 'model-1', targetModel: 'target-model', targetAgentVersionId: 'target-version',
       targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: ['supply.create_purchase_order_draft'],
     });
     delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: false });
@@ -84,17 +100,18 @@ describe('AttemptMcpActionsService', () => {
       .resolves.toMatchObject({ childTaskId: 'child' });
     expect(delegation.delegate).toHaveBeenCalledWith(expect.objectContaining({
       targetAgentVersionId: 'target-version', input: { objective: 'source' },
-      idempotencyKey: 'attempt:attempt:delegate:supply:submit',
+      idempotencyKey: deriveOwnerIdempotencyKey({ attemptId: 'attempt', capabilityKey: 'delegation.supply', input: { objective: 'submit' } }),
+      reportedModel: 'target-model',
     }));
     expect(starter.start).toHaveBeenCalledWith(expect.objectContaining({
-      attemptId: 'child-attempt', agentVersionId: 'target-version', agentKey: 'supply', runtime: 'codex_cli',
+      attemptId: 'child-attempt', agentVersionId: 'target-version', agentKey: 'supply', runtime: 'codex_cli', model: 'target-model',
     }));
   });
 
   it('never starts a replayed child Attempt again', async () => {
     const { service, work, delegation, starter } = setup();
     work.loadAttemptMcpDelegationContext.mockResolvedValue({
-      input: {}, applicationVersion: '1', authorizingGitSha: 'a'.repeat(40), cliVersion: '1', reportedModel: null,
+      input: {}, applicationVersion: '1', authorizingGitSha: 'a'.repeat(40), cliVersion: '1', reportedModel: null, targetModel: 'target-model',
       targetAgentVersionId: 'target-version', targetAgentKey: 'supply', targetRuntimeType: 'codex_cli', targetCapabilityKeys: [],
     });
     delegation.delegate.mockResolvedValue({ childTaskId: 'child', firstAttemptId: 'child-attempt', replayed: true });
@@ -117,5 +134,16 @@ describe('AttemptMcpActionsService', () => {
       .resolves.toEqual({ childTaskId: 'child', status: 'open' });
     expect(controls.send).toHaveBeenCalledWith({ attemptId: 'child-attempt', message: 'continue' });
     expect(controls.interrupt).toHaveBeenCalledWith({ attemptId: 'child-attempt' });
+  });
+
+  it('returns the exact persisted approval or worker result only to its owning Attempt', async () => {
+    const { service, work } = setup();
+    work.loadAttemptMcpInvocation.mockResolvedValue({
+      invocationId: '11111111-1111-4111-8111-111111111111', status: 'succeeded', error: null,
+      result: { outcome: 'needs_input', summary: 'Approval completed.', resourceRefs: [{ kind: 'candidate', id: 'candidate-1', version: null }], operationRefs: [], needsInput: { code: 'confirm', prompt: 'Choose one.' }, output: { validationId: 'v1' } },
+    });
+    await expect(service.invocation({ binding, action: 'result', invocationId: '11111111-1111-4111-8111-111111111111' }))
+      .resolves.toMatchObject({ terminal: true, result: { outcome: 'needs_input', needsInput: { code: 'confirm' }, output: { validationId: 'v1' } } });
+    expect(work.loadAttemptMcpInvocation).toHaveBeenCalledWith(expect.objectContaining({ attemptId: 'attempt', invocationId: '11111111-1111-4111-8111-111111111111' }));
   });
 });

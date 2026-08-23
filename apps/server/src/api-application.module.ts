@@ -4,7 +4,6 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { ActivityEventsModule } from './activity-events/activity-events.module';
 import { AdvertisingModule } from './advertising/advertising.module';
-import { AgentOsHttpModule } from './agent-os/agent-os-http.module';
 import { AgentOsInteractionHttpModule } from './agent-os/agent-os-interaction-http.module';
 import { AiModule } from './ai/ai.module';
 import { AnalyticsModule } from './analytics/analytics.module';
@@ -53,7 +52,6 @@ import { UploadsModule } from './uploads/uploads.module';
     AiModule,
     FinanceModule,
     RulesModule,
-    AgentOsHttpModule,
     AgentOsInteractionHttpModule,
     AutomationModule,
     OperationCancellationModule,

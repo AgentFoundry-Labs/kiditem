@@ -1,5 +1,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
+import { readFile, lstat, realpath } from 'node:fs/promises';
+import { resolve, relative, join } from 'node:path';
+import { AgentResultEnvelopeSchema, type AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
 import type { AttemptMcpBinding, AttemptMcpBrokerService } from '../../../in/mcp/attempt-mcp-broker.service';
 import { AttemptFilesystemService, type AttemptFilesystemPaths } from './attempt-filesystem.service';
 import { AgentAttemptProcessRegistry } from './agent-attempt-process-registry';
@@ -16,6 +18,8 @@ type Lifecycle = { running(attemptId: string): Promise<void>; terminal(attemptId
 /** One nonpersistent CLI process per Attempt. Provider output never becomes chat history. */
 export class AgentAttemptExecutorService {
   private readonly finalizers = new Map<string, Promise<void>>();
+  /** Prevent late exit/error callbacks from terminalizing one immutable Attempt twice. */
+  private readonly terminalized = new Set<string>();
   private readonly timeouts = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly paths = new Map<string, AttemptFilesystemPaths>();
 
@@ -30,23 +34,45 @@ export class AgentAttemptExecutorService {
     private readonly lifecycle?: Lifecycle,
   ) {}
 
-  async start(input: { attemptId: string; runtime: 'codex_cli' | 'claude_cli'; profile: AttemptRuntimeProfile; prompt: string; mcp?: Omit<AttemptMcpBinding, 'socketPath' | 'processGroupId'>; }) {
+  async start(input: { attemptId: string; runtime: 'codex_cli' | 'claude_cli'; profile: AttemptRuntimeProfile; prompt: string; instructionProfileRef?: string; mcp?: Omit<AttemptMcpBinding, 'socketPath' | 'processGroupId'>; }) {
     try {
-      rejectUnsafeAttemptInput(input.prompt, input.profile);
+      this.terminalized.delete(input.attemptId);
       if (this.admission) { if (!input.mcp) throw new Error('attempt_mcp_binding_required'); await this.admission.assert(input.mcp, input.runtime); }
       const paths = await this.files.create(input.attemptId);
       this.paths.set(input.attemptId, paths);
-      const command = input.runtime === 'codex_cli' ? buildCodexAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: input.profile }) : buildClaudeAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: input.profile });
+      await this.files.linkProviderAuth(paths, input.runtime, input.profile.loginHome);
+      const isolatedProfile: AttemptRuntimeProfile = {
+        ...input.profile,
+        home: paths.home ?? join(paths.root, 'home'),
+        codexHome: paths.codexHome ?? join(paths.root, 'codex-home'),
+        claudeConfigDir: paths.claudeConfigDir ?? join(paths.root, 'claude-config'),
+      };
+      const prompt = input.instructionProfileRef ? await promptWithInstructionProfile(input.instructionProfileRef, input.prompt) : input.prompt;
+      const command = input.runtime === 'codex_cli' ? buildCodexAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: isolatedProfile }) : buildClaudeAttemptCommand({ workspace: paths.workspace, socketPath: paths.socketPath, mcpConfigPath: paths.mcpConfigPath, profile: isolatedProfile });
       const child = this.spawnProcess(command.bin, command.args, { cwd: command.cwd, env: command.env, shell: false, detached: true, stdio: ['pipe', 'pipe', 'pipe'] });
       if (!child.pid) throw new Error('attempt_process_pid_missing');
       this.processes.register(input.attemptId, child);
-      await this.lifecycle?.running(input.attemptId);
+      // Always drain provider diagnostics so a noisy CLI cannot fill stderr
+      // and deadlock the owned Attempt. Diagnostics are intentionally neither
+      // stored nor returned to the model.
+      child.stderr.on('data', () => undefined);
+      if (typeof child.stderr.resume === 'function') child.stderr.resume();
+      // Install terminal listeners before any awaited lifecycle/broker work: a
+      // fast child must not become an orphaned starting Attempt.
       child.once('error', () => { void this.complete(input.attemptId, 'runtime_error'); });
       child.once('exit', (code) => { void this.complete(input.attemptId, code === 0 ? 'success' : 'nonzero_exit'); });
+      // The marker is written after terminal listeners are installed: a child
+      // that exits while `/proc` identity is captured still has exactly one
+      // durable finalizer. A marker failure enters the catch/finalizer path.
+      await this.files.markProcess?.(paths, input.attemptId, child.pid);
+      if (this.terminalized.has(input.attemptId)) return { child, paths };
+      await this.lifecycle?.running(input.attemptId);
+      if (this.terminalized.has(input.attemptId)) return { child, paths };
       if (!input.mcp) throw new Error('attempt_mcp_binding_required');
       await this.broker?.listen({ ...input.mcp, socketPath: paths.socketPath, processGroupId: child.pid });
-      if (input.runtime === 'codex_cli') this.startCodex(input, child as ChildProcessWithoutNullStreams, paths);
-      else this.startClaude(input, child as ChildProcessWithoutNullStreams);
+      if (this.terminalized.has(input.attemptId)) return { child, paths };
+      if (input.runtime === 'codex_cli') this.startCodex({ ...input, profile: isolatedProfile, prompt }, child as ChildProcessWithoutNullStreams, paths);
+      else this.startClaude({ ...input, prompt }, child as ChildProcessWithoutNullStreams);
       this.timeouts.set(input.attemptId, setTimeout(() => { void this.complete(input.attemptId, 'timeout'); }, this.maxElapsedMs));
       return { child, paths };
     } catch (error) { await this.complete(input.attemptId, 'runtime_error'); throw error; }
@@ -64,7 +90,12 @@ export class AgentAttemptExecutorService {
     const session = new CodexAppServerSession((line) => child.stdin.write(line), 64 * 1024, (method, params) => {
       if (method !== 'turn/completed') return;
       const status = ((params as { turn?: { status?: unknown } } | null)?.turn?.status);
-      void this.complete(input.attemptId, status === 'completed' || status === 'succeeded' ? 'protocol_success' : 'runtime_error', codexTerminalSummary(params));
+      const result = codexTerminalResult(params);
+      void this.complete(
+        input.attemptId,
+        status === 'completed' || status === 'succeeded' ? 'protocol_success' : 'runtime_error',
+        result,
+      );
     });
     child.stdout.on('data', (chunk) => { try { session.receive(String(chunk)); } catch { void this.complete(input.attemptId, 'runtime_error'); } });
     this.controls.register(input.attemptId, { send: (message) => session.steer(message), interrupt: async () => { await session.interrupt(); await this.complete(input.attemptId, 'interrupted'); } });
@@ -78,7 +109,7 @@ export class AgentAttemptExecutorService {
       while (buffer.includes('\n')) {
         const index = buffer.indexOf('\n'); const line = buffer.slice(0, index); buffer = buffer.slice(index + 1);
         const terminal = claudeTerminal(line);
-        if (terminal) void this.complete(input.attemptId, terminal.reason, terminal.summary);
+        if (terminal) void this.complete(input.attemptId, terminal.reason, terminal.result);
       }
       if (Buffer.byteLength(buffer, 'utf8') > 64 * 1024) void this.complete(input.attemptId, 'runtime_error');
     });
@@ -86,44 +117,94 @@ export class AgentAttemptExecutorService {
     child.stdin.write(claudeUserEnvelope(input.prompt));
   }
 
-  private complete(attemptId: string, reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted', summary?: string): Promise<void> {
+  private complete(attemptId: string, reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted', providerResult?: AgentResultEnvelope | null): Promise<void> {
     const existing = this.finalizers.get(attemptId); if (existing) return existing;
+    if (this.terminalized.has(attemptId)) return Promise.resolve();
+    this.terminalized.add(attemptId);
+    if (this.terminalized.size > 1_024) this.terminalized.delete(this.terminalized.values().next().value as string);
     const finalizer = (async () => {
       const paths = this.paths.get(attemptId); const timeout = this.timeouts.get(attemptId);
       if (timeout) clearTimeout(timeout); this.timeouts.delete(attemptId);
-      if (reason !== 'success' && reason !== 'nonzero_exit') await this.processes.terminate(attemptId); else this.processes.remove(attemptId);
+      // A provider-declared terminal result owns an app-server process group.
+      // Tear down that exact group rather than leaving provider state alive.
+      // Exit/error callbacks have already observed their process end.
+      if (reason === 'success' || reason === 'nonzero_exit') this.processes.remove(attemptId);
+      else await this.processes.terminate(attemptId);
       this.controls.remove(attemptId);
       if (paths) { await this.broker?.close(paths.socketPath); await this.files.remove(paths); }
       this.paths.delete(attemptId);
-      const terminal = terminalOutcome(reason, summary);
+      const terminal = terminalOutcome(reason, providerResult);
       try {
         await this.lifecycle?.terminal(attemptId, terminal.status, terminal.error, terminal.result);
       } finally {
         this.lifecycle?.release(attemptId);
       }
     })();
-    this.finalizers.set(attemptId, finalizer); return finalizer;
+    this.finalizers.set(attemptId, finalizer);
+    void finalizer.finally(() => this.finalizers.delete(attemptId)).catch(() => undefined);
+    return finalizer;
   }
 }
 
-function terminalOutcome(reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted', summary?: string): { status: TerminalStatus; error?: TerminalError; result: AgentResultEnvelope } {
-  if (reason === 'success' || reason === 'protocol_success') return { status: 'succeeded', result: { outcome: 'completed', summary: boundedSummary(summary, 'Local CLI Attempt completed.'), resourceRefs: [], operationRefs: [] } };
+async function promptWithInstructionProfile(reference: string, prompt: string): Promise<string> {
+  const filename = await resolveInstructionProfilePath(reference);
+  const profile = await readFile(filename, 'utf8');
+  if (!profile.trim() || Buffer.byteLength(profile, 'utf8') > 12_000) throw new Error('attempt_instruction_profile_invalid');
+  return `${profile.trim()}\n\n# Current durable work\n${prompt}`.slice(0, 24_000);
+}
+
+/** Resolves image `/app/apps/server` and local-repository roots without CWD trust. */
+export async function resolveInstructionProfilePath(reference: string, cwd = process.cwd()): Promise<string> {
+  if (!/^agent-config\/prompts\/agents\/[a-z_]+\.md$/.test(reference)) throw new Error('attempt_instruction_profile_invalid');
+  for (const root of [resolve(cwd), resolve(cwd, '../..')]) {
+    const filename = resolve(root, reference);
+    if (relative(root, filename).startsWith('..')) continue;
+    const info = await lstat(filename).catch(() => null);
+    if (!info) continue;
+    if (info.isSymbolicLink() || !info.isFile()) throw new Error('attempt_instruction_profile_invalid');
+    const realRoot = await realpath(root).catch(() => null);
+    const realFile = await realpath(filename).catch(() => null);
+    if (!realRoot || !realFile || relative(realRoot, realFile).startsWith('..')) throw new Error('attempt_instruction_profile_invalid');
+    return realFile;
+  }
+  throw new Error('attempt_instruction_profile_missing');
+}
+
+function terminalOutcome(reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted', providerResult?: AgentResultEnvelope | null): { status: TerminalStatus; error?: TerminalError; result?: AgentResultEnvelope } {
+  if (reason === 'protocol_success' && providerResult) {
+    const parsed = AgentResultEnvelopeSchema.safeParse(providerResult);
+    if (parsed.success) return { status: parsed.data.outcome === 'failed' ? 'failed' : 'succeeded', result: parsed.data, error: parsed.data.error };
+  }
+  if (reason === 'success' || reason === 'protocol_success') {
+    const error = { code: 'attempt_result_invalid', message: 'Local CLI completed without a valid durable result.' };
+    return { status: 'failed', error };
+  }
   const error: TerminalError = reason === 'nonzero_exit' ? { code: 'attempt_exit_nonzero', message: 'Local CLI exited with a non-zero status.' } : reason === 'timeout' ? { code: 'attempt_timeout', message: 'Local CLI Attempt exceeded its time limit.' } : reason === 'interrupted' ? { code: 'attempt_interrupted', message: 'Local CLI Attempt was interrupted.' } : { code: 'attempt_runtime_error', message: 'Local CLI Attempt failed before producing a durable result.' };
-  return { status: reason === 'nonzero_exit' || reason === 'runtime_error' ? 'failed' : 'process_interrupted', error, result: { outcome: 'failed', summary: error.message, resourceRefs: [], operationRefs: [], error } };
+  return { status: reason === 'nonzero_exit' || reason === 'runtime_error' ? 'failed' : 'process_interrupted', error };
 }
 function claudeUserEnvelope(message: string): string { return `${JSON.stringify({ type: 'user', message: { role: 'user', content: message } })}\n`; }
-function claudeTerminal(line: string): { reason: 'protocol_success' | 'runtime_error'; summary?: string } | null { try { const value = JSON.parse(line) as { type?: string; subtype?: string; is_error?: boolean; result?: unknown }; if (value.type !== 'result') return null; return { reason: value.is_error === true || value.subtype === 'error' ? 'runtime_error' : 'protocol_success', summary: typeof value.result === 'string' ? value.result : undefined }; } catch { return null; } }
-function codexTerminalSummary(params: unknown): string | undefined {
+function claudeTerminal(line: string): { reason: 'protocol_success' | 'runtime_error'; result?: AgentResultEnvelope | null } | null {
+  try {
+    const value = JSON.parse(line) as { type?: string; subtype?: string; is_error?: boolean; structured_output?: unknown };
+    if (value.type !== 'result') return null;
+    return {
+      reason: value.is_error === true || value.subtype === 'error' ? 'runtime_error' : 'protocol_success',
+      result: parseProviderResult(value.structured_output),
+    };
+  } catch { return null; }
+}
+function codexTerminalResult(params: unknown): AgentResultEnvelope | null {
   const items = (params as { turn?: { items?: unknown[] } } | null)?.turn?.items;
-  if (!Array.isArray(items)) return undefined;
+  if (!Array.isArray(items)) return null;
   for (const item of [...items].reverse()) {
     const text = (item as { type?: unknown; text?: unknown; content?: unknown }).text ?? (item as { content?: unknown }).content;
-    if ((item as { type?: unknown }).type === 'agentMessage' && typeof text === 'string') return text;
+    if ((item as { type?: unknown }).type === 'agentMessage') return parseProviderResult(text);
   }
-  return undefined;
+  return null;
 }
-function boundedSummary(value: string | undefined, fallback: string): string { const normalized = value?.trim(); return normalized ? normalized.slice(0, 8_192) : fallback; }
-function rejectUnsafeAttemptInput(prompt: string, profile: AttemptRuntimeProfile): void {
-  const values = [prompt, ...profile.settings ?? []].join('\n'); const forbiddenMcpContext = ['KIDITEM', 'MCP', 'EXECUTION', 'CONTEXT'].join('_');
-  if (new RegExp(`--(?:resume|session|budget)|${forbiddenMcpContext}|DATABASE_URL|NEST_|HMAC|credential|provider-history`, 'i').test(values)) throw new Error('attempt_runtime_input_forbidden');
+function parseProviderResult(value: unknown): AgentResultEnvelope | null {
+  const json = typeof value === 'string' ? parseJson(value) : value;
+  const parsed = AgentResultEnvelopeSchema.safeParse(json);
+  return parsed.success ? parsed.data : null;
 }
+function parseJson(value: string): unknown { try { return JSON.parse(value); } catch { return undefined; } }

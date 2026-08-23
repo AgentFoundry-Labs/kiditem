@@ -12,9 +12,9 @@ export class AgentAttemptProcessRegistry {
   async terminate(attemptId: string, timeoutMs = 5_000): Promise<void> {
     const child = this.processes.get(attemptId);
     if (!child) return;
-    if (child.exitCode === null) this.signalGroup(child.pid, 'SIGTERM');
+    if (isLive(child)) this.signalGroup(child.pid, 'SIGTERM');
     await waitForExit(child, timeoutMs);
-    if (child.exitCode === null) {
+    if (isLive(child)) {
       this.signalGroup(child.pid, 'SIGKILL');
       await waitForExit(child, timeoutMs);
     }
@@ -40,8 +40,12 @@ export class AgentAttemptProcessRegistry {
   }
 }
 
+function isLive(child: ChildProcessWithoutNullStreams): boolean {
+  return child.exitCode === null && (child.signalCode === null || child.signalCode === undefined);
+}
+
 function waitForExit(child: ChildProcessWithoutNullStreams, timeoutMs: number): Promise<void> {
-  if (child.exitCode !== null) return Promise.resolve();
+  if (!isLive(child)) return Promise.resolve();
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, timeoutMs);
     child.once('exit', () => { clearTimeout(timer); resolve(); });

@@ -32,9 +32,12 @@ import { AgentWorkPollerService } from './agent-os/application/service/work/agen
 })
 export class AgentWorkerApplicationModule {}
 
-function currentWorkRuntimeIdentity() {
+export function currentWorkRuntimeIdentity() {
+  const applicationVersion = process.env.KIDITEM_APPLICATION_VERSION?.trim();
+  const gitSha = process.env.KIDITEM_GIT_SHA?.trim();
+  if (!applicationVersion || !gitSha) throw new Error('missing_required_work_runtime_identity');
   return {
-    applicationVersion: process.env.KIDITEM_APPLICATION_VERSION ?? '0.1.30',
-    gitSha: process.env.KIDITEM_GIT_SHA ?? process.env.GIT_SHA ?? 'unknown',
+    applicationVersion,
+    gitSha,
   };
 }

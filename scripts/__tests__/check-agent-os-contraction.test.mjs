@@ -98,7 +98,7 @@ test("keeps final names, final page, grants, policy, and in-memory handles clean
       {
         path: "prisma/models/agent-work.prisma",
         source:
-          "model AgentVersion {} model AgentSession {} model AgentSessionTask {} model AgentAttempt {} model AgentCapabilityInvocation {} model AgentCapabilityApproval {}",
+          "model AgentVersion {} model AgentSession {} model AgentTask {} model AgentAttempt {} model AgentCapabilityInvocation {} model AgentCapabilityApproval {}",
       },
     ]),
     [],
@@ -137,6 +137,14 @@ test("reports each legacy Prisma model family independently", () => {
       `${model} must report ${category}`,
     );
   }
+});
+
+test("rejects temporary and legacy task model names from production contracts", () => {
+  const findings = collectAgentOsContractionFindings([
+    { path: "prisma/models/agents.prisma", source: "model AgentSessionTask { id String @id }" },
+    { path: "packages/shared/src/identifiers/index.ts", source: "export type AgentWorkTaskId = string;" },
+  ]);
+  assert.ok(findings.some((finding) => finding.includes("legacy task model/name")));
 });
 
 test("reports targeted legacy source and configuration tokens", () => {

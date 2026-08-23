@@ -9,165 +9,58 @@ describe('ReadinessService', () => {
     vi.useRealTimers();
   });
 
-  it('reports Agent OS live automation readiness without exposing secrets', async () => {
-    const originalEnv = { ...process.env };
-    process.env.OPENAI_API_KEY = 'sk-test-secret';
-    process.env.AGENT_OS_OPENAI_RESPONSES_MODEL = 'gpt-test';
-    delete process.env.AGENT_OS_1688_CHECKOUT_RUNTIME;
-
+  it('resolves all six published AgentVersions with their explicit model and deduplicates runtime/model probes', async () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      KIDITEM_APPLICATION_VERSION: '3.4.5',
+      KIDITEM_GIT_SHA: 'abc123',
+      AGENT_OPERATOR_MODEL: 'claude-operator',
+      AGENT_SOURCING_MODEL: 'gpt-sourcing',
+      AGENT_MERCHANDISING_MODEL: 'claude-shared',
+      AGENT_SUPPLY_MODEL: 'claude-shared',
+      AGENT_CHANNEL_OPERATIONS_MODEL: 'claude-channel',
+      AGENT_ADVERTISING_MODEL: 'claude-advertising',
+      OPENAI_API_KEY: 'must-never-be-passed',
+    };
+    const assertRuntime = vi.fn(async () => undefined);
     const prisma = {
-      channelAccount: {
-        findFirst: vi.fn(async () => ({
-          vendorId: 'vendor-1',
-          externalAccountId: null,
-          config: {
-            coupangCredentials: {
-              accessKey: {
-                version: 1,
-                algorithm: 'aes-256-gcm',
-                iv: 'iv',
-                ciphertext: 'access-secret',
-                tag: 'tag',
-              },
-              secretKey: {
-                version: 1,
-                algorithm: 'aes-256-gcm',
-                iv: 'iv',
-                ciphertext: 'secret-secret',
-                tag: 'tag',
-              },
-            },
-          },
-        })),
+      agentVersion: {
+        findMany: vi.fn(async () => [
+          { agentDefinitionKey: 'operator', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli' },
+          { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'supply', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'channel_operations', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'advertising', runtimeType: 'claude_cli' },
+        ]),
       },
     };
 
     try {
-      const service = new ReadinessService(prisma as never);
-      const status = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
-
-      expect(status.allReady).toBe(false);
-      expect(status.checks).toEqual([
-        expect.objectContaining({
-          key: 'openai_responses_operator',
-          status: 'ready',
-          requiredFor: ['operator_runtime'],
-        }),
-        expect.objectContaining({
-          key: 'coupang_seller_product_api',
-          status: 'ready',
-          requiredFor: ['channels.submit_coupang_listing'],
-        }),
-        expect.objectContaining({
-          key: 'alibaba_1688_checkout_runtime',
-          status: 'missing',
-          requiredFor: [
-            'supply.submit_purchase_order',
-            'supply.submit_purchase_order_live_checkout',
-          ],
-        }),
+      const result = await new ReadinessService(prisma as never, { assertRuntime } as never).getAgentAttemptRuntimeReadiness();
+      expect(result).toEqual([
+        { agentDefinitionKey: 'operator', runtimeType: 'claude_cli', model: 'claude-operator' },
+        { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli', model: 'gpt-sourcing' },
+        { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli', model: 'claude-shared' },
+        { agentDefinitionKey: 'supply', runtimeType: 'claude_cli', model: 'claude-shared' },
+        { agentDefinitionKey: 'channel_operations', runtimeType: 'claude_cli', model: 'claude-channel' },
+        { agentDefinitionKey: 'advertising', runtimeType: 'claude_cli', model: 'claude-advertising' },
       ]);
-      expect(JSON.stringify(status)).not.toContain('sk-test-secret');
-      expect(JSON.stringify(status)).not.toContain('access-secret');
-      expect(JSON.stringify(status)).not.toContain('secret-secret');
+      expect(assertRuntime).toHaveBeenCalledTimes(5);
+      expect(assertRuntime).toHaveBeenCalledWith('claude_cli', 'claude-shared', '3.4.5:abc123');
+      expect(JSON.stringify(assertRuntime.mock.calls)).not.toContain('must-never-be-passed');
     } finally {
       process.env = originalEnv;
     }
   });
 
-  it('reports missing Agent OS live automation prerequisites', async () => {
-    const originalEnv = { ...process.env };
-    delete process.env.OPENAI_API_KEY;
-    delete process.env.AGENT_OS_OPENAI_RESPONSES_MODEL;
-    delete process.env.AGENT_OS_1688_CHECKOUT_RUNTIME;
-
-    const prisma = {
-      channelAccount: {
-        findFirst: vi.fn(async () => null),
-      },
-    };
-
+  it('rejects a published AgentVersion with no dedicated runtime model', async () => {
+    const originalEnv = process.env;
+    process.env = { ...originalEnv, KIDITEM_APPLICATION_VERSION: '3.4.5', KIDITEM_GIT_SHA: 'abc123' };
+    const prisma = { agentVersion: { findMany: vi.fn(async () => [{ agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli' }]) } };
     try {
-      const service = new ReadinessService(prisma as never);
-      const status = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
-
-      expect(status.allReady).toBe(false);
-      expect(status.checks.map((check) => [check.key, check.status])).toEqual([
-        ['openai_responses_operator', 'missing'],
-        ['coupang_seller_product_api', 'missing'],
-        ['alibaba_1688_checkout_runtime', 'missing'],
-      ]);
-      expect(status.blockedCapabilities).toEqual([
-        'operator_runtime',
-        'channels.submit_coupang_listing',
-        'supply.submit_purchase_order',
-        'supply.submit_purchase_order_live_checkout',
-      ]);
-    } finally {
-      process.env = originalEnv;
-    }
-  });
-
-  it('requires a provider endpoint before marking 1688 checkout runtime ready', async () => {
-    const originalEnv = { ...process.env };
-    process.env.OPENAI_API_KEY = 'sk-test';
-    process.env.AGENT_OS_OPENAI_RESPONSES_MODEL = 'gpt-test';
-    process.env.AGENT_OS_1688_CHECKOUT_RUNTIME = 'provider';
-    delete process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL;
-
-    const prisma = {
-      channelAccount: {
-        findFirst: vi.fn(async () => ({
-          vendorId: 'vendor-1',
-          externalAccountId: null,
-          config: {
-            coupangCredentials: {
-              accessKey: {
-                version: 1,
-                algorithm: 'aes-256-gcm',
-                iv: 'iv',
-                ciphertext: 'access-secret',
-                tag: 'tag',
-              },
-              secretKey: {
-                version: 1,
-                algorithm: 'aes-256-gcm',
-                iv: 'iv',
-                ciphertext: 'secret-secret',
-                tag: 'tag',
-              },
-            },
-          },
-        })),
-      },
-    };
-
-    try {
-      const service = new ReadinessService(prisma as never);
-      const missingEndpoint = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
-      expect(
-        missingEndpoint.checks.find(
-          (check) => check.key === 'alibaba_1688_checkout_runtime',
-        ),
-      ).toMatchObject({
-        status: 'missing',
-        detail: expect.stringContaining('AGENT_OS_1688_CHECKOUT_PROVIDER_URL'),
-      });
-
-      process.env.AGENT_OS_1688_CHECKOUT_PROVIDER_URL =
-        'https://checkout.example.test/1688/orders';
-      const ready = await service.getAgentOsLiveStatus(ORGANIZATION_ID);
-      expect(
-        ready.checks.find(
-          (check) => check.key === 'alibaba_1688_checkout_runtime',
-        ),
-      ).toMatchObject({
-        status: 'ready',
-        requiredFor: [
-          'supply.submit_purchase_order',
-          'supply.submit_purchase_order_live_checkout',
-        ],
-      });
+      await expect(new ReadinessService(prisma as never, { assertRuntime: vi.fn() } as never).getAgentAttemptRuntimeReadiness()).rejects.toThrow('missing_runtime_model:sourcing');
     } finally {
       process.env = originalEnv;
     }

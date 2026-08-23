@@ -24,6 +24,12 @@ export interface AttemptMcpActionsPort {
     capabilityKey: string;
     input: Record<string, unknown>;
   }): Promise<unknown>;
+  /** Bounded durable result lookup for a live Attempt awaiting HITL/worker work. */
+  invocation(input: {
+    binding: AttemptMcpBinding;
+    action: 'status' | 'wait' | 'result';
+    invocationId: string;
+  }): Promise<unknown>;
   delegate(input: {
     binding: AttemptMcpBinding;
     targetAgentKey: string;
