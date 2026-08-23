@@ -6,10 +6,7 @@ const RETIRED_LIFECYCLE_IDENTIFIERS = [
   'operation_worker_shutdown',
 ] as const;
 
-const ROOT_MODULES = [
-  'agent-worker-application.module.ts',
-  'agent-mcp-application.module.ts',
-] as const;
+const ROOT_MODULES = ['agent-mcp-application.module.ts'] as const;
 
 function productionTypeScriptFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {

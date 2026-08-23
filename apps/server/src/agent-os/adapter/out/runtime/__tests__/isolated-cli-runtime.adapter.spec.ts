@@ -188,6 +188,7 @@ describe("isolated CLI durable runtime", () => {
         PATH: "/bin",
         LANG: "ko_KR.UTF-8",
         HOME: "/operator",
+        USER: "service-account",
         DATABASE_URL: "postgres://secret",
         AWS_SECRET_ACCESS_KEY: "cloud-secret",
         OPENAI_API_KEY: "model-secret",
@@ -208,6 +209,7 @@ describe("isolated CLI durable runtime", () => {
       }),
     );
     const childEnv = vi.mocked(cli.start).mock.calls[0][0].env;
+    expect(childEnv).toHaveProperty("USER", "service-account");
     expect(childEnv).not.toHaveProperty("DATABASE_URL");
     expect(childEnv).not.toHaveProperty("AWS_SECRET_ACCESS_KEY");
     expect(childEnv).not.toHaveProperty("OPENAI_API_KEY");

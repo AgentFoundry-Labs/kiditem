@@ -21,7 +21,7 @@ import { AgentLocalCliRuntimeAdapter } from './agent-local-cli-runtime.adapter';
  * `runtime_not_configured` and the operator sees a clear deployment gap.
  *
  * Worker default — `AgentRunWorker` is still opt-in
- * (`AGENT_RUNTIME_WORKER_ENABLED=1`). Once enabled, agent types with a
+ * (the retired generic AgentRun worker). Agent types with a
  * handler succeed; agent types without a handler still fail-fast quickly
  * rather than piling up. That trade-off is owner-domain managed: each
  * domain registers a handler when it is ready to serve traffic.

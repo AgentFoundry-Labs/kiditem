@@ -19,6 +19,7 @@ import { AgentOsCapabilityModule } from "../agent-os-capability.module";
 import { AgentOsLegacyRunModule } from "../agent-os-legacy-run.module";
 import { AgentOsRuntimeSupportModule } from "../agent-os-runtime-support.module";
 import { AgentOsWorkerModule } from "../agent-os-worker.module";
+import { OperationsWorkerModule } from '../../operations/operations.module';
 import { AgentOsModule } from "../agent-os.module";
 import { StorageAgentSessionArtifactAdapter } from "../adapter/out/storage/storage-agent-session-artifact.adapter";
 import { OperationDefinitionSnapshotAdapter } from "../adapter/out/operation/operation-definition-snapshot.adapter";
@@ -370,7 +371,7 @@ describe("Agent OS artifact materialization composition", () => {
   });
 
   it("keeps the worker wrapper confined to legacy generic-run composition", () => {
-    expect(imports(AgentOsWorkerModule)).toEqual([AgentOsLegacyRunModule]);
+    expect(imports(AgentOsWorkerModule)).toEqual([OperationsWorkerModule]);
     expect(providers(AgentOsWorkerModule)).toEqual([]);
     expect(imports(AgentOsWorkerModule)).not.toContain(
       AgentOsApiExecutionModule,

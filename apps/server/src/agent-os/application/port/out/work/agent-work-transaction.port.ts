@@ -124,8 +124,6 @@ export interface ApprovalExpiryInput {
   expiredAt: Date;
 }
 export interface MutationClaimInput {
-  organizationId: string;
-  invocationId: string;
   workerId: string;
   claimedAt: Date;
   leaseExpiresAt: Date;
@@ -167,10 +165,13 @@ export interface MutationFinalizeInput {
   finishedAt: Date;
 }
 export interface ReconciliationInput {
-  organizationId: string;
   applicationVersion: string;
   authorizingGitSha: string;
   now: Date;
+}
+export interface ReconciliationResult {
+  reconciled: number;
+  attemptIds: string[];
 }
 export interface TerminalSessionDeleteInput {
   organizationId: string;
@@ -203,7 +204,7 @@ export interface AgentWorkTransactionPort {
     input: MutationClaimInput,
   ): Promise<MutationWorkSnapshot | null>;
   finalizeMutation(input: MutationFinalizeInput): Promise<{ won: boolean }>;
-  reconcile(input: ReconciliationInput): Promise<{ reconciled: number }>;
+  reconcile(input: ReconciliationInput): Promise<ReconciliationResult>;
   transitionTask(
     input: TaskLifecycleTransitionInput,
   ): Promise<{ status: string }>;

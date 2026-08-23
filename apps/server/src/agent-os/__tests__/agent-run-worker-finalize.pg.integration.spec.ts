@@ -93,7 +93,6 @@ beforeAll(async () => {
   // Disable the timer; we drive `tick()` directly. (The default is also
   // disabled now — review #1 — but keep the explicit override so the spec
   // still works if a developer flips on the env var locally.)
-  process.env.AGENT_RUNTIME_WORKER_ENABLED = '0';
   worker = new AgentRunWorker(executor);
 });
 

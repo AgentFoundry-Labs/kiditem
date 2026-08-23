@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { join, relative, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 
@@ -53,5 +53,23 @@ export class AttemptFilesystemService {
     if (!info) return;
     if (info.isSymbolicLink()) throw new Error('attempt_filesystem_symlink_rejected');
     await rm(target, { recursive: true, force: true, maxRetries: 2 });
+  }
+
+  /** Removes only UUID-prefixed non-symlink attempt directories below this root. */
+  async cleanAttempt(attemptId: string): Promise<void> {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(attemptId)) {
+      throw new Error('attempt_filesystem_id_invalid');
+    }
+    const root = resolve(this.root);
+    const rootInfo = await lstat(root).catch(() => null);
+    if (!rootInfo) return;
+    if (rootInfo.isSymbolicLink() || !rootInfo.isDirectory()) throw new Error('attempt_filesystem_scope_invalid');
+    const prefix = `${attemptId}-`;
+    const entries = await readdir(root, { withFileTypes: true });
+    await Promise.all(entries
+      .filter((entry) => entry.name.startsWith(prefix) && entry.isDirectory())
+      .map((entry) => this.remove({
+        root: join(root, entry.name), workspace: '', broker: '', socketPath: '', mcpConfigPath: '',
+      })));
   }
 }

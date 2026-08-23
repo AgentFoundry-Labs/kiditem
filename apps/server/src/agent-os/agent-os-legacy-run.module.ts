@@ -29,7 +29,6 @@ import { AgentPlanValidator } from "./application/service/agent-plan-validator.s
 import { AgentRunCoordinator } from "./application/service/agent-run-coordinator.service";
 import { AgentRunExecutor } from "./application/service/agent-run-executor.service";
 import { AgentRunGraphService } from "./application/service/agent-run-graph.service";
-import { AgentRunWorker } from "./application/service/agent-run-worker.service";
 import { AgentRuntimeHandlerRegistry } from "./application/service/agent-runtime-handler-registry.service";
 import { AgentTaskDelegationService } from "./application/service/agent-task-delegation.service";
 import { AgentToolRouter } from "./application/service/agent-tool-router.service";
@@ -60,7 +59,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,
-    AgentRunWorker,
     AgentRuntimeHandlerRegistry,
     AgentTaskDelegationService,
     AgentToolRouter,
@@ -94,7 +92,6 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     },
   ],
   exports: [
-    AgentRunWorker,
     AgentRunCoordinator,
     AgentRunExecutor,
     AgentRunGraphService,

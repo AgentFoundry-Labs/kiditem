@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { OperationsModule } from "../operations/operations.module";
+import { AgentRuntimeApplicationModule } from "../agent-runtime-application.module";
 import { AgentCatalogController } from "./adapter/in/http/catalog/agent-catalog.controller";
 import { AgentApprovalsController } from "./adapter/in/http/legacy-run/agent-approvals.controller";
 import { AgentConversationsController } from "./adapter/in/http/legacy-run/agent-conversations.controller";
@@ -34,6 +35,8 @@ import { AgentCatalogService } from "./application/service/agent-catalog.service
 import { AgentAguiRuntimeRegistry } from "./application/service/agent-agui-runtime-registry.service";
 import { AgentAguiInProcessRunRegistry } from "./application/service/agent-agui-in-process-run-registry.service";
 import { AgentInlineRunReconciler } from "./application/service/agent-inline-run-reconciler.service";
+import { AgentApiStartupReconciler } from './application/service/work/agent-api-startup-reconciler.service';
+import { AgentAttemptReconciler } from './application/service/work/agent-attempt-reconciler.service';
 import { AgentInteractionPresentationService } from "./application/service/agent-interaction-presentation.service";
 import { AgentInteractionAuthorizationService } from "./application/service/interaction/agent-interaction-authorization.service";
 import { AgentInteractionBootstrapService } from "./application/service/interaction/agent-interaction-bootstrap.service";
@@ -61,6 +64,7 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
     AgentOsRuntimeSupportModule,
     OperationsModule,
     AgentOsApiExecutionModule,
+    AgentRuntimeApplicationModule,
   ],
   controllers: [
     AgentCatalogController,
@@ -77,6 +81,11 @@ import { AgentOsRuntimeSupportModule } from "./agent-os-runtime-support.module";
   providers: [
     { provide: INTERACTION_CLOCK, useValue: (): Date => new Date() },
     AgentInlineRunReconciler,
+    {
+      provide: AgentApiStartupReconciler,
+      inject: [AgentAttemptReconciler],
+      useFactory: (attempts: AgentAttemptReconciler) => new AgentApiStartupReconciler(attempts),
+    },
     AgentInteractionAuthorizationService,
     AgentInteractionBootstrapService,
     InteractionAllowedVersionResolver,

@@ -48,4 +48,9 @@ describe('agent-os -> automation boundary', () => {
       `Agent OS may call automation only through AutomationModule or incoming ports:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
+
+  it('keeps Automation and Operations deterministic by forbidding Agent Attempt admission imports', () => {
+    const hits = rg('--type ts -n \'AgentAttempt(?:Admission|Executor|ProcessRegistry)|admitRootAttempt|admitAttempt\' apps/server/src/automation apps/server/src/operations');
+    expect(hits, `Deterministic Automation/Operations must not create Agent Attempts:\n${hits.join('\n')}`).toEqual([]);
+  });
 });

@@ -88,16 +88,7 @@ export class AgentCapabilityInvocationService {
       effects: definition.effects,
       approvalRisk: definition.approvalRisk,
       idempotencyRequirement: definition.idempotency,
-      capabilityContractFingerprint: hash({
-        key: definition.key,
-        ownerDomain: definition.ownerDomain,
-        effects: definition.effects,
-        approvalRisk: definition.approvalRisk,
-        idempotency: definition.idempotency,
-        ownerInputPort: definition.ownerInputPort,
-        inputSchema: zodToJsonSchema(definition.inputSchema as never),
-        outputSchema: zodToJsonSchema(definition.outputSchema as never),
-      }),
+      capabilityContractFingerprint: capabilityContractFingerprint(definition),
       canonicalInput: mutation ? canonicalInput : undefined,
       inputHash,
       initialStatus: mutation
@@ -168,4 +159,27 @@ function invalidJson(): AgentOsRuntimeError {
 
 export function hash(input: unknown): string {
   return createHash("sha256").update(JSON.stringify(input)).digest("hex");
+}
+
+/** Shared with durable dispatch so authorization and execution fence one contract. */
+export function capabilityContractFingerprint(definition: {
+  key: string;
+  ownerDomain: string;
+  effects: readonly string[];
+  approvalRisk: string;
+  idempotency: string;
+  ownerInputPort: string;
+  inputSchema: unknown;
+  outputSchema: unknown;
+}): string {
+  return hash({
+    key: definition.key,
+    ownerDomain: definition.ownerDomain,
+    effects: definition.effects,
+    approvalRisk: definition.approvalRisk,
+    idempotency: definition.idempotency,
+    ownerInputPort: definition.ownerInputPort,
+    inputSchema: zodToJsonSchema(definition.inputSchema as never),
+    outputSchema: zodToJsonSchema(definition.outputSchema as never),
+  });
 }

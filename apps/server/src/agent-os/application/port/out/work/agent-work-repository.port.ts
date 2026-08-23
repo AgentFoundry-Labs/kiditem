@@ -65,4 +65,11 @@ export interface AgentWorkRepositoryPort {
     attemptStatus: string | null;
     live: boolean;
   } | null>;
+  findDueApprovals(input: { now: Date; limit: number }): Promise<Array<{
+    organizationId: string;
+    sessionId: string;
+    invocationId: string;
+    approvalId: string;
+    inputHash: string;
+  }>>;
 }

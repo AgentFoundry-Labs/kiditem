@@ -12,7 +12,6 @@ import type { INestApplicationContext } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 
 const DISABLED_WORKER_ENV = {
-  AGENT_RUNTIME_WORKER_ENABLED: '0',
   OPERATION_RUNTIME_WORKER_ENABLED: '0',
   OPERATION_SCHEDULER_ENABLED: '0',
 } as const;

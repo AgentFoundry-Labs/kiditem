@@ -190,4 +190,26 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       live: Boolean(attempt && ['starting', 'running'].includes(attempt.status)),
     };
   }
+
+  async findDueApprovals(input: { now: Date; limit: number }) {
+    const approvals = await this.prisma.agentCapabilityApproval.findMany({
+      where: { status: 'pending', expiresAt: { lte: input.now }, invocation: { status: 'approval_pending' } },
+      orderBy: { expiresAt: 'asc' },
+      take: input.limit,
+      select: {
+        id: true,
+        organizationId: true,
+        sessionId: true,
+        inputHash: true,
+        invocationId: true,
+      },
+    });
+    return approvals.map((approval) => ({
+      organizationId: approval.organizationId,
+      sessionId: approval.sessionId,
+      invocationId: approval.invocationId,
+      approvalId: approval.id,
+      inputHash: approval.inputHash,
+    }));
+  }
 }

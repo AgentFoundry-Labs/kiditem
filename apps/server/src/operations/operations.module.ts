@@ -24,11 +24,7 @@ import {
   operationAttemptVerifierProvider,
 } from './application/service/operation-attempt-verifier.service';
 import { OPERATION_ATTEMPT_VERIFIER_PORT } from './application/port/in/operation-attempt-verifier.port';
-import {
-  DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
-  OPERATION_LIFECYCLE_OPTIONS,
-  OperationServerLifecycleService,
-} from './application/service/operation-server-lifecycle.service';
+import { OperationWorkerLifecycleService } from './application/service/operation-worker-lifecycle.service';
 
 @Module({
   imports: [PrismaModule],
@@ -41,17 +37,10 @@ import {
     BrowserOperationRuntimeService,
     OperationDispatcherService,
     OperationAttemptExecutorService,
-    OperationRunWorkerService,
-    OperationSchedulerService,
     CompositeOperationCoordinatorService,
-    OperationLifecycleGateService,
+    { provide: OperationLifecycleGateService, useFactory: () => { const gate = new OperationLifecycleGateService(); gate.open(); return gate; } },
     OperationAttemptVerifierService,
     operationAttemptVerifierProvider,
-    OperationServerLifecycleService,
-    {
-      provide: OPERATION_LIFECYCLE_OPTIONS,
-      useValue: DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
-    },
     {
       provide: OPERATION_HANDLER_REGISTRY_PORT,
       useExisting: OperationHandlerRegistryService,
@@ -88,8 +77,16 @@ import {
     OperationHandlerRegistryService,
     BrowserOperationRuntimeService,
     OperationRunService,
-    OperationSchedulerService,
+    OperationAttemptExecutorService,
     OperationLifecycleGateService,
   ],
 })
 export class OperationsModule {}
+
+/** Worker-only execution lifecycle; API composes OperationsModule core only. */
+@Module({
+  imports: [OperationsModule],
+  providers: [OperationRunWorkerService, OperationSchedulerService, OperationWorkerLifecycleService],
+  exports: [OperationRunWorkerService, OperationSchedulerService],
+})
+export class OperationsWorkerModule {}

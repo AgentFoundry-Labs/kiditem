@@ -10,6 +10,11 @@ import type {
   ApprovalDecisionResult,
   ApprovalExpiryInput,
   AgentWorkTransactionPort,
+  MutationClaimInput,
+  MutationFinalizeInput,
+  MutationWorkSnapshot,
+  ReconciliationInput,
+  ReconciliationResult,
   InvocationAuthorizationInput,
   InvocationAuthorizationResult,
   TaskLifecycleTransitionInput,
@@ -34,6 +39,9 @@ export class PrismaAgentWorkTransaction implements Pick<
   | "authorizeInvocation"
   | "decideApproval"
   | "expireApproval"
+  | "claimMutation"
+  | "finalizeMutation"
+  | "reconcile"
   | "transitionTask"
   | "deleteTerminalSession"
 > {
@@ -551,6 +559,151 @@ export class PrismaAgentWorkTransaction implements Pick<
     });
   }
 
+  /**
+   * Atomically takes one ready row, or an abandoned expired lease. Post-restart
+   * replay is intentionally the same invocation and owner idempotency key.
+   */
+  async claimMutation(input: MutationClaimInput): Promise<MutationWorkSnapshot | null> {
+    return this.prisma.$transaction(async (tx) => {
+      for (let skipped = 0; skipped < 100; skipped += 1) {
+        const rows = await tx.$queryRaw<{ id: string }[]>`
+        SELECT id FROM agent_capability_invocations
+        WHERE canonical_input IS NOT NULL
+          AND (
+            status = 'ready'
+            OR (status = 'executing' AND lease_expires_at <= ${input.claimedAt})
+          )
+        ORDER BY created_at ASC
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED`;
+        const id = rows[0]?.id;
+        if (!id) return null;
+        const invocation = await tx.agentCapabilityInvocation.findUnique({
+        where: { id },
+        });
+        if (!invocation) continue;
+        const context = await mutationContextStatus(tx, invocation);
+        if (!context.valid) {
+          await tx.agentCapabilityInvocation.update({
+          where: { id },
+          data: {
+            status: 'failed',
+            error: context.error,
+            finishedAt: input.claimedAt,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          },
+          });
+          continue;
+        }
+        const updated = await tx.agentCapabilityInvocation.updateMany({
+        where: {
+          id,
+          OR: [
+            { status: 'ready' },
+            { status: 'executing', leaseExpiresAt: { lte: input.claimedAt } },
+          ],
+        },
+        data: {
+          status: 'executing',
+          leaseOwner: input.workerId,
+          leaseExpiresAt: input.leaseExpiresAt,
+          attemptCount: { increment: 1 },
+        },
+      });
+        if (updated.count !== 1) continue;
+        return {
+        invocationId: invocation.id,
+        organizationId: invocation.organizationId,
+        sessionId: invocation.sessionId,
+        taskId: invocation.taskId,
+        attemptId: invocation.attemptId,
+        agentVersionId: invocation.agentVersionId,
+        initiatingUserId: invocation.initiatingUserId,
+        capabilityKey: invocation.capabilityKey,
+        ownerDomain: invocation.ownerDomain,
+        authorizationKind: invocation.authorizationKind as MutationWorkSnapshot['authorizationKind'],
+        authorizationExpiresAt: invocation.authorizationExpiresAt,
+        inputHash: invocation.inputHash,
+        canonicalInput: invocation.canonicalInput,
+        effects: invocation.effects as MutationWorkSnapshot['effects'],
+        approvalRisk: invocation.approvalRisk as MutationWorkSnapshot['approvalRisk'],
+        idempotencyRequirement: invocation.idempotencyRequirement as MutationWorkSnapshot['idempotencyRequirement'],
+        ownerIdempotencyKey: invocation.ownerIdempotencyKey as string,
+        applicationVersion: invocation.applicationVersion,
+        authorizingGitSha: invocation.authorizingGitSha,
+        capabilityContractFingerprint: invocation.capabilityContractFingerprint,
+        runtimeType: invocation.runtimeType,
+        reportedModel: invocation.reportedModel,
+        attemptCount: invocation.attemptCount + 1,
+        leaseOwner: input.workerId,
+        leaseExpiresAt: input.leaseExpiresAt,
+        };
+      }
+      return null;
+    });
+  }
+
+  async finalizeMutation(input: MutationFinalizeInput): Promise<{ won: boolean }> {
+    const updated = await this.prisma.agentCapabilityInvocation.updateMany({
+      where: {
+        id: input.invocationId,
+        organizationId: input.organizationId,
+        status: 'executing',
+        leaseOwner: input.leaseOwner,
+      },
+      data: {
+        status: input.outcome,
+        ...(input.result === undefined ? {} : { result: input.result as Prisma.InputJsonValue }),
+        ...(input.error === undefined ? {} : { error: input.error as Prisma.InputJsonValue }),
+        finishedAt: input.finishedAt,
+        leaseOwner: null,
+        leaseExpiresAt: null,
+      },
+    });
+    return { won: updated.count === 1 };
+  }
+
+  /** API boot recovery terminalizes only prior in-process reads and attempts. */
+  async reconcile(input: ReconciliationInput): Promise<ReconciliationResult> {
+    return this.prisma.$transaction(async (tx) => {
+      const attempts = await tx.agentAttempt.findMany({
+        where: {
+          status: { in: ['starting', 'running'] },
+          applicationVersion: input.applicationVersion,
+          authorizingGitSha: input.authorizingGitSha,
+        },
+        select: { id: true },
+      });
+      if (!attempts.length) return { reconciled: 0, attemptIds: [] };
+      const attemptIds = attempts.map((attempt) => attempt.id);
+      await tx.agentAttempt.updateMany({
+        where: { id: { in: attemptIds }, status: { in: ['starting', 'running'] } },
+        data: { status: 'process_interrupted', finishedAt: input.now },
+      });
+      const invocations = await tx.agentCapabilityInvocation.findMany({
+        where: { attemptId: { in: attemptIds }, status: { in: ['authorized', 'executing'] } },
+        select: { id: true, effects: true },
+      });
+      const inlineReads = invocations
+        .filter((invocation) => isReadOnlyEffects(invocation.effects))
+        .map((invocation) => invocation.id);
+      if (inlineReads.length) {
+        await tx.agentCapabilityInvocation.updateMany({
+          where: { id: { in: inlineReads }, status: { in: ['authorized', 'executing'] } },
+          data: {
+            status: 'failed',
+            error: { code: 'process_interrupted', message: 'Inline read was interrupted before completion.' },
+            finishedAt: input.now,
+            leaseOwner: null,
+            leaseExpiresAt: null,
+          },
+        });
+      }
+      return { reconciled: attemptIds.length, attemptIds };
+    });
+  }
+
   async transitionTask(
     input: TaskLifecycleTransitionInput,
   ): Promise<{ status: string }> {
@@ -767,4 +920,57 @@ function isReadOnlyEffects(effects: unknown): boolean {
       (effect) => typeof effect === "string" && readOnlyEffects.has(effect),
     )
   );
+}
+
+async function mutationContextStatus(
+  tx: AgentWorkTransaction,
+  invocation: {
+    organizationId: string;
+    sessionId: string;
+    taskId: string;
+    attemptId: string;
+    agentVersionId: string;
+    initiatingUserId: string;
+    capabilityKey: string;
+    ownerDomain: string;
+    authorizationExpiresAt: Date;
+    canonicalInput: unknown;
+    ownerIdempotencyKey: string | null;
+  },
+): Promise<{ valid: true } | { valid: false; error: { code: string; message: string } }> {
+  if (invocation.canonicalInput === null || !invocation.ownerIdempotencyKey) {
+    return { valid: false, error: { code: 'stale_resource', message: 'Capability authorization is no longer current.' } };
+  }
+  const [membership, session, task, attempt, version] = await Promise.all([
+    tx.organizationMembership.findFirst({
+      where: { organizationId: invocation.organizationId, userId: invocation.initiatingUserId, status: 'active' },
+      select: { id: true },
+    }),
+    tx.agentWorkSession.findFirst({
+      where: { id: invocation.sessionId, organizationId: invocation.organizationId, createdByUserId: invocation.initiatingUserId },
+      select: { id: true },
+    }),
+    tx.agentWorkTask.findFirst({
+      where: { id: invocation.taskId, organizationId: invocation.organizationId, sessionId: invocation.sessionId },
+      select: { id: true },
+    }),
+    tx.agentAttempt.findFirst({
+      where: { id: invocation.attemptId, organizationId: invocation.organizationId, sessionId: invocation.sessionId, taskId: invocation.taskId, agentVersionId: invocation.agentVersionId },
+      select: { id: true },
+    }),
+    tx.agentWorkVersion.findFirst({
+      where: { id: invocation.agentVersionId },
+      select: { capabilityKeys: true, assignedDomains: true },
+    }),
+  ]);
+  if (!version || !Array.isArray(version.capabilityKeys) ||
+    !version.capabilityKeys.includes(invocation.capabilityKey) ||
+    !Array.isArray(version.assignedDomains) ||
+    !version.assignedDomains.includes(invocation.ownerDomain)) {
+    return { valid: false, error: { code: 'stale_capability_version', message: 'Capability version is no longer current.' } };
+  }
+  if (!membership || !session || !task || !attempt) {
+    return { valid: false, error: { code: 'stale_resource', message: 'Capability context is no longer current.' } };
+  }
+  return { valid: true };
 }

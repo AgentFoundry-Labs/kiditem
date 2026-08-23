@@ -152,14 +152,12 @@ describe('application root topology', () => {
     ).toContain(BrowserOperationRuntimeService);
   });
 
-  it('does not give the worker wrapper HTTP or Operations dependencies', () => {
+  it('gives worker Operations but no Agent OS HTTP dependency', () => {
     const workerImports: ModuleLike[] =
       Reflect.getMetadata(MODULE_METADATA.IMPORTS, AgentOsWorkerModule) ?? [];
 
     expect(workerImports).not.toContain(AgentOsHttpModule);
-    expect([...graph(AgentOsWorkerModule)].map(moduleClass)).not.toContain(
-      OperationsModule,
-    );
+    expect([...graph(AgentOsWorkerModule)].map(moduleClass)).toContain(OperationsModule);
   });
 
   it('gives Operations ownership only to the API root', () => {
@@ -169,31 +167,18 @@ describe('application root topology', () => {
       );
 
     expect(hasOperations(ApiApplicationModule)).toBe(true);
-    expect(hasOperations(AgentWorkerApplicationModule)).toBe(false);
+    expect(hasOperations(AgentWorkerApplicationModule)).toBe(true);
     expect(hasOperations(AgentMcpApplicationModule)).toBe(false);
-    expect(controllers(AgentWorkerApplicationModule)).toEqual([]);
     expect(controllers(AgentMcpApplicationModule)).toEqual([]);
     expect(hasGlobalGuard(AgentWorkerApplicationModule)).toBe(false);
     expect(hasGlobalGuard(AgentMcpApplicationModule)).toBe(false);
-    expect([...graph(AgentMcpApplicationModule)].map(moduleClass)).toContain(
-      SourcingAgentReadCapabilityModule,
-    );
+    expect(hasOperations(AgentMcpApplicationModule)).toBe(false);
   });
 
-  it('composes listing generation from narrow controller-free owner modules only', () => {
+  it('keeps MCP as a stdio socket proxy without a Nest application root', () => {
     const mcpGraph = [...graph(AgentMcpApplicationModule)].map(moduleClass);
-    expect(mcpGraph).toEqual(expect.arrayContaining([
-      SourcingAgentListingCapabilityModule,
-      AiProductGenerationRuntimeModule,
-    ]));
-    expect(mcpGraph).not.toEqual(expect.arrayContaining([
-      AiModule,
-      AiAgentRuntimeModule,
-      SourcingAgentRuntimeModule,
-      AgentOsHttpModule,
-      OperationsModule,
-    ]));
-    expect(controllers(AiProductGenerationRuntimeModule)).toEqual([]);
+    expect(mcpGraph).not.toContain(OperationsModule);
+    expect(controllers(AgentMcpApplicationModule)).toEqual([]);
     expect(
       readFileSync(
         join(SERVER_SRC, 'ai', 'ai-product-generation-runtime.module.ts'),
@@ -218,14 +203,14 @@ describe('application root topology', () => {
     expect(providers(ApiApplicationModule)).toEqual(
       expect.arrayContaining(deletionSurface.slice(1)),
     );
-    expect(providers(ApiApplicationModule)).toContain(OperationRunWorkerService);
+    expect(providers(ApiApplicationModule)).not.toContain(OperationRunWorkerService);
 
     for (const root of [AgentWorkerApplicationModule, AgentMcpApplicationModule]) {
       expect(controllers(root)).not.toContain(AgentSessionDeletionController);
       expect(providers(root)).not.toEqual(
         expect.arrayContaining(deletionSurface),
       );
-      expect(providers(root)).not.toContain(OperationRunWorkerService);
+      if (root === AgentMcpApplicationModule) expect(providers(root)).not.toContain(OperationRunWorkerService);
     }
   });
 
@@ -253,19 +238,16 @@ describe('application root topology', () => {
         ),
         'utf8',
       ),
-    ).toContain("from '../../../../agent-mcp-application.module'");
+    ).toContain("from './attempt-mcp-proxy'");
   });
 
   it('keeps the legacy manager handler out of the official MCP root', () => {
-    expect(providers(AgentWorkerApplicationModule)).toContain(OperatorRuntimeHandler);
+    expect(providers(AgentWorkerApplicationModule)).not.toContain(OperatorRuntimeHandler);
     expect(providers(AgentMcpApplicationModule)).not.toContain(OperatorRuntimeHandler);
   });
 
   it('keeps the API-owned AI direct-job poller out of Agent process roots', () => {
-    for (const root of [
-      AgentWorkerApplicationModule,
-      AgentMcpApplicationModule,
-    ]) {
+    for (const root of [AgentMcpApplicationModule]) {
       const rootProviders = providers(root);
       expect(rootProviders).not.toContain(AiDirectJobWorkerService);
       expect(rootProviders).not.toContainEqual(
@@ -296,7 +278,7 @@ describe('application root topology', () => {
 
     const workerProviders = providers(AgentWorkerApplicationModule);
     const mcpProviders = providers(AgentMcpApplicationModule);
-    for (const rootProviders of [workerProviders, mcpProviders]) {
+    for (const rootProviders of [mcpProviders]) {
       expect(rootProviders).not.toContain(MarketShadowOperationAdapter);
       expect(rootProviders).not.toContain(SourcingShadowSignalService);
       expect(rootProviders).not.toContain(GoogleTrendsRssAdapter);
@@ -330,7 +312,7 @@ describe('application root topology', () => {
     ).toEqual([]);
   });
 
-  it('gives Nest lifecycle ownership only to the Operations server lifecycle service', () => {
+  it('keeps active Operations lifecycle out of the API core', () => {
     const operationProviders: ProviderLike[] =
       Reflect.getMetadata(MODULE_METADATA.PROVIDERS, OperationsModule) ?? [];
     const hookNames = [
@@ -345,18 +327,9 @@ describe('application root topology', () => {
         hookNames.some((hook) => typeof provider.prototype?.[hook] === 'function'),
     );
 
-    expect(operationProviders).toContain(OperationSchedulerService);
-    expect(operationProviders).toContain(OperationRunWorkerService);
-    expect(lifecycleProviders).toEqual([OperationServerLifecycleService]);
-    expect(operationProviders).toContainEqual({
-      provide: OPERATION_LIFECYCLE_OPTIONS,
-      useValue: DEFAULT_OPERATION_LIFECYCLE_OPTIONS,
-    });
-    expect(DEFAULT_OPERATION_LIFECYCLE_OPTIONS).toEqual({
-      batchSize: 100,
-      startupTimeoutMs: 30_000,
-      shutdownTimeoutMs: 5_000,
-    });
+    expect(operationProviders).not.toContain(OperationSchedulerService);
+    expect(operationProviders).not.toContain(OperationRunWorkerService);
+    expect(lifecycleProviders).toEqual([]);
   });
 
   it('leaves no production import of the retired shared AppModule', () => {

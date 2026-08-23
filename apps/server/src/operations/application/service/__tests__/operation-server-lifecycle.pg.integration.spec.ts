@@ -58,7 +58,6 @@ async function readRegisteredOperationOwnerDomains(
   client: PrismaClient,
 ): Promise<string[]> {
   const disabledRuntimeEnvironment = {
-    AGENT_RUNTIME_WORKER_ENABLED: '0',
     AI_DIRECT_JOB_WORKER_ENABLED: '0',
     OPERATION_RUNTIME_WORKER_ENABLED: '0',
     OPERATION_SCHEDULER_ENABLED: '0',

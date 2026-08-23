@@ -1,5 +1,4 @@
 export interface AgentRuntimeEnv {
-  AGENT_RUNTIME_WORKER_ENABLED?: string;
   AGENT_RUNTIME_WORKER_INTERVAL_MS?: string;
   AGENT_RUNTIME_EXECUTION_TIMEOUT_MS?: string;
   AGENT_RUNTIME_STDOUT_LIMIT_BYTES?: string;
@@ -73,14 +72,6 @@ export function resolveAgentLocalCliRuntimeConfig(
         Number(AGENT_RUNTIME_CLAUDE_MAX_BUDGET_USD),
       ).toString(),
   };
-}
-
-export function resolveAgentRuntimeWorkerEnabled(
-  env: AgentRuntimeEnv = process.env,
-): boolean {
-  const raw = env.AGENT_RUNTIME_WORKER_ENABLED;
-  if (raw === undefined || raw === '') return false;
-  return raw === '1' || raw.toLowerCase() === 'true';
 }
 
 export function resolveAgentRuntimeWorkerIntervalMs(

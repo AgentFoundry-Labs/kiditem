@@ -1,8 +1,8 @@
 import { Module } from '@nestjs/common';
-import { AgentOsLegacyRunModule } from './agent-os-legacy-run.module';
+import { OperationsWorkerModule } from '../operations/operations.module';
 
 @Module({
-  imports: [AgentOsLegacyRunModule],
-  exports: [AgentOsLegacyRunModule],
+  imports: [OperationsWorkerModule],
+  exports: [OperationsWorkerModule],
 })
 export class AgentOsWorkerModule {}

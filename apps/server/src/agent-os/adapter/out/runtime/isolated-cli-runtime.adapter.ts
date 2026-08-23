@@ -148,6 +148,7 @@ const SAFE_AMBIENT_ENV = new Set([
   'TERM',
   'TZ',
   'HOME',
+  'USER',
   'XDG_CONFIG_HOME',
   'CODEX_HOME',
   'CLAUDE_CONFIG_DIR',
