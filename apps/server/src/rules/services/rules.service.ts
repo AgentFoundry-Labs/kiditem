@@ -14,10 +14,6 @@ import {
   type OperationAlertPort,
 } from '../application/port/out/cross-domain/operation-alert.port';
 import {
-  RULES_JUDGMENT_PORT,
-  type RulesJudgmentPort,
-} from '../application/port/out/cross-domain/rules-judgment.port';
-import {
   RULES_EVALUATION_OPERATION_KEY,
 } from '../domain/operation/rules.operations';
 import type { ApplyRulesEvaluationPort } from '../application/port/in/apply-rules-evaluation.port';
@@ -35,7 +31,6 @@ import {
   type RuleFactValue,
 } from '../domain/rule-evaluator';
 
-const RULES_SUGGEST_AGENT_DEFINITION = 'rules_suggest';
 
 @Injectable()
 export class RulesService implements ApplyRulesEvaluationPort {
@@ -47,8 +42,6 @@ export class RulesService implements ApplyRulesEvaluationPort {
     private readonly prisma: PrismaService,
     @Inject(OPERATION_RUNNER_PORT)
     private readonly operations: OperationRunnerPort,
-    @Inject(RULES_JUDGMENT_PORT)
-    private readonly judgment: RulesJudgmentPort,
     private readonly eventEmitter: EventEmitter2,
     @Inject(RULES_OPERATION_ALERT_PORT)
     private readonly operationAlerts: OperationAlertPort,
@@ -378,55 +371,6 @@ export class RulesService implements ApplyRulesEvaluationPort {
     });
   }
 
-  async suggestThresholds(
-    organizationId: string,
-    triggeredByUserId: string | null,
-    idempotencyKey: string,
-  ): Promise<{
-    session: string;
-    task: string;
-    execution: string;
-    operation: string;
-    status: 'pending';
-  }> {
-    if (!triggeredByUserId) {
-      throw new Error('RULES_SUGGEST_JUDGMENT_ACTOR_REQUIRED');
-    }
-    const [summary, rules] = await Promise.all([
-      this.getSummary(organizationId),
-      this.findAllRules(organizationId),
-    ]);
-    const evidence = JSON.stringify({
-      summary,
-      rules: rules.slice(0, 100).map((rule) => ({
-        id: rule.id,
-        category: rule.category,
-        severity: rule.severity,
-        field: rule.field,
-        operator: rule.operator,
-        threshold: rule.threshold,
-        active: rule.active,
-      })),
-    }).slice(0, 7_200);
-    const result = await this.judgment.submit({
-      organizationId,
-      actorUserId: triggeredByUserId,
-      objective: `Suggest business-rule thresholds from this current owner snapshot:\n${evidence}`,
-      idempotencyKey: `rules.suggest.manual:${triggeredByUserId}:${idempotencyKey}`,
-    });
-    await this.operationAlerts.start({
-      organizationId,
-      operationKey: `rules.suggest:${result.operation}`,
-      type: 'rules_suggest',
-      title: '룰 임계값 제안 진행 중',
-      sourceType: 'operation_run',
-      sourceId: result.operation,
-      actorUserId: triggeredByUserId,
-      href: '/dashboard',
-      metadata: { agentDefinition: RULES_SUGGEST_AGENT_DEFINITION },
-    });
-    return { ...result, status: 'pending' };
-  }
 }
 
 function productFacts(product: {

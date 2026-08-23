@@ -99,6 +99,10 @@ export interface InvocationAuthorizationResult {
   approvalId: string | null;
   invocationStatus: AgentCapabilityInvocationStatus;
   approvalStatus: AgentCapabilityApprovalStatus | null;
+  /** Immutable server-owned Attempt snapshot, never business input. */
+  applicationVersion: string;
+  authorizingGitSha: string;
+  runtimeType: string;
 }
 export interface ApprovalDecisionInput {
   organizationId: string;
@@ -164,6 +168,15 @@ export interface MutationFinalizeInput {
   error?: { code: string; message: string };
   finishedAt: Date;
 }
+/** Completion fence for a process-local read invocation. */
+export interface InlineInvocationFinalizeInput {
+  organizationId: string;
+  invocationId: string;
+  outcome: "succeeded" | "failed";
+  result?: AgentResultEnvelope;
+  error?: { code: string; message: string };
+  finishedAt: Date;
+}
 export interface ReconciliationInput {
   applicationVersion: string;
   authorizingGitSha: string;
@@ -186,6 +199,14 @@ export interface TaskLifecycleTransitionInput {
   to: "completed" | "failed" | "cancelled";
   at: Date;
 }
+export interface AttemptLifecycleTransitionInput {
+  attemptId: string;
+  from: "starting" | "running";
+  to: "running" | "succeeded" | "failed" | "process_interrupted" | "cancelled";
+  at: Date;
+  result?: AgentResultEnvelope;
+  error?: { code: string; message: string };
+}
 
 /** Future atomic command shapes; Task 1 intentionally implements admission only. */
 export interface AgentWorkTransactionPort {
@@ -204,6 +225,10 @@ export interface AgentWorkTransactionPort {
     input: MutationClaimInput,
   ): Promise<MutationWorkSnapshot | null>;
   finalizeMutation(input: MutationFinalizeInput): Promise<{ won: boolean }>;
+  /** Reads run in the live Attempt, but their result remains durable. */
+  finalizeInlineInvocation(
+    input: InlineInvocationFinalizeInput,
+  ): Promise<{ won: boolean }>;
   reconcile(input: ReconciliationInput): Promise<ReconciliationResult>;
   transitionTask(
     input: TaskLifecycleTransitionInput,
@@ -211,4 +236,5 @@ export interface AgentWorkTransactionPort {
   deleteTerminalSession(
     input: TerminalSessionDeleteInput,
   ): Promise<{ deleted: boolean }>;
+  transitionAttempt(input: AttemptLifecycleTransitionInput): Promise<{ transitioned: boolean }>;
 }

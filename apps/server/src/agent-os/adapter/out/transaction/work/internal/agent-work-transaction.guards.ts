@@ -63,7 +63,7 @@ export async function assertActiveMembership(
 }
 
 export async function activeVersion(tx: AgentWorkTransaction, id: string) {
-  const version = await tx.agentWorkVersion.findFirst({
+  const version = await tx.agentVersion.findFirst({
     where: { id, activatedAt: { not: null }, retiredAt: null },
   });
   if (!version) throw rejectAgentWork("agent_version_not_active");

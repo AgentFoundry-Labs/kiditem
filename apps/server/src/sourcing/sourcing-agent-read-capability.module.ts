@@ -1,7 +1,5 @@
 import { Module } from '@nestjs/common';
-import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourcingWorkspaceReadCapabilityAdapter } from './adapter/in/agent/sourcing-workspace-capability.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
 import { SourcingRecommendationRepositoryAdapter } from './adapter/out/repository/sourcing-recommendation.repository.adapter';
 import { SourcingValidationRepositoryAdapter } from './adapter/out/repository/sourcing-validation.repository.adapter';
@@ -16,11 +14,10 @@ import { SourcingAgentWorkspaceReadCapabilityService } from './application/servi
 
 /** Controller-free, Operations-free owner for the two persisted Sourcing reads. */
 @Module({
-  imports: [PrismaModule, AgentOsCapabilityModule],
+  imports: [PrismaModule],
   providers: [
     SourcingAgentRagService,
     SourcingAgentWorkspaceReadCapabilityService,
-    SourcingWorkspaceReadCapabilityAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingValidationRepositoryAdapter,

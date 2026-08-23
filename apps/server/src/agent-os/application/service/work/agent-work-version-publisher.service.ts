@@ -1,25 +1,25 @@
 import type { PrismaClient } from '@prisma/client';
 import type { AgentVersionPublicationDefinition } from '../../../domain/catalog/agent-version-publication.registry';
 
-export class AgentWorkVersionPublisher {
+export class AgentVersionPublisher {
   constructor(private readonly prisma: PrismaClient) {}
 
   async publish(input: AgentVersionPublicationDefinition) {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        const same = await tx.agentWorkVersion.findFirst({
+        const same = await tx.agentVersion.findFirst({
           where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash, activatedAt: { not: null }, retiredAt: null },
         });
         if (same) return same;
-        const latest = await tx.agentWorkVersion.aggregate({
+        const latest = await tx.agentVersion.aggregate({
           where: { agentDefinitionKey: input.agentDefinitionKey }, _max: { version: true },
         });
         const now = new Date();
-        await tx.agentWorkVersion.updateMany({
+        await tx.agentVersion.updateMany({
           where: { agentDefinitionKey: input.agentDefinitionKey, activatedAt: { not: null }, retiredAt: null },
           data: { retiredAt: now },
         });
-        return tx.agentWorkVersion.create({
+        return tx.agentVersion.create({
           data: {
             agentDefinitionKey: input.agentDefinitionKey,
             version: (latest._max.version ?? 0) + 1,
@@ -33,7 +33,7 @@ export class AgentWorkVersionPublisher {
         });
       });
     } catch (error: unknown) {
-      const raced = await this.prisma.agentWorkVersion.findFirst({
+      const raced = await this.prisma.agentVersion.findFirst({
         where: { agentDefinitionKey: input.agentDefinitionKey, manifestHash: input.manifestHash, activatedAt: { not: null }, retiredAt: null },
       });
       if (raced) return raced;

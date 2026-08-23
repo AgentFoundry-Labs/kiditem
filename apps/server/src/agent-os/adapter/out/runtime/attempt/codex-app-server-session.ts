@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-type RpcResponse = { id?: string; result?: unknown; error?: { message?: string } };
+type RpcResponse = { id?: string; method?: string; params?: unknown; result?: unknown; error?: { message?: string } };
 
 /** Memory-only JSON-RPC state for one ephemeral Codex app-server Attempt. */
 export class CodexAppServerSession {
@@ -9,14 +9,14 @@ export class CodexAppServerSession {
   private threadId: string | null = null;
   private turnId: string | null = null;
 
-  constructor(private readonly write: (line: string) => void, private readonly maxBytes = 64 * 1024) {}
+  constructor(private readonly write: (line: string) => void, private readonly maxBytes = 64 * 1024, private readonly notification?: (method: string, params: unknown) => void) {}
 
   async start(input: { model: string; cwd: string; prompt: string }): Promise<void> {
     await this.request('initialize', { clientInfo: { name: 'kiditem', version: '1' } });
     const thread = await this.request('thread/start', { ephemeral: true, model: input.model, cwd: input.cwd });
-    this.threadId = requiredId(thread, 'threadId');
+    this.threadId = requiredNestedId(thread, 'thread');
     const turn = await this.request('turn/start', { threadId: this.threadId, input: [{ type: 'text', text: input.prompt }] });
-    this.turnId = requiredId(turn, 'turnId');
+    this.turnId = requiredNestedId(turn, 'turn');
   }
 
   async steer(message: string): Promise<void> {
@@ -39,7 +39,10 @@ export class CodexAppServerSession {
       if (!line.trim()) continue;
       let response: RpcResponse;
       try { response = JSON.parse(line) as RpcResponse; } catch { throw new Error('codex_app_server_output_invalid'); }
-      if (!response.id) continue;
+      if (!response.id) {
+        if (response.method) this.notification?.(response.method, response.params);
+        continue;
+      }
       const pending = this.pending.get(response.id);
       if (!pending) continue;
       this.pending.delete(response.id);
@@ -57,8 +60,8 @@ export class CodexAppServerSession {
   }
 }
 
-function requiredId(value: unknown, key: 'threadId' | 'turnId'): string {
-  const id = (value as Record<string, unknown> | null)?.[key];
-  if (typeof id !== 'string' || !id) throw new Error(`codex_app_server_${key}_missing`);
+function requiredNestedId(value: unknown, key: 'thread' | 'turn'): string {
+  const id = ((value as Record<string, unknown> | null)?.[key] as Record<string, unknown> | undefined)?.id;
+  if (typeof id !== 'string' || !id) throw new Error(`codex_app_server_${key}_id_missing`);
   return id;
 }

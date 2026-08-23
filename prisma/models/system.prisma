@@ -264,17 +264,6 @@ model OperationRun {
   childRuns                                        OperationRun[]                          @relation("OperationRunHierarchy")
   schedule                                         OperationSchedule?                      @relation(fields: [scheduleId], references: [id], onDelete: SetNull)
   checkpoints                                      OperationRunCheckpoint[]                @relation("OperationRunCheckpoints")
-  agentExecutionAttemptBinding                     AgentExecutionAttemptOperationBinding?  @relation("AgentExecutionAttemptOperationBindingOperationRun")
-  agentExecutionAttemptContinuationBindings        AgentExecutionAttemptOperationBinding[] @relation("AgentExecutionAttemptOperationBindingPredecessorRun")
-  agentSessionApprovalPredecessors                 AgentSessionApproval[]                  @relation("AgentSessionApprovalPredecessorOperationRun")
-  agentSessionApprovalContinuationSuccessor        AgentSessionApprovalContinuation?       @relation("AgentSessionApprovalContinuationSuccessorRun")
-  agentSessionCurrentDeletionRuns                  AgentSession[]                          @relation("AgentSessionCurrentDeletionRun")
-  agentSessionDeletionOperationBindings            AgentSessionDeletionOperationBinding?   @relation("AgentSessionDeletionBindingRun")
-  agentSessionDeletionOperationBindingPredecessors AgentSessionDeletionOperationBinding[]  @relation("AgentSessionDeletionBindingPredecessor")
-  agentSessionOperationRunOwnership                AgentSessionOperationRunOwnership?      @relation("AgentSessionOperationRunOwnership")
-  agentSessionArtifactMaterializations             AgentSessionArtifactMaterialization[]   @relation("AgentSessionArtifactMaterializationInvocationRun")
-  agentSessionArtifactMaterializationArtifacts     AgentSessionArtifact[]                  @relation("AgentSessionArtifactMaterializationRun")
-  agentExecutionDispatchOutboxes                   AgentExecutionDispatchOutbox[]          @relation("AgentExecutionDispatchOutboxOperationRun")
   rulesEvaluationApplications                      RulesEvaluationApplication[]
 
   @@unique([id, organizationId], map: "operation_runs_id_org_key")

@@ -16,6 +16,10 @@ import { AgentAttemptCapacityService } from './agent-os/application/service/work
 import { AgentAttemptAdmissionService } from './agent-os/application/service/work/agent-attempt-admission.service';
 import { AgentCapabilityInvocationService } from './agent-os/application/service/work/agent-capability-invocation.service';
 import { AgentTaskDelegationService } from './agent-os/application/service/work/agent-task-delegation.service';
+import { AgentTaskLifecycleService } from './agent-os/application/service/work/agent-task-lifecycle.service';
+import { AgentCapabilityApprovalService } from './agent-os/application/service/work/agent-capability-approval.service';
+import { AgentSessionTerminalDeleteService } from './agent-os/application/service/work/agent-session-terminal-delete.service';
+import { AgentWorkProjectionService } from './agent-os/application/service/work/agent-work-projection.service';
 import { AgentCapabilityRegistry } from './agent-os/application/service/agent-capability-registry.service';
 import { FinalCapabilityCatalogRegistrar } from './agent-os/application/service/final-capability-catalog-registrar.service';
 import { SOURCING_CAPABILITY_ADMISSION_PORT, type SourcingCapabilityAdmissionPort } from './sourcing/application/port/in/capability/sourcing-capability-admission.port';
@@ -33,7 +37,11 @@ import { AGENT_WORK_REPOSITORY_PORT } from './agent-os/application/port/out/work
     { provide: AgentAttemptAdmissionService, inject: [AgentAttemptCapacityService, PrismaAgentWorkTransaction], useFactory: (capacity: AgentAttemptCapacityService, work: PrismaAgentWorkTransaction) => new AgentAttemptAdmissionService(capacity, work) },
     { provide: AgentCapabilityInvocationService, inject: [PrismaAgentWorkTransaction, AgentCapabilityRegistry, SOURCING_CAPABILITY_ADMISSION_PORT], useFactory: (work: PrismaAgentWorkTransaction, capabilities: AgentCapabilityRegistry, sourcing: SourcingCapabilityAdmissionPort) => new AgentCapabilityInvocationService(work, capabilities, undefined, sourcing) },
     { provide: AgentTaskDelegationService, inject: [PrismaAgentWorkRepository, AgentAttemptAdmissionService], useFactory: (repository: PrismaAgentWorkRepository, admissions: AgentAttemptAdmissionService) => new AgentTaskDelegationService(repository, admissions) },
+    { provide: AgentTaskLifecycleService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentTaskLifecycleService(work) },
+    { provide: AgentCapabilityApprovalService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentCapabilityApprovalService(work) },
+    { provide: AgentSessionTerminalDeleteService, inject: [PrismaAgentWorkTransaction], useFactory: (work: PrismaAgentWorkTransaction) => new AgentSessionTerminalDeleteService(work) },
+    AgentWorkProjectionService,
   ],
-  exports: [PrismaAgentWorkTransaction, PrismaAgentWorkRepository, AgentAttemptCapacityService, AgentAttemptAdmissionService, AgentCapabilityInvocationService, AgentTaskDelegationService, AgentOsCapabilityModule],
+  exports: [PrismaAgentWorkTransaction, PrismaAgentWorkRepository, AgentAttemptCapacityService, AgentAttemptAdmissionService, AgentCapabilityInvocationService, AgentTaskDelegationService, AgentTaskLifecycleService, AgentCapabilityApprovalService, AgentSessionTerminalDeleteService, AgentWorkProjectionService, AgentOsCapabilityModule],
 })
 export class AgentWorkCapabilityApplicationModule {}

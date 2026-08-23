@@ -14,6 +14,10 @@ export interface AttemptMcpBinding {
 }
 
 export interface AttemptMcpActionsPort {
+  catalog(input: { binding: AttemptMcpBinding; query?: string }): Promise<Array<{
+    key: string; ownerDomain: string; description: string; inputSchema: unknown;
+    effects: readonly string[]; approvalRisk: string; idempotency: string;
+  }>>;
   invoke(input: {
     invocationId: string;
     binding: AttemptMcpBinding;

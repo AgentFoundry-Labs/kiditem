@@ -11,7 +11,7 @@ export function buildCodexAttemptCommand(input: { workspace: string; socketPath:
     args: [
       'app-server', '--stdio', '--strict-config', '--config', `mcp_servers.kiditem_attempt.command=${JSON.stringify(process.execPath)}`,
       '--config', `mcp_servers.kiditem_attempt.args=[${JSON.stringify(resolveMcpServerPath())}]`,
-      '--config', 'approval_policy="never"', '--config', 'tools.web_search=false',
+      '--config', 'approval_policy="never"', '--config', 'tools.web_search=false', '--config', 'history.persistence="none"',
     ],
     cwd: input.workspace,
     env: { PATH: process.env.PATH ?? '', HOME: input.profile.loginHome, ATTEMPT_MCP_SOCKET_PATH: input.socketPath },

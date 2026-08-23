@@ -1,6 +1,6 @@
 /// @namespace AgentOS
-/// @describe Immutable replacement Agent version identity during KID-25 coexistence.
-model AgentWorkVersion {
+/// @describe Immutable code-owned agent definition version.
+model AgentVersion {
   id String @id @default(uuid()) @db.Uuid
   agentDefinitionKey String @map("agent_definition_key")
   version Int
@@ -12,7 +12,7 @@ model AgentWorkVersion {
   activatedAt DateTime? @map("activated_at") @db.Timestamptz
   retiredAt DateTime? @map("retired_at") @db.Timestamptz
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  tasks AgentWorkTask[]
+  tasks AgentTask[]
   attempts AgentAttempt[]
   invocations AgentCapabilityInvocation[]
   @@unique([agentDefinitionKey, version])
@@ -23,16 +23,16 @@ model AgentWorkVersion {
 }
 
 /// @namespace AgentOS
-/// @describe User-visible replacement work grouping and terminal deletion boundary.
-model AgentWorkSession {
+/// @describe User-visible work grouping and terminal deletion boundary.
+model AgentSession {
   id String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
   createdByUserId String @map("created_by_user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-  organization Organization @relation("AgentWorkSessionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
-  creator User @relation("AgentWorkSessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
-  tasks AgentWorkTask[]
+  organization Organization @relation("AgentSessionOrganization", fields: [organizationId], references: [id], onDelete: Cascade)
+  creator User @relation("AgentSessionCreator", fields: [createdByUserId], references: [id], onDelete: Restrict)
+  tasks AgentTask[]
   attempts AgentAttempt[]
   invocations AgentCapabilityInvocation[]
   approvals AgentCapabilityApproval[]
@@ -43,8 +43,8 @@ model AgentWorkSession {
 }
 
 /// @namespace AgentOS
-/// @describe Replacement root or delegated work responsibility.
-model AgentWorkTask {
+/// @describe Root or delegated durable work responsibility.
+model AgentTask {
   id String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
   sessionId String @map("session_id") @db.Uuid
@@ -60,12 +60,12 @@ model AgentWorkTask {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  session AgentWorkSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  parent AgentWorkTask? @relation("AgentWorkTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
-  children AgentWorkTask[] @relation("AgentWorkTaskHierarchy")
-  assignedAgentVersion AgentWorkVersion @relation(fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
-  delegatedFromAttempt AgentAttempt? @relation("AgentWorkTaskDelegatedFromAttempt", fields: [delegatedFromAttemptId, parentTaskId, sessionId, organizationId], references: [id, taskId, sessionId, organizationId], onDelete: Restrict)
-  attempts AgentAttempt[] @relation("AgentWorkTaskAttempts")
+  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  parent AgentTask? @relation("AgentTaskHierarchy", fields: [parentTaskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Restrict)
+  children AgentTask[] @relation("AgentTaskHierarchy")
+  assignedAgentVersion AgentVersion @relation(fields: [assignedAgentVersionId], references: [id], onDelete: Restrict)
+  delegatedFromAttempt AgentAttempt? @relation("AgentTaskDelegatedFromAttempt", fields: [delegatedFromAttemptId, parentTaskId, sessionId, organizationId], references: [id, taskId, sessionId, organizationId], onDelete: Restrict)
+  attempts AgentAttempt[] @relation("AgentTaskAttempts")
   invocations AgentCapabilityInvocation[]
   @@unique([id, organizationId])
   @@unique([id, sessionId, organizationId])
@@ -80,7 +80,7 @@ model AgentWorkTask {
 }
 
 /// @namespace AgentOS
-/// @describe One immutable local CLI attempt for replacement work.
+/// @describe One immutable local CLI process attempt.
 model AgentAttempt {
   id String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -104,12 +104,12 @@ model AgentAttempt {
   startedAt DateTime? @map("started_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-  session AgentWorkSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  task AgentWorkTask @relation("AgentWorkTaskAttempts", fields: [taskId, agentVersionId, sessionId, organizationId], references: [id, assignedAgentVersionId, sessionId, organizationId], onDelete: Cascade)
-  agentVersion AgentWorkVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  task AgentTask @relation("AgentTaskAttempts", fields: [taskId, agentVersionId, sessionId, organizationId], references: [id, assignedAgentVersionId, sessionId, organizationId], onDelete: Cascade)
+  agentVersion AgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
   predecessor AgentAttempt? @relation("AgentAttemptPredecessor", fields: [predecessorAttemptId, agentVersionId, taskId, sessionId, organizationId], references: [id, agentVersionId, taskId, sessionId, organizationId], onDelete: Restrict)
   successors AgentAttempt[] @relation("AgentAttemptPredecessor")
-  delegatedTasks AgentWorkTask[] @relation("AgentWorkTaskDelegatedFromAttempt")
+  delegatedTasks AgentTask[] @relation("AgentTaskDelegatedFromAttempt")
   invocations AgentCapabilityInvocation[]
   @@unique([id, organizationId])
   @@unique([id, taskId, sessionId, organizationId])
@@ -123,7 +123,7 @@ model AgentAttempt {
 }
 
 /// @namespace AgentOS
-/// @describe Exact replacement capability authorization and mutation work item.
+/// @describe Exact capability authorization and mutation work item.
 model AgentCapabilityInvocation {
   id String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -156,10 +156,10 @@ model AgentCapabilityInvocation {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
   finishedAt DateTime? @map("finished_at") @db.Timestamptz
-  session AgentWorkSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  task AgentWorkTask @relation(fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
+  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  task AgentTask @relation(fields: [taskId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
   attempt AgentAttempt @relation(fields: [attemptId, agentVersionId, taskId, sessionId, organizationId], references: [id, agentVersionId, taskId, sessionId, organizationId], onDelete: Cascade)
-  agentVersion AgentWorkVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
+  agentVersion AgentVersion @relation(fields: [agentVersionId], references: [id], onDelete: Restrict)
   initiatingUser User @relation("AgentCapabilityInvocationInitiator", fields: [initiatingUserId], references: [id], onDelete: Restrict)
   approval AgentCapabilityApproval?
   @@unique([id, organizationId])
@@ -174,7 +174,7 @@ model AgentCapabilityInvocation {
 }
 
 /// @namespace AgentOS
-/// @describe One immutable human approval decision for one replacement invocation.
+/// @describe One immutable human decision for one mutation invocation.
 model AgentCapabilityApproval {
   id String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
@@ -187,7 +187,7 @@ model AgentCapabilityApproval {
   decisionReason String? @map("decision_reason") @db.Text
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   decidedAt DateTime? @map("decided_at") @db.Timestamptz
-  session AgentWorkSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  session AgentSession @relation(fields: [sessionId, organizationId], references: [id, organizationId], onDelete: Cascade)
   invocation AgentCapabilityInvocation @relation(fields: [invocationId, sessionId, organizationId], references: [id, sessionId, organizationId], onDelete: Cascade)
   decidedByUser User? @relation("AgentCapabilityApprovalDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
   @@unique([invocationId])

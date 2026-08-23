@@ -15,7 +15,7 @@ const schema = readFileSync(
 describe("Agent work replacement schema", () => {
   it("uses actual string status fields and replacement physical mappings", () => {
     for (const model of [
-      "AgentWorkTask",
+      "AgentTask",
       "AgentAttempt",
       "AgentCapabilityInvocation",
       "AgentCapabilityApproval",

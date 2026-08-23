@@ -5,10 +5,6 @@ import { kstDayStart } from '../common/kst';
 import { SELLPIA_SALES_COVERAGE_SELLER_ID } from '../analytics/sellpia-sales/domain/snapshot-coverage';
 import { AgentAttemptReadinessService } from '../agent-os/adapter/out/runtime/attempt/agent-attempt-readiness.service';
 import type {
-  AgentOsLiveReadinessCheck,
-  AgentOsLiveReadinessResponse,
-} from '@kiditem/shared/agent-os';
-import type {
   ReadinessCheck,
   ReadinessResponse,
   RebuildReadinessResponse,
@@ -59,29 +55,6 @@ export class ReadinessService {
     };
   }
 
-  async getAgentOsLiveStatus(
-    organizationId: string,
-  ): Promise<AgentOsLiveReadinessResponse> {
-    const checks: AgentOsLiveReadinessCheck[] = [
-      this.openAiResponsesReadiness(),
-      await this.coupangSellerProductReadiness(organizationId),
-      this.alibaba1688CheckoutReadiness(),
-    ];
-    const runnableCapabilities = checks
-      .filter((check) => check.status === 'ready')
-      .flatMap((check) => check.requiredFor);
-    const blockedCapabilities = checks
-      .filter((check) => check.status !== 'ready')
-      .flatMap((check) => check.requiredFor);
-
-    return {
-      checks,
-      allReady: checks.every((check) => check.status === 'ready'),
-      runnableCapabilities,
-      blockedCapabilities,
-    };
-  }
-
   /**
    * KID-25 local-runtime gate. It probes only runtime binary/login state and
    * requires an explicit profile model; credential values never enter Nest.
@@ -91,7 +64,7 @@ export class ReadinessService {
     runtimeType: string;
     model: string;
   }>> {
-    const versions = await this.prisma.agentWorkVersion.findMany({
+    const versions = await this.prisma.agentVersion.findMany({
       where: { activatedAt: { not: null }, retiredAt: null },
       select: { agentDefinitionKey: true, runtimeType: true },
       orderBy: { agentDefinitionKey: 'asc' },
@@ -419,104 +392,6 @@ export class ReadinessService {
     };
   }
 
-  private openAiResponsesReadiness(): AgentOsLiveReadinessCheck {
-    const hasApiKey = hasEnv('OPENAI_API_KEY');
-    const model = optionalEnv('AGENT_OS_OPENAI_RESPONSES_MODEL');
-    const ready = hasApiKey && model != null;
-
-    return {
-      key: 'openai_responses_operator',
-      label: 'OpenAI Responses Operator Runtime',
-      status: ready ? 'ready' : 'missing',
-      detail: ready
-        ? `OpenAI Responses runtime can run with explicit model ${model}.`
-        : missingList([
-            hasApiKey ? null : 'OPENAI_API_KEY',
-            model ? null : 'AGENT_OS_OPENAI_RESPONSES_MODEL',
-          ]),
-      requiredFor: ['operator_runtime'],
-      remediation: ready
-        ? null
-        : 'Set OPENAI_API_KEY and AGENT_OS_OPENAI_RESPONSES_MODEL before running the hosted Operator adapter.',
-    };
-  }
-
-  private async coupangSellerProductReadiness(
-    organizationId: string,
-  ): Promise<AgentOsLiveReadinessCheck> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        isPrimary: true,
-        status: 'active',
-      },
-      orderBy: { updatedAt: 'desc' },
-      select: {
-        vendorId: true,
-        externalAccountId: true,
-        config: true,
-      },
-    });
-    const config = toJsonRecord(account?.config);
-    const credentials = toRecord(config.coupangCredentials);
-    const hasVendorId = Boolean(
-      optionalText(account?.vendorId) ?? optionalText(account?.externalAccountId),
-    );
-    const hasAccessKey = isCredentialEnvelope(credentials.accessKey);
-    const hasSecretKey = isCredentialEnvelope(credentials.secretKey);
-    const ready = hasVendorId && hasAccessKey && hasSecretKey;
-
-    return {
-      key: 'coupang_seller_product_api',
-      label: 'Coupang Seller Product API',
-      status: ready ? 'ready' : 'missing',
-      detail: ready
-        ? 'Primary active Coupang channel account has Vendor ID, Access Key, and Secret Key configured.'
-        : missingList([
-            hasVendorId ? null : 'primary active Coupang Vendor ID',
-            hasAccessKey ? null : 'Coupang Access Key',
-            hasSecretKey ? null : 'Coupang Secret Key',
-          ]),
-      requiredFor: ['channels.submit_coupang_listing'],
-      remediation: ready
-        ? null
-        : 'Save the primary Coupang channel account Vendor ID, Access Key, and Secret Key in channel settings.',
-    };
-  }
-
-  private alibaba1688CheckoutReadiness(): AgentOsLiveReadinessCheck {
-    const runtime = optionalEnv('AGENT_OS_1688_CHECKOUT_RUNTIME');
-    const providerUrl = optionalEnv('AGENT_OS_1688_CHECKOUT_PROVIDER_URL');
-    const ready = runtime === 'provider' && providerUrl != null;
-
-    return {
-      key: 'alibaba_1688_checkout_runtime',
-      label: '1688 Checkout Runtime',
-      status: ready ? 'ready' : 'missing',
-      detail: ready
-        ? `1688 checkout provider runtime is configured as ${runtime}.`
-        : missingList([
-            runtime === 'provider' ? null : 'AGENT_OS_1688_CHECKOUT_RUNTIME=provider',
-            providerUrl ? null : 'AGENT_OS_1688_CHECKOUT_PROVIDER_URL',
-          ]),
-      requiredFor: [
-        'supply.submit_purchase_order',
-        'supply.submit_purchase_order_live_checkout',
-      ],
-      remediation: ready
-        ? null
-        : 'Configure an authenticated browser or provider-backed 1688 checkout runtime before live supplier ordering.',
-    };
-  }
-}
-
-function hasEnv(key: string): boolean {
-  return optionalEnv(key) != null;
-}
-
-function optionalEnv(key: string): string | null {
-  return optionalText(process.env[key]);
 }
 
 function optionalText(value: string | null | undefined): string | null {
@@ -524,33 +399,16 @@ function optionalText(value: string | null | undefined): string | null {
   return trimmed ? trimmed : null;
 }
 
-function missingList(items: Array<string | null>): string {
-  const missing = items.filter((item): item is string => item != null);
-  return `Missing: ${missing.join(', ')}.`;
+function optionalEnv(key: string): string | null {
+  return optionalText(process.env[key]);
 }
 
-function toJsonRecord(
-  value: Prisma.JsonValue | null | undefined,
-): Prisma.JsonObject {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  return value as Prisma.JsonObject;
-}
 
 function toRecord(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
 }
 
-function isCredentialEnvelope(value: unknown): boolean {
-  const record = toRecord(value);
-  return Boolean(
-    record.version &&
-      record.algorithm &&
-      record.iv &&
-      record.ciphertext &&
-      record.tag,
-  );
-}
 
 /** Date → KST YYYY-MM-DD */
 function toKstDateStr(d: Date): string {

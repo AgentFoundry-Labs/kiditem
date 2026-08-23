@@ -127,17 +127,13 @@ export class AttemptMcpBrokerService {
     await rm(socketPath, { force: true });
   }
 
-  catalog(socketPath: string, peerPid: number, query = ''): string[] {
+  catalog(socketPath: string, peerPid: number, query = ''): ReturnType<AttemptMcpActionsPort['catalog']> {
     const binding = this.authorize(socketPath, peerPid);
-    const normalizedQuery = query.trim().toLowerCase();
-    return binding.capabilityKeys.filter((key) =>
-      key.toLowerCase().includes(normalizedQuery),
-    );
+    return this.actions.catalog({ binding, query });
   }
 
   async invoke(input: { socketPath: string; peerPid: number; capabilityKey: string; arguments: Record<string, unknown>; ignoredIdentity?: unknown }): Promise<unknown> {
     const binding = this.authorize(input.socketPath, input.peerPid);
-    if (!binding.capabilityKeys.includes(input.capabilityKey)) throw new Error('capability_not_authorized');
     return this.actions.invoke({ invocationId: randomUUID(), binding, capabilityKey: input.capabilityKey, input: input.arguments });
   }
 

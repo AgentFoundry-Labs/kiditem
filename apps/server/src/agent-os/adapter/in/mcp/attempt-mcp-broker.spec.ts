@@ -22,7 +22,7 @@ describe('Attempt-bound MCP broker', () => {
     ];
     const invoke = vi.fn().mockResolvedValue({ accepted: true });
     const broker = new AttemptMcpBrokerService(
-      { invoke, delegate: async () => ({}), child: async () => ({}) },
+      { catalog: async ({ query }) => entries(sourcingKeys.filter((key) => key.toLowerCase().includes((query ?? '').toLowerCase()))), invoke, delegate: async () => ({}), child: async () => ({}) },
       { belongsToAttemptGroup: () => true },
     );
     broker.bind({
@@ -32,9 +32,9 @@ describe('Attempt-bound MCP broker', () => {
       processGroupId: 42, capabilityKeys: sourcingKeys,
     });
 
-    expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'sourcing.')).toEqual(sourcingKeys);
-    expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'REFRESHVALIDATION'))
-      .toEqual(['sourcing.refreshValidation']);
+    await expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'sourcing.').then((items) => items.map((item) => item.key))).resolves.toEqual(sourcingKeys);
+    await expect(broker.catalog('/tmp/attempt-sourcing.sock', 42, 'REFRESHVALIDATION').then((items) => items.map((item) => item.key)))
+      .resolves.toEqual(['sourcing.refreshValidation']);
     await Promise.all(sourcingKeys.map((capabilityKey) => broker.invoke({
       socketPath: '/tmp/attempt-sourcing.sock', peerPid: 42, capabilityKey,
       arguments: {},
@@ -46,7 +46,7 @@ describe('Attempt-bound MCP broker', () => {
     const invocations: unknown[] = [];
     const descendantsOnly = { belongsToAttemptGroup: vi.fn((_binding, peerPid) => peerPid === 72) };
     const broker = new AttemptMcpBrokerService({
-      invoke: async (input) => { invocations.push(input); return { accepted: input.invocationId }; },
+      catalog: async () => entries(['analytics.readOverview']), invoke: async (input) => { invocations.push(input); return { accepted: input.invocationId }; },
       delegate: async () => ({}), child: async () => ({}),
     }, descendantsOnly);
     broker.bind({ socketPath: '/tmp/attempt.sock', attemptId: 'attempt', sessionId: 'session', taskId: 'task', agentVersionId: 'version', organizationId: 'org', userId: 'actual-user', processGroupId: 42, capabilityKeys: ['analytics.readOverview'] });
@@ -62,12 +62,12 @@ describe('Attempt-bound MCP broker', () => {
     const children: unknown[] = [];
     const ownedPeer = { belongsToAttemptGroup: vi.fn(() => true) };
     const broker = new AttemptMcpBrokerService({
-      invoke: async () => ({}),
+      catalog: async ({ query }) => entries(['analytics.readOverview', 'supply.submit_purchase_order'].filter((key) => key.includes(query ?? ''))), invoke: async () => ({}),
       delegate: async (input) => { delegated.push(input); return { childTaskId: 'child' }; },
       child: async (input) => { children.push(input); return { ok: true }; },
     }, ownedPeer);
     broker.bind({ socketPath: '/tmp/attempt.sock', attemptId: 'attempt', sessionId: 'session', taskId: 'task', agentVersionId: 'version', organizationId: 'org', userId: 'user', processGroupId: 42, capabilityKeys: ['analytics.readOverview', 'supply.submit_purchase_order'] });
-    expect(broker.catalog('/tmp/attempt.sock', 42, 'analytics')).toEqual(['analytics.readOverview']);
+    await expect(broker.catalog('/tmp/attempt.sock', 42, 'analytics').then((items) => items.map((item) => item.key))).resolves.toEqual(['analytics.readOverview']);
     await broker.delegate({ socketPath: '/tmp/attempt.sock', peerPid: 42, targetAgentKey: 'supply', objective: 'submit' });
     await broker.child({ socketPath: '/tmp/attempt.sock', peerPid: 42, action: 'interrupt', childTaskId: 'child' });
     expect(delegated[0]).toMatchObject({ binding: { attemptId: 'attempt' }, targetAgentKey: 'supply' });
@@ -111,7 +111,7 @@ describe('Attempt-bound MCP broker', () => {
     const socketPath = join(root, 'attempt.sock');
     const invocations: unknown[] = [];
     const broker = new AttemptMcpBrokerService({
-      invoke: async (input) => { invocations.push(input); return { operation_ref: 'operation-1' }; },
+      catalog: async () => entries(['sourcing.collect_shadow_signals']), invoke: async (input) => { invocations.push(input); return { operation_ref: 'operation-1' }; },
       delegate: async () => ({}), child: async () => ({}),
     }, { belongsToAttemptGroup: () => true }, { read: async () => process.pid });
     try {
@@ -128,6 +128,13 @@ describe('Attempt-bound MCP broker', () => {
     }
   });
 });
+
+function entries(keys: string[]) {
+  return keys.map((key) => ({
+    key, ownerDomain: key.split('.')[0], description: 'capability',
+    inputSchema: { type: 'object' }, effects: ['read'], approvalRisk: 'none', idempotency: 'recommended',
+  }));
+}
 
 function unixRequest(socketPath: string, request: Record<string, unknown>): Promise<unknown> {
   return new Promise((resolve, reject) => {

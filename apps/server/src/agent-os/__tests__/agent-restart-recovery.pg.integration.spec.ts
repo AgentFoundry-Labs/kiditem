@@ -19,9 +19,9 @@ beforeEach(async () => {
   await prisma.agentCapabilityApproval.deleteMany({ where: { organizationId } });
   await prisma.agentCapabilityInvocation.deleteMany({ where: { organizationId } });
   await prisma.agentAttempt.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkTask.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkSession.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkVersion.deleteMany({ where: { agentDefinitionKey: 'restart_recovery_test' } });
+  await prisma.agentTask.deleteMany({ where: { organizationId } });
+  await prisma.agentSession.deleteMany({ where: { organizationId } });
+  await prisma.agentVersion.deleteMany({ where: { agentDefinitionKey: 'restart_recovery_test' } });
   await prisma.organizationMembership.deleteMany({ where: { organizationId } });
   await prisma.user.deleteMany({ where: { id: userId } });
   await prisma.organization.deleteMany({ where: { id: organizationId } });
@@ -31,7 +31,7 @@ beforeEach(async () => {
 });
 
 async function root() {
-  const version = await prisma.agentWorkVersion.create({
+  const version = await prisma.agentVersion.create({
     data: {
       agentDefinitionKey: 'restart_recovery_test', version: 1,
       assignedDomains: ['products'], capabilityKeys: ['products.write'],
@@ -72,7 +72,7 @@ describe('same-SHA Agent work restart recovery', () => {
     await work.reconcile({ applicationVersion: '1.0.0', authorizingGitSha: gitSha, now: new Date('2030-01-01T00:00:02.000Z') });
     await expect(prisma.agentAttempt.findUnique({ where: { id: admitted.attempt.id }, select: { status: true } })).resolves.toEqual({ status: 'process_interrupted' });
     await expect(prisma.agentCapabilityInvocation.findUnique({ where: { id: read.id }, select: { status: true, error: true } })).resolves.toMatchObject({ status: 'failed', error: { code: 'process_interrupted' } });
-    await expect(prisma.agentWorkTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
+    await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });
 
   it('preserves a distinct pending Approval and ready mutation during same-SHA API reconciliation', async () => {
@@ -86,7 +86,7 @@ describe('same-SHA Agent work restart recovery', () => {
     await expect(prisma.agentCapabilityInvocation.findUnique({ where: { id: ready.id }, select: { status: true } })).resolves.toEqual({ status: 'ready' });
     await expect(work.claimMutation({ workerId: 'delayed-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') })).resolves.toMatchObject({ invocationId: ready.id, ownerIdempotencyKey: 'owner-key-ready', canonicalInput: { version: 7, productId: 'product-ready' } });
     await expect(prisma.agentCapabilityApproval.findUnique({ where: { id: pending.id }, select: { status: true } })).resolves.toEqual({ status: 'pending' });
-    await expect(prisma.agentWorkTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
+    await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });
 
   it('keeps an already-ready mutation claimable after Task cancellation while rejecting a new attempt admission', async () => {

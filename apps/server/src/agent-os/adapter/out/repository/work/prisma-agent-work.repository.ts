@@ -15,7 +15,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
   async loadProjection(
     input: OrganizationScopedId,
   ): Promise<AgentWorkProjection | null> {
-    const session = await this.prisma.agentWorkSession.findFirst({
+    const session = await this.prisma.agentSession.findFirst({
       where: input,
       include: { tasks: true },
     });
@@ -50,7 +50,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       },
     });
     if (!membership) return null;
-    const task = await this.prisma.agentWorkTask.findFirst({
+    const task = await this.prisma.agentTask.findFirst({
       where: {
         organizationId: input.organizationId,
         sessionId: input.sessionId,
@@ -127,13 +127,13 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
           reportedModel: true,
         },
       }),
-      this.prisma.agentWorkVersion.findFirst({
+      this.prisma.agentVersion.findFirst({
         where: {
           agentDefinitionKey: input.targetAgentKey,
           activatedAt: { not: null },
           retiredAt: null,
         },
-        select: { id: true },
+        select: { id: true, agentDefinitionKey: true, runtimeType: true, capabilityKeys: true },
       }),
     ]);
     if (!attempt || !target) return null;
@@ -144,6 +144,11 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       cliVersion: attempt.cliVersion,
       reportedModel: attempt.reportedModel,
       targetAgentVersionId: target.id,
+      targetAgentKey: target.agentDefinitionKey,
+      targetRuntimeType: target.runtimeType,
+      targetCapabilityKeys: Array.isArray(target.capabilityKeys)
+        ? target.capabilityKeys.filter((key): key is string => typeof key === 'string')
+        : [],
     };
   }
 
@@ -155,7 +160,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
     requestedByUserId: string;
   }) {
     const [child, membership] = await Promise.all([
-      this.prisma.agentWorkTask.findFirst({
+      this.prisma.agentTask.findFirst({
         where: {
           id: input.childTaskId,
           organizationId: input.organizationId,
@@ -167,7 +172,7 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
           attempts: {
             orderBy: { ordinal: 'desc' },
             take: 1,
-            select: { id: true, status: true },
+            select: { id: true, status: true, result: true, error: true },
           },
         },
       }),
@@ -188,6 +193,8 @@ export class PrismaAgentWorkRepository implements AgentWorkRepositoryPort {
       attemptId: attempt?.id ?? null,
       attemptStatus: attempt?.status ?? null,
       live: Boolean(attempt && ['starting', 'running'].includes(attempt.status)),
+      result: attempt?.result ?? null,
+      error: attempt?.error ?? null,
     };
   }
 

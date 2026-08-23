@@ -38,6 +38,7 @@ function findingsFor({ path: filePath, source }) {
     findings.push("legacy AgentRun symbol");
   if (
     hasPath(filePath, /^apps\/server\/src\/agent-os\//) &&
+    !/\/application\/(?:port\/out\/work\/agent-live-message\.port|service\/work\/agent-live-message\.service)\.ts$/.test(filePath) &&
     hasPath(
       filePath,
       /(?:conversation|message|event|replay|summarizer|live-publisher|live-join)/i,

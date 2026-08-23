@@ -25,10 +25,6 @@ import {
   operationCancellationAudit,
   type OperationCancellationTargetAudit,
 } from '../../../common/operation-cancellation-audit';
-import {
-  OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT,
-  type OperationCancellationAgentSessionTaskPort,
-} from '../port/out/cross-domain/agent-session-task-cancellation.port';
 
 const TERMINAL_OPERATION_STATUSES = new Set([
   'succeeded',
@@ -59,8 +55,6 @@ function auditTargetFrom(target: CancelOperationTarget): OperationCancellationTa
       return { targetType: 'operation_key', operationKey: target.operationKey };
     case 'workflow_run':
       return { targetType: 'workflow_run', runId: target.runId };
-    case 'agent_session_task':
-      return { targetType: 'agent_session_task', session: target.session, task: target.task };
     case 'content_generation':
       return { targetType: 'content_generation', generationId: target.generationId };
     case 'thumbnail_generation':
@@ -94,8 +88,6 @@ export class OperationCancellationService {
     private readonly workflows: WorkflowRunCancellationPort,
     @Inject(AI_GENERATION_CANCELLATION_PORT)
     private readonly ai: AiGenerationCancellationPort,
-    @Inject(OPERATION_CANCELLATION_AGENT_SESSION_TASK_PORT)
-    private readonly sessionTasks: OperationCancellationAgentSessionTaskPort,
   ) {}
 
   async cancel(command: CancelOperationCommand): Promise<CancelOperationResult> {
@@ -104,8 +96,6 @@ export class OperationCancellationService {
         return this.cancelByOperationKey(command);
       case 'workflow_run':
         return this.cancelWorkflowRun(command, command.target.runId, null);
-      case 'agent_session_task':
-        return this.cancelAgentSessionTask(command, null);
       case 'content_generation':
         return this.cancelContentGeneration(command, command.target.generationId, null);
       case 'thumbnail_generation':
@@ -174,7 +164,6 @@ export class OperationCancellationService {
 
     const hasAnyEffect =
       affected.workflowRunIds.length +
-      affected.agentSessionTaskNames.length +
       affected.contentGenerationIds.length +
       affected.thumbnailGenerationIds.length +
       affected.directAiJobIds.length +
@@ -260,35 +249,6 @@ export class OperationCancellationService {
       operationKey,
       affected,
       warnings,
-    });
-  }
-
-  private async cancelAgentSessionTask(
-    command: CancelOperationCommand,
-    operationKey: string | null,
-  ): Promise<CancelOperationResult> {
-    if (command.target.targetType !== 'agent_session_task') {
-      throw new Error('cancelAgentSessionTask requires agent_session_task target');
-    }
-    const result = await this.sessionTasks.cancel({
-      organizationId: command.organizationId,
-      actorUserId: command.actorUserId,
-      session: command.target.session,
-      task: command.target.task,
-      idempotencyKey: command.target.idempotencyKey,
-      expectedStatus: command.target.expectedStatus,
-      reason: reasonFrom(command),
-    });
-    const affected = emptyAffected();
-    const cancelled = result.status === 'cancelled';
-    if (cancelled) pushUnique(affected.agentSessionTaskNames, command.target.task);
-    return buildCancelOperationResult({
-      status: cancelled ? 'cancelled' : 'already_terminal',
-      message: cancelled
-        ? '에이전트 작업 중단 요청이 반영되었습니다.'
-        : '이미 완료되었거나 중단된 에이전트 작업입니다.',
-      operationKey,
-      affected,
     });
   }
 

@@ -1,10 +1,15 @@
 import { createHash } from "node:crypto";
 import { zodToJsonSchema } from "zod-to-json-schema";
+import {
+  AgentResultEnvelopeSchema,
+  type AgentResultEnvelope,
+} from "@kiditem/shared/agent-interaction";
 import { AgentOsRuntimeError } from "../../../domain/agent-os.errors";
 import type {
   AgentWorkTransactionPort,
   InvocationAuthorizationInput,
   InvocationAuthorizationResult,
+  InlineInvocationFinalizeInput,
 } from "../../port/out/work/agent-work-transaction.port";
 import { AgentCapabilityRegistry } from "../agent-capability-registry.service";
 import { MUTATION_EFFECTS } from "../../../domain/capability/capability-definition";
@@ -29,10 +34,12 @@ export class AgentCapabilityInvocationService {
     private readonly transactions: Pick<
       AgentWorkTransactionPort,
       "authorizeInvocation"
+      | "finalizeInlineInvocation"
     >,
     private readonly capabilities: Pick<
       AgentCapabilityRegistry,
       "resolveDefinition"
+      | "resolveImplementation"
     >,
     private readonly now: () => Date = () => new Date(),
     private readonly sourcingAdmission?: Pick<SourcingCapabilityAdmissionPort, "admit">,
@@ -114,6 +121,92 @@ export class AgentCapabilityInvocationService {
         : undefined,
     });
   }
+
+  /**
+   * Read-only capabilities run in the live CLI process.  Authorization and
+   * its durable completion are deliberately separate fences: a restart can
+   * mark an unfinished read failed and a late process may not overwrite it.
+   */
+  async invoke(input: PublicAuthorizationInput): Promise<
+    InvocationAuthorizationResult | { invocation: InvocationAuthorizationResult; result: AgentResultEnvelope }
+  > {
+    const authorization = await this.authorize(input);
+    const definition = this.capabilities.resolveDefinition(input.capabilityKey);
+    if (!definition) throw new AgentOsRuntimeError("capability_not_found", "capability_not_found");
+    const mutation = definition.effects.some((effect) => MUTATION_EFFECTS.has(effect));
+    if (mutation) return authorization;
+
+    const implementation = this.capabilities.resolveImplementation(input.capabilityKey);
+    if (!implementation || implementation.capabilityKey !== input.capabilityKey) {
+      await this.finishInline({
+        organizationId: input.organizationId,
+        invocationId: authorization.invocationId,
+        outcome: "failed",
+        error: { code: "stale_capability_version", message: "Capability implementation is unavailable." },
+        finishedAt: this.now(),
+      });
+      throw new AgentOsRuntimeError("stale_capability_version", "stale_capability_version");
+    }
+
+    try {
+      const parsed = definition.inputSchema.parse(input.input);
+      const result = AgentResultEnvelopeSchema.parse(await implementation.invoke({
+        context: {
+          organizationId: input.organizationId,
+          initiatingUserId: input.initiatingUserId,
+          sessionId: input.sessionId,
+          taskId: input.taskId,
+          attemptId: input.attemptId,
+          agentVersionId: input.agentVersionId,
+          ownerIdempotencyKey: input.ownerIdempotencyKey,
+          applicationVersion: authorization.applicationVersion,
+          authorizingGitSha: authorization.authorizingGitSha,
+          runtimeType: authorization.runtimeType,
+        },
+        input: parsed,
+      }));
+      if (result.output !== undefined) definition.outputSchema.parse(result.output);
+      const completed = await this.finishInline({
+        organizationId: input.organizationId,
+        invocationId: authorization.invocationId,
+        outcome: "succeeded",
+        result: concise(result),
+        finishedAt: this.now(),
+      });
+      if (!completed.won) throw new AgentOsRuntimeError("attempt_not_live", "inline_invocation_interrupted");
+      return { invocation: authorization, result };
+    } catch (error) {
+      if (error instanceof AgentOsRuntimeError) throw error;
+      await this.finishInline({
+        organizationId: input.organizationId,
+        invocationId: authorization.invocationId,
+        outcome: "failed",
+        error: inlineError(error),
+        finishedAt: this.now(),
+      });
+      throw error;
+    }
+  }
+
+  private finishInline(input: InlineInvocationFinalizeInput): Promise<{ won: boolean }> {
+    return this.transactions.finalizeInlineInvocation(input);
+  }
+}
+
+function concise(result: AgentResultEnvelope): AgentResultEnvelope {
+  return {
+    ...result,
+    summary: result.summary.slice(0, 1_000),
+    resourceRefs: result.resourceRefs.slice(0, 50),
+    operationRefs: result.operationRefs.slice(0, 50),
+  };
+}
+
+function inlineError(error: unknown): { code: string; message: string } {
+  return {
+    code: "capability_execution_failed",
+    message: error instanceof Error ? error.message.slice(0, 1_000) : "Capability execution failed.",
+  };
 }
 
 export function canonicalize(input: unknown): unknown {

@@ -51,6 +51,9 @@ export interface AgentWorkRepositoryPort {
     cliVersion: string;
     reportedModel: string | null;
     targetAgentVersionId: string;
+    targetAgentKey: string;
+    targetRuntimeType: string;
+    targetCapabilityKeys: readonly string[];
   } | null>;
   loadAttemptMcpChild(input: {
     organizationId: string;
@@ -64,6 +67,8 @@ export interface AgentWorkRepositoryPort {
     attemptId: string | null;
     attemptStatus: string | null;
     live: boolean;
+    result: unknown | null;
+    error: unknown | null;
   } | null>;
   findDueApprovals(input: { now: Date; limit: number }): Promise<Array<{
     organizationId: string;

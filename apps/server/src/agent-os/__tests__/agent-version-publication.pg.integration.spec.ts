@@ -2,14 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { makeTestPrisma, resetDb } from '../../test-helpers/real-prisma';
 import { AGENT_VERSION_PUBLICATION_DEFINITIONS } from '../domain/catalog/agent-version-publication.registry';
-import { AgentWorkVersionPublisher } from '../application/service/work/agent-work-version-publisher.service';
+import { AgentVersionPublisher } from '../application/service/work/agent-work-version-publisher.service';
 
 let prisma: PrismaClient | null = null;
-let versions: AgentWorkVersionPublisher;
+let versions: AgentVersionPublisher;
 
 beforeAll(async () => {
   prisma = makeTestPrisma();
-  versions = new AgentWorkVersionPublisher(prisma);
+  versions = new AgentVersionPublisher(prisma);
   await prisma.$connect();
 });
 
@@ -18,7 +18,7 @@ afterAll(async () => prisma?.$disconnect());
 beforeEach(async () => {
   if (!prisma) throw new Error('Prisma test client was not initialized');
   await resetDb(prisma);
-  await prisma.agentWorkVersion.deleteMany();
+  await prisma.agentVersion.deleteMany();
 });
 
 describe('KID-25 AgentVersion publication', () => {
@@ -56,7 +56,7 @@ describe('KID-25 AgentVersion publication', () => {
       manifestHash: 'f'.repeat(64),
     });
     const returned = await versions.publish(original);
-    const originalRow = await prisma!.agentWorkVersion.findFirstOrThrow({
+    const originalRow = await prisma!.agentVersion.findFirstOrThrow({
       where: { agentDefinitionKey: original.agentDefinitionKey, manifestHash: original.manifestHash },
     });
     expect(successor.version).toBe(originalRow.version + 1);
@@ -64,7 +64,7 @@ describe('KID-25 AgentVersion publication', () => {
     expect(originalRow.retiredAt).toBeInstanceOf(Date);
     expect(returned.version).toBe(successor.version + 1);
     expect(returned.id).not.toBe(originalRow.id);
-    const successorRow = await prisma!.agentWorkVersion.findUniqueOrThrow({ where: { id: successor.id } });
+    const successorRow = await prisma!.agentVersion.findUniqueOrThrow({ where: { id: successor.id } });
     expect(successorRow.retiredAt).toBeInstanceOf(Date);
     expect(returned.retiredAt).toBeNull();
   });

@@ -28,9 +28,9 @@ beforeEach(async () => {
     where: { organizationId },
   });
   await prisma.agentAttempt.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkTask.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkSession.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkVersion.deleteMany({
+  await prisma.agentTask.deleteMany({ where: { organizationId } });
+  await prisma.agentSession.deleteMany({ where: { organizationId } });
+  await prisma.agentVersion.deleteMany({
     where: {
       agentDefinitionKey: {
         in: ["operator_work_test", "operator_work_test_other"],
@@ -53,7 +53,7 @@ beforeEach(async () => {
 
 describe("PrismaAgentWorkRepository", () => {
   it("admits an organization-fenced session and exactly one root task", async () => {
-    const version = await prisma.agentWorkVersion.create({
+    const version = await prisma.agentVersion.create({
       data: {
         agentDefinitionKey: "operator_work_test",
         version: 1,
@@ -99,7 +99,7 @@ describe("PrismaAgentWorkRepository", () => {
   });
 
   it("rejects cross-session delegated attempts and invocations", async () => {
-    const version = await prisma.agentWorkVersion.create({
+    const version = await prisma.agentVersion.create({
       data: {
         agentDefinitionKey: "operator_work_test",
         version: 1,
@@ -130,7 +130,7 @@ describe("PrismaAgentWorkRepository", () => {
       ...attemptSnapshot,
     });
     const attempt = { id: first.attempt.id };
-    const wrongVersion = await prisma.agentWorkVersion.create({
+    const wrongVersion = await prisma.agentVersion.create({
       data: {
         agentDefinitionKey: "operator_work_test_other",
         version: 1,
@@ -160,7 +160,7 @@ describe("PrismaAgentWorkRepository", () => {
       }),
     ).rejects.toThrow();
     await expect(
-      prisma.agentWorkTask.create({
+      prisma.agentTask.create({
         data: {
           organizationId,
           sessionId: second.session.id,

@@ -55,12 +55,12 @@ worker dispatches durable mutations and deterministic Operations.
 ```text
 Browser
   -> same-origin Nest /api/copilotkit
-       -> AgentSession / root AgentSessionTask
+       -> AgentSession / root AgentTask
        -> immutable AgentAttempt (Codex or Claude CLI)
             -> ephemeral provider-native subagents
             -> Attempt-bound local MCP broker
             -> owner-domain capability input ports
-            -> optional explicit child AgentSessionTask delegation
+            -> optional explicit child AgentTask delegation
 
 Worker
   -> ready AgentCapabilityInvocation mutations
@@ -123,11 +123,11 @@ The final Agent OS persistence graph contains exactly six models:
 
 ```text
 AgentVersion
-  <- AgentSessionTask
+  <- AgentTask
 
 AgentSession
-  -> exactly one root AgentSessionTask
-       -> zero or more child AgentSessionTask rows
+  -> exactly one root AgentTask
+       -> zero or more child AgentTask rows
        -> immutable AgentAttempt rows
             -> AgentCapabilityInvocation rows
                  -> optional AgentCapabilityApproval
@@ -163,7 +163,7 @@ It has no lifecycle column. In particular, it has no `deleting` state,
 deletion cutoff/generation, retention, legal hold, title/thread replay state,
 provider session, cost, or credential reference.
 
-### 3.4 AgentSessionTask
+### 3.4 AgentTask
 
 Task owns durable business responsibility and stores:
 
@@ -660,7 +660,7 @@ To avoid nullable hardening against populated legacy tables:
    write;
 4. remove every legacy caller/model;
 5. rename only the temporary Prisma symbols to final logical
-   `AgentVersion`, `AgentSession`, and `AgentSessionTask`, retaining the new
+   legacy `AgentVersion`, `AgentSession`, and `AgentSessionTask`, retaining the new
    physical table names; and
 6. drop the old physical Agent OS tables with the repository's approved
    `db:push -- --accept-data-loss` path.

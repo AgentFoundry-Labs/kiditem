@@ -43,14 +43,14 @@ beforeEach(async () => {
   await prisma.agentCapabilityInvocation.deleteMany({
     where: { organizationId },
   });
-  await prisma.agentWorkTask.updateMany({
+  await prisma.agentTask.updateMany({
     where: { organizationId },
     data: { delegatedFromAttemptId: null },
   });
-  await prisma.agentWorkTask.deleteMany({ where: { organizationId } });
+  await prisma.agentTask.deleteMany({ where: { organizationId } });
   await prisma.agentAttempt.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkSession.deleteMany({ where: { organizationId } });
-  await prisma.agentWorkVersion.deleteMany({
+  await prisma.agentSession.deleteMany({ where: { organizationId } });
+  await prisma.agentVersion.deleteMany({
     where: { agentDefinitionKey: { startsWith: "admission_race_test" } },
   });
   await prisma.organizationMembership.deleteMany({ where: { organizationId } });
@@ -76,7 +76,7 @@ async function createVersion(overrides: {
   instructionProfileRef?: string;
 } = {}) {
   versionNumber += 1;
-  return prisma.agentWorkVersion.create({
+  return prisma.agentVersion.create({
     data: {
       agentDefinitionKey:
         overrides.agentDefinitionKey ?? `admission_race_test_${versionNumber}`,
@@ -184,8 +184,8 @@ describe("replacement Agent work transaction races", () => {
       runtimeType: "claude_cli",
       instructionProfileRef: "pinned/profile",
     });
-    expect(await prisma.agentWorkSession.count({ where: { organizationId } })).toBe(1);
-    expect(await prisma.agentWorkTask.count({ where: { organizationId } })).toBe(1);
+    expect(await prisma.agentSession.count({ where: { organizationId } })).toBe(1);
+    expect(await prisma.agentTask.count({ where: { organizationId } })).toBe(1);
     expect(await prisma.agentAttempt.count({ where: { organizationId } })).toBe(1);
 
     const unpublished = await createVersion({ activatedAt: null });
@@ -200,8 +200,8 @@ describe("replacement Agent work transaction races", () => {
         ...snapshot,
       }),
     ).rejects.toMatchObject({ code: "agent_version_not_active" });
-    expect(await prisma.agentWorkSession.count({ where: { organizationId } })).toBe(1);
-    expect(await prisma.agentWorkTask.count({ where: { organizationId } })).toBe(1);
+    expect(await prisma.agentSession.count({ where: { organizationId } })).toBe(1);
+    expect(await prisma.agentTask.count({ where: { organizationId } })).toBe(1);
     expect(await prisma.agentAttempt.count({ where: { organizationId } })).toBe(1);
   });
 
@@ -279,7 +279,7 @@ describe("replacement Agent work transaction races", () => {
     const root = await terminalRoot();
     let predecessorAttemptId = root.attempt.id;
     for (const status of ["completed", "failed"] as const) {
-      await prisma.agentWorkTask.update({
+      await prisma.agentTask.update({
         where: { id: root.task.id },
         data: { status, finishedAt: new Date() },
       });
@@ -298,7 +298,7 @@ describe("replacement Agent work transaction races", () => {
         data: { status: "failed", finishedAt: new Date() },
       });
       predecessorAttemptId = successor.attemptId;
-      await prisma.agentWorkTask.update({
+      await prisma.agentTask.update({
         where: { id: root.task.id },
         data: { status: "failed", finishedAt: new Date() },
       });
@@ -317,7 +317,7 @@ describe("replacement Agent work transaction races", () => {
     const latest = await prisma.agentAttempt.findFirstOrThrow({
       where: { taskId: root.task.id }, orderBy: { ordinal: "desc" },
     });
-    await prisma.agentWorkTask.update({
+    await prisma.agentTask.update({
       where: { id: root.task.id },
       data: { status: "cancelled", finishedAt: new Date() },
     });
@@ -333,7 +333,7 @@ describe("replacement Agent work transaction races", () => {
       intent: "reopen",
     });
     expect(reopened.ordinal).toBe(4);
-    await expect(prisma.agentWorkTask.findUnique({ where: { id: root.task.id }, select: { status: true, finishedAt: true } }))
+    await expect(prisma.agentTask.findUnique({ where: { id: root.task.id }, select: { status: true, finishedAt: true } }))
       .resolves.toEqual({ status: "open", finishedAt: null });
   });
 
@@ -363,7 +363,7 @@ describe("replacement Agent work transaction races", () => {
     await prisma.agentAttempt.update({ where: { id: root.attempt.id }, data: { status: "succeeded", finishedAt: new Date() } });
     await expect(messages.send(input)).rejects.toMatchObject({ code: "attempt_not_live" });
     for (const status of ["completed", "failed", "cancelled"] as const) {
-      await prisma.agentWorkTask.update({ where: { id: root.task.id }, data: { status, finishedAt: new Date() } });
+      await prisma.agentTask.update({ where: { id: root.task.id }, data: { status, finishedAt: new Date() } });
       await expect(messages.send(input)).rejects.toMatchObject({
         code: status === "cancelled" ? "task_cancelled" : "task_not_open",
       });
@@ -404,7 +404,7 @@ describe("replacement Agent work transaction races", () => {
     await expect(prisma.agentAttempt.findUnique({ where: { id: first.firstAttemptId }, select: { runtimeType: true, instructionProfileRef: true } }))
       .resolves.toEqual({ runtimeType: "claude_cli", instructionProfileRef: "target/pinned" });
     await expect(delegation.delegate(input)).resolves.toEqual({ ...first, replayed: true });
-    expect(await prisma.agentWorkTask.count({ where: { sessionId: parent.session.id } })).toBe(2);
+    expect(await prisma.agentTask.count({ where: { sessionId: parent.session.id } })).toBe(2);
     expect(await prisma.agentAttempt.count({ where: { sessionId: parent.session.id } })).toBe(2);
     for (const changed of [
       { targetAgentVersionId: parentVersion.id },
@@ -669,22 +669,22 @@ describe("replacement Agent work transaction races", () => {
       } else if (blocker === "authorized_read" || blocker === "ready_mutation") {
         await prisma.agentCapabilityInvocation.updateMany({ where: { taskId: root.task.id }, data: { status: "failed", finishedAt: new Date() } });
       } else {
-        await prisma.agentWorkTask.updateMany({ where: { parentTaskId: root.task.id }, data: { status: "completed", finishedAt: new Date() } });
+        await prisma.agentTask.updateMany({ where: { parentTaskId: root.task.id }, data: { status: "completed", finishedAt: new Date() } });
       }
       await expect(work.transitionTask({ organizationId, sessionId: root.session.id, taskId: root.task.id, requestedByUserId: userId, to, at: new Date() }))
         .resolves.toEqual({ status: to });
     }
     const processOnly = await terminalRoot();
-    await expect(prisma.agentWorkTask.findUnique({ where: { id: processOnly.task.id }, select: { status: true } })).resolves.toEqual({ status: "open" });
+    await expect(prisma.agentTask.findUnique({ where: { id: processOnly.task.id }, select: { status: true } })).resolves.toEqual({ status: "open" });
   });
 
   it("matrix 12: busy deletion preserves each nonterminal category and terminal deletion removes the session graph", async () => {
     const categories = ["open_task", "live_attempt", "authorized", "ready", "executing", "pending_approval"] as const;
     for (const [index, category] of categories.entries()) {
       const root = await terminalRoot();
-      await prisma.agentWorkTask.update({ where: { id: root.task.id }, data: { status: "completed", finishedAt: new Date() } });
+      await prisma.agentTask.update({ where: { id: root.task.id }, data: { status: "completed", finishedAt: new Date() } });
       if (category === "open_task") {
-        await prisma.agentWorkTask.update({ where: { id: root.task.id }, data: { status: "open", finishedAt: null } });
+        await prisma.agentTask.update({ where: { id: root.task.id }, data: { status: "open", finishedAt: null } });
       } else if (category === "live_attempt") {
         await prisma.agentAttempt.update({ where: { id: root.attempt.id }, data: { status: "running", finishedAt: null } });
       } else {
@@ -692,11 +692,11 @@ describe("replacement Agent work transaction races", () => {
       }
       await expect(work.deleteTerminalSession({ organizationId, sessionId: root.session.id, deletedByUserId: userId }))
         .rejects.toMatchObject({ code: "session_busy" });
-      expect(await prisma.agentWorkSession.count({ where: { id: root.session.id } })).toBe(1);
+      expect(await prisma.agentSession.count({ where: { id: root.session.id } })).toBe(1);
       expect(index).toBeGreaterThanOrEqual(0);
     }
     const terminal = await terminalRoot();
-    await prisma.agentWorkTask.update({ where: { id: terminal.task.id }, data: { status: "completed", finishedAt: new Date() } });
+    await prisma.agentTask.update({ where: { id: terminal.task.id }, data: { status: "completed", finishedAt: new Date() } });
     const terminalInvocation = await createInvocation({ root: terminal, status: "approval_pending", effects: ["db_write"], approval: true });
     await work.decideApproval({
       organizationId, sessionId: terminal.session.id, invocationId: terminalInvocation.id, approvalId: terminalInvocation.approval!.id,
@@ -706,16 +706,16 @@ describe("replacement Agent work transaction races", () => {
     expect(await prisma.agentCapabilityApproval.count({ where: { sessionId: terminal.session.id } })).toBe(1);
     await expect(work.deleteTerminalSession({ organizationId, sessionId: terminal.session.id, deletedByUserId: userId }))
       .resolves.toEqual({ deleted: true });
-    expect(await prisma.agentWorkSession.count({ where: { id: terminal.session.id } })).toBe(0);
-    expect(await prisma.agentWorkTask.count({ where: { sessionId: terminal.session.id } })).toBe(0);
+    expect(await prisma.agentSession.count({ where: { id: terminal.session.id } })).toBe(0);
+    expect(await prisma.agentTask.count({ where: { sessionId: terminal.session.id } })).toBe(0);
     expect(await prisma.agentAttempt.count({ where: { sessionId: terminal.session.id } })).toBe(0);
     expect(await prisma.agentCapabilityInvocation.count({ where: { sessionId: terminal.session.id } })).toBe(0);
     expect(await prisma.agentCapabilityApproval.count({ where: { sessionId: terminal.session.id } })).toBe(0);
-    expect(await prisma.agentWorkVersion.count({ where: { id: terminal.version.id } })).toBe(1);
+    expect(await prisma.agentVersion.count({ where: { id: terminal.version.id } })).toBe(1);
   });
   it("matrix 13: terminal deletion races real admission without orphaning work or leaking a provisional slot", async () => {
     const root = await terminalRoot();
-    await prisma.agentWorkTask.update({
+    await prisma.agentTask.update({
       where: { id: root.task.id },
       data: { status: "completed", finishedAt: new Date() },
     });
@@ -739,7 +739,7 @@ describe("replacement Agent work transaction races", () => {
       }),
     ]);
     expect(raced.filter((item) => item.status === "fulfilled")).toHaveLength(1);
-    const exists = await prisma.agentWorkSession.findFirst({
+    const exists = await prisma.agentSession.findFirst({
       where: { id: root.session.id, organizationId },
     });
     if (!exists) {

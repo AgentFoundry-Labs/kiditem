@@ -2,7 +2,6 @@ import { OperationExecutionTimeoutMsSchema } from '@kiditem/shared/operations';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { CreateOperationRunRecord } from '../../../application/port/out/repository/operation.repository.port';
-import { lockWritableAgentSession } from '../../../../agent-os/adapter/out/transaction/session-control/internal/lock-writable-agent-session';
 
 interface ChildRunIdentity {
   runId: string;
@@ -17,7 +16,6 @@ interface CompositeCancellationIdentity {
 type CompositeChildInput = Omit<CreateOperationRunRecord, 'signal'>;
 
 class ParentFenceLostError extends Error {}
-class ParentOwnershipChangedError extends Error {}
 
 export async function createFencedCompositeChild(
   prisma: PrismaService,
@@ -59,24 +57,8 @@ export async function createFencedCompositeChildren(
     return parsed.data;
   });
 
-  for (let retry = 0; retry < 3; retry += 1) {
-    try {
-      return await prisma.$transaction(async (transaction) => {
-      const discoveredOwnership =
-        await transaction.agentSessionOperationRunOwnership.findFirst({
-          where: {
-            organizationId: input.parentOrganizationId,
-            operationRunId: input.parentRunId,
-          },
-          select: { sessionId: true },
-      });
-      if (discoveredOwnership) {
-        const writable = await lockWritableAgentSession(transaction, {
-          organizationId: input.parentOrganizationId,
-          sessionId: discoveredOwnership.sessionId,
-        });
-        if (writable.lifecycle !== 'active') return null;
-      }
+  try {
+    return await prisma.$transaction(async (transaction) => {
       input.signal.throwIfAborted();
       const fencedParent = await transaction.$queryRaw<Array<{ id: string }>>`
         WITH locked_parent AS MATERIALIZED (
@@ -105,21 +87,6 @@ export async function createFencedCompositeChildren(
       `;
       input.signal.throwIfAborted();
       if (fencedParent.length !== 1) return null;
-
-      const parentOwnership =
-        await transaction.agentSessionOperationRunOwnership.findFirst({
-          where: {
-            organizationId: input.parentOrganizationId,
-            operationRunId: input.parentRunId,
-          },
-          select: { sessionId: true },
-        });
-      if (
-        (discoveredOwnership?.sessionId ?? null) !==
-        (parentOwnership?.sessionId ?? null)
-      ) {
-        throw new ParentOwnershipChangedError();
-      }
 
       const children: ChildRunIdentity[] = [];
       for (const [index, childInput] of input.children.entries()) {
@@ -170,22 +137,6 @@ export async function createFencedCompositeChildren(
         )) {
           throw new Error('operation_composite_child_scope_invalid');
         }
-        if (existingChild) {
-          const childOwnership =
-            await transaction.agentSessionOperationRunOwnership.findFirst({
-              where: {
-                organizationId: input.parentOrganizationId,
-                operationRunId: existingChild.id,
-              },
-              select: { sessionId: true },
-            });
-          if (
-            (childOwnership?.sessionId ?? null) !==
-            (parentOwnership?.sessionId ?? null)
-          ) {
-            throw new Error('operation_composite_child_scope_invalid');
-          }
-        }
         input.signal.throwIfAborted();
         const created = existingChild === null
           ? await transaction.operationRun.create({
@@ -210,15 +161,6 @@ export async function createFencedCompositeChildren(
           select: { id: true, organizationId: true, parentRunId: true },
           })
           : null;
-        if (created && parentOwnership) {
-          await transaction.agentSessionOperationRunOwnership.create({
-            data: {
-              organizationId: input.parentOrganizationId,
-              sessionId: parentOwnership.sessionId,
-              operationRunId: created.id,
-            },
-          });
-        }
         const child = existingChild ?? created;
         if (!child) throw new Error('operation_composite_child_missing');
         children.push({ runId: child.id, organizationId: child.organizationId });
@@ -247,17 +189,11 @@ export async function createFencedCompositeChildren(
       if (transitioned.length !== 1) throw new ParentFenceLostError();
 
       return children;
-      });
-    } catch (error) {
-      if (error instanceof ParentFenceLostError) return null;
-      if (error instanceof ParentOwnershipChangedError && retry < 2) continue;
-      if (error instanceof ParentOwnershipChangedError) {
-        throw new Error('operation_composite_child_scope_invalid');
-      }
-      throw error;
-    }
+    });
+  } catch (error) {
+    if (error instanceof ParentFenceLostError) return null;
+    throw error;
   }
-  throw new Error('operation_composite_child_scope_invalid');
 }
 
 export async function cancelFencedCompositeRun(

@@ -7,7 +7,6 @@ import { InventoryModule } from "../inventory/inventory.module";
 import { OperationsModule } from "../operations/operations.module";
 import { SupplyModule } from "../supply/supply.module";
 import { SourcingAgentRuntimeModule } from "./sourcing-agent-runtime.module";
-import { SourcingAgentApiCollectionModule } from "./sourcing-agent-api-collection.module";
 import { SourcingShadowOperationModule } from "./sourcing-shadow-operation.module";
 import { SourcingFinalCapabilityAdapter } from './adapter/in/agent/sourcing-final-capability.adapter';
 import { SourcingScrapeSnapshotAdmissionGuard } from './adapter/in/agent/sourcing-scrape-snapshot-admission.guard';
@@ -146,7 +145,6 @@ import { SOURCING_SELLPIA_SALE_PRICE_PORT } from "./application/port/out/cross-d
   imports: [
     PrismaModule,
     SourcingAgentRuntimeModule,
-    SourcingAgentApiCollectionModule,
     SourcingShadowOperationModule,
     SourcingFrozenRegistrationReadCapabilityModule,
     AiModule,

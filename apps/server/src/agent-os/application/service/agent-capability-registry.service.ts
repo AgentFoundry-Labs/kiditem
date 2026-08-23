@@ -1,8 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type {
-  AgentCapabilityContractHandler,
-  AgentCapabilityHandler,
-} from "../port/out/capability/agent-capability-handler.port";
+import type { AgentCapabilityContractHandler } from "../port/out/capability/agent-capability-handler.port";
 import {
   assertCapabilityDefinitions,
   type CapabilityDefinition,
@@ -10,28 +7,11 @@ import {
 
 @Injectable()
 export class AgentCapabilityRegistry {
-  private readonly handlers = new Map<string, AgentCapabilityHandler>();
   private readonly definitions = new Map<string, CapabilityDefinition>();
   private readonly implementations = new Map<
     string,
     AgentCapabilityContractHandler
   >();
-
-  register(handler: AgentCapabilityHandler): void {
-    const existing = this.handlers.get(handler.key);
-    if (existing && existing !== handler) {
-      throw new Error(`Agent capability already registered: ${handler.key}`);
-    }
-    this.handlers.set(handler.key, handler);
-  }
-
-  resolve(key: string): AgentCapabilityHandler | null {
-    return this.handlers.get(key) ?? null;
-  }
-
-  list(): AgentCapabilityHandler[] {
-    return [...this.handlers.values()];
-  }
 
   registerDefinition(definition: CapabilityDefinition): void {
     if (this.definitions.has(definition.key)) {
@@ -57,6 +37,11 @@ export class AgentCapabilityRegistry {
 
   resolveImplementation(key: string): AgentCapabilityContractHandler | null {
     return this.implementations.get(key) ?? null;
+  }
+
+  /** Public discovery is broader than an AgentVersion's default invocation scope. */
+  listDefinitions(): CapabilityDefinition[] {
+    return [...this.definitions.values()];
   }
 
   assertFinalCatalog(): void {

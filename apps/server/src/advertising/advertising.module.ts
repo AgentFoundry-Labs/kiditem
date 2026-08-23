@@ -1,6 +1,5 @@
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
-import { AgentOsApiExecutionModule } from "../agent-os/agent-os-api-execution.module";
 import { AiModule } from "../ai/ai.module";
 import { AutomationModule } from "../automation/automation.module";
 import { ChannelsModule } from "../channels/channels.module";
@@ -15,7 +14,6 @@ import { AdvertisingExecutionController } from "./adapter/in/http/advertising-ex
 import { AdvertisingIngestController } from "./adapter/in/http/advertising-ingest.controller";
 import { AdvertisingOverviewController } from "./adapter/in/http/advertising-overview.controller";
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
-import { AdStrategyAgentController } from "./adapter/in/http/ad-strategy-agent.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
@@ -42,13 +40,11 @@ import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefr
 import { OperationAlertAdapter } from "./adapter/out/automation/operation-alert.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
 import { AdIngestTransactionAdapter } from "./adapter/out/repository/ad-ingest-transaction.adapter";
-import { AgentOsAdvertisingJudgmentAdapter } from './adapter/out/agent/agent-os-advertising-judgment.adapter';
 
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdCampaignsService } from "./application/service/ad-campaigns.service";
 import { AdStrategyService } from "./application/service/ad-strategy.service";
-import { AdStrategyAgentService } from "./application/service/ad-strategy-agent.service";
 import { AdKeywordAgentService } from "./application/service/ad-keyword-agent.service";
 import { AdGradeRulesService } from "./application/service/ad-grade-rules.service";
 import { AdBudgetAllocatorService } from "./application/service/ad-budget-allocator.service";
@@ -104,7 +100,6 @@ import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domai
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { AD_INGEST_TRANSACTION_PORT } from "./application/port/out/transaction/ad-ingest-transaction.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
-import { ADVERTISING_JUDGMENT_PORT } from './application/port/out/cross-domain/advertising-judgment.port';
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -185,7 +180,6 @@ const REPOSITORY_PORT_BINDINGS = [
 @Module({
   imports: [
     PrismaModule,
-    AgentOsApiExecutionModule,
     AiModule,
     AutomationModule,
     ChannelsModule,
@@ -201,7 +195,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingIngestController,
     AdvertisingActionsController,
     AdvertisingExecutionController,
-    AdStrategyAgentController,
     AdKeywordAgentController,
     KeywordRankController,
     CompetitorTrackingController,
@@ -231,12 +224,10 @@ const REPOSITORY_PORT_BINDINGS = [
     OperationAlertAdapter,
     KeywordRelevanceJudgeAdapter,
     AdIngestTransactionAdapter,
-    AgentOsAdvertisingJudgmentAdapter,
     // application/service
     AdvertisingService,
     AdCampaignsService,
     AdStrategyService,
-    AdStrategyAgentService,
     AdKeywordAgentService,
     AdGradeRulesService,
     AdBudgetAllocatorService,
@@ -280,7 +271,6 @@ const REPOSITORY_PORT_BINDINGS = [
       provide: COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
       useExisting: CoupangMomentumReadService,
     },
-    { provide: ADVERTISING_JUDGMENT_PORT, useExisting: AgentOsAdvertisingJudgmentAdapter },
   ],
   // Published cross-domain read capability (consumed by sourcing).
   exports: [COUPANG_MOMENTUM_READ_CAPABILITY_PORT],

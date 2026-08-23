@@ -35,7 +35,7 @@ is a hard stop.
 
 | Authority | Final value |
 |---|---|
-| Models | `AgentVersion`, `AgentSession`, `AgentSessionTask`, `AgentAttempt`, `AgentCapabilityInvocation`, `AgentCapabilityApproval` |
+| Models | `AgentVersion`, `AgentSession`, `AgentTask`, `AgentAttempt`, `AgentCapabilityInvocation`, `AgentCapabilityApproval` |
 | Session state | no lifecycle column |
 | Task status | `open \| completed \| failed \| cancelled` |
 | Attempt status | `starting \| running \| succeeded \| failed \| process_interrupted \| cancelled` |
@@ -778,7 +778,7 @@ provider session/credential/handle codec, fixed playbook/wrapper Agent, full-
 Nest MCP child/HMAC context, background continuation, advisory lock, release
 drain, coordinated deletion, and old API/Web paths.
 
-Delete old `AgentVersion`, `AgentSession`, `AgentSessionTask` and every legacy
+Delete old legacy `AgentVersion`, `AgentSession`, `AgentSessionTask` and every legacy
 dependent model. Rename temporary `AgentWorkVersion`, `AgentWorkSession`, and
 `AgentWorkTask` Prisma symbols to final logical names while retaining their
 `agent_work_*` physical tables. Remove old reverse relations. Final schema has

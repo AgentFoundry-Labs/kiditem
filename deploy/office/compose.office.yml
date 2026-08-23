@@ -130,7 +130,6 @@ services:
     command: ["node", "dist/worker.js"]
     environment:
       <<: *api-environment
-      AGENT_RUNTIME_WORKER_ENABLED: "1"
     extra_hosts:
       - "${OFFICE_HOST}:host-gateway"
     depends_on:

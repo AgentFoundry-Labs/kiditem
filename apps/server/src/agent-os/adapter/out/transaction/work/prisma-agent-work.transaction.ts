@@ -12,12 +12,14 @@ import type {
   AgentWorkTransactionPort,
   MutationClaimInput,
   MutationFinalizeInput,
+  InlineInvocationFinalizeInput,
   MutationWorkSnapshot,
   ReconciliationInput,
   ReconciliationResult,
   InvocationAuthorizationInput,
   InvocationAuthorizationResult,
   TaskLifecycleTransitionInput,
+  AttemptLifecycleTransitionInput,
   TerminalSessionDeleteInput,
 } from "../../../../application/port/out/work/agent-work-transaction.port";
 import {
@@ -41,9 +43,11 @@ export class PrismaAgentWorkTransaction implements Pick<
   | "expireApproval"
   | "claimMutation"
   | "finalizeMutation"
+  | "finalizeInlineInvocation"
   | "reconcile"
   | "transitionTask"
   | "deleteTerminalSession"
+  | "transitionAttempt"
 > {
   constructor(private readonly prisma: PrismaClient) {}
 
@@ -63,18 +67,18 @@ export class PrismaAgentWorkTransaction implements Pick<
             input.sessionId,
             input.createdByUserId,
           )
-        : await tx.agentWorkSession.create({
+        : await tx.agentSession.create({
             data: {
               organizationId: input.organizationId,
               createdByUserId: input.createdByUserId,
             },
           });
-      const existing = await tx.agentWorkTask.count({
+      const existing = await tx.agentTask.count({
         where: { sessionId: session.id },
       });
       if (existing) throw rejection("root_task_already_exists");
       const version = await activeVersion(tx, input.assignedAgentVersionId);
-      const task = await tx.agentWorkTask.create({
+      const task = await tx.agentTask.create({
         data: {
           organizationId: input.organizationId,
           sessionId: session.id,
@@ -146,7 +150,7 @@ export class PrismaAgentWorkTransaction implements Pick<
           (task.status === "cancelled" && intent !== "reopen")
         )
           throw rejection("task_not_open");
-        await tx.agentWorkTask.update({
+        await tx.agentTask.update({
           where: { id: task.id },
           data: { status: "open", finishedAt: null },
         });
@@ -236,7 +240,7 @@ export class PrismaAgentWorkTransaction implements Pick<
         throw rejection(
           parent.status === "cancelled" ? "task_cancelled" : "task_not_open",
         );
-      const existing = await tx.agentWorkTask.findFirst({
+      const existing = await tx.agentTask.findFirst({
         where: {
           parentTaskId: input.parentTaskId,
           delegationIdempotencyKey: input.idempotencyKey,
@@ -266,7 +270,7 @@ export class PrismaAgentWorkTransaction implements Pick<
       });
       if (!attempt) throw rejection("delegating_attempt_not_live");
       const version = await activeVersion(tx, input.targetAgentVersionId);
-      const child = await tx.agentWorkTask.create({
+      const child = await tx.agentTask.create({
         data: {
           organizationId: input.organizationId,
           sessionId: input.sessionId,
@@ -406,6 +410,9 @@ export class PrismaAgentWorkTransaction implements Pick<
           invocation.status as InvocationAuthorizationResult["invocationStatus"],
         approvalStatus: invocation.approval
           ?.status as InvocationAuthorizationResult["approvalStatus"],
+        applicationVersion: invocation.applicationVersion,
+        authorizingGitSha: invocation.authorizingGitSha,
+        runtimeType: invocation.runtimeType,
       };
       });
     } catch (error) {
@@ -664,6 +671,35 @@ export class PrismaAgentWorkTransaction implements Pick<
     return { won: updated.count === 1 };
   }
 
+  /**
+   * A read is deliberately not claimed by the worker.  It is nevertheless
+   * completed with an atomic status fence so an interrupted process cannot
+   * later overwrite a restart reconciliation failure.
+   */
+  async finalizeInlineInvocation(
+    input: InlineInvocationFinalizeInput,
+  ): Promise<{ won: boolean }> {
+    const updated = await this.prisma.agentCapabilityInvocation.updateMany({
+      where: {
+        id: input.invocationId,
+        organizationId: input.organizationId,
+        status: "authorized",
+        canonicalInput: { equals: Prisma.DbNull },
+      },
+      data: {
+        status: input.outcome,
+        ...(input.result === undefined
+          ? {}
+          : { result: input.result as Prisma.InputJsonValue }),
+        ...(input.error === undefined
+          ? {}
+          : { error: input.error as Prisma.InputJsonValue }),
+        finishedAt: input.finishedAt,
+      },
+    });
+    return { won: updated.count === 1 };
+  }
+
   /** API boot recovery terminalizes only prior in-process reads and attempts. */
   async reconcile(input: ReconciliationInput): Promise<ReconciliationResult> {
     return this.prisma.$transaction(async (tx) => {
@@ -785,19 +821,32 @@ export class PrismaAgentWorkTransaction implements Pick<
                 status: { in: ["starting", "running"] },
               },
             }),
-            tx.agentWorkTask.count({
+            tx.agentTask.count({
               where: { parentTaskId: task.id, status: "open" },
             }),
           ]);
         if (pendingInvocations || liveAttempts || openChildren)
           throw rejection("task_pending_work");
       }
-      await tx.agentWorkTask.updateMany({
+      await tx.agentTask.updateMany({
         where: { id: task.id, organizationId: input.organizationId },
         data: { status: input.to, finishedAt: input.at },
       });
       return { status: input.to };
     });
+  }
+
+  async transitionAttempt(input: AttemptLifecycleTransitionInput): Promise<{ transitioned: boolean }> {
+    const updated = await this.prisma.agentAttempt.updateMany({
+      where: { id: input.attemptId, status: input.from },
+      data: {
+        status: input.to,
+        ...(input.to === 'running' ? { startedAt: input.at } : { finishedAt: input.at }),
+        ...(input.result ? { result: input.result as Prisma.InputJsonValue } : {}),
+        ...(input.error ? { error: input.error as Prisma.InputJsonValue } : {}),
+      },
+    });
+    return { transitioned: updated.count === 1 };
   }
 
   async deleteTerminalSession(
@@ -816,7 +865,7 @@ export class PrismaAgentWorkTransaction implements Pick<
         input.deletedByUserId,
       );
       const [tasks, attempts, invocations, approvals] = await Promise.all([
-        tx.agentWorkTask.count({
+        tx.agentTask.count({
           where: {
             organizationId: input.organizationId,
             sessionId: input.sessionId,
@@ -849,7 +898,7 @@ export class PrismaAgentWorkTransaction implements Pick<
       ]);
       if (tasks || attempts || invocations || approvals)
         throw rejection("session_busy");
-      await tx.agentWorkSession.delete({
+      await tx.agentSession.delete({
         where: {
           id_organizationId: {
             id: input.sessionId,
@@ -897,6 +946,9 @@ function replayInvocation(
       invocation.status as InvocationAuthorizationResult["invocationStatus"],
     approvalStatus: invocation.approval
       ?.status as InvocationAuthorizationResult["approvalStatus"],
+    applicationVersion: invocation.applicationVersion,
+    authorizingGitSha: invocation.authorizingGitSha,
+    runtimeType: invocation.runtimeType,
   };
 }
 
@@ -946,11 +998,11 @@ async function mutationContextStatus(
       where: { organizationId: invocation.organizationId, userId: invocation.initiatingUserId, status: 'active' },
       select: { id: true },
     }),
-    tx.agentWorkSession.findFirst({
+    tx.agentSession.findFirst({
       where: { id: invocation.sessionId, organizationId: invocation.organizationId, createdByUserId: invocation.initiatingUserId },
       select: { id: true },
     }),
-    tx.agentWorkTask.findFirst({
+    tx.agentTask.findFirst({
       where: { id: invocation.taskId, organizationId: invocation.organizationId, sessionId: invocation.sessionId },
       select: { id: true },
     }),
@@ -958,7 +1010,7 @@ async function mutationContextStatus(
       where: { id: invocation.attemptId, organizationId: invocation.organizationId, sessionId: invocation.sessionId, taskId: invocation.taskId, agentVersionId: invocation.agentVersionId },
       select: { id: true },
     }),
-    tx.agentWorkVersion.findFirst({
+    tx.agentVersion.findFirst({
       where: { id: invocation.agentVersionId },
       select: { capabilityKeys: true, assignedDomains: true },
     }),

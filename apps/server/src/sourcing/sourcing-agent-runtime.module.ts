@@ -1,11 +1,7 @@
 import { Module } from '@nestjs/common';
-import { AgentOsCapabilityModule } from '../agent-os/agent-os-capability.module';
 import { AgentOsApiExecutionModule } from '../agent-os/agent-os-api-execution.module';
 import { AiAgentRuntimeModule } from '../ai/ai-agent-runtime.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { SourcingListingPrepCapabilityAdapter } from './adapter/in/agent/sourcing-listing-prep-capability.adapter';
-import { SourcingScrapeUrlCapabilityAdapter } from './adapter/in/agent/sourcing-scrape-url-capability.adapter';
-import { SourcingWorkspaceMutationCapabilityAdapter } from './adapter/in/agent/sourcing-workspace-capability.adapter';
 import { SourcingAgentGatewayAdapter } from './adapter/out/agent/sourcing-agent.gateway.adapter';
 import { SourcingCandidateRepositoryAdapter } from './adapter/out/repository/sourcing-candidate.repository.adapter';
 import { SourcingInterestTargetRepositoryAdapter } from './adapter/out/repository/sourcing-interest-target.repository.adapter';
@@ -17,10 +13,6 @@ import { TrendCollectionRepositoryAdapter } from './adapter/out/repository/trend
 import { SourcingPlaywrightRuntimeHandler } from './adapter/out/runtime/sourcing-playwright-runtime.handler';
 import { SourcingScrapeUrlOperationHandler } from './adapter/in/operation/sourcing-scrape-url.operation-handler';
 import { SourcingScrapeOperationAdapter } from './adapter/out/operations/sourcing-scrape-operation.adapter';
-import {
-  SOURCING_LISTING_PREP_CAPABILITY_PORT,
-  SOURCING_SCRAPE_URL_WORKFLOW_PORT,
-} from './application/port/in/capability/sourcing-capability.ports';
 import { SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT } from './application/port/in/capability/sourcing-agent-workspace-capability.port';
 import { SOURCING_CANDIDATE_REPOSITORY_PORT } from './application/port/out/repository/sourcing-candidate.repository.port';
 import { SOURCING_INTEREST_TARGET_REPOSITORY_PORT } from './application/port/out/repository/sourcing-interest-target.repository.port';
@@ -38,25 +30,20 @@ import { SourcingReviewService } from './application/service/sourcing-review.ser
 import { SourcingScrapeResultService } from './application/service/sourcing-scrape-result.service';
 import { SourcingValidationService } from './application/service/sourcing-validation.service';
 import { SourcingAgentReadCapabilityModule } from './sourcing-agent-read-capability.module';
-import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-capability.module';
 
 @Module({
   imports: [
     PrismaModule,
     AgentOsApiExecutionModule,
-    AgentOsCapabilityModule,
     OperationsModule,
     AiAgentRuntimeModule,
     SourcingAgentReadCapabilityModule,
-    SourcingAgentListingCapabilityModule,
   ],
   providers: [
     SourcingAgentWorkspaceMutationCapabilityService,
     SourcingReviewService,
     SourcingScrapeResultService,
     SourcingValidationService,
-    SourcingScrapeUrlCapabilityAdapter,
-    SourcingWorkspaceMutationCapabilityAdapter,
     SourcingInterestTargetRepositoryAdapter,
     SourcingRecommendationRepositoryAdapter,
     SourcingReviewRepositoryAdapter,
@@ -66,10 +53,6 @@ import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-c
     SourcingPlaywrightRuntimeHandler,
     SourcingScrapeUrlOperationHandler,
     SourcingScrapeOperationAdapter,
-    {
-      provide: SOURCING_SCRAPE_URL_WORKFLOW_PORT,
-      useExisting: SourcingScrapeUrlCapabilityAdapter,
-    },
     {
       provide: SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
       useExisting: SourcingAgentWorkspaceMutationCapabilityService,
@@ -101,7 +84,6 @@ import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-c
     },
   ],
   exports: [
-    SourcingAgentListingCapabilityModule,
     SourcingAgentReadCapabilityModule,
     SourcingReviewService,
     SourcingValidationService,
@@ -113,7 +95,6 @@ import { SourcingAgentListingCapabilityModule } from './sourcing-agent-listing-c
     SOURCING_WORKSPACE_SNAPSHOT_REPOSITORY_PORT,
     TREND_COLLECTION_REPOSITORY_PORT,
     SOURCING_AGENT_WORKSPACE_MUTATION_CAPABILITY_PORT,
-    SOURCING_SCRAPE_URL_WORKFLOW_PORT,
     SourcingPlaywrightRuntimeHandler,
   ],
 })

@@ -13,7 +13,7 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     const profile = { model: 'test-model', loginHome: '/provider-login' };
     const codex = buildCodexAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
     const claude = buildClaudeAttemptCommand({ workspace: '/tmp/work', socketPath: '/tmp/broker.sock', mcpConfigPath: '/tmp/mcp.json', profile });
-    expect(codex.args).toEqual(expect.arrayContaining(['app-server', '--stdio', '--strict-config']));
+    expect(codex.args).toEqual(expect.arrayContaining(['app-server', '--stdio', '--strict-config', 'history.persistence="none"']));
     expect(claude.args).toEqual(expect.arrayContaining(['--input-format', 'stream-json', '--output-format', 'stream-json', '--no-session-persistence', '--mcp-config', '/tmp/mcp.json', '--strict-mcp-config', '--tools', 'Agent']));
     expect([...codex.args, ...claude.args]).not.toContain('--max-budget-usd');
     expect(codex.env).toEqual({ PATH: expect.any(String), HOME: '/provider-login', ATTEMPT_MCP_SOCKET_PATH: '/tmp/broker.sock' });
@@ -85,6 +85,39 @@ describe('ephemeral AgentAttempt CLI runtime', () => {
     child.emit('error', new Error('cli_failed'));
     await vi.waitFor(() => expect(files.remove).toHaveBeenCalledWith(paths));
     expect(broker.close).toHaveBeenCalledWith(paths.socketPath);
+  });
+
+  it('uses app-server and stream-json envelopes without closing the live stdin', async () => {
+    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt-protocol', workspace: '/tmp/attempt-protocol/workspace', broker: '/tmp/attempt-protocol/broker', socketPath: '/tmp/attempt-protocol/broker/attempt.sock', mcpConfigPath: '/tmp/attempt-protocol/broker/mcp.json' };
+    const codex = fakeChild(7666);
+    const terminal = vi.fn(async () => undefined);
+    const executor = new AgentAttemptExecutorService({ create: vi.fn(async () => paths), remove: vi.fn(async () => undefined) } as never, new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, (() => codex) as never, 60_000, undefined, { running: vi.fn(async () => undefined), terminal, release: vi.fn() });
+    await executor.start(attemptInput());
+    expect(codex.stdin.write).toHaveBeenCalledWith(expect.stringContaining('"method":"initialize"'));
+    expect(codex.stdin.end).not.toHaveBeenCalled();
+    codex.emit('exit', 7);
+    await vi.waitFor(() => expect(terminal).toHaveBeenCalledWith('attempt-1', 'failed', expect.objectContaining({ code: 'attempt_exit_nonzero' }), expect.objectContaining({ summary: expect.any(String) })));
+
+    const claude = fakeChild(7667);
+    const claudeExecutor = new AgentAttemptExecutorService({ create: vi.fn(async () => paths), remove: vi.fn(async () => undefined) } as never, new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, (() => claude) as never);
+    await claudeExecutor.start({ ...attemptInput(), attemptId: 'attempt-claude', runtime: 'claude_cli' });
+    expect(claude.stdin.write).toHaveBeenCalledWith(expect.stringContaining('"type":"user"'));
+    expect(claude.stdin.end).not.toHaveBeenCalled();
+  });
+
+  it('terminalizes provider protocol completion and terminates the app-server group', async () => {
+    const processKill = vi.spyOn(process, 'kill').mockImplementation(() => true);
+    const paths: AttemptFilesystemPaths = { root: '/tmp/attempt-terminal', workspace: '/tmp/attempt-terminal/workspace', broker: '/tmp/attempt-terminal/broker', socketPath: '/tmp/attempt-terminal/broker/attempt.sock', mcpConfigPath: '/tmp/attempt-terminal/broker/mcp.json' };
+    const child = fakeChild(7677);
+    child.once('exit', () => { Object.assign(child, { exitCode: 0 }); });
+    const terminal = vi.fn(async () => undefined);
+    const executor = new AgentAttemptExecutorService({ create: vi.fn(async () => paths), remove: vi.fn(async () => undefined) } as never, new AgentAttemptProcessRegistry(), new AttemptLiveControlRegistry(), undefined, (() => child) as never, 60_000, undefined, { running: vi.fn(async () => undefined), terminal, release: vi.fn() });
+    await executor.start(attemptInput());
+    child.stdout.emit('data', Buffer.from(JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { turn: { status: 'completed', items: [{ type: 'agentMessage', text: 'durable answer' }] } } }) + '\n'));
+    child.emit('exit', 0);
+    await vi.waitFor(() => expect(terminal).toHaveBeenCalledWith('attempt-1', 'succeeded', undefined, expect.objectContaining({ summary: 'durable answer' })));
+    expect(processKill).toHaveBeenCalledWith(-7677, 'SIGTERM');
+    processKill.mockRestore();
   });
 
   it('requires the current AgentVersion to admit the Task-pinned runtime before allocating files', async () => {
