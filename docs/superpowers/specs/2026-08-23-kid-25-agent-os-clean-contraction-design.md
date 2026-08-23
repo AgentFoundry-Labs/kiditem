@@ -1,8 +1,9 @@
 # KID-25 Single-Node Agent OS Clean Contraction Design
 
 - Date: 2026-08-23
-- Status: Approved scope; written-spec review pending
+- Status: Approved for implementation
 - Tracking issue: KID-25
+- Implementation plan: `docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md`
 - Operating target: one user on one home-server API instance
 - Source baseline: `82a58a1768f29e3517a62903c0203a81e47037ab`
 - Classification: Agent OS platform reconstruction across server, Web,
