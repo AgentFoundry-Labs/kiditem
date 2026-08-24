@@ -23,27 +23,28 @@ export class AgentDelegatedAttemptStarterService {
     model?: string;
     instructionProfileRef: string;
   }): Promise<void> {
-    try {
-      if (input.runtime !== 'codex_cli' && input.runtime !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
-      const model = input.model?.trim();
-      if (!model) throw new Error(`missing_required_configuration:AGENT_${input.agentKey.toUpperCase()}_MODEL`);
-      await this.launch.start({
-        attemptId: input.attemptId,
-        runtime: input.runtime,
-        profile: { model },
-        prompt: input.prompt,
-        instructionProfileRef: input.instructionProfileRef,
-        sessionId: input.sessionId,
-        taskId: input.taskId,
-        agentVersionId: input.agentVersionId,
-        organizationId: input.organizationId,
-        userId: input.userId,
-        capabilityKeys: [...input.capabilityKeys],
-      });
-    } catch (error) {
+    if (input.runtime !== 'codex_cli' && input.runtime !== 'claude_cli') {
       await this.launch.failBeforeStart({ attemptId: input.attemptId });
-      throw error;
+      throw new Error('attempt_runtime_not_supported');
     }
+    const model = input.model?.trim();
+    if (!model) {
+      await this.launch.failBeforeStart({ attemptId: input.attemptId });
+      throw new Error(`missing_required_configuration:AGENT_${input.agentKey.toUpperCase()}_MODEL`);
+    }
+    await this.launch.start({
+      attemptId: input.attemptId,
+      runtime: input.runtime,
+      profile: { model },
+      prompt: input.prompt,
+      instructionProfileRef: input.instructionProfileRef,
+      sessionId: input.sessionId,
+      taskId: input.taskId,
+      agentVersionId: input.agentVersionId,
+      organizationId: input.organizationId,
+      userId: input.userId,
+      capabilityKeys: [...input.capabilityKeys],
+    });
   }
 
   /** Uses the common cleanup path for a child rejected before launch. */

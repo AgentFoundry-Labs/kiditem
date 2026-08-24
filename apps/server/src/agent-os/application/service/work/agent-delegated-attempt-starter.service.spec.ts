@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AgentDelegatedAttemptStarterService } from './agent-delegated-attempt-starter.service';
 
 describe('AgentDelegatedAttemptStarterService', () => {
-  it('uses the common admitted launch lifecycle to clean up a newly admitted child when startup fails', async () => {
+  it('does not re-enter common cleanup when the shared admitted launch lifecycle reports startup failure', async () => {
     const launch = {
       start: vi.fn(async () => { throw new Error('runner_unavailable'); }),
       failBeforeStart: vi.fn(async () => undefined),
@@ -11,7 +11,7 @@ describe('AgentDelegatedAttemptStarterService', () => {
 
     await expect(service.start({ attemptId: 'attempt', sessionId: 'session', taskId: 'task', agentVersionId: 'version', organizationId: 'org', userId: 'user', agentKey: 'supply', runtime: 'codex_cli', capabilityKeys: [], prompt: 'work', model: 'gpt-5', instructionProfileRef: 'agent-config/prompts/agents/supply.md' })).rejects.toThrow('runner_unavailable');
 
-    expect(launch.failBeforeStart).toHaveBeenCalledWith({ attemptId: 'attempt' });
+    expect(launch.failBeforeStart).not.toHaveBeenCalled();
   });
 
   it('uses only the live execution capability port and never adds a login-home runtime profile', async () => {

@@ -15,6 +15,7 @@ const DEFAULT_MAX_ENTRIES = 1_024;
 type CommandRecord = {
   command: RunnerCommand;
   idempotencyKey?: string;
+  deliveryLeaseKey?: string;
 };
 
 type StartState = {
@@ -49,6 +50,7 @@ export class RunnerCommandQueue {
   private readonly maxEntries: number;
   private readonly records = new Map<string, CommandRecord>();
   private readonly startStates = new Map<string, StartState>();
+  private readonly attemptDeliveryLeases = new Map<string, string>();
   private readonly idempotency = new Map<string, string>();
   private readonly idempotencyTombstones = new Map<string, RunnerInputCommand | RunnerInterruptCommand>();
   private readonly acknowledgements = new Map<string, AcknowledgementTombstone>();
@@ -135,6 +137,30 @@ export class RunnerCommandQueue {
     });
   }
 
+  /**
+   * Redelivers a command only to the lease that first received it. A
+   * replacement Runner can receive newly queued work, never an unacknowledged
+   * command already exposed to the replaced Runner.
+   */
+  takeForLease(leaseKey: string): RunnerCommandBatch {
+    const records: CommandRecord[] = [];
+    for (const record of this.records.values()) {
+      if (records.length >= MAX_RUNNER_COMMANDS) break;
+      const attemptId = record.command.attemptId;
+      const attemptLeaseKey = this.attemptDeliveryLeases.get(attemptId);
+      if (record.deliveryLeaseKey && record.deliveryLeaseKey !== leaseKey) continue;
+      if (attemptLeaseKey && attemptLeaseKey !== leaseKey) continue;
+      // An input or interrupt must follow its start onto the same lease. If
+      // this batch also contains the pending start, iteration binds that start
+      // first and the later command becomes eligible immediately.
+      if (record.command.kind !== 'attempt.start' && this.startStates.has(attemptId) && !attemptLeaseKey) continue;
+      record.deliveryLeaseKey ??= leaseKey;
+      if (record.command.kind === 'attempt.start') this.attemptDeliveryLeases.set(attemptId, leaseKey);
+      records.push(record);
+    }
+    return RunnerCommandBatchSchema.parse({ commands: records.map((record) => record.command) });
+  }
+
   acknowledge(input: { commandId: string; attemptId: string; commandHash: string }): void {
     const record = this.records.get(input.commandId);
     if (!record) {
@@ -161,6 +187,7 @@ export class RunnerCommandQueue {
   markTerminal(attemptId: string): void {
     this.remember(this.terminalAttempts, attemptId);
     this.startStates.delete(attemptId);
+    this.attemptDeliveryLeases.delete(attemptId);
     for (const [commandId, record] of this.records) {
       if (record.command.attemptId !== attemptId) continue;
       // Preserve only the safe command coordinate/hash so an exact rejected

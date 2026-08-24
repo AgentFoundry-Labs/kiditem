@@ -35,6 +35,53 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
+  it('does not redeliver an unacknowledged start to a replacement while old-lease cleanup is pending', async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseLoss!: () => void;
+      const loss = new Promise<void>((resolve) => { releaseLoss = resolve; });
+      const interrupts = vi.fn(async () => loss);
+      const commands = new RunnerCommandQueue({ commandId: () => '619f4eb1-9078-7a1e-9514-b19b5732f5de' });
+      const registry = registryFor({ commands, interruptAttempt: interrupts });
+      const prior = registry.hello(hello());
+      await deliverAttempt(registry, commands, prior.leaseId);
+
+      const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+      const replacementPoll = registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(replacementPoll).resolves.toEqual({ commands: [] });
+      expect(interrupts).toHaveBeenCalledWith(attemptId);
+      releaseLoss();
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not deliver later input for an Attempt already assigned to the replaced lease', async () => {
+    vi.useFakeTimers();
+    try {
+      let releaseLoss!: () => void;
+      const loss = new Promise<void>((resolve) => { releaseLoss = resolve; });
+      const commands = new RunnerCommandQueue({ commandId: () => '719f4eb1-9078-7a1e-9514-b19b5732f5de' });
+      const registry = registryFor({ commands, interruptAttempt: vi.fn(async () => loss) });
+      const prior = registry.hello(hello());
+      await deliverAttempt(registry, commands, prior.leaseId);
+      commands.enqueueInput({ attemptId, input: 'do not cross leases', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+      const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+      const replacementPoll = registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      await expect(replacementPoll).resolves.toEqual({ commands: [] });
+      releaseLoss();
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('can bind the final lifecycle and token revocation hooks after registry construction', async () => {
     const commands = new RunnerCommandQueue({ commandId: () => '718f4eb1-9078-7a1e-9514-b19b5732f5de' });
     const registry = registryFor({ commands });

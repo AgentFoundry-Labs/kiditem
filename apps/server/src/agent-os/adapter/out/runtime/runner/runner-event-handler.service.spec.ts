@@ -174,6 +174,84 @@ describe('RunnerEventHandlerService', () => {
     await expect(fixture.handler.handle(rejected)).resolves.toEqual({ eventSeq: 1, accepted: true });
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(2);
   });
+
+  it('checks the fenced lease after a running transition before trying a starting fallback', async () => {
+    const assertActive = vi.fn()
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => undefined)
+      .mockImplementationOnce(() => { throw new Error('runner_lease_invalid'); });
+    const leases = {
+      setLossHandlers: vi.fn(),
+      acceptEventBatch: vi.fn(async (_batch: RunnerEventBatch, apply: (assert: () => void) => Promise<void>) => {
+        await apply(assertActive);
+        return { eventSeq: 1, accepted: true } as const;
+      }),
+    };
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: false })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const handler = new RunnerEventHandlerService({
+      leases: leases as never,
+      commands: new RunnerCommandQueue(),
+      tokens: new AttemptTokenRegistry(),
+      work,
+      capacity: { releaseAttempt: vi.fn() },
+      output: { publish: vi.fn(), finish: vi.fn() },
+    });
+
+    await expect(handler.handle(batch('318f4eb1-9078-7a1e-9514-b19b5732f5de', 1, [{
+      kind: 'attempt.terminal', attemptId, terminalReason: 'success',
+      result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] },
+    }]))).rejects.toThrow('runner_lease_invalid');
+
+    expect(work.transitionAttempt).toHaveBeenCalledTimes(1);
+    expect(work.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({ from: 'running' }));
+    expect(work.finalizeTaskFromAttempt).not.toHaveBeenCalled();
+  });
+
+  it('resumes frozen success terminal stages unfenced after lease replacement rejects the old event', async () => {
+    const fixture = await handlerFixture();
+    fixture.tokens.revokeAttempt = vi.fn() as never;
+    let releaseFinalize!: () => void;
+    const finalizeStarted = new Promise<void>((resolve) => {
+      fixture.work.finalizeTaskFromAttempt.mockImplementation(async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseFinalize = release; });
+        return { finalized: true, status: 'completed' };
+      });
+    });
+    const terminal = batch(fixture.leaseId, 1, [{
+      kind: 'attempt.terminal', attemptId, terminalReason: 'success',
+      result: { outcome: 'completed', summary: 'frozen success', resourceRefs: [], operationRefs: [] },
+    }]);
+
+    const pending = fixture.handler.handle(terminal);
+    await finalizeStarted;
+    fixture.leases.hello({
+      kind: 'hello', runnerInstanceId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', platform: 'macos', nodeMajor: 22,
+      controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+      runtimes: {
+        codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      },
+    });
+    releaseFinalize();
+
+    await expect(pending).rejects.toThrow('runner_lease_invalid');
+    await settleAsync();
+    await settleAsync();
+
+    expect(fixture.work.transitionAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.tokens.revokeAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.output.finish).toHaveBeenCalledWith({
+      attemptId,
+      outcome: 'completed',
+      summary: 'frozen success',
+    });
+    expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
+  });
 });
 
 async function handlerFixture() {
@@ -202,7 +280,7 @@ async function handlerFixture() {
   const output = { publish: vi.fn(), finish: vi.fn() };
   return {
     handler: new RunnerEventHandlerService({ leases, commands: queue, tokens, work, capacity, output }),
-    leaseId, command: delivered.commands[0] as import('@kiditem/shared/agent-runtime').RunnerStartCommand, commands: queue, tokens, work, capacity, output,
+    leaseId, leases, command: delivered.commands[0] as import('@kiditem/shared/agent-runtime').RunnerStartCommand, commands: queue, tokens, work, capacity, output,
   };
 }
 
@@ -223,4 +301,8 @@ function launchSpec(): AttemptLaunchSpec {
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };
+}
+
+async function settleAsync(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }

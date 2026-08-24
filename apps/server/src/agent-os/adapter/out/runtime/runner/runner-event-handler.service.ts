@@ -13,13 +13,26 @@ type FutureOutput = {
   finish(input: { attemptId: string; outcome: 'completed' | 'failed'; summary?: string }): void;
 };
 
+type TerminalOutcome = {
+  status: 'succeeded' | 'failed' | 'process_interrupted';
+  error?: { code: string; message: string };
+  result?: AgentResultEnvelope;
+};
+
 type TerminalStages = {
+  /**
+   * The first terminal signal wins. Lease-loss recovery resumes this exact
+   * plan, rather than changing a successfully completed Attempt into an
+   * interruption while later local cleanup is pending.
+   */
+  terminal: Readonly<TerminalOutcome>;
   attemptTerminalized: boolean;
   taskFinalized: boolean;
   tokenRevoked: boolean;
   outputFinished: boolean;
   commandTerminalized: boolean;
   capacityReleased: boolean;
+  leaseLossRecovery?: Promise<void>;
 };
 
 const MAX_TERMINAL_TRACKING = 1_024;
@@ -94,39 +107,70 @@ export class RunnerEventHandlerService {
     }
   }
 
-  private async terminalize(
+  private terminalize(
     attemptId: string,
     reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
     result?: AgentResultEnvelope,
     assertActive?: () => void,
   ): Promise<void> {
-    if (this.terminalCompleted.has(attemptId)) return;
+    if (this.terminalCompleted.has(attemptId)) return Promise.resolve();
     const inFlight = this.terminalInFlight.get(attemptId);
-    if (inFlight) return inFlight;
-    const terminalization = this.completeTerminal(attemptId, reason, result, assertActive);
-    this.terminalInFlight.set(attemptId, terminalization);
-    try {
-      await terminalization;
-      this.terminalCompleted.add(attemptId);
-      this.terminalStages.delete(attemptId);
-      if (this.terminalCompleted.size > MAX_TERMINAL_TRACKING) {
-        this.terminalCompleted.delete(this.terminalCompleted.values().next().value as string);
-      }
-    } finally {
-      if (this.terminalInFlight.get(attemptId) === terminalization) {
-        this.terminalInFlight.delete(attemptId);
-      }
+    if (inFlight) {
+      // Lease invalidation is deliberately not fenced: it must resume a
+      // terminal event whose old lease becomes invalid while a durable stage
+      // is awaiting completion.
+      return assertActive ? inFlight : this.resumeAfterLeaseLoss(attemptId, inFlight);
     }
+    const stages = this.stagesFor(attemptId, freezeTerminalOutcome(reason, result));
+    let terminalization!: Promise<void>;
+    terminalization = Promise.resolve().then(async () => {
+      try {
+        await this.completeTerminal(attemptId, stages, assertActive);
+        this.terminalCompleted.add(attemptId);
+        this.terminalStages.delete(attemptId);
+        if (this.terminalCompleted.size > MAX_TERMINAL_TRACKING) {
+          this.terminalCompleted.delete(this.terminalCompleted.values().next().value as string);
+        }
+      } finally {
+        if (this.terminalInFlight.get(attemptId) === terminalization) {
+          this.terminalInFlight.delete(attemptId);
+        }
+      }
+    });
+    this.terminalInFlight.set(attemptId, terminalization);
+    return terminalization;
+  }
+
+  /**
+   * A replaced lease can invalidate an event after its durable transition has
+   * completed. Keep one recovery promise in the retained stage state, wait
+   * for the fenced operation to settle, then continue the unfinished stages
+   * without the stale lease assertion.
+   */
+  private resumeAfterLeaseLoss(attemptId: string, inFlight: Promise<void>): Promise<void> {
+    const stages = this.terminalStages.get(attemptId);
+    if (!stages) return inFlight;
+    if (stages.leaseLossRecovery) return stages.leaseLossRecovery;
+    let recovery!: Promise<void>;
+    recovery = (async () => {
+      try {
+        await inFlight;
+      } catch {
+        await this.terminalize(attemptId, 'interrupted');
+      } finally {
+        if (stages.leaseLossRecovery === recovery) stages.leaseLossRecovery = undefined;
+      }
+    })();
+    stages.leaseLossRecovery = recovery;
+    return recovery;
   }
 
   private async completeTerminal(
     attemptId: string,
-    reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
-    result: AgentResultEnvelope | undefined,
+    stages: TerminalStages,
     assertActive: (() => void) | undefined,
   ): Promise<void> {
-    const stages = this.stagesFor(attemptId);
-    const terminal = terminalOutcome(reason, result);
+    const terminal = stages.terminal;
     const input: Omit<AttemptLifecycleTransitionInput, 'from'> = {
       attemptId,
       to: terminal.status,
@@ -137,6 +181,9 @@ export class RunnerEventHandlerService {
     if (!stages.attemptTerminalized) {
       assertActive?.();
       const running = await this.options.work.transitionAttempt({ ...input, from: 'running' });
+      // Do not let a fenced old lease attempt the starting fallback after the
+      // awaited running transition. Lease-loss recovery resumes this stage
+      // without the stale assertion instead.
       assertActive?.();
       if (!running.transitioned) await this.options.work.transitionAttempt({ ...input, from: 'starting' });
       stages.attemptTerminalized = true;
@@ -173,13 +220,14 @@ export class RunnerEventHandlerService {
     }
   }
 
-  private stagesFor(attemptId: string): TerminalStages {
+  private stagesFor(attemptId: string, terminal: Readonly<TerminalOutcome>): TerminalStages {
     const existing = this.terminalStages.get(attemptId);
     if (existing) return existing;
     if (this.terminalStages.size >= MAX_TERMINAL_TRACKING) {
       throw new Error('runner_terminal_backpressure');
     }
     const stages: TerminalStages = {
+      terminal,
       attemptTerminalized: false,
       taskFinalized: false,
       tokenRevoked: false,
@@ -192,14 +240,22 @@ export class RunnerEventHandlerService {
   }
 }
 
+function freezeTerminalOutcome(
+  reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
+  result?: AgentResultEnvelope,
+): Readonly<TerminalOutcome> {
+  const terminal = terminalOutcome(reason, result);
+  return Object.freeze({
+    ...terminal,
+    ...(terminal.error ? { error: Object.freeze({ ...terminal.error }) } : {}),
+    ...(terminal.result ? { result: Object.freeze(structuredClone(terminal.result)) } : {}),
+  });
+}
+
 function terminalOutcome(
   reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
   result?: AgentResultEnvelope,
-): {
-  status: 'succeeded' | 'failed' | 'process_interrupted';
-  error?: { code: string; message: string };
-  result?: AgentResultEnvelope;
-} {
+): TerminalOutcome {
   if ((reason === 'success' || reason === 'protocol_success') && result) {
     return {
       status: result.outcome === 'failed' ? 'failed' : 'succeeded',

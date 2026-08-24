@@ -18,6 +18,8 @@ type PreStartCleanupStages = {
 };
 
 const MAX_PRE_START_TRACKING = 1_024;
+const MAX_PRE_START_BACKOFF_EXPONENT = 5;
+const PRE_START_RETRY_BASE_MS = 25;
 
 /**
  * Owns the non-process half of an admitted Attempt launch. A Host Runner
@@ -29,6 +31,9 @@ export class AgentAttemptLaunchService implements AgentAttemptLaunchCapabilityPo
   private readonly preStartInFlight = new Map<string, Promise<void>>();
   private readonly preStartCompleted = new Set<string>();
   private readonly preStartStages = new Map<string, PreStartCleanupStages>();
+  private readonly preStartRetryBackoffSteps = new Map<string, number>();
+  private readonly preStartRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  private destroyed = false;
 
   constructor(
     private readonly execution: Pick<LiveAttemptExecutionCapabilityPort, 'start'>,
@@ -87,12 +92,23 @@ export class AgentAttemptLaunchService implements AgentAttemptLaunchCapabilityPo
       await terminalization;
       this.preStartCompleted.add(input.attemptId);
       this.preStartStages.delete(input.attemptId);
+      this.clearPreStartRetry(input.attemptId);
       if (this.preStartCompleted.size > MAX_PRE_START_TRACKING) {
         this.preStartCompleted.delete(this.preStartCompleted.values().next().value as string);
       }
+    } catch (error) {
+      this.schedulePreStartRetry(input.attemptId);
+      throw error;
     } finally {
       this.preStartInFlight.delete(input.attemptId);
     }
+  }
+
+  onModuleDestroy(): void {
+    this.destroyed = true;
+    for (const timer of this.preStartRetryTimers.values()) clearTimeout(timer);
+    this.preStartRetryTimers.clear();
+    this.preStartRetryBackoffSteps.clear();
   }
 
   private async terminalizeBeforeStart(attemptId: string): Promise<void> {
@@ -139,6 +155,29 @@ export class AgentAttemptLaunchService implements AgentAttemptLaunchCapabilityPo
     };
     this.preStartStages.set(attemptId, stages);
     return stages;
+  }
+
+  private schedulePreStartRetry(attemptId: string): void {
+    if (this.destroyed || this.preStartCompleted.has(attemptId) || this.preStartRetryTimers.has(attemptId)) return;
+    const previous = this.preStartRetryBackoffSteps.get(attemptId) ?? 0;
+    if (previous === 0 && this.preStartRetryBackoffSteps.size >= MAX_PRE_START_TRACKING) return;
+    // Keep retrying until cleanup succeeds; only the delay growth is capped so
+    // a transient local failure cannot strand an admitted Attempt forever.
+    const backoffStep = Math.min(previous + 1, MAX_PRE_START_BACKOFF_EXPONENT);
+    this.preStartRetryBackoffSteps.set(attemptId, backoffStep);
+    const delayMs = PRE_START_RETRY_BASE_MS * 2 ** (backoffStep - 1);
+    const timer = setTimeout(() => {
+      this.preStartRetryTimers.delete(attemptId);
+      void this.failBeforeStart({ attemptId }).catch(() => undefined);
+    }, delayMs);
+    this.preStartRetryTimers.set(attemptId, timer);
+  }
+
+  private clearPreStartRetry(attemptId: string): void {
+    const timer = this.preStartRetryTimers.get(attemptId);
+    if (timer) clearTimeout(timer);
+    this.preStartRetryTimers.delete(attemptId);
+    this.preStartRetryBackoffSteps.delete(attemptId);
   }
 }
 

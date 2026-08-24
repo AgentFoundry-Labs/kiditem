@@ -76,6 +76,70 @@ describe('AgentAttemptLaunchService', () => {
     expect(admissions.releaseAttempt).toHaveBeenCalledTimes(2);
   });
 
+  it('retries a staged pre-start cleanup without another caller request or replaying completed stages', async () => {
+    vi.useFakeTimers();
+    try {
+      const execution = { start: vi.fn(async () => { throw new Error('runner_not_ready'); }) };
+      const work = {
+        transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+        finalizeTaskFromAttempt: vi.fn()
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockResolvedValueOnce({ finalized: false, status: null }),
+      };
+      const admissions = { releaseAttempt: vi.fn() };
+      const output = { bind: vi.fn(), finish: vi.fn() };
+      const service = new AgentAttemptLaunchService(execution as never, work as never, admissions, output as never);
+
+      await expect(service.start(launch({ output: { threadId: 'thread', runId: 'run' } })))
+        .rejects.toThrow('attempt_start_failed');
+      expect(work.transitionAttempt).toHaveBeenCalledTimes(1);
+      expect(work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(1);
+      expect(output.finish).not.toHaveBeenCalled();
+      expect(admissions.releaseAttempt).not.toHaveBeenCalled();
+
+      await vi.runOnlyPendingTimersAsync();
+
+      expect(work.transitionAttempt).toHaveBeenCalledTimes(1);
+      expect(work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(2);
+      expect(output.finish).toHaveBeenCalledTimes(1);
+      expect(admissions.releaseAttempt).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps retrying a staged cleanup after its bounded backoff plateau without stranding the Attempt', async () => {
+    vi.useFakeTimers();
+    try {
+      const execution = { start: vi.fn(async () => { throw new Error('runner_not_ready'); }) };
+      const work = {
+        transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+        finalizeTaskFromAttempt: vi.fn()
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockRejectedValueOnce(new Error('transient_finalization_failure'))
+          .mockResolvedValueOnce({ finalized: false, status: null }),
+      };
+      const admissions = { releaseAttempt: vi.fn() };
+      const output = { bind: vi.fn(), finish: vi.fn() };
+      const service = new AgentAttemptLaunchService(execution as never, work as never, admissions, output as never);
+
+      await expect(service.start(launch({ output: { threadId: 'thread', runId: 'run' } })))
+        .rejects.toThrow('attempt_start_failed');
+      for (let retry = 0; retry < 6; retry += 1) await vi.runOnlyPendingTimersAsync();
+
+      expect(work.transitionAttempt).toHaveBeenCalledTimes(1);
+      expect(work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(7);
+      expect(output.finish).toHaveBeenCalledTimes(1);
+      expect(admissions.releaseAttempt).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it.each(['attempt_prompt_invalid', 'runner_command_backpressure'])(
     'uses the same bounded cleanup for a pre-command %s failure',
     async (failure) => {

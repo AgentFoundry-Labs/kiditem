@@ -217,11 +217,15 @@ export class RunnerLeaseRegistry {
   }
 
   private takeForLease(lease: ActiveLease): RunnerCommandBatch {
-    const batch = this.commands.take();
+    const batch = this.commands.takeForLease(this.deliveryLeaseKey(lease));
     for (const command of batch.commands) {
       if (command.kind === 'attempt.start') lease.attempts.add(command.attemptId);
     }
     return batch;
+  }
+
+  private deliveryLeaseKey(lease: ActiveLease): string {
+    return `${lease.runnerInstanceId}\u0000${lease.leaseId}`;
   }
 
   private assertEventOwnership(lease: ActiveLease, batch: RunnerEventBatch): void {
