@@ -15,6 +15,61 @@ const COMMAND_ID = '22222222-2222-4222-8222-222222222222';
 const RUNNER_ID = '33333333-3333-4333-8333-333333333333';
 const LEASE_ID = '44444444-4444-4444-8444-444444444444';
 const ATTEMPT_TOKEN = 'a'.repeat(43);
+const FORBIDDEN_CONTROL_PROPERTY_NAMES = [
+  'command',
+  'executable',
+  'shell',
+  'args',
+  'env',
+  'cwd',
+  'path',
+  'loginHome',
+  'organization',
+  'organizationId',
+  'organizationAuthority',
+  'user',
+  'userId',
+  'userAuthority',
+  'session',
+  'sessionId',
+  'sessionAuthority',
+  'database',
+  'databaseUrl',
+  'databaseAuthority',
+  'databasePassword',
+  'databaseCredentials',
+  'db',
+  'dbUrl',
+  'dbAuthority',
+  'credential',
+  'credentials',
+  'credentialId',
+  'credentialName',
+  'provider',
+  'providerCredential',
+  'providerCredentials',
+  'providerCredentialValue',
+  'providerPassword',
+  'providerToken',
+  'providerAccessToken',
+  'providerApiKey',
+  'providerSecret',
+  'providerKey',
+  'providerSession',
+  'providerHistory',
+  'providerResume',
+  'apiToken',
+  'accessToken',
+  'refreshToken',
+  'apiKey',
+  'secret',
+  'password',
+  'hmac',
+  'hmacKey',
+  'hmacSecret',
+  'hmacAlgorithm',
+  'hmacDigest',
+] as const;
 
 function validLaunch() {
   return {
@@ -52,6 +107,14 @@ function validHello() {
         nonPersistentSettingsVerified: true,
       },
     },
+  };
+}
+
+function validPoll() {
+  return {
+    kind: 'poll',
+    runnerInstanceId: RUNNER_ID,
+    leaseId: LEASE_ID,
   };
 }
 
@@ -96,13 +159,22 @@ describe('native Runner control protocol', () => {
       'http://runner:secret@127.0.0.1:4401/mcp',
       'http://127.0.0.1:4401/mcp?trace=1',
       'http://127.0.0.1:4401/mcp#fragment',
+      '',
+      'not a url',
     ]) {
+      expect(() => LoopbackHttpUrlSchema.safeParse(value)).not.toThrow();
       expect(LoopbackHttpUrlSchema.safeParse(value).success).toBe(false);
     }
   });
 
-  it('strictly accepts the supported Runner hello and lease response', () => {
-    expect(RunnerPollRequestSchema.safeParse(validHello()).success).toBe(true);
+  it.each([
+    ['hello', validHello()],
+    ['poll', validPoll()],
+  ] as const)('accepts the valid %s Runner request discriminant', (_kind, request) => {
+    expect(RunnerPollRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it('strictly accepts the supported Runner lease response', () => {
     expect(
       RunnerLeaseResponseSchema.safeParse({
         runnerInstanceId: RUNNER_ID,
@@ -117,7 +189,34 @@ describe('native Runner control protocol', () => {
     ).toBe(false);
   });
 
-  it('rejects unknown and recursively forbidden launch/control property names', () => {
+  it.each(FORBIDDEN_CONTROL_PROPERTY_NAMES)(
+    'recursively rejects the forbidden control property name %s',
+    (propertyName) => {
+      expect(
+        RunnerEventBatchSchema.safeParse({
+          runnerInstanceId: RUNNER_ID,
+          leaseId: LEASE_ID,
+          eventSeq: 1,
+          events: [
+            {
+              kind: 'attempt.terminal',
+              attemptId: ATTEMPT_ID,
+              terminalReason: 'success',
+              result: {
+                outcome: 'completed',
+                summary: 'Done.',
+                resourceRefs: [],
+                operationRefs: [],
+                output: { nested: { [propertyName]: 'never accepted' } },
+              },
+            },
+          ],
+        }).success,
+      ).toBe(false);
+    },
+  );
+
+  it('rejects unknown control fields while preserving legitimate protocol identifiers', () => {
     expect(
       AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), path: '/tmp/attempt' }).success,
     ).toBe(false);
@@ -148,24 +247,57 @@ describe('native Runner control protocol', () => {
               summary: 'Done.',
               resourceRefs: [],
               operationRefs: [],
-              output: { nested: { providerCredential: 'never accepted' } },
+              output: {
+                nested: {
+                  eventHash: 'event-hash',
+                  bodyHash: 'body-hash',
+                  commandId: COMMAND_ID,
+                  workspacePolicy: 'empty_ephemeral_v1',
+                  attemptToken: ATTEMPT_TOKEN,
+                },
+              },
             },
           },
         ],
       }).success,
-    ).toBe(false);
+    ).toBe(true);
   });
 
-  it('bounds start command batches to eight commands', () => {
+  it.each([
+    ['model minimum', { model: '' }, false],
+    ['model maximum', { model: 'm'.repeat(256) }, true],
+    ['model above maximum', { model: 'm'.repeat(257) }, false],
+    ['prompt minimum', { prompt: '' }, false],
+    ['prompt maximum', { prompt: 'p'.repeat(24_000) }, true],
+    ['prompt above maximum', { prompt: 'p'.repeat(24_001) }, false],
+    ['timeout below minimum', { timeoutMs: 999 }, false],
+    ['timeout minimum', { timeoutMs: 1_000 }, true],
+    ['timeout maximum', { timeoutMs: 30 * 60_000 }, true],
+    ['timeout above maximum', { timeoutMs: 30 * 60_000 + 1 }, false],
+    ['workspace literal', { workspacePolicy: 'empty_ephemeral_v1' }, true],
+    ['unknown workspace literal', { workspacePolicy: 'client_path' }, false],
+    ['protocol revision', { mcpProtocolRevision: '2026-07-28' }, true],
+    ['unknown protocol revision', { mcpProtocolRevision: '2026-07-29' }, false],
+    ['CLI contract identity', { cliContractIdentity: 'office-cli-contract-v2' }, true],
+    ['unknown CLI contract identity', { cliContractIdentity: 'office-cli-contract-v3' }, false],
+  ] as const)(
+    'enforces the launch %s boundary',
+    (_name, override, expected) => {
+      expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), ...override }).success).toBe(
+        expected,
+      );
+    },
+  );
+
+  it.each([
+    [8, true],
+    [9, false],
+  ])('bounds start command batches to %i entries', (size, expected) => {
     const command = validStartCommand();
     expect(
-      RunnerCommandBatchSchema.safeParse({ commands: Array.from({ length: 8 }, () => command) })
+      RunnerCommandBatchSchema.safeParse({ commands: Array.from({ length: size }, () => command) })
         .success,
-    ).toBe(true);
-    expect(
-      RunnerCommandBatchSchema.safeParse({ commands: Array.from({ length: 9 }, () => command) })
-        .success,
-    ).toBe(false);
+    ).toBe(expected);
   });
 
   it('bounds individual and aggregate live output to 128 KiB', () => {
@@ -197,15 +329,21 @@ describe('native Runner control protocol', () => {
     ).toBe(false);
   });
 
-  it('bounds event batches and parses terminal results through AgentResultEnvelope', () => {
+  it.each([
+    [32, true],
+    [33, false],
+  ])('bounds event batches to %i entries', (size, expected) => {
     expect(
       RunnerEventBatchSchema.safeParse({
         runnerInstanceId: RUNNER_ID,
         leaseId: LEASE_ID,
         eventSeq: 1,
-        events: Array.from({ length: 32 }, () => validOutputEvent()),
+        events: Array.from({ length: size }, () => validOutputEvent()),
       }).success,
-    ).toBe(true);
+    ).toBe(expected);
+  });
+
+  it('parses terminal results through AgentResultEnvelope', () => {
     expect(
       RunnerEventBatchSchema.safeParse({
         runnerInstanceId: RUNNER_ID,

@@ -539,7 +539,7 @@ test("rejects child process ownership in Agent OS while leaving the future Runne
       lines: 2,
     },
     {
-      path: "apps/server/src/orders/label-printing.ts",
+      path: "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
       source: "import { spawn } from 'node:child_process'; spawn('lp');",
       lines: 2,
     },
@@ -548,6 +548,35 @@ test("rejects child process ownership in Agent OS while leaving the future Runne
   assert.deepEqual(violations, [
     "apps/server/src/agent-os/adapter/out/runtime/attempt/local-process.ts: Agent OS/API runtime must not import child_process",
     "apps/server/src/agent-os/adapter/out/runtime/attempt/legacy-process.ts: Agent OS/API runtime must not import child_process",
+  ]);
+});
+
+test("rejects unallowlisted server provider process bindings while preserving explicit exemptions", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/ai/adapter/out/provider/new-provider-runner.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('codex');",
+      lines: 2,
+    },
+    {
+      path: "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
+      source: "import { execFile } from 'node:child_process'; execFile('python3');",
+      lines: 2,
+    },
+    {
+      path: "apps/agent-runner/src/runner.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('codex');",
+      lines: 2,
+    },
+    {
+      path: "apps/server/src/agent-os/application/service/matcher.ts",
+      source: "const match = /kiditem/.exec(input);",
+      lines: 2,
+    },
+  ]);
+
+  assert.deepEqual(violations, [
+    "apps/server/src/ai/adapter/out/provider/new-provider-runner.ts: Agent OS/API runtime must not import child_process",
   ]);
 });
 

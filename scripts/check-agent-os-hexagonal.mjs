@@ -11,6 +11,11 @@ const GENERIC_AGENT_RUN_COMPATIBILITY_PORTS = new Set([
   "agent-agui-runner.port.ts",
   "agent-runner.port.ts",
 ]);
+const SERVER_CHILD_PROCESS_ALLOWLIST = new Set([
+  "/apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
+  "/apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
+  "/apps/server/src/test-helpers/postgres-global-setup.ts",
+]);
 
 function normalizePath(filePath) {
   return `/${filePath.replaceAll("\\", "/").replace(/^\/+/, "")}`;
@@ -33,13 +38,18 @@ export function analyzeAgentOsHexagonalSources(files) {
 
   for (const file of files) {
     const normalizedPath = normalizePath(file.path);
-    if (!normalizedPath.includes(AGENT_OS_ROOT)) continue;
-
-    if (!isArchitectureSmellExempt(normalizedPath) && hasChildProcessImport(file.source)) {
+    if (
+      normalizedPath.startsWith("/apps/server/src/") &&
+      !SERVER_CHILD_PROCESS_ALLOWLIST.has(normalizedPath) &&
+      !isArchitectureSmellExempt(normalizedPath) &&
+      hasChildProcessBinding(file.path, file.source)
+    ) {
       violations.push(
         `${normalizedPath.slice(1)}: Agent OS/API runtime must not import child_process`,
       );
     }
+
+    if (!normalizedPath.includes(AGENT_OS_ROOT)) continue;
 
     if (
       normalizedPath.includes(INCOMING_ADAPTER) &&
@@ -77,10 +87,48 @@ export function analyzeAgentOsHexagonalSources(files) {
   return violations;
 }
 
-function hasChildProcessImport(source) {
-  return /(?:from\s+["'](?:node:)?child_process["']|require\(\s*["'](?:node:)?child_process["']\s*\))/.test(
+function hasChildProcessBinding(filePath, source) {
+  const sourceFile = ts.createSourceFile(
+    filePath,
     source,
+    ts.ScriptTarget.Latest,
+    true,
   );
+  if (
+    sourceFile.statements.some(
+      (statement) =>
+        ts.isImportDeclaration(statement) &&
+        ts.isStringLiteral(statement.moduleSpecifier) &&
+        /^(?:node:)?child_process$/.test(statement.moduleSpecifier.text) &&
+        hasRuntimeImportClause(statement.importClause),
+    )
+  ) {
+    return true;
+  }
+  let found = false;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isIdentifier(node.expression) &&
+      node.expression.text === "require" &&
+      node.arguments.length === 1 &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      /^(?:node:)?child_process$/.test(node.arguments[0].text)
+    ) {
+      found = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile);
+  return found;
+}
+
+function hasRuntimeImportClause(clause) {
+  if (!clause || clause.isTypeOnly) return false;
+  if (clause.name) return true;
+  const bindings = clause.namedBindings;
+  if (!bindings || ts.isNamespaceImport(bindings)) return true;
+  return bindings.elements.some((element) => !element.isTypeOnly);
 }
 
 function hasDirectOutgoingAdapterRuntimeImport(file) {

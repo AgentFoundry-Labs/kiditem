@@ -253,7 +253,7 @@ test("limits Web traversal to source while retaining deployment config roots", (
   assert.deepEqual(
     contractionRoots(root).map((directory) => path.relative(root, directory)),
     [
-      "apps/server/src/agent-os",
+      "apps/server/src",
       "apps/server/.env.example",
       "apps/server/package.json",
       "apps/server/Dockerfile",
@@ -402,6 +402,78 @@ test("rejects retired API-local transports, CLI surfaces, and unsafe control per
       {
         path: "apps/server/src/agent-os/adapter/in/http/interaction/copilotkit.controller.ts",
         source: "const basePath = '/api/copilotkit'; const attemptId = 'safe';",
+      },
+    ]),
+    [],
+  );
+});
+
+test("closes typed, keyed, persisted, and relocated runtime-control scanner evasions", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "packages/shared/src/agent-runtime/control.ts",
+      source: [
+        "type AttemptLaunch = { command: string; executable?: string };",
+      ].join("\n"),
+    },
+    {
+      path: "apps/server/src/agent-os/domain/execution/runtime-contract.ts",
+      source: [
+        "type HostPlatform = 'macos' | 'windows';",
+        "type ProviderRuntime = 'codex_cli' | 'claude_cli';",
+      ].join("\n"),
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/mcp/relay.ts",
+      source:
+        "JSON.stringify({ tool: request.tool, arguments: request.arguments });",
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/out/runtime/attempt/peer.ts",
+      source: "path.join('/proc', String(process.pid), 'status');",
+    },
+    {
+      path: "prisma/models/agent-work.prisma",
+      source: [
+        "model AgentAttempt {",
+        "  id String @id",
+        "  runnerLeaseId String",
+        "  commandHash String",
+        "  eventSeq Int",
+        "  claudeSessionId String",
+        "}",
+      ].join("\n"),
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/control/runner.controller.ts",
+      source: "@Controller('/api/runner') export class RunnerController {}",
+    },
+    {
+      path: "apps/server/src/ai/adapter/out/provider/new-provider-runner.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('codex');",
+    },
+  ]);
+
+  for (const category of [
+    "raw launch command field",
+    "duplicate runtime train/platform contract",
+    "custom MCP tool relay",
+    "API runtime Linux peer-process inspection",
+    "Runner control-plane persistence",
+    "provider session/history/resume persistence",
+    "Agent runtime route outside internal prefix",
+    "API-owned CLI process supervision",
+  ]) {
+    assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
+  }
+});
+
+test("does not confuse ordinary RegExp.exec with API process supervision", () => {
+  assert.deepEqual(
+    collectAgentOsContractionFindings([
+      {
+        path: "apps/server/src/agent-os/application/service/matcher.ts",
+        source: "const matched = /kiditem/.exec(input);",
       },
     ]),
     [],

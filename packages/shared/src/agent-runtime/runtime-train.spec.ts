@@ -32,10 +32,13 @@ describe('native Agent runtime train', () => {
     expect(AgentCliRuntimeSchema.options).toEqual(['codex_cli', 'claude_cli']);
   });
 
-  it('maps the supported Node platform names without a fallback', () => {
+  it.each([
+    ['linux'],
+    ['freebsd'],
+  ])('rejects unsupported Node platform %s without a fallback', (platform) => {
     expect(runnerPlatformFromNodePlatform('darwin')).toBe('macos');
     expect(runnerPlatformFromNodePlatform('win32')).toBe('windows');
-    expect(() => runnerPlatformFromNodePlatform('linux')).toThrow(
+    expect(() => runnerPlatformFromNodePlatform(platform)).toThrow(
       'runner_platform_unsupported',
     );
   });

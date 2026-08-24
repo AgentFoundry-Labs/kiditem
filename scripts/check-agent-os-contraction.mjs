@@ -2,6 +2,7 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import ts from "typescript";
 
 export function productionFiles(directory) {
   if (!existsSync(directory)) return [];
@@ -36,6 +37,54 @@ const ATTEMPT_MCP_STDIO_BRIDGE =
   "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts";
 const ATTEMPT_MCP_PROXY =
   "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts";
+const SERVER_CHILD_PROCESS_ALLOWLIST = new Set([
+  "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
+  "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
+  "apps/server/src/test-helpers/postgres-global-setup.ts",
+]);
+const RAW_LAUNCH_FIELD_NAMES = new Set([
+  "command",
+  "executable",
+  "shell",
+  "args",
+  "env",
+  "cwd",
+  "path",
+  "loginhome",
+  "organizationid",
+  "userid",
+  "sessionid",
+  "database",
+  "databaseurl",
+  "credential",
+  "credentials",
+  "providercredential",
+  "providercredentials",
+  "providerapikey",
+  "providerkey",
+  "hmac",
+  "hmackey",
+  "hmacsecret",
+]);
+
+function sourceFile(filePath, source) {
+  return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
+}
+
+function normalizedName(name) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function propertyName(node) {
+  if (
+    ts.isIdentifier(node) ||
+    ts.isStringLiteral(node) ||
+    ts.isNumericLiteral(node)
+  ) {
+    return node.text;
+  }
+  return null;
+}
 
 function attemptMcpPackageFindings(source) {
   let manifest;
@@ -94,41 +143,249 @@ function hasForbiddenVersionOrCapabilityState(filePath, source) {
   );
 }
 
+function prismaModelBlocks(source) {
+  return [...source.matchAll(/model\s+(\w+)\s*\{([\s\S]*?)^\}/gm)].map(
+    ([, name, body]) => ({ name, body }),
+  );
+}
+
+function prismaFieldNames(body) {
+  return body
+    .split(/\r?\n/)
+    .map((line) => line.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\s+/)?.[1])
+    .filter(Boolean);
+}
+
 function hasPersistedRunnerControlState(filePath, source) {
-  return (
-    /^prisma\/models\/.+\.prisma$/.test(filePath) &&
+  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
+  if (
     /model\s+(?:Runner(?:Lease|Command|Event|Control|Token)|AgentRuntime(?:Lease|Command|Event|Control|Token)|Attempt(?:Token|Lease|Command|Event))\b/.test(
       source,
     )
+  ) {
+    return true;
+  }
+  return prismaModelBlocks(source).some(({ name, body }) => {
+    const isAgentControlModel = /^Agent(?:Attempt|Runtime|Runner|Session|Task)$/.test(
+      name,
+    );
+    return prismaFieldNames(body).some((field) => {
+      const normalized = normalizedName(field);
+      return (
+        /^runner(?:lease|command|event|control|token|instance)[a-z0-9]*$/.test(
+          normalized,
+        ) ||
+        (isAgentControlModel &&
+          (/^(?:agentruntime|attempt)(?:lease|command|event|control|token)[a-z0-9]*$/.test(
+            normalized,
+          ) ||
+            /^(?:lease|command|event)(?:id|hash|seq)[a-z0-9]*$/.test(
+              normalized,
+            )))
+      );
+    });
+  });
+}
+
+function hasPersistedProviderSessionHistoryResume(filePath, source) {
+  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
+  return prismaModelBlocks(source).some(({ body }) =>
+    prismaFieldNames(body).some((field) =>
+      /^(?:provider|codex|claude)(?:session|history|resume)[a-z0-9]*$/.test(
+        normalizedName(field),
+      ),
+    ),
+  );
+}
+
+function literalUnionValues(node) {
+  if (ts.isLiteralTypeNode(node) && ts.isStringLiteral(node.literal)) {
+    return [node.literal.text];
+  }
+  if (ts.isUnionTypeNode(node)) return node.types.flatMap(literalUnionValues);
+  return [];
+}
+
+function containsRuntimeLiteralUnion(node) {
+  const values = new Set(literalUnionValues(node));
+  return (
+    (values.has("macos") && values.has("windows")) ||
+    (values.has("codex_cli") && values.has("claude_cli"))
   );
 }
 
 function hasDuplicateRuntimeContract(filePath, source) {
   if (filePath.startsWith("packages/shared/src/agent-runtime/")) return false;
-  return (
+  if (
     /\b(?:export\s+)?const\s+ATTEMPT_RUNTIME_TRAIN\b/.test(source) ||
     /\b(?:export\s+)?const\s+(?:RunnerPlatformSchema|AgentCliRuntimeSchema)\b/.test(source) ||
     /\b(?:export\s+)?type\s+(?:AttemptRuntimeType|RunnerPlatform|AgentCliRuntime)\s*=/.test(source) ||
     /z\.enum\s*\(\s*\[[^\]]*['"](?:macos|codex_cli)['"][^\]]*\]\s*\)/.test(source)
+  ) {
+    return true;
+  }
+  let duplicate = false;
+  const visit = (node) => {
+    if (ts.isTypeAliasDeclaration(node) && containsRuntimeLiteralUnion(node.type)) {
+      duplicate = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return duplicate;
+}
+
+function isSchemaInitializer(node) {
+  if (ts.isIdentifier(node)) return node.text.endsWith("Schema");
+  if (!ts.isCallExpression(node)) return false;
+  const expression = node.expression;
+  return (
+    (ts.isPropertyAccessExpression(expression) &&
+      ts.isIdentifier(expression.expression) &&
+      expression.expression.text === "z") ||
+    (ts.isPropertyAccessExpression(expression) &&
+      expression.name.text.endsWith("Schema")) ||
+    (ts.isIdentifier(expression) && expression.text.endsWith("Schema"))
   );
 }
 
-function hasRawLaunchCommandField(source) {
-  return /(?:\{|,)\s*(?:command|executable|shell|args|env|cwd|path|loginHome|organizationId|userId|sessionId|database(?:Url)?|(?:provider)?Credential(?:s)?|(?:provider)?(?:Api)?Key|hmac(?:Key|Secret)?)\s*:\s*(?:z\.|[A-Za-z_$][\w$]*Schema\b)/i.test(
-    source,
+function hasRawLaunchCommandField(filePath, source) {
+  let found = false;
+  const visit = (node) => {
+    if (ts.isPropertySignature(node)) {
+      const name = propertyName(node.name);
+      if (name && RAW_LAUNCH_FIELD_NAMES.has(normalizedName(name))) found = true;
+    }
+    if (ts.isPropertyAssignment(node)) {
+      const name = propertyName(node.name);
+      if (
+        name &&
+        RAW_LAUNCH_FIELD_NAMES.has(normalizedName(name)) &&
+        isSchemaInitializer(node.initializer)
+      ) {
+        found = true;
+      }
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return found;
+}
+
+function routeEntries(source) {
+  const decorators = [
+    ...source.matchAll(
+      /@(?:All|Controller|Delete|Get|Patch|Post|Put)\s*\(\s*['"`]([^'"`]*)['"`]/g,
+    ),
+  ].map((match) => ({
+    decorator: match[0].match(/@([A-Za-z]+)/)?.[1] ?? "",
+    route: match[1],
+  }));
+  const basePaths = [...source.matchAll(/basePath\s*:\s*['"`]([^'"`]*)['"`]/g)].map(
+    (match) => ({ decorator: "basePath", route: match[1] }),
   );
+  return [...decorators, ...basePaths];
 }
 
 function hasInternalAgentRuntimeRouteOutsidePrefix(source) {
-  const routeLiterals = [
-    ...source.matchAll(
-      /(?:@(?:All|Controller|Delete|Get|Patch|Post|Put)\s*\(\s*|basePath\s*:\s*)['"`]([^'"`]*)['"`]/g,
-    ),
-  ].map((match) => match[1]);
-  return routeLiterals.some(
-    (route) =>
-      /(?:runner|attempt|mcp)/i.test(route) &&
-      !/(?:^|\/)internal\/agent-runtime(?:\/|$)/.test(route),
+  return routeEntries(source).some(
+    ({ decorator, route }) =>
+      ((decorator === "Controller" || decorator === "basePath")
+        ? /(?:runner|agent-runtime)/i.test(route)
+        : /(?:runner|(?:^|\/)internal\/agent-runtime)/i.test(route)) &&
+      !/^\/?api\/internal\/agent-runtime(?:\/|$)/.test(route),
+  );
+}
+
+function hasCustomMcpToolRelay(filePath, source) {
+  let found = false;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      ts.isIdentifier(node.expression.expression) &&
+      node.expression.expression.text === "JSON" &&
+      node.expression.name.text === "stringify"
+    ) {
+      found ||= node.arguments.some((argument) => {
+        if (!ts.isObjectLiteralExpression(argument)) return false;
+        const keys = new Set(
+          argument.properties
+            .map((property) =>
+              ts.isPropertyAssignment(property) ||
+              ts.isShorthandPropertyAssignment(property)
+                ? propertyName(property.name)
+                : null,
+            )
+            .filter(Boolean),
+        );
+        return keys.has("tool") && keys.has("arguments");
+      });
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return found;
+}
+
+function hasProcInspection(filePath, source) {
+  if (/(?:^|[^A-Za-z0-9_])\/proc\//.test(source)) return true;
+  let found = false;
+  const visit = (node) => {
+    if (
+      ts.isCallExpression(node) &&
+      ts.isPropertyAccessExpression(node.expression) &&
+      node.expression.name.text === "join" &&
+      ts.isStringLiteral(node.arguments[0]) &&
+      node.arguments[0].text === "/proc"
+    ) {
+      found = true;
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(sourceFile(filePath, source));
+  return found;
+}
+
+function isRuntimeChildProcessImport(statement) {
+  if (!ts.isImportDeclaration(statement) || !ts.isStringLiteral(statement.moduleSpecifier)) {
+    return false;
+  }
+  if (!/^(?:node:)?child_process$/.test(statement.moduleSpecifier.text)) return false;
+  const clause = statement.importClause;
+  if (!clause || clause.isTypeOnly) return false;
+  if (clause.name) return true;
+  const bindings = clause.namedBindings;
+  if (!bindings || ts.isNamespaceImport(bindings)) return true;
+  return bindings.elements.some((element) => !element.isTypeOnly);
+}
+
+function isChildProcessRequire(node) {
+  return (
+    ts.isCallExpression(node) &&
+    ts.isIdentifier(node.expression) &&
+    node.expression.text === "require" &&
+    node.arguments.length === 1 &&
+    ts.isStringLiteral(node.arguments[0]) &&
+    /^(?:node:)?child_process$/.test(node.arguments[0].text)
+  );
+}
+
+function hasChildProcessBinding(filePath, source) {
+  const parsed = sourceFile(filePath, source);
+  if (parsed.statements.some(isRuntimeChildProcessImport)) return true;
+  let found = false;
+  const visit = (node) => {
+    if (isChildProcessRequire(node)) found = true;
+    ts.forEachChild(node, visit);
+  };
+  visit(parsed);
+  return found;
+}
+
+function hasProviderCliProcessApi(source) {
+  return /\b(?:spawn|exec|execFile|execSync|fork)\s*\(\s*['"](?:codex|claude)(?:\.exe)?['"]|\bBun\.spawn\s*\(\s*\[\s*['"](?:codex|claude)(?:\.exe)?['"]/i.test(
+    source,
   );
 }
 
@@ -144,6 +401,7 @@ function findingsFor({ path: filePath, source }) {
     findings.push(...attemptMcpPackageFindings(source));
 
   const isAgentOsSource = /^apps\/server\/src\/agent-os\//.test(filePath);
+  const isServerSource = /^apps\/server\/src\//.test(filePath);
   const isAttemptMcpAdapter = ATTEMPT_MCP_ADAPTER_ROOT.test(filePath);
   if (isAgentOsSource && /@modelcontextprotocol\/sdk(?:\/|["'])/.test(source))
     findings.push("MCP v1 source import");
@@ -170,10 +428,7 @@ function findingsFor({ path: filePath, source }) {
     findings.push("direct MCP server connect");
   if (isAttemptMcpAdapter && /JSON\.parse\s*\(\s*line\s*\)/.test(source))
     findings.push("line-oriented MCP JSON relay");
-  if (
-    isAttemptMcpAdapter &&
-    /JSON\.stringify\s*\(\s*\{\s*tool\s*,\s*arguments\b/.test(source)
-  )
+  if (isAttemptMcpAdapter && hasCustomMcpToolRelay(filePath, source))
     findings.push("custom MCP tool relay");
   if (isAttemptMcpAdapter && /\blet\s+handled\s*=\s*false\b/.test(source))
     findings.push("one-request-per-socket MCP routing");
@@ -249,36 +504,36 @@ function findingsFor({ path: filePath, source }) {
   )
     findings.push("API image provider CLI assertion");
   if (
-    isAgentOsSource &&
-    /(?:node:child_process|\bchild_process\b|\b(?:spawn|exec|execFile|execSync|fork)\s*\(|\bprocess\.kill\s*\()/i.test(
-      source,
+    isServerSource &&
+    !SERVER_CHILD_PROCESS_ALLOWLIST.has(filePath) &&
+    (
+      hasChildProcessBinding(filePath, source) ||
+      hasProviderCliProcessApi(source) ||
+      /\bprocess\.kill\s*\(/.test(source)
     )
   )
     findings.push("API-owned CLI process supervision");
-  if (isAgentOsSource && /(?:^|[^A-Za-z0-9_])\/proc\//.test(source))
+  if (isAgentOsSource && hasProcInspection(filePath, source))
     findings.push("API runtime Linux peer-process inspection");
   if (
     filePath.startsWith("apps/agent-runner/") &&
     /(?:\b(?:createServer|listen)\s*\(|\.listen\s*\()/i.test(source)
   )
     findings.push("Runner inbound listener or LAN exposure");
-  if (filePath.startsWith("packages/shared/src/agent-runtime/") && hasRawLaunchCommandField(source))
+  if (
+    filePath.startsWith("packages/shared/src/agent-runtime/") &&
+    hasRawLaunchCommandField(filePath, source)
+  )
     findings.push("raw launch command field");
   if (hasPersistedRunnerControlState(filePath, source))
     findings.push("Runner control-plane persistence");
   if (hasForbiddenVersionOrCapabilityState(filePath, source))
     findings.push("provider/model/session persistence on AgentVersion");
-  if (
-    /^prisma\/models\/.+\.prisma$/.test(filePath) &&
-    /\bprovider(?:Session|History|Resume)\w*\s+\w+/i.test(source)
-  )
+  if (hasPersistedProviderSessionHistoryResume(filePath, source))
     findings.push("provider session/history/resume persistence");
   if (hasDuplicateRuntimeContract(filePath, source))
     findings.push("duplicate runtime train/platform contract");
-  if (
-    /^apps\/server\/src\/agent-os\/adapter\/in\/http\/runtime\//.test(filePath) &&
-    hasInternalAgentRuntimeRouteOutsidePrefix(source)
-  )
+  if (isServerSource && hasInternalAgentRuntimeRouteOutsidePrefix(source))
     findings.push("Agent runtime route outside internal prefix");
   if (
     filePath === "deploy/office/nginx.conf" &&
@@ -460,7 +715,7 @@ export function collectAgentOsContractionFindings(files) {
 
 export function contractionRoots(root) {
   return [
-    path.join(root, "apps/server/src/agent-os"),
+    path.join(root, "apps/server/src"),
     path.join(root, "apps/server/.env.example"),
     path.join(root, "apps/server/package.json"),
     path.join(root, "apps/server/Dockerfile"),

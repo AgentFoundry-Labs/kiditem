@@ -48,22 +48,16 @@ describe('final application-root topology', () => {
     expect(classes(AgentMcpApplicationModule)).not.toContain(OperationsModule);
   });
 
-  it('binds process entrypoints to API and worker roots while the Attempt MCP server stays a factory', () => {
+  it('binds process entrypoints to API and worker roots while retaining the MCP CLI entrypoint', () => {
     expect(readFileSync(join(serverSource, 'main.ts'), 'utf8')).toContain("from './api-application.module'");
     expect(readFileSync(join(serverSource, 'worker.ts'), 'utf8')).toContain("from './agent-worker-application.module'");
-    const attemptMcpFactory = readFileSync(join(serverSource, 'agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts'), 'utf8');
-    expect(attemptMcpFactory).toContain('createKidItemAgentOsMcpServer');
-    expect(attemptMcpFactory).not.toContain('attempt-mcp-proxy');
-    expect(attemptMcpFactory).not.toContain('.connect(');
+    const serverManifest = JSON.parse(
+      readFileSync(join(serverSource, '..', 'package.json'), 'utf8'),
+    ) as { scripts?: Record<string, string> };
+    expect(serverManifest.scripts?.['agent-os:mcp:kiditem']).toBe(
+      'node dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js',
+    );
     expect(existsSync(join(serverSource, 'agent-os/adapter/in/cli/run-openai-operator.ts'))).toBe(false);
-  });
-
-  it('keeps the current legacy UDS/stdio surface outside application roots pending the fail-first cutover', () => {
-    const retiredTransportPaths = [
-      'agent-os/adapter/in/mcp/attempt-mcp-socket-server.ts',
-      'agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts',
-    ];
-    expect(retiredTransportPaths.filter((relativePath) => existsSync(join(serverSource, relativePath)))).toEqual(retiredTransportPaths);
   });
 
   it('rejects retired root imports and lifecycle identifiers in production source', () => {

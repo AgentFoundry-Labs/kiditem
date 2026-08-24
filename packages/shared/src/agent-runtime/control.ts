@@ -21,22 +21,68 @@ export const LoopbackHttpUrlSchema = z
   .url()
   .max(2_048)
   .refine((value) => {
-    const url = new URL(value);
-    return (
-      url.protocol === 'http:' &&
-      (url.hostname === '127.0.0.1' || url.hostname === '[::1]') &&
-      !url.username &&
-      !url.password &&
-      !url.search &&
-      !url.hash
-    );
+    try {
+      const url = new URL(value);
+      return (
+        url.protocol === 'http:' &&
+        (url.hostname === '127.0.0.1' || url.hostname === '[::1]') &&
+        !url.username &&
+        !url.password &&
+        !url.search &&
+        !url.hash
+      );
+    } catch {
+      return false;
+    }
   }, 'loopback_http_url_required');
 
-const FORBIDDEN_CONTROL_PROPERTY = /^(?:command|executable|shell|args|env|cwd|path|loginhome|organization(?:id|authority)?|user(?:id|authority)?|session(?:id|authority)?|database(?:url|authority)?|db(?:url|authority)?|credential(?:s|id)?|provider(?:credential|credentials|token|apikey|secret|key|session|history|resume)?|(?:api|access|refresh)token|apikey|secret|password|hmac(?:key|secret|algorithm)?)$/;
+const FORBIDDEN_CONTROL_PROPERTY_NAMES = new Set([
+  'command',
+  'executable',
+  'shell',
+  'args',
+  'env',
+  'cwd',
+  'path',
+  'loginhome',
+  'organization',
+  'organizationid',
+  'organizationauthority',
+  'user',
+  'userid',
+  'userauthority',
+  'session',
+  'sessionid',
+  'sessionauthority',
+  'database',
+  'databaseurl',
+  'databaseauthority',
+  'db',
+  'dburl',
+  'dbauthority',
+  'provider',
+  'apitoken',
+  'accesstoken',
+  'refreshtoken',
+  'apikey',
+  'secret',
+  'password',
+  'hmac',
+]);
+
+const CREDENTIAL_PROPERTY_NAME = /^credential[a-z0-9]*$/;
+const DATABASE_SECRET_PROPERTY_NAME = /^(?:database|db)(?:credential|password|(?:access|refresh|api)?token|apikey|secret|key)[a-z0-9]*$/;
+const PROVIDER_SECRET_PROPERTY_NAME = /^provider(?:credential|password|(?:access|refresh|api)?token|apikey|secret|key|session|history|resume)[a-z0-9]*$/;
+const HMAC_SECRET_PROPERTY_NAME = /^hmac(?:key|secret|algorithm|digest|token|signature|value)[a-z0-9]*$/;
 
 function controlPropertyNameIsForbidden(propertyName: string): boolean {
-  return FORBIDDEN_CONTROL_PROPERTY.test(
-    propertyName.toLowerCase().replace(/[^a-z0-9]/g, ''),
+  const normalized = propertyName.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return (
+    FORBIDDEN_CONTROL_PROPERTY_NAMES.has(normalized) ||
+    CREDENTIAL_PROPERTY_NAME.test(normalized) ||
+    DATABASE_SECRET_PROPERTY_NAME.test(normalized) ||
+    PROVIDER_SECRET_PROPERTY_NAME.test(normalized) ||
+    HMAC_SECRET_PROPERTY_NAME.test(normalized)
   );
 }
 
