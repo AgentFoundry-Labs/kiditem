@@ -694,9 +694,11 @@ thread override is Runner-owned
 the `:workspace` permission profile. Runner assigns only the second thread as
 live, so there is no resume, history, or persistence bridge from probe to
 provider turn. The provider readiness turn is intentionally tool-free; its
-prompt requires an immediate strict `AgentResultEnvelope` and it never
-synthesizes a live input command. Claude retains its model-selected scoped
-readiness probe and live second input during the live turn.
+prompt is the minimal structured reachability contract: `Return only a valid
+AgentResultEnvelope JSON object. Do not call any MCP tool.` The direct probe
+carries readiness semantics separately, and Codex never synthesizes a live
+input command. Claude retains its model-selected scoped readiness probe and
+live second input during the live turn.
 
 The readiness contract is therefore four correlated proofs: a real provider
 structured result (Codex immediate after its direct probe; Claude after its

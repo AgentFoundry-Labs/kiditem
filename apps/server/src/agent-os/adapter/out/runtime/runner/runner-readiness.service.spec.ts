@@ -243,7 +243,7 @@ describe('RunnerReadinessService', () => {
     leases.dispose();
   });
 
-  it('uses a post-probe prompt for Codex but retains the model-selected readiness probe for Claude', () => {
+  it('uses the minimal tool-free provider prompt for Codex but retains the live model-selected probe for Claude', () => {
     const commands = new RunnerCommandQueue({ commandId: sequenceIds() });
     const tokens = new AttemptTokenRegistry({ now: () => new Date('2026-08-24T00:00:00.000Z') });
     const leases = new RunnerLeaseRegistry({
@@ -269,11 +269,11 @@ describe('RunnerReadinessService', () => {
     const codex = starts.find((command) => command.launch.runtime === 'codex_cli')!;
     const claude = starts.find((command) => command.launch.runtime === 'claude_cli')!;
 
-    expect(codex.launch.prompt).toContain('already completed');
-    expect(codex.launch.prompt).not.toContain('readiness_probe');
-    expect(codex.launch.prompt).toContain('immediately');
-    expect(codex.launch.prompt).not.toContain('Wait for one subsequent live user input');
+    expect(codex.launch.prompt).toBe('Return only a valid AgentResultEnvelope JSON object. Do not call any MCP tool.');
+    expect(codex.launch.prompt).not.toMatch(/readiness|nonce/i);
     expect(claude.launch.prompt).toContain('Use the readiness_probe MCP tool exactly once');
+    expect(claude.launch.prompt).toContain('nonce 51e975ef-c0a7-4ab1-8007-47c0fd563505');
+    expect(claude.launch.prompt).toContain('wait for one subsequent live user input');
     leases.dispose();
   });
 

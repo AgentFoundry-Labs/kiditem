@@ -18,7 +18,7 @@ import { AttemptTokenRegistry } from '../../../server/src/agent-os/adapter/out/r
 import { RunnerCommandQueue } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-command.queue';
 import { RunnerEventHandlerService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-event-handler.service';
 import { RunnerLeaseRegistry } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-lease.registry';
-import { RunnerReadinessService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-readiness.service';
+import { CODEX_READINESS_PROVIDER_PROMPT, RunnerReadinessService } from '../../../server/src/agent-os/adapter/out/runtime/runner/runner-readiness.service';
 
 const RUNNER_INSTANCE_ID = '818f4eb1-9078-7a1e-9514-b19b5732f5de';
 const LEASE_ID = '918f4eb1-9078-7a1e-9514-b19b5732f5de';
@@ -41,6 +41,11 @@ describe('logged-in real CLI readiness canary', () => {
     if (!enabled) return;
     expect(codexModel, 'set KIDITEM_RUNNER_CODEX_CANARY_MODEL explicitly').toBeTruthy();
     expect(claudeModel, 'set KIDITEM_RUNNER_CLAUDE_CANARY_MODEL explicitly').toBeTruthy();
+  });
+
+  it('uses the exact minimal Codex provider prompt for the provider-only baseline', () => {
+    expect(providerOnlyPrompt()).toBe('Return only a valid AgentResultEnvelope JSON object. Do not call any MCP tool.');
+    expect(providerOnlyPrompt()).not.toMatch(/readiness|nonce/i);
   });
 
   const registerRealCanaryTests = (): void => {
@@ -585,10 +590,7 @@ function observedProtocolVersion(value: string | string[] | undefined): string {
 }
 
 function providerOnlyPrompt(): string {
-  return [
-    'Return only a valid AgentResultEnvelope JSON object.',
-    'Do not call any MCP tool. This is a provider reachability baseline, not a readiness canary.',
-  ].join(' ');
+  return CODEX_READINESS_PROVIDER_PROMPT;
 }
 
 async function waitFor(check: () => boolean | Promise<boolean>, timeout: number): Promise<void> {

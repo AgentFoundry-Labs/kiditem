@@ -809,11 +809,14 @@ Readiness is a process-memory projection with two phases:
    `mcp_servers.kiditem_attempt.enabled=false`; both thread responses must
    return the `:workspace` profile. The strict direct result must contain the
    exact nonce. Codex then returns its strict result immediately from the
-   intentionally tool-free provider thread and receives no synthetic input
-   command. Claude retains its model-selected scoped probe and is the only
-   runtime that receives a live second input. Successful discovery/list/call,
-   runtime-specific terminal parse, token revocation, complete-tree kill, and
-   workspace cleanup promote the lease to `ready`.
+   intentionally tool-free provider thread with the minimal structured
+   reachability prompt, `Return only a valid AgentResultEnvelope JSON object.
+   Do not call any MCP tool.` The direct probe carries the readiness semantics
+   separately; Codex receives no synthetic input command. Claude retains its
+   model-selected scoped probe and is the only runtime that receives a live
+   second input. Successful discovery/list/call, runtime-specific terminal
+   parse, token revocation, complete-tree kill, and workspace cleanup promote
+   the lease to `ready`.
 
 This adds no command kind, Attempt row, status, Prisma model, or durable
 canary. Business Attempt admission requires a `ready` lease for the exact
@@ -900,7 +903,9 @@ The real canary runs on the implementation Mac using its logged-in Codex and
 Claude accounts. Codex uses a supported fixed app-server control-plane call on
 an ephemeral probe thread, then returns an immediate structured result from a
 fresh tool-free ephemeral provider thread without a synthetic live input;
-there is no resume/history bridge between those threads. Claude uses its scoped
+its minimal structured reachability prompt does not narrate readiness or MCP
+state because the direct probe carries that semantics separately. There is no
+resume/history bridge between those threads. Claude uses its scoped
 model-selected call and retains the live second input. Both must exercise their
 applicable strict modern MCP discovery/call, result parsing, and cleanup. The
 separate local fake-provider gate proves model-visible Codex tool metadata, not

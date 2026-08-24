@@ -12,6 +12,7 @@ import { RunnerLeaseRegistry } from './runner-lease.registry';
 
 const MAX_VERIFIED_CANARIES = 256;
 const READINESS_CANARY_TIMEOUT_MS = 5 * 60_000;
+export const CODEX_READINESS_PROVIDER_PROMPT = 'Return only a valid AgentResultEnvelope JSON object. Do not call any MCP tool.';
 
 type RunnerLeasePort = Pick<RunnerLeaseRegistry, 'markProbing' | 'markReady' | 'requireActive' | 'requireReady' | 'generationForLease'>;
 
@@ -365,13 +366,7 @@ function requiredLoopbackOrigin(value: string): URL {
 }
 
 function readinessPrompt(runtime: AttemptRuntimeType, nonce: string): string {
-  if (runtime === 'codex_cli') {
-    return [
-      'This is a Host Runner readiness canary.',
-      'A Runner-owned modern MCP readiness exchange has already completed.',
-      'Respond immediately with only a valid AgentResultEnvelope JSON object.',
-    ].join(' ');
-  }
+  if (runtime === 'codex_cli') return CODEX_READINESS_PROVIDER_PROMPT;
   return [
     'This is a Host Runner readiness canary.',
     `Use the readiness_probe MCP tool exactly once with nonce ${nonce}.`,
