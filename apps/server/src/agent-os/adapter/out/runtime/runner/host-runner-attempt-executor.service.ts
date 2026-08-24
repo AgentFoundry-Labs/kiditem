@@ -45,20 +45,29 @@ export class HostRunnerAttemptExecutorService implements LiveAttemptExecutionCap
     const prompt = await this.options.prompts.resolve({ reference: input.instructionProfileRef, prompt: input.prompt });
     const lease = this.options.leases.requireReady();
     const existing = this.options.commands.startForAttempt(input.attemptId);
-    const deadlineAt = validDeadline(input.deadlineAt, this.now());
-    const raw = existing?.launch.attemptToken
-      ?? this.options.tokens.issueBusiness({ binding: input.mcp, leaseId: lease.leaseId, deadline: deadlineAt }).raw;
-    const launch = parseLaunch({
-      attemptId: input.attemptId,
-      runtime: input.runtime,
-      model: input.profile.model,
-      prompt,
-      timeoutMs: Math.max(1_000, Math.min(MAX_ATTEMPT_TIMEOUT_MS, deadlineAt.getTime() - this.now().getTime())),
-      mcpUrl: new URL(`/internal/agent-runtime/attempts/${input.attemptId}/mcp`, this.origin).toString(),
-      attemptToken: raw,
-    });
-    this.options.commands.enqueueStart({ launch, deadlineAt });
-    this.options.leases.assignAttempt({ leaseId: lease.leaseId, attemptId: input.attemptId });
+    if (!existing && this.options.commands.hasStartedAttempt(input.attemptId)) return;
+    const deadlineAt = existing
+      ? new Date(existing.deadlineAt)
+      : validDeadline(input.deadlineAt, this.now());
+    let issued = false;
+    try {
+      const raw = existing?.launch.attemptToken
+        ?? this.options.tokens.issueBusiness({ binding: input.mcp, leaseId: lease.leaseId, deadline: deadlineAt }).raw;
+      issued = !existing;
+      const launch = parseLaunch({
+        attemptId: input.attemptId,
+        runtime: input.runtime,
+        model: input.profile.model,
+        prompt,
+        timeoutMs: Math.max(1_000, Math.min(MAX_ATTEMPT_TIMEOUT_MS, deadlineAt.getTime() - this.now().getTime())),
+        mcpUrl: new URL(`/internal/agent-runtime/attempts/${input.attemptId}/mcp`, this.origin).toString(),
+        attemptToken: raw,
+      });
+      this.options.commands.enqueueStart({ launch, deadlineAt });
+    } catch (error) {
+      if (issued) this.options.tokens.revokeAttempt(input.attemptId);
+      throw error;
+    }
   }
 
   async interrupt(attemptId: string): Promise<void> {

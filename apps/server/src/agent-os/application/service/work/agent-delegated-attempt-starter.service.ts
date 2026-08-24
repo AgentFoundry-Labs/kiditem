@@ -1,16 +1,12 @@
-import type { LiveAttemptExecutionCapabilityPort } from '../../port/in/capability/live-attempt-execution.capability.port';
-import type { AgentWorkTransactionPort } from '../../port/out/work/agent-work-transaction.port';
+import type { AgentAttemptLaunchCapabilityPort } from '../../port/in/capability/agent-attempt-launch.capability.port';
 
 /**
- * Starts a newly admitted delegated Attempt through the capability boundary.
- * It deliberately knows neither a concrete runtime adapter nor an API module.
+ * Starts a newly admitted delegated Attempt through the one shared launch
+ * lifecycle. It deliberately knows neither a concrete runtime adapter nor an
+ * API module.
  */
 export class AgentDelegatedAttemptStarterService {
-  constructor(
-    private readonly execution: Pick<LiveAttemptExecutionCapabilityPort, 'start'>,
-    private readonly work: Pick<AgentWorkTransactionPort, 'transitionAttempt'>,
-    private readonly admissions: { releaseAttempt(attemptId: string): void },
-  ) {}
+  constructor(private readonly launch: AgentAttemptLaunchCapabilityPort) {}
 
   async start(input: {
     attemptId: string;
@@ -31,38 +27,27 @@ export class AgentDelegatedAttemptStarterService {
       if (input.runtime !== 'codex_cli' && input.runtime !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
       const model = input.model?.trim();
       if (!model) throw new Error(`missing_required_configuration:AGENT_${input.agentKey.toUpperCase()}_MODEL`);
-      await this.execution.start({
+      await this.launch.start({
         attemptId: input.attemptId,
         runtime: input.runtime,
         profile: { model },
         prompt: input.prompt,
         instructionProfileRef: input.instructionProfileRef,
-        mcp: {
-          attemptId: input.attemptId, sessionId: input.sessionId, taskId: input.taskId,
-          agentVersionId: input.agentVersionId, organizationId: input.organizationId,
-          userId: input.userId, capabilityKeys: [...input.capabilityKeys],
-        },
+        sessionId: input.sessionId,
+        taskId: input.taskId,
+        agentVersionId: input.agentVersionId,
+        organizationId: input.organizationId,
+        userId: input.userId,
+        capabilityKeys: [...input.capabilityKeys],
       });
     } catch (error) {
-      // Config failures happen before the Host Runner queue owns the
-      // Attempt, so terminalize/release here rather than leaking a `starting`
-      // row and its admission slot.
-      await this.failBeforeStart({
-        attemptId: input.attemptId,
-        code: 'attempt_start_failed',
-        message: error instanceof Error ? error.message.slice(0, 1_000) : 'Attempt failed to start.',
-      });
+      await this.launch.failBeforeStart({ attemptId: input.attemptId });
       throw error;
     }
   }
 
-  /** Releases a child that could not obtain its durable grant before launch. */
+  /** Uses the common cleanup path for a child rejected before launch. */
   async failBeforeStart(input: { attemptId: string; code: string; message: string }): Promise<void> {
-    try {
-      await this.work.transitionAttempt({
-        attemptId: input.attemptId, from: 'starting', to: 'failed', at: new Date(),
-        error: { code: input.code, message: input.message.slice(0, 1_000) },
-      });
-    } finally { this.admissions.releaseAttempt(input.attemptId); }
+    await this.launch.failBeforeStart({ attemptId: input.attemptId });
   }
 }

@@ -19,7 +19,7 @@ describe('RunnerCommandQueue', () => {
     expect(retry).toEqual(first);
     expect(queue.take()).toEqual({ commands: [first] });
     expect(queue.take()).toEqual({ commands: [first] });
-    queue.acknowledge({ commandId: first.commandId, commandHash: first.commandHash });
+    queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
     expect(queue.take()).toEqual({ commands: [] });
   });
 
@@ -72,17 +72,77 @@ describe('RunnerCommandQueue', () => {
     expect(queue.has(first.commandId)).toBe(false);
     expect(queue.take().commands).toHaveLength(2);
   });
+
+  it('applies backpressure before an all-active queue exceeds its hard bound', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
+    queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.enqueueInput({ attemptId, input: 'second', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+    expect(() => queue.enqueueInput({
+      attemptId,
+      input: 'third',
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    })).toThrow('runner_command_backpressure');
+    expect((queue as unknown as { records: Map<string, unknown> }).records.size).toBe(2);
+    expect((queue as unknown as { idempotency: Map<string, unknown> }).idempotency.size).toBeLessThanOrEqual(2);
+  });
+
+  it('frees an acknowledged command slot while retaining a bounded same-input acknowledgement tombstone', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 1 });
+    const first = queue.enqueueInput({ attemptId, input: 'first', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
+
+    const second = queue.enqueueInput({
+      attemptId,
+      input: 'second',
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    });
+
+    expect(queue.enqueueInput({
+      attemptId,
+      input: 'first',
+      deadlineAt: new Date('2026-08-24T00:11:00.000Z'),
+    })).toEqual(first);
+    expect(queue.take()).toEqual({ commands: [second] });
+    expect((queue as unknown as { records: Map<string, unknown> }).records.size).toBe(1);
+    expect((queue as unknown as { idempotency: Map<string, unknown> }).idempotency.size).toBeLessThanOrEqual(1);
+    expect((queue as unknown as { idempotencyTombstones: Map<string, unknown> }).idempotencyTombstones.size).toBeLessThanOrEqual(1);
+  });
+
+  it('backpressures instead of evicting an acknowledged live start state', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 1 });
+    const first = queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    queue.acknowledge({ commandId: first.commandId, attemptId, commandHash: first.commandHash });
+
+    expect(() => queue.enqueueStart({
+      launch: launchSpec('218f4eb1-9078-7a1e-9514-b19b5732f5de'),
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    })).toThrow('runner_command_backpressure');
+    expect(queue.hasStartedAttempt(attemptId)).toBe(true);
+  });
+
+  it('drops a raw start token when its command is acknowledged while retaining only launch identity metadata', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds(), maxEntries: 2 });
+    const launch = launchSpec();
+    const command = queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+    queue.acknowledge({ commandId: command.commandId, attemptId, commandHash: command.commandHash });
+
+    expect(JSON.stringify(queue)).not.toContain(launch.attemptToken);
+    expect(queue.hasStartedAttempt(attemptId)).toBe(true);
+    expect(queue.startForAttempt(attemptId)).toBeNull();
+  });
 });
 
-function launchSpec(): AttemptLaunchSpec {
+function launchSpec(id = attemptId): AttemptLaunchSpec {
   return {
-    attemptId,
+    attemptId: id,
     runtime: 'codex_cli',
     model: 'gpt-5',
     prompt: 'Perform the durable work.',
     workspacePolicy: 'empty_ephemeral_v1',
     timeoutMs: 60_000,
-    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
+    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${id}/mcp`,
     attemptToken: randomBytes(32).toString('base64url'),
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',

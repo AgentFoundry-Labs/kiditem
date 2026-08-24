@@ -52,6 +52,15 @@ describe('RunnerControlController', () => {
     expect(events.handle).toHaveBeenCalledWith(batch);
     expect(response.json).toHaveBeenCalledWith({ eventSeq: 1, accepted: true });
   });
+
+  it('maps a lease-owned Attempt fence rejection to a generic control conflict', async () => {
+    const events = { handle: vi.fn(async () => { throw new Error('runner_event_attempt_unassigned'); }) };
+    const controller = new RunnerControlController({ authenticate: () => true } as never, {} as never, events as never);
+    const batch = { runnerInstanceId: instanceId, leaseId, eventSeq: 1, events: [{ kind: 'attempt.started', attemptId: '218f4eb1-9078-7a1e-9514-b19b5732f5de' }] };
+
+    await expect(controller.events(batch, request('installation-token') as never, responseRecorder() as never))
+      .rejects.toThrow('runner_control_conflict');
+  });
 });
 
 function hello() {

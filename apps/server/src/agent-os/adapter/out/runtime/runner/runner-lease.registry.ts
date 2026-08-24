@@ -47,6 +47,7 @@ export class RunnerLeaseRegistry {
   private readonly createLeaseId: () => string;
   private readonly now: () => Date;
   private readonly unsubscribe: () => void;
+  private eventTail: Promise<void> = Promise.resolve();
   private active: ActiveLease | null = null;
   private pending: PendingPoll | null = null;
 
@@ -107,12 +108,6 @@ export class RunnerLeaseRegistry {
       && this.now().getTime() - lease.lastSeenAt < RUNNER_LEASE_TTL_MS;
   }
 
-  assignAttempt(input: { leaseId: string; attemptId: string }): void {
-    const lease = this.active;
-    if (!lease || lease.leaseId !== input.leaseId || !this.isValid(lease)) throw new Error('runner_lease_invalid');
-    lease.attempts.add(input.attemptId);
-  }
-
   requireReady(): { runnerInstanceId: string; leaseId: string } {
     const lease = this.active;
     if (!lease || lease.status !== 'ready' || !this.isValid(lease)) throw new Error('runner_not_ready');
@@ -123,7 +118,7 @@ export class RunnerLeaseRegistry {
     const lease = this.require(input);
     if (this.pending) throw new Error('runner_poll_conflict');
     this.touch(lease);
-    const available = this.commands.take();
+    const available = this.takeForLease(lease);
     if (available.commands.length) return available;
     return new Promise<RunnerCommandBatch>((resolve) => {
       const timeout = setTimeout(() => this.settlePending({ commands: [] }), RUNNER_EMPTY_POLL_MS);
@@ -133,24 +128,37 @@ export class RunnerLeaseRegistry {
 
   async acceptEventBatch(
     input: RunnerEventBatch,
-    apply: () => Promise<void>,
+    apply: (assertActive: () => void) => Promise<void>,
   ): Promise<RunnerEventAcknowledgement> {
     const batch = RunnerEventBatchSchema.parse(input);
-    const lease = this.require({ runnerInstanceId: batch.runnerInstanceId, leaseId: batch.leaseId });
-    const bodyHash = stableJson(batch.events);
-    const replay = lease.eventAcks.get(batch.eventSeq);
-    if (replay) {
-      if (replay.bodyHash !== bodyHash) throw new Error('runner_event_replay_conflict');
-      return replay.acknowledgement;
-    }
-    if (batch.eventSeq !== lease.nextEventSeq) throw new Error('runner_event_sequence_conflict');
-    await apply();
-    const acknowledgement: RunnerEventAcknowledgement = { eventSeq: batch.eventSeq, accepted: true };
-    lease.eventAcks.set(batch.eventSeq, { bodyHash, acknowledgement });
-    if (lease.eventAcks.size > 256) lease.eventAcks.delete(lease.eventAcks.keys().next().value as number);
-    lease.nextEventSeq += 1;
-    this.touch(lease);
-    return acknowledgement;
+    return this.serializeEvent(async () => {
+      const lease = this.require({ runnerInstanceId: batch.runnerInstanceId, leaseId: batch.leaseId });
+      const bodyHash = stableJson(batch.events);
+      const replay = lease.eventAcks.get(batch.eventSeq);
+      if (replay) {
+        if (replay.bodyHash !== bodyHash) throw new Error('runner_event_replay_conflict');
+        return replay.acknowledgement;
+      }
+      if (batch.eventSeq !== lease.nextEventSeq) throw new Error('runner_event_sequence_conflict');
+      const assertActive = () => {
+        this.assertActiveLease(lease, batch);
+        this.assertEventOwnership(lease, batch);
+      };
+      assertActive();
+      await apply(assertActive);
+      this.assertActiveLease(lease, batch);
+      for (const event of batch.events) {
+        if (event.kind === 'attempt.terminal' || event.kind === 'attempt.rejected') {
+          lease.attempts.delete(event.attemptId);
+        }
+      }
+      const acknowledgement: RunnerEventAcknowledgement = { eventSeq: batch.eventSeq, accepted: true };
+      lease.eventAcks.set(batch.eventSeq, { bodyHash, acknowledgement });
+      if (lease.eventAcks.size > 256) lease.eventAcks.delete(lease.eventAcks.keys().next().value as number);
+      lease.nextEventSeq += 1;
+      this.touch(lease);
+      return acknowledgement;
+    });
   }
 
   dispose(): void {
@@ -196,7 +204,7 @@ export class RunnerLeaseRegistry {
 
   private resolvePendingFromQueue(): void {
     if (!this.pending || !this.active || this.pending.leaseId !== this.active.leaseId) return;
-    const batch = this.commands.take();
+    const batch = this.takeForLease(this.active);
     if (batch.commands.length) this.settlePending(batch);
   }
 
@@ -206,6 +214,36 @@ export class RunnerLeaseRegistry {
     this.pending = null;
     clearTimeout(pending.timeout);
     pending.resolve(batch);
+  }
+
+  private takeForLease(lease: ActiveLease): RunnerCommandBatch {
+    const batch = this.commands.take();
+    for (const command of batch.commands) {
+      if (command.kind === 'attempt.start') lease.attempts.add(command.attemptId);
+    }
+    return batch;
+  }
+
+  private assertEventOwnership(lease: ActiveLease, batch: RunnerEventBatch): void {
+    for (const event of batch.events) {
+      if (!lease.attempts.has(event.attemptId)) throw new Error('runner_event_attempt_unassigned');
+      if (event.kind === 'command_ack' || event.kind === 'attempt.rejected') {
+        if (this.commands.commandAttempt(event.commandId) !== event.attemptId) {
+          throw new Error('runner_event_command_unassigned');
+        }
+      }
+    }
+  }
+
+  private assertActiveLease(lease: ActiveLease, batch: RunnerEventBatch): void {
+    const current = this.require({ runnerInstanceId: batch.runnerInstanceId, leaseId: batch.leaseId });
+    if (current !== lease) throw new Error('runner_lease_invalid');
+  }
+
+  private serializeEvent<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.eventTail.then(operation, operation);
+    this.eventTail = result.then(() => undefined, () => undefined);
+    return result;
   }
 }
 

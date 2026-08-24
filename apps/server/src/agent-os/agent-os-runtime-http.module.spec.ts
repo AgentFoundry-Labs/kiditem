@@ -5,6 +5,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { AttemptMcpHttpController } from './adapter/in/http/runtime/attempt-mcp-http.controller';
 import { RunnerControlController } from './adapter/in/http/runtime/runner-control.controller';
 import { HostRunnerAttemptExecutorService } from './adapter/out/runtime/runner/host-runner-attempt-executor.service';
+import { AgentAttemptLaunchService } from './application/service/work/agent-attempt-launch.service';
+import { AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT } from './application/port/in/capability/agent-attempt-launch.capability.port';
 import { AgentOsRuntimeHttpModule } from './agent-os-runtime-http.module';
 
 describe('AgentOsRuntimeHttpModule', () => {
@@ -19,6 +21,7 @@ describe('AgentOsRuntimeHttpModule', () => {
       expect(module.get(RunnerControlController)).toBeInstanceOf(RunnerControlController);
       expect(module.get(AttemptMcpHttpController)).toBeInstanceOf(AttemptMcpHttpController);
       expect(module.get(HostRunnerAttemptExecutorService)).toBeInstanceOf(HostRunnerAttemptExecutorService);
+      expect(module.get(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)).toBeInstanceOf(AgentAttemptLaunchService);
     } finally {
       await module.close();
       restoreRuntimeEnvironment(previous);

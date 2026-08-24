@@ -78,6 +78,57 @@ describe('HostRunnerAttemptExecutorService', () => {
     expect(commands.take().commands.filter((command) => command.kind === 'attempt.interrupt')).toHaveLength(1);
     leases.dispose();
   });
+
+  it('does not assign an Attempt to a lease until its start command is actually delivered', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '518f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const interrupts = vi.fn(async () => undefined);
+    const leases = new RunnerLeaseRegistry({
+      commands,
+      interruptAttempt: interrupts,
+      leaseId: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de',
+    });
+    const lease = leases.hello(runnerHello());
+    leases.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+    const executor = new HostRunnerAttemptExecutorService({
+      admission: { assert: async () => undefined },
+      prompts: { resolve: async ({ prompt }: { prompt: string }) => prompt },
+      tokens: new AttemptTokenRegistry(),
+      commands,
+      leases,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+    });
+
+    await executor.start({ attemptId, runtime: 'codex_cli', profile: { model: 'gpt-5' }, prompt: 'work', mcp: binding() });
+    leases.hello(runnerHello({ runnerInstanceId: '718f4eb1-9078-7a1e-9514-b19b5732f5de' }));
+
+    expect(interrupts).not.toHaveBeenCalled();
+    leases.dispose();
+  });
+
+  it('revokes a newly issued Attempt token when queue backpressure prevents command installation', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '818f4eb1-9078-7a1e-9514-b19b5732f5de', maxEntries: 1 });
+    commands.enqueueInput({ attemptId, input: 'occupy queue', deadlineAt: new Date(Date.now() + 60_000) });
+    const leases = readyLease(commands);
+    const tokens = new AttemptTokenRegistry();
+    const issued = vi.spyOn(tokens, 'issueBusiness');
+    const executor = new HostRunnerAttemptExecutorService({
+      admission: { assert: async () => undefined },
+      prompts: { resolve: async ({ prompt }: { prompt: string }) => prompt },
+      tokens,
+      commands,
+      leases,
+      loopbackOrigin: 'http://127.0.0.1:4000',
+    });
+
+    await expect(executor.start({ attemptId, runtime: 'codex_cli', profile: { model: 'gpt-5' }, prompt: 'work', mcp: binding() }))
+      .rejects.toThrow('runner_command_backpressure');
+
+    const raw = issued.mock.results[0]?.value.raw;
+    expect(raw).toBeTypeOf('string');
+    expect(() => tokens.requireBusiness({ raw: raw!, attemptId, leaseId: '418f4eb1-9078-7a1e-9514-b19b5732f5de' }))
+      .toThrow('attempt_token_invalid');
+    leases.dispose();
+  });
 });
 
 function readyLease(commands: RunnerCommandQueue): RunnerLeaseRegistry {
@@ -107,5 +158,17 @@ function binding() {
     organizationId: 'organization-id',
     userId: 'user-id',
     capabilityKeys: ['sourcing.scrapeProductUrl'],
+  };
+}
+
+function runnerHello(overrides: Record<string, unknown> = {}) {
+  return {
+    kind: 'hello' as const, runnerInstanceId: instanceId, platform: 'macos' as const, nodeMajor: 22,
+    controlRevision: 'kiditem-runner-control-v1' as const, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const,
+    runtimes: {
+      codex_cli: { version: '0.149.1' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
+      claude_cli: { version: '2.1.241' as const, loginVerified: true as const, nonPersistentSettingsVerified: true as const },
+    },
+    ...overrides,
   };
 }

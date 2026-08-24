@@ -797,6 +797,12 @@ function findingsFor({ path: filePath, source }) {
     findings.push("API login-home/provider-login configuration");
   }
   if (
+    isServerSource &&
+    /\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|KIDITEM_ATTEMPT_CLI_VERSION)\b/.test(source)
+  ) {
+    findings.push("API login-home/provider-login configuration");
+  }
+  if (
     filePath === "apps/server/Dockerfile" &&
     /\b(?:codex|claude)\s+--version\b/i.test(source)
   ) {

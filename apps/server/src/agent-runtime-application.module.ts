@@ -16,8 +16,13 @@ import { AgentApiStartupReconciler } from './agent-os/application/service/work/a
 import { AgentLiveMessageService } from './agent-os/application/service/work/agent-live-message.service';
 import { AttemptMcpActionsService } from './agent-os/application/service/work/attempt-mcp-actions.service';
 import { AgentDelegatedAttemptStarterService } from './agent-os/application/service/work/agent-delegated-attempt-starter.service';
+import { AgentAttemptLaunchService } from './agent-os/application/service/work/agent-attempt-launch.service';
 import { ATTEMPT_MCP_ACTIONS_PORT, type AttemptMcpActionsPort } from './agent-os/application/port/in/mcp/attempt-mcp-actions.port';
 import { LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, type LiveAttemptExecutionCapabilityPort } from './agent-os/application/port/in/capability/live-attempt-execution.capability.port';
+import {
+  AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
+  type AgentAttemptLaunchCapabilityPort,
+} from './agent-os/application/port/in/capability/agent-attempt-launch.capability.port';
 import { LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
 import { ATTEMPT_RUNTIME_CONTROL_PORT, type AttemptRuntimeControlPort } from './agent-os/application/port/out/runtime/attempt-runtime-control.port';
 import { AgentCapabilityInvocationService } from './agent-os/application/service/work/agent-capability-invocation.service';
@@ -127,13 +132,20 @@ import { PrismaService } from './prisma/prisma.service';
     },
     { provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, useExisting: HostRunnerAttemptExecutorService },
     {
-      provide: AgentDelegatedAttemptStarterService,
-      inject: [LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, PrismaAgentWorkTransaction, AgentAttemptAdmissionService],
+      provide: AgentAttemptLaunchService,
+      inject: [LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel],
       useFactory: (
         execution: LiveAttemptExecutionCapabilityPort,
         work: PrismaAgentWorkTransaction,
         admissions: AgentAttemptAdmissionService,
-      ) => new AgentDelegatedAttemptStarterService(execution, work, admissions),
+        output: AttemptFutureOutputChannel,
+      ) => new AgentAttemptLaunchService(execution, work, admissions, output),
+    },
+    { provide: AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT, useExisting: AgentAttemptLaunchService },
+    {
+      provide: AgentDelegatedAttemptStarterService,
+      inject: [AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT],
+      useFactory: (launch: AgentAttemptLaunchCapabilityPort) => new AgentDelegatedAttemptStarterService(launch),
     },
     {
       provide: ATTEMPT_MCP_ACTIONS_PORT,
@@ -156,6 +168,8 @@ import { PrismaService } from './prisma/prisma.service';
     AgentApiStartupReconciler,
     AgentAttemptReconciler,
     AgentLiveMessageService,
+    AgentAttemptLaunchService,
+    AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
     HostRunnerAttemptExecutorService,
     LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
     LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,

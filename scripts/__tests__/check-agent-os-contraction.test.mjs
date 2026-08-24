@@ -104,6 +104,11 @@ test("rejects API-owned transport, relay, process, and deployment boundaries", (
       source: "KIDITEM_ATTEMPT_LOGIN_HOME: /var/lib/kiditem-cli\ncommand: [\"codex\", \"login\"]",
     },
     {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/agent-work.controller.ts",
+      source:
+        "const loginHome = requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME'); const cliVersion = requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION');",
+    },
+    {
       path: "apps/server/Dockerfile",
       source: "RUN codex --version && claude --version",
     },
@@ -133,6 +138,22 @@ test("rejects API-owned transport, relay, process, and deployment boundaries", (
   ]) {
     assert.ok(findings.some((finding) => finding.endsWith(`: ${category}`)), category);
   }
+});
+
+test("rejects legacy Runner login and CLI version environment reads in production server source", () => {
+  const findings = collectAgentOsContractionFindings([
+    {
+      path: "apps/server/src/agent-os/adapter/in/http/interaction/agent-work.controller.ts",
+      source:
+        "const loginHome = requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME'); const cliVersion = requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION');",
+    },
+  ]);
+
+  assert.ok(
+    findings.some((finding) =>
+      finding.endsWith(": API login-home/provider-login configuration"),
+    ),
+  );
 });
 
 test("does not confuse unrelated server code with native Runner ownership", () => {

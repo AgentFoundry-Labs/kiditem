@@ -12,6 +12,10 @@ describe('Agent Work HTTP boundary', () => {
       expect(source).toContain('AGENT_WORK_QUERY_PORT');
       expect(source).toContain('AgentWorkQueryPort');
       expect(source).toContain('LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
+      expect(source).toContain('AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT');
+      expect(source).not.toContain('this.executor.start');
+      expect(source).not.toContain('KIDITEM_ATTEMPT_LOGIN_HOME');
+      expect(source).not.toContain('KIDITEM_ATTEMPT_CLI_VERSION');
     }
   });
 

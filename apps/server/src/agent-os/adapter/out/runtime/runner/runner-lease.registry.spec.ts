@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { RunnerEventBatch, RunnerHello } from '@kiditem/shared/agent-runtime';
+import { randomBytes } from 'node:crypto';
+import type { AttemptLaunchSpec, RunnerEventBatch, RunnerHello } from '@kiditem/shared/agent-runtime';
 import { RunnerCommandQueue } from './runner-command.queue';
 import { RunnerLeaseRegistry } from './runner-lease.registry';
 
@@ -19,11 +20,12 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
-  it('invalidates a former instance and interrupts assigned live Attempts when a new Runner arrives', () => {
+  it('invalidates a former instance and interrupts assigned live Attempts when a new Runner arrives', async () => {
     const interrupts = vi.fn(async () => undefined);
-    const registry = registryFor({ interruptAttempt: interrupts });
+    const commands = new RunnerCommandQueue({ commandId: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands, interruptAttempt: interrupts });
     const prior = registry.hello(hello());
-    registry.assignAttempt({ leaseId: prior.leaseId, attemptId });
+    await deliverAttempt(registry, commands, prior.leaseId);
 
     const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
 
@@ -33,13 +35,14 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
-  it('can bind the final lifecycle and token revocation hooks after registry construction', () => {
-    const registry = registryFor();
+  it('can bind the final lifecycle and token revocation hooks after registry construction', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '718f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands });
     const interrupts = vi.fn(async () => undefined);
     const revokeLease = vi.fn();
     registry.setLossHandlers({ interruptAttempt: interrupts, revokeLease });
     const prior = registry.hello(hello());
-    registry.assignAttempt({ leaseId: prior.leaseId, attemptId });
+    await deliverAttempt(registry, commands, prior.leaseId);
 
     registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
 
@@ -51,9 +54,11 @@ describe('RunnerLeaseRegistry', () => {
   it('allows one outstanding poll, returns 204-equivalent null after twenty seconds, and expires the lease at thirty', async () => {
     vi.useFakeTimers();
     const interrupts = vi.fn(async () => undefined);
-    const registry = registryFor({ interruptAttempt: interrupts });
+    const commands = new RunnerCommandQueue({ commandId: () => '818f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands, interruptAttempt: interrupts });
     const lease = registry.hello(hello());
-    registry.assignAttempt({ leaseId: lease.leaseId, attemptId });
+    const delivered = await deliverAttempt(registry, commands, lease.leaseId);
+    commands.acknowledge({ commandId: delivered.commandId, attemptId, commandHash: delivered.commandHash });
 
     const pending = registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
     await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
@@ -81,9 +86,60 @@ describe('RunnerLeaseRegistry', () => {
     registry.dispose();
   });
 
-  it('replays an identical event sequence acknowledgement but rejects a changed body or a sequence gap', async () => {
-    const registry = registryFor();
+  it('binds a live Attempt only after delivering its start command to the active lease', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const interrupts = vi.fn(async () => undefined);
+    const registry = registryFor({ commands, interruptAttempt: interrupts });
     const lease = registry.hello(hello());
+    commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+    await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+    registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+
+    expect(interrupts).toHaveBeenCalledWith(attemptId);
+    registry.dispose();
+  });
+
+  it('rejects an event for an Attempt that was not delivered to the active lease', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '718f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands });
+    const lease = registry.hello(hello());
+    commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+    await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
+
+    await expect(registry.acceptEventBatch({
+      runnerInstanceId: instanceId,
+      leaseId: lease.leaseId,
+      eventSeq: 1,
+      events: [{ kind: 'attempt.output', attemptId: '818f4eb1-9078-7a1e-9514-b19b5732f5de', output: 'stale' }],
+    }, async () => undefined)).rejects.toThrow('runner_event_attempt_unassigned');
+    registry.dispose();
+  });
+
+  it('rechecks the active lease after a serialized event application races with replacement', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => '918f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands });
+    const lease = registry.hello(hello());
+    await deliverAttempt(registry, commands, lease.leaseId);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const pending = registry.acceptEventBatch(eventBatch(lease.leaseId, 1), async () => {
+      await gate;
+    });
+
+    await Promise.resolve();
+    registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+    release();
+
+    await expect(pending).rejects.toThrow('runner_lease_invalid');
+    registry.dispose();
+  });
+
+  it('replays an identical event sequence acknowledgement but rejects a changed body or a sequence gap', async () => {
+    const commands = new RunnerCommandQueue({ commandId: () => 'a18f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands });
+    const lease = registry.hello(hello());
+    await deliverAttempt(registry, commands, lease.leaseId);
     const apply = vi.fn(async () => undefined);
     const first = eventBatch(lease.leaseId, 1);
 
@@ -94,6 +150,29 @@ describe('RunnerLeaseRegistry', () => {
       .rejects.toThrow('runner_event_replay_conflict');
     await expect(registry.acceptEventBatch(eventBatch(lease.leaseId, 3), apply))
       .rejects.toThrow('runner_event_sequence_conflict');
+    registry.dispose();
+  });
+
+  it('releases successful terminal ownership so a replacement only interrupts live Attempts', async () => {
+    const interrupts = vi.fn(async () => undefined);
+    const commands = new RunnerCommandQueue({ commandId: () => 'b18f4eb1-9078-7a1e-9514-b19b5732f5de' });
+    const registry = registryFor({ commands, interruptAttempt: interrupts });
+    const lease = registry.hello(hello());
+    await deliverAttempt(registry, commands, lease.leaseId);
+    const terminal: RunnerEventBatch = {
+      runnerInstanceId: instanceId,
+      leaseId: lease.leaseId,
+      eventSeq: 1,
+      events: [{ kind: 'attempt.terminal', attemptId, terminalReason: 'runtime_error' }],
+    };
+
+    await expect(registry.acceptEventBatch(terminal, async () => undefined))
+      .resolves.toEqual({ eventSeq: 1, accepted: true });
+    await expect(registry.acceptEventBatch(terminal, async () => undefined))
+      .resolves.toEqual({ eventSeq: 1, accepted: true });
+    registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+
+    expect(interrupts).not.toHaveBeenCalled();
     registry.dispose();
   });
 });
@@ -133,4 +212,25 @@ function eventBatch(leaseId: string, eventSeq: number): RunnerEventBatch {
     eventSeq,
     events: [{ kind: 'attempt.started', attemptId }],
   };
+}
+
+function launchSpec(): AttemptLaunchSpec {
+  return {
+    attemptId,
+    runtime: 'codex_cli',
+    model: 'gpt-5',
+    prompt: 'durable work',
+    workspacePolicy: 'empty_ephemeral_v1',
+    timeoutMs: 60_000,
+    mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
+    attemptToken: randomBytes(32).toString('base64url'),
+    mcpProtocolRevision: '2026-07-28',
+    cliContractIdentity: 'office-cli-contract-v2',
+  };
+}
+
+async function deliverAttempt(registry: RunnerLeaseRegistry, commands: RunnerCommandQueue, leaseId: string) {
+  commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+  const batch = await registry.poll({ runnerInstanceId: instanceId, leaseId });
+  return batch.commands[0] as import('@kiditem/shared/agent-runtime').RunnerStartCommand;
 }

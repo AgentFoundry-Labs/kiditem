@@ -18,6 +18,11 @@ import {
   LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT,
   type LiveAttemptFutureOutputCapabilityPort,
 } from '../../../../application/port/in/capability/live-attempt-future-output.capability.port';
+import {
+  AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
+  type AgentAttemptLaunchCapabilityPort,
+} from '../../../../application/port/in/capability/agent-attempt-launch.capability.port';
+import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
 import { AgentOsRuntimeError } from '../../../../domain/agent-os.errors';
 import { CopilotAgentRunner, CopilotSseRuntime, createCopilotRuntimeHandler } from './copilotkit-v2-runtime';
 
@@ -31,6 +36,8 @@ export class AgentWorkCopilotKitController {
     private readonly executor: LiveAttemptExecutionCapabilityPort,
     @Inject(LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT)
     private readonly live: LiveAttemptFutureOutputCapabilityPort,
+    @Inject(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)
+    private readonly launch: AgentAttemptLaunchCapabilityPort,
   ) {}
 
   @All(['', '*path'])
@@ -39,7 +46,7 @@ export class AgentWorkCopilotKitController {
     request.once('aborted', () => disconnected.abort());
     response.once('close', () => { if (!response.writableEnded) disconnected.abort(); });
     const runner = new FutureOnlyRunner(this.executor, this.live);
-    const agent = new DurableWorkAgent({ organizationId, userId: user.id }, this.queries, this.commands, this.executor, (coordinate) => runner.bind(coordinate));
+    const agent = new DurableWorkAgent({ organizationId, userId: user.id }, this.queries, this.commands, this.launch);
     const runtime = new CopilotSseRuntime({ agents: { operator: agent } as never, runner, forwardHeaders: { allow: ['cookie'], deny: ['authorization'], denyPrefixes: ['x-'] } });
     const handler = createCopilotRuntimeHandler({ runtime, basePath: '/api/copilotkit', activateChannels: false });
     let result: globalThis.Response;
@@ -50,8 +57,8 @@ export class AgentWorkCopilotKitController {
   }
 }
 
-class DurableWorkAgent extends AbstractAgent {
-  constructor(private readonly principal: { organizationId: string; userId: string }, private readonly queries: AgentWorkQueryPort, private readonly commands: AgentWorkCommandPort, private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly admitted: (input: { attemptId: string; threadId: string; runId: string }) => void) { super({ agentId: 'operator', description: 'KidItem Operator' }); this.run = this.run.bind(this); }
+export class DurableWorkAgent extends AbstractAgent {
+  constructor(private readonly principal: { organizationId: string; userId: string }, private readonly queries: AgentWorkQueryPort, private readonly commands: AgentWorkCommandPort, private readonly launch: AgentAttemptLaunchCapabilityPort) { super({ agentId: 'operator', description: 'KidItem Operator' }); this.run = this.run.bind(this); }
   override run(input: RunAgentInput): Observable<BaseEvent> {
     return defer(async () => {
       if (!isUuid(input.threadId)) throw new BadRequestException('copilotkit_thread_id_invalid');
@@ -60,31 +67,30 @@ class DurableWorkAgent extends AbstractAgent {
       const version = await this.queries.activeVersion('operator');
       if (!version) throw new BadRequestException('operator_agent_version_not_found');
       const runtime = requiredRuntimeConfig(version.agentDefinitionKey);
-      const admitted = await this.admitForThread(input.threadId, final.content.trim(), version, runtime);
-      this.admitted({ attemptId: admitted.attemptId, threadId: input.threadId, runId: input.runId });
-      await this.executor.start({ attemptId: admitted.attemptId, runtime: version.runtimeType as 'codex_cli' | 'claude_cli', profile: runtime, prompt: admitted.prompt, instructionProfileRef: version.instructionProfileRef, mcp: { attemptId: admitted.attemptId, sessionId: admitted.sessionId, taskId: admitted.taskId, agentVersionId: version.id, organizationId: this.principal.organizationId, userId: this.principal.userId, capabilityKeys: Array.isArray(version.capabilityKeys) ? version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [] } });
+      const runtimeType = supportedRuntime(version.runtimeType);
+      const admitted = await this.admitForThread(input.threadId, final.content.trim(), version, runtime, runtimeType);
+      await this.launch.start({ attemptId: admitted.attemptId, runtime: runtimeType, profile: runtime, prompt: admitted.prompt, instructionProfileRef: version.instructionProfileRef, sessionId: admitted.sessionId, taskId: admitted.taskId, agentVersionId: version.id, organizationId: this.principal.organizationId, userId: this.principal.userId, capabilityKeys: Array.isArray(version.capabilityKeys) ? version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [], output: { threadId: input.threadId, runId: input.runId } });
       return [{ type: EventType.RUN_STARTED, threadId: input.threadId, runId: input.runId }];
     }).pipe(switchMap((events) => from(events))) as Observable<BaseEvent>;
   }
-  private async admitForThread(threadId: string, prompt: string, version: { id: string }, runtime: { model: string }) {
+  private async admitForThread(threadId: string, prompt: string, version: { id: string }, runtime: { model: string }, runtimeType: 'codex_cli' | 'claude_cli') {
     try {
-      const root = await this.commands.root({ organizationId: this.principal.organizationId, createdByUserId: this.principal.userId, assignedAgentVersionId: version.id, objective: prompt, completionCriteria: 'Provide a concise durable result.', inputResourceRefs: [], input: { prompt }, sessionId: threadId, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION'), reportedModel: runtime.model });
+      const root = await this.commands.root({ organizationId: this.principal.organizationId, createdByUserId: this.principal.userId, assignedAgentVersionId: version.id, objective: prompt, completionCriteria: 'Provide a concise durable result.', inputResourceRefs: [], input: { prompt }, sessionId: threadId, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
       return { attemptId: root.attempt.id, sessionId: root.session.id, taskId: root.task.id, prompt };
     } catch (error) {
       if (!(error instanceof AgentOsRuntimeError) || error.code !== 'root_task_already_exists') throw error;
       const predecessor = await this.queries.threadContinuation({ sessionId: threadId, organizationId: this.principal.organizationId, userId: this.principal.userId });
       if (!predecessor?.terminal) throw error;
       const context = await this.queries.continuationContext({ organizationId: this.principal.organizationId, userId: this.principal.userId, sessionId: threadId, taskId: predecessor.taskId, prompt });
-      const followUp = await this.commands.followUp({ organizationId: this.principal.organizationId, sessionId: threadId, taskId: predecessor.taskId, requestedByUserId: this.principal.userId, predecessorAttemptId: predecessor.predecessorAttemptId, intent: 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION'), reportedModel: runtime.model });
+      const followUp = await this.commands.followUp({ organizationId: this.principal.organizationId, sessionId: threadId, taskId: predecessor.taskId, requestedByUserId: this.principal.userId, predecessorAttemptId: predecessor.predecessorAttemptId, intent: 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
       return { attemptId: followUp.attemptId, sessionId: followUp.sessionId, taskId: followUp.taskId, prompt: context.prompt };
     }
   }
-  override clone(): DurableWorkAgent { const clone = super.clone() as DurableWorkAgent; Object.assign(clone, { principal: this.principal, queries: this.queries, commands: this.commands, executor: this.executor, admitted: this.admitted }); clone.run = clone.run.bind(clone); return clone; }
+  override clone(): DurableWorkAgent { const clone = super.clone() as DurableWorkAgent; Object.assign(clone, { principal: this.principal, queries: this.queries, commands: this.commands, launch: this.launch }); clone.run = clone.run.bind(clone); return clone; }
 }
 
 class FutureOnlyRunner extends CopilotAgentRunner {
   constructor(private readonly executor: LiveAttemptExecutionCapabilityPort, private readonly live: LiveAttemptFutureOutputCapabilityPort) { super(); }
-  bind(input: { attemptId: string; threadId: string; runId: string }): void { this.live.bind(input); }
   run(request: { threadId: string; agent: { run(input: unknown): Observable<BaseEvent> }; input: unknown }): Observable<BaseEvent> {
     const runId = (request.input as { runId?: unknown }).runId;
     if (typeof runId !== 'string' || !runId) throw new BadRequestException('copilotkit_run_id_required');
@@ -108,6 +114,7 @@ class FutureOnlyRunner extends CopilotAgentRunner {
 
 function requiredEnvironment(name: string): string { const value = process.env[name]?.trim(); if (!value) throw new Error(`missing_required_configuration:${name}`); return value; }
 function isUuid(value: string): boolean { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value); }
-function requiredRuntimeConfig(definitionKey: string): { model: string; loginHome: string } { return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`), loginHome: requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME') }; }
+function requiredRuntimeConfig(definitionKey: string): { model: string } { return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`) }; }
+function supportedRuntime(value: string): 'codex_cli' | 'claude_cli' { if (value !== 'codex_cli' && value !== 'claude_cli') throw new Error('attempt_runtime_not_supported'); return value; }
 function toFetchRequest(request: ExpressRequest, signal: AbortSignal): globalThis.Request { const url = new URL(request.originalUrl, `${request.protocol}://${request.get('host')}`); const headers = new Headers(); for (const [name, value] of Object.entries(request.headers)) { if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry)); else if (value !== undefined) headers.set(name, value); } const init: RequestInit = { method: request.method, headers, signal }; if (request.method !== 'GET' && request.method !== 'HEAD') { const contentType = request.header('content-type') ?? ''; const declared = request.header('content-length') !== undefined || request.header('transfer-encoding') !== undefined || Object.keys(request.body ?? {}).length > 0; if (declared && !contentType.toLowerCase().includes('application/json')) throw new BadRequestException('copilotkit_json_body_required'); if (declared) { const body = JSON.stringify(request.body ?? {}); if (Buffer.byteLength(body, 'utf8') > 1_048_576) throw new BadRequestException('copilotkit_body_too_large'); init.body = body; } } return new globalThis.Request(url, init); }
 function copyHeaders(response: ExpressResponse, headers: Headers): void { headers.forEach((value, key) => response.setHeader(key, value)); if (headers.get('content-type')?.toLowerCase().includes('text/event-stream')) { response.setHeader('Cache-Control', 'no-cache, no-transform'); response.setHeader('Content-Encoding', 'identity'); response.setHeader('X-Accel-Buffering', 'no'); response.flushHeaders(); } }

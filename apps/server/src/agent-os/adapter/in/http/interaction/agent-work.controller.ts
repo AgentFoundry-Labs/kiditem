@@ -8,6 +8,11 @@ import {
   LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT,
   type LiveAttemptExecutionCapabilityPort,
 } from '../../../../application/port/in/capability/live-attempt-execution.capability.port';
+import {
+  AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,
+  type AgentAttemptLaunchCapabilityPort,
+} from '../../../../application/port/in/capability/agent-attempt-launch.capability.port';
+import { attemptRuntimeVersion } from '@kiditem/shared/agent-runtime';
 import { z } from 'zod';
 
 const StartInput = z.object({ objective: z.string().trim().min(1).max(8_000), completionCriteria: z.string().trim().min(1).max(4_000).optional(), input: z.unknown().optional() }).strict();
@@ -22,6 +27,8 @@ export class AgentWorkController {
     @Inject(AGENT_WORK_COMMAND_PORT) private readonly commands: AgentWorkCommandPort,
     @Inject(LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT)
     private readonly executor: LiveAttemptExecutionCapabilityPort,
+    @Inject(AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT)
+    private readonly launch: AgentAttemptLaunchCapabilityPort,
   ) {}
 
   @Get('sessions/:sessionId')
@@ -35,7 +42,8 @@ export class AgentWorkController {
     const version = await this.queries.activeVersion('operator');
     if (!version) throw new NotFoundException('operator_agent_version_not_found');
     const runtime = requiredRuntimeConfig('operator');
-    const admitted = await this.commands.root({ organizationId, createdByUserId: user.id, assignedAgentVersionId: version.id, objective: input.objective, completionCriteria: input.completionCriteria ?? 'Provide a concise durable result.', inputResourceRefs: [], input: input.input ?? { prompt: input.objective }, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION'), reportedModel: runtime.model });
+    const runtimeType = supportedRuntime(version.runtimeType);
+    const admitted = await this.commands.root({ organizationId, createdByUserId: user.id, assignedAgentVersionId: version.id, objective: input.objective, completionCriteria: input.completionCriteria ?? 'Provide a concise durable result.', inputResourceRefs: [], input: input.input ?? { prompt: input.objective }, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
     await this.startAttempt({ attemptId: admitted.attempt.id, sessionId: admitted.session.id, taskId: admitted.task.id, organizationId, userId: user.id, version, prompt: input.objective });
     return admitted;
   }
@@ -46,8 +54,9 @@ export class AgentWorkController {
     const version = await this.queries.taskVersion({ organizationId, userId: user.id, sessionId, taskId });
     if (!version) throw new NotFoundException('agent_version_not_found');
     const runtime = requiredRuntimeConfig(version.agentDefinitionKey);
+    const runtimeType = supportedRuntime(version.runtimeType);
     const context = await this.queries.continuationContext({ organizationId, userId: user.id, sessionId, taskId, prompt: input.prompt });
-    const admitted = await this.commands.followUp({ organizationId, sessionId, taskId, requestedByUserId: user.id, predecessorAttemptId: input.predecessorAttemptId, intent: input.reopen ? 'reopen' : 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: requiredEnvironment('KIDITEM_ATTEMPT_CLI_VERSION'), reportedModel: runtime.model });
+    const admitted = await this.commands.followUp({ organizationId, sessionId, taskId, requestedByUserId: user.id, predecessorAttemptId: input.predecessorAttemptId, intent: input.reopen ? 'reopen' : 'follow_up', input: context.input, applicationVersion: requiredEnvironment('KIDITEM_APPLICATION_VERSION'), authorizingGitSha: requiredEnvironment('KIDITEM_GIT_SHA'), cliVersion: attemptRuntimeVersion(runtimeType), reportedModel: runtime.model });
     await this.startAttempt({ attemptId: admitted.attemptId, sessionId, taskId, organizationId, userId: user.id, version, prompt: context.prompt });
     return admitted;
   }
@@ -56,8 +65,8 @@ export class AgentWorkController {
   async cancel(@Param('sessionId') sessionId: string, @Param('taskId') taskId: string, @CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser) {
     const live = await this.queries.liveAttempt({ organizationId, sessionId, taskId, userId: user.id });
     const transitioned = await this.commands.transition({ organizationId, sessionId, taskId, requestedByUserId: user.id, to: 'cancelled', at: new Date() });
-    // The durable transaction wins first.  Only an API-owned live CLI is
-    // interrupted; ready/executing worker mutations deliberately keep running.
+    // The durable transaction wins first. Only the current Host Runner-owned
+    // live Attempt is interrupted; ready/executing worker mutations keep running.
     if (live) {
       try { await this.executor.interrupt(live.id); } catch { /* terminal race after durable cancellation */ }
     }
@@ -84,8 +93,7 @@ export class AgentWorkController {
   }
 
   private async startAttempt(input: { attemptId: string; sessionId: string; taskId: string; organizationId: string; userId: string; version: { id: string; agentDefinitionKey: string; runtimeType: string; capabilityKeys: unknown; instructionProfileRef: string }; prompt: string }) {
-    if (input.version.runtimeType !== 'codex_cli' && input.version.runtimeType !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
-    await this.executor.start({ attemptId: input.attemptId, runtime: input.version.runtimeType, profile: requiredRuntimeConfig(input.version.agentDefinitionKey), prompt: input.prompt, instructionProfileRef: input.version.instructionProfileRef, mcp: { attemptId: input.attemptId, sessionId: input.sessionId, taskId: input.taskId, agentVersionId: input.version.id, organizationId: input.organizationId, userId: input.userId, capabilityKeys: Array.isArray(input.version.capabilityKeys) ? input.version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [] } });
+    await this.launch.start({ attemptId: input.attemptId, runtime: supportedRuntime(input.version.runtimeType), profile: requiredRuntimeConfig(input.version.agentDefinitionKey), prompt: input.prompt, instructionProfileRef: input.version.instructionProfileRef, sessionId: input.sessionId, taskId: input.taskId, agentVersionId: input.version.id, organizationId: input.organizationId, userId: input.userId, capabilityKeys: Array.isArray(input.version.capabilityKeys) ? input.version.capabilityKeys.filter((key): key is string => typeof key === 'string') : [] });
   }
 }
 
@@ -95,6 +103,11 @@ function requiredEnvironment(name: string): string {
   return value;
 }
 
-function requiredRuntimeConfig(definitionKey: string): { model: string; loginHome: string } {
-  return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`), loginHome: requiredEnvironment('KIDITEM_ATTEMPT_LOGIN_HOME') };
+function requiredRuntimeConfig(definitionKey: string): { model: string } {
+  return { model: requiredEnvironment(`AGENT_${definitionKey.toUpperCase()}_MODEL`) };
+}
+
+function supportedRuntime(value: string): 'codex_cli' | 'claude_cli' {
+  if (value !== 'codex_cli' && value !== 'claude_cli') throw new Error('attempt_runtime_not_supported');
+  return value;
 }

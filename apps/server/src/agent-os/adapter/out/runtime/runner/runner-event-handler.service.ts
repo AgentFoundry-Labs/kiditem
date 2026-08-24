@@ -13,6 +13,17 @@ type FutureOutput = {
   finish(input: { attemptId: string; outcome: 'completed' | 'failed'; summary?: string }): void;
 };
 
+type TerminalStages = {
+  attemptTerminalized: boolean;
+  taskFinalized: boolean;
+  tokenRevoked: boolean;
+  outputFinished: boolean;
+  commandTerminalized: boolean;
+  capacityReleased: boolean;
+};
+
+const MAX_TERMINAL_TRACKING = 1_024;
+
 export interface RunnerEventHandlerServiceOptions {
   leases: RunnerLeaseRegistry;
   commands: RunnerCommandQueue;
@@ -28,7 +39,9 @@ export interface RunnerEventHandlerServiceOptions {
  * Attempt lifecycle changes. The Runner itself owns provider processes.
  */
 export class RunnerEventHandlerService {
-  private readonly terminalized = new Set<string>();
+  private readonly terminalCompleted = new Set<string>();
+  private readonly terminalInFlight = new Map<string, Promise<void>>();
+  private readonly terminalStages = new Map<string, TerminalStages>();
   private readonly now: () => Date;
 
   constructor(private readonly options: RunnerEventHandlerServiceOptions) {
@@ -40,8 +53,11 @@ export class RunnerEventHandlerService {
   }
 
   handle(batch: RunnerEventBatch): Promise<{ eventSeq: number; accepted: true }> {
-    return this.options.leases.acceptEventBatch(batch, async () => {
-      for (const event of batch.events) await this.apply(event);
+    return this.options.leases.acceptEventBatch(batch, async (assertActive) => {
+      for (const event of batch.events) {
+        assertActive();
+        await this.apply(event, assertActive);
+      }
     });
   }
 
@@ -50,12 +66,14 @@ export class RunnerEventHandlerService {
     return this.terminalize(attemptId, 'interrupted');
   }
 
-  private async apply(event: RunnerEventBatch['events'][number]): Promise<void> {
+  private async apply(event: RunnerEventBatch['events'][number], assertActive: () => void): Promise<void> {
     switch (event.kind) {
       case 'command_ack':
+        assertActive();
         this.options.commands.acknowledge(event);
         return;
       case 'attempt.started':
+        assertActive();
         await this.options.work.transitionAttempt({
           attemptId: event.attemptId,
           from: 'starting',
@@ -64,13 +82,14 @@ export class RunnerEventHandlerService {
         });
         return;
       case 'attempt.output':
+        assertActive();
         this.options.output.publish({ attemptId: event.attemptId, output: event.output });
         return;
       case 'attempt.terminal':
-        await this.terminalize(event.attemptId, event.terminalReason, event.result);
+        await this.terminalize(event.attemptId, event.terminalReason, event.result, assertActive);
         return;
       case 'attempt.rejected':
-        await this.terminalize(event.attemptId, 'runtime_error');
+        await this.terminalize(event.attemptId, 'runtime_error', undefined, assertActive);
         return;
     }
   }
@@ -79,12 +98,34 @@ export class RunnerEventHandlerService {
     attemptId: string,
     reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
     result?: AgentResultEnvelope,
+    assertActive?: () => void,
   ): Promise<void> {
-    if (this.terminalized.has(attemptId)) return;
-    this.terminalized.add(attemptId);
-    if (this.terminalized.size > 1_024) this.terminalized.delete(this.terminalized.values().next().value as string);
-    this.options.tokens.revokeAttempt(attemptId);
-    this.options.commands.markTerminal(attemptId);
+    if (this.terminalCompleted.has(attemptId)) return;
+    const inFlight = this.terminalInFlight.get(attemptId);
+    if (inFlight) return inFlight;
+    const terminalization = this.completeTerminal(attemptId, reason, result, assertActive);
+    this.terminalInFlight.set(attemptId, terminalization);
+    try {
+      await terminalization;
+      this.terminalCompleted.add(attemptId);
+      this.terminalStages.delete(attemptId);
+      if (this.terminalCompleted.size > MAX_TERMINAL_TRACKING) {
+        this.terminalCompleted.delete(this.terminalCompleted.values().next().value as string);
+      }
+    } finally {
+      if (this.terminalInFlight.get(attemptId) === terminalization) {
+        this.terminalInFlight.delete(attemptId);
+      }
+    }
+  }
+
+  private async completeTerminal(
+    attemptId: string,
+    reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
+    result: AgentResultEnvelope | undefined,
+    assertActive: (() => void) | undefined,
+  ): Promise<void> {
+    const stages = this.stagesFor(attemptId);
     const terminal = terminalOutcome(reason, result);
     const input: Omit<AttemptLifecycleTransitionInput, 'from'> = {
       attemptId,
@@ -93,18 +134,61 @@ export class RunnerEventHandlerService {
       ...(terminal.error ? { error: terminal.error } : {}),
       ...(terminal.result ? { result: terminal.result } : {}),
     };
-    try {
+    if (!stages.attemptTerminalized) {
+      assertActive?.();
       const running = await this.options.work.transitionAttempt({ ...input, from: 'running' });
+      assertActive?.();
       if (!running.transitioned) await this.options.work.transitionAttempt({ ...input, from: 'starting' });
+      stages.attemptTerminalized = true;
+    }
+    if (!stages.taskFinalized) {
+      assertActive?.();
       await this.options.work.finalizeTaskFromAttempt({ attemptId, at: this.now() });
+      stages.taskFinalized = true;
+    }
+    if (!stages.tokenRevoked) {
+      assertActive?.();
+      this.options.tokens.revokeAttempt(attemptId);
+      stages.tokenRevoked = true;
+    }
+    if (!stages.outputFinished) {
+      assertActive?.();
       this.options.output.finish({
         attemptId,
         outcome: terminal.status === 'succeeded' ? 'completed' : 'failed',
         ...(terminal.result?.summary ? { summary: terminal.result.summary } : {}),
       });
-    } finally {
-      this.options.capacity.releaseAttempt(attemptId);
+      stages.outputFinished = true;
     }
+    if (!stages.commandTerminalized) {
+      assertActive?.();
+      this.options.commands.markTerminal(attemptId);
+      stages.commandTerminalized = true;
+    }
+    if (!stages.capacityReleased) {
+      // markTerminal removes the command used by the batch ownership fence. Both
+      // remaining steps are synchronous, so no lease replacement can interleave.
+      this.options.capacity.releaseAttempt(attemptId);
+      stages.capacityReleased = true;
+    }
+  }
+
+  private stagesFor(attemptId: string): TerminalStages {
+    const existing = this.terminalStages.get(attemptId);
+    if (existing) return existing;
+    if (this.terminalStages.size >= MAX_TERMINAL_TRACKING) {
+      throw new Error('runner_terminal_backpressure');
+    }
+    const stages: TerminalStages = {
+      attemptTerminalized: false,
+      taskFinalized: false,
+      tokenRevoked: false,
+      outputFinished: false,
+      commandTerminalized: false,
+      capacityReleased: false,
+    };
+    this.terminalStages.set(attemptId, stages);
+    return stages;
   }
 }
 

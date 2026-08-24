@@ -69,7 +69,9 @@ function bearer(request: Pick<Request, 'headers'>): string | null {
 
 function controlError(error: unknown): Error {
   const code = error instanceof Error ? error.message : '';
-  if (code.includes('conflict')) return new ConflictException('runner_control_conflict');
+  if (code.includes('conflict') || /^runner_event_(?:attempt|command)_unassigned$/.test(code)) {
+    return new ConflictException('runner_control_conflict');
+  }
   if (code.includes('lease') || code.includes('auth')) return new UnauthorizedException('runner_control_invalid');
   return error instanceof Error ? error : new Error('runner_control_invalid');
 }
