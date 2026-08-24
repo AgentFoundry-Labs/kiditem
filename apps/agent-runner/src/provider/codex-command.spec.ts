@@ -62,7 +62,7 @@ describe('buildCodexCommand', () => {
     }
   }, 15_000);
 });
-function launch() { return { attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'codex_cli' as const, model: 'gpt-5.6', prompt, timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1' as const, mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: token, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const }; }
+function launch() { return { attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'codex_cli' as const, model: 'gpt-5.6', prompt, timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1' as const, mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: token, mcpToolScope: 'business' as const, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const }; }
 
 class JsonRpcFixture {
   private buffer = '';

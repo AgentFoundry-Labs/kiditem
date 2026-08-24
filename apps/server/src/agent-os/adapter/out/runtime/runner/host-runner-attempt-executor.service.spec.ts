@@ -47,6 +47,7 @@ describe('HostRunnerAttemptExecutorService', () => {
         prompt: 'resolved durable prompt',
         workspacePolicy: 'empty_ephemeral_v1',
         mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
+        mcpToolScope: 'business',
         mcpProtocolRevision: '2026-07-28',
         cliContractIdentity: 'office-cli-contract-v2',
       },

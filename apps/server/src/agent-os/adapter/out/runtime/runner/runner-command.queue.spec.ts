@@ -49,6 +49,17 @@ describe('RunnerCommandQueue', () => {
       .toThrow('attempt_terminal');
   });
 
+  it('binds the MCP tool scope into the start hash so a business Attempt cannot become a canary', () => {
+    const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
+    const launch = launchSpec();
+    queue.enqueueStart({ launch, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+
+    expect(() => queue.enqueueStart({
+      launch: { ...launch, mcpToolScope: 'readiness_canary' },
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    })).toThrow('runner_start_command_conflict');
+  });
+
   it('keeps input and interrupt commands idempotent without coalescing different inputs', () => {
     const queue = new RunnerCommandQueue({ commandId: fixedCommandIds() });
     const firstInput = queue.enqueueInput({ attemptId, input: 'continue', deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
@@ -144,6 +155,7 @@ function launchSpec(id = attemptId): AttemptLaunchSpec {
     timeoutMs: 60_000,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${id}/mcp`,
     attemptToken: randomBytes(32).toString('base64url'),
+    mcpToolScope: 'business',
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };

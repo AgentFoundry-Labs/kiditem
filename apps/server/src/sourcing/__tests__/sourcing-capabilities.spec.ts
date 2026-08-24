@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { zodToJsonSchema } from 'zod-to-json-schema';
 import { SOURCING_CAPABILITIES } from '../domain/capability/sourcing.capabilities';
 
 describe('sourcing final capability definitions', () => {
@@ -61,6 +62,33 @@ describe('sourcing final capability definitions', () => {
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://1688.com.evil.test/offer/123.html' }).success).toBe(false);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'http://detail.1688.com/offer/123.html' }).success).toBe(false);
       expect(definition.inputSchema.safeParse({ sourceUrl: 'https://user:pass@detail.1688.com/offer/123.html' }).success).toBe(false);
+      expect(definition.inputSchema.safeParse({ sourceUrl: 'https://detail.1688.com:8443/offer/123.html' }).success).toBe(false);
+    }
+  });
+
+  it('projects the supplier HTTPS host boundary into the actual catalog JSON Schema', () => {
+    const definition = SOURCING_CAPABILITIES.find((item) => item.key === 'sourcing.scrapeUrlWorkflow')!;
+    const schema = zodToJsonSchema(definition.inputSchema as never) as {
+      properties?: Record<string, { type?: unknown; format?: unknown; maxLength?: unknown; pattern?: unknown }>;
+    };
+    const sourceUrl = schema.properties?.sourceUrl;
+
+    expect(sourceUrl).toMatchObject({
+      type: 'string',
+      format: 'uri',
+      maxLength: 2_000,
+      pattern: expect.any(String),
+    });
+    const pattern = new RegExp(sourceUrl?.pattern as string);
+    expect(pattern.test('https://detail.1688.com/offer/123.html')).toBe(true);
+    expect(pattern.test('https://www.alibaba.com/product-detail/toy_123.html')).toBe(true);
+    for (const untrusted of [
+      'https://detail.1688.com.evil.test/offer/123.html',
+      'https://user:pass@detail.1688.com/offer/123.html',
+      'https://detail.1688.com:8443/offer/123.html',
+      'http://detail.1688.com/offer/123.html',
+    ]) {
+      expect(pattern.test(untrusted)).toBe(false);
     }
   });
 });

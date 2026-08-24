@@ -5,12 +5,14 @@ import { AttemptTokenRegistry } from './attempt-token.registry';
 import { RunnerCommandQueue } from './runner-command.queue';
 import { RunnerEventHandlerService } from './runner-event-handler.service';
 import { RunnerLeaseRegistry } from './runner-lease.registry';
+import { AgentAttemptReconciler } from '../../../../application/service/work/agent-attempt-reconciler.service';
 
 const instanceId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
+const queuedAttemptId = '218f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('RunnerEventHandlerService', () => {
-  it('delegates lease-loss recovery once to the durable reconciler instead of locally terminalizing each Attempt', async () => {
+  it('completes assigned and durable-queued lease-loss cleanup exactly once', async () => {
     let lossHandlers: { reconcileLeaseLoss?: (input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void> } | undefined;
     const leases = {
       setLossHandlers: vi.fn((input: typeof lossHandlers) => { lossHandlers = input; }),
@@ -20,22 +22,84 @@ describe('RunnerEventHandlerService', () => {
       transitionAttempt: vi.fn(async () => ({ transitioned: true })),
       finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
     };
-    const reconciler = { reconcile: vi.fn(async () => ({ reconciled: 1, attemptIds: [attemptId] })) };
+    const capacity = { releaseAttempt: vi.fn() };
+    const reconciliationWork = { reconcile: vi.fn(async () => ({ reconciled: 2, attemptIds: [attemptId, queuedAttemptId] })) };
+    const reconciler = new AgentAttemptReconciler(
+      reconciliationWork,
+      capacity,
+      { applicationVersion: '1.0.0', gitSha: 'abc123' },
+    );
+    const commands = new RunnerCommandQueue();
+    const markTerminal = vi.spyOn(commands, 'markTerminal');
+    const output = { publish: vi.fn(), finish: vi.fn() };
     new RunnerEventHandlerService({
       leases: leases as never,
-      commands: new RunnerCommandQueue(),
+      commands,
       tokens: new AttemptTokenRegistry(),
       work,
-      capacity: { releaseAttempt: vi.fn() },
-      output: { publish: vi.fn(), finish: vi.fn() },
-      reconciler: reconciler as never,
+      capacity,
+      output,
+      reconciler,
     });
 
     await expect(lossHandlers?.reconcileLeaseLoss?.({ leaseId: 'lease', attemptIds: [attemptId] }))
       .resolves.toBeUndefined();
 
-    expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
-    expect(work.transitionAttempt).not.toHaveBeenCalled();
+    expect(reconciliationWork.reconcile).toHaveBeenCalledTimes(1);
+    expect(work.transitionAttempt).toHaveBeenCalledTimes(2);
+    expect(work.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId, to: 'process_interrupted' }));
+    expect(work.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: queuedAttemptId, to: 'process_interrupted' }));
+    expect(work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(2);
+    expect(output.finish).toHaveBeenCalledWith({ attemptId, outcome: 'failed' });
+    expect(output.finish).toHaveBeenCalledWith({ attemptId: queuedAttemptId, outcome: 'failed' });
+    expect(markTerminal).toHaveBeenCalledTimes(2);
+    expect(capacity.releaseAttempt).toHaveBeenCalledTimes(2);
+    expect(capacity.releaseAttempt).toHaveBeenCalledWith(attemptId);
+    expect(capacity.releaseAttempt).toHaveBeenCalledWith(queuedAttemptId);
+  });
+
+  it('terminalizes a durable queued Attempt when lease loss had no delivered Attempt', async () => {
+    let lossHandlers: { reconcileLeaseLoss?: (input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void> } | undefined;
+    const leases = {
+      setLossHandlers: vi.fn((input: typeof lossHandlers) => { lossHandlers = input; }),
+      acceptEventBatch: vi.fn(),
+    };
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const capacity = { releaseAttempt: vi.fn() };
+    const reconciliationWork = { reconcile: vi.fn(async () => ({ reconciled: 1, attemptIds: [queuedAttemptId] })) };
+    const reconciler = new AgentAttemptReconciler(
+      reconciliationWork,
+      capacity,
+      { applicationVersion: '1.0.0', gitSha: 'abc123' },
+    );
+    const commands = new RunnerCommandQueue();
+    const markTerminal = vi.spyOn(commands, 'markTerminal');
+    const output = { publish: vi.fn(), finish: vi.fn() };
+    new RunnerEventHandlerService({
+      leases: leases as never,
+      commands,
+      tokens: new AttemptTokenRegistry(),
+      work,
+      capacity,
+      output,
+      reconciler,
+    });
+
+    await expect(lossHandlers?.reconcileLeaseLoss?.({ leaseId: 'lease', attemptIds: [] }))
+      .resolves.toBeUndefined();
+
+    expect(reconciliationWork.reconcile).toHaveBeenCalledTimes(1);
+    expect(work.transitionAttempt).toHaveBeenCalledWith(expect.objectContaining({
+      attemptId: queuedAttemptId,
+      to: 'process_interrupted',
+    }));
+    expect(work.finalizeTaskFromAttempt).toHaveBeenCalledWith(expect.objectContaining({ attemptId: queuedAttemptId }));
+    expect(output.finish).toHaveBeenCalledWith({ attemptId: queuedAttemptId, outcome: 'failed' });
+    expect(markTerminal).toHaveBeenCalledWith(queuedAttemptId);
+    expect(capacity.releaseAttempt).toHaveBeenCalledTimes(1);
   });
 
   it('consumes a synthetic readiness event before durable business Attempt handling', async () => {
@@ -356,6 +420,68 @@ describe('RunnerEventHandlerService', () => {
     });
     expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
   });
+
+  it('resumes retained terminal stages once when production reconciliation races a replaced lease', async () => {
+    const fixture = await handlerFixture();
+    fixture.tokens.revokeAttempt = vi.fn() as never;
+    const reconciliationWork = { reconcile: vi.fn(async () => ({ reconciled: 0, attemptIds: [] as string[] })) };
+    const productionReconciler = new AgentAttemptReconciler(
+      reconciliationWork,
+      fixture.capacity,
+      { applicationVersion: '1.0.0', gitSha: 'abc123' },
+    );
+    const handler = new RunnerEventHandlerService({
+      leases: fixture.leases,
+      commands: fixture.commands,
+      tokens: fixture.tokens,
+      work: fixture.work,
+      capacity: fixture.capacity,
+      output: fixture.output,
+      reconciler: productionReconciler,
+    });
+    const markTerminal = vi.spyOn(fixture.commands, 'markTerminal');
+    let releaseFinalize!: () => void;
+    const finalizeStarted = new Promise<void>((resolve) => {
+      fixture.work.finalizeTaskFromAttempt.mockImplementation(async () => {
+        resolve();
+        await new Promise<void>((release) => { releaseFinalize = release; });
+        return { finalized: true, status: 'completed' };
+      });
+    });
+    const terminal = batch(fixture.leaseId, 1, [{
+      kind: 'attempt.terminal', attemptId, terminalReason: 'success',
+      result: { outcome: 'completed', summary: 'production race', resourceRefs: [], operationRefs: [] },
+    }]);
+
+    const pending = handler.handle(terminal);
+    await finalizeStarted;
+    fixture.leases.hello({
+      kind: 'hello', runnerInstanceId: '218f4eb1-9078-7a1e-9514-b19b5732f5de', platform: 'macos', nodeMajor: 22,
+      controlRevision: 'kiditem-runner-control-v1', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+      runtimes: {
+        codex_cli: { version: '0.149.1', loginVerified: true, nonPersistentSettingsVerified: true },
+        claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
+      },
+    });
+    await settleAsync();
+    releaseFinalize();
+
+    await expect(pending).rejects.toThrow('runner_lease_invalid');
+    await settleAsync();
+    await settleAsync();
+
+    expect(reconciliationWork.reconcile).toHaveBeenCalledTimes(1);
+    expect(fixture.work.transitionAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.work.finalizeTaskFromAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.tokens.revokeAttempt).toHaveBeenCalledTimes(1);
+    expect(fixture.output.finish).toHaveBeenCalledWith({
+      attemptId,
+      outcome: 'completed',
+      summary: 'production race',
+    });
+    expect(markTerminal).toHaveBeenCalledTimes(1);
+    expect(fixture.capacity.releaseAttempt).toHaveBeenCalledTimes(1);
+  });
 });
 
 async function handlerFixture() {
@@ -373,6 +499,7 @@ async function handlerFixture() {
       claude_cli: { version: '2.1.241', loginVerified: true, nonPersistentSettingsVerified: true },
     },
   }).leaseId;
+  leases.markReady({ runnerInstanceId: instanceId, leaseId });
   queue.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
   const delivered = await leases.poll({ runnerInstanceId: instanceId, leaseId });
   const tokens = new AttemptTokenRegistry();
@@ -402,6 +529,7 @@ function launchSpec(): AttemptLaunchSpec {
     timeoutMs: 60_000,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
     attemptToken: randomBytes(32).toString('base64url'),
+    mcpToolScope: 'business',
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };

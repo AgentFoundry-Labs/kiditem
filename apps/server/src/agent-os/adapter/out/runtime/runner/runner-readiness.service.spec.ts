@@ -209,6 +209,7 @@ describe('RunnerReadinessService', () => {
         model: 'gpt-5',
         workspacePolicy: 'empty_ephemeral_v1',
         mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${canaryId}/mcp`,
+        mcpToolScope: 'readiness_canary',
         mcpProtocolRevision: '2026-07-28',
         cliContractIdentity: 'office-cli-contract-v2',
       },

@@ -128,6 +128,7 @@ export class RunnerReadinessService {
         timeoutMs: READINESS_CANARY_TIMEOUT_MS,
         mcpUrl: new URL(`/internal/agent-runtime/attempts/${canaryId}/mcp`, origin).toString(),
         attemptToken: raw,
+        mcpToolScope: 'readiness_canary',
         mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
         cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity,
       });

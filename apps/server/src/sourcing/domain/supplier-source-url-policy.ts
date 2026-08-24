@@ -6,6 +6,18 @@ const SUPPLIER_HOSTS: ReadonlyArray<{
   { suffix: 'alibaba.com', platform: 'alibaba' },
 ];
 
+/** Shared by business Zod inputs and their Agent-facing JSON Schema catalog. */
+export const SUPPLIER_URL_MAX_LENGTH = 2_000;
+
+// JSON Schema patterns have no portable case-insensitive flag. Build the
+// host expression from the final parser's suffix allowlist so the catalog
+// advertises the same bounded HTTPS boundary without becoming the authority.
+const SUPPLIER_ALLOWED_HOST_PATTERN = `(?:[A-Za-z0-9-]+\\.)*(?:${SUPPLIER_HOSTS
+  .map(({ suffix }) => suffix.split('.').map(asciiCaseInsensitive).join('\\.'))
+  .join('|')})\\.?`;
+export const SUPPLIER_URL_CATALOG_PATTERN = `^https:\\/\\/${SUPPLIER_ALLOWED_HOST_PATTERN}(?::443)?(?:[/?#]|$)`;
+export const SUPPLIER_URL_CATALOG_REGEXP = new RegExp(SUPPLIER_URL_CATALOG_PATTERN);
+
 export interface AllowedSupplierUrl {
   normalizedUrl: string;
   hostname: string;
@@ -81,4 +93,8 @@ export function extractSupplierOfferId(input: AllowedSupplierUrl): string | null
   if (input.platform !== '1688') return null;
   const match = new URL(input.normalizedUrl).pathname.match(/^\/offer\/(\d+)(?:\.html)?\/?$/);
   return match?.[1] ?? null;
+}
+
+function asciiCaseInsensitive(value: string): string {
+  return value.replace(/[a-z]/g, (character) => `[${character}${character.toUpperCase()}]`);
 }

@@ -59,6 +59,7 @@ function validLaunch() {
     timeoutMs: 30_000,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
     attemptToken: ATTEMPT_TOKEN,
+    mcpToolScope: 'business',
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };
@@ -244,6 +245,14 @@ describe('native Runner control protocol', () => {
         ],
       }).success,
     ).toBe(true);
+  });
+
+  it('requires an explicit business or readiness-only MCP tool scope on every launch', () => {
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'business' }).success).toBe(true);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'readiness_canary' }).success).toBe(true);
+    expect(AttemptLaunchSpecSchema.safeParse({ ...validLaunch(), mcpToolScope: 'all_tools' }).success).toBe(false);
+    const { mcpToolScope: _scope, ...withoutScope } = validLaunch();
+    expect(AttemptLaunchSpecSchema.safeParse(withoutScope).success).toBe(false);
   });
 
   it.each([

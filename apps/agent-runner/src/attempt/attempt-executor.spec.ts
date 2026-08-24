@@ -3,7 +3,7 @@ import { AttemptExecutor } from './attempt-executor';
 import { AttemptProcessRegistry } from './attempt-process.registry';
 import type { ProcessCallbacks, SupervisedProcess } from '../platform/process-supervisor';
 
-const launch = { attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli' as const, model: 'claude-sonnet', prompt: 'prompt must not leak', timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1' as const, mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: 'A'.repeat(43), mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const };
+const launch = { attemptId: '33333333-3333-4333-8333-333333333333', runtime: 'claude_cli' as const, model: 'claude-sonnet', prompt: 'prompt must not leak', timeoutMs: 10_000, workspacePolicy: 'empty_ephemeral_v1' as const, mcpUrl: 'http://127.0.0.1:4000/internal/agent-runtime/attempts/33333333-3333-4333-8333-333333333333/mcp', attemptToken: 'A'.repeat(43), mcpToolScope: 'business' as const, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const };
 
 describe('AttemptExecutor', () => {
   it('runs a provider only through its workspace/supervisor and emits bounded safe terminal events', async () => {

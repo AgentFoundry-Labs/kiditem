@@ -226,7 +226,7 @@ export class RunnerLeaseRegistry {
     if (this.pending?.leaseId === lease.leaseId) this.settlePending({ commands: [] });
     this.revokeLease(lease.leaseId);
     const attemptIds = [...lease.attempts];
-    if (attemptIds.length && this.reconcileLeaseLoss) {
+    if (this.reconcileLeaseLoss) {
       void this.reconcileLeaseLoss({ leaseId: lease.leaseId, attemptIds }).catch(() => undefined);
       return;
     }
@@ -248,7 +248,10 @@ export class RunnerLeaseRegistry {
   }
 
   private takeForLease(lease: ActiveLease): RunnerCommandBatch {
-    const batch = this.commands.takeForLease(this.deliveryLeaseKey(lease));
+    const batch = this.commands.takeForLease(
+      this.deliveryLeaseKey(lease),
+      lease.status === 'probing' ? 'readiness_canary' : undefined,
+    );
     for (const command of batch.commands) {
       if (command.kind === 'attempt.start') lease.attempts.add(command.attemptId);
     }

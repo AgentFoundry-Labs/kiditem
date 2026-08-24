@@ -1,12 +1,21 @@
 import { z } from 'zod';
 import type { CapabilityDefinition } from '../../../common/capability-definition';
-import { parseAllowedSupplierUrl } from '../supplier-source-url-policy';
+import {
+  parseAllowedSupplierUrl,
+  SUPPLIER_URL_CATALOG_REGEXP,
+  SUPPLIER_URL_MAX_LENGTH,
+} from '../supplier-source-url-policy';
 
 const Uuid = z.string().uuid();
 const Identifier = z.string().trim().min(1).max(200);
 const OperationStatus = z.enum(['queued', 'waiting_runtime', 'waiting_dependency', 'running', 'attention_required', 'succeeded', 'failed', 'cancelled', 'skipped']);
 const OperationOutput = z.object({ operationRunId: Uuid, status: OperationStatus }).strict();
-const SupplierUrl = z.string().trim().transform((value, context) => {
+const SupplierUrl = z.string()
+  .trim()
+  .max(SUPPLIER_URL_MAX_LENGTH)
+  .url()
+  .regex(SUPPLIER_URL_CATALOG_REGEXP)
+  .transform((value, context) => {
   try {
     return parseAllowedSupplierUrl(value).normalizedUrl;
   } catch {

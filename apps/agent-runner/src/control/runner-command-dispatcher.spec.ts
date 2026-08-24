@@ -78,7 +78,7 @@ function startCommand(overrides: Partial<Pick<RunnerStartCommand, 'attemptId' | 
     launch: {
       attemptId: selectedAttemptId, runtime: 'codex_cli', model: 'gpt-5.6', prompt: 'do not put this in an argument', timeoutMs: 10_000,
       workspacePolicy: 'empty_ephemeral_v1', mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${selectedAttemptId}/mcp`, attemptToken: 'A'.repeat(43),
-      mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
+      mcpToolScope: 'business', mcpProtocolRevision: '2026-07-28', cliContractIdentity: 'office-cli-contract-v2',
     },
   };
 }

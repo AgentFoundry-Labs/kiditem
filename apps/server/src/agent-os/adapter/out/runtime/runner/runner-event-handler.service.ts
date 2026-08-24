@@ -3,6 +3,7 @@ import type { AgentResultEnvelope } from '@kiditem/shared/agent-interaction';
 import type {
   AgentWorkTransactionPort,
   AttemptLifecycleTransitionInput,
+  ReconciliationResult,
 } from '../../../../application/port/out/work/agent-work-transaction.port';
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { RunnerCommandQueue } from './runner-command.queue';
@@ -46,7 +47,7 @@ export interface RunnerEventHandlerServiceOptions {
   capacity: { releaseAttempt(attemptId: string): void };
   output: FutureOutput;
   readiness?: Pick<RunnerReadinessService, 'handleRunnerEvent'>;
-  reconciler?: { reconcile(): Promise<unknown> };
+  reconciler?: { reconcile(): Promise<ReconciliationResult> };
   now?: () => Date;
 }
 
@@ -85,7 +86,12 @@ export class RunnerEventHandlerService {
 
   private async reconcileLeaseLoss(input: { leaseId: string; attemptIds: readonly string[] }): Promise<void> {
     if (this.options.reconciler) {
-      await this.options.reconciler.reconcile();
+      const reconciliation = await this.options.reconciler.reconcile();
+      const capacityReleased = new Set(reconciliation.attemptIds);
+      const attemptIds = new Set([...input.attemptIds, ...reconciliation.attemptIds]);
+      await Promise.all([...attemptIds].map((attemptId) =>
+        this.terminalize(attemptId, 'interrupted', undefined, undefined, capacityReleased.has(attemptId)),
+      ));
       return;
     }
     await Promise.all(input.attemptIds.map((attemptId) => this.interruptAttempt(attemptId)));
@@ -138,8 +144,11 @@ export class RunnerEventHandlerService {
     reason: 'success' | 'protocol_success' | 'nonzero_exit' | 'runtime_error' | 'timeout' | 'interrupted',
     result?: AgentResultEnvelope,
     assertActive?: () => void,
+    capacityAlreadyReleased = false,
   ): Promise<void> {
     if (this.terminalCompleted.has(attemptId)) return Promise.resolve();
+    const existingStages = this.terminalStages.get(attemptId);
+    if (capacityAlreadyReleased && existingStages) existingStages.capacityReleased = true;
     const inFlight = this.terminalInFlight.get(attemptId);
     if (inFlight) {
       // Lease invalidation is deliberately not fenced: it must resume a
@@ -147,7 +156,7 @@ export class RunnerEventHandlerService {
       // is awaiting completion.
       return assertActive ? inFlight : this.resumeAfterLeaseLoss(attemptId, inFlight);
     }
-    const stages = this.stagesFor(attemptId, freezeTerminalOutcome(reason, result));
+    const stages = this.stagesFor(attemptId, freezeTerminalOutcome(reason, result), capacityAlreadyReleased);
     let terminalization!: Promise<void>;
     terminalization = Promise.resolve().then(async () => {
       try {
@@ -246,9 +255,16 @@ export class RunnerEventHandlerService {
     }
   }
 
-  private stagesFor(attemptId: string, terminal: Readonly<TerminalOutcome>): TerminalStages {
+  private stagesFor(
+    attemptId: string,
+    terminal: Readonly<TerminalOutcome>,
+    capacityAlreadyReleased = false,
+  ): TerminalStages {
     const existing = this.terminalStages.get(attemptId);
-    if (existing) return existing;
+    if (existing) {
+      if (capacityAlreadyReleased) existing.capacityReleased = true;
+      return existing;
+    }
     if (this.terminalStages.size >= MAX_TERMINAL_TRACKING) {
       throw new Error('runner_terminal_backpressure');
     }
@@ -259,7 +275,7 @@ export class RunnerEventHandlerService {
       tokenRevoked: false,
       outputFinished: false,
       commandTerminalized: false,
-      capacityReleased: false,
+      capacityReleased: capacityAlreadyReleased,
     };
     this.terminalStages.set(attemptId, stages);
     return stages;

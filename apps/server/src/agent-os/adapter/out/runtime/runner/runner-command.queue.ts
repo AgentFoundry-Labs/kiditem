@@ -23,6 +23,7 @@ type StartState = {
   commandId: string;
   commandHash: string;
   deadlineAt: string;
+  mcpToolScope: AttemptLaunchSpec['mcpToolScope'];
 };
 
 type AcknowledgementTombstone = {
@@ -99,6 +100,7 @@ export class RunnerCommandQueue {
       commandId: command.commandId,
       commandHash: command.commandHash,
       deadlineAt: command.deadlineAt,
+      mcpToolScope: command.launch.mcpToolScope,
     });
     return command;
   }
@@ -142,11 +144,12 @@ export class RunnerCommandQueue {
    * replacement Runner can receive newly queued work, never an unacknowledged
    * command already exposed to the replaced Runner.
    */
-  takeForLease(leaseKey: string): RunnerCommandBatch {
+  takeForLease(leaseKey: string, allowedMcpToolScope?: AttemptLaunchSpec['mcpToolScope']): RunnerCommandBatch {
     const records: CommandRecord[] = [];
     for (const record of this.records.values()) {
       if (records.length >= MAX_RUNNER_COMMANDS) break;
       const attemptId = record.command.attemptId;
+      if (allowedMcpToolScope && this.mcpToolScopeFor(record.command) !== allowedMcpToolScope) continue;
       const attemptLeaseKey = this.attemptDeliveryLeases.get(attemptId);
       if (record.deliveryLeaseKey && record.deliveryLeaseKey !== leaseKey) continue;
       if (attemptLeaseKey && attemptLeaseKey !== leaseKey) continue;
@@ -239,6 +242,11 @@ export class RunnerCommandQueue {
       this.idempotency.delete(key);
     }
     return this.idempotencyTombstones.get(key) ?? null;
+  }
+
+  private mcpToolScopeFor(command: RunnerCommand): AttemptLaunchSpec['mcpToolScope'] | null {
+    if (command.kind === 'attempt.start') return command.launch.mcpToolScope;
+    return this.startStates.get(command.attemptId)?.mcpToolScope ?? null;
   }
 
   private add(command: RunnerCommand, idempotencyKey?: string): void {

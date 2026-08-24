@@ -35,13 +35,16 @@ const roots: string[] = [];
 afterEach(async () => { await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true }))); });
 
 describe('logged-in real CLI readiness canary', () => {
+  const providerBaselineFingerprints = new Map<string, string>();
+
   it('requires explicit command-scoped model selections when enabled', () => {
     if (!enabled) return;
     expect(codexModel, 'set KIDITEM_RUNNER_CODEX_CANARY_MODEL explicitly').toBeTruthy();
     expect(claudeModel, 'set KIDITEM_RUNNER_CLAUDE_CANARY_MODEL explicitly').toBeTruthy();
   });
 
-  realCanary.each([
+  const registerRealCanaryTests = (): void => {
+    realCanary.each([
     ['codex_cli', codexModel!],
     ['claude_cli', claudeModel!],
   ] as const)('runs the strict %s MCP canary through a real logged-in CLI', async (runtime, model) => {
@@ -164,7 +167,13 @@ describe('logged-in real CLI readiness canary', () => {
       expect(await readdir(attemptRoot)).toEqual([]);
       console.info(`REAL_CLI_CANARY_SUCCEEDED runtime=${runtime} phase=terminal_result`);
     } catch (error) {
-      const blocker = diagnostic.externalBlocker({ error, terminal, phase, observations: endpoint.observations });
+      const blocker = diagnostic.externalBlocker({
+        error,
+        terminal,
+        phase,
+        observations: endpoint.observations,
+        baselineFingerprint: providerBaselineFingerprints.get(providerBaselineKey(runtime, model)),
+      });
       if (!probeReached.settled && blocker) {
         // A CI or implementation Mac may have valid local CLI/login facts but no
         // reachable model service.  Keep the deterministic loopback contract
@@ -185,7 +194,8 @@ describe('logged-in real CLI readiness canary', () => {
       await endpoint.close();
       leases.dispose();
     }
-  }, CANARY_TIMEOUT_MS + 20_000);
+    }, CANARY_TIMEOUT_MS + 20_000);
+  };
 
   realProviderBaseline.each([
     ['codex_cli', codexModel!],
@@ -278,6 +288,8 @@ describe('logged-in real CLI readiness canary', () => {
     } catch (error) {
       const blocker = diagnostic.providerBaselineExternalBlocker({ error, terminal });
       if (blocker) {
+        const fingerprint = diagnostic.baselineFingerprint({ error, terminal });
+        if (fingerprint) providerBaselineFingerprints.set(providerBaselineKey(runtime, model), fingerprint);
         console.info(`REAL_CLI_PROVIDER_BASELINE_EXTERNAL_BLOCKER runtime=${runtime} code=${blocker}`);
         return;
       }
@@ -290,6 +302,10 @@ describe('logged-in real CLI readiness canary', () => {
       leases.dispose();
     }
   }, PROVIDER_BASELINE_TIMEOUT_MS + 20_000);
+
+  // Register baselines first. An opaque canary failure is reportable only if
+  // this exact runtime/model had the same bounded provider-only fingerprint.
+  registerRealCanaryTests();
 });
 
 describe('SafeProviderDiagnostic', () => {
@@ -305,6 +321,43 @@ describe('SafeProviderDiagnostic', () => {
     expect(JSON.stringify(diagnostic)).not.toContain('provider detail');
   });
 
+  it('accepts an opaque canary failure only when the provider-only baseline has the same bounded fingerprint', () => {
+    const baseline = new SafeProviderDiagnostic();
+    const canary = new SafeProviderDiagnostic();
+    const failure = `${JSON.stringify({
+      jsonrpc: '2.0', method: 'turn/completed',
+      params: { turn: { status: 'failed' } },
+    })}\n`;
+    baseline.observeStdout(failure);
+    baseline.observeExit({ code: 0, signal: null });
+    canary.observeStdout(failure);
+    canary.observeExit({ code: 0, signal: null });
+    const input = {
+      error: new Error('real_canary_timeout'),
+      terminal: undefined,
+      phase: 'provider_start',
+      observations: [] as McpObservation[],
+    };
+
+    expect(baseline.providerBaselineExternalBlocker({ error: input.error, terminal: input.terminal }))
+      .toBe('provider_reported_turn_failure');
+    expect(canary.externalBlocker(input)).toBeNull();
+    expect(canary.externalBlocker({ ...input, baselineFingerprint: 'rpc_error_-32000|provider_exit_0' })).toBeNull();
+    expect(canary.externalBlocker({ ...input, baselineFingerprint: 'turn_completed_failed|provider_exit_0' }))
+      .toBe('provider_baseline_correlated_failure');
+  });
+
+  it('keeps explicit isolated-login failures external without baseline correlation', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStderr('login required');
+
+    expect(diagnostic.providerBaselineExternalBlocker({ error: new Error('irrelevant'), terminal: undefined }))
+      .toBe('auth_materialization_failed');
+    expect(diagnostic.externalBlocker({
+      error: new Error('irrelevant'), terminal: undefined, phase: 'provider_start', observations: [],
+    })).toBe('auth_materialization_failed');
+  });
+
   it('does not call a recognized CLI option error external', () => {
     const diagnostic = new SafeProviderDiagnostic();
     diagnostic.observeStdout(`${JSON.stringify({ type: 'error', error: { message: 'CommanderError: unknown option --not-real' } })}\n`);
@@ -312,11 +365,44 @@ describe('SafeProviderDiagnostic', () => {
     expect(diagnostic.contractFailure({ error: new Error('irrelevant'), phase: 'provider_start', observations: [] }))
       .toBe('invalid_cli_option');
   });
+
+  it('keeps a structured readiness-tool allowlist rejection internal before MCP observations', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStdout(`${JSON.stringify({
+      type: 'error',
+      error: { code: -32_000, message: 'Tool mcp__kiditem_attempt__readiness_probe is not allowed by allowedTools' },
+    })}\n`);
+    const input = { error: new Error('real_canary_timeout'), terminal: undefined, phase: 'mcp_probe', observations: [] };
+
+    expect(diagnostic.externalBlocker(input)).toBeNull();
+    expect(diagnostic.contractFailure(input)).toBe('mcp_tool_allowlist_failed');
+    expect(diagnostic.providerBaselineExternalBlocker({
+      error: new Error('real_canary_timeout'),
+      terminal: undefined,
+    })).toBeNull();
+  });
+
+  it('keeps a modern discovery without the required canary tool call internal', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    const input = {
+      error: new Error('real_canary_timeout'),
+      terminal: undefined,
+      phase: 'mcp_probe',
+      observations: [{ method: 'tools/list', status: 200, protocolVersion: '2026-07-28' }],
+    };
+
+    expect(diagnostic.externalBlocker(input)).toBeNull();
+    expect(diagnostic.contractFailure(input)).toBe('mcp_tool_call_failed');
+  });
 });
 
 function explicitModel(key: 'KIDITEM_RUNNER_CODEX_CANARY_MODEL' | 'KIDITEM_RUNNER_CLAUDE_CANARY_MODEL'): string | null {
   const value = process.env[key]?.trim();
   return value && value.length <= 256 ? value : null;
+}
+
+function providerBaselineKey(runtime: 'codex_cli' | 'claude_cli', model: string): string {
+  return `${runtime}\u0000${model}`;
 }
 
 function hello(): RunnerHello {
@@ -468,6 +554,8 @@ type SafeProviderFailure =
   | 'invalid_mcp_config'
   | 'invalid_rpc_contract'
   | 'mcp_negotiation_failed'
+  | 'mcp_tool_allowlist_failed'
+  | 'mcp_tool_call_failed'
   | 'network_service_unavailable'
   | `provider_exit_${number | 'signal'}`;
 
@@ -503,45 +591,56 @@ class SafeProviderDiagnostic {
     terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
     phase: string;
     observations: readonly McpObservation[];
-  }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_reported_turn_failure' | 'provider_reported_stream_error' | 'model_service_timeout_before_mcp' | 'model_service_timeout_after_mcp_discovery' | null {
-    if (this.failure === 'unsupported_model' || this.failure === 'auth_materialization_failed' || this.failure === 'network_service_unavailable') {
-      return this.failure;
-    }
-    if (this.appServerSignals.has('turn_completed_failed') || this.appServerSignals.has('turn_completed_cancelled') || this.appServerSignals.has('turn_completed_interrupted')) {
-      return 'provider_reported_turn_failure';
-    }
-    if (this.appServerSignals.has('rpc_error')) return 'provider_reported_stream_error';
-    if (input.phase === 'mcp_probe' && input.error instanceof Error && input.error.message === 'real_canary_timeout' && !input.terminal) {
-      if (!input.observations.length) return 'model_service_timeout_before_mcp';
-      if (input.observations.some((value) => value.method === 'tools/list' && value.status === 200 && value.protocolVersion === '2026-07-28')) {
-        return 'model_service_timeout_after_mcp_discovery';
-      }
-    }
+    baselineFingerprint?: string | null;
+  }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_baseline_correlated_failure' | null {
+    if (this.contractFailure(input)) return null;
+    const explicit = this.explicitExternalBlocker();
+    if (explicit) return explicit;
+    const fingerprint = this.opaqueFailureFingerprint(input.error, input.terminal);
+    if (fingerprint && fingerprint === input.baselineFingerprint) return 'provider_baseline_correlated_failure';
     return null;
   }
 
   providerBaselineExternalBlocker(input: Readonly<{
     error: unknown;
     terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
-  }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_reported_turn_failure' | 'provider_reported_stream_error' | 'model_service_timeout_without_mcp_requirement' | null {
-    if (this.failure === 'unsupported_model' || this.failure === 'auth_materialization_failed' || this.failure === 'network_service_unavailable') {
-      return this.failure;
-    }
+  }>): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | 'provider_reported_turn_failure' | 'provider_reported_stream_error' | 'model_service_timeout_without_mcp_requirement' | `provider_exit_${number | 'signal'}` | null {
+    if (this.contractFailure({ error: input.error, phase: 'provider_start', observations: [] })) return null;
+    const explicit = this.explicitExternalBlocker();
+    if (explicit) return explicit;
     if (this.appServerSignals.has('turn_completed_failed') || this.appServerSignals.has('turn_completed_cancelled') || this.appServerSignals.has('turn_completed_interrupted')) {
       return 'provider_reported_turn_failure';
     }
-    if (this.appServerSignals.has('rpc_error')) return 'provider_reported_stream_error';
+    if ([...this.appServerSignals].some((signal) => signal.startsWith('rpc_error'))) return 'provider_reported_stream_error';
     if (input.error instanceof Error && input.error.message === 'real_canary_timeout' && !input.terminal) {
       return 'model_service_timeout_without_mcp_requirement';
     }
-    return null;
+    return providerExitFailure(this.failure);
+  }
+
+  baselineFingerprint(input: Readonly<{
+    error: unknown;
+    terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined;
+  }>): string | null {
+    if (this.contractFailure({ error: input.error, phase: 'provider_start', observations: [] })) return null;
+    return this.opaqueFailureFingerprint(input.error, input.terminal);
   }
 
   contractFailure(input: Readonly<{ error: unknown; phase: string; observations: readonly McpObservation[] }>): SafeProviderFailure | null {
-    if (this.failure === 'invalid_cli_option' || this.failure === 'invalid_provider_config' || this.failure === 'invalid_mcp_config' || this.failure === 'invalid_rpc_contract' || this.failure === 'mcp_negotiation_failed') {
+    if (
+      this.failure === 'invalid_cli_option' || this.failure === 'invalid_provider_config' ||
+      this.failure === 'invalid_mcp_config' || this.failure === 'invalid_rpc_contract' ||
+      this.failure === 'mcp_negotiation_failed' || this.failure === 'mcp_tool_allowlist_failed'
+    ) {
       return this.failure;
     }
-    if (input.phase === 'provider_start' && this.failure?.startsWith('provider_exit_')) return this.failure;
+    const hasModernList = input.observations.some((value) =>
+      value.method === 'tools/list' && value.status === 200 && value.protocolVersion === '2026-07-28',
+    );
+    const hasModernCall = input.observations.some((value) =>
+      value.method === 'tools/call' && value.status === 200 && value.protocolVersion === '2026-07-28',
+    );
+    if (input.phase === 'mcp_probe' && hasModernList && !hasModernCall) return 'mcp_tool_call_failed';
     if (
       input.phase === 'mcp_probe' && input.error instanceof Error && input.error.message === 'real_canary_timeout' &&
       (
@@ -553,10 +652,33 @@ class SafeProviderDiagnostic {
     return null;
   }
 
+  private explicitExternalBlocker(): 'unsupported_model' | 'auth_materialization_failed' | 'network_service_unavailable' | null {
+    if (this.failure === 'unsupported_model' || this.failure === 'auth_materialization_failed' || this.failure === 'network_service_unavailable') {
+      return this.failure;
+    }
+    return null;
+  }
+
+  private opaqueFailureFingerprint(
+    error: unknown,
+    terminal: Extract<RunnerEventBatch['events'][number], { kind: 'attempt.terminal' }> | undefined,
+  ): string | null {
+    const signals = [...this.appServerSignals]
+      .filter((signal) => signal.startsWith('turn_completed_') || signal.startsWith('rpc_error'))
+      .sort();
+    const exit = providerExitFailure(this.failure);
+    if (signals.length || exit) return [...signals, ...(exit ? [exit] : [])].join('|');
+    if (error instanceof Error && error.message === 'real_canary_timeout' && !terminal) return 'provider_timeout';
+    return null;
+  }
+
   private observeFailureText(value: string): void {
     const bounded = value.slice(0, 8_192).toLowerCase();
     if (matches(bounded, ['unknown option', 'unknown argument', 'invalid option', 'invalid argument', 'commandererror', 'commander error'])) {
       this.failure ??= 'invalid_cli_option'; return;
+    }
+    if (matches(bounded, ['allowedtools', 'allowed tools', 'tool not allowed', 'tool is not allowed', 'tool not permitted'])) {
+      this.failure ??= 'mcp_tool_allowlist_failed'; return;
     }
     if (matches(bounded, ['mcp_servers', 'mcp server', 'bearer_token_env_var', 'mcp config'])) {
       this.failure ??= 'invalid_mcp_config'; return;
@@ -601,6 +723,12 @@ class SafeProviderDiagnostic {
     if (typeof code === 'number' && Number.isSafeInteger(code)) this.appServerSignals.add(`rpc_error_${code}`);
     else this.appServerSignals.add('rpc_error');
   }
+}
+
+function providerExitFailure(value: SafeProviderFailure | null): `provider_exit_${number | 'signal'}` | null {
+  return value && /^provider_exit_(?:\d+|signal)$/.test(value)
+    ? value as `provider_exit_${number | 'signal'}`
+    : null;
 }
 
 function objectValue(value: unknown): Record<string, unknown> | null {

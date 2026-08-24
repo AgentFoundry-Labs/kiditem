@@ -35,6 +35,72 @@ describe('RunnerLeaseRegistry', () => {
     }
   });
 
+  it('reconciles an undelivered business Attempt and never gives its start or input to a replacement probing lease', async () => {
+    vi.useFakeTimers();
+    try {
+      const commandIds = [
+        '638f4eb1-9078-7a1e-9514-b19b5732f5de',
+        '638f4eb1-9078-7a1e-9514-b19b5732f5df',
+      ];
+      const commands = new RunnerCommandQueue({ commandId: () => commandIds.shift()! });
+      const reconciliation = vi.fn(async () => undefined);
+      const revokeLease = vi.fn();
+      const registry = registryFor({ commands });
+      registry.setLossHandlers({
+        interruptAttempt: vi.fn(async () => undefined),
+        revokeLease,
+        reconcileLeaseLoss: reconciliation,
+      });
+      const prior = registry.hello(hello());
+      const start = commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
+      const input = commands.enqueueInput({
+        attemptId,
+        input: 'live business follow-up',
+        deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+      });
+
+      const replacement = registry.hello(hello({ runnerInstanceId: replacementInstanceId }));
+      const replacementPoll = registry.poll({ runnerInstanceId: replacementInstanceId, leaseId: replacement.leaseId });
+      await vi.advanceTimersByTimeAsync(20_000);
+
+      expect(replacement.status).toBe('probing');
+      expect(reconciliation).toHaveBeenCalledTimes(1);
+      expect(reconciliation).toHaveBeenCalledWith({ leaseId: prior.leaseId, attemptIds: [] });
+      expect(revokeLease).toHaveBeenCalledWith(prior.leaseId);
+      await expect(replacementPoll).resolves.toEqual({ commands: [] });
+      expect(commands.take()).toEqual({ commands: [start, input] });
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('delivers the scoped readiness start and its live input while a lease is still probing', async () => {
+    const commandIds = [
+      '648f4eb1-9078-7a1e-9514-b19b5732f5de',
+      '648f4eb1-9078-7a1e-9514-b19b5732f5df',
+    ];
+    const commands = new RunnerCommandQueue({ commandId: () => commandIds.shift()! });
+    const registry = registryFor({ commands });
+    const lease = registry.hello(hello());
+    const start = commands.enqueueStart({
+      launch: { ...launchSpec(), mcpToolScope: 'readiness_canary' },
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    });
+
+    await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
+      .resolves.toEqual({ commands: [start] });
+    commands.acknowledge({ commandId: start.commandId, attemptId, commandHash: start.commandHash });
+    const input = commands.enqueueInput({
+      attemptId,
+      input: 'readiness second input',
+      deadlineAt: new Date('2026-08-24T00:10:00.000Z'),
+    });
+    await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
+      .resolves.toEqual({ commands: [input] });
+    registry.dispose();
+  });
+
   it('creates a probing lease only for an exact strict hello and reuses a canonical duplicate', () => {
     const registry = registryFor();
     const first = registry.hello(hello());
@@ -150,6 +216,7 @@ describe('RunnerLeaseRegistry', () => {
     const commands = new RunnerCommandQueue({ commandId: () => '318f4eb1-9078-7a1e-9514-b19b5732f5de' });
     const registry = registryFor({ commands });
     const lease = registry.hello(hello());
+    registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
     const command = commands.enqueueInterrupt({ attemptId, deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     await expect(registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId }))
@@ -164,6 +231,7 @@ describe('RunnerLeaseRegistry', () => {
     const interrupts = vi.fn(async () => undefined);
     const registry = registryFor({ commands, interruptAttempt: interrupts });
     const lease = registry.hello(hello());
+    registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
     commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
 
     await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
@@ -177,6 +245,7 @@ describe('RunnerLeaseRegistry', () => {
     const commands = new RunnerCommandQueue({ commandId: () => '718f4eb1-9078-7a1e-9514-b19b5732f5de' });
     const registry = registryFor({ commands });
     const lease = registry.hello(hello());
+    registry.markReady({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
     commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
     await registry.poll({ runnerInstanceId: instanceId, leaseId: lease.leaseId });
 
@@ -297,12 +366,14 @@ function launchSpec(): AttemptLaunchSpec {
     timeoutMs: 60_000,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`,
     attemptToken: randomBytes(32).toString('base64url'),
+    mcpToolScope: 'business',
     mcpProtocolRevision: '2026-07-28',
     cliContractIdentity: 'office-cli-contract-v2',
   };
 }
 
 async function deliverAttempt(registry: RunnerLeaseRegistry, commands: RunnerCommandQueue, leaseId: string) {
+  registry.markReady({ runnerInstanceId: instanceId, leaseId });
   commands.enqueueStart({ launch: launchSpec(), deadlineAt: new Date('2026-08-24T00:10:00.000Z') });
   const batch = await registry.poll({ runnerInstanceId: instanceId, leaseId });
   return batch.commands[0] as import('@kiditem/shared/agent-runtime').RunnerStartCommand;

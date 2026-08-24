@@ -87,7 +87,7 @@ function launch() {
     attemptId, runtime: 'codex_cli' as const, model: 'gpt-5.6', prompt: 'not on disk', timeoutMs: 10_000,
     workspacePolicy: 'empty_ephemeral_v1' as const,
     mcpUrl: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${attemptId}/mcp`, attemptToken: 'A'.repeat(43),
-    mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const,
+    mcpToolScope: 'business' as const, mcpProtocolRevision: '2026-07-28' as const, cliContractIdentity: 'office-cli-contract-v2' as const,
   };
 }
 

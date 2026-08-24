@@ -210,6 +210,9 @@ const AttemptLaunchSpecObjectSchema = z
     timeoutMs: z.number().int().min(1_000).max(30 * 60_000),
     mcpUrl: LoopbackHttpUrlSchema,
     attemptToken: OpaqueBearerSchema,
+    // This is an ephemeral CLI allowlist policy, not a durable Attempt status
+    // or a new Runner command kind. The API binds it into the command hash.
+    mcpToolScope: z.enum(['business', 'readiness_canary']),
     mcpProtocolRevision: z.literal(ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision),
     cliContractIdentity: z.literal(ATTEMPT_RUNTIME_TRAIN.cliContractIdentity),
   })

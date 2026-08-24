@@ -80,6 +80,7 @@ function parseLaunch(input: Pick<AttemptLaunchSpec, 'attemptId' | 'runtime' | 'm
   return AttemptLaunchSpecSchema.parse({
     ...input,
     workspacePolicy: 'empty_ephemeral_v1',
+    mcpToolScope: 'business',
     mcpProtocolRevision: ATTEMPT_RUNTIME_TRAIN.mcpProtocolRevision,
     cliContractIdentity: ATTEMPT_RUNTIME_TRAIN.cliContractIdentity,
   });
