@@ -1,0 +1,31 @@
+{
+  "name": "@kiditem/agent-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/main.cjs",
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup",
+    "start": "node dist/main.cjs",
+    "test": "vitest run",
+    "prepack": "node scripts/stage-bundled-runtime.mjs",
+    "postpack": "node scripts/unstage-bundled-runtime.mjs"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.241",
+    "@openai/codex": "0.149.1",
+    "@kiditem/shared": "*",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20",
+    "tsup": "^8.5.1",
+    "typescript": "~5.8.3",
+    "vitest": "^4.1.2"
+  },
+  "bundledDependencies": [
+    "@anthropic-ai/claude-code",
+    "@openai/codex"
+  ]
+}

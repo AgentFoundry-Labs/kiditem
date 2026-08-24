@@ -1,0 +1,49 @@
+import { describe, expect, it } from 'vitest';
+import { CodexAppServerSession } from './codex-app-server-session';
+
+describe('CodexAppServerSession', () => {
+  it('uses an exact ephemeral thread request, the built-in workspace profile, and live steering without a resume id', async () => {
+    const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
+    const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'turn/start', { turn: { id: 'turn-1' } }); await start;
+    const steer = session.steer('continue'); answer(session, lines, 'turn/steer', {}); await steer;
+
+    expect(request(lines, 'thread/start').params).toEqual({ ephemeral: true, model: 'gpt-5.6', cwd: '/attempt/workspace', approvalPolicy: 'never' });
+    expect(request(lines, 'turn/start').params).toMatchObject({ input: [{ type: 'text', text: 'work', text_elements: [] }] });
+    expect(JSON.stringify(request(lines, 'turn/start').params)).not.toContain('resume');
+  });
+
+  it('decodes exact 0.149.1 delta and completion notifications, then closes the live turn', async () => {
+    const lines: string[] = []; const events: unknown[] = [];
+    const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
+    const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+    answer(session, lines, 'turn/start', { turn: { id: 'turn-1' } }); await start;
+
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'item/agentMessage/delta', params: { threadId: 'thread-1', turnId: 'turn-1', itemId: 'item-1', delta: 'bounded delta' } })}\n`);
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status: 'completed', items: [{ type: 'agentMessage', id: 'item-1', text: JSON.stringify({ outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] }) }] } } })}\n`);
+
+    expect(events).toEqual([
+      { kind: 'agent_message_delta', turnId: 'turn-1', delta: 'bounded delta' },
+      { kind: 'turn_completed', turnId: 'turn-1', status: 'completed', result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] } },
+    ]);
+    await expect(session.steer('too late')).rejects.toThrow('codex_turn_not_live');
+  });
+
+  it('rejects an outstanding start RPC when app-server exits before its reply', async () => {
+    const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
+    const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
+    answer(session, lines, 'initialize', {}); await advance();
+    expect(request(lines, 'thread/start')).toBeTruthy();
+
+    session.close();
+
+    await expect(start).rejects.toThrow('codex_app_server_closed');
+  });
+});
+function request(lines: string[], method: string): { id: string; params: Record<string, unknown> } { const value = lines.map((line) => JSON.parse(line)).find((line) => line.method === method); if (!value) throw new Error(`missing ${method}`); return value; }
+function answer(session: CodexAppServerSession, lines: string[], method: string, result: unknown): void { const message = request(lines, method); session.receive(`${JSON.stringify({ jsonrpc: '2.0', id: message.id, result })}\n`); }
+async function advance(): Promise<void> { await Promise.resolve(); await Promise.resolve(); }

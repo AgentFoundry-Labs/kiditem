@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "strict": true,
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "declaration": true,
+    "outDir": "dist",
+    "skipLibCheck": true,
+    "esModuleInterop": true,
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src/**/*.ts", "tsup.config.ts", "vitest.config.ts"],
+  "exclude": ["dist"]
+}
