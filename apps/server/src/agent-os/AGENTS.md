@@ -21,12 +21,15 @@ Agent
 - Incoming HTTP/MCP adapters inject only capability-named input ports, never
   concrete services. Agent OS may depend on an owner-domain incoming port;
   owner domains never import Agent OS application service types.
-- MCP is a private child of the API-owned local CLI Attempt. It revalidates the
-  exact database Session/Task/Attempt/version/user/organization coordinate for
-  every tool call. It has no HMAC, service credential, provider credential,
-  provider session, or direct Operations/repository bypass.
-- Only API may spawn Codex/Claude and bind its private Unix socket. Worker
-  executes durable mutation/Operation recovery but has no CLI login profile.
+- MCP is a loopback-only Nest v2 Streamable HTTP adapter called directly by a
+  Host Runner-owned local CLI Attempt. It revalidates the exact database
+  Session/Task/Attempt/version/user/organization coordinate for every tool
+  call. It has no HMAC, provider credential, provider session, durable MCP
+  session, or direct Operations/repository bypass.
+- Only the native `apps/agent-runner` process may spawn Codex/Claude. It polls
+  Nest for strict structured commands, posts bounded idempotent events, and
+  exposes no inbound listener or raw-shell surface. Worker executes durable
+  mutation/Operation recovery but has no CLI login profile.
 
 ## Lifecycle
 
@@ -35,11 +38,12 @@ Agent
 - Approval wait, Operation wait, child Task wait, and Continue requirement are
   UI projections from current Approval/Operation/Task/Attempt records, never
   duplicated Task states.
-- Every CLI process uses an isolated per-Attempt home/workspace. It may link to
-  the API service account’s persisted login artifact but never copies credential
-  bytes. API restart, CLI exit, timeout, or interruption never resumes a
-  provider session/history; later reasoning creates an immutable successor
-  Attempt from durable state.
+- Every CLI process uses a Runner-owned isolated per-Attempt home/workspace. It
+  may reference the dedicated host account's persisted login artifact through
+  the validated OS mechanism but never copies credential bytes into KidItem
+  persistence. Runner loss, API restart, CLI exit, timeout, or interruption
+  never resumes provider session/history; later reasoning creates an immutable
+  successor Attempt from durable state.
 - Approval saves exact canonical input/hash before a live Attempt waits. A
   timed-out Attempt does not cancel the durable mutation; worker recovery owns
   the remaining safe work.

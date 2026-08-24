@@ -1,6 +1,7 @@
 # KID-25 Single-Node Agent OS Clean Contraction Design
 
 - Date: 2026-08-23
+- Runtime amendment: 2026-08-24
 - Status: Approved for implementation
 - Tracking issue: KID-25
 - Implementation plan: `docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md`
@@ -18,8 +19,10 @@
 ## 0. Decision Authority
 
 This document is the single design authority for KID-25. It replaces the
-broader design previously committed at this same path and fixes the reduced
-single-node scope approved on 2026-08-23.
+broader design previously committed at this same path, fixes the reduced
+single-node scope approved on 2026-08-23, and incorporates the approved
+2026-08-24 native host Runner amendment. There is no separate runtime design
+authority.
 
 Implementation may select private helper names and local indexes that do not
 change the contracts below. It must stop for a design amendment before adding
@@ -56,11 +59,13 @@ worker dispatches durable mutations and deterministic Operations.
 Browser
   -> same-origin Nest /api/copilotkit
        -> AgentSession / root AgentTask
-       -> immutable AgentAttempt (Codex or Claude CLI)
-            -> ephemeral provider-native subagents
-            -> Attempt-bound local MCP broker
-            -> owner-domain capability input ports
-            -> optional explicit child AgentTask delegation
+       -> immutable AgentAttempt admission and authority
+            -> Host Runner command long-poll
+                 -> native Codex or Claude CLI
+                 -> ephemeral provider-native subagents
+                 -> Nest MCP v2 Streamable HTTP
+                      -> owner-domain capability input ports
+                      -> optional explicit child AgentTask delegation
 
 Worker
   -> ready AgentCapabilityInvocation mutations
@@ -87,7 +92,8 @@ AgentRun paths add state without advancing the required single-user workflow.
 - Correct root, follow-up, delegation, capability, Approval, and mutation
   admission under concurrent requests.
 - One live CLI Attempt per Task and an immediate process-local global limit.
-- Ephemeral Codex/Claude execution using the service account's existing login.
+- Ephemeral host-native Codex/Claude execution using the dedicated Runner
+  account's existing login.
 - Exact owner-domain capability authorization, mutation idempotency, and HITL.
 - Basic same-version API/worker restart recovery without provider resume.
 - Same-origin CopilotKit live streaming and a durable work projection without
@@ -95,7 +101,7 @@ AgentRun paths add state without advancing the required single-user workflow.
 - A final six-model Agent OS schema with all legacy code/schema removed.
 - A destructive cutover that discards legacy Agent OS data while checking that
   unrelated business and Operation data remain.
-- One Web/API/worker home-server deployment topology.
+- One Web/API/worker container topology plus one native host Runner process.
 
 ### 2.2 Non-goals
 
@@ -113,7 +119,7 @@ AgentRun paths add state without advancing the required single-user workflow.
 - Provider sessions/history/resume IDs, KidItem-managed provider credentials,
   chat transcript/replay, artifacts, cost accounting, or vector memory.
 - Hermes, OpenAI Responses, a standalone gateway, another Agent service, a
-  message broker, or a network MCP listener.
+  message broker, a Runner inbound listener, or a LAN-exposed MCP endpoint.
 
 ## 3. Final Durable Data Model
 
@@ -408,8 +414,8 @@ target Agent and execution grant; no hidden owner Agent is inferred.
 ### 5.2 Native subagents versus KidItem delegation
 
 Codex/Claude native subagents are ephemeral helpers inside one Attempt. They
-share its AgentVersion, workspace, MCP broker, authority, sandbox, process
-group, and one global slot. They create no KidItem row.
+share its AgentVersion, workspace, MCP HTTP binding, authority, sandbox,
+Runner-owned supervisor tree, and one global slot. They create no KidItem row.
 
 A KidItem child Task is created only when business responsibility moves to an
 explicitly selected Agent. It stores the parent Task, delegating live Attempt,
@@ -495,105 +501,202 @@ it does not reinterpret it under new code.
 
 ## 7. Codex/Claude Runtime and MCP Boundary
 
-### 7.1 Supported runtimes
+### 7.1 Supported platforms and runtimes
 
-Only these exact CLI packages are supported:
+The native Runner platforms are exactly `macos | windows`. Node maps `darwin`
+to `macos` and `win32` to `windows`; Linux and unknown platforms fail closed.
+macOS is the supported development and integration-test platform. Native
+Windows is the Office production platform.
 
-- Codex CLI `0.149.0`;
-- Claude Code `2.1.122`.
+Provider runtimes remain a separate axis with exactly
+`codex_cli | claude_cli`. Remove Hermes, OpenAI Responses, credential brokers,
+runtime-handle codecs, monetary budget flags, and fallback selection. Runtime
+and model selection are explicit; a missing selection or incompatible CLI/MCP
+train fails admission and readiness.
 
-Remove Hermes, OpenAI Responses, credential broker, runtime-handle codecs,
-fixed playbooks, monetary budget flags, and fallback selection. Runtime and
-model selection is explicit; missing selection fails admission/readiness.
+Every Attempt forces provider history and session persistence off. KidItem
+never requests or stores provider resume/session IDs. The dedicated host Runner
+account's ordinary Codex and Claude login state is the only persistent provider
+state. KidItem never reads, copies into persistence, encrypts, HMAC-signs, or
+returns provider credential values.
 
-Every Attempt forces non-persistent history:
+### 7.2 Runtime topology and ownership
 
-- Codex app-server: an isolated generated configuration plus
-  `thread/start.ephemeral=true` and `history.persistence="none"`;
-- Claude: `--no-session-persistence`, `--strict-mcp-config`.
+Nest remains the durable authority while a new native `apps/agent-runner`
+process owns only disposable host process execution:
 
-Codex does not expose `--ephemeral` or `--ignore-user-config` app-server
-flags. The protocol request and isolated `CODEX_HOME` are therefore the
-enforced boundary; no service-account `config.toml`, plugin, hook, skill,
-memory, or history setting is inherited by an Attempt.
+```text
+Nest API container
+  <- HTTP command long-poll   <- Host Runner
+  <- idempotent event POST    <- Host Runner
+  <- MCP v2 Streamable HTTP   <- Codex/Claude CLI
+```
 
-The dedicated OS service account's CLI login home is the only persistent
-provider state. KidItem never reads, copies, encrypts, HMAC-signs, stores, or
-returns its credential values. Provider resume/session IDs are never requested
-or stored.
+The Runner never exposes an inbound listener. The API container's existing
+Nest server is additionally published on one host-loopback-only port, for
+example `127.0.0.1:4401 -> api:4000`. Office nginx returns `404` for the
+internal Runner/MCP prefix and never exposes it to the LAN. Runner and Attempt
+authentication remain mandatory on loopback.
 
-### 7.2 Attempt process boundary
+Nest owns Session/Task/Attempt authority, admission, grants, Invocations,
+Approvals, owner idempotency, Operations, and the MCP tool implementation. The
+Runner owns strict provider command construction, ephemeral directories,
+stdin/stdout handling, timeout/interrupt, and complete process-tree cleanup.
+The API container neither installs nor spawns Codex/Claude and mounts no
+provider login volume. The worker never spawns a provider CLI.
 
-The Office/home host is Windows, but the supported runtime boundary is the
-existing Linux Docker Desktop container for the API. Codex, Claude, the MCP
-stdio proxy, and the private Unix socket all run inside that one API container.
-There is no native-Windows CLI, named-pipe broker, or host-side process branch.
+### 7.3 Runner HTTP control protocol
 
-Each Attempt receives a new empty temporary workspace and private broker
-directory. The repository, DB URL, deployment/business secrets, auth files,
-and another Attempt's files are not available to model-invoked tools. Built-in
-browser/arbitrary network tools are disabled; business facts/actions flow
-through scoped MCP capabilities. Native subagents inherit the same boundary.
+The control protocol uses strict, bounded Zod contracts and rejects unknown
+keys. Both control routes are authenticated with the installation Runner
+token:
 
-CLI and MCP children run in one owned non-detached process group. Interrupt,
-timeout, shutdown, and restart cleanup target only that group. Attempt maximum
-elapsed time is 30 minutes. Workspace/broker directories are removed at
-terminalization; the login home remains.
+- `POST /api/internal/agent-runtime/runner/commands:poll` is a long-poll that
+  returns at most one bounded command batch;
+- `POST /api/internal/agent-runtime/runner/events` accepts bounded lifecycle,
+  output, readiness, acknowledgement, and terminal event batches.
 
-### 7.3 Attempt-bound MCP broker
+The Runner creates a cryptographically random `runnerInstanceId` on every
+process start. Its first poll carries the strict hello/readiness snapshot; Nest
+issues one process-memory `leaseId` after validating the complete
+platform/runtime/readiness train. Later polls carry that lease. Exactly one
+command poll may be open for the lease; a concurrent poll is rejected. Nest
+holds an empty poll for at most 20 seconds and returns `204`; the Runner
+immediately opens the next poll with a 25-second client deadline. An open
+authenticated poll or a new poll within the lease window proves liveness. A
+closed/failed poll that is not re-established within 30 seconds expires the
+lease.
 
-The MCP child is a small stdio-to-Unix-socket proxy, not a Nest application.
-It receives no DB URL, Nest repository, credential, serialized principal, HMAC,
-bearer token, or reusable grant.
+Commands are delivered at least once and contain a unique `commandId`, exact
+`attemptId`, deadline, and canonical command hash. The allowed command kinds
+are `attempt.start`, `attempt.input`, and `attempt.interrupt`; there is no raw
+shell command. The Runner acknowledges commands through the event route.
+`attempt.start` replay uses the Attempt ID and canonical launch hash: the same
+command returns the existing process state, changed input conflicts, and a
+terminal Attempt cannot be relaunched. Input and interrupt are also
+idempotent.
 
-The API binds the private socket in memory to the live Attempt, AgentVersion,
-user, organization, exact scope, and process group. It validates local peer and
-process ownership, ignores caller-supplied identity, creates every Invocation
-server-side, executes authorized reads inline, and durably admits mutations for
-the worker.
+Every event batch contains `runnerInstanceId`, `leaseId`, a strictly increasing
+`eventSeq`, and bounded events. Nest deduplicates repeated sequence numbers and
+rejects gaps, stale leases, unknown Attempts, and invalid lifecycle
+transitions. The Runner serializes uploads with at most one event batch in
+flight and retries that exact batch until acknowledged. Live output may be
+coalesced into small bounded batches and is not made durable; terminal state is
+written through the existing AgentAttempt lifecycle.
 
-The tool surface contains typed default capabilities, capability catalog
-search, exact-input invoke, explicit target-Agent delegation, and child Task
-controls. Task cancellation/reopen/deletion remain authenticated user
-application commands, not MCP child authority.
+No new command/event/lease database model is introduced. Control replay and
+deduplication are process-memory safeguards. Durable Attempt authority and boot
+reconciliation remain the recovery boundary.
 
-### 7.4 Live control
+### 7.4 Runner and Attempt identity
 
-The provider adapter may keep one process-memory-only `liveControlHandle` for
-the same running Attempt. It may deliver a second message or interrupt, but is
-never persisted, logged, serialized, or used to resume a terminal process. API
-restart destroys it.
+Each installation has one cryptographically random Runner bearer token with at
+least 256 bits of entropy. Windows stores it in a file readable only by the
+dedicated Runner account and SYSTEM; macOS uses a mode-`0600` file. Nest
+receives the matching value as a Docker secret. Rotation is an explicit short
+outage that replaces both protected copies and reruns readiness. Neither side
+logs the token or Authorization header.
 
-Runtime readiness checks the exact selected CLI binary/version, login state,
-required non-persistent flags, strict MCP configuration, one bounded request,
-one scoped MCP call, a live second input, and process cleanup. Admission checks
-the Task-pinned runtime on every new Attempt. There is no dynamic deployment
-inventory gate or scheduled compatibility service.
+Nest generates a separate cryptographically random opaque bearer token for
+each Attempt. It is bound to one immutable Attempt MCP coordinate, expires at
+the earlier of the Attempt deadline and 30 minutes, cannot be refreshed, and
+is invalidated immediately on terminalization, cancellation, interrupt,
+timeout, Runner loss, or API restart. Nest keeps only its SHA-256 digest and
+binding in process memory. The raw token is delivered once inside the strict
+start command and passed to the CLI through a generated environment reference;
+it is never logged or persisted.
+
+### 7.5 Strict launch and host process boundary
+
+Nest sends only a business-neutral `AttemptLaunchSpec` containing the protocol
+identity, Attempt ID, `codex_cli | claude_cli`, explicit model, bounded prompt,
+`empty_ephemeral_v1` workspace policy, timeout, loopback MCP URL, Attempt
+token, and exact MCP revision `2026-07-28`. It cannot send an executable, shell
+name, raw argument list, arbitrary environment variable, host path, provider
+credential, or business authority field.
+
+The Runner owns code-defined provider command builders. It creates an empty,
+private per-Attempt workspace and generated provider/MCP configuration beneath
+its configured root. The verified provider authentication artifact remains in
+the persistent host login root and is exposed to the isolated provider home
+only through a validated same-volume OS reference supported by the selected
+CLI train; readiness fails instead of copying credential bytes or silently
+using the complete persistent provider home.
+
+Windows launches every Attempt in a Job Object with kill-on-close. macOS uses
+an exact process group plus a parent-death control-pipe watchdog so an abrupt
+Runner exit also kills the complete group. Native provider subagents stay
+inside that same Attempt, concurrency slot, token lifetime, and cleanup
+boundary. Interrupt, timeout, Runner loss, API restart, and Runner shutdown
+kill the complete tree. Attempt directories are removed after terminalization;
+the host login remains.
+
+### 7.6 Attempt-bound MCP v2 HTTP adapter
+
+Codex and Claude call Nest directly using MCP v2 Streamable HTTP revision
+`2026-07-28`. There is no stdio MCP child, Unix socket, named pipe, byte bridge,
+custom relay, transport session persistence, or legacy fallback.
+
+Generated Codex configuration uses the loopback URL plus
+`bearer_token_env_var`; generated Claude HTTP MCP configuration uses an
+environment-expanded Authorization header. The configuration contains only
+KidItem's Attempt endpoint and the selected train's explicit non-persistent
+controls. The Attempt token is excluded from model-invoked shell environments
+and model-visible output.
+
+The Nest HTTP adapter validates the bearer token, path Attempt ID, TTL,
+terminal state, and immutable in-memory binding before constructing the
+request-scoped MCP server. It then revalidates the durable
+Session/Task/Attempt/AgentVersion/user/organization coordinate for every tool
+call, creates Invocations server-side, executes authorized reads inline, and
+durably admits mutations for the worker. It exposes the exact existing 11 MCP
+transport tools and all 18 domain CapabilityDefinitions, including the ten
+Sourcing capabilities.
+
+### 7.7 Live control and readiness
+
+Live user input and interrupt are ordinary long-poll commands to the same
+running Attempt. They are never persisted as a provider handle or used to
+resume a terminal process. Losing the Runner lease kills the Attempt rather
+than reconnecting to its provider process.
+
+Readiness requires one authenticated Runner lease, supported platform, exact
+control contract, compatible Codex/Claude and MCP train, both provider login
+checks, enforced non-persistent settings, one strict MCP discovery/list/call
+canary, live second input, terminal-result parsing, token redaction/revocation,
+and process-tree/workspace cleanup. Readiness is an in-memory projection, not a
+new database state. Admission checks it and the Task-pinned runtime for every
+new Attempt.
 
 ## 8. Basic Restart Recovery
 
 Basic recovery means restart with the same deployed application version/SHA:
 
-1. API boot marks every prior `starting|running` Attempt
-   `process_interrupted`.
-2. Its nonterminal inline read Invocations become
+1. API shutdown or loss closes/fails the Runner's outstanding command poll.
+   The Runner terminates every live macOS process group or Windows Job Object
+   before it reconnects.
+2. API boot has no prior Runner lease or Attempt-token digest. It marks every
+   prior `starting|running` Attempt `process_interrupted` and rejects stale
+   events from the old `runnerInstanceId`/`leaseId`.
+3. Its nonterminal inline read Invocations become
    `failed/process_interrupted`; they are not reconstructed or retried.
-3. Task remains `open` unless it already has an explicit business terminal
+4. Task remains `open` unless it already has an explicit business terminal
    status.
-4. Pending Approvals remain durable until decision, cancellation, or expiry.
-5. `ready` mutations remain worker work; an expired `executing` lease is
+5. Pending Approvals remain durable until decision, cancellation, or expiry.
+6. `ready` mutations remain worker work; an expired `executing` lease is
    retried with the same owner idempotency key.
-6. Boot removes only validated stale Attempt workspaces/broker sockets beneath
-   the configured runtime root and terminates owned orphan process groups when
-   present.
-7. Web reloads the durable Task projection and shows **Continue** when more
+7. The Runner removes only validated stale Attempt directories beneath its
+   configured private root after process-tree termination.
+8. Web reloads the durable Task projection and shows **Continue** when more
    reasoning is needed.
-8. Continue creates a new immutable Attempt from current durable Task,
+9. Continue creates a new immutable Attempt from current durable Task,
    Invocation, Approval, Operation, and resource state. It never restores a
    provider session.
 
-Browser disconnect ends only the live stream and does not cancel the CLI.
-Worker restart uses the same lease/idempotency rules. Cross-version rolling
+Runner crash, host reboot, a poll lease that cannot be renewed within 30
+seconds, or an Attempt-token failure uses the same fail-closed path. Browser
+disconnect ends only the live stream and does not cancel the CLI. Worker
+restart uses the same mutation lease/idempotency rules. Cross-version rolling
 upgrade recovery and automatic background reasoning are outside scope.
 
 ## 9. Task Projection, CopilotKit, and Web
@@ -701,14 +804,17 @@ The final source/schema scanner reports zero production findings for:
 - coordinated Session deletion state/Operation/bindings; and
 - legacy Agent OS shared exports and old Web Agent console/routes.
 
-The scanner must allow the required process-memory-only `liveControlHandle` and
-must distinguish it from forbidden persistence/codec paths.
+The scanner must allow the required process-memory-only Runner lease,
+command/event replay guards, Attempt-token digest bindings, and process handles,
+and must distinguish them from forbidden persistence/codec paths.
 
 ## 13. Home-Server Deployment
 
-Deploy only existing Web, API, and worker processes. API owns CopilotKit and
-live CLI execution; worker owns mutation dispatch and Operations. Nginx keeps
-the existing `/api` route. There is no gateway or fourth service.
+Deploy the existing Web, API, and worker containers plus one native host
+`apps/agent-runner` process. API owns CopilotKit, durable Agent OS authority,
+Runner admission, and MCP HTTP. Runner owns only native CLI process execution;
+worker owns mutation dispatch and Operations. There is no gateway, Runner
+inbound listener, or independently deployed Agent service.
 
 Compose/configuration declares exactly one API replica. Process-local maximum
 concurrency is controlled only by:
@@ -722,13 +828,40 @@ hours remain code constants. Remove generic Agent worker enablement, old
 runtime concurrency/wait/budget values, provider credential/HMAC settings, and
 gateway URLs.
 
-Codex/Claude packages stay exactly pinned. KID-25 adds focused adapter/runtime
-tests and readiness for the runtime selected by a published AgentVersion. It
-does not add a scheduled compatibility workflow, compatibility image, automatic
-dependency update, advisory singleton lock, or automatic release drain.
+The existing GitHub Actions Office release remains the only deployment
+entrypoint. Its immutable bundle includes a versioned Runner artifact and
+runtime-contract manifest. Office installs and runs the Runner through Task
+Scheduler under a dedicated Windows account; macOS starts the development
+Runner explicitly. The release transaction stops the scheduled Runner,
+atomically replaces it, verifies its definition, and restarts it.
+
+The Runner installation token is protected by Windows ACL or macOS mode
+`0600`; Nest receives the matching value through a Docker secret. The Nest
+internal runtime route is published only on host loopback and explicitly
+denied by Office nginx. No Windows Firewall LAN rule is added. Codex/Claude and
+their login profile are removed from the API image and Compose volumes.
+
+KID-25 adds focused Runner/MCP/runtime tests and readiness for the runtime
+selected by a published AgentVersion. It does not add a scheduled compatibility
+workflow, compatibility image, automatic dependency update, advisory singleton
+lock, automatic release drain, or durable Runner inventory.
+
+The interrupted MCP v2 worktree diff is reconciled in place. Reuse its modern
+runtime contract, strict Zod wire schemas, bounded result envelope, Nest-owned
+11-tool factory, and transport-independent scanner assertions. Replace and
+remove its stdio-to-UDS bridge, Unix socket server, Linux `/proc` peer verifier,
+custom proxy/relay, API-owned provider process registry, container CLI packages,
+login volume, and Docker-image CLI assertions. The replacement surface is
+`apps/agent-runner`, shared command/event schemas, Nest Runner admission,
+platform supervisors, the in-memory Attempt-token registry, direct MCP HTTP,
+loopback deployment wiring, and matching readiness tests. This cutover does not
+change the 18 capability definitions, owner-domain ports, lifecycle schema, or
+Web state.
 
 Code upgrade is stop/start. The operator first confirms no `ready|executing`
-mutation. Crash restart with the same SHA follows Section 8.
+mutation, stops Attempt admission and the Runner, deploys the matching
+API/worker/Runner train, and requires full readiness before admitting work.
+Crash restart with the same SHA follows Section 8.
 
 ## 14. Implementation Order
 
@@ -740,15 +873,17 @@ P1/P2 finding before completion.
    physical schema/shared contracts, and fail-first legacy scanners.
 2. Implement one admission/lifecycle/Invocation/Approval/delegation boundary
    against the replacement graph.
-3. Move capability implementations to owner input ports and implement
-   ephemeral Codex/Claude Attempt execution plus local MCP broker.
+3. Move capability implementations to owner input ports, preserve the reusable
+   modern MCP v2 server work, and implement the native Host Runner, strict HTTP
+   control contracts, direct MCP Streamable HTTP, and platform supervisors.
 4. Implement worker mutation dispatch, Approval expiry, and same-SHA API/worker
    restart reconciliation.
 5. Cut Nest CopilotKit/Web to durable work projection plus future live events,
    switch all callers, then delete the entire legacy code/schema in one clean
    contraction.
-6. Align the single-node Compose/config/docs, perform the basic backup/cutover
-   check, run all required QA, obtain one Sol review, push the existing branch,
+6. Remove container CLI/UDS/stdio assumptions, align the single-node
+   Compose/Runner artifact/config/docs, perform the basic backup/cutover check,
+   run macOS and Windows gates, obtain one Sol review, push the existing branch,
    and update PR/Linear.
 
 ## 15. Verification and Acceptance
@@ -779,17 +914,34 @@ P1/P2 finding before completion.
 
 ### 15.3 Runtime and restart
 
-- Codex/Claude command tests prove exact non-persistent flags and pins.
-- Children receive no DB/Nest/business/provider credential values.
-- Attempt workspace/socket/process group is isolated and cleaned.
+- Platforms are exactly `macos | windows`; runtimes are exactly
+  `codex_cli | claude_cli`; Linux Runner admission fails.
+- Codex/Claude command tests prove exact non-persistent settings and reject raw
+  shell, executable, arbitrary argument/env, and host-path input from Nest.
+- The API image neither installs nor spawns provider CLIs and mounts no provider
+  login volume.
+- Runner control uses one authenticated command long-poll and idempotent event
+  POSTs; duplicate commands/events do not duplicate processes or transitions.
+- One outstanding poll, 20-second empty response, 25-second client deadline,
+  and 30-second lease expiry are enforced.
+- CLI children receive no DB/Nest/business/provider credential values.
+- Attempt workspace, Windows Job Object/macOS process group and parent-death
+  watchdog, and generated configuration are isolated and cleaned.
 - Native subagents remain inside one Attempt/slot/authority.
-- Live second message and interrupt use only the in-memory handle.
+- Live second message and interrupt use only the long-poll control lane.
+- Runner-token rotation, Attempt-token binding/TTL/revocation, and log
+  redaction pass.
+- Direct MCP v2 Streamable HTTP exposes exactly 11 tools and 18 capabilities;
+  stdio/UDS/custom relay and legacy fallback have zero production findings.
 - Browser disconnect does not stop the Attempt.
-- Same-SHA API restart marks live Attempts/read Invocations interrupted, leaves
-  Tasks open, preserves Approvals/mutations, and exposes manual Continue.
+- Runner crash, control lease loss, and same-SHA API restart kill the complete
+  host process tree, mark live Attempts/read Invocations interrupted, leave
+  Tasks open, preserve Approvals/mutations, and expose manual Continue.
 - Same-SHA worker restart retries expired mutation leases with one idempotency
   key and does not duplicate a committed mutation/Operation.
 - No provider session/history is created or resumed.
+- macOS real process/loopback integration and Windows Job Object, ACL, quoting,
+  Task Scheduler, and no-LAN-listener CI gates pass.
 
 ### 15.4 HTTP/Web and cutover
 
@@ -802,16 +954,18 @@ P1/P2 finding before completion.
 - Destructive push drops only approved legacy Agent OS objects.
 - Prisma generation, shared/server/Web builds, Nest boot, worker boot, ERD,
   smoke, and unrelated-row checks pass on the cutover database.
-- Windows Office/home process audit shows Web/API/worker and one Linux API
-  container replica only; CLI/MCP children stay inside that container.
+- Windows Office/home process audit shows Web/API/worker, one Linux API
+  container replica, and one dedicated native Runner. Codex/Claude children
+  stay inside Runner-owned Job Objects and reach only loopback Nest MCP HTTP.
 
 ## 16. Locked Decision Ledger
 
-- One user, one Windows home server, one Linux-container Agent-executor API
-  process.
+- One user, one Windows home server, one Linux-container Agent authority API,
+  and one dedicated native Windows Runner process.
 - CopilotKit stays inside Nest; Interaction Gateway does not.
 - Codex/Claude CLI stay; Hermes/OpenAI Responses do not.
-- Service-account login persists; provider history/credentials do not.
+- Host Runner account login persists; provider history/session IDs and
+  credential bytes do not enter KidItem persistence.
 - Native subagents are ephemeral; business delegation creates a child Task.
 - Domains/Agents are many-to-many; mutation delegation names a target Agent.
 - AgentVersion snapshots domains/capability keys/runtime/profile, not models or
@@ -823,6 +977,12 @@ P1/P2 finding before completion.
   Operation-to-Agent trigger.
 - Process-local admission max is four; no queue, advisory lock, quota, or
   distributed signaling.
+- Runner control is outbound HTTP command long-poll plus idempotent event POST;
+  there is no WebSocket, inbound Runner listener, or durable control queue.
+- Codex/Claude call Nest directly through loopback MCP v2 Streamable HTTP
+  `2026-07-28`; there is no stdio bridge, UDS, named pipe, or custom relay.
+- Runner installation identity and per-Attempt bearer identity are distinct,
+  process-memory admitted, rotatable/revocable, and never logged.
 - Mutations are durable/idempotent; reasoning processes are disposable.
 - Same-SHA restart recovery is required; cross-version automatic drain is not.
 - Session has no lifecycle and deletes only when all owned work is terminal.

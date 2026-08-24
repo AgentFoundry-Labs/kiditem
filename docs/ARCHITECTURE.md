@@ -17,9 +17,14 @@ apps/server
   -> Coupang Wing / channel providers
   -> Gemini / image providers
   -> Chromium detail-page image rendering
-  -> Codex/Claude CLI Agent OS runtime (API-owned, per-Attempt isolated)
+  -> Agent OS durable authority + Runner admission + MCP v2 HTTP
   -> TS Playwright sourcing browser runtime
   -> Python worker/tools for analysis-heavy sourcing helpers
+
+Native host apps/agent-runner (macOS development, Windows Office)
+  -> HTTP command long-poll + idempotent event POST -> Nest loopback
+  -> per-Attempt Codex/Claude CLI process supervision
+  -> Codex/Claude MCP v2 Streamable HTTP -> Nest loopback
 
 Company Chrome extension
   -> authenticated Coupang Wing form automation
@@ -29,30 +34,34 @@ The Nest backend has static process roots; an environment flag never decides
 whether a process owns Operations:
 
 ```text
-main.ts   -> ApiApplicationModule         -> HTTP + owner domains + Operations
-worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
-MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+main.ts           -> ApiApplicationModule         -> HTTP + owner domains + Operations
+worker.ts         -> AgentWorkerApplicationModule -> durable mutation runtime only
+apps/agent-runner -> native host process           -> disposable CLI supervision only
 ```
 
 `AgentOsInteractionHttpModule` is the API-only Nest incoming adapter for
 CopilotKit. It composes controller-free Agent Work ports and the DB-fenced MCP
-executor; there is no gateway, legacy AgentRun lane, service credential, or
-runtime HMAC boundary. KidItem spawns each local MCP child with an exact,
-non-secret execution coordinate. The MCP root revalidates that coordinate,
-Session/Task/Attempt authority and active Operation binding from the database
-on every tool call. It exposes `agent_os_read_context` plus the complete
-policy-registered capability catalog. Cross-domain reads receive an
-execution-scoped grant; cross-domain mutations delegate to the explicitly
-selected owner Agent. A mutation retains its exact execution-derived
-idempotency key, and its `approvalRisk` determines whether it waits for HITL;
-high-risk capabilities are discoverable rather than hidden. The MCP root cannot
-create Tasks or Operations directly.
+executor; there is no gateway, legacy AgentRun lane, credential broker, or
+runtime HMAC boundary. A native Host Runner polls Nest for strict structured
+commands and posts bounded idempotent events; it exposes no inbound listener
+and never accepts a raw shell command. Runner-spawned Codex/Claude processes
+call the loopback-only Nest MCP v2 Streamable HTTP adapter with one short-lived
+Attempt bearer token. The adapter revalidates Session/Task/Attempt authority
+and active Operation binding from the database on every tool call. It exposes
+`agent_os_read_context` plus the complete policy-registered capability catalog.
+Cross-domain reads receive an execution-scoped grant; cross-domain mutations
+delegate to the explicitly selected owner Agent. A mutation retains its exact
+execution-derived idempotency key, and its `approvalRisk` determines whether it
+waits for HITL; high-risk capabilities are discoverable rather than hidden.
+The MCP adapter cannot create Tasks or Operations directly.
 
 Production supports exactly one API instance. API replicas, rolling overlap,
-and overlapping lifecycle ownership are unsupported. The worker owns durable
-Operation and mutation execution but never spawns a provider CLI. An API
-restart terminalizes the live process and recovery starts an immutable successor
-Attempt from durable Task/Invocation state; it never resumes provider history.
+and overlapping lifecycle ownership are unsupported. One native Runner owns
+host CLI process trees; the worker owns durable Operation and mutation
+execution and never spawns a provider CLI. Runner loss or API restart kills
+live host processes and terminalizes their Attempts; recovery starts an
+immutable successor from durable Task/Invocation state and never resumes
+provider history.
 
 Frontend code never talks to the database directly. All app data flows through
 NestJS APIs and shared Zod contracts from `@kiditem/shared`.
