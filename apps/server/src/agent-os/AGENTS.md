@@ -24,12 +24,15 @@ Agent
 - MCP is a loopback-only Nest v2 Streamable HTTP adapter called directly by a
   Host Runner-owned local CLI Attempt. It revalidates the exact database
   Session/Task/Attempt/version/user/organization coordinate for every tool
-  call. It has no HMAC, provider credential, provider session, durable MCP
-  session, or direct Operations/repository bypass.
+  call. It has no internal signing layer, provider credential, provider session,
+  durable MCP session, or direct Operations/repository bypass. It exposes
+  exactly 11 MCP tools over the 18-definition catalog, including ten Sourcing
+  capabilities.
 - Only the native `apps/agent-runner` process may spawn Codex/Claude. It polls
   Nest for strict structured commands, posts bounded idempotent events, and
   exposes no inbound listener or raw-shell surface. Worker executes durable
-  mutation/Operation recovery but has no CLI login profile.
+  mutation/Operation recovery but has no CLI login profile. Windows Office runs
+  one Task Scheduler-managed Runner; macOS development starts it explicitly.
 
 ## Lifecycle
 
@@ -44,6 +47,10 @@ Agent
   persistence. Runner loss, API restart, CLI exit, timeout, or interruption
   never resumes provider session/history; later reasoning creates an immutable
   successor Attempt from durable state.
+- The protected installation bearer identifies one Runner installation. A
+  cryptographically random per-Attempt bearer is short-lived, bound to one
+  Attempt, revoked on terminal state, and never persisted or logged as raw
+  control state.
 - Approval saves exact canonical input/hash before a live Attempt waits. A
   timed-out Attempt does not cancel the durable mutation; worker recovery owns
   the remaining safe work.

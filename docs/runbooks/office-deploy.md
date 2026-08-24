@@ -14,6 +14,12 @@ images during deployment.
 - The live checkout is exactly `C:\workspace\kiditem`, on `release/office`,
   tracking `origin/release/office`, and has no tracked changes.
 - Docker Desktop, Git, GitHub CLI, and PowerShell 5.1 or later are installed.
+- Node 22 is installed at `C:\Program Files\nodejs\node.exe` for the native
+  Host Runner scheduled task.
+- The dedicated local `KidItemAgentRunner` service account exists and the
+  operator has completed Codex/Claude login under that account. The deployment
+  script verifies and uses the account; it does not create it or read login
+  material.
 - The operator can read the private GHCR packages
   `kiditem-api` and `kiditem-web`.
 - `C:\ProgramData\Kiditem\.env.office` and the API env file referenced by
@@ -39,7 +45,8 @@ protected release/office SHA
         -> Windows operator guard
           -> pull + OCI revision verification
               -> optional approved Prisma schema push
-                -> Compose recreate + health/smoke checks
+                -> Compose recreate + matching native Host Runner install
+                  -> API/Runner readiness + health/smoke checks
 ```
 
 GitHub owns image building and release identity. `C:\ProgramData\Kiditem` owns
@@ -50,10 +57,13 @@ Terraform only after moving the office runtime to a long-lived remote host
 whose provisioning must be reproducible.
 
 The office lane is deliberately not blue-green because the host has tight disk
-capacity and retains local state. It uses a controlled recreate with automatic
-runtime-file restoration on a failed health check. An approved schema change is
-applied explicitly with `-ApplySchema`; database changes remain outside runtime
-rollback and must be assessed separately for every release.
+capacity and retains local state. A compatible release uses controlled recreate
+with automatic runtime-file restoration on a failed health check. An approved
+compatible schema change is applied explicitly with `-ApplySchema`; database
+changes remain outside runtime rollback and must be assessed separately for
+every release. An incompatible schema contraction instead follows the
+full-stop cutover procedure below and starts its candidate only with
+`CutoverDeploy -ConfirmCutoverDeploy` after the schema is accepted.
 
 ## Promote The Office Branch
 
@@ -96,10 +106,12 @@ named `office-deployment-<full SHA>` and contains:
 - `compose.office.yml`
 - `nginx.conf`
 - `apply-deployment.ps1`
+- `kiditem-agent-runner-windows-x64.zip`
+- `runner-runtime-contract.json`
 
-The manifest records the workflow URL, root app version, Git SHA, and exact API
-and web digest refs. Convenience tags such as `office-candidate` are never used
-by Compose.
+The manifest records the workflow URL, root app version, Git SHA, exact API/web
+digest refs, and the SHA-256/runtime contract of the matching Windows Runner
+archive. Convenience tags such as `office-candidate` are never used by Compose.
 
 ## Download And Deploy
 
@@ -157,13 +169,25 @@ While application writers remain stopped:
 4. Run `npx prisma db push --accept-data-loss` once from the candidate API image
    with `docker compose run --rm --no-deps api`.
 5. Verify the retired and retained relations, then start and smoke-test the new
-   runtime with the reviewed Compose configuration.
+   runtime with the reviewed fail-closed cutover operation:
 
-Do not use the normal `apply-deployment.ps1 -Operation Deploy` wrapper for this
-one incompatible cutover. Its runtime-file rollback is designed for application
-failures and is not a database rollback. The operator owns the full-stop
-sequence above and starts an application runtime only after the database shape
-has been accepted.
+   ```powershell
+   & "C:\ProgramData\Kiditem\incoming\<full-sha>\apply-deployment.ps1" `
+     -Operation CutoverDeploy `
+     -ConfirmCutoverDeploy `
+     -ManifestPath "C:\ProgramData\Kiditem\incoming\<full-sha>\office-deployment.json"
+   ```
+
+   `CutoverDeploy` rejects `-ApplySchema`: the destructive schema step has
+   already completed. If candidate startup fails, it stops the Runner and every
+   application surface; restore the recorded database dump manually before
+   starting a previous runtime.
+
+Do not use the normal `apply-deployment.ps1 -Operation Deploy` operation for
+this incompatible cutover. Its runtime-file rollback is designed for
+application failures and is not a database rollback. The operator owns the
+full-stop sequence above and starts an application runtime only after the
+database shape has been accepted through `CutoverDeploy -ConfirmCutoverDeploy`.
 
 If schema application or the new runtime fails, keep every application service
 stopped. Runtime-only `-Operation Rollback` is incompatible with the contracted
@@ -276,8 +300,24 @@ are never Compose profile operations or API environment values.
 
 Do not place provider credentials, provider tokens, or the raw Runner bearer in
 the Office env file or command line. The deployment package provisions the
-native Runner separately and it reports strict readiness to Nest before business
-Attempt admission is allowed.
+native Runner under the constrained S4U Task Scheduler account. It verifies the
+archive SHA and runtime contract, protects the config/token with Windows ACLs,
+starts the task only after the matching API is healthy, and requires full
+Windows/runtime/model/direct-MCP readiness before business Attempt admission.
+
+The Runner's installation bearer and each short-lived Attempt bearer are
+different values. Rotation uses the guarded deployment entrypoint and restarts
+the matching API/worker/Runner set before readiness is accepted:
+
+```powershell
+& C:\workspace\kiditem\deploy\office\apply-deployment.ps1 `
+  -Operation RotateRunnerToken
+```
+
+The Runner makes outbound long-poll/event requests to
+`http://127.0.0.1:4000/internal/agent-runtime/*`; provider MCP calls use the
+same loopback API port with protocol `2026-07-28`. Neither route is exposed by
+nginx, and the Runner has no inbound listener.
 
 ## Disk Pressure
 

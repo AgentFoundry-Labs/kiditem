@@ -103,10 +103,9 @@ AI_TEXT_MODEL
 AI_IMAGE_MODEL
 AI_IMAGE_ANALYSIS_MODEL
 AI_IMAGE_ANALYSIS_VERIFY_MODEL
-KIDITEM_ATTEMPT_LOGIN_HOME
-KIDITEM_ATTEMPT_CLI_VERSION
 KIDITEM_APPLICATION_VERSION
 KIDITEM_GIT_SHA
+KIDITEM_AGENT_RUNNER_TOKEN_FILE
 AGENT_CLI_MAX_CONCURRENCY
 AGENT_OPERATOR_MODEL
 AGENT_SOURCING_MODEL
@@ -264,22 +263,23 @@ keyword research is intentionally enabled.
 | `NAVER_SEARCHAD_CUSTOMER_ID` | Naver SearchAd keyword research is enabled | Sourcing Naver keyword adapter | SearchAd advertiser customer id used in `X-Customer`. |
 | `NAVER_SEARCHAD_BASE_URL` | Non-production SearchAd endpoint override is needed | Sourcing Naver keyword adapter | Optional. Defaults to `https://api.searchad.naver.com`. |
 
-## Agent OS local CLI
+## Agent OS Host Runner
 
-The home-server has exactly one API process that may spawn Codex/Claude and
-its private MCP socket. The worker and web containers never receive a CLI home
-or provider login path. Attempt profiles are isolated under the API container;
-the read-only service-account profile is only their login source. No provider
-credential, provider session/history, gateway secret, HMAC envelope, budget,
-or second concurrency setting is an Office contract.
+The home server has one API process that owns durable admission and direct
+loopback MCP HTTP. A native Host Runner, not any container, owns Codex/Claude
+processes. The API, worker, and web containers never receive provider binaries
+or a provider login path. The Runner service account keeps the provider login
+outside KidItem; each Attempt uses a disposable home/workspace and never
+resumes provider history. No provider credential, provider session/history,
+gateway secret, durable control queue, or second concurrency setting is an
+Office contract.
 
 | Variable | Required when | Consumed by | Notes |
 |---|---|---|---|
 | `KIDITEM_APPLICATION_VERSION` | Every API/worker deployment | Admission/recovery identity | Written from the immutable Office manifest. |
 | `KIDITEM_GIT_SHA` | Every API/worker deployment | Admission/recovery identity | Full immutable deployment SHA, written from the manifest. |
-| `KIDITEM_ATTEMPT_CLI_VERSION` | Every API deployment | Attempt admission record | Explicit CLI contract identity; no silent default. |
-| `KIDITEM_ATTEMPT_LOGIN_HOME` | API local CLI use | API attempt runtime/readiness | API-only path to the read-only `kiditem-cli-home` profile. |
-| `AGENT_CLI_MAX_CONCURRENCY` | API local CLI use | API process-local admission | The only operator-tunable Agent concurrency; Office sets `4`. |
+| `KIDITEM_AGENT_RUNNER_TOKEN_FILE` | Every API deployment | Runner installation-token reader | Container path to the mounted Docker secret file; the raw token is never an environment value. |
+| `AGENT_CLI_MAX_CONCURRENCY` | Every API deployment | API process-local admission | The only operator-tunable Agent concurrency; Office sets `4`. |
 | `AGENT_OPERATOR_MODEL` | Every published Operator version | API admission/readiness | Explicit model, never persisted in AgentVersion. |
 | `AGENT_SOURCING_MODEL` | Every published Sourcing version | API admission/readiness | Explicit model. |
 | `AGENT_MERCHANDISING_MODEL` | Every published Merchandising version | API admission/readiness | Explicit model. |
@@ -287,10 +287,11 @@ or second concurrency setting is an Office contract.
 | `AGENT_CHANNEL_OPERATIONS_MODEL` | Every published Channel Operations version | API admission/readiness | Explicit model. |
 | `AGENT_ADVERTISING_MODEL` | Every published Advertising version | API admission/readiness | Explicit model. |
 
-Provision the persistent profile through the Office `cli-login` Compose profile
-with `codex login` and `claude auth login`. KidItem neither stores, copies, nor
-forwards Anthropic/OpenAI credentials. The browser reaches same-origin
-`/api/copilotkit`; it has no gateway secret or browser-provided identity.
+The Windows Host Runner installer creates the protected Task Scheduler service
+account boundary. An operator performs provider login under that account before
+the Runner reports readiness. KidItem neither stores, copies, nor forwards
+Anthropic/OpenAI credentials. The browser reaches same-origin `/api/copilotkit`;
+it has no gateway secret or browser-provided identity.
 
 The browser sees only same-origin `/api/copilotkit`; the Next rewrite points
 directly at the ordinary Nest API origin and is not a CopilotKit public key or
@@ -414,8 +415,9 @@ Get-Content C:\ProgramData\Kiditem\deployments\current.json
 
 - Any required secret is missing for a feature being enabled.
 - A `NEXT_PUBLIC_*` value was changed without rebuilding the web image.
-- Any of the six explicit `AGENT_*_MODEL` values, `KIDITEM_ATTEMPT_LOGIN_HOME`,
-  or immutable deployment identity values is missing from the API runtime.
+- Any of the six explicit `AGENT_*_MODEL` values, the protected
+  `KIDITEM_AGENT_RUNNER_TOKEN_FILE`, or immutable deployment identity values is
+  missing from the API runtime.
 - `CHANNEL_CREDENTIALS_ENCRYPTION_KEY` is missing while channel credentials are
   being stored or decrypted.
 

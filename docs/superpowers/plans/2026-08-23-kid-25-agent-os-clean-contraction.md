@@ -808,8 +808,9 @@ trees; worker owns mutation/Approval/Operations. Runner control is outbound
 command long-poll plus idempotent event POST, and the CLI reaches Nest only
 through host-loopback MCP HTTP. Remove container CLI packages/login volume,
 stdio/UDS/private-socket glue, gateway URLs, `AGENT_RUNTIME_WORKER_ENABLED`,
-old runtime concurrency/wait/budget values, HMAC/provider credentials, advisory
-lock, release drain, compatibility canary/image, and old run-root mounts.
+old runtime concurrency/wait/budget values, obsolete internal-signing or
+credential-broker paths, advisory lock, release drain, compatibility
+canary/image, and old run-root mounts.
 
 The only adjustable capacity variable is:
 
@@ -843,7 +844,7 @@ Do not automate restore rehearsal, archive retention policy, RPO/RTO, or release
 drain. Never log the database URL, archive contents, credentials, prompts, or
 canonical mutation input.
 
-- [ ] **Step 3: Rewrite durable architecture/runbooks/instructions**
+- [x] **Step 3: Rewrite durable architecture/runbooks/instructions**
 
 `docs/ARCHITECTURE.md` and Agent OS `AGENTS.md` describe only the single-node
 six-model graph, process-local capacity, terminal deletion, manual Continue,

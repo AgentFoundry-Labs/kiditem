@@ -84,6 +84,7 @@ const sourceSnapshot = {
   title: 'Toy',
   price: 1,
   currency: 'CNY',
+  variantKeyNormalized: 'default',
   images: [],
   contentHash: 'a'.repeat(64),
 };
@@ -137,7 +138,7 @@ function owners() {
   return {
     sourcing: {
       duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }),
-      scrapeProductUrl: vi.fn().mockResolvedValue({ snapshot: { sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64) } }),
+      scrapeProductUrl: vi.fn().mockResolvedValue({ snapshot: sourceSnapshot }),
       ingestCandidate: vi.fn().mockResolvedValue({ candidateId: '00000000-0000-4000-8000-000000000039' }),
       scrapeUrlWorkflow: vi.fn().mockResolvedValue({ kind: 'enqueued', operationRunId: '00000000-0000-4000-8000-000000000035', status: 'queued' }),
       retrieveWorkspaceEvidence: vi.fn().mockResolvedValue({ inputHash: 'a'.repeat(64), documentCount: 0, documents: [], dataGaps: [] }),
@@ -249,6 +250,23 @@ describe('FinalCapabilityCatalogRegistrar', () => {
       });
       expect(AgentResultEnvelopeSchema.safeParse(result).success).toBe(true);
     }
+  });
+
+  it('preserves the bounded normalized variant identity when it invokes candidate ingestion', async () => {
+    const { ports, bindings } = finalBindings();
+    const registry = new AgentCapabilityRegistry();
+    registerFinalCapabilityCatalog(registry, bindings);
+
+    await registry.resolveImplementation('sourcing.ingestCandidate')!.invoke({
+      context,
+      input: validInputByKey['sourcing.ingestCandidate'],
+    });
+
+    expect(ports.sourcing.ingestCandidate).toHaveBeenCalledWith(expect.objectContaining({
+      snapshot: expect.objectContaining({
+        variantKeyNormalized: sourceSnapshot.variantKeyNormalized,
+      }),
+    }));
   });
 
   it('rejects the retired master-only Channels shape and accepts frozen provenance-complete submission input', () => {

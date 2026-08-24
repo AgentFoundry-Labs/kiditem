@@ -9,6 +9,9 @@ at a developer database, a NAS, or an unverified Docker context.
 
 - The immutable `office-deployment.json` has been reviewed and its `appVersion`
   and full `gitSha` match the downloaded bundle.
+- The same bundle contains the manifest-named Windows Host Runner archive and
+  its runtime contract. The pre-provisioned `KidItemAgentRunner` service account
+  has completed provider login; this runbook never reads or copies that login.
 - `C:\ProgramData\Kiditem\.env.office` and the protected API env file exist.
 - `docker context show` identifies the intended Office Docker Desktop context.
 - The approved backup directory is a protected local disk path, for example
@@ -62,6 +65,13 @@ foreach ($name in @('api','worker')) {
   if ($service.environment.KIDITEM_GIT_SHA -ne $manifest.gitSha) { throw "Rendered $name KIDITEM_GIT_SHA does not match manifest git SHA." }
 }
 if ($rendered.services.web.image -ne $manifest.webImage) { throw 'Rendered web image does not match manifest web image.' }
+# Stop the native Runner before application writers. The Runner owns all live
+# provider process trees, so no Attempt may outlive this maintenance boundary.
+$runnerTask = Get-ScheduledTask -TaskName 'KidItem Agent Runner' -ErrorAction SilentlyContinue
+if ($null -ne $runnerTask -and $runnerTask.State.ToString() -eq 'Running') {
+  Stop-ScheduledTask -TaskName 'KidItem Agent Runner'
+}
+
 # Stop every application writer. Keep PostgreSQL and MinIO running.
 & docker @compose stop api worker web nginx
 if ($LASTEXITCODE -ne 0) { throw 'Could not stop Office writers.' }
@@ -103,8 +113,13 @@ try {
   $pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
   if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist after schema cutover; writers remain stopped.' }
 
-  & docker @compose up --detach --no-build api worker web nginx
-  if ($LASTEXITCODE -ne 0) { throw 'Runtime start failed.' }
+  # The schema is already applied above. CutoverDeploy installs the matching
+  # Host Runner archive, registers the constrained Task Scheduler entry, and
+  # proves full API/Runner readiness before business Attempts can be admitted.
+  # Its explicit confirmation selects the fail-closed path: it never starts a
+  # prior application runtime against this contracted schema.
+  & "$bundle\apply-deployment.ps1" -Operation CutoverDeploy -ConfirmCutoverDeploy -ManifestPath "$bundle\office-deployment.json"
+  if ($LASTEXITCODE -ne 0) { throw 'API/Host Runner start failed.' }
   & "$bundle\apply-deployment.ps1" -Operation Status
   if ($LASTEXITCODE -ne 0) { throw 'Office status check failed.' }
   Invoke-WebRequest -UseBasicParsing http://127.0.0.1/login | Out-Null

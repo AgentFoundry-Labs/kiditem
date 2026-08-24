@@ -14,7 +14,8 @@ protected release/office SHA
       -> local Docker Compose
         -> PostgreSQL + MinIO external volumes
         -> one API + one worker + one web + nginx
-        -> API-owned Codex/Claude CLI profile + per-Attempt directories
+      -> native Windows Host Runner under Task Scheduler
+        -> dedicated service-account login + disposable Attempt directories
 ```
 
 The Office checkout is always `release/office`, tracking
@@ -30,25 +31,27 @@ secret contract.
 ### Nest process ownership
 
 ```text
-main.ts   -> ApiApplicationModule         -> HTTP + domains + Operations
-worker.ts -> AgentWorkerApplicationModule -> Agent OS queue/runtime only
-MCP/CLI   -> AgentMcpApplicationModule    -> scoped Agent capabilities only
+main.ts                 -> ApiApplicationModule         -> HTTP + domains + Operations + Agent admission/MCP
+worker.ts               -> AgentWorkerApplicationModule -> durable Agent mutation/Operation recovery
+apps/agent-runner       -> native Host Runner            -> Codex/Claude process trees only
 ```
 
 Office runs exactly one API container, one worker, and one web container.
-Replicas and rolling API overlap are unsupported. The API alone owns the
-Codex/Claude executable and private MCP socket; the worker owns durable
-Operation/approval work but receives neither a CLI login profile nor a CLI
-home. `AGENT_CLI_MAX_CONCURRENCY=4` is the only Agent capacity control. The
-API has a 10-second stop grace period and its health check allows a 60-second
-startup period for fail-closed lifecycle cleanup.
+Replicas and rolling API overlap are unsupported. The API owns durable Agent
+admission and the direct loopback MCP HTTP adapter; the native Host Runner
+alone owns Codex/Claude executables, per-Attempt homes/workspaces, and process
+tree cleanup. The worker owns durable Operation/approval recovery and receives
+neither a provider login profile nor provider binaries. `AGENT_CLI_MAX_CONCURRENCY=4`
+is the only Agent capacity control. The API has a 10-second stop grace period
+and its health check allows a 60-second startup period for fail-closed
+lifecycle cleanup.
 
 Only the API application graph reaches OperationsModule; ApiApplicationModule
 owns OperationRun creation, scheduling, resource-class dispatch, browser
 claims, startup cleanup, and shutdown cancellation. AgentWorkerApplicationModule
-and MCP roots are Agent-runtime-only: they cannot import OperationsModule or
-query/mutate OperationRun. A bounded Agent command reaches the one API owner
-instead.
+is recovery-only: it cannot import API transport or start a CLI. The Host
+Runner can submit only strict Runner commands/events and direct scoped MCP
+requests to the one API owner.
 
 The API lifecycle is code-owned:
 
@@ -136,17 +139,20 @@ changes, or queued jobs.
 An incompatible schema contraction uses a full-stop maintenance window instead
 of the normal runtime rollback path. Stop API, worker, web, and nginx before the
 final database dump; keep them stopped through the destructive schema push and
-relation verification. If the cutover fails, restore the verified pre-push dump
-before starting the previous manifest. The database backup and prior runtime
-are one recovery unit. The normal deployment wrapper is not used for this
-cutover because its application-only runtime restore cannot roll back the
+relation verification. After the schema is accepted, start the candidate only
+with `apply-deployment.ps1 -Operation CutoverDeploy -ConfirmCutoverDeploy`; it
+does not restore a prior runtime on failure. If the cutover fails, restore the
+verified pre-push dump before starting the previous manifest. The database
+backup and prior runtime are one recovery unit. The normal `Deploy` operation
+is not used because its application-only runtime restore cannot roll back the
 database.
 
 ## Security Boundary
 
 - Office environment files remain outside Git and are never workflow inputs.
-- Codex/Claude login material remains in the local `kiditem-cli-home` volume;
-  it is never copied to an env file, image, workflow artifact, log, or backup.
+- Codex/Claude login material stays only in the dedicated Windows Host Runner
+  service account. It is never copied to an env file, container image,
+  workflow artifact, log, or backup.
 - Office database and object storage are not exposed to the public Internet.
 - The `office` GitHub Environment restricts bundle publication to the protected
   branch and may require reviewers.
@@ -166,11 +172,14 @@ repository on a NAS share. The NAS is a verified backup target only.
 Before changing this architecture:
 
 ```bash
-npm run check:workflow-yaml
 npm run test:scripts
+npm run check:conventions
 powershell -NoProfile -Command '$tokens = $null; $errors = $null; [void][System.Management.Automation.Language.Parser]::ParseFile("deploy/office/apply-deployment.ps1",[ref]$tokens,[ref]$errors); if ($errors.Count) { $errors; exit 1 }'
 docker compose --env-file deploy/office/office.env.example --env-file deploy/office/digest.env.example -f deploy/office/compose.office.yml config --quiet
 ```
+
+`npm run test:scripts` includes the Office workflow/manifest/archive contract;
+there is no standalone `check:workflow-yaml` script.
 
 For release operation details, use [Office Deploy](office-deploy.md).
 

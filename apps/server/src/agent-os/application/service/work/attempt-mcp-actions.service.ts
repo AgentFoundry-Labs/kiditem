@@ -14,8 +14,8 @@ import { zodToJsonSchema } from 'zod-to-json-schema';
 import { AgentResultEnvelopeSchema } from '@kiditem/shared/agent-interaction';
 
 /**
- * Application orchestration for the Attempt-local MCP proxy. The incoming
- * socket adapter sees only its input port; persistence and live controls are
+ * Application orchestration for Attempt-local MCP actions. The direct HTTP
+ * adapter sees only this input port; persistence and live controls are
  * substituted through narrow outgoing ports here.
  */
 export class AttemptMcpActionsService implements AttemptMcpActionsPort {

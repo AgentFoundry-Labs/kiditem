@@ -7,7 +7,7 @@ import ts from "typescript";
 export function productionFiles(directory) {
   if (!existsSync(directory)) return [];
   if (statSync(directory).isFile()) {
-    return /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml)|\.env\.example|\.example)$/.test(
+    return /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml|md)|\.env\.example|\.example)$/.test(
       path.basename(directory),
     )
       ? [directory]
@@ -19,7 +19,7 @@ export function productionFiles(directory) {
       return entry.name === "__tests__" ? [] : productionFiles(absolute);
     }
     return entry.isFile() &&
-      /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml)|\.env\.example|\.example)$/.test(
+      /(?:\.(?:ts|tsx|mjs|prisma|json|conf|ya?ml|md)|\.env\.example|\.example)$/.test(
         entry.name,
       ) &&
       !/\.(?:spec|test)\.(?:ts|tsx|mjs)$/.test(entry.name)
@@ -32,6 +32,42 @@ const SERVER_CHILD_PROCESS_ALLOWLIST = new Set([
   "apps/server/src/ai/adapter/out/wing/playwriter-cli.ts",
   "apps/server/src/orders/coupang-directship/coupang-directship.service.ts",
   "apps/server/src/test-helpers/postgres-global-setup.ts",
+]);
+const SUPERSEDED_AGENT_OS_RUNTIME_SURFACES = new Set([
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-proxy.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.spec.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-socket-server.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.spec.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-stdio-to-uds.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.service.ts",
+  "apps/server/src/agent-os/adapter/in/mcp/attempt-mcp-broker.spec.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-executor.service.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-process-registry.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-attempt-runtime.spec.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-filesystem.service.spec.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/attempt-live-control.registry.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt.adapter.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/claude-attempt.adapter.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-app-server-session.spec.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/codex-attempt-isolation-canary.spec.ts",
+  "apps/server/src/agent-os/adapter/out/runtime/attempt/agent-result-output-schema.ts",
+  "apps/server/src/agent-os/application/service/work/agent-runtime-directory-reconciler.service.ts",
+]);
+const SUPERSEDED_AGENT_MCP_APPLICATION_ROOT =
+  "apps/server/src/agent-mcp-application.module.ts";
+const CURRENT_HOST_RUNNER_DOCUMENTS = new Set([
+  "AGENTS.md",
+  "apps/server/src/agent-os/AGENTS.md",
+  "docs/ARCHITECTURE.md",
+  "docs/TESTING.md",
+  "docs/runbooks/deployment-architecture.md",
+  "docs/runbooks/environment-variables.md",
+  "docs/runbooks/interaction-platform.md",
+  "docs/runbooks/office-deploy.md",
+  "docs/runbooks/agent-os-clean-cutover.md",
 ]);
 const RAW_LAUNCH_AUTHORITY_FIELD_NAMES = new Set([
   "command",
@@ -72,7 +108,7 @@ const ACTIVE_SECRET_COMPOSITES = [
   "connectiondsn",
 ];
 const EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX =
-  /^(?:runner|lease|command|event|process|poll|ack(?:nowledg)?|control|attempttoken)/;
+  /^(?:runner|lease|command|event|process|poll|ack(?:nowledg)?|control|attempttoken|(?:provider|codex|claude)(?:session|history|resume))/;
 
 function sourceFile(filePath, source) {
   return ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
@@ -184,40 +220,31 @@ function isEphemeralRunnerControlName(normalized) {
   return EPHEMERAL_RUNNER_CONTROL_FIELD_PREFIX.test(normalized);
 }
 
-function isRunnerControlFieldName(modelName, fieldName) {
-  if (!isRunnerControlModel(modelName)) return false;
-  const normalized = normalizedName(fieldName);
-  return (
-    isActiveSecretOrCredentialName(fieldName) ||
-    isEphemeralRunnerControlName(normalized)
-  );
-}
+function persistedAgentOsStateFindings(filePath, source) {
+  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) {
+    return { hasActiveSecretOrCredential: false, hasEphemeralRunnerControl: false };
+  }
 
-function hasPersistedRunnerControlState(filePath, source) {
-  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
-  return prismaModelBlocks(source).some(
-    ({ name, body }) =>
-      isDedicatedRunnerControlModel(name) ||
-      prismaFieldNames(body).some(
-        (field) =>
-          isRunnerControlFieldName(name, field) ||
-          (isAgentOsPersistenceModel(filePath, name) &&
-            isActiveSecretOrCredentialName(field)),
-      ),
-  );
-}
-
-function hasPersistedProviderSessionHistoryResume(filePath, source) {
-  if (!/^prisma\/models\/.+\.prisma$/.test(filePath)) return false;
-  return prismaModelBlocks(source).some(
-    ({ name, body }) =>
-      isAgentOsPersistenceModel(filePath, name) &&
-      prismaFieldNames(body).some((field) =>
-        /^(?:provider|codex|claude)(?:session|history|resume)[a-z0-9]*$/.test(
-          normalizedName(field),
-        ),
-      ),
-  );
+  let hasActiveSecretOrCredential = false;
+  let hasEphemeralRunnerControl = false;
+  for (const { name, body } of prismaModelBlocks(source)) {
+    if (isDedicatedRunnerControlModel(name)) hasEphemeralRunnerControl = true;
+    for (const field of prismaFieldNames(body)) {
+      if (
+        isAgentOsPersistenceModel(filePath, name) &&
+        isActiveSecretOrCredentialName(field)
+      ) {
+        hasActiveSecretOrCredential = true;
+      }
+      if (
+        isRunnerControlModel(name) &&
+        isEphemeralRunnerControlName(normalizedName(field))
+      ) {
+        hasEphemeralRunnerControl = true;
+      }
+    }
+  }
+  return { hasActiveSecretOrCredential, hasEphemeralRunnerControl };
 }
 
 function isForbiddenAgentDefinitionStateName(name) {
@@ -766,10 +793,69 @@ function hasNginxInternalAgentRuntimeDenyBoundary(source) {
   return false;
 }
 
+function hasSupersededComposeCliHome(source) {
+  return /\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)\b/i.test(source);
+}
+
+function hasApiImageProviderCliInstallation(source) {
+  return /(?:@openai\/codex|@anthropic-ai\/claude-code)/i.test(source);
+}
+
+function hasStaleCurrentHostRunnerDocumentation(filePath, source) {
+  if (!CURRENT_HOST_RUNNER_DOCUMENTS.has(filePath)) return false;
+  if (/\b(?:KIDITEM_ATTEMPT_LOGIN_HOME|kiditem-cli-home)\b/i.test(source)) {
+    return true;
+  }
+  if (/\b4401\b/.test(source)) return true;
+  if (/\bprivate MCP socket\b/i.test(source)) return true;
+  const normalized = source.replace(/\s+/g, " ");
+  return [
+    /\b(?:API|Nest(?:JS)?)\s+(?:process|service|container|root)\s+that\s+(?:may\s+)?(?:spawn|start|run|execute|supervise)\s+(?:a\s+)?(?:Codex|Claude|CLI)\b/i,
+    /\b(?:API|Nest(?:JS)?)(?:\s+(?:process|service|container|root))?\s+owns?\s+(?:an?\s+|the\s+)?(?:Codex|Claude|CLI)\b/i,
+    /\b(?:API|Nest(?:JS)?)[^.]{0,100}\bonly process root permitted to start\s+(?:a\s+)?(?:Codex|Claude|CLI)\b/i,
+    /\b(?:API|Nest(?:JS)?)\s+(?:process|service|container|root)[^.]{0,100}\b(?:owns?|runs?|executes?|supervises?)\b[^.]{0,80}\b(?:live\s+)?CLI(?:\/MCP)?\s+process/i,
+  ].some((pattern) => pattern.test(normalized));
+}
+
+function hasSupersededDirectMcpStatement(filePath, source) {
+  return (
+    /^apps\/server\/src\/agent-os\//.test(filePath) &&
+    /\b(?:private\s+MCP\s+socket|(?:incoming|MCP)\s+socket\s+adapter|socket\s+adapter)\b/i.test(
+      source,
+    )
+  );
+}
+
+function supersededRuntimeSurfaceFinding(filePath) {
+  if (filePath === SUPERSEDED_AGENT_MCP_APPLICATION_ROOT) {
+    return "superseded Agent MCP application root";
+  }
+  return SUPERSEDED_AGENT_OS_RUNTIME_SURFACES.has(filePath)
+    ? "superseded Agent OS runtime surface"
+    : null;
+}
+
+export function collectSupersededRuntimeInventoryFindings(root) {
+  return supersededRuntimeInventoryPaths()
+    .filter((relativePath) => existsSync(path.join(root, relativePath)))
+    .map((relativePath) => `${relativePath}: ${supersededRuntimeSurfaceFinding(relativePath)}`)
+    .sort();
+}
+
+export function supersededRuntimeInventoryPaths() {
+  return [
+    ...SUPERSEDED_AGENT_OS_RUNTIME_SURFACES,
+    SUPERSEDED_AGENT_MCP_APPLICATION_ROOT,
+  ].sort();
+}
+
 function findingsFor({ path: filePath, source }) {
   const findings = [];
   const isAgentOsSource = /^apps\/server\/src\/agent-os\//.test(filePath);
   const isServerSource = /^apps\/server\/src\//.test(filePath);
+  const supersededRuntimeSurface = supersededRuntimeSurfaceFinding(filePath);
+
+  if (supersededRuntimeSurface) findings.push(supersededRuntimeSurface);
 
   if (filePath === "apps/server/package.json") {
     findings.push(...attemptMcpPackageFindings(source));
@@ -808,6 +894,18 @@ function findingsFor({ path: filePath, source }) {
   ) {
     findings.push("API image provider CLI assertion");
   }
+  if (
+    filePath === "apps/server/Dockerfile" &&
+    hasApiImageProviderCliInstallation(source)
+  ) {
+    findings.push("API image provider CLI installation");
+  }
+  if (
+    filePath === "deploy/office/compose.office.yml" &&
+    hasSupersededComposeCliHome(source)
+  ) {
+    findings.push("superseded Compose CLI-home volume");
+  }
   if (isServerSource) {
     const hasProviderCliProcess = hasProviderCliProcessOrKill(source);
     if (
@@ -833,11 +931,12 @@ function findingsFor({ path: filePath, source }) {
   ) {
     findings.push("Runner launch authority/secret field");
   }
-  if (hasPersistedRunnerControlState(filePath, source)) {
-    findings.push("Runner control-plane persistence");
+  const persistedState = persistedAgentOsStateFindings(filePath, source);
+  if (persistedState.hasActiveSecretOrCredential) {
+    findings.push("active secret/credential persistence");
   }
-  if (hasPersistedProviderSessionHistoryResume(filePath, source)) {
-    findings.push("provider session/history/resume persistence");
+  if (persistedState.hasEphemeralRunnerControl) {
+    findings.push("ephemeral Runner control-state persistence");
   }
   if (hasForbiddenAgentVersionState(filePath, source)) {
     findings.push("provider/model state on AgentVersion");
@@ -860,6 +959,12 @@ function findingsFor({ path: filePath, source }) {
   ) {
     findings.push("nginx internal Agent runtime deny boundary");
   }
+  if (hasStaleCurrentHostRunnerDocumentation(filePath, source)) {
+    findings.push("stale current Host Runner documentation");
+  }
+  if (hasSupersededDirectMcpStatement(filePath, source)) {
+    findings.push("superseded direct-MCP statement");
+  }
   return findings.map((finding) => `${filePath}: ${finding}`);
 }
 
@@ -879,6 +984,15 @@ export function contractionRoots(root) {
     path.join(root, "deploy/office/nginx.conf"),
     path.join(root, "deploy/office/compose.office.yml"),
     path.join(root, "docker-compose.yml"),
+    path.join(root, "AGENTS.md"),
+    path.join(root, "apps/server/src/agent-os/AGENTS.md"),
+    path.join(root, "docs/ARCHITECTURE.md"),
+    path.join(root, "docs/TESTING.md"),
+    path.join(root, "docs/runbooks/deployment-architecture.md"),
+    path.join(root, "docs/runbooks/environment-variables.md"),
+    path.join(root, "docs/runbooks/interaction-platform.md"),
+    path.join(root, "docs/runbooks/office-deploy.md"),
+    path.join(root, "docs/runbooks/agent-os-clean-cutover.md"),
   ];
 }
 
@@ -888,14 +1002,17 @@ function main() {
     throw new Error("Use --report or --enforce");
   }
   const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
-  const findings = collectAgentOsContractionFindings(
-    contractionRoots(root)
-      .flatMap(productionFiles)
-      .map((file) => ({
-        path: path.relative(root, file),
-        source: readFileSync(file, "utf8"),
-      })),
-  );
+  const findings = [...new Set([
+    ...collectAgentOsContractionFindings(
+      contractionRoots(root)
+        .flatMap(productionFiles)
+        .map((file) => ({
+          path: path.relative(root, file),
+          source: readFileSync(file, "utf8"),
+        })),
+    ),
+    ...collectSupersededRuntimeInventoryFindings(root),
+  ])].sort();
   console.log(
     `check:agent-os-contraction ${mode.toUpperCase()} (${findings.length} findings)`,
   );

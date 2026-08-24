@@ -262,9 +262,8 @@ export const AttemptLaunchSpecSchema = z.object({
 Tests must reject unknown keys and recursively reject `command`, `executable`,
 `shell`, `args`, `env`, `cwd`, `path`, `loginHome`, `organizationId`,
 `userId`, `sessionId`, and active secret/credential material. This is a generic
-security boundary, not a vocabulary of retired implementations: a current
-`signingSecret` is rejected because it is a secret, while a non-secret hash or
-digest is not rejected merely because its historical name contains `hmac`.
+security boundary: a current signing secret is rejected because it is a secret,
+while a non-secret hash or digest is not rejected merely for being metadata.
 They also prove:
 
 - `process.platform === 'darwin'` maps to `macos`;
@@ -315,8 +314,8 @@ Keep only invariants required by the final architecture:
 - Runner lease, poll, command, event, Attempt-token, acknowledgement, and
   process state remain ephemeral rather than Prisma-owned.
 
-Do not special-case retired HMAC field names, credential readers, or other
-legacy vocabulary when no final code path can reintroduce them. Delete
+Do not special-case retired field names, credential readers, or other legacy
+vocabulary when no final code path can reintroduce them. Delete
 legacy-only fixtures together with the implementation they describe. The
 scanner may remain red while a replacement is being wired, but no legacy
 surface is kept alive merely until Task 6.
@@ -1063,7 +1062,7 @@ shim remains.
 - Modify: `AGENTS.md`
 - Modify: `docs/superpowers/plans/2026-08-23-kid-25-agent-os-clean-contraction.md`
 
-- [ ] **Step 1: Make zero-legacy findings a failing gate, then delete**
+- [x] **Step 1: Make zero-legacy findings a failing gate, then delete**
 
 Before deletion, tests must enumerate every superseded production file,
 dependency, env var, Compose mount, Docker assertion, and doc statement. Then
@@ -1080,7 +1079,7 @@ The final server runtime tree may retain only:
 - Nest-owned 11-tool factory and strict result/wire helpers;
 - existing durable work/capability application services.
 
-- [ ] **Step 2: Rewrite nearby durable documentation, not append history**
+- [x] **Step 2: Rewrite nearby durable documentation, not append history**
 
 All durable docs must say:
 
@@ -1210,7 +1209,7 @@ Do not add:
 - MCP Tasks or production MRTR authority;
 - AgentVersion/CapabilityDefinition provider credentials, models, sessions, or
   history;
-- capability catalog changes, owner-port changes, new HMAC keys, RBAC, quota,
+- capability catalog changes, owner-port changes, new internal-signing keys, RBAC, quota,
   delegation depth/fan-out, distributed admission, or multi-API lease;
 - Web/AG-UI durable states or a new interaction service;
 - alternate local deploy scripts, mutable runtime downloads, automatic

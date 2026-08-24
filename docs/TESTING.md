@@ -63,6 +63,25 @@ integration/E2E/scanner 가 이미 보호하는 중복 테스트는 아래
 때문에 `*.test.ts` 도 실행되지만, 새 테스트는 주변 route 가 이미 `*.test.ts`
 를 쓰는 경우가 아니면 `*.spec.ts` 를 우선한다.
 
+## Agent OS Host Runner boundary
+
+KID-25의 Agent runtime은 테스트에서 세 경계를 따로 증명한다.
+
+- `scripts/check-agent-os-contraction.mjs --enforce`는 API-owned provider
+  execution, legacy transport, stale current runbook, active
+  secret/credential persistence, and ephemeral Runner control-state persistence를
+  막는다.
+- `apps/server/src/agent-os` focused tests는 durable admission, token/lease
+  replay, modern-only MCP `2026-07-28`, and same-SHA restart recovery를 다룬다.
+- `apps/agent-runner` tests는 strict long-poll/event contracts, per-Attempt
+  cleanup, provider command isolation, and macOS/Windows supervision을 다룬다.
+
+Normal CI never requires a live provider login. A manually enabled real-CLI
+canary runs only on the Host Runner, requires explicit model values, and must
+leave the API non-ready if the provider cannot complete the strict direct-MCP
+canary. It must not print provider credentials, Attempt tokens, prompts, or raw
+provider payloads.
+
 ## Mock / test double 정책
 
 기본값은 실제 객체와 실제 도메인 함수를 사용한다. Mock 은 다음 경우에만

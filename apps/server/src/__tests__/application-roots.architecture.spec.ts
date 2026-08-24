@@ -1,5 +1,6 @@
 import 'reflect-metadata';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MODULE_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it } from 'vitest';
@@ -54,5 +55,25 @@ describe('final application-root topology', () => {
 
   it('rejects retired root imports and lifecycle identifiers in production source', () => {
     expect(inspectStaticApplicationRootPolicy(serverSource)).toEqual([]);
+  });
+
+  it('rejects application composition that reaches the direct runtime HTTP adapter', () => {
+    const fixtureRoot = mkdtempSync(join(tmpdir(), 'kiditem-agent-root-policy-'));
+    const applicationRoot = join(fixtureRoot, 'agent-runtime-application.module.ts');
+    const runtimeHttp = join(fixtureRoot, 'agent-os', 'agent-os-runtime-http.module.ts');
+    mkdirSync(join(fixtureRoot, 'agent-os'), { recursive: true });
+    writeFileSync(
+      applicationRoot,
+      "import './agent-os/agent-os-runtime-http.module';\nexport const runtime = true;\n",
+    );
+    writeFileSync(runtimeHttp, 'export const directHttp = true;\n');
+
+    try {
+      expect(inspectStaticApplicationRootPolicy(fixtureRoot)).toEqual([
+        'agent-runtime-application.module.ts reaches direct Agent OS runtime HTTP through agent-runtime-application.module.ts -> agent-os/agent-os-runtime-http.module.ts',
+      ]);
+    } finally {
+      rmSync(fixtureRoot, { recursive: true, force: true });
+    }
   });
 });

@@ -10,8 +10,8 @@ service is required.
 ```text
 browser /api/copilotkit
   -> Nest authenticated CopilotKit incoming adapter
-  -> Agent Work admission and API-owned Codex/Claude Attempt
-  -> private MCP socket and owner-domain capability ports
+  -> Agent Work admission and native Host Runner command
+  -> direct loopback MCP v2 Streamable HTTP + owner-domain capability ports
   -> PostgreSQL durable work state
 ```
 
@@ -48,9 +48,9 @@ runtime configuration. Existing Tasks remain pinned to their selected version.
 ## Readiness and verification
 
 Probe authenticated Nest interaction/readiness routes before sending browser
-traffic. There is no intermediary service, service credential, HMAC envelope,
-browser-provided organization identity, Hermes runtime, deletion graph, or
-provider-session resume.
+traffic. There is no intermediary service, service credential, internal-signing
+envelope, browser-provided organization identity, Hermes runtime, deletion
+graph, or provider-session resume.
 
 ```bash
 npm run build --workspace=apps/server
@@ -59,15 +59,16 @@ npm run smoke:interaction-os
 ```
 
 `npm run smoke:interaction-os` refuses production-like environments, builds the
-exact API/Web artifacts, and runs the focused Attempt filesystem/process,
-future-output, admission, startup-recovery, and runtime readiness suites. It
-does not contact Codex, Claude, or any production database/runtime. Full schema
-and seed acceptance uses only a named disposable PostgreSQL instance as defined
-in [Agent OS Clean Cutover](agent-os-clean-cutover.md).
+exact API/Web artifacts, and runs focused admission, direct-MCP, restart, and
+Runner-control suites. It does not contact Codex, Claude, or any production
+database/runtime. Full schema and seed acceptance uses only a named disposable
+PostgreSQL instance as defined in [Agent OS Clean Cutover](agent-os-clean-cutover.md).
 
 ## Process-root boundary
 
-The API root owns the live CLI/MCP process lifecycle and composes the Nest
-CopilotKit adapter over controller-free Agent Work ports. The worker owns
-durable mutation/Operation recovery but never imports an HTTP adapter or CLI
-provider. Preserve this split when adding a capability, runtime, or controller.
+The API root owns durable admission and composes the Nest CopilotKit and MCP
+HTTP adapters over controller-free Agent Work ports. The native Host Runner
+owns the live CLI process lifecycle through authenticated command long-poll and
+event POST. The worker owns durable mutation/Operation recovery but never
+imports API transport or a CLI provider. Preserve this split when adding a
+capability, runtime, or controller.

@@ -42,13 +42,15 @@ apps/agent-runner -> native host process           -> disposable CLI supervision
 `AgentOsInteractionHttpModule` is the API-only Nest incoming adapter for
 CopilotKit. It composes controller-free Agent Work ports and the DB-fenced MCP
 executor; there is no gateway, legacy AgentRun lane, credential broker, or
-runtime HMAC boundary. A native Host Runner polls Nest for strict structured
+internal signing boundary. A native Host Runner polls Nest for strict structured
 commands and posts bounded idempotent events; it exposes no inbound listener
 and never accepts a raw shell command. Runner-spawned Codex/Claude processes
 call the loopback-only Nest MCP v2 Streamable HTTP adapter with one short-lived
 Attempt bearer token. The adapter revalidates Session/Task/Attempt authority
 and active Operation binding from the database on every tool call. It exposes
 `agent_os_read_context` plus the complete policy-registered capability catalog.
+The release exposes exactly 11 MCP tools for 18 CapabilityDefinitions,
+including all ten Sourcing capabilities.
 Cross-domain reads receive an execution-scoped grant; cross-domain mutations
 delegate to the explicitly selected owner Agent. A mutation retains its exact
 execution-derived idempotency key, and its `approvalRisk` determines whether it
@@ -1000,12 +1002,14 @@ The persistence graph is exactly `AgentVersion`, `AgentSession`, `AgentTask`,
 Continue waits are derived from their current records.
 
 The browser reaches the Nest CopilotKit incoming adapter at same-origin
-`/api/copilotkit`. The API authorizes the current user, admits work, and is the
-only process root permitted to start a Codex/Claude CLI Attempt and its private
-MCP socket. The worker recovers durable mutation/Operation state, but never
-receives a CLI login profile or imports the HTTP adapter. Restart/follow-up
-reasoning always starts a new immutable Attempt from durable KidItem state;
-provider session/history is never resumed.
+`/api/copilotkit`. The API authorizes the current user, admits work, and sends
+only strict structured commands to the native Host Runner. The Runner is the
+only process that starts Codex/Claude Attempts; each Attempt reaches the Nest
+MCP adapter directly through loopback Streamable HTTP. The worker recovers
+durable mutation/Operation state, but never receives a CLI login profile or
+imports the HTTP adapter. Restart/follow-up reasoning always starts a new
+immutable Attempt from durable KidItem state; provider session/history is never
+resumed.
 
 Each public capability is defined by its owner domain with strict business Zod
 input/output contracts. Agent OS aggregates definitions, applies execution
@@ -1014,12 +1018,13 @@ owner implementation may use AI, DB, an external provider, or an Operation;
 Agent OS does not write owner-domain canonical rows. Deterministic workflows
 remain native workflows and do not create Agent work merely for bookkeeping.
 
-Official Codex/Claude execution uses only the API service account's persisted
-local CLI login. KidItem does not issue, copy, or inject provider credentials,
-HMAC envelopes, runtime handles, or provider-session identifiers. The API
-fails readiness closed when the required binary, declared CLI version, or local
-login profile is unavailable. Agent versions snapshot domains/capabilities and
-runtime profile, while model selection is explicit deployment configuration.
+Official Codex/Claude execution uses only the dedicated Host Runner service
+account's persisted local login. KidItem does not issue, copy, or inject
+provider credentials, runtime handles, or provider-session identifiers. The API
+keeps admission closed until the Runner proves the required runtime/version,
+model, deployment identity, direct MCP contract, and login readiness. Agent
+versions snapshot domains/capabilities and runtime profile, while model
+selection is explicit deployment configuration.
 
 ## Verification Baseline
 

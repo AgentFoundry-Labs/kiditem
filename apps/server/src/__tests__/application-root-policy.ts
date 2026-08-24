@@ -6,7 +6,11 @@ const RETIRED_LIFECYCLE_IDENTIFIERS = [
   'operation_worker_shutdown',
 ] as const;
 
-const ROOT_MODULES = ['agent-mcp-application.module.ts'] as const;
+const APPLICATION_COMPOSITION_ROOTS = [
+  'agent-runtime-application.module.ts',
+  'agent-worker-application.module.ts',
+] as const;
+const DIRECT_RUNTIME_HTTP_MODULE = 'agent-os/agent-os-runtime-http.module.ts';
 
 function productionTypeScriptFiles(directory: string): string[] {
   return readdirSync(directory).flatMap((entry) => {
@@ -32,10 +36,7 @@ function importSpecifiers(source: string): string[] {
   return specifiers;
 }
 
-function resolveRelativeImport(
-  sourceFile: string,
-  specifier: string,
-): string | null {
+function resolveRelativeImport(sourceFile: string, specifier: string): string | null {
   if (!specifier.startsWith('.')) return null;
   const base = resolve(dirname(sourceFile), specifier);
   const candidates = [
@@ -73,14 +74,14 @@ function pathTo(
   const pending = [[start]];
   const seen = new Set<string>();
   while (pending.length > 0) {
-    const path = pending.shift();
-    if (!path) continue;
-    const current = path.at(-1);
+    const chain = pending.shift();
+    if (!chain) continue;
+    const current = chain.at(-1);
     if (!current || seen.has(current)) continue;
-    if (current === target) return path;
+    if (current === target) return chain;
     seen.add(current);
     for (const dependency of graph.get(current) ?? []) {
-      pending.push([...path, dependency]);
+      pending.push([...chain, dependency]);
     }
   }
   return null;
@@ -102,18 +103,18 @@ export function inspectStaticApplicationRootPolicy(serverSrc: string): string[] 
     }
   }
 
-  const operationsModule = join(serverSrc, 'operations', 'operations.module.ts');
-  for (const rootName of ROOT_MODULES) {
+  const directRuntimeHttp = join(serverSrc, DIRECT_RUNTIME_HTTP_MODULE);
+  for (const rootName of APPLICATION_COMPOSITION_ROOTS) {
     const root = join(serverSrc, rootName);
-    const path = pathTo(graph, root, operationsModule);
-    if (path) {
+    if (!sources.has(root) || !sources.has(directRuntimeHttp)) continue;
+    const chain = pathTo(graph, root, directRuntimeHttp);
+    if (chain) {
       violations.push(
-        `${rootName} reaches OperationsModule through ${path
+        `${rootName} reaches direct Agent OS runtime HTTP through ${chain
           .map((file) => relative(serverSrc, file))
           .join(' -> ')}`,
       );
     }
   }
-
   return violations.sort();
 }
