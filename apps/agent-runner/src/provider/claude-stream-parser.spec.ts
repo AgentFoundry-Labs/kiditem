@@ -24,4 +24,15 @@ describe('ClaudeStreamParser', () => {
 
     expect(update.result).toMatchObject({ outcome: 'completed', summary: 'canonical result' });
   });
+
+  it('converts a provider-defined stream result error into a bounded terminal signal without retaining its payload', () => {
+    const parser = new ClaudeStreamParser();
+    const update = parser.receive(`${JSON.stringify({
+      type: 'result', subtype: 'error_during_execution', is_error: true,
+      error: 'provider detail that must never reach Runner events',
+    })}\n`);
+
+    expect(update).toEqual({ output: [], providerFailure: true });
+    expect(JSON.stringify(update)).not.toContain('provider detail');
+  });
 });

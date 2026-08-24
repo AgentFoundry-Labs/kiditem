@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { AttemptMcpActionsService } from './attempt-mcp-actions.service';
 import { z } from 'zod';
 import { deriveOwnerIdempotencyKey } from '../../../../common/owner-idempotency-key';
+import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
 
 const binding = {
   socketPath: '/tmp/attempt.sock', processGroupId: 1,
@@ -160,9 +161,46 @@ describe('AttemptMcpActionsService', () => {
 
   it('discovers all public capabilities but grants a foreign read only for this exact Attempt/input', async () => {
     const { service, invocations } = setup();
-    await expect(service.catalog({ binding, query: 'evidence' })).resolves.toMatchObject([{ key: 'sourcing.retrieveWorkspaceEvidence', ownerDomain: 'sourcing', effects: ['read'], inputSchema: { type: 'object' } }]);
+    await expect(service.catalog({ binding, query: 'evidence' })).resolves.toMatchObject([{
+      key: 'sourcing.retrieveWorkspaceEvidence',
+      ownerDomain: 'sourcing',
+      effects: ['read'],
+      inputSchema: { encoding: 'json-schema-draft-07', json: expect.stringContaining('"type":"object"') },
+    }]);
     await service.invoke({ invocationId: 'read', binding, capabilityKey: 'sourcing.retrieveWorkspaceEvidence', input: { query: 'source' } });
     expect(invocations.invoke).toHaveBeenCalledWith(expect.objectContaining({ authorizationKind: 'cross_domain_read_grant' }));
+  });
+
+  it('keeps representative nested Sourcing validation semantics in its bounded catalog schema', async () => {
+    const { service, capabilities } = setup();
+    const definition = FINAL_CAPABILITY_DEFINITIONS.find((item) => item.key === 'sourcing.ingestCandidate')!;
+    capabilities.listDefinitions.mockReturnValue([definition]);
+
+    const [catalog] = await service.catalog({ binding, query: 'ingestcandidate' });
+    const inputSchema = catalog.inputSchema as { encoding: string; json: string };
+
+    expect(inputSchema).toMatchObject({ encoding: 'json-schema-draft-07', json: expect.any(String) });
+    expect(Buffer.byteLength(inputSchema.json, 'utf8')).toBeLessThan(16 * 1024);
+    expect(JSON.parse(inputSchema.json)).toMatchObject({
+      type: 'object',
+      required: ['snapshot'],
+      additionalProperties: false,
+      properties: {
+        snapshot: {
+          type: 'object',
+          required: expect.arrayContaining(['sourceUrl', 'images', 'contentHash']),
+          additionalProperties: false,
+          properties: {
+            images: {
+              type: 'array',
+              maxItems: 40,
+              items: { type: 'string', format: 'uri', maxLength: 2000 },
+            },
+            contentHash: { type: 'string', pattern: '^[a-f0-9]{64}$' },
+          },
+        },
+      },
+    });
   });
 
   it('requires delegation for a foreign mutation', async () => {

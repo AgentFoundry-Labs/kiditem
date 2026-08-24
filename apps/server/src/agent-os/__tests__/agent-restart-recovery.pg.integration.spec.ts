@@ -1,7 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
 import { PrismaAgentWorkTransaction } from '../adapter/out/transaction/work/prisma-agent-work.transaction';
+import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
+import { makeTestPrisma, resetDb } from '../../test-helpers/real-prisma';
 
 const organizationId = 'e1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d';
 const userId = 'e1234567-89ab-4cde-8f01-23456789abc1';
@@ -10,21 +11,13 @@ let prisma: PrismaClient;
 let work: PrismaAgentWorkTransaction;
 
 beforeAll(async () => {
-  prisma = new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }) });
+  prisma = makeTestPrisma();
   work = new PrismaAgentWorkTransaction(prisma);
   await prisma.$connect();
 });
 afterAll(async () => prisma.$disconnect());
 beforeEach(async () => {
-  await prisma.agentCapabilityApproval.deleteMany({ where: { organizationId } });
-  await prisma.agentCapabilityInvocation.deleteMany({ where: { organizationId } });
-  await prisma.agentAttempt.deleteMany({ where: { organizationId } });
-  await prisma.agentTask.deleteMany({ where: { organizationId } });
-  await prisma.agentSession.deleteMany({ where: { organizationId } });
-  await prisma.agentVersion.deleteMany({ where: { agentDefinitionKey: 'restart_recovery_test' } });
-  await prisma.organizationMembership.deleteMany({ where: { organizationId } });
-  await prisma.user.deleteMany({ where: { id: userId } });
-  await prisma.organization.deleteMany({ where: { id: organizationId } });
+  await resetDb(prisma);
   await prisma.organization.create({ data: { id: organizationId, name: 'Restart recovery', slug: 'agent-restart-recovery' } });
   await prisma.user.create({ data: { id: userId, email: 'restart-recovery@test.local', name: 'Recovery' } });
   await prisma.organizationMembership.create({ data: { organizationId, userId, status: 'active' } });
@@ -47,11 +40,14 @@ async function root() {
 }
 
 async function invocation(input: Awaited<ReturnType<typeof root>>, status: 'authorized' | 'approval_pending' | 'ready' | 'executing', effects: string[], suffix = status) {
+  const canonicalInput = effects.includes('db_write') ? { version: 7, productId: `product-${suffix}` } : undefined;
   return prisma.agentCapabilityInvocation.create({
     data: {
       organizationId, sessionId: input.session.id, taskId: input.task.id, attemptId: input.attempt.id, agentVersionId: input.version.id,
       initiatingUserId: userId, capabilityKey: 'products.write', ownerDomain: 'products', authorizationKind: 'agent_default_scope',
-      authorizationExpiresAt: new Date('2030-01-01T01:00:00.000Z'), inputHash: `${suffix}`.padEnd(64, 'c'), canonicalInput: effects.includes('db_write') ? { version: 7, productId: `product-${suffix}` } : undefined,
+      authorizationExpiresAt: new Date('2030-01-01T01:00:00.000Z'),
+      inputHash: canonicalOwnerInputHash(canonicalInput ?? { inline: suffix }),
+      canonicalInput,
       effects, approvalRisk: 'none', idempotencyRequirement: effects.includes('db_write') ? 'required' : 'none', ownerIdempotencyKey: effects.includes('db_write') ? `owner-key-${suffix}` : undefined,
       applicationVersion: '1.0.0', authorizingGitSha: gitSha, capabilityContractFingerprint: 'd'.repeat(64), runtimeType: 'codex_cli', status,
     },
@@ -75,16 +71,14 @@ describe('same-SHA Agent work restart recovery', () => {
     await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });
 
-  it('fails expired ready and abandoned-lease mutations while preserving a distinct pending Approval', async () => {
+  it('preserves ready mutations and pending Approvals while an expired executing lease reuses its existing owner idempotency key', async () => {
     const admitted = await root();
     await prisma.agentAttempt.update({ where: { id: admitted.attempt.id }, data: { status: 'running' } });
     const ready = await invocation(admitted, 'ready', ['db_write'], 'ready');
-    await prisma.agentCapabilityInvocation.update({ where: { id: ready.id }, data: { authorizationExpiresAt: new Date('2029-12-31T00:00:00.000Z') } });
     const abandoned = await invocation(admitted, 'executing', ['db_write'], 'abandoned');
     await prisma.agentCapabilityInvocation.update({
       where: { id: abandoned.id },
       data: {
-        authorizationExpiresAt: new Date('2029-12-31T00:00:00.000Z'),
         leaseOwner: 'interrupted-worker',
         leaseExpiresAt: new Date('2030-01-01T00:00:00.000Z'),
       },
@@ -92,16 +86,86 @@ describe('same-SHA Agent work restart recovery', () => {
     const awaitingApproval = await invocation(admitted, 'approval_pending', ['db_write'], 'approval');
     const pending = await prisma.agentCapabilityApproval.create({ data: { organizationId, sessionId: admitted.session.id, invocationId: awaitingApproval.id, inputHash: awaitingApproval.inputHash, status: 'pending', expiresAt: new Date('2030-01-02T00:00:00.000Z') } });
     await work.reconcile({ applicationVersion: '1.0.0', authorizingGitSha: gitSha, now: new Date('2030-01-01T00:00:02.000Z') });
-    await expect(work.claimMutation({ workerId: 'delayed-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') })).resolves.toBeNull();
     await expect(prisma.agentCapabilityInvocation.findMany({
       where: { id: { in: [ready.id, abandoned.id] } },
       select: { id: true, status: true, error: true, leaseOwner: true, leaseExpiresAt: true },
     })).resolves.toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: ready.id, status: 'failed', error: { code: 'authorization_expired', message: 'Capability authorization expired.' }, leaseOwner: null, leaseExpiresAt: null }),
-      expect.objectContaining({ id: abandoned.id, status: 'failed', error: { code: 'authorization_expired', message: 'Capability authorization expired.' }, leaseOwner: null, leaseExpiresAt: null }),
+      expect.objectContaining({ id: ready.id, status: 'ready', error: null, leaseOwner: null, leaseExpiresAt: null }),
+      expect.objectContaining({ id: abandoned.id, status: 'executing', error: null, leaseOwner: 'interrupted-worker' }),
     ]));
+    await expect(work.claimMutation({ workerId: 'ready-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') }))
+      .resolves.toMatchObject({ invocationId: ready.id, ownerIdempotencyKey: 'owner-key-ready' });
+    await expect(work.claimMutation({ workerId: 'recovery-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') }))
+      .resolves.toMatchObject({
+        invocationId: abandoned.id,
+        canonicalInput: { version: 7, productId: 'product-abandoned' },
+        ownerIdempotencyKey: 'owner-key-abandoned',
+        leaseOwner: 'recovery-worker',
+      });
     await expect(prisma.agentCapabilityApproval.findUnique({ where: { id: pending.id }, select: { status: true } })).resolves.toEqual({ status: 'pending' });
     await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
+  });
+
+  it('continues from process interruption by admitting a new immutable Attempt instead of resuming provider state', async () => {
+    const admitted = await root();
+    await prisma.agentAttempt.update({
+      where: { id: admitted.attempt.id },
+      data: {
+        status: 'running',
+        startedAt: new Date('2030-01-01T00:00:00.000Z'),
+        inputTokens: 17,
+        outputTokens: 31,
+      },
+    });
+    await work.reconcile({ applicationVersion: '1.0.0', authorizingGitSha: gitSha, now: new Date('2030-01-01T00:00:02.000Z') });
+
+    const continued = await work.admitAttempt({
+      organizationId,
+      sessionId: admitted.session.id,
+      taskId: admitted.task.id,
+      requestedByUserId: userId,
+      predecessorAttemptId: admitted.attempt.id,
+      input: { continuation: 'Start a new local CLI process from the durable Task context.' },
+      applicationVersion: '1.0.0',
+      authorizingGitSha: gitSha,
+      cliVersion: '1.0.0',
+      reportedModel: 'fresh-model-selection',
+    });
+    const [predecessor, successor] = await Promise.all([
+      prisma.agentAttempt.findUniqueOrThrow({
+        where: { id: admitted.attempt.id },
+        select: { id: true, status: true, inputTokens: true, outputTokens: true, finishedAt: true },
+      }),
+      prisma.agentAttempt.findUniqueOrThrow({
+        where: { id: continued.attemptId },
+        select: {
+          id: true, ordinal: true, predecessorAttemptId: true, status: true,
+          input: true, reportedModel: true, result: true, error: true,
+          inputTokens: true, outputTokens: true, startedAt: true,
+        },
+      }),
+    ]);
+
+    expect(predecessor).toMatchObject({
+      id: admitted.attempt.id,
+      status: 'process_interrupted',
+      inputTokens: 17,
+      outputTokens: 31,
+      finishedAt: new Date('2030-01-01T00:00:02.000Z'),
+    });
+    expect(successor).toEqual({
+      id: continued.attemptId,
+      ordinal: 2,
+      predecessorAttemptId: admitted.attempt.id,
+      status: 'starting',
+      input: { continuation: 'Start a new local CLI process from the durable Task context.' },
+      reportedModel: 'fresh-model-selection',
+      result: null,
+      error: null,
+      inputTokens: null,
+      outputTokens: null,
+      startedAt: null,
+    });
   });
 
   it('keeps an already-ready mutation claimable after Task cancellation while rejecting a new attempt admission', async () => {

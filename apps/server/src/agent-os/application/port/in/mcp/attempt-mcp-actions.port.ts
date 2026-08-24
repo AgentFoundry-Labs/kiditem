@@ -11,11 +11,17 @@ export interface AttemptMcpBinding {
   capabilityKeys: readonly string[];
 }
 
+/** A bounded, lossless JSON Schema document for MCP capability discovery. */
+export type AttemptMcpCatalogInputSchema = Readonly<{
+  encoding: 'json-schema-draft-07';
+  json: string;
+}>;
+
 export interface AttemptMcpActionsPort {
   /** Revalidates the exact durable Attempt coordinate before MCP server creation. */
   assertBinding(binding: AttemptMcpBinding): Promise<void>;
   catalog(input: { binding: AttemptMcpBinding; query?: string }): Promise<Array<{
-    key: string; ownerDomain: string; description: string; inputSchema: unknown;
+    key: string; ownerDomain: string; description: string; inputSchema: AttemptMcpCatalogInputSchema;
     effects: readonly string[]; approvalRisk: string; idempotency: string;
   }>>;
   invoke(input: {

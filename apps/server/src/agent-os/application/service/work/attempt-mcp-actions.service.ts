@@ -42,7 +42,11 @@ export class AttemptMcpActionsService implements AttemptMcpActionsPort {
       .map((definition) => ({
         key: definition.key, ownerDomain: definition.ownerDomain,
         description: definition.description,
-        inputSchema: zodToJsonSchema(definition.inputSchema as never),
+        // Catalog discovery travels through the same bounded MCP result
+        // envelope as business work. Preserve every JSON Schema validation
+        // keyword in a bounded document string; only presentation annotations
+        // such as descriptions/examples are clamped.
+        inputSchema: encodedCatalogInputSchema(zodToJsonSchema(definition.inputSchema as never)),
         effects: definition.effects, approvalRisk: definition.approvalRisk,
         idempotency: definition.idempotency,
       }));
@@ -311,6 +315,41 @@ function invocationProjection(invocation: { invocationId: string; status: string
   };
 }
 function boundedText(value: unknown, maximum: number): string { return typeof value === 'string' ? value.slice(0, maximum) : ''; }
+
+function encodedCatalogInputSchema(value: unknown): { encoding: 'json-schema-draft-07'; json: string } {
+  const json = JSON.stringify(boundCatalogAnnotations(value));
+  if (!json || Buffer.byteLength(json, 'utf8') > 16 * 1024) {
+    throw new Error('attempt_mcp_catalog_schema_too_large');
+  }
+  return { encoding: 'json-schema-draft-07', json };
+}
+
+function boundCatalogAnnotations(value: unknown, annotationKey?: string): unknown {
+  if (typeof value === 'string') {
+    return annotationKey === 'description' || annotationKey === '$comment'
+      ? value.slice(0, 1_000)
+      : value;
+  }
+  if (Array.isArray(value)) {
+    const items = annotationKey === 'examples' ? value.slice(0, 4) : value;
+    return items.map((item) => annotationKey === 'examples'
+      ? boundedExample(item)
+      : boundCatalogAnnotations(item));
+  }
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .map(([key, item]) => [key, boundCatalogAnnotations(item, key)]));
+}
+
+function boundedExample(value: unknown, depth = 0): unknown {
+  if (depth >= 4) return null;
+  if (typeof value === 'string') return value.slice(0, 1_000);
+  if (Array.isArray(value)) return value.slice(0, 16).map((item) => boundedExample(item, depth + 1));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+    .slice(0, 32)
+    .map(([key, item]) => [key.slice(0, 128), boundedExample(item, depth + 1)]));
+}
 
 function targetModel(context: { targetAgentKey: string; targetModel?: string | null }): string {
   const configured = context.targetModel?.trim() || process.env[`AGENT_${context.targetAgentKey.toUpperCase()}_MODEL`]?.trim();

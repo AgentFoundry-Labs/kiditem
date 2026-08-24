@@ -48,6 +48,17 @@ describe('AttemptTokenRegistry', () => {
     expect(registry.requireReadiness({ raw: issued.raw, canaryId: 'readiness-canary', leaseId })).toEqual({ canaryId: 'readiness-canary' });
     expect(() => registry.requireBusiness({ raw: issued.raw, attemptId, leaseId })).toThrow('attempt_token_invalid');
   });
+
+  it('revokes a completed readiness canary without invalidating unrelated lease bindings', () => {
+    const registry = new AttemptTokenRegistry();
+    const first = registry.issueReadiness({ canaryId: 'readiness-canary-a', leaseId, deadline: new Date(Date.now() + 60_000) });
+    const second = registry.issueReadiness({ canaryId: 'readiness-canary-b', leaseId, deadline: new Date(Date.now() + 60_000) });
+
+    registry.revokeReadiness('readiness-canary-a');
+
+    expect(() => registry.requireReadiness({ raw: first.raw, canaryId: 'readiness-canary-a', leaseId })).toThrow('attempt_token_invalid');
+    expect(registry.requireReadiness({ raw: second.raw, canaryId: 'readiness-canary-b', leaseId })).toEqual({ canaryId: 'readiness-canary-b' });
+  });
 });
 
 function binding(): AttemptMcpBinding {

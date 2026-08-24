@@ -56,6 +56,7 @@ export class AttemptExecutor {
     let installed = false;
     let earlyExit: ProcessExit | undefined;
     let codex: CodexAppServerSession | undefined;
+    let active: ActiveAttempt | undefined;
     try {
       paths = await this.options.workspaces.create(launch);
       await this.options.workspaces.linkProviderAuth(paths, launch.runtime);
@@ -68,6 +69,7 @@ export class AttemptExecutor {
         onExit: (exit) => {
           codex?.close();
           if (!installed) { earlyExit ??= exit; return; }
+          if (this.active.get(launch.attemptId)?.pendingCodexCompletion) return;
           this.defer(() => this.finish(launch.attemptId, exit.code === 0 ? 'success' : 'nonzero_exit'));
         },
       });
@@ -75,7 +77,7 @@ export class AttemptExecutor {
       if (launch.runtime === 'codex_cli') {
         codex = new CodexAppServerSession((line) => supervisedProcess.input(line), undefined, (event) => this.handleCodexNotification(launch.attemptId, event));
       }
-      const active: ActiveAttempt = {
+      active = {
         launch,
         paths,
         process: supervisedProcess,
@@ -96,10 +98,19 @@ export class AttemptExecutor {
       installed = true;
       if (active.pendingCodexCompletion) {
         const completion = active.pendingCodexCompletion;
-        active.pendingCodexCompletion = undefined;
         this.defer(() => this.completeCodexTurn(launch.attemptId, completion));
       }
     } catch (error) {
+      if (active?.pendingCodexCompletion && this.active.get(launch.attemptId) === active) {
+        // A structured turn terminal is authoritative even if app-server exits
+        // before it answers turn/start. Defer completion so the dispatcher can
+        // acknowledge/start in order, then terminalize once after tree death.
+        active.initializing = false;
+        installed = true;
+        const completion = active.pendingCodexCompletion;
+        this.defer(() => this.completeCodexTurn(launch.attemptId, completion));
+        return;
+      }
       try {
         await this.abortStart(launch.attemptId, paths, process);
       } catch (cleanupError) {
@@ -148,6 +159,10 @@ export class AttemptExecutor {
       else if (active.claude) {
         const update = active.claude.receive(chunk);
         for (const output of update.output) this.emitOutput(active.launch, output);
+        if (update.providerFailure) {
+          void this.finish(attemptId, 'runtime_error', true).catch((error) => this.reportFatal(error));
+          return;
+        }
         if (update.result) active.result = update.result;
       }
     } catch {
@@ -178,7 +193,7 @@ export class AttemptExecutor {
       await this.finish(attemptId, 'protocol_success', true);
       return;
     }
-    await this.finish(attemptId, event.status === 'interrupted' ? 'interrupted' : 'runtime_error', true);
+    await this.finish(attemptId, 'runtime_error', true);
   }
 
   private emitOutput(launch: AttemptLaunchSpec, value: string): void {

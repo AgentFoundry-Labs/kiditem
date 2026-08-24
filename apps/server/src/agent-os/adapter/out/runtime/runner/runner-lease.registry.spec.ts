@@ -9,6 +9,32 @@ const replacementInstanceId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '218f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('RunnerLeaseRegistry', () => {
+  it('invokes one durable reconciliation for every Attempt assigned to a lost thirty-second lease', async () => {
+    vi.useFakeTimers();
+    try {
+      const commands = new RunnerCommandQueue({ commandId: () => '618f4eb1-9078-7a1e-9514-b19b5732f5de' });
+      const interrupts = vi.fn(async () => undefined);
+      const recovery = vi.fn(async () => undefined);
+      const registry = registryFor({ commands, interruptAttempt: interrupts });
+      registry.setLossHandlers({
+        interruptAttempt: interrupts,
+        revokeLease: vi.fn(),
+        reconcileLeaseLoss: recovery,
+      } as never);
+      const lease = registry.hello(hello());
+      await deliverAttempt(registry, commands, lease.leaseId);
+
+      await vi.advanceTimersByTimeAsync(30_001);
+
+      expect(recovery).toHaveBeenCalledTimes(1);
+      expect(recovery).toHaveBeenCalledWith({ leaseId: lease.leaseId, attemptIds: [attemptId] });
+      expect(interrupts).not.toHaveBeenCalled();
+      registry.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('creates a probing lease only for an exact strict hello and reuses a canonical duplicate', () => {
     const registry = registryFor();
     const first = registry.hello(hello());

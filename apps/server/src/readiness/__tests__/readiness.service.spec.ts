@@ -39,17 +39,67 @@ describe('ReadinessService', () => {
 
     try {
       const result = await new ReadinessService(prisma as never, { assertRuntime } as never).getAgentAttemptRuntimeReadiness();
-      expect(result).toEqual([
-        { agentDefinitionKey: 'operator', runtimeType: 'claude_cli', model: 'claude-operator' },
-        { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli', model: 'gpt-sourcing' },
-        { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli', model: 'claude-shared' },
-        { agentDefinitionKey: 'supply', runtimeType: 'claude_cli', model: 'claude-shared' },
-        { agentDefinitionKey: 'channel_operations', runtimeType: 'claude_cli', model: 'claude-channel' },
-        { agentDefinitionKey: 'advertising', runtimeType: 'claude_cli', model: 'claude-advertising' },
-      ]);
+      expect(result).toEqual({
+        status: 'ready',
+        runner: null,
+        agents: [
+          { agentDefinitionKey: 'operator', runtimeType: 'claude_cli', model: 'claude-operator', status: 'ready' },
+          { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli', model: 'gpt-sourcing', status: 'ready' },
+          { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli', model: 'claude-shared', status: 'ready' },
+          { agentDefinitionKey: 'supply', runtimeType: 'claude_cli', model: 'claude-shared', status: 'ready' },
+          { agentDefinitionKey: 'channel_operations', runtimeType: 'claude_cli', model: 'claude-channel', status: 'ready' },
+          { agentDefinitionKey: 'advertising', runtimeType: 'claude_cli', model: 'claude-advertising', status: 'ready' },
+        ],
+      });
       expect(assertRuntime).toHaveBeenCalledTimes(5);
       expect(assertRuntime).toHaveBeenCalledWith('claude_cli', 'claude-shared', '3.4.5:abc123');
       expect(JSON.stringify(assertRuntime.mock.calls)).not.toContain('must-never-be-passed');
+    } finally {
+      process.env = originalEnv;
+    }
+  });
+
+  it('starts one synthetic canary per unverified active runtime/model pair and reports only bounded probing facts', async () => {
+    const originalEnv = process.env;
+    process.env = {
+      ...originalEnv,
+      KIDITEM_APPLICATION_VERSION: '3.4.5',
+      KIDITEM_GIT_SHA: 'abc123',
+      AGENT_OPERATOR_MODEL: 'claude-shared',
+      AGENT_MERCHANDISING_MODEL: 'claude-shared',
+      AGENT_SOURCING_MODEL: 'gpt-sourcing',
+    };
+    const readiness = {
+      assertRuntime: vi.fn(async () => { throw new Error('runner_not_ready'); }),
+      beginCanary: vi.fn(({ runtime, model, deployIdentity }) => ({ canaryId: `${runtime}:${model}:${deployIdentity}` })),
+      snapshot: vi.fn(() => null),
+    };
+    const prisma = {
+      agentVersion: {
+        findMany: vi.fn(async () => [
+          { agentDefinitionKey: 'operator', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli' },
+          { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli' },
+        ]),
+      },
+    };
+
+    try {
+      await expect(new ReadinessService(prisma as never, readiness as never).getAgentAttemptRuntimeReadiness())
+        .resolves.toEqual({
+          status: 'probing',
+          runner: null,
+          agents: [
+            { agentDefinitionKey: 'operator', runtimeType: 'claude_cli', model: 'claude-shared', status: 'probing' },
+            { agentDefinitionKey: 'merchandising', runtimeType: 'claude_cli', model: 'claude-shared', status: 'probing' },
+            { agentDefinitionKey: 'sourcing', runtimeType: 'codex_cli', model: 'gpt-sourcing', status: 'probing' },
+          ],
+        });
+      expect(readiness.beginCanary).toHaveBeenCalledTimes(2);
+      expect(readiness.beginCanary).toHaveBeenCalledWith({
+        runtime: 'claude_cli', model: 'claude-shared', deployIdentity: '3.4.5:abc123',
+      });
+      expect(JSON.stringify(readiness.beginCanary.mock.calls)).not.toMatch(/token|path|credential/i);
     } finally {
       process.env = originalEnv;
     }

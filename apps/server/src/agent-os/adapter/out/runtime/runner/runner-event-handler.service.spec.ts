@@ -10,6 +10,110 @@ const instanceId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const attemptId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('RunnerEventHandlerService', () => {
+  it('delegates lease-loss recovery once to the durable reconciler instead of locally terminalizing each Attempt', async () => {
+    let lossHandlers: { reconcileLeaseLoss?: (input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void> } | undefined;
+    const leases = {
+      setLossHandlers: vi.fn((input: typeof lossHandlers) => { lossHandlers = input; }),
+      acceptEventBatch: vi.fn(),
+    };
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const reconciler = { reconcile: vi.fn(async () => ({ reconciled: 1, attemptIds: [attemptId] })) };
+    new RunnerEventHandlerService({
+      leases: leases as never,
+      commands: new RunnerCommandQueue(),
+      tokens: new AttemptTokenRegistry(),
+      work,
+      capacity: { releaseAttempt: vi.fn() },
+      output: { publish: vi.fn(), finish: vi.fn() },
+      reconciler: reconciler as never,
+    });
+
+    await expect(lossHandlers?.reconcileLeaseLoss?.({ leaseId: 'lease', attemptIds: [attemptId] }))
+      .resolves.toBeUndefined();
+
+    expect(reconciler.reconcile).toHaveBeenCalledTimes(1);
+    expect(work.transitionAttempt).not.toHaveBeenCalled();
+  });
+
+  it('consumes a synthetic readiness event before durable business Attempt handling', async () => {
+    const readiness = { handleRunnerEvent: vi.fn(() => true) };
+    const leases = {
+      setLossHandlers: vi.fn(),
+      acceptEventBatch: vi.fn(async (value: RunnerEventBatch, apply: (assert: () => void) => Promise<void>) => {
+        await apply(() => undefined);
+        return { eventSeq: value.eventSeq, accepted: true } as const;
+      }),
+    };
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const handler = new RunnerEventHandlerService({
+      leases: leases as never,
+      commands: new RunnerCommandQueue(),
+      tokens: new AttemptTokenRegistry(),
+      work,
+      capacity: { releaseAttempt: vi.fn() },
+      output: { publish: vi.fn(), finish: vi.fn() },
+      readiness: readiness as never,
+    });
+
+    await expect(handler.handle(batch('318f4eb1-9078-7a1e-9514-b19b5732f5de', 1, [
+      { kind: 'attempt.started', attemptId },
+    ]))).resolves.toEqual({ eventSeq: 1, accepted: true });
+
+    expect(readiness.handleRunnerEvent).toHaveBeenCalledWith({ kind: 'attempt.started', attemptId });
+    expect(work.transitionAttempt).not.toHaveBeenCalled();
+  });
+
+  it('acknowledges synthetic readiness commands and clears their in-memory queue without durable Attempt work', async () => {
+    const readiness = { handleRunnerEvent: vi.fn(() => true) };
+    const leases = {
+      setLossHandlers: vi.fn(),
+      acceptEventBatch: vi.fn(async (value: RunnerEventBatch, apply: (assert: () => void) => Promise<void>) => {
+        await apply(() => undefined);
+        return { eventSeq: value.eventSeq, accepted: true } as const;
+      }),
+    };
+    const commands = {
+      acknowledge: vi.fn(),
+      markTerminal: vi.fn(),
+    };
+    const work = {
+      transitionAttempt: vi.fn(async () => ({ transitioned: true })),
+      finalizeTaskFromAttempt: vi.fn(async () => ({ finalized: true, status: 'completed' })),
+    };
+    const handler = new RunnerEventHandlerService({
+      leases: leases as never,
+      commands: commands as never,
+      tokens: new AttemptTokenRegistry(),
+      work,
+      capacity: { releaseAttempt: vi.fn() },
+      output: { publish: vi.fn(), finish: vi.fn() },
+      readiness: readiness as never,
+    });
+
+    await handler.handle(batch('318f4eb1-9078-7a1e-9514-b19b5732f5de', 1, [{
+      kind: 'command_ack',
+      commandId: '218f4eb1-9078-7a1e-9514-b19b5732f5de',
+      attemptId,
+      commandHash: 'a'.repeat(64),
+    }]));
+    await handler.handle(batch('318f4eb1-9078-7a1e-9514-b19b5732f5de', 2, [{
+      kind: 'attempt.terminal',
+      attemptId,
+      terminalReason: 'runtime_error',
+    }]));
+
+    expect(commands.acknowledge).toHaveBeenCalledWith(expect.objectContaining({ attemptId }));
+    expect(commands.markTerminal).toHaveBeenCalledWith(attemptId);
+    expect(work.transitionAttempt).not.toHaveBeenCalled();
+    expect(work.finalizeTaskFromAttempt).not.toHaveBeenCalled();
+  });
+
   it('is the only event path that transitions starting to running and publishes bounded future-only output', async () => {
     const fixture = await handlerFixture();
 

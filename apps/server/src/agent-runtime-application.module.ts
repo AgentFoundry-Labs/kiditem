@@ -57,8 +57,17 @@ import { PrismaService } from './prisma/prisma.service';
     },
     {
       provide: RunnerReadinessService,
-      inject: [RunnerLeaseRegistry],
-      useFactory: (leases: RunnerLeaseRegistry) => new RunnerReadinessService(leases),
+      inject: [RunnerLeaseRegistry, RunnerCommandQueue, AttemptTokenRegistry],
+      useFactory: (
+        leases: RunnerLeaseRegistry,
+        commands: RunnerCommandQueue,
+        tokens: AttemptTokenRegistry,
+      ) => new RunnerReadinessService({
+        leases,
+        commands,
+        tokens,
+        loopbackOrigin: hostRunnerLoopbackOrigin(),
+      }),
     },
     {
       provide: AgentAttemptRuntimeAdmissionService,
@@ -95,7 +104,7 @@ import { PrismaService } from './prisma/prisma.service';
     },
     {
       provide: RunnerEventHandlerService,
-      inject: [RunnerLeaseRegistry, RunnerCommandQueue, AttemptTokenRegistry, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel],
+      inject: [RunnerLeaseRegistry, RunnerCommandQueue, AttemptTokenRegistry, PrismaAgentWorkTransaction, AgentAttemptAdmissionService, AttemptFutureOutputChannel, RunnerReadinessService, AgentAttemptReconciler],
       useFactory: (
         leases: RunnerLeaseRegistry,
         commands: RunnerCommandQueue,
@@ -103,6 +112,8 @@ import { PrismaService } from './prisma/prisma.service';
         work: PrismaAgentWorkTransaction,
         admissions: AgentAttemptAdmissionService,
         output: AttemptFutureOutputChannel,
+        readiness: RunnerReadinessService,
+        reconciler: AgentAttemptReconciler,
       ) => new RunnerEventHandlerService({
         leases,
         commands,
@@ -110,6 +121,8 @@ import { PrismaService } from './prisma/prisma.service';
         work,
         capacity: admissions,
         output,
+        readiness,
+        reconciler,
       }),
     },
     {

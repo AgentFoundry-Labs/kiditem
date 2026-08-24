@@ -7,6 +7,7 @@ import type {
 import { AttemptTokenRegistry } from './attempt-token.registry';
 import { RunnerCommandQueue } from './runner-command.queue';
 import { RunnerLeaseRegistry } from './runner-lease.registry';
+import type { RunnerReadinessService } from './runner-readiness.service';
 
 type FutureOutput = {
   publish(input: { attemptId: string; output: string }): void;
@@ -44,6 +45,8 @@ export interface RunnerEventHandlerServiceOptions {
   work: Pick<AgentWorkTransactionPort, 'transitionAttempt' | 'finalizeTaskFromAttempt'>;
   capacity: { releaseAttempt(attemptId: string): void };
   output: FutureOutput;
+  readiness?: Pick<RunnerReadinessService, 'handleRunnerEvent'>;
+  reconciler?: { reconcile(): Promise<unknown> };
   now?: () => Date;
 }
 
@@ -62,6 +65,7 @@ export class RunnerEventHandlerService {
     this.options.leases.setLossHandlers({
       interruptAttempt: (attemptId) => this.interruptAttempt(attemptId),
       revokeLease: (leaseId) => this.options.tokens.revokeLease(leaseId),
+      reconcileLeaseLoss: (input) => this.reconcileLeaseLoss(input),
     });
   }
 
@@ -79,7 +83,29 @@ export class RunnerEventHandlerService {
     return this.terminalize(attemptId, 'interrupted');
   }
 
+  private async reconcileLeaseLoss(input: { leaseId: string; attemptIds: readonly string[] }): Promise<void> {
+    if (this.options.reconciler) {
+      await this.options.reconciler.reconcile();
+      return;
+    }
+    await Promise.all(input.attemptIds.map((attemptId) => this.interruptAttempt(attemptId)));
+  }
+
   private async apply(event: RunnerEventBatch['events'][number], assertActive: () => void): Promise<void> {
+    if (this.options.readiness?.handleRunnerEvent(event)) {
+      // Synthetic canaries never enter durable Attempt lifecycle work, but
+      // they still use the ordinary Runner queue. Clear their acknowledgements
+      // and raw start-token-bearing records on the same local path as business
+      // commands so a completed canary leaves no process-memory capability.
+      if (event.kind === 'command_ack') {
+        assertActive();
+        this.options.commands.acknowledge(event);
+      }
+      if (event.kind === 'attempt.terminal' || event.kind === 'attempt.rejected') {
+        this.options.commands.markTerminal(event.attemptId);
+      }
+      return;
+    }
     switch (event.kind) {
       case 'command_ack':
         assertActive();

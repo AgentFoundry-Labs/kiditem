@@ -9,6 +9,7 @@ export function buildCodexCommand(launch: AttemptLaunchSpec, paths: AttemptWorks
     executable: bundledProviderEntrypoint(runtimeRoot, 'codex'),
     args: Object.freeze([
       'app-server', '--stdio', '--strict-config', '--disable', 'plugins',
+      '--config', 'features.mcp_2026_07_28=true',
       '--config', `model=${JSON.stringify(launch.model)}`,
     ]),
     cwd: paths.workspace,

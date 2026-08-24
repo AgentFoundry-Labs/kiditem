@@ -13,7 +13,10 @@ describe('buildCodexCommand', () => {
   it('uses only a Runner-owned executable and explicit non-persistent direct-MCP configuration', () => {
     const command = buildCodexCommand(launch(), paths, '/opt/kiditem-runner');
     expect(command.executable).toMatch(/^\/opt\/kiditem-runner\//);
-    expect(command.args).toEqual(expect.arrayContaining(['app-server', '--stdio', '--strict-config', '--disable', 'plugins']));
+    expect(command.args).toEqual(expect.arrayContaining([
+      'app-server', '--stdio', '--strict-config', '--disable', 'plugins',
+      '--config', 'features.mcp_2026_07_28=true',
+    ]));
     expect(command.args.join(' ')).not.toContain('thread/start.ephemeral');
     expect(command.args.join(' ')).not.toContain('plugins.enabled');
     expect(command.env.CODEX_MCP_PROTOCOL_VERSION).toBe('2026-07-28');

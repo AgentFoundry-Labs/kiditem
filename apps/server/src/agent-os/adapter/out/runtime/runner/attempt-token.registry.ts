@@ -65,6 +65,12 @@ export class AttemptTokenRegistry {
     }
   }
 
+  revokeReadiness(canaryId: string): void {
+    for (const [key, token] of this.tokens) {
+      if (token.kind === 'readiness' && token.canaryId === canaryId) this.tokens.delete(key);
+    }
+  }
+
   revokeLease(leaseId: string): void {
     for (const [key, token] of this.tokens) if (token.leaseId === leaseId) this.tokens.delete(key);
   }

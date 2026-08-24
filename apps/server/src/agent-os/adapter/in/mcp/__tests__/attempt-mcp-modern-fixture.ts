@@ -37,6 +37,19 @@ export function pinnedModernClient(): Client {
   );
 }
 
+/** Explicit pre-v2 negotiation used to prove no compatibility fallback exists. */
+export function pinned2025Client(): Client {
+  return new Client(
+    { name: 'attempt-mcp-2025-client', version: '1.0.0' },
+    { versionNegotiation: { mode: { pin: '2025-06-18' } } },
+  );
+}
+
+/** A client that does not pin v2 must not quietly select a legacy protocol. */
+export function quietDefaultClient(): Client {
+  return new Client({ name: 'attempt-mcp-default-client', version: '1.0.0' });
+}
+
 export function transportFor(handler: McpHttpHandler): StreamableHTTPClientTransport {
   return new StreamableHTTPClientTransport(new URL('http://kiditem.test/mcp'), {
     fetch: (input, init) => {

@@ -5,6 +5,48 @@ const attemptId = '018f4eb1-9078-7a1e-9514-b19b5732f5de';
 const leaseId = '118f4eb1-9078-7a1e-9514-b19b5732f5de';
 
 describe('AttemptMcpHttpController', () => {
+  it('routes a probing readiness binding only to its scoped canary handler and never to business actions', async () => {
+    const tokens = {
+      requireReadiness: vi.fn(() => ({ canaryId: attemptId })),
+      requireBusiness: vi.fn(),
+    };
+    const leases = {
+      requireActive: vi.fn(() => ({ runnerInstanceId: 'runner', leaseId, status: 'probing' })),
+      requireReady: vi.fn(),
+    };
+    const actions = { assertBinding: vi.fn() };
+    const businessFactory = vi.fn();
+    const canaryHandler = { fetch: vi.fn(async () => new Response('{"ok":true}', { headers: { 'content-type': 'application/json' } })), close: vi.fn(async () => undefined) };
+    const canaryFactory = vi.fn(() => canaryHandler);
+    const responses = { write: vi.fn(async () => undefined) };
+    const readiness = {
+      canaryMcpBinding: vi.fn(() => ({
+        nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505',
+        onProbe: vi.fn(),
+      })),
+    };
+    const controller = new AttemptMcpHttpController(
+      tokens as never,
+      leases as never,
+      actions as never,
+      responses as never,
+      businessFactory,
+      readiness as never,
+      canaryFactory,
+    );
+
+    await controller.mcp(attemptId, { jsonrpc: '2.0' }, mcpRequest('readiness-token') as never, {} as never);
+
+    expect(tokens.requireReadiness).toHaveBeenCalledWith({ raw: 'readiness-token', canaryId: attemptId, leaseId });
+    expect(readiness.canaryMcpBinding).toHaveBeenCalledWith({ canaryId: attemptId, leaseId });
+    expect(canaryFactory).toHaveBeenCalledWith(expect.objectContaining({ nonce: '51e975ef-c0a7-4ab1-8007-47c0fd563505' }));
+    expect(tokens.requireBusiness).not.toHaveBeenCalled();
+    expect(leases.requireReady).not.toHaveBeenCalled();
+    expect(actions.assertBinding).not.toHaveBeenCalled();
+    expect(businessFactory).not.toHaveBeenCalled();
+    expect(canaryHandler.close).toHaveBeenCalledOnce();
+  });
+
   it('validates bearer, path, lease, and durable binding before it creates a fresh modern-only handler', async () => {
     const binding = attemptBinding();
     const tokens = { requireBusiness: vi.fn(() => binding) };

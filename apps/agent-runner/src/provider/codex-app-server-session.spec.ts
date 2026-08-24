@@ -2,6 +2,13 @@ import { describe, expect, it } from 'vitest';
 import { CodexAppServerSession } from './codex-app-server-session';
 
 describe('CodexAppServerSession', () => {
+  it('ignores unrelated startup notifications before a thread exists', () => {
+    const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
+
+    expect(() => session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'server/notice', params: { status: 'starting' } })}\n`)).not.toThrow();
+    expect(lines).toEqual([]);
+  });
+
   it('uses an exact ephemeral thread request, the built-in workspace profile, and live steering without a resume id', async () => {
     const lines: string[] = []; const session = new CodexAppServerSession((line) => { lines.push(line); });
     const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
@@ -29,6 +36,22 @@ describe('CodexAppServerSession', () => {
     expect(events).toEqual([
       { kind: 'agent_message_delta', turnId: 'turn-1', delta: 'bounded delta' },
       { kind: 'turn_completed', turnId: 'turn-1', status: 'completed', result: { outcome: 'completed', summary: 'done', resourceRefs: [], operationRefs: [] } },
+    ]);
+    await expect(session.steer('too late')).rejects.toThrow('codex_turn_not_live');
+  });
+
+  it.each(['failed', 'cancelled', 'interrupted'] as const)('surfaces a fast %s completion before the turn/start response', async (status) => {
+    const lines: string[] = []; const events: unknown[] = [];
+    const session = new CodexAppServerSession((line) => { lines.push(line); }, undefined, (event) => events.push(event));
+    const start = session.start({ model: 'gpt-5.6', cwd: '/attempt/workspace', prompt: 'work' });
+    answer(session, lines, 'initialize', {}); await advance();
+    answer(session, lines, 'thread/start', { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } }); await advance();
+
+    session.receive(`${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status } } })}\n`);
+    await start;
+
+    expect(events).toEqual([
+      { kind: 'turn_completed', turnId: 'turn-1', status },
     ]);
     await expect(session.steer('too late')).rejects.toThrow('codex_turn_not_live');
   });

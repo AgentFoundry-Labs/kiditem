@@ -121,6 +121,72 @@ describe('AttemptExecutor', () => {
     expect(writes.map((line) => JSON.parse(line).method)).not.toContain('turn/steer');
   });
 
+  it('terminalizes one provider-defined Claude stream error without forwarding its payload', async () => {
+    const events: unknown[] = []; let callbacks: ProcessCallbacks | undefined; let removals = 0; let terminations = 0;
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
+      supervisor: {
+        launch: async (_command, received) => {
+          callbacks = received;
+          return processHandle({
+            input: async () => {
+              const failure = `${JSON.stringify({ type: 'result', subtype: 'error_during_execution', is_error: true, error: 'raw provider diagnostic' })}\n`;
+              callbacks?.onStdout?.(failure); callbacks?.onStdout?.(failure);
+            },
+            terminate: async () => { terminations += 1; },
+          });
+        },
+        shutdown: async () => undefined,
+      },
+      emit: (event) => events.push(event),
+    });
+
+    await executor.start(launch);
+    await settle(); await settle();
+
+    expect(events).toEqual([{ kind: 'attempt.terminal', attemptId: launch.attemptId, terminalReason: 'runtime_error' }]);
+    expect(JSON.stringify(events)).not.toContain('raw provider diagnostic');
+    expect(terminations).toBe(1);
+    expect(removals).toBe(1);
+  });
+
+  it.each(['failed', 'cancelled', 'interrupted'] as const)('terminalizes one fast Codex %s completion even when app-server exits before turn/start replies', async (status) => {
+    const events: unknown[] = []; let callbacks: ProcessCallbacks | undefined; let removals = 0; let terminations = 0;
+    const process = processHandle({
+      input: async (line) => {
+        const request = JSON.parse(line) as { id?: string; method?: string };
+        if (!request.id || !request.method) return;
+        if (request.method === 'initialize') callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: {} })}\n`);
+        if (request.method === 'thread/start') {
+          callbacks?.onStdout?.(`${JSON.stringify({ jsonrpc: '2.0', id: request.id, result: { thread: { id: 'thread-1' }, activePermissionProfile: { id: ':workspace' } } })}\n`);
+        }
+        if (request.method === 'turn/start') {
+          const completion = `${JSON.stringify({ jsonrpc: '2.0', method: 'turn/completed', params: { threadId: 'thread-1', turn: { id: 'turn-1', status } } })}\n`;
+          callbacks?.onStdout?.(completion);
+          callbacks?.onStdout?.(completion);
+          callbacks?.onExit?.({ code: 0, signal: null });
+        }
+      },
+      terminate: async () => { terminations += 1; },
+    });
+    const executor = new AttemptExecutor({
+      runtimeRoot: '/opt/kiditem-runner',
+      workspaces: { create: async () => paths, linkProviderAuth: async () => undefined, remove: async () => { removals += 1; } },
+      supervisor: { launch: async (_command, received) => { callbacks = received; return process; }, shutdown: async () => undefined },
+      emit: (event) => events.push(event),
+    });
+
+    await executor.start({ ...launch, runtime: 'codex_cli' });
+    await settle(); await settle();
+
+    expect(events.filter((event) => (event as { kind?: string }).kind === 'attempt.terminal')).toEqual([
+      { kind: 'attempt.terminal', attemptId: launch.attemptId, terminalReason: 'runtime_error' },
+    ]);
+    expect(terminations).toBe(1);
+    expect(removals).toBe(1);
+  });
+
   it('retains the workspace and reports no terminal state when complete-tree termination fails', async () => {
     let removals = 0; const events: unknown[] = [];
     const registry = new AttemptProcessRegistry();

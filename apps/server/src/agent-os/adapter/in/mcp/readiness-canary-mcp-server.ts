@@ -1,13 +1,9 @@
-import { access, writeFile } from 'node:fs/promises';
-import { setTimeout as delay } from 'node:timers/promises';
 import { McpServer } from '@modelcontextprotocol/server';
 import { z as z4 } from 'zod-v4';
 
 export interface ReadinessCanaryMcpServerOptions {
   nonce: string;
-  callFile: string;
-  releaseFile: string;
-  releaseTimeoutMs?: number;
+  onProbe(input: { nonce: string }): void | Promise<void>;
 }
 
 /**
@@ -24,8 +20,7 @@ export function createReadinessCanaryMcpServer(options: ReadinessCanaryMcpServer
     if (input.nonce !== options.nonce) {
       return { isError: true, content: [{ type: 'text' as const, text: 'nonce_mismatch' }] };
     }
-    await writeFile(options.callFile, options.nonce, { mode: 0o600, flag: 'wx' }).catch(() => undefined);
-    await waitForRelease(options.releaseFile, options.releaseTimeoutMs ?? 25_000);
+    await options.onProbe({ nonce: options.nonce });
     const result = { nonce: options.nonce };
     return {
       structuredContent: result,
@@ -33,17 +28,4 @@ export function createReadinessCanaryMcpServer(options: ReadinessCanaryMcpServer
     };
   });
   return server;
-}
-
-async function waitForRelease(releaseFile: string, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    try {
-      await access(releaseFile);
-      return;
-    } catch {
-      await delay(100);
-    }
-  }
-  throw new Error('readiness_canary_release_timeout');
 }

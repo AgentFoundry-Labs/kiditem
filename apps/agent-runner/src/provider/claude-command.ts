@@ -17,7 +17,7 @@ export function buildClaudeCommand(launch: AttemptLaunchSpec, paths: AttemptWork
   return Object.freeze({
     executable: bundledProviderEntrypoint(runtimeRoot, 'claude'),
     args: Object.freeze([
-      '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', launch.model,
+      '--print', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose', '--model', launch.model,
       '--setting-sources', '', '--tools', CLAUDE_ALLOWED_TOOLS, '--allowedTools', CLAUDE_ALLOWED_TOOLS,
       '--no-chrome', '--no-session-persistence', '--mcp-config', paths.mcpConfigPath,
       '--strict-mcp-config', '--permission-mode', 'dontAsk', '--disable-slash-commands',

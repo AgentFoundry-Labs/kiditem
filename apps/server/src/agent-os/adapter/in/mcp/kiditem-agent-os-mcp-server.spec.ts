@@ -1,14 +1,19 @@
-import { Client } from '@modelcontextprotocol/client';
 import { createMcpHandler } from '@modelcontextprotocol/server';
 import { describe, expect, it, vi } from 'vitest';
 import type { AttemptMcpActionsPort } from '../../../application/port/in/mcp/attempt-mcp-actions.port';
 import {
   ATTEMPT_MCP_TEST_BINDING,
   attemptMcpActions,
+  pinned2025Client,
   pinnedModernClient,
+  quietDefaultClient,
   transportFor,
 } from './__tests__/attempt-mcp-modern-fixture';
 import { createKidItemAgentOsMcpServer } from './kiditem-agent-os-mcp-server';
+import { createRequestScopedAttemptMcpHandler } from '../http/runtime/attempt-mcp-http.controller';
+import { AgentCapabilityRegistry } from '../../../application/service/agent-capability-registry.service';
+import { AttemptMcpActionsService } from '../../../application/service/work/attempt-mcp-actions.service';
+import { FINAL_CAPABILITY_DEFINITIONS } from '../../../domain/catalog/final-capability.catalog';
 
 describe('KidItem Agent OS MCP v2 server factory', () => {
   it('serves the exact eleven strict tools and output schemas over a pinned modern HTTP client', async () => {
@@ -40,6 +45,44 @@ describe('KidItem Agent OS MCP v2 server factory', () => {
         expect(tool.inputSchema).toMatchObject({ additionalProperties: false });
         expect(tool.outputSchema).toBeDefined();
       }
+    } finally {
+      await client.close();
+      await handler.close();
+    }
+  });
+
+  it('discovers all 18 final CapabilityDefinitions, including all ten Sourcing definitions, through the business MCP catalog tool', async () => {
+    const registry = new AgentCapabilityRegistry();
+    for (const definition of FINAL_CAPABILITY_DEFINITIONS) registry.registerDefinition(definition);
+    const assertAttemptMcpBinding = vi.fn().mockResolvedValue(true);
+    const actions = new AttemptMcpActionsService(
+      { invoke: vi.fn(), authorize: vi.fn() } as never,
+      { delegate: vi.fn() } as never,
+      { assertAttemptMcpBinding } as never,
+      { send: vi.fn(), interrupt: vi.fn() } as never,
+      undefined,
+      registry,
+    );
+    const handler = createRequestScopedAttemptMcpHandler(actions, {
+      ...ATTEMPT_MCP_TEST_BINDING,
+      capabilityKeys: FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key),
+    });
+    const client = pinnedModernClient();
+
+    try {
+      await client.connect(transportFor(handler));
+      const response = await client.callTool({
+        name: 'capability_catalog_search',
+        arguments: { query: '' },
+      });
+      expect(response.structuredContent).toEqual({ ok: true, result: expect.any(Array) });
+      const result = (response.structuredContent as { ok: true; result: Array<{ key: string }> }).result;
+      expect(result).toHaveLength(18);
+      expect(result.map((definition) => definition.key)).toEqual(
+        FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key),
+      );
+      expect(result.filter((definition) => definition.key.startsWith('sourcing.'))).toHaveLength(10);
+      expect(assertAttemptMcpBinding).toHaveBeenCalledOnce();
     } finally {
       await client.close();
       await handler.close();
@@ -157,7 +200,7 @@ describe('KidItem Agent OS MCP v2 server factory', () => {
       { legacy: 'reject' },
     );
     const modern = pinnedModernClient();
-    const legacy = new Client({ name: 'legacy-client', version: '1.0.0' });
+    const legacy = quietDefaultClient();
 
     try {
       await modern.connect(transportFor(handler));
@@ -174,6 +217,23 @@ describe('KidItem Agent OS MCP v2 server factory', () => {
       await modern.close();
       await legacy.close();
       await handler.close();
+    }
+  });
+
+  it('rejects explicit 2025 and quiet default negotiation before business tool invocation', async () => {
+    const invoke = vi.fn().mockResolvedValue({ accepted: true });
+    const actions = attemptMcpActions({ invoke });
+    const clients = [pinned2025Client(), quietDefaultClient()];
+
+    try {
+      for (const client of clients) {
+        const handler = createRequestScopedAttemptMcpHandler(actions, ATTEMPT_MCP_TEST_BINDING);
+        await expect(client.connect(transportFor(handler))).rejects.toThrow();
+        await handler.close();
+      }
+      expect(invoke).not.toHaveBeenCalled();
+    } finally {
+      await Promise.all(clients.map((client) => client.close()));
     }
   });
 });

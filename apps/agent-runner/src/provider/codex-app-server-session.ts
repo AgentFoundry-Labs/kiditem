@@ -3,13 +3,14 @@ import { AgentResultEnvelopeSchema, type AgentResultEnvelope } from '@kiditem/sh
 import { agentResultOutputSchema } from './agent-result-output-schema';
 
 type RpcResponse = { id?: string; method?: string; params?: unknown; result?: unknown; error?: { message?: string } };
-type CodexTurnStatus = 'completed' | 'failed' | 'interrupted';
+type CodexTurnStatus = 'completed' | 'failed' | 'cancelled' | 'interrupted';
 
 export type CodexAppServerEvent =
   | Readonly<{ kind: 'agent_message_delta'; turnId: string; delta: string }>
   | Readonly<{ kind: 'turn_completed'; turnId: string; status: CodexTurnStatus; result?: AgentResultEnvelope }>;
 
 type DecodedEvent = CodexAppServerEvent & Readonly<{ threadId: string }>;
+const MAX_PENDING_TURN_EVENTS = 64;
 
 /** Memory-only JSON-RPC steering for one ephemeral Codex app-server Attempt. */
 export class CodexAppServerSession {
@@ -17,6 +18,10 @@ export class CodexAppServerSession {
   private buffer = '';
   private threadId: string | null = null;
   private turnId: string | null = null;
+  private waitingForTurnStart = false;
+  private resolveEarlyTurnCompletion: (() => void) | null = null;
+  private earlyTurnCompletionDelivered = false;
+  private readonly pendingTurnEvents: DecodedEvent[] = [];
   private closed = false;
 
   constructor(
@@ -36,12 +41,36 @@ export class CodexAppServerSession {
     });
     this.threadId = requiredNestedId(thread, 'thread');
     if (requiredNestedId(thread, 'activePermissionProfile') !== ':workspace') throw new Error('codex_app_server_permission_profile_mismatch');
-    const turn = await this.request('turn/start', {
+    this.waitingForTurnStart = true;
+    const earlyCompletion = new Promise<void>((resolve) => { this.resolveEarlyTurnCompletion = resolve; });
+    const turnRequest = this.request('turn/start', {
       threadId: this.threadId,
       input: [textInput(input.prompt)],
       outputSchema: agentResultOutputSchema(),
     });
-    this.turnId = requiredNestedId(turn, 'turn');
+    try {
+      const started = await Promise.race([
+        turnRequest.then((turn) => ({ kind: 'started' as const, turn })),
+        earlyCompletion.then(() => ({ kind: 'completed' as const })),
+      ]);
+      if (started.kind === 'completed') {
+        // The app-server can emit a definitive failed/cancelled/interrupted
+        // turn and exit before replying to turn/start. Its structured terminal
+        // notification is sufficient to finish the Attempt; suppress only the
+        // dangling RPC rejection, never the notification.
+        void turnRequest.catch(() => undefined);
+        return;
+      }
+      const turn = started.turn;
+      this.turnId = requiredNestedId(turn, 'turn');
+      this.flushPendingTurnEvents();
+    } catch (error) {
+      this.pendingTurnEvents.length = 0;
+      throw error;
+    } finally {
+      this.waitingForTurnStart = false;
+      this.resolveEarlyTurnCompletion = null;
+    }
   }
 
   async steer(message: string): Promise<void> {
@@ -60,6 +89,9 @@ export class CodexAppServerSession {
     this.buffer = '';
     this.threadId = null;
     this.turnId = null;
+    this.waitingForTurnStart = false;
+    this.resolveEarlyTurnCompletion = null;
+    this.pendingTurnEvents.length = 0;
     for (const pending of this.pending.values()) pending.reject(new Error('codex_app_server_closed'));
     this.pending.clear();
   }
@@ -75,10 +107,15 @@ export class CodexAppServerSession {
       if (!response.id) {
         if (!response.method) continue;
         const event = decodeNotification(response.method, response.params);
-        if (!event || event.threadId !== this.threadId || event.turnId !== this.turnId) continue;
-        if (event.kind === 'turn_completed') this.turnId = null;
-        const { threadId: _threadId, ...publicEvent } = event;
-        this.notification?.(publicEvent);
+        if (!event || event.threadId !== this.threadId) continue;
+        if (!this.turnId) {
+          if (!this.waitingForTurnStart) continue;
+          if (event.kind === 'turn_completed') this.publishEarlyTurnCompletion(event);
+          else this.rememberPendingTurnEvent(event);
+          continue;
+        }
+        if (event.turnId !== this.turnId) continue;
+        this.publish(event);
         continue;
       }
       const pending = this.pending.get(response.id); if (!pending) continue;
@@ -102,6 +139,33 @@ export class CodexAppServerSession {
     if (this.closed) throw new Error('codex_app_server_closed');
     await this.write(line);
   }
+
+  private rememberPendingTurnEvent(event: DecodedEvent): void {
+    if (this.pendingTurnEvents.length >= MAX_PENDING_TURN_EVENTS) throw new Error('codex_app_server_pending_events_exceeded');
+    this.pendingTurnEvents.push(event);
+  }
+
+  private flushPendingTurnEvents(): void {
+    const pending = this.pendingTurnEvents.splice(0);
+    for (const event of pending) {
+      if (!this.turnId || event.threadId !== this.threadId || event.turnId !== this.turnId) continue;
+      this.publish(event);
+    }
+  }
+
+  private publishEarlyTurnCompletion(event: DecodedEvent & Extract<CodexAppServerEvent, { kind: 'turn_completed' }>): void {
+    if (this.earlyTurnCompletionDelivered) return;
+    this.earlyTurnCompletionDelivered = true;
+    this.pendingTurnEvents.length = 0;
+    this.publish(event);
+    this.resolveEarlyTurnCompletion?.();
+  }
+
+  private publish(event: DecodedEvent): void {
+    if (event.kind === 'turn_completed') this.turnId = null;
+    const { threadId: _threadId, ...publicEvent } = event;
+    this.notification?.(publicEvent);
+  }
 }
 
 function textInput(text: string): Readonly<{ type: 'text'; text: string; text_elements: readonly [] }> {
@@ -109,6 +173,9 @@ function textInput(text: string): Readonly<{ type: 'text'; text: string; text_el
 }
 
 function decodeNotification(method: string, params: unknown): DecodedEvent | null {
+  // App-server emits process-level notices while it initializes.  They carry
+  // no turn identity and are neither agent output nor completion signals.
+  if (method !== 'item/agentMessage/delta' && method !== 'turn/completed') return null;
   const value = object(params);
   if (!value) throw new Error('codex_app_server_notification_invalid');
   const threadId = requiredString(value.threadId, 'thread');
@@ -122,7 +189,7 @@ function decodeNotification(method: string, params: unknown): DecodedEvent | nul
   if (!turn) throw new Error('codex_app_server_turn_missing');
   const turnId = requiredString(turn.id, 'turn');
   const status = turn.status;
-  if (status !== 'completed' && status !== 'failed' && status !== 'interrupted') throw new Error('codex_app_server_turn_status_invalid');
+  if (status !== 'completed' && status !== 'failed' && status !== 'cancelled' && status !== 'interrupted') throw new Error('codex_app_server_turn_status_invalid');
   if (status !== 'completed') return { kind: 'turn_completed', threadId, turnId, status };
   const result = parseCompletedResult(turn.items);
   return { kind: 'turn_completed', threadId, turnId, status, result };

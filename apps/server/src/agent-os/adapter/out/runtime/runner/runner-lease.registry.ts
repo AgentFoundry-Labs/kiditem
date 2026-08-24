@@ -16,6 +16,7 @@ export const RUNNER_LEASE_TTL_MS = 30_000;
 type ActiveLease = {
   runnerInstanceId: string;
   leaseId: string;
+  hello: RunnerHello;
   helloHash: string;
   status: 'probing' | 'ready';
   lastSeenAt: number;
@@ -35,6 +36,7 @@ export interface RunnerLeaseRegistryOptions {
   commands: RunnerCommandQueue;
   interruptAttempt: (attemptId: string) => Promise<void>;
   revokeLease?: (leaseId: string) => void;
+  reconcileLeaseLoss?: (input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void>;
   leaseId?: () => string;
   now?: () => Date;
 }
@@ -44,6 +46,7 @@ export class RunnerLeaseRegistry {
   private readonly commands: RunnerCommandQueue;
   private interruptAttempt: (attemptId: string) => Promise<void>;
   private revokeLease: (leaseId: string) => void;
+  private reconcileLeaseLoss: ((input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void>) | null;
   private readonly createLeaseId: () => string;
   private readonly now: () => Date;
   private readonly unsubscribe: () => void;
@@ -55,13 +58,14 @@ export class RunnerLeaseRegistry {
     this.commands = options.commands;
     this.interruptAttempt = options.interruptAttempt;
     this.revokeLease = options.revokeLease ?? (() => undefined);
+    this.reconcileLeaseLoss = options.reconcileLeaseLoss ?? null;
     this.createLeaseId = options.leaseId ?? randomUUID;
     this.now = options.now ?? (() => new Date());
     this.unsubscribe = this.commands.subscribe(() => this.resolvePendingFromQueue());
   }
 
   hello(input: RunnerHello): RunnerLeaseResponse {
-    const hello = RunnerHelloSchema.parse(input);
+    const hello = immutableHello(RunnerHelloSchema.parse(input));
     const helloHash = stableJson(hello);
     const active = this.active;
     if (active && active.runnerInstanceId === hello.runnerInstanceId) {
@@ -73,6 +77,7 @@ export class RunnerLeaseRegistry {
     const lease: ActiveLease = {
       runnerInstanceId: hello.runnerInstanceId,
       leaseId: this.createLeaseId(),
+      hello,
       helloHash,
       status: 'probing',
       lastSeenAt: this.now().getTime(),
@@ -91,13 +96,22 @@ export class RunnerLeaseRegistry {
     return this.response(lease);
   }
 
+  /** A failed readiness canary immediately removes business admission. */
+  markProbing(input: { runnerInstanceId: string; leaseId: string }): RunnerLeaseResponse {
+    const lease = this.require(input);
+    lease.status = 'probing';
+    return this.response(lease);
+  }
+
   /** Binds final lifecycle hooks without putting control state in a database. */
   setLossHandlers(input: {
     interruptAttempt: (attemptId: string) => Promise<void>;
     revokeLease: (leaseId: string) => void;
+    reconcileLeaseLoss?: (input: { leaseId: string; attemptIds: readonly string[] }) => Promise<void>;
   }): void {
     this.interruptAttempt = input.interruptAttempt;
     this.revokeLease = input.revokeLease;
+    this.reconcileLeaseLoss = input.reconcileLeaseLoss ?? null;
   }
 
   isValid(input: { runnerInstanceId: string; leaseId: string }): boolean {
@@ -106,6 +120,18 @@ export class RunnerLeaseRegistry {
       && lease.runnerInstanceId === input.runnerInstanceId
       && lease.leaseId === input.leaseId
       && this.now().getTime() - lease.lastSeenAt < RUNNER_LEASE_TTL_MS;
+  }
+
+  /** Returns the current strict hello lease without treating probing as business-ready. */
+  requireActive(): { runnerInstanceId: string; leaseId: string; status: 'probing' | 'ready'; hello: RunnerHello } {
+    const lease = this.active;
+    if (!lease || !this.isValid(lease)) throw new Error('runner_not_ready');
+    return {
+      runnerInstanceId: lease.runnerInstanceId,
+      leaseId: lease.leaseId,
+      status: lease.status,
+      hello: lease.hello,
+    };
   }
 
   requireReady(): { runnerInstanceId: string; leaseId: string } {
@@ -199,7 +225,12 @@ export class RunnerLeaseRegistry {
     if (this.active?.leaseId === lease.leaseId) this.active = null;
     if (this.pending?.leaseId === lease.leaseId) this.settlePending({ commands: [] });
     this.revokeLease(lease.leaseId);
-    for (const attemptId of lease.attempts) void this.interruptAttempt(attemptId).catch(() => undefined);
+    const attemptIds = [...lease.attempts];
+    if (attemptIds.length && this.reconcileLeaseLoss) {
+      void this.reconcileLeaseLoss({ leaseId: lease.leaseId, attemptIds }).catch(() => undefined);
+      return;
+    }
+    for (const attemptId of attemptIds) void this.interruptAttempt(attemptId).catch(() => undefined);
   }
 
   private resolvePendingFromQueue(): void {
@@ -256,4 +287,14 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`;
   const record = value as Record<string, unknown>;
   return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${stableJson(record[key])}`).join(',')}}`;
+}
+
+function immutableHello(hello: RunnerHello): RunnerHello {
+  return Object.freeze({
+    ...hello,
+    runtimes: Object.freeze({
+      codex_cli: Object.freeze({ ...hello.runtimes.codex_cli }),
+      claude_cli: Object.freeze({ ...hello.runtimes.claude_cli }),
+    }),
+  });
 }

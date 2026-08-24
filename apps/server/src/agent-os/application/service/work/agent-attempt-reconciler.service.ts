@@ -7,6 +7,8 @@ export interface AgentAttemptRuntimeIdentity {
 
 /** API-root boot repair; no provider process, session, or history is restored. */
 export class AgentAttemptReconciler {
+  private inFlight: Promise<ReconciliationResult> | null = null;
+
   constructor(
     private readonly work: Pick<AgentWorkTransactionPort, 'reconcile'>,
     private readonly capacity: { releaseAttempt(attemptId: string): void },
@@ -15,12 +17,20 @@ export class AgentAttemptReconciler {
   ) {}
 
   async reconcile(): Promise<ReconciliationResult> {
-    const result = await this.work.reconcile({
-      applicationVersion: this.runtime.applicationVersion,
-      authorizingGitSha: this.runtime.gitSha,
-      now: this.now(),
+    if (this.inFlight) return this.inFlight;
+    let running!: Promise<ReconciliationResult>;
+    running = Promise.resolve().then(async () => {
+      const result = await this.work.reconcile({
+        applicationVersion: this.runtime.applicationVersion,
+        authorizingGitSha: this.runtime.gitSha,
+        now: this.now(),
+      });
+      result.attemptIds.forEach((attemptId) => this.capacity.releaseAttempt(attemptId));
+      return result;
+    }).finally(() => {
+      if (this.inFlight === running) this.inFlight = null;
     });
-    result.attemptIds.forEach((attemptId) => this.capacity.releaseAttempt(attemptId));
-    return result;
+    this.inFlight = running;
+    return running;
   }
 }

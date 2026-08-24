@@ -1,4 +1,4 @@
-import { Body, Controller, Inject, Param, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
+import { Body, Controller, Inject, Optional, Param, Post, Req, Res, UnauthorizedException } from '@nestjs/common';
 import { SkipThrottle } from '@nestjs/throttler';
 import { createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server';
 import type { Request as ExpressRequest, Response as ExpressResponse } from 'express';
@@ -9,8 +9,10 @@ import type {
 import { ATTEMPT_MCP_ACTIONS_PORT } from '../../../../application/port/in/mcp/attempt-mcp-actions.port';
 import { SkipAuth } from '../../../../../auth/decorators/skip-auth.decorator';
 import { createKidItemAgentOsMcpServer } from '../../mcp/kiditem-agent-os-mcp-server';
+import { createReadinessCanaryMcpServer } from '../../mcp/readiness-canary-mcp-server';
 import { AttemptTokenRegistry } from '../../../out/runtime/runner/attempt-token.registry';
 import { RunnerLeaseRegistry } from '../../../out/runtime/runner/runner-lease.registry';
+import { RunnerReadinessService } from '../../../out/runtime/runner/runner-readiness.service';
 import { McpHttpResponseAdapter } from './mcp-http-response.adapter';
 
 export type AttemptMcpHandlerFactory = (
@@ -25,6 +27,13 @@ export type AttemptMcpHandlerFactory = (
  */
 export const ATTEMPT_MCP_HANDLER_FACTORY = Symbol('ATTEMPT_MCP_HANDLER_FACTORY');
 
+export type ReadinessMcpHandlerFactory = (input: Readonly<{
+  nonce: string;
+  onProbe: (input: { nonce: string }) => void | Promise<void>;
+}>) => McpHttpHandler;
+
+export const READINESS_MCP_HANDLER_FACTORY = Symbol('READINESS_MCP_HANDLER_FACTORY');
+
 /** Direct request-scoped MCP v2 ingress. No socket, stdio, session, or relay exists. */
 @SkipAuth()
 @SkipThrottle()
@@ -38,6 +47,12 @@ export class AttemptMcpHttpController {
     private readonly responses: McpHttpResponseAdapter,
     @Inject(ATTEMPT_MCP_HANDLER_FACTORY)
     private readonly createHandler: AttemptMcpHandlerFactory = createRequestScopedAttemptMcpHandler,
+    @Optional()
+    @Inject(RunnerReadinessService)
+    private readonly readiness?: Pick<RunnerReadinessService, 'canaryMcpBinding'>,
+    @Optional()
+    @Inject(READINESS_MCP_HANDLER_FACTORY)
+    private readonly createReadinessHandler: ReadinessMcpHandlerFactory = createRequestScopedReadinessMcpHandler,
   ) {}
 
   @Post(':attemptId/mcp')
@@ -48,6 +63,11 @@ export class AttemptMcpHttpController {
     @Res() response: ExpressResponse,
   ): Promise<void> {
     const signal = abortSignal(request, response);
+    const readinessHandler = this.readinessHandler(request, attemptId);
+    if (readinessHandler) {
+      await this.respond(readinessHandler, request, body, response, signal);
+      return;
+    }
     const lease = this.requireLease();
     const binding = this.requireAttemptToken(request, attemptId, lease.leaseId);
     try {
@@ -56,6 +76,16 @@ export class AttemptMcpHttpController {
       throw new UnauthorizedException('attempt_token_invalid');
     }
     const handler = this.createHandler(this.actions, binding);
+    await this.respond(handler, request, body, response, signal);
+  }
+
+  private async respond(
+    handler: McpHttpHandler,
+    request: ExpressRequest,
+    body: unknown,
+    response: ExpressResponse,
+    signal: AbortSignal,
+  ): Promise<void> {
     try {
       const result = await handler.fetch(toFetchRequest(request, body, signal), { parsedBody: body });
       await this.responses.write(result, response, signal);
@@ -65,6 +95,25 @@ export class AttemptMcpHttpController {
     } finally {
       await handler.close();
     }
+  }
+
+  private readinessHandler(request: ExpressRequest, canaryId: string): McpHttpHandler | null {
+    if (!this.readiness) return null;
+    let active: { runnerInstanceId: string; leaseId: string; status: 'probing' | 'ready' };
+    let binding: Readonly<{ nonce: string; onProbe: (input: { nonce: string }) => void | Promise<void> }>;
+    try {
+      active = this.leases.requireActive();
+      binding = this.readiness.canaryMcpBinding({ canaryId, leaseId: active.leaseId });
+    } catch {
+      return null;
+    }
+    const raw = bearer(request);
+    try {
+      this.tokens.requireReadiness({ raw: raw ?? '', canaryId, leaseId: active.leaseId });
+    } catch {
+      throw new UnauthorizedException('attempt_token_invalid');
+    }
+    return this.createReadinessHandler(binding);
   }
 
   private requireLease(): { runnerInstanceId: string; leaseId: string } {
@@ -92,6 +141,18 @@ export function createRequestScopedAttemptMcpHandler(
   return createMcpHandler((context) => {
     if (context.era !== 'modern') throw new Error('attempt_mcp_legacy_rejected');
     return createKidItemAgentOsMcpServer(actions, binding);
+  }, { legacy: 'reject' });
+}
+
+export function createRequestScopedReadinessMcpHandler(
+  input: Readonly<{
+    nonce: string;
+    onProbe: (input: { nonce: string }) => void | Promise<void>;
+  }>,
+): McpHttpHandler {
+  return createMcpHandler((context) => {
+    if (context.era !== 'modern') throw new Error('attempt_mcp_legacy_rejected');
+    return createReadinessCanaryMcpServer(input);
   }, { legacy: 'reject' });
 }
 
