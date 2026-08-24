@@ -77,6 +77,40 @@ function Set-FixtureUntrustedAcl {
   Set-Acl -LiteralPath $Path -AclObject $security -ErrorAction Stop
 }
 
+function New-FixtureRunnerArtifact {
+  param(
+    [Parameter(Mandatory = $true)][string]$Root,
+    [Parameter(Mandatory = $true)][object]$Manifest
+  )
+
+  $payloadRoot = Join-Path $Root 'runner-payload'
+  $packageRoot = Join-Path $payloadRoot 'package'
+  New-Item -ItemType Directory -Path (Join-Path $packageRoot 'dist') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $packageRoot 'node_modules\@openai\codex') -Force | Out-Null
+  New-Item -ItemType Directory -Path (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code') -Force | Out-Null
+  Set-Content -LiteralPath (Join-Path $packageRoot 'dist\main.cjs') -Value 'trusted cached-release fixture' -NoNewline
+  Set-Content -LiteralPath (Join-Path $packageRoot 'node_modules\@openai\codex\package.json') -Value '{"version":"0.149.1"}' -NoNewline
+  Set-Content -LiteralPath (Join-Path $packageRoot 'node_modules\@anthropic-ai\claude-code\package.json') -Value '{"version":"2.1.241"}' -NoNewline
+
+  $tgz = Join-Path $Root 'agent-runner.tgz'
+  & tar.exe -czf $tgz -C $payloadRoot package
+  if ($LASTEXITCODE -ne 0) { throw 'Windows fixture could not create a trusted Runner package archive.' }
+
+  $outerRoot = Join-Path $Root 'runner-outer'
+  New-Item -ItemType Directory -Path $outerRoot -Force | Out-Null
+  Copy-Item -LiteralPath $tgz -Destination (Join-Path $outerRoot 'agent-runner.tgz') -Force
+  Set-Content -LiteralPath (Join-Path $outerRoot 'KidItem.JobRunner.exe') -Value 'fixture helper' -NoNewline
+  [System.IO.File]::WriteAllText(
+    (Join-Path $outerRoot 'runner-runtime-contract.json'),
+    ($Manifest.runnerRuntime | ConvertTo-Json -Depth 4),
+    [System.Text.UTF8Encoding]::new($false)
+  )
+  $artifact = Join-Path $Root $Manifest.runnerArtifact
+  Compress-Archive -Path (Join-Path $outerRoot '*') -DestinationPath $artifact -CompressionLevel Optimal
+  $Manifest.runnerArtifactSha256 = (Get-FileHash -LiteralPath $artifact -Algorithm SHA256).Hash.ToLowerInvariant()
+  return $artifact
+}
+
 try {
   $pidFile = Join-Path $root 'tree-pids.txt'
   $treeLaunch = @{
@@ -147,6 +181,26 @@ try {
     if ($_.Exception.Message -notmatch 'DACL') { throw }
   }
 
+  # If an ordinary owner removes READ_CONTROL, production repair must take
+  # ownership before it inspects the DACL. A takeover failure leaves the
+  # boundary fail-closed and must not fall through to a potentially hostile
+  # ACL read/replace path.
+  $originalOwnerTakeover = ${function:Invoke-RunnerProtectedOwnerTakeover}
+  $script:ownerTakeoverAclReads = 0
+  function Invoke-RunnerProtectedOwnerTakeover { throw 'fixture owner takeover failure' }
+  function Get-Acl { $script:ownerTakeoverAclReads += 1; throw 'fixture unexpected DACL inspection' }
+  try {
+    try { Set-RunnerProtectedAcl -Path $aclFile -Mode Read -Principal $fixturePrincipal; throw 'Owner takeover failure was admitted.' }
+    catch {
+      if ($_.Exception.Message -notmatch 'owner takeover failure') { throw }
+    }
+    if ($script:ownerTakeoverAclReads -ne 0) { throw 'Owner takeover failure reached Get-Acl before fail-closed exit.' }
+  }
+  finally {
+    Set-Item -Path function:Invoke-RunnerProtectedOwnerTakeover -Value $originalOwnerTakeover
+    Remove-Item -Path function:Get-Acl -Force
+  }
+
   # Exercise the real scheduler registration/readback function with an
   # in-process ScheduledTasks adapter. This avoids changing the Windows CI
   # host while still proving the one production implementation builds and
@@ -189,8 +243,8 @@ try {
       return [pscustomobject]@{
         StartWhenAvailable = [bool]$StartWhenAvailable
         RestartCount = $RestartCount
-        RestartInterval = 'PT1M'
-        ExecutionTimeLimit = 'PT0S'
+        RestartInterval = [System.Xml.XmlConvert]::ToString([TimeSpan]$RestartInterval)
+        ExecutionTimeLimit = [System.Xml.XmlConvert]::ToString([TimeSpan]$ExecutionTimeLimit)
       }
     }
     function Register-ScheduledTask {
@@ -291,6 +345,107 @@ try {
   Test-FixtureManifestRejected 'array manifest field' { param($value) $value['apiImage'] = @($value['apiImage']) }
   Test-FixtureManifestRejected 'object manifest field' { param($value) $value['runnerArtifactSha256'] = [ordered]@{ value = $value['runnerArtifactSha256'] } }
   Test-FixtureManifestRejected 'manifest drift' { param($value) $value['runnerRuntime']['nodeMajor'] = 21 }
+
+  # A tampered cached Runner release is never a recovery source. Both a
+  # repeated deployment and Restore-Transaction must rebuild runnable content
+  # from the immutable archive held outside the mutable releases/<gitSha> root.
+  $releaseFixtureRoot = Join-Path $root 'rehydrate-release'
+  $releaseManifest = New-FixtureManifest
+  $releaseArtifact = New-FixtureRunnerArtifact -Root $releaseFixtureRoot -Manifest $releaseManifest
+  $releaseVariables = [ordered]@{}
+  foreach ($name in @(
+    'OfficeRoot', 'ComposePath', 'OfficeEnvPath', 'DeployEnvPath', 'DeploymentsRoot',
+    'CurrentManifestPath', 'PreviousManifestPath', 'ComposeArgs', 'RunnerRoot',
+    'RunnerReleasesRoot', 'RunnerCurrentPointerPath', 'RunnerAttemptRoot',
+    'RunnerTokenPath', 'RunnerConfigName'
+  )) {
+    $releaseVariables[$name] = Get-Variable -Name $name -Scope Script -ValueOnly
+  }
+  $releaseFunctions = @{}
+  foreach ($name in @(
+    'Initialize-RunnerStorage', 'Set-RunnerProtectedAcl', 'Stop-RunnerScheduledTask',
+    'Set-ComposeArguments', 'Invoke-Checked', 'Wait-ForRuntime',
+    'Register-RunnerScheduledTask', 'Start-RunnerScheduledTask',
+    'Wait-ForAgentRuntimeReadiness', 'Assert-CurrentOfficeReleaseIdentity'
+  )) {
+    $releaseFunctions[$name] = (Get-Command $name -CommandType Function).ScriptBlock
+  }
+  try {
+    $script:OfficeRoot = Join-Path $releaseFixtureRoot 'office'
+    $script:ComposePath = Join-Path $script:OfficeRoot 'compose.office.yml'
+    $script:OfficeEnvPath = Join-Path $script:OfficeRoot '.env.office'
+    $script:DeployEnvPath = Join-Path $script:OfficeRoot '.env.office.deploy'
+    $script:DeploymentsRoot = Join-Path $script:OfficeRoot 'deployments'
+    $script:CurrentManifestPath = Join-Path $script:DeploymentsRoot 'current.json'
+    $script:PreviousManifestPath = Join-Path $script:DeploymentsRoot 'previous.json'
+    $script:ComposeArgs = @()
+    $script:RunnerRoot = Join-Path $script:OfficeRoot 'agent-runner'
+    $script:RunnerReleasesRoot = Join-Path $script:RunnerRoot 'releases'
+    $script:RunnerCurrentPointerPath = Join-Path $script:RunnerRoot 'current.json'
+    $script:RunnerAttemptRoot = Join-Path $script:RunnerRoot 'attempts'
+    $script:RunnerTokenPath = Join-Path $script:OfficeRoot 'secrets\agent-runner-token'
+    $script:RunnerConfigName = 'runner-config.json'
+    New-Item -ItemType Directory -Path $script:OfficeRoot, $script:RunnerRoot, $script:DeploymentsRoot -Force | Out-Null
+
+    $bundleRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $releaseManifest.gitSha)
+    New-Item -ItemType Directory -Path $bundleRoot -Force | Out-Null
+    Copy-Item -LiteralPath $releaseArtifact -Destination (Join-Path $bundleRoot $releaseManifest.runnerArtifact) -Force
+    [System.IO.File]::WriteAllText(
+      $script:CurrentManifestPath,
+      ($releaseManifest | ConvertTo-Json -Depth 8),
+      [System.Text.UTF8Encoding]::new($false)
+    )
+
+    function Initialize-RunnerStorage { New-Item -ItemType Directory -Path $script:RunnerReleasesRoot -Force | Out-Null }
+    function Set-RunnerProtectedAcl { param([string]$Path, [string]$Mode, [switch]$Anchor, [object]$Principal) }
+    $script:fixtureRunnerStops = 0
+    function Stop-RunnerScheduledTask { $script:fixtureRunnerStops += 1 }
+    function Set-ComposeArguments { $script:ComposeArgs = @('fixture-compose') }
+    function Invoke-Checked { param([string]$Program, [Parameter(ValueFromRemainingArguments = $true)][string[]]$Arguments) }
+    function Wait-ForRuntime { }
+    $script:fixtureRecoveryRelease = $null
+    function Register-RunnerScheduledTask { param([string]$ReleaseRoot) $script:fixtureRecoveryRelease = $ReleaseRoot }
+    function Start-RunnerScheduledTask { }
+    function Wait-ForAgentRuntimeReadiness { }
+    function Assert-CurrentOfficeReleaseIdentity { }
+
+    $releaseRoot = New-RunnerRelease -ArtifactPath $releaseArtifact -Manifest $releaseManifest
+    $mainPath = Join-Path $releaseRoot 'package\dist\main.cjs'
+    $trustedMain = Get-Content -LiteralPath $mainPath -Raw
+    Set-Content -LiteralPath $mainPath -Value 'tampered cached release' -NoNewline
+    $rehydratedRoot = New-RunnerRelease -ArtifactPath $releaseArtifact -Manifest $releaseManifest
+    if ((Get-Content -LiteralPath (Join-Path $rehydratedRoot 'package\dist\main.cjs') -Raw) -ne $trustedMain) {
+      throw 'Cached Runner release was reused instead of rehydrated from its immutable archive.'
+    }
+
+    Set-Content -LiteralPath (Join-Path $rehydratedRoot 'package\dist\main.cjs') -Value 'tampered cached release before rollback' -NoNewline
+    [ordered]@{
+      gitSha = $releaseManifest.gitSha
+      releaseRoot = $rehydratedRoot
+      runnerArtifactSha256 = $releaseManifest.runnerArtifactSha256
+    } | ConvertTo-Json | Set-Content -LiteralPath $script:RunnerCurrentPointerPath -Encoding UTF8
+    $restoreBackup = Join-Path $releaseFixtureRoot 'restore-backup'
+    New-Item -ItemType Directory -Path $restoreBackup -Force | Out-Null
+    foreach ($name in @('compose.office.yml', 'nginx.conf', '.env.office.deploy')) {
+      Set-Content -LiteralPath (Join-Path $restoreBackup $name) -Value 'fixture' -NoNewline
+    }
+    Copy-Item -LiteralPath $script:RunnerCurrentPointerPath -Destination (Join-Path $restoreBackup 'runner-current.json') -Force
+    Restore-Transaction -BackupRoot $restoreBackup
+    if ((Get-Content -LiteralPath (Join-Path $rehydratedRoot 'package\dist\main.cjs') -Raw) -ne $trustedMain) {
+      throw 'Rollback recovery scheduled a tampered cached Runner release instead of rebuilding it from the archived artifact.'
+    }
+    if ($script:fixtureRecoveryRelease -ne $rehydratedRoot -or $script:fixtureRunnerStops -lt 2) {
+      throw 'Rollback recovery did not stop and re-register the rehydrated Runner release.'
+    }
+  }
+  finally {
+    foreach ($entry in $releaseFunctions.GetEnumerator()) {
+      Set-Item -Path ("function:{0}" -f $entry.Key) -Value $entry.Value
+    }
+    foreach ($entry in $releaseVariables.GetEnumerator()) {
+      Set-Variable -Name $entry.Key -Scope Script -Value $entry.Value
+    }
+  }
 
   foreach ($unsafeEntry in @('package\\native-backslash.txt', 'package/../escape.txt', 'C:/escape.txt', '/escape.txt', 'package/stream:ads')) {
     try { Assert-RunnerArchiveEntryName $unsafeEntry; throw "Unsafe runner archive entry was admitted: $unsafeEntry" }

@@ -298,6 +298,74 @@ test('Windows CI drives the production JavaScript-provider resolver through the 
   assert.match(helperSpec, /command\.args\[0\]/);
 });
 
+test('Windows provider probes stage the bundled runtime before they resolve a production CLI', () => {
+  for (const path of ['.github/workflows/office-images.yml', '.github/workflows/pr-checks.yml']) {
+    const workflow = read(path);
+    const stage = workflow.indexOf('npm run prepack --workspace=apps/agent-runner');
+    const vitest = workflow.indexOf('npm exec --workspace=apps/agent-runner vitest -- run', stage);
+    const cleanup = workflow.indexOf('npm run postpack --workspace=apps/agent-runner', vitest);
+
+    assert.ok(stage >= 0 && vitest > stage,
+      `${path} must stage the exact bundled provider runtime before its Windows resolver probe`);
+    assert.ok(cleanup > vitest,
+      `${path} must remove the temporary staged runtime after the native probe`);
+  }
+});
+
+test('Office rehydrates every cached Runner release from the immutable archive before start or recovery', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const fixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+  const newRelease = script.slice(
+    script.indexOf('function New-RunnerRelease'),
+    script.indexOf('function Get-RunnerCurrentRelease'),
+  );
+  const rotate = script.slice(script.indexOf('function Rotate-RunnerToken'), script.indexOf('function Restore-Transaction'));
+  const restore = script.slice(script.indexOf('function Restore-Transaction'), script.indexOf('function Install-Deployment'));
+
+  assert.match(script, /function Get-ArchivedRunnerArtifact/);
+  assert.match(newRelease, /Stop-RunnerScheduledTask/);
+  assert.match(newRelease, /retired-/);
+  assert.ok(
+    newRelease.indexOf('if (Test-Path -LiteralPath $releaseRoot -PathType Container)')
+      > newRelease.indexOf('$candidateRoot ='),
+    'an existing release root may be retired only after a new artifact-derived candidate exists',
+  );
+  assert.match(rotate, /Get-ArchivedRunnerArtifact/);
+  assert.match(rotate, /New-RunnerRelease/);
+  assert.match(restore, /Get-ArchivedRunnerArtifact/);
+  assert.match(restore, /New-RunnerRelease/);
+  assert.match(fixture, /tampered cached Runner release/i);
+  assert.match(fixture, /Restore-Transaction/);
+});
+
+test('Office ACL repair takes ownership before inspecting an unreadable protected DACL', () => {
+  const script = read('deploy/office/apply-deployment.ps1');
+  const fixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+  const protection = script.slice(
+    script.indexOf('function Set-RunnerProtectedAcl'),
+    script.indexOf('function Initialize-RunnerStorage'),
+  );
+
+  assert.match(script, /function Invoke-RunnerProtectedOwnerTakeover/);
+  assert.match(script, /takeown\.exe/);
+  assert.match(script, /& takeown\.exe \/F \$Path \/A \*> \$null/);
+  assert.doesNotMatch(script, /takeown\.exe[^\r\n]*\/(?:R|D)\b/);
+  assert.ok(
+    protection.indexOf('Invoke-RunnerProtectedOwnerTakeover') < protection.indexOf('Get-Acl -LiteralPath $Path'),
+    'owner takeover must precede ACL inspection so an administrator can repair a poisoned DACL',
+  );
+  assert.match(fixture, /owner takeover failure/i);
+});
+
+test('Windows scheduler fixture preserves the actual restart settings passed to the production task factory', () => {
+  const fixture = read('scripts/__tests__/office-windows-native-runtime.fixture.ps1');
+
+  assert.match(fixture, /XmlConvert\]::ToString\(\[TimeSpan\]\$RestartInterval\)/);
+  assert.match(fixture, /XmlConvert\]::ToString\(\[TimeSpan\]\$ExecutionTimeLimit\)/);
+  assert.doesNotMatch(fixture, /RestartInterval = 'PT1M'/);
+  assert.doesNotMatch(fixture, /ExecutionTimeLimit = 'PT0S'/);
+});
+
 test('Office operator binds API, Runner package, scheduler, token rotation, and rollback to one release identity', () => {
   const script = read('deploy/office/apply-deployment.ps1');
   const compose = read('deploy/office/compose.office.yml');

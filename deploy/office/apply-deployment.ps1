@@ -483,6 +483,20 @@ function Assert-RunnerServiceAccount {
   return $principal
 }
 
+function Invoke-RunnerProtectedOwnerTakeover {
+  param([Parameter(Mandatory = $true)][string]$Path)
+
+  # A poisoned owner can deny READ_CONTROL, which would make Get-Acl fail
+  # before the deployment can replace the DACL. Take ownership of exactly this
+  # known protected path first; the following exact DACL readback is still the
+  # admission boundary and any failure aborts the deployment without starting
+  # the Runner from a partially repaired tree.
+  & takeown.exe /F $Path /A *> $null
+  if ($LASTEXITCODE -ne 0) {
+    throw 'Host Runner protected path owner takeover failed.'
+  }
+}
+
 function Get-RunnerProtectionSpec {
   param(
     [Parameter(Mandatory = $true)][object]$Principal,
@@ -591,6 +605,7 @@ function Set-RunnerProtectedAcl {
     throw "Host Runner protected path does not exist: $Path"
   }
   $expected = @(Get-RunnerProtectionSpec -Principal $Principal -Directory $directory -Mode $Mode -Anchor:$Anchor)
+  Invoke-RunnerProtectedOwnerTakeover -Path $Path
   $security = Get-Acl -LiteralPath $Path -ErrorAction Stop
   if ($security -isnot [System.Security.AccessControl.FileSystemSecurity]) {
     throw 'Host Runner protected path does not expose a filesystem security descriptor.'
@@ -785,6 +800,18 @@ function Assert-RunnerArtifact {
   }
 }
 
+function Get-ArchivedRunnerArtifact {
+  param([Parameter(Mandatory = $true)][object]$Manifest)
+
+  # Recovery never treats releases/<gitSha> as a source: that is a runnable
+  # cache, not immutable evidence. The deployment bundle is the independently
+  # hashed artifact retained for the release identity.
+  $archiveRoot = Join-Path $script:DeploymentsRoot ("bundles\{0}" -f $Manifest.gitSha)
+  $artifact = Join-Path $archiveRoot $Manifest.runnerArtifact
+  Assert-RunnerArtifact $artifact $Manifest
+  return $artifact
+}
+
 function Assert-RunnerPackageContents {
   param(
     [Parameter(Mandatory = $true)][string]$ReleaseRoot,
@@ -951,13 +978,18 @@ function New-RunnerRelease {
   Initialize-RunnerStorage
   Assert-RunnerArtifact $ArtifactPath $Manifest
   $releaseRoot = Join-Path $script:RunnerReleasesRoot $Manifest.gitSha
-  if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
-    Assert-RunnerArtifact (Join-Path $releaseRoot $Manifest.runnerArtifact) $Manifest
-    Assert-RunnerPackageContents $releaseRoot $Manifest
-    return $releaseRoot
+  if (Test-RunnerPathWithinRoot $releaseRoot $ArtifactPath) {
+    throw 'Runner release cannot be rehydrated from its mutable cached extraction.'
   }
 
+  # Never schedule a previously extracted release directory. Even if its outer
+  # ZIP still hashes correctly, a prior ACL bug could have allowed a writer to
+  # alter the expanded package. Stop first, construct a fresh candidate from
+  # the immutable artifact, then replace the canonical version root.
+  Stop-RunnerScheduledTask
   $candidateRoot = "$releaseRoot.candidate-$([guid]::NewGuid().ToString('N'))"
+  $retiredRoot = $null
+  $promoted = $false
   try {
     New-Item -ItemType Directory -Path $candidateRoot -Force | Out-Null
     Copy-Item -LiteralPath $ArtifactPath -Destination (Join-Path $candidateRoot $Manifest.runnerArtifact) -Force
@@ -995,11 +1027,23 @@ function New-RunnerRelease {
     Set-RunnerProtectedAcl -Path $candidateRoot -Mode ReadExecute
     Set-RunnerProtectedAcl -Path (Join-Path $candidateRoot 'package') -Mode ReadExecute
     Set-RunnerProtectedAcl -Path $runnerConfigPath -Mode Read
+    if (Test-Path -LiteralPath $releaseRoot -PathType Container) {
+      $retiredRoot = "$releaseRoot.retired-$([guid]::NewGuid().ToString('N'))"
+      Move-Item -LiteralPath $releaseRoot -Destination $retiredRoot
+    }
     Move-Item -LiteralPath $candidateRoot -Destination $releaseRoot
+    $promoted = $true
+    Assert-RunnerArtifact (Join-Path $releaseRoot $Manifest.runnerArtifact) $Manifest
+    Assert-RunnerPackageContents $releaseRoot $Manifest
   }
   catch {
     Remove-Item -LiteralPath $candidateRoot -Recurse -Force -ErrorAction SilentlyContinue
     throw
+  }
+  finally {
+    if ($promoted -and $null -ne $retiredRoot) {
+      Remove-Item -LiteralPath $retiredRoot -Recurse -Force -ErrorAction SilentlyContinue
+    }
   }
   return $releaseRoot
 }
@@ -1286,6 +1330,7 @@ function Rotate-RunnerToken {
   if ($null -eq $currentRunner -or $currentRunner.GitSha -ne $manifest.gitSha) {
     throw 'Runner token rotation requires a current Runner release matching the deployed API/Web identity.'
   }
+  $archivedRunnerArtifact = Get-ArchivedRunnerArtifact $manifest
   $tokenBackup = "$script:RunnerTokenPath.rollback-$([guid]::NewGuid().ToString('N'))"
   Copy-Item -LiteralPath $script:RunnerTokenPath -Destination $tokenBackup -Force
   Set-RunnerProtectedAcl -Path $tokenBackup -Mode Read
@@ -1293,10 +1338,12 @@ function Rotate-RunnerToken {
     Set-ComposeArguments
     Stop-RunnerScheduledTask
     Invoke-Checked docker @script:ComposeArgs stop api worker
+    $rehydratedRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
+    Switch-RunnerCurrentRelease $rehydratedRunnerRelease $manifest
     Replace-RunnerInstallationToken
     Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
     Wait-ForRuntime
-    Register-RunnerScheduledTask $currentRunner.ReleaseRoot
+    Register-RunnerScheduledTask $rehydratedRunnerRelease
     Start-RunnerScheduledTask
     Wait-ForAgentRuntimeReadiness
     Assert-CurrentOfficeReleaseIdentity
@@ -1309,10 +1356,12 @@ function Rotate-RunnerToken {
       Copy-Item -LiteralPath $tokenBackup -Destination $restoreCandidate -Force
       Set-RunnerProtectedAcl -Path $restoreCandidate -Mode Read
       Move-RunnerProtectedFile -Candidate $restoreCandidate -Target $script:RunnerTokenPath
+      $recoveredRunnerRelease = New-RunnerRelease -ArtifactPath $archivedRunnerArtifact -Manifest $manifest
+      Switch-RunnerCurrentRelease $recoveredRunnerRelease $manifest
       Set-ComposeArguments
       Invoke-Checked docker @script:ComposeArgs up --detach --no-build --force-recreate api worker web nginx
       Wait-ForRuntime
-      Register-RunnerScheduledTask $currentRunner.ReleaseRoot
+      Register-RunnerScheduledTask $recoveredRunnerRelease
       Start-RunnerScheduledTask
       Wait-ForAgentRuntimeReadiness
       Assert-CurrentOfficeReleaseIdentity
@@ -1332,6 +1381,11 @@ function Restore-Transaction {
   param([Parameter(Mandatory = $true)][string]$BackupRoot)
 
   Stop-RunnerScheduledTask
+  if (-not (Test-Path -LiteralPath $script:CurrentManifestPath -PathType Leaf)) {
+    throw 'No prior Office manifest exists for a coherent rollback.'
+  }
+  $previousManifest = (Read-DeploymentManifest $script:CurrentManifestPath).Manifest
+  $previousArtifact = Get-ArchivedRunnerArtifact $previousManifest
   $restored = $false
   foreach ($name in @('compose.office.yml', 'nginx.conf', '.env.office.deploy')) {
     $backup = Join-Path $BackupRoot $name
@@ -1362,14 +1416,12 @@ function Restore-Transaction {
   if (-not $restored) {
     throw 'No prior Office deployment files exist for a coherent rollback.'
   }
+  $previousRunnerRelease = New-RunnerRelease -ArtifactPath $previousArtifact -Manifest $previousManifest
+  Switch-RunnerCurrentRelease $previousRunnerRelease $previousManifest
   Set-ComposeArguments
   Invoke-Checked docker @script:ComposeArgs up --detach --no-build api worker web nginx
   Wait-ForRuntime
-  $previousRunner = Get-RunnerCurrentRelease
-  if ($null -eq $previousRunner) {
-    throw 'No prior Host Runner release exists for a coherent rollback.'
-  }
-  Register-RunnerScheduledTask $previousRunner.ReleaseRoot
+  Register-RunnerScheduledTask $previousRunnerRelease
   Start-RunnerScheduledTask
   Wait-ForAgentRuntimeReadiness
   Assert-CurrentOfficeReleaseIdentity
@@ -1428,7 +1480,7 @@ function Install-Deployment {
     throw 'Office Compose contains a local build section; only immutable pulled images are allowed.'
   }
   Assert-RunnerArtifact $sourceRunnerArtifact $manifest
-  $runnerReleaseRoot = New-RunnerRelease $sourceRunnerArtifact $manifest
+  $runnerReleaseRoot = $null
 
   New-Item -ItemType Directory -Path $script:OfficeRoot -Force | Out-Null
   New-Item -ItemType Directory -Path $script:DeploymentsRoot -Force | Out-Null
@@ -1459,7 +1511,7 @@ function Install-Deployment {
     Set-ComposeArguments
     Invoke-Checked docker @script:ComposeArgs config --quiet
     Assert-RenderedManifestDeployment $manifest
-    Stop-RunnerScheduledTask
+    $runnerReleaseRoot = New-RunnerRelease -ArtifactPath $sourceRunnerArtifact -Manifest $manifest
     if ($ApplySchema) {
       Write-Warning 'Stopping application containers before the approved Prisma schema push. Runtime rollback cannot undo schema changes.'
       Invoke-Checked docker @script:ComposeArgs stop api worker web nginx
