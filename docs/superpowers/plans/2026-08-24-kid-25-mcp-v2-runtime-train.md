@@ -45,10 +45,14 @@ For every substantial implementation unit:
 - preserve unrelated user changes and stage only the explicitly integrated
   files needed for the final architecture;
 - have the parent inspect the diff and verification transcript before moving
-  to the next integrated unit;
-- obtain an independent `gpt-5.6-sol` specification review and code-quality
-  review with reasoning effort `max`, then fix and re-review every concrete
-  P1/P2 finding.
+  to the next integrated unit.
+
+Keep every task's TDD and focused verification, but do not run a full Sol
+review for every task. The parent selects only material security, authority,
+transport, process-isolation, or deployment boundaries for an independent
+`gpt-5.6-sol` review with reasoning effort `max`, and fixes/re-reviews concrete
+P1/P2 findings there. Ordinary task quality is established by tests, parent
+diff inspection, and the final integrated review.
 
 After all implementation units, use a fresh `gpt-5.6-sol` reviewer with
 reasoning effort `max` for one final integrated
