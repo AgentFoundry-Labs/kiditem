@@ -35,6 +35,29 @@ describe('AgentInteractionSurface durable projection', () => {
     expect(screen.getByText(/past chat is never replayed/i)).toBeVisible();
   });
 
+  it('does not fetch a newly generated session until its first live run finishes', async () => {
+    const completion = deferred<void>();
+    runAgent.mockImplementationOnce(() => completion.promise);
+    vi.mocked(apiClient.get).mockResolvedValue({
+      session: { id: expect.any(String) },
+      tasks: [],
+    } as never);
+    const user = userEvent.setup();
+    render(<AgentInteractionSurface />);
+
+    await user.type(screen.getByPlaceholderText('Ask Operator to begin work'), 'collect signals');
+    await user.click(screen.getByRole('button', { name: 'Start' }));
+    await vi.waitFor(() => expect(runAgent).toHaveBeenCalledTimes(1));
+    const sessionId = new URLSearchParams(window.location.search).get('agentSessionId');
+    expect(sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);
+    expect(apiClient.get).not.toHaveBeenCalled();
+
+    completion.resolve();
+    await vi.waitFor(() => expect(apiClient.get).toHaveBeenCalledWith(
+      `/api/agent-work/sessions/${sessionId}`,
+    ));
+  });
+
   it('routes continue, interrupt, cancel, and terminal deletion to durable actions', async () => {
     vi.mocked(apiClient.get).mockResolvedValue({ session: { id: expect.any(String) }, tasks: [{ id: 'task-1', objective: 'work', status: 'open', presentation: 'needs_continue', latestAttempt: { id: 'attempt-1', ordinal: 1, status: 'running' } }] } as never);
     const user = userEvent.setup(); render(<AgentInteractionSurface />);
@@ -85,3 +108,11 @@ describe('AgentInteractionSurface durable projection', () => {
     await vi.waitFor(() => expect(new URLSearchParams(window.location.search).get('agentSessionId')).toBeNull());
   });
 });
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}

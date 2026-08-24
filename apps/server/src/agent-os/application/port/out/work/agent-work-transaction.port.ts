@@ -227,6 +227,7 @@ export interface AgentWorkTransactionPort {
       | "sessionId"
       | "parentTaskId"
       | "delegatingAttemptId"
+      | "requestedByUserId"
       | "idempotencyKey"
       | "requestHash"
     >,

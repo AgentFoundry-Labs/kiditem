@@ -223,27 +223,46 @@ export class PrismaAgentWorkTransaction implements Pick<
       | "sessionId"
       | "parentTaskId"
       | "delegatingAttemptId"
+      | "requestedByUserId"
       | "idempotencyKey"
       | "requestHash"
     >,
   ): Promise<DelegateTaskResult | null> {
-    const existing = await this.prisma.agentTask.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sessionId: input.sessionId,
-        parentTaskId: input.parentTaskId,
-        delegatedFromAttemptId: input.delegatingAttemptId,
-        delegationIdempotencyKey: input.idempotencyKey,
-        delegationRequestHash: input.requestHash,
-      },
-      include: { attempts: { orderBy: { ordinal: "asc" }, take: 1 } },
+    return this.prisma.$transaction(async (tx) => {
+      await assertActiveMembership(
+        tx,
+        input.organizationId,
+        input.requestedByUserId,
+      );
+      await lockedOwnedSession(
+        tx,
+        input.organizationId,
+        input.sessionId,
+        input.requestedByUserId,
+      );
+      const existing = await tx.agentTask.findFirst({
+        where: {
+          organizationId: input.organizationId,
+          sessionId: input.sessionId,
+          parentTaskId: input.parentTaskId,
+          delegatedFromAttemptId: input.delegatingAttemptId,
+          delegationIdempotencyKey: input.idempotencyKey,
+        },
+        include: { attempts: { orderBy: { ordinal: "asc" }, take: 1 } },
+      });
+      if (!existing) return null;
+      if (
+        existing.delegationRequestHash !== input.requestHash ||
+        !existing.attempts[0]
+      ) {
+        throw rejection("delegation_idempotency_conflict");
+      }
+      return {
+        childTaskId: existing.id,
+        firstAttemptId: existing.attempts[0].id,
+        replayed: true,
+      };
     });
-    if (!existing?.attempts[0]) return null;
-    return {
-      childTaskId: existing.id,
-      firstAttemptId: existing.attempts[0].id,
-      replayed: true,
-    };
   }
 
   async delegateTask(input: DelegateTaskInput): Promise<DelegateTaskResult> {

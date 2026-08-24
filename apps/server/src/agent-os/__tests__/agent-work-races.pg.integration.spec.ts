@@ -446,15 +446,15 @@ describe("replacement Agent work transaction races", () => {
     await expect(admissions.delegate(input)).resolves.toEqual({ ...first, replayed: true });
     await expect(admissions.delegate({
       ...input,
+      requestHash: "f".repeat(64),
+    })).rejects.toMatchObject({ code: "delegation_idempotency_conflict" });
+    await expect(admissions.delegate({
+      ...input,
       idempotencyKey: "direct-delegate-2",
       requestHash: "e".repeat(64),
     })).rejects.toMatchObject({ code: "agent_capacity_exhausted" });
 
     admissions.releaseAttempt(first.firstAttemptId);
-    await expect(admissions.delegate({
-      ...input,
-      requestHash: "f".repeat(64),
-    })).rejects.toMatchObject({ code: "delegation_idempotency_conflict" });
     const reusable = capacity.tryReserve();
     reusable.release();
   });

@@ -6,6 +6,7 @@ import { apiClient } from '@/lib/api-client';
 
 type WorkProjection = { session: { id: string }; tasks: Array<{ id: string; parentTaskId: string | null; objective: string; status: string; presentation: string; summary?: string | null; error?: { code?: string; message?: string } | null; resourceRefs?: Array<{ kind: string; id: string }>; operationRefs?: Array<{ kind: string; id: string; status?: string }>; latestAttempt: { id: string; ordinal: number; status: string } | null; approval?: { id: string; invocationId: string; inputHash: string; expiresAt?: string } | null }> };
 const SESSION_QUERY_KEY = 'agentSessionId';
+const SESSION_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Durable Work UI. CopilotKit messages are future-only browser memory. */
 export function AgentInteractionSurface({ surface = 'global_panel', ...props }: ComponentProps<'section'> & { surface?: 'global_panel' | 'workspace' }) {
@@ -13,6 +14,7 @@ export function AgentInteractionSurface({ surface = 'global_panel', ...props }: 
   const [prompt, setPrompt] = useState('');
   const [queuedPrompt, setQueuedPrompt] = useState<{ id: string; text: string } | null>(null);
   const [sessionId, setSessionId] = useState(readSelectedSessionId);
+  const mountedSessionId = useRef(sessionId);
   const selectSession = (id: string) => {
     setSessionId(id);
     if (typeof window === 'undefined') return;
@@ -21,13 +23,15 @@ export function AgentInteractionSurface({ surface = 'global_panel', ...props }: 
     else url.searchParams.delete(SESSION_QUERY_KEY);
     window.history.replaceState(window.history.state, '', url);
   };
-  const refresh = useCallback(async (id = sessionId) => {
-    if (!id) return;
+  const loadProjection = useCallback(async (id: string) => {
     setProjection(await apiClient.get<WorkProjection>(`/api/agent-work/sessions/${id}`));
-  }, [sessionId]);
+  }, []);
+  const refresh = useCallback(async (id = sessionId) => {
+    if (id) await loadProjection(id);
+  }, [loadProjection, sessionId]);
   useEffect(() => {
-    if (sessionId) void refresh(sessionId);
-  }, [refresh, sessionId]);
+    if (mountedSessionId.current) void loadProjection(mountedSessionId.current);
+  }, [loadProjection]);
   const start = () => { const threadId = sessionId || crypto.randomUUID(); if (!sessionId) selectSession(threadId); setQueuedPrompt({ id: crypto.randomUUID(), text: prompt.trim() }); setPrompt(''); };
   const newTask = () => { setProjection(null); selectSession(''); setQueuedPrompt(null); setPrompt(''); };
   const action = async (path: string, body?: unknown) => { await apiClient.post(path, body); await refresh(); };
@@ -44,7 +48,8 @@ export function AgentInteractionSurface({ surface = 'global_panel', ...props }: 
 
 function readSelectedSessionId(): string {
   if (typeof window === 'undefined') return '';
-  return new URLSearchParams(window.location.search).get(SESSION_QUERY_KEY) ?? '';
+  const value = new URLSearchParams(window.location.search).get(SESSION_QUERY_KEY) ?? '';
+  return SESSION_ID_PATTERN.test(value) ? value : '';
 }
 
 function LiveFutureAgent({ threadId, queuedPrompt, onConsumed, onFinished }: { threadId: string; queuedPrompt: { id: string; text: string } | null; onConsumed(): void; onFinished(): void }) {

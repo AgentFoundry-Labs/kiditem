@@ -54,6 +54,7 @@ export class AgentAttemptAdmissionService {
       sessionId: input.sessionId,
       parentTaskId: input.parentTaskId,
       delegatingAttemptId: input.delegatingAttemptId,
+      requestedByUserId: input.requestedByUserId,
       idempotencyKey: input.idempotencyKey,
       requestHash: input.requestHash,
     });
