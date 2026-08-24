@@ -79,4 +79,48 @@ describe('SourcingFinalDiscoveryCapabilityAdapter', () => {
       .rejects.toThrow('supplier_url');
     expect(candidates.upsertSourced).not.toHaveBeenCalled();
   });
+
+  it('records an immutable Sourcing-owned receipt for an exact owner replay', async () => {
+    const candidates = {
+      findActiveBySourceUrl: vi.fn(),
+      upsertSourced: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000010' }),
+      upsertSourcedWithIdempotencyReceipt: vi.fn().mockResolvedValue({
+        candidateId: '00000000-0000-4000-8000-000000000011',
+      }),
+    };
+    const browser = {
+      scrapeProductUrl: vi.fn().mockResolvedValue({
+        ok: true,
+        scraped_data: {
+          title: 'Toy',
+          price: 1,
+          currency: 'CNY',
+          image_urls: ['https://images.example.com/a.png'],
+        },
+      }),
+    };
+    const adapter = new SourcingFinalDiscoveryCapabilityAdapter(
+      candidates as never,
+      browser as never,
+    );
+    const snapshot = await adapter.scrapeProductUrl({
+      sourceUrl: 'https://detail.1688.com/offer/1.html',
+    });
+
+    await expect(adapter.ingestCandidate({
+      organizationId: '00000000-0000-4000-8000-000000000002',
+      initiatingUserId: '00000000-0000-4000-8000-000000000003',
+      idempotencyKey: 'owner:attempt:ingest',
+      snapshot,
+    })).resolves.toEqual({ candidateId: '00000000-0000-4000-8000-000000000011' });
+
+    expect(candidates.upsertSourcedWithIdempotencyReceipt).toHaveBeenCalledWith(
+      expect.objectContaining({
+        capabilityKey: 'sourcing.ingestCandidate',
+        idempotencyKey: 'owner:attempt:ingest',
+        requestHash: snapshot.contentHash,
+      }),
+    );
+    expect(candidates.upsertSourced).not.toHaveBeenCalled();
+  });
 });

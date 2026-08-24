@@ -114,6 +114,15 @@ export class OperationRunService
     return this.toWire(created);
   }
 
+  async findByIdempotency(input: {
+    organizationId: string;
+    operationKey: string;
+    idempotencyKey: string;
+  }): Promise<OperationRun | null> {
+    const existing = await this.repository.findByIdempotencyKey(input);
+    return existing && !this.isEphemeral(existing) ? this.toWire(existing) : null;
+  }
+
   private assertMatchingIdempotencyInput(
     existing: Record<string, unknown>,
     requested: Record<string, unknown>,

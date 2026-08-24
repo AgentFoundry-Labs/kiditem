@@ -25,7 +25,10 @@ function setup(admissions = { recordScrapeSnapshot: vi.fn() }) {
   const mutations = { refreshValidation: vi.fn().mockResolvedValue({ recommendationRunId: '00000000-0000-4000-8000-000000000007', validationEpisodeIds: [], missingEvidence: [] }), createReviewBatch: vi.fn() };
   const discovery = { duplicateCheck: vi.fn().mockResolvedValue({ duplicate: false, candidateId: null }), scrapeProductUrl: vi.fn().mockResolvedValue({ sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', images: [], contentHash: 'a'.repeat(64) }), ingestCandidate: vi.fn().mockResolvedValue({ candidateId: '00000000-0000-4000-8000-000000000010' }) };
   const shadow = { collectShadowSignals: vi.fn().mockResolvedValue({ operationRunId: '00000000-0000-4000-8000-000000000009', status: 'queued' }) };
-  const operations = { start: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000008', status: 'queued' }) };
+  const operations = {
+    findByIdempotency: vi.fn().mockResolvedValue(null),
+    start: vi.fn().mockResolvedValue({ id: '00000000-0000-4000-8000-000000000008', status: 'queued' }),
+  };
   return { adapter: new SourcingFinalCapabilityAdapter(reads as never, mutations as never, discovery as never, shadow as never, operations as never, admissions as never), reads, mutations, discovery, shadow, operations };
 }
 
@@ -204,6 +207,33 @@ describe('SourcingFinalCapabilityAdapter', () => {
     await adapter.scrapeUrlWorkflow(request);
     await adapter.scrapeUrlWorkflow(request);
     expect(discovery.duplicateCheck).toHaveBeenCalledTimes(2);
+    expect(operations.start).not.toHaveBeenCalled();
+  });
+
+  it('resolves an exact workflow Operation replay before mutable candidate duplicate detection', async () => {
+    const { adapter, discovery, operations } = setup();
+    const input = { sourceUrl: 'https://detail.1688.com/offer/1.html' };
+    const context = mutationContext('sourcing.scrapeUrlWorkflow', input);
+    operations.findByIdempotency.mockResolvedValue({
+      id: '00000000-0000-4000-8000-000000000099',
+      status: 'succeeded',
+    });
+    discovery.duplicateCheck.mockResolvedValue({
+      duplicate: true,
+      candidateId: '00000000-0000-4000-8000-000000000010',
+    });
+
+    await expect(adapter.scrapeUrlWorkflow({ context, input })).resolves.toEqual({
+      kind: 'enqueued',
+      operationRunId: '00000000-0000-4000-8000-000000000099',
+      status: 'succeeded',
+    });
+    expect(operations.findByIdempotency).toHaveBeenCalledWith({
+      organizationId: context.organizationId,
+      operationKey: 'sourcing.scrape_url',
+      idempotencyKey: context.ownerIdempotencyKey,
+    });
+    expect(discovery.duplicateCheck).not.toHaveBeenCalled();
     expect(operations.start).not.toHaveBeenCalled();
   });
 

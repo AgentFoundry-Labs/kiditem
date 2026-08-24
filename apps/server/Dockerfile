@@ -110,7 +110,7 @@ COPY agent-config ./agent-config
 
 # Fail the image build if the current private MCP and readiness canary entrypoints
 # are missing. Runtime login/model checks happen only with the operator profile.
-RUN node -e "const fs=require('fs'); for (const file of ['./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js','./apps/server/dist/agent-os/adapter/in/mcp/readiness-canary-mcp-server.js','./apps/server/dist/agent-os/adapter/out/runtime/attempt/agent-attempt-readiness-canary.js','./apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js']) fs.accessSync(file);"
+RUN node -e "const fs=require('fs'); for (const file of ['./apps/server/dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js','./apps/server/dist/agent-os/adapter/in/mcp/readiness-canary-mcp-server.js','./apps/server/dist/agent-os/adapter/out/runtime/attempt/agent-attempt-readiness-canary.js','./apps/server/dist/agent-os/adapter/in/cli/seed-agent-versions.cli.js','./agent-config/prompts/agents/operator.md','./agent-config/prompts/agents/sourcing.md','./agent-config/prompts/agents/merchandising.md','./agent-config/prompts/agents/supply.md','./agent-config/prompts/agents/channel_operations.md','./agent-config/prompts/agents/advertising.md']) fs.accessSync(file);"
 
 RUN node -e "const fs=require('fs'); const css=fs.readFileSync(require.resolve('@kiditem/templates/styles.css'),'utf8'); if(!/tailwindcss\\s+v\\d/i.test(css)) process.exit(1)"
 
@@ -125,7 +125,7 @@ RUN tmpdir="$(mktemp -d)" \
     && test -s "$tmpdir/output.xls" \
     && rm -rf "$tmpdir"
 
-RUN node -e "require('./apps/server/dist/app.module.js')"
+RUN node -e "require('./apps/server/dist/api-application.module.js'); require('./apps/server/dist/agent-worker-application.module.js')"
 
 WORKDIR /app/apps/server
 

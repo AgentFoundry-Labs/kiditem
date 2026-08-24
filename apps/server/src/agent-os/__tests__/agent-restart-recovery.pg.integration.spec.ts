@@ -75,16 +75,31 @@ describe('same-SHA Agent work restart recovery', () => {
     await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });
 
-  it('preserves a distinct pending Approval and ready mutation during same-SHA API reconciliation', async () => {
+  it('fails expired ready and abandoned-lease mutations while preserving a distinct pending Approval', async () => {
     const admitted = await root();
     await prisma.agentAttempt.update({ where: { id: admitted.attempt.id }, data: { status: 'running' } });
     const ready = await invocation(admitted, 'ready', ['db_write'], 'ready');
     await prisma.agentCapabilityInvocation.update({ where: { id: ready.id }, data: { authorizationExpiresAt: new Date('2029-12-31T00:00:00.000Z') } });
+    const abandoned = await invocation(admitted, 'executing', ['db_write'], 'abandoned');
+    await prisma.agentCapabilityInvocation.update({
+      where: { id: abandoned.id },
+      data: {
+        authorizationExpiresAt: new Date('2029-12-31T00:00:00.000Z'),
+        leaseOwner: 'interrupted-worker',
+        leaseExpiresAt: new Date('2030-01-01T00:00:00.000Z'),
+      },
+    });
     const awaitingApproval = await invocation(admitted, 'approval_pending', ['db_write'], 'approval');
     const pending = await prisma.agentCapabilityApproval.create({ data: { organizationId, sessionId: admitted.session.id, invocationId: awaitingApproval.id, inputHash: awaitingApproval.inputHash, status: 'pending', expiresAt: new Date('2030-01-02T00:00:00.000Z') } });
     await work.reconcile({ applicationVersion: '1.0.0', authorizingGitSha: gitSha, now: new Date('2030-01-01T00:00:02.000Z') });
-    await expect(prisma.agentCapabilityInvocation.findUnique({ where: { id: ready.id }, select: { status: true } })).resolves.toEqual({ status: 'ready' });
-    await expect(work.claimMutation({ workerId: 'delayed-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') })).resolves.toMatchObject({ invocationId: ready.id, ownerIdempotencyKey: 'owner-key-ready', canonicalInput: { version: 7, productId: 'product-ready' } });
+    await expect(work.claimMutation({ workerId: 'delayed-worker', claimedAt: new Date('2030-01-01T00:00:03.000Z'), leaseExpiresAt: new Date('2030-01-01T00:01:03.000Z') })).resolves.toBeNull();
+    await expect(prisma.agentCapabilityInvocation.findMany({
+      where: { id: { in: [ready.id, abandoned.id] } },
+      select: { id: true, status: true, error: true, leaseOwner: true, leaseExpiresAt: true },
+    })).resolves.toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: ready.id, status: 'failed', error: { code: 'authorization_expired', message: 'Capability authorization expired.' }, leaseOwner: null, leaseExpiresAt: null }),
+      expect.objectContaining({ id: abandoned.id, status: 'failed', error: { code: 'authorization_expired', message: 'Capability authorization expired.' }, leaseOwner: null, leaseExpiresAt: null }),
+    ]));
     await expect(prisma.agentCapabilityApproval.findUnique({ where: { id: pending.id }, select: { status: true } })).resolves.toEqual({ status: 'pending' });
     await expect(prisma.agentTask.findUnique({ where: { id: admitted.task.id }, select: { status: true } })).resolves.toEqual({ status: 'open' });
   });

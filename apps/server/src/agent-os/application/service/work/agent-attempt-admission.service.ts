@@ -17,7 +17,10 @@ export class AgentAttemptAdmissionService {
     private readonly capacity: AgentAttemptCapacityService,
     private readonly transactions: Pick<
       AgentWorkTransactionPort,
-      "admitAttempt" | "admitRootAttempt" | "delegateTask"
+      | "admitAttempt"
+      | "admitRootAttempt"
+      | "findDelegationReplay"
+      | "delegateTask"
     >,
   ) {}
 
@@ -46,6 +49,15 @@ export class AgentAttemptAdmissionService {
   }
 
   async delegate(input: DelegateTaskInput): Promise<DelegateTaskResult> {
+    const replay = await this.transactions.findDelegationReplay({
+      organizationId: input.organizationId,
+      sessionId: input.sessionId,
+      parentTaskId: input.parentTaskId,
+      delegatingAttemptId: input.delegatingAttemptId,
+      idempotencyKey: input.idempotencyKey,
+      requestHash: input.requestHash,
+    });
+    if (replay) return replay;
     const lease = this.capacity.tryReserve();
     try {
       const delegated = await this.transactions.delegateTask(input);

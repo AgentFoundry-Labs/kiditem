@@ -151,6 +151,14 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
       'sourcing.scrapeUrlWorkflow',
       input,
     );
+    const replay = await this.operations.findByIdempotency({
+      organizationId: context.organizationId,
+      operationKey: SOURCING_SCRAPE_URL_OPERATION.key,
+      idempotencyKey,
+    });
+    if (replay) {
+      return { kind: 'enqueued' as const, operationRunId: replay.id, status: replay.status };
+    }
     const duplicate = await this.discovery.duplicateCheck({
       organizationId: context.organizationId,
       sourceUrl: input.sourceUrl,

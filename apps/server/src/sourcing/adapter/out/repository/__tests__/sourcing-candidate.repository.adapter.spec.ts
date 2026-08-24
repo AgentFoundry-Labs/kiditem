@@ -158,6 +158,21 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     expect(imageCount).toBe(1);
   });
 
+  it('bounds receipt recovery after a persistent unique conflict instead of recursing forever', async () => {
+    const unique = { code: 'P2002' };
+    const prisma = {
+      $transaction: vi.fn()
+        .mockRejectedValueOnce(unique)
+        .mockRejectedValueOnce(unique)
+        .mockRejectedValueOnce(new Error('must not make a third receipt attempt')),
+    };
+    const repository = new SourcingCandidateRepositoryAdapter(prisma as never);
+
+    await expect(repository.upsertSourcedWithIdempotencyReceipt(receiptInput()))
+      .rejects.toBe(unique);
+    expect(prisma.$transaction).toHaveBeenCalledTimes(2);
+  });
+
   it('finds only an active sourced candidate by source URL', async () => {
     const prisma = {
       sourcingCandidate: { findFirst: vi.fn().mockResolvedValue(candidateRow()) },
@@ -331,6 +346,27 @@ describe('SourcingCandidateRepositoryAdapter', () => {
     });
   });
 });
+
+function receiptInput() {
+  return {
+    organizationId: 'org-1',
+    capabilityKey: 'sourcing.ingestCandidate',
+    idempotencyKey: 'owner:attempt:ingest',
+    requestHash: 'a'.repeat(64),
+    sourceUrl: 'https://detail.1688.com/offer/1.html',
+    sourcePlatform: 'ALIBABA_1688',
+    rawData: { source: 'agent_final_scrape' },
+    name: 'Toy candidate',
+    description: '',
+    category: null,
+    tags: [],
+    thumbnailUrl: null,
+    imageUrl: null,
+    costCny: null,
+    triggeredByUserId: 'user-1',
+    images: [],
+  };
+}
 
 function listPrisma() {
   const prisma = {

@@ -39,6 +39,7 @@ export class PrismaAgentWorkTransaction implements Pick<
   AgentWorkTransactionPort,
   | "admitRootAttempt"
   | "admitAttempt"
+  | "findDelegationReplay"
   | "delegateTask"
   | "authorizeInvocation"
   | "decideApproval"
@@ -213,6 +214,36 @@ export class PrismaAgentWorkTransaction implements Pick<
         ordinal: attempt.ordinal,
       };
     });
+  }
+
+  async findDelegationReplay(
+    input: Pick<
+      DelegateTaskInput,
+      | "organizationId"
+      | "sessionId"
+      | "parentTaskId"
+      | "delegatingAttemptId"
+      | "idempotencyKey"
+      | "requestHash"
+    >,
+  ): Promise<DelegateTaskResult | null> {
+    const existing = await this.prisma.agentTask.findFirst({
+      where: {
+        organizationId: input.organizationId,
+        sessionId: input.sessionId,
+        parentTaskId: input.parentTaskId,
+        delegatedFromAttemptId: input.delegatingAttemptId,
+        delegationIdempotencyKey: input.idempotencyKey,
+        delegationRequestHash: input.requestHash,
+      },
+      include: { attempts: { orderBy: { ordinal: "asc" }, take: 1 } },
+    });
+    if (!existing?.attempts[0]) return null;
+    return {
+      childTaskId: existing.id,
+      firstAttemptId: existing.attempts[0].id,
+      replayed: true,
+    };
   }
 
   async delegateTask(input: DelegateTaskInput): Promise<DelegateTaskResult> {
@@ -587,6 +618,27 @@ export class PrismaAgentWorkTransaction implements Pick<
         where: { id: candidate.id, organizationId: candidate.organizationId },
         });
         if (!invocation) continue;
+        if (invocation.authorizationExpiresAt <= input.claimedAt) {
+          const expired = await tx.agentCapabilityInvocation.updateMany({
+            where: {
+              id: invocation.id,
+              organizationId: invocation.organizationId,
+              OR: [
+                { status: 'ready' },
+                { status: 'executing', leaseExpiresAt: { lte: input.claimedAt } },
+              ],
+            },
+            data: {
+              status: 'failed',
+              error: { code: 'authorization_expired', message: 'Capability authorization expired.' },
+              finishedAt: input.claimedAt,
+              leaseOwner: null,
+              leaseExpiresAt: null,
+            },
+          });
+          if (expired.count !== 1) continue;
+          continue;
+        }
         const context = await mutationContextStatus(tx, invocation);
         if (!context.valid) {
           await tx.agentCapabilityInvocation.updateMany({

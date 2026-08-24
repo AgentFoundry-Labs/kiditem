@@ -32,6 +32,14 @@ export class AgentMutationDispatcherService {
     });
     if (!work) return false;
 
+    if (work.authorizationExpiresAt <= claimedAt) {
+      await this.fail(work, {
+        code: 'authorization_expired',
+        message: 'Capability authorization expired.',
+      }, claimedAt);
+      return true;
+    }
+
     const invalid = this.validate(work);
     if (invalid) {
       await this.fail(work, invalid, claimedAt);

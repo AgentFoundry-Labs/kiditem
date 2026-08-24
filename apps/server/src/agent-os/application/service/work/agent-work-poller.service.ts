@@ -5,6 +5,7 @@ import { AgentMutationDispatcherService } from './agent-mutation-dispatcher.serv
 
 const POLL_INTERVAL_MS = 2_000;
 const POLL_BATCH_SIZE = 100;
+const SHUTDOWN_DRAIN_MS = 5_000;
 
 /** Worker-only deterministic polling; it has no durable worker identity. */
 export class AgentWorkPollerService implements OnApplicationBootstrap, OnModuleDestroy {
@@ -25,9 +26,23 @@ export class AgentWorkPollerService implements OnApplicationBootstrap, OnModuleD
     this.timer.unref?.();
   }
 
-  onModuleDestroy(): void {
+  async onModuleDestroy(): Promise<void> {
     if (this.timer) clearInterval(this.timer);
     this.timer = null;
+    const running = this.running;
+    if (!running) return;
+
+    let timeout: ReturnType<typeof setTimeout> | null = null;
+    const completed = await Promise.race([
+      running.then(() => true),
+      new Promise<boolean>((resolve) => {
+        timeout = setTimeout(() => resolve(false), SHUTDOWN_DRAIN_MS);
+      }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+    if (!completed) {
+      this.logger.warn(`Agent work poller shutdown timed out after ${SHUTDOWN_DRAIN_MS}ms.`);
+    }
   }
 
   private async tick(): Promise<void> {

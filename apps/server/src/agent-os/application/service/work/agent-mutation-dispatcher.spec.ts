@@ -130,4 +130,27 @@ describe('AgentMutationDispatcherService', () => {
       outcome: 'failed', error: { code: 'stale_capability_version', message: 'Capability version is no longer current.' },
     }));
   });
+
+  it('fails an authorization that expired at claim time before invoking its owner', async () => {
+    const work = snapshot({ authorizationExpiresAt: NOW });
+    const claimMutation = vi.fn().mockResolvedValue(work);
+    const finalizeMutation = vi.fn().mockResolvedValue({ won: true });
+    const invoke = vi.fn();
+    const dispatcher = new AgentMutationDispatcherService(
+      { claimMutation, finalizeMutation } as never,
+      {
+        resolveDefinition: vi.fn().mockReturnValue(definition()),
+        resolveImplementation: vi.fn().mockReturnValue({ capabilityKey: 'products.write', invoke }),
+      } as never,
+      { applicationVersion: '1.0.0', gitSha: 'a'.repeat(40) },
+      () => NOW,
+    );
+
+    await expect(dispatcher.dispatchOne('worker-1')).resolves.toBe(true);
+    expect(invoke).not.toHaveBeenCalled();
+    expect(finalizeMutation).toHaveBeenCalledWith(expect.objectContaining({
+      outcome: 'failed',
+      error: { code: 'authorization_expired', message: 'Capability authorization expired.' },
+    }));
+  });
 });

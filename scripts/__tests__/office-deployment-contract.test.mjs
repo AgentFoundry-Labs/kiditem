@@ -1,11 +1,12 @@
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const read = (path) => readFileSync(`${root}/${path}`, 'utf8');
+const escapeRegex = (value) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
 test('office workflow builds both images and publishes digest refs', () => {
   const workflow = read('.github/workflows/office-images.yml');
@@ -118,6 +119,32 @@ test('office API runtime includes the Prisma CLI used by explicit schema apply',
   const serverPackage = JSON.parse(read('apps/server/package.json'));
   assert.equal(typeof serverPackage.dependencies.prisma, 'string');
   assert.equal(serverPackage.devDependencies?.prisma, undefined);
+});
+
+test('office API image validates the current API and worker application roots', () => {
+  const dockerfile = read('apps/server/Dockerfile');
+
+  assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/api-application\.module\.js'\)/);
+  assert.match(dockerfile, /require\('\.\/apps\/server\/dist\/agent-worker-application\.module\.js'\)/);
+  assert.doesNotMatch(dockerfile, /require\('\.\/apps\/server\/dist\/app\.module\.js'\)/);
+});
+
+test('office API image context resolves every published Agent instruction profile exactly', () => {
+  const definitions = read('apps/server/src/agent-os/domain/agent-definition.registry.ts');
+  const publication = read('apps/server/src/agent-os/domain/catalog/agent-version-publication.registry.ts');
+  const dockerignore = read('.dockerignore');
+  const dockerfile = read('apps/server/Dockerfile');
+  const agentKeys = [...definitions.matchAll(/key: '([^']+)'/g)].map((match) => match[1]);
+  const profileRefs = agentKeys.map((key) => `agent-config/prompts/agents/${key}.md`);
+
+  assert.equal(agentKeys.length, 6);
+  assert.match(publication, /`agent-config\/prompts\/agents\/\$\{agent\.key\}\.md`/);
+  assert.doesNotMatch(dockerignore, /^!agent-config\/prompts\/agents\/\*\.md$/m);
+  for (const profileRef of profileRefs) {
+    assert.equal(existsSync(`${root}/${profileRef}`), true, `missing published profile ${profileRef}`);
+    assert.match(dockerignore, new RegExp(`^!${escapeRegex(profileRef)}$`, 'm'));
+    assert.match(dockerfile, new RegExp(escapeRegex(profileRef)));
+  }
 });
 
 test('office API runtime alone owns installed local CLIs and a read-only service-account profile', () => {
@@ -251,7 +278,7 @@ test('office deployment passes immutable application identity into the API runti
   assert.match(compose, /KIDITEM_GIT_SHA: \$\{KIDITEM_GIT_SHA:\?/);
 });
 
-test('Agent OS clean cutover is Windows/Docker-only and stops writers on post-start failure', () => {
+test('Agent OS clean cutover is Windows/Docker-only, stops writers before quiescence checks, and keeps them stopped on failure', () => {
   const cutover = read('docs/runbooks/agent-os-clean-cutover.md');
   assert.match(cutover, /\$expectedDockerContext = 'desktop-linux'/);
   assert.match(cutover, /pg_dump.*--format=custom/);
@@ -260,6 +287,11 @@ test('Agent OS clean cutover is Windows/Docker-only and stops writers on post-st
   assert.match(cutover, /npx prisma db push --accept-data-loss/);
   assert.match(cutover, /seed-agent-versions\.cli\.js/);
   assert.match(cutover, /& docker @compose stop api worker web nginx/);
+  assert.match(cutover, /& docker @compose ps --status running --services/);
+  assert.ok(
+    cutover.indexOf('& docker @compose stop api worker web nginx')
+      < cutover.indexOf('$pendingMutations ='),
+  );
   assert.match(cutover, /\$cutoverError = \$_\.Exception\.Message/);
   assert.match(cutover, /docker cp \$dump kiditem-postgres:/);
   assert.doesNotMatch(cutover, /codex\.exe|claude\.exe|Start-Process\s+(?:codex|claude)/i);

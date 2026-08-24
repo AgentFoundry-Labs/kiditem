@@ -422,6 +422,43 @@ describe("replacement Agent work transaction races", () => {
       .rejects.toMatchObject({ code: "delegating_attempt_not_live" });
   });
 
+  it("matrix 6a: direct admission replays an exact delegation before capacity, while changed or new requests still fence capacity and conflict", async () => {
+    const parentVersion = await createVersion();
+    const targetVersion = await createVersion();
+    const parent = await liveRoot(parentVersion);
+    const capacity = new AgentAttemptCapacityService(1);
+    const admissions = new AgentAttemptAdmissionService(capacity, work);
+    const input = {
+      organizationId,
+      sessionId: parent.session.id,
+      parentTaskId: parent.task.id,
+      delegatingAttemptId: parent.attempt.id,
+      requestedByUserId: userId,
+      targetAgentVersionId: targetVersion.id,
+      objective: "Child",
+      completionCriteria: "Done",
+      inputResourceRefs: [],
+      idempotencyKey: "direct-delegate-1",
+      requestHash: "d".repeat(64),
+      ...snapshot,
+    };
+    const first = await admissions.delegate(input);
+    await expect(admissions.delegate(input)).resolves.toEqual({ ...first, replayed: true });
+    await expect(admissions.delegate({
+      ...input,
+      idempotencyKey: "direct-delegate-2",
+      requestHash: "e".repeat(64),
+    })).rejects.toMatchObject({ code: "agent_capacity_exhausted" });
+
+    admissions.releaseAttempt(first.firstAttemptId);
+    await expect(admissions.delegate({
+      ...input,
+      requestHash: "f".repeat(64),
+    })).rejects.toMatchObject({ code: "delegation_idempotency_conflict" });
+    const reusable = capacity.tryReserve();
+    reusable.release();
+  });
+
   it("matrix 7: code-owned capability definitions enforce routing and persist approval snapshots", async () => {
     const rootVersion = await createVersion({
       capabilityKeys: ["agent.inspect", "agent.medium", "agent.high"],

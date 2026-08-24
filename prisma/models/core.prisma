@@ -149,6 +149,7 @@ model Organization {
 
   // Sourcing (issue #192)
   sourcingCandidates                   SourcingCandidate[]
+  sourcingOwnerIdempotencyReceipts     SourcingOwnerIdempotencyReceipt[]
   candidateImages                      CandidateImage[]
   sourcingWorkspaceSnapshots           SourcingWorkspaceSnapshot[]
   sourcingInterestTargets              SourcingInterestTarget[]

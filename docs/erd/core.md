@@ -447,6 +447,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingInterestTarget |
 | Organization | organization | referenced by external | Sourcing | SourcingKeywordPreference |
 | Organization | organization | referenced by external | Sourcing | SourcingLaunchCandidate |
+| Organization | organization | referenced by external | Sourcing | SourcingOwnerIdempotencyReceipt |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItem |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationItemEvidence |
 | Organization | organization | referenced by external | Sourcing | SourcingRecommendationRun |

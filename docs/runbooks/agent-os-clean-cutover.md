@@ -42,12 +42,18 @@ $dump = Join-Path $backupRoot "kiditem-agent-os-$stamp.dump"
 $record = Join-Path $backupRoot "kiditem-agent-os-$stamp.json"
 
 $compose = @('compose','--project-name','kiditem-office','--env-file',"$officeRoot\.env.office",'--file',"$bundle\compose.office.yml")
-$pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
-if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist; cutover is blocked.' }
-
 # Stop every application writer. Keep PostgreSQL and MinIO running.
 & docker @compose stop api worker web nginx
 if ($LASTEXITCODE -ne 0) { throw 'Could not stop Office writers.' }
+# `docker compose stop` waits for worker shutdown. Confirm no writer remains
+# running before inspecting durable work, then keep all writers stopped through
+# backup and the destructive schema operation below.
+$runningServices = @(& docker @compose ps --status running --services)
+if ($LASTEXITCODE -ne 0 -or @($runningServices | Where-Object { $_ -in @('api','worker','web','nginx') }).Count -ne 0) {
+  throw 'Office writers did not fully stop.'
+}
+$pendingMutations = (& docker @compose exec -T postgres psql -U kiditem -d kiditem -Atc "SELECT count(*) FROM agent_capability_invocations WHERE status IN ('ready','executing');").Trim()
+if ($LASTEXITCODE -ne 0 -or $pendingMutations -ne '0') { throw 'Ready/executing Agent mutations exist after writer shutdown; cutover is blocked.' }
 
 # Content-free unrelated counts are a guard, not a data export.
 $counts = [ordered]@{}

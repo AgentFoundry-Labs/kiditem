@@ -219,6 +219,18 @@ export interface AgentWorkTransactionPort {
   ): Promise<AdmitRootAttemptResult>;
   /** Locks Session before Task and creates an immutable successor attempt. */
   admitAttempt(input: AdmitAttemptInput): Promise<AdmitAttemptResult>;
+  /** Fast exact replay lookup; delegateTask remains the atomic authority. */
+  findDelegationReplay(
+    input: Pick<
+      DelegateTaskInput,
+      | "organizationId"
+      | "sessionId"
+      | "parentTaskId"
+      | "delegatingAttemptId"
+      | "idempotencyKey"
+      | "requestHash"
+    >,
+  ): Promise<DelegateTaskResult | null>;
   delegateTask(input: DelegateTaskInput): Promise<DelegateTaskResult>;
   authorizeInvocation(
     input: InvocationAuthorizationInput,

@@ -67,7 +67,9 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     }
     const externalOfferId = extractSupplierOfferId(supplier);
     const platform = supplier.platform === '1688' ? 'ALIBABA_1688' : 'ALIBABA';
-    const candidate = await this.candidates.upsertSourced({
+    return this.candidates.upsertSourcedWithIdempotencyReceipt({
+      capabilityKey: 'sourcing.ingestCandidate',
+      requestHash: input.snapshot.contentHash,
       organizationId: input.organizationId,
       sourceUrl: supplier.normalizedUrl,
       sourcePlatform: platform,
@@ -89,7 +91,6 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
       triggeredByUserId: input.initiatingUserId,
       images: input.snapshot.images.map((url, sortOrder) => ({ url, role: 'product', label: null, sortOrder, source: 'agent-final-scrape', isPrimary: sortOrder === 0 })),
     });
-    return { candidateId: candidate.id };
   }
 }
 

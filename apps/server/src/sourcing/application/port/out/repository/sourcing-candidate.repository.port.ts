@@ -98,6 +98,14 @@ export interface UpsertCandidateInput {
   }>;
 }
 
+/** Immutable Sourcing-owned outcome for a final capability owner call. */
+export interface UpsertCandidateWithIdempotencyReceiptInput
+  extends Omit<UpsertCandidateInput, 'idempotencyKey'> {
+  capabilityKey: string;
+  idempotencyKey: string;
+  requestHash: string;
+}
+
 export interface SourcingCandidateStateRow {
   id: string;
   status: string;
@@ -113,6 +121,9 @@ export interface SourcingCandidateRepositoryPort {
     sourceUrl: string;
   }): Promise<CandidateRow | null>;
   upsertSourced(input: UpsertCandidateInput): Promise<CandidateRow>;
+  upsertSourcedWithIdempotencyReceipt(
+    input: UpsertCandidateWithIdempotencyReceiptInput,
+  ): Promise<{ candidateId: string }>;
   mergeDescription(input: {
     organizationId: string;
     sourceUrl: string;
