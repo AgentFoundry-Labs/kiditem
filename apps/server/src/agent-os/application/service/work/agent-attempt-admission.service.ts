@@ -7,6 +7,7 @@ import type {
   DelegateTaskInput,
   DelegateTaskResult,
 } from "../../port/out/work/agent-work-transaction.port";
+import type { AgentAttemptReadinessPreflightPort } from '../../port/out/runtime/agent-attempt-readiness-preflight.port';
 import { AgentAttemptCapacityService } from "./agent-attempt-capacity.service";
 
 /** The sole capacity gate for every local CLI attempt admission path. */
@@ -22,9 +23,11 @@ export class AgentAttemptAdmissionService {
       | "findDelegationReplay"
       | "delegateTask"
     >,
+    private readonly readiness: AgentAttemptReadinessPreflightPort,
   ) {}
 
   async followUp(input: AdmitAttemptInput): Promise<AdmitAttemptResult> {
+    await this.readiness.assertFollowUp(input);
     const lease = this.capacity.tryReserve();
     try {
       const admitted = await this.transactions.admitAttempt(input);
@@ -37,6 +40,7 @@ export class AgentAttemptAdmissionService {
   }
 
   async root(input: AdmitRootAttemptInput): Promise<AdmitRootAttemptResult> {
+    await this.readiness.assertRoot(input);
     const lease = this.capacity.tryReserve();
     try {
       const admitted = await this.transactions.admitRootAttempt(input);
@@ -59,6 +63,7 @@ export class AgentAttemptAdmissionService {
       requestHash: input.requestHash,
     });
     if (replay) return replay;
+    await this.readiness.assertDelegation(input);
     const lease = this.capacity.tryReserve();
     try {
       const delegated = await this.transactions.delegateTask(input);

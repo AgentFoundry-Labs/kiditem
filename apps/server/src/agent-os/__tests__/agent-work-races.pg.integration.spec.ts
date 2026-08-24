@@ -27,6 +27,12 @@ const snapshot = {
   cliVersion: "1.0.0",
 };
 
+const readyPreflight = {
+  assertRoot: async () => undefined,
+  assertFollowUp: async () => undefined,
+  assertDelegation: async () => undefined,
+};
+
 beforeAll(async () => {
   prisma = new PrismaClient({
     adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
@@ -209,7 +215,7 @@ describe("replacement Agent work transaction races", () => {
 
   it("matrix 2: admits four local attempts, rejects a fifth without a row, and reuses a released lease", async () => {
     const capacity = new AgentAttemptCapacityService(4);
-    const admissions = new AgentAttemptAdmissionService(capacity, work);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
     const roots = await Promise.all(
       Array.from({ length: 4 }, (_, index) => {
         const version = createVersion();
@@ -256,7 +262,7 @@ describe("replacement Agent work transaction races", () => {
   it("matrix 3: concurrent admission service follow-ups have one winner and release the loser's provisional slot", async () => {
     const root = await terminalRoot();
     const capacity = new AgentAttemptCapacityService(2);
-    const admissions = new AgentAttemptAdmissionService(capacity, work);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
     const input = {
       organizationId,
       sessionId: root.session.id,
@@ -383,7 +389,7 @@ describe("replacement Agent work transaction races", () => {
     const capacity = new AgentAttemptCapacityService(2);
     const delegation = new AgentTaskDelegationService(
       repository,
-      new AgentAttemptAdmissionService(capacity, work),
+      new AgentAttemptAdmissionService(capacity, work, readyPreflight),
     );
     const input = {
       organizationId,
@@ -429,7 +435,7 @@ describe("replacement Agent work transaction races", () => {
     const targetVersion = await createVersion();
     const parent = await liveRoot(parentVersion);
     const capacity = new AgentAttemptCapacityService(1);
-    const admissions = new AgentAttemptAdmissionService(capacity, work);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
     const input = {
       organizationId,
       sessionId: parent.session.id,
@@ -815,7 +821,7 @@ describe("replacement Agent work transaction races", () => {
       data: { status: "completed", finishedAt: new Date() },
     });
     const capacity = new AgentAttemptCapacityService(1);
-    const admissions = new AgentAttemptAdmissionService(capacity, work);
+    const admissions = new AgentAttemptAdmissionService(capacity, work, readyPreflight);
     const input = {
       organizationId,
       sessionId: root.session.id,

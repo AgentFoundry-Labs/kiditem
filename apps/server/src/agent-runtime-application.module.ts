@@ -25,11 +25,17 @@ import {
 } from './agent-os/application/port/in/capability/agent-attempt-launch.capability.port';
 import { LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT } from './agent-os/application/port/in/capability/live-attempt-future-output.capability.port';
 import { ATTEMPT_RUNTIME_CONTROL_PORT, type AttemptRuntimeControlPort } from './agent-os/application/port/out/runtime/attempt-runtime-control.port';
+import { AGENT_WORK_COMMAND_PORT } from './agent-os/application/port/in/work/agent-work-command.port';
 import { AgentCapabilityInvocationService } from './agent-os/application/service/work/agent-capability-invocation.service';
+import { AgentCapabilityApprovalService } from './agent-os/application/service/work/agent-capability-approval.service';
+import { AgentAttemptCapacityService } from './agent-os/application/service/work/agent-attempt-capacity.service';
 import { AgentTaskDelegationService } from './agent-os/application/service/work/agent-task-delegation.service';
 import { AgentCapabilityRegistry } from './agent-os/application/service/agent-capability-registry.service';
 import { PrismaAgentWorkRepository } from './agent-os/adapter/out/repository/work/prisma-agent-work.repository';
 import { AgentAttemptAdmissionService } from './agent-os/application/service/work/agent-attempt-admission.service';
+import { AgentSessionTerminalDeleteService } from './agent-os/application/service/work/agent-session-terminal-delete.service';
+import { AgentTaskLifecycleService } from './agent-os/application/service/work/agent-task-lifecycle.service';
+import { AgentWorkCommandService } from './agent-os/application/service/work/agent-work-command.service';
 import { PrismaAgentWorkTransaction } from './agent-os/adapter/out/transaction/work/prisma-agent-work.transaction';
 import { PrismaService } from './prisma/prisma.service';
 
@@ -75,6 +81,44 @@ import { PrismaService } from './prisma/prisma.service';
       useFactory: (prisma: PrismaService, readiness: RunnerReadinessService) =>
         new AgentAttemptRuntimeAdmissionService(prisma, readiness),
     },
+    AgentAttemptCapacityService,
+    {
+      provide: AgentAttemptAdmissionService,
+      inject: [
+        AgentAttemptCapacityService,
+        PrismaAgentWorkTransaction,
+        AgentAttemptRuntimeAdmissionService,
+      ],
+      useFactory: (
+        capacity: AgentAttemptCapacityService,
+        work: PrismaAgentWorkTransaction,
+        readiness: AgentAttemptRuntimeAdmissionService,
+      ) => new AgentAttemptAdmissionService(capacity, work, readiness),
+    },
+    {
+      provide: AgentTaskDelegationService,
+      inject: [PrismaAgentWorkRepository, AgentAttemptAdmissionService],
+      useFactory: (
+        repository: PrismaAgentWorkRepository,
+        admissions: AgentAttemptAdmissionService,
+      ) => new AgentTaskDelegationService(repository, admissions),
+    },
+    {
+      provide: AgentWorkCommandService,
+      inject: [
+        AgentAttemptAdmissionService,
+        AgentCapabilityApprovalService,
+        AgentTaskLifecycleService,
+        AgentSessionTerminalDeleteService,
+      ],
+      useFactory: (
+        admissions: AgentAttemptAdmissionService,
+        approvals: AgentCapabilityApprovalService,
+        tasks: AgentTaskLifecycleService,
+        deletion: AgentSessionTerminalDeleteService,
+      ) => new AgentWorkCommandService(admissions, approvals, tasks, deletion),
+    },
+    { provide: AGENT_WORK_COMMAND_PORT, useExisting: AgentWorkCommandService },
     RunnerAttemptPromptResolverService,
     {
       provide: RunnerAttemptRuntimeControlService,
@@ -180,6 +224,10 @@ import { PrismaService } from './prisma/prisma.service';
     AttemptTokenRegistry,
     AgentApiStartupReconciler,
     AgentAttemptReconciler,
+    AgentAttemptCapacityService,
+    AgentAttemptAdmissionService,
+    AgentTaskDelegationService,
+    AGENT_WORK_COMMAND_PORT,
     AgentLiveMessageService,
     AgentAttemptLaunchService,
     AGENT_ATTEMPT_LAUNCH_CAPABILITY_PORT,

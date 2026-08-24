@@ -171,7 +171,7 @@ describe('AgentAttemptLaunchService', () => {
         task: { id: 'task', organizationId: 'org', sessionId: 'session' },
         attempt: { id: 'attempt', ordinal: 1 },
       })),
-    } as never);
+    } as never, readyPreflight());
     await admissions.root({} as never);
     const service = new AgentAttemptLaunchService(
       { start: vi.fn(async () => { throw new Error('runner_not_ready'); }) } as never,
@@ -190,6 +190,14 @@ describe('AgentAttemptLaunchService', () => {
     next.release();
   });
 });
+
+function readyPreflight() {
+  return {
+    assertRoot: async () => undefined,
+    assertFollowUp: async () => undefined,
+    assertDelegation: async () => undefined,
+  };
+}
 
 function launch(overrides: { output?: { threadId: string; runId: string } } = {}) {
   return {

@@ -40,12 +40,13 @@ describe('Agent Work HTTP boundary', () => {
     const workModule = readFileSync(resolve(__dirname, '../../../../../../agent-work-capability-application.module.ts'), 'utf8');
     const runtimeModule = readFileSync(resolve(__dirname, '../../../../../../agent-runtime-application.module.ts'), 'utf8');
     expect(workModule).toContain('provide: AGENT_WORK_QUERY_PORT');
-    expect(workModule).toContain('provide: AGENT_WORK_COMMAND_PORT');
+    expect(workModule).not.toContain('provide: AGENT_WORK_COMMAND_PORT');
     expect(workModule).toContain('AGENT_WORK_QUERY_REPOSITORY_PORT');
     expect(runtimeModule).not.toContain('AttemptMcpBrokerService');
     expect(runtimeModule).not.toContain('AgentAttemptExecutorService');
     expect(runtimeModule).toContain('HostRunnerAttemptExecutorService');
     expect(runtimeModule).toContain('RunnerLeaseRegistry');
+    expect(runtimeModule).toContain('provide: AGENT_WORK_COMMAND_PORT');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_EXECUTION_CAPABILITY_PORT');
     expect(runtimeModule).toContain('useExisting: HostRunnerAttemptExecutorService');
     expect(runtimeModule).toContain('provide: LIVE_ATTEMPT_FUTURE_OUTPUT_CAPABILITY_PORT');
