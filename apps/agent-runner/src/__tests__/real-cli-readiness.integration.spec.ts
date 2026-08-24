@@ -204,7 +204,7 @@ describe('logged-in real CLI readiness canary', () => {
       const contractFailure = diagnostic.contractFailure({ error, phase, observations: endpoint.observations });
       if (contractFailure) {
         const observations = endpoint.observations.map((value) => `${value.method}:${value.status}`).join(',') || 'none';
-        throw new Error(`real_cli_canary_contract_failure runtime=${runtime} phase=${phase} code=${contractFailure} observations=${observations}`);
+        throw new Error(`real_cli_canary_contract_failure runtime=${runtime} phase=${phase} code=${contractFailure} app_server=${diagnostic.appServerSummary()} outbound=${diagnostic.outboundSummary()} observations=${observations}`);
       }
       throw error;
     } finally {
@@ -416,17 +416,80 @@ describe('SafeProviderDiagnostic', () => {
     })).toBeNull();
   });
 
-  it('keeps a modern discovery without the required canary tool call internal', () => {
+  it('classifies a provider timeout before completion as incomplete before the readiness probe', () => {
     const diagnostic = new SafeProviderDiagnostic();
     const input = {
       error: new Error('real_canary_timeout'),
       terminal: undefined,
       phase: 'mcp_probe',
-      observations: [{ method: 'tools/list', status: 200, protocolVersion: '2026-07-28' }],
+      observations: [
+        { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+        { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+      ],
     };
 
     expect(diagnostic.externalBlocker(input)).toBeNull();
-    expect(diagnostic.contractFailure(input)).toBe('mcp_tool_call_failed');
+    expect(diagnostic.contractFailure(input)).toBe('provider_turn_incomplete_before_probe');
+  });
+
+  it('classifies a completed provider turn without an outbound probe as a Runner dispatch failure', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStdout(`${JSON.stringify({
+      jsonrpc: '2.0', method: 'turn/completed',
+      params: { turn: { status: 'completed' } },
+    })}\n`);
+    const input = {
+      error: new Error('real_canary_timeout'),
+      terminal: undefined,
+      phase: 'mcp_probe',
+      observations: [
+        { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+        { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+      ],
+    };
+
+    expect(diagnostic.contractFailure(input)).toBe('runner_probe_dispatch_failed');
+  });
+
+  it('records only the allowlisted outbound probe method through supervised input', async () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    diagnostic.observeStdout(`${JSON.stringify({
+      jsonrpc: '2.0', method: 'turn/completed',
+      params: { turn: { status: 'completed' } },
+    })}\n`);
+    const supervisor = new DiagnosticMacosSupervisor(diagnostic, {
+      launch: async () => ({ input: async () => undefined, terminate: async () => undefined, onExit: () => undefined }),
+      shutdown: async () => undefined,
+    });
+    const supervised = await supervisor.launch({ executable: 'unused', args: [], cwd: '/', env: {} });
+    const raw = 'local-prompt-token-and-arguments-must-not-escape';
+    try {
+      await supervised.input(`${JSON.stringify({
+        jsonrpc: '2.0', id: 'local-turn', method: 'turn/start',
+        params: { prompt: raw, token: raw, arguments: { nonce: raw } },
+      })}\n`);
+      await supervised.input(`${JSON.stringify({
+        jsonrpc: '2.0', id: 'local-probe', method: 'mcpServer/tool/call',
+        params: { prompt: raw, token: raw, arguments: { nonce: raw } },
+      })}\n`);
+
+      const report = diagnostic.terminalRuntimeErrorReport({
+        terminal: { kind: 'attempt.terminal', attemptId: '118f4eb1-9078-7a1e-9514-b19b5732f5de', terminalReason: 'runtime_error' },
+        observations: [{ method: 'tools/list', status: 200, protocolVersion: '2026-07-28' }],
+      });
+      expect(diagnostic.contractFailure({
+        error: new Error('real_canary_timeout'), phase: 'mcp_probe',
+        observations: [
+          { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+          { method: 'tools/list', status: 200, protocolVersion: '2026-07-28' },
+        ],
+      })).toBe('mcp_tool_call_failed');
+      expect(report).toBe('app_server=turn_completed_completed outbound=mcpServer/tool/call observations=tools/list:200');
+      expect(JSON.stringify({ report, diagnostic })).not.toContain(raw);
+    } finally {
+      await supervised.terminate();
+      await supervisor.shutdown();
+    }
   });
 
   it('reports a runtime-error terminal with only bounded app-server and MCP metadata', () => {
@@ -450,8 +513,17 @@ describe('SafeProviderDiagnostic', () => {
       ],
     });
 
-    expect(report).toBe('app_server=turn_completed_failed observations=tools/list:200,tools/call:200');
+    expect(report).toBe('app_server=turn_completed_failed outbound=none observations=tools/list:200,tools/call:200');
     expect(JSON.stringify({ report, diagnostic })).not.toContain('provider detail');
+  });
+
+  it('retains an app-server RPC error code without retaining the error payload', () => {
+    const diagnostic = new SafeProviderDiagnostic();
+    const raw = 'provider-error-payload-must-not-escape';
+    diagnostic.observeStdout(`${JSON.stringify({ jsonrpc: '2.0', error: { code: -32_000, message: raw } })}\n`);
+
+    expect(diagnostic.appServerSummary()).toBe('rpc_error_-32000');
+    expect(JSON.stringify(diagnostic)).not.toContain(raw);
   });
 });
 
@@ -611,9 +683,13 @@ type SafeProviderFailure =
   | 'invalid_rpc_contract'
   | 'mcp_negotiation_failed'
   | 'mcp_tool_allowlist_failed'
+  | 'provider_turn_incomplete_before_probe'
+  | 'runner_probe_dispatch_failed'
   | 'mcp_tool_call_failed'
   | 'network_service_unavailable'
   | `provider_exit_${number | 'signal'}`;
+
+const OUTBOUND_READINESS_PROBE_METHOD = 'mcpServer/tool/call';
 
 /**
  * Reads only a bounded provider-process diagnostic long enough to classify it;
@@ -622,6 +698,7 @@ type SafeProviderFailure =
 class SafeProviderDiagnostic {
   private failure: SafeProviderFailure | null = null;
   private readonly appServerSignals = new Set<string>();
+  private readonly outboundMethods = new Set<string>();
 
   observeStdout(value: string): void {
     // App-server stdout is JSON-RPC only. Inspect only the leading framing byte
@@ -638,8 +715,19 @@ class SafeProviderDiagnostic {
     this.failure ??= `provider_exit_${exit.code === null ? 'signal' : exit.code}`;
   }
 
+  observeOutboundInput(value: string): void {
+    for (const line of value.split('\n')) {
+      const method = observedOutboundAppServerMethod(line);
+      if (method) this.outboundMethods.add(method);
+    }
+  }
+
   appServerSummary(): string {
     return [...this.appServerSignals].sort().join(',') || 'none';
+  }
+
+  outboundSummary(): string {
+    return [...this.outboundMethods].sort().join(',') || 'none';
   }
 
   terminalRuntimeErrorReport(input: Readonly<{
@@ -648,7 +736,7 @@ class SafeProviderDiagnostic {
   }>): string | null {
     if (input.terminal?.terminalReason !== 'runtime_error') return null;
     const observations = input.observations.map((value) => `${value.method}:${value.status}`).join(',') || 'none';
-    return `app_server=${this.appServerSummary()} observations=${observations}`;
+    return `app_server=${this.appServerSummary()} outbound=${this.outboundSummary()} observations=${observations}`;
   }
 
   externalBlocker(input: Readonly<{
@@ -705,7 +793,11 @@ class SafeProviderDiagnostic {
     const hasModernCall = input.observations.some((value) =>
       value.method === 'tools/call' && value.status === 200 && value.protocolVersion === '2026-07-28',
     );
-    if (input.phase === 'mcp_probe' && hasModernList && !hasModernCall) return 'mcp_tool_call_failed';
+    if (input.phase === 'mcp_probe' && hasModernList && !hasModernCall) {
+      if (!this.appServerSignals.has('turn_completed_completed')) return 'provider_turn_incomplete_before_probe';
+      if (!this.outboundMethods.has(OUTBOUND_READINESS_PROBE_METHOD)) return 'runner_probe_dispatch_failed';
+      return 'mcp_tool_call_failed';
+    }
     if (
       input.phase === 'mcp_probe' && input.error instanceof Error && input.error.message === 'real_canary_timeout' &&
       (
@@ -800,17 +892,35 @@ function objectValue(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
 }
 
+function observedOutboundAppServerMethod(line: string): typeof OUTBOUND_READINESS_PROBE_METHOD | null {
+  const trimmed = line.trim();
+  if (!trimmed.startsWith('{') || trimmed.length > 64 * 1024) return null;
+  let record: { method?: unknown };
+  try { record = JSON.parse(trimmed) as { method?: unknown }; } catch { return null; }
+  return record.method === OUTBOUND_READINESS_PROBE_METHOD ? OUTBOUND_READINESS_PROBE_METHOD : null;
+}
+
 class DiagnosticMacosSupervisor implements ProcessSupervisor {
-  private readonly delegate = new MacosProcessSupervisor();
-  constructor(private readonly diagnostic: SafeProviderDiagnostic) {}
+  constructor(
+    private readonly diagnostic: SafeProviderDiagnostic,
+    private readonly delegate: ProcessSupervisor = new MacosProcessSupervisor(),
+  ) {}
 
   async launch(command: ProviderCommand, callbacks: ProcessCallbacks = {}): Promise<SupervisedProcess> {
-    return this.delegate.launch(command, {
+    const supervised = await this.delegate.launch(command, {
       ...callbacks,
       onStdout: (value) => { this.diagnostic.observeStdout(value); callbacks.onStdout?.(value); },
       onStderr: (value) => { this.diagnostic.observeStderr(value); callbacks.onStderr?.(value); },
       onExit: (exit) => { this.diagnostic.observeExit(exit); callbacks.onExit?.(exit); },
     });
+    return {
+      input: async (value) => {
+        this.diagnostic.observeOutboundInput(value);
+        await supervised.input(value);
+      },
+      terminate: () => supervised.terminate(),
+      onExit: (listener) => supervised.onExit(listener),
+    };
   }
 
   shutdown(): Promise<void> { return this.delegate.shutdown(); }

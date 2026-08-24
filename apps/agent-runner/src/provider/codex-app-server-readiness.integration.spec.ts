@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { createRequestScopedReadinessMcpHandler } from '../../../server/src/agent-os/adapter/in/http/runtime/attempt-mcp-http.controller';
 import { AttemptWorkspaceService, type AttemptWorkspacePaths } from '../attempt/attempt-workspace.service';
+import { agentResultOutputSchema } from './agent-result-output-schema';
 
 const ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
 const ATTEMPT_TOKEN = 'A'.repeat(43);
@@ -121,6 +122,57 @@ describe('Codex app-server readiness boundary', () => {
     }
   }, 20_000);
 
+  it.each([
+    ['pre-created', true],
+    ['created after completion', false],
+  ] as const)('calls an enabled %s probe after an exact strict provider turn completes', async (_timing, createProbeBeforeTurn) => {
+    const provider = await localResponsesProvider();
+    const mcp = await modernReadinessMcp();
+    const generated = await workspace(mcp.url);
+    let child: ReturnType<typeof spawn> | undefined;
+    try {
+      await appendFile(generated.paths.codexConfigPath, localProviderConfig(provider.url));
+      child = strictAppServer(generated.paths);
+      const rpc = new Rpc(child);
+      await rpc.request('initialize', { clientInfo: { name: 'kiditem-local-readiness', version: '1' }, capabilities: null });
+      rpc.notify('initialized', {});
+      const providerThread = await readinessThread(rpc, generated.paths, { disabled_tools: ['readiness_probe'] });
+      const preCreatedProbe = createProbeBeforeTurn ? await readinessThread(rpc, generated.paths) : undefined;
+      const turn = rpc.request('turn/start', {
+        threadId: providerThread.id,
+        input: [{ type: 'text', text: 'local strict completion ordering', text_elements: [] }],
+        outputSchema: agentResultOutputSchema(),
+      });
+      void turn.catch(() => undefined);
+
+      const metadata = await provider.next();
+      expect(metadata.tools).not.toEqual(expect.arrayContaining([
+        expect.objectContaining({ name: 'mcp__kiditem_attempt' }),
+      ]));
+      const completion = await rpc.waitForTurnCompletion(providerThread.id);
+      assertStrictCompletion(completion, providerThread.id);
+      const probeThread = preCreatedProbe ?? await readinessThread(rpc, generated.paths);
+      expect(probeThread.id).not.toBe(providerThread.id);
+      const beforeDirect = mcp.observations.length;
+      const outcome = await directProbeOutcome(rpc, probeThread.id);
+
+      expect({ outcome, observations: mcp.observations }).toEqual({
+        outcome: 'success',
+        observations: expect.arrayContaining([
+          { method: 'tools/list', status: 200 },
+          { method: 'tools/call', status: 200 },
+        ]),
+      });
+      expect(mcp.observations.slice(beforeDirect)).toEqual(expect.arrayContaining([{ method: 'tools/call', status: 200 }]));
+      expect(mcp.probes).toEqual([NONCE]);
+    } finally {
+      if (child) await stop(child);
+      await mcp.close();
+      await provider.close();
+      await rm(generated.root, { recursive: true, force: true });
+    }
+  }, 20_000);
+
   it('exposes the readiness child to the model as an auto-choice namespace without requiring a model-selected call', async () => {
     const provider = await localResponsesProvider();
     const mcp = await modernReadinessMcp();
@@ -214,21 +266,60 @@ function strictAppServer(paths: AttemptWorkspacePaths): ReturnType<typeof spawn>
   });
 }
 
+async function readinessThread(
+  rpc: Rpc,
+  paths: AttemptWorkspacePaths,
+  override?: Readonly<{ disabled_tools: readonly string[] }>,
+): Promise<Readonly<{ id: string }>> {
+  const thread = await rpc.request('thread/start', {
+    model: 'local-fake-model', modelProvider: 'local_fake', cwd: paths.workspace, approvalPolicy: 'never', ephemeral: true,
+    ...(override ? { config: { mcp_servers: { kiditem_attempt: override } } } : {}),
+  }) as { thread?: { id?: string }; activePermissionProfile?: { id?: string } };
+  const id = thread.thread?.id;
+  if (!id) throw new Error('local_readiness_experiment_thread_id_missing');
+  if (thread.activePermissionProfile?.id !== ':workspace') throw new Error('local_readiness_experiment_permission_profile_mismatch');
+  return Object.freeze({ id });
+}
+
+async function directProbeOutcome(rpc: Rpc, threadId: string): Promise<string> {
+  try {
+    await rpc.request('mcpServer/tool/call', {
+      threadId,
+      server: 'kiditem_attempt',
+      tool: 'readiness_probe',
+      arguments: { nonce: NONCE },
+    });
+    return 'success';
+  } catch (error) {
+    return error instanceof Error ? error.message : 'local_readiness_direct_probe_failed';
+  }
+}
+
+function assertStrictCompletion(completion: TurnCompletion, threadId: string): void {
+  if (completion.status !== 'completed' || !completion.agentMessagePresent) {
+    throw new Error(`local_readiness_completion_invalid status=${completion.status} item_types=${completion.itemTypes.join(',') || 'none'} error_code=${completion.errorCode ?? 'none'}`);
+  }
+  expect(completion.threadId).toBe(threadId);
+}
+
 async function modernReadinessMcp(): Promise<{
   url: string;
   probe: Promise<void>;
   methods: string[];
+  observations: { method: string; status: number }[];
   probes: string[];
   close(): Promise<void>;
 }> {
   const probe = deferred<void>();
   const methods: string[] = [];
+  const observations: { method: string; status: number }[] = [];
   const probes: string[] = [];
   const server = createServer(async (request, response) => {
     let handler: ReturnType<typeof createRequestScopedReadinessMcpHandler> | undefined;
+    let method: string | undefined;
     try {
       const body = await readJson(request);
-      if (typeof body.method === 'string') methods.push(body.method);
+      if (typeof body.method === 'string') { method = body.method; methods.push(method); }
       handler = createRequestScopedReadinessMcpHandler({
         nonce: NONCE,
         onProbe: ({ nonce }) => { probes.push(nonce); probe.resolve(); },
@@ -239,10 +330,12 @@ async function modernReadinessMcp(): Promise<{
         body: JSON.stringify(body),
       }), { parsedBody: body });
       response.statusCode = result.status;
+      if (method) observations.push({ method, status: result.status });
       result.headers.forEach((value, name) => response.setHeader(name, value));
       response.end(Buffer.from(await result.arrayBuffer()));
     } catch {
       response.statusCode = 500;
+      if (method) observations.push({ method, status: 500 });
       response.end();
     } finally {
       await handler?.close();
@@ -254,6 +347,7 @@ async function modernReadinessMcp(): Promise<{
     url: `http://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
     probe: probe.promise,
     methods,
+    observations,
     probes,
     close: () => closeServer(server),
   };
@@ -306,23 +400,30 @@ function localProviderConfig(providerUrl: string): string {
 
 function sendSse(response: import('node:http').ServerResponse, events: readonly object[]): void {
   response.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' });
-  response.end(events.map((event) => `event: ${String((event as { type?: unknown }).type)}\ndata: ${JSON.stringify(event)}\n`).join('\n'));
+  response.end(events.map((event) => `event: ${String((event as { type?: unknown }).type)}\ndata: ${JSON.stringify(event)}\n\n`).join(''));
 }
 
 function completedResponseEvents(): object[] {
+  const responseId = 'resp_local';
   return [
-    responseEvent('response.created', 'in_progress', [], 1),
-    responseEvent('response.in_progress', 'in_progress', [], 2),
-    responseEvent('response.completed', 'completed', [], 3),
+    { type: 'response.created', response: { id: responseId } },
+    {
+      type: 'response.output_item.done',
+      item: {
+        type: 'message',
+        role: 'assistant',
+        id: 'msg_local',
+        content: [{ type: 'output_text', text: JSON.stringify({ outcome: 'completed', summary: 'local', resourceRefs: [], operationRefs: [] }) }],
+      },
+    },
+    {
+      type: 'response.completed',
+      response: {
+        id: responseId,
+        usage: { input_tokens: 0, input_tokens_details: null, output_tokens: 0, output_tokens_details: null, total_tokens: 0 },
+      },
+    },
   ];
-}
-
-function responseEvent(type: 'response.created' | 'response.in_progress' | 'response.completed', status: string, output: unknown[], sequence_number: number): object {
-  return {
-    type,
-    response: { id: 'resp_local', object: 'response', created_at: 0, model: 'local-fake-model', status, output, parallel_tool_calls: true, tool_choice: 'auto', tools: [] },
-    sequence_number,
-  };
 }
 
 function safeTool(value: unknown): Record<string, unknown> | null {
@@ -376,6 +477,8 @@ class Rpc {
   private buffer = '';
   private nextId = 0;
   private readonly pending = new Map<string, { resolve(value: unknown): void; reject(error: Error): void }>();
+  private readonly turnCompletions: TurnCompletion[] = [];
+  private readonly turnCompletionWaiters = new Map<string, { resolve(value: TurnCompletion): void; reject(error: Error): void }>();
   readonly calls: { method: string; threadId?: string }[] = [];
 
   constructor(private readonly child: ReturnType<typeof spawn>) {
@@ -384,6 +487,8 @@ class Rpc {
     child.once('exit', () => {
       for (const pending of this.pending.values()) pending.reject(new Error('local_readiness_app_server_exited'));
       this.pending.clear();
+      for (const pending of this.turnCompletionWaiters.values()) pending.reject(new Error('local_readiness_app_server_exited'));
+      this.turnCompletionWaiters.clear();
     });
   }
 
@@ -400,15 +505,26 @@ class Rpc {
 
   notify(method: string, params: unknown): void { this.child.stdin!.write(`${JSON.stringify({ jsonrpc: '2.0', method, params })}\n`); }
 
+  waitForTurnCompletion(threadId: string): Promise<TurnCompletion> {
+    const received = this.turnCompletions.find((completion) => completion.threadId === threadId);
+    if (received) return Promise.resolve(received);
+    return new Promise((resolve, reject) => {
+      this.turnCompletionWaiters.set(threadId, { resolve, reject });
+      setTimeout(() => {
+        if (this.turnCompletionWaiters.delete(threadId)) reject(new Error('local_readiness_turn_completion_timeout'));
+      }, 10_000);
+    });
+  }
+
   private receive(chunk: string): void {
     this.buffer += chunk;
     while (this.buffer.includes('\n')) {
       const end = this.buffer.indexOf('\n');
       const line = this.buffer.slice(0, end);
       this.buffer = this.buffer.slice(end + 1);
-      let message: { id?: string; result?: unknown; error?: { code?: unknown } };
-      try { message = JSON.parse(line) as { id?: string; result?: unknown; error?: { code?: unknown } }; } catch { continue; }
-      if (!message.id) continue;
+      let message: { id?: string; method?: string; params?: unknown; result?: unknown; error?: { code?: unknown } };
+      try { message = JSON.parse(line) as { id?: string; method?: string; params?: unknown; result?: unknown; error?: { code?: unknown } }; } catch { continue; }
+      if (!message.id) { this.observeTurnCompletion(message); continue; }
       const pending = this.pending.get(message.id);
       if (!pending) continue;
       this.pending.delete(message.id);
@@ -416,7 +532,39 @@ class Rpc {
       else pending.resolve(message.result);
     }
   }
+
+  private observeTurnCompletion(message: Readonly<{ method?: string; params?: unknown }>): void {
+    if (message.method !== 'turn/completed') return;
+    const params = object(message.params);
+    const thread = object(params?.turn);
+    const threadId = params?.threadId;
+    if (!thread || typeof threadId !== 'string' || typeof thread.status !== 'string') return;
+    const status = thread.status;
+    const items = Array.isArray(thread.items) ? thread.items : [];
+    const itemTypes = items.flatMap((item) => typeof object(item)?.type === 'string' ? [object(item)!.type as string] : []);
+    const errorCode = object(thread.error)?.code;
+    const completion: TurnCompletion = Object.freeze({
+      threadId,
+      status,
+      agentMessagePresent: itemTypes.includes('agentMessage'),
+      itemTypes: Object.freeze(itemTypes),
+      ...(typeof errorCode === 'string' || typeof errorCode === 'number' ? { errorCode: String(errorCode) } : {}),
+    });
+    this.turnCompletions.push(completion);
+    const waiter = this.turnCompletionWaiters.get(threadId);
+    if (!waiter) return;
+    this.turnCompletionWaiters.delete(threadId);
+    waiter.resolve(completion);
+  }
 }
+
+type TurnCompletion = Readonly<{
+  threadId: string;
+  status: string;
+  agentMessagePresent: boolean;
+  itemTypes: readonly string[];
+  errorCode?: string;
+}>;
 
 function object(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : null;
