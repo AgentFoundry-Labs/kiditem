@@ -131,7 +131,7 @@ describe('native Runner control protocol', () => {
     }
 
     for (const value of [
-      `http://127.0.0.1:4401/api/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
+      `http://127.0.0.1:4001/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
       `http://127.0.0.1:4000/api/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
       `http://[::1]:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
       `https://127.0.0.1:4000/internal/agent-runtime/attempts/${ATTEMPT_ID}/mcp`,
