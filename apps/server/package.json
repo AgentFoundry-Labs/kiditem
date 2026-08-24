@@ -11,12 +11,10 @@
     "start:worker:prod": "node dist/worker.js",
     "auth:admin": "node dist/auth/adapter/in/cli/auth-admin.js",
     "lint": "eslint 'src/**/*.ts'",
-    "agent-os:mcp:kiditem": "node dist/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.js",
     "test:e2e": "vitest run --config vitest.config.e2e.ts",
     "test:integration": "vitest run --config vitest.config.integration.ts"
   },
   "dependencies": {
-    "@anthropic-ai/claude-code": "2.1.122",
     "@aws-sdk/client-s3": "^3.1029.0",
     "@aws-sdk/s3-request-presigner": "3.1030.0",
     "@copilotkit/runtime": "1.67.1",
@@ -24,14 +22,13 @@
     "@kiditem/shared": "*",
     "@kiditem/templates": "*",
     "@langchain/core": "^1.1.39",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/server": "2.0.0",
     "@nestjs/common": "^11.0.0",
     "@nestjs/core": "^11.0.0",
     "@nestjs/event-emitter": "^3.1.0",
     "@nestjs/mapped-types": "^2.1.1",
     "@nestjs/platform-express": "^11.1.28",
     "@nestjs/throttler": "^6.5.0",
-    "@openai/codex": "0.149.0",
     "@prisma/adapter-pg": "^7.9.1",
     "@prisma/client": "^7.9.1",
     "class-transformer": "^0.5.1",
@@ -51,9 +48,11 @@
     "undici": "^7.29.0",
     "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.25.0",
-    "zod-to-json-schema": "^3.25.2"
+    "zod-to-json-schema": "^3.25.2",
+    "zod-v4": "npm:zod@4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "2.0.0",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.1",
     "@nestjs/testing": "^11.1.18",

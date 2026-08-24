@@ -200,6 +200,11 @@
       "import": "./dist/agent-interaction/index.js",
       "require": "./dist/agent-interaction/index.cjs"
     },
+    "./agent-runtime": {
+      "types": "./dist/agent-runtime/index.d.ts",
+      "import": "./dist/agent-runtime/index.js",
+      "require": "./dist/agent-runtime/index.cjs"
+    },
     "./workflow": {
       "types": "./dist/workflow.d.ts",
       "import": "./dist/workflow.js",

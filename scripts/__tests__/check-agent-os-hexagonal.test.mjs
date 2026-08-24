@@ -521,6 +521,36 @@ test("normalizes Windows paths while keeping dependency direction strict", () =>
   );
 });
 
+test("rejects child process ownership in Agent OS while leaving the future Runner and unrelated domains alone", () => {
+  const violations = analyzeAgentOsHexagonalSources([
+    {
+      path: "apps/server/src/agent-os/adapter/out/runtime/attempt/local-process.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('codex');",
+      lines: 2,
+    },
+    {
+      path: "apps/server/src/agent-os/adapter/out/runtime/attempt/legacy-process.ts",
+      source: "import { execFile } from 'child_process'; execFile('claude');",
+      lines: 2,
+    },
+    {
+      path: "apps/agent-runner/src/runner.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('codex');",
+      lines: 2,
+    },
+    {
+      path: "apps/server/src/orders/label-printing.ts",
+      source: "import { spawn } from 'node:child_process'; spawn('lp');",
+      lines: 2,
+    },
+  ]);
+
+  assert.deepEqual(violations, [
+    "apps/server/src/agent-os/adapter/out/runtime/attempt/local-process.ts: Agent OS/API runtime must not import child_process",
+    "apps/server/src/agent-os/adapter/out/runtime/attempt/legacy-process.ts: Agent OS/API runtime must not import child_process",
+  ]);
+});
+
 function expectViolationsFor(violations, paths) {
   assert.ok(violations.length >= paths.length);
   for (const path of paths) {

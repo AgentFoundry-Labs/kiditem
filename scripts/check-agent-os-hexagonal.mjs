@@ -35,6 +35,12 @@ export function analyzeAgentOsHexagonalSources(files) {
     const normalizedPath = normalizePath(file.path);
     if (!normalizedPath.includes(AGENT_OS_ROOT)) continue;
 
+    if (!isArchitectureSmellExempt(normalizedPath) && hasChildProcessImport(file.source)) {
+      violations.push(
+        `${normalizedPath.slice(1)}: Agent OS/API runtime must not import child_process`,
+      );
+    }
+
     if (
       normalizedPath.includes(INCOMING_ADAPTER) &&
       reachesConcreteApplicationService(normalizedPath, sources)
@@ -69,6 +75,12 @@ export function analyzeAgentOsHexagonalSources(files) {
   }
 
   return violations;
+}
+
+function hasChildProcessImport(source) {
+  return /(?:from\s+["'](?:node:)?child_process["']|require\(\s*["'](?:node:)?child_process["']\s*\))/.test(
+    source,
+  );
 }
 
 function hasDirectOutgoingAdapterRuntimeImport(file) {

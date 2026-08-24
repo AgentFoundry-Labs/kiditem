@@ -40,6 +40,7 @@ export default defineConfig({
     'src/coupang-catalog-snapshot.ts',
     'src/identifiers/index.ts',
     'src/agent-interaction/index.ts',
+    'src/agent-runtime/index.ts',
     'src/workflow.ts',
     'src/common.ts',
     'src/reviews.ts',

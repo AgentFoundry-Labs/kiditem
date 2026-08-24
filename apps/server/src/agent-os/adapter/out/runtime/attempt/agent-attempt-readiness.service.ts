@@ -1,15 +1,14 @@
 import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { promisify } from 'node:util';
+import {
+  attemptRuntimeVersion,
+  type AttemptRuntimeType,
+} from '@kiditem/shared/agent-runtime';
 import { AgentAttemptReadinessCanary } from './agent-attempt-readiness-canary';
 import { CodexAttemptIsolationCanary } from './codex-attempt-isolation-canary';
 
 const execFileAsync = promisify(execFile);
-
-const EXPECTED_VERSIONS = {
-  codex_cli: '0.149.0',
-  claude_cli: '2.1.122',
-} as const;
 
 /** Focused local admission/readiness probe; it neither reads nor stores CLI credentials. */
 export class AgentAttemptReadinessService {
@@ -17,7 +16,7 @@ export class AgentAttemptReadinessService {
   private static readonly cache = new Map<string, Promise<void>>();
 
   /** One bounded probe per runtime/model/deploy identity; admissions share it. */
-  async assertRuntime(runtime: keyof typeof EXPECTED_VERSIONS, model = '', deployIdentity = process.env.KIDITEM_GIT_SHA?.trim() ?? ''): Promise<void> {
+  async assertRuntime(runtime: AttemptRuntimeType, model = '', deployIdentity = process.env.KIDITEM_GIT_SHA?.trim() ?? ''): Promise<void> {
     const loginHome = await this.loginHome();
     const key = `${runtime}:${model}:${deployIdentity}:${loginHome}`;
     const existing = AgentAttemptReadinessService.cache.get(key);
@@ -32,10 +31,10 @@ export class AgentAttemptReadinessService {
     private readonly codexIsolation = new CodexAttemptIsolationCanary(),
   ) {}
 
-  private async probe(runtime: keyof typeof EXPECTED_VERSIONS, model: string, loginHome: string): Promise<void> {
+  private async probe(runtime: AttemptRuntimeType, model: string, loginHome: string): Promise<void> {
     await this.assertPeerCredentialHelper();
     const binary = runtime === 'codex_cli' ? 'codex' : 'claude';
-    const expected = EXPECTED_VERSIONS[runtime];
+    const expected = attemptRuntimeVersion(runtime);
     const environment = runtimeEnvironment(runtime, loginHome);
     const { stdout, stderr } = await execFileAsync(binary, ['--version'], { timeout: 5_000, maxBuffer: 1_024, env: environment });
     if (!`${stdout}\n${stderr}`.includes(expected)) throw new Error(`attempt_runtime_version_mismatch:${runtime}`);
@@ -75,7 +74,7 @@ export class AgentAttemptReadinessService {
   }
 }
 
-function runtimeEnvironment(runtime: keyof typeof EXPECTED_VERSIONS, loginHome: string): NodeJS.ProcessEnv {
+function runtimeEnvironment(runtime: AttemptRuntimeType, loginHome: string): NodeJS.ProcessEnv {
   return runtime === 'codex_cli'
     ? { PATH: process.env.PATH ?? '', HOME: loginHome, CODEX_HOME: `${loginHome}/.codex` }
     : { PATH: process.env.PATH ?? '', HOME: loginHome, CLAUDE_CONFIG_DIR: `${loginHome}/.claude` };
