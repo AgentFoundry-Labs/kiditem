@@ -67,20 +67,19 @@ restart, replacement, and an expired lease never reactivate, reclaim, or
 requeue a cancelled row; a deliberate operator retry creates a new run only
 after a single API is ACCEPTING.
 
-The immutable API image includes pinned Codex and Claude CLI binaries. Only the
-API root starts those local runtimes. Provider authentication remains in a
-persistent, operator-initialized CLI home volume; KidItem never stores or
-injects provider API/OAuth credentials or a runtime HMAC token. PostgreSQL owns
-the durable Task/Attempt and mutation record; CLI processes and their
-per-Attempt directories are current-container-only and never resume after
-restart. Each child gets an isolated home plus only a symlinked read-only login
-artifact, an allowlisted local environment, and a database-revalidated MCP
-execution coordinate. A missing binary, incompatible version, or logged-out
-profile makes that runtime unavailable and the owning Task fails closed.
+The API image contains no Codex or Claude binary and never mounts a provider
+login home. One native Host Runner under the dedicated host account owns the
+pinned CLIs, operator-established login state, disposable per-Attempt homes,
+and process-tree cleanup. KidItem never stores or injects provider API/OAuth
+credentials. PostgreSQL owns durable Task/Attempt and mutation authority;
+Runner lease/command/event/token state and CLI processes remain ephemeral and
+never resume after restart.
 
-The Office nginx edge returns 404 for `^~ /api/internal/` before ordinary API
-proxying. Container-local access to an internal Agent command still requires a
-valid bounded capability grant.
+Office publishes the Nest port only as `127.0.0.1:4000:4000`. Public API routes
+remain under `/api/*`; Host Runner and CLI traffic uses the sibling
+`/internal/agent-runtime/*` namespace on the same loopback port. The nginx edge
+returns 404 for `^~ /internal/` and never proxies it publicly. Runner and
+Attempt bearer tokens remain mandatory even on loopback.
 
 ## Release Boundary
 

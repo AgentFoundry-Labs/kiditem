@@ -109,20 +109,20 @@ Browser
   -> nginx -> Web/API public routes
 
 Host Runner (native macOS or Windows)
-  -> POST http://127.0.0.1:4401/api/internal/agent-runtime/runner/commands:poll
-  -> POST http://127.0.0.1:4401/api/internal/agent-runtime/runner/events
+  -> POST http://127.0.0.1:4000/internal/agent-runtime/runner/commands:poll
+  -> POST http://127.0.0.1:4000/internal/agent-runtime/runner/events
 
 Codex/Claude child (native, owned by Runner)
-  -> POST http://127.0.0.1:4401/api/internal/agent-runtime/attempts/:attemptId/mcp
+  -> POST http://127.0.0.1:4000/internal/agent-runtime/attempts/:attemptId/mcp
 
-Docker Desktop host loopback 127.0.0.1:4401
+Docker Desktop host loopback 127.0.0.1:4000
   -> one Nest API container :4000
 ```
 
 There is no WebSocket, Runner inbound listener, LAN route, gateway, stdio MCP
 child, UDS, named pipe, custom MCP relay, provider session/history persistence,
 or provider resume. Office nginx continues to return `404` for
-`/api/internal/`. Loopback is a network-exposure boundary, not an
+`/internal/`. Loopback is a network-exposure boundary, not an
 authentication boundary: Runner and Attempt bearer authentication remain
 mandatory.
 
@@ -306,7 +306,7 @@ contains:
 The scanner explicitly allows `child_process` only under
 `apps/agent-runner` and unrelated existing domain adapters. It requires all
 internal Agent runtime routes to remain below
-`/api/internal/agent-runtime/` and requires nginx's deny boundary.
+`/internal/agent-runtime/` and requires nginx's deny boundary.
 
 Keep only invariants required by the final architecture:
 
@@ -495,7 +495,7 @@ remove `ModuleRef` lookup of concrete `AgentAttemptExecutorService` and remove
 The controller accepts only `POST` at:
 
 ```text
-/api/internal/agent-runtime/attempts/:attemptId/mcp
+/internal/agent-runtime/attempts/:attemptId/mcp
 ```
 
 After bearer/path/TTL/durable-coordinate validation, create a fresh modern-only
@@ -655,7 +655,7 @@ Runner accepts exactly one host-owned argument,
 
 ```json
 {
-  "controlOrigin": "http://127.0.0.1:4401",
+  "controlOrigin": "http://127.0.0.1:4000",
   "tokenFile": "<absolute protected token file>",
   "attemptRoot": "<absolute Runner-owned ephemeral root>"
 }
@@ -903,10 +903,12 @@ Require:
 - API Dockerfile has no Codex/Claude dependency, binary assertion, login home,
   UDS entrypoint, `procps` dependency for Attempt control, or provider auth
   volume;
-- Compose publishes only `127.0.0.1:4401:4000` for internal runtime access,
+- Compose publishes only `127.0.0.1:4000:4000` for API and internal runtime
+  access,
   mounts the Runner token as a Docker secret, declares one API replica, and
   never exposes the internal port/LAN;
-- nginx returns `404` for `/api/internal/` before generic API proxying;
+- nginx returns `404` for `/internal/` and never proxies that sibling namespace
+  through the public edge;
 - Office manifest schema 2 contains Runner artifact filename, SHA-256,
   control/CLI contract identity, platform `windows`, and exact CLI versions;
 - deployment verifies the artifact/hash, stops the existing scheduled Runner,
@@ -926,12 +928,12 @@ Compose:
 services:
   api:
     ports:
-      - "127.0.0.1:4401:4000"
+      - "127.0.0.1:4000:4000"
     secrets:
       - agent_runner_token
     environment:
       KIDITEM_AGENT_RUNNER_TOKEN_FILE: /run/secrets/agent_runner_token
-      KIDITEM_AGENT_RUNTIME_LOOPBACK_ORIGIN: http://127.0.0.1:4401
+      KIDITEM_AGENT_RUNTIME_LOOPBACK_ORIGIN: http://127.0.0.1:4000
 
 secrets:
   agent_runner_token:

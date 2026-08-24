@@ -533,9 +533,11 @@ Nest API container
 ```
 
 The Runner never exposes an inbound listener. The API container's existing
-Nest server is additionally published on one host-loopback-only port, for
-example `127.0.0.1:4401 -> api:4000`. Office nginx returns `404` for the
-internal Runner/MCP prefix and never exposes it to the LAN. Runner and Attempt
+Nest port is published only on the host loopback as
+`127.0.0.1:4000 -> api:4000`; there is no dedicated Runner port. Public API
+routes remain under `/api/*`, while Runner/MCP routes are the sibling
+`/internal/agent-runtime/*` namespace. Office nginx returns `404` for
+`/internal/*` and never exposes it to the LAN. Runner and Attempt
 authentication remain mandatory on loopback.
 
 Nest owns Session/Task/Attempt authority, admission, grants, Invocations,
@@ -551,9 +553,9 @@ The control protocol uses strict, bounded Zod contracts and rejects unknown
 keys. Both control routes are authenticated with the installation Runner
 token:
 
-- `POST /api/internal/agent-runtime/runner/commands:poll` is a long-poll that
+- `POST /internal/agent-runtime/runner/commands:poll` is a long-poll that
   returns at most one bounded command batch;
-- `POST /api/internal/agent-runtime/runner/events` accepts bounded lifecycle,
+- `POST /internal/agent-runtime/runner/events` accepts bounded lifecycle,
   output, readiness, acknowledgement, and terminal event batches.
 
 The Runner creates a cryptographically random `runnerInstanceId` on every
